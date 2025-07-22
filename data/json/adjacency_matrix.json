@@ -1,0 +1,318 @@
+{
+  "05": {
+    "name": "Antioquia",
+    "closeDepartments": {
+      "13": { "name": "Bolívar" },
+      "15": { "name": "Boyacá" },
+      "17": { "name": "Caldas" },
+      "23": { "name": "Córdoba" },
+      "27": { "name": "Chocó" },
+      "66": { "name": "Risaralda" },
+      "68": { "name": "Santander" }
+    }
+  },
+  "08": {
+    "name": "Atlántico",
+    "closeDepartments": {
+      "13": { "name": "Bolívar" },
+      "47": { "name": "Magdalena" }
+    }
+  },
+  "11": {
+    "name": "Bogotá, D.C.",
+    "closeDepartments": {
+      "05": { "name": "Antioquia" },
+      "15": { "name": "Boyacá" },
+      "17": { "name": "Caldas" },
+      "25": { "name": "Cundinamarca" },
+      "41": { "name": "Huila" },
+      "50": { "name": "Meta" },
+      "73": { "name": "Tolima" },
+      "85": { "name": "Casanare" }
+    }
+  },
+  "13": {
+    "name": "Bolívar",
+    "closeDepartments": {
+      "08": { "name": "Atlántico" },
+      "20": { "name": "Cesar" },
+      "23": { "name": "Córdoba" },
+      "47": { "name": "Magdalena" },
+      "68": { "name": "Santander" },
+      "70": { "name": "Sucre" }
+    }
+  },
+  "15": {
+    "name": "Boyacá",
+    "closeDepartments": {
+      "05": { "name": "Antioquia" },
+      "17": { "name": "Caldas" },
+      "25": { "name": "Cundinamarca" },
+      "54": { "name": "Norte de Santander" },
+      "68": { "name": "Santander" },
+      "81": { "name": "Arauca" },
+      "85": { "name": "Casanare" }
+    }
+  },
+  "17": {
+    "name": "Caldas",
+    "closeDepartments": {
+      "05": { "name": "Antioquia" },
+      "15": { "name": "Boyacá" },
+      "25": { "name": "Cundinamarca" },
+      "66": { "name": "Risaralda" },
+      "73": { "name": "Tolima" }
+    }
+  },
+  "18": {
+    "name": "Caquetá",
+    "closeDepartments": {
+      "19": { "name": "Cauca" },
+      "41": { "name": "Huila" },
+      "50": { "name": "Meta" },
+      "86": { "name": "Putumayo" },
+      "91": { "name": "Amazonas" },
+      "95": { "name": "Guaviare" },
+      "97": { "name": "Vaupés" }
+    }
+  },
+  "19": {
+    "name": "Cauca",
+    "closeDepartments": {
+      "18": { "name": "Caquetá" },
+      "41": { "name": "Huila" },
+      "52": { "name": "Nariño" },
+      "73": { "name": "Tolima" },
+      "76": { "name": "Valle del Cauca" },
+      "86": { "name": "Putumayo" }
+    }
+  },
+  "20": {
+    "name": "Cesar",
+    "closeDepartments": {
+      "13": { "name": "Bolívar" },
+      "44": { "name": "La Guajira" },
+      "47": { "name": "Magdalena" },
+      "54": { "name": "Norte de Santander" },
+      "68": { "name": "Santander" }
+    }
+  },
+  "23": {
+    "name": "Córdoba",
+    "closeDepartments": {
+      "05": { "name": "Antioquia" },
+      "13": { "name": "Bolívar" },
+      "70": { "name": "Sucre" }
+    }
+  },
+  "25": {
+    "name": "Cundinamarca",
+    "closeDepartments": {
+      "05": { "name": "Antioquia" },
+      "11": { "name": "Bogotá, D.C." },
+      "15": { "name": "Boyacá" },
+      "17": { "name": "Caldas" },
+      "41": { "name": "Huila" },
+      "50": { "name": "Meta" },
+      "73": { "name": "Tolima" },
+      "85": { "name": "Casanare" }
+    }
+  },
+  "27": {
+    "name": "Chocó",
+    "closeDepartments": {
+      "05": { "name": "Antioquia" },
+      "66": { "name": "Risaralda" },
+      "76": { "name": "Valle del Cauca" }
+    }
+  },
+  "41": {
+    "name": "Huila",
+    "closeDepartments": {
+      "18": { "name": "Caquetá" },
+      "19": { "name": "Cauca" },
+      "25": { "name": "Cundinamarca" },
+      "50": { "name": "Meta" },
+      "73": { "name": "Tolima" }
+    }
+  },
+  "44": {
+    "name": "La Guajira",
+    "closeDepartments": {
+      "20": { "name": "Cesar" },
+      "47": { "name": "Magdalena" }
+    }
+  },
+  "47": {
+    "name": "Magdalena",
+    "closeDepartments": {
+      "08": { "name": "Atlántico" },
+      "13": { "name": "Bolívar" },
+      "20": { "name": "Cesar" }
+    }
+  },
+  "50": {
+    "name": "Meta",
+    "closeDepartments": {
+      "11": { "name": "Bogotá, D.C." },
+      "18": { "name": "Caquetá" },
+      "25": { "name": "Cundinamarca" },
+      "41": { "name": "Huila" },
+      "85": { "name": "Casanare" },
+      "95": { "name": "Guaviare" },
+      "99": { "name": "Vichada" }
+    }
+  },
+  "52": {
+    "name": "Nariño",
+    "closeDepartments": {
+      "18": { "name": "Caquetá" },
+      "86": { "name": "Putumayo" }
+    }
+  },
+  "54": {
+    "name": "Norte de Santander",
+    "closeDepartments": {
+      "15": { "name": "Boyacá" },
+      "20": { "name": "Cesar" },
+      "68": { "name": "Santander" },
+      "81": { "name": "Arauca" }
+    }
+  },
+  "63": {
+    "name": "Quindío",
+    "closeDepartments": {
+      "66": { "name": "Risaralda" },
+      "73": { "name": "Tolima" },
+      "76": { "name": "Valle del Cauca" }
+    }
+  },
+  "66": {
+    "name": "Risaralda",
+    "closeDepartments": {
+      "05": { "name": "Antioquia" },
+      "17": { "name": "Caldas" },
+      "27": { "name": "Chocó" },
+      "63": { "name": "Quindío" },
+      "73": { "name": "Tolima" },
+      "76": { "name": "Valle del Cauca" }
+    }
+  },
+  "68": {
+    "name": "Santander",
+    "closeDepartments": {
+      "05": { "name": "Antioquia" },
+      "13": { "name": "Bolívar" },
+      "15": { "name": "Boyacá" },
+      "20": { "name": "Cesar" },
+      "54": { "name": "Norte de Santander" }
+    }
+  },
+  "70": {
+    "name": "Sucre",
+    "closeDepartments": {
+      "13": { "name": "Bolívar" },
+      "23": { "name": "Córdoba" }
+    }
+  },
+  "73": {
+    "name": "Tolima",
+    "closeDepartments": {
+      "17": { "name": "Caldas" },
+      "18": { "name": "Caquetá" },
+      "25": { "name": "Cundinamarca" },
+      "41": { "name": "Huila" },
+      "63": { "name": "Quindío" },
+      "66": { "name": "Risaralda" },
+      "76": { "name": "Valle del Cauca" }
+    }
+  },
+  "76": {
+    "name": "Valle del Cauca",
+    "closeDepartments": {
+      "18": { "name": "Caquetá" },
+      "19": { "name": "Cauca" },
+      "27": { "name": "Chocó" },
+      "63": { "name": "Quindío" },
+      "66": { "name": "Risaralda" },
+      "73": { "name": "Tolima" }
+    }
+  },
+  "81": {
+    "name": "Arauca",
+    "closeDepartments": {
+      "15": { "name": "Boyacá" },
+      "54": { "name": "Norte de Santander" },
+      "85": { "name": "Casanare" },
+      "99": { "name": "Vichada" }
+    }
+  },
+  "85": {
+    "name": "Casanare",
+    "closeDepartments": {
+      "15": { "name": "Boyacá" },
+      "25": { "name": "Cundinamarca" },
+      "50": { "name": "Meta" },
+      "81": { "name": "Arauca" },
+      "99": { "name": "Vichada" }
+    }
+  },
+  "86": {
+    "name": "Putumayo",
+    "closeDepartments": {
+      "18": { "name": "Caquetá" },
+      "19": { "name": "Cauca" },
+      "52": { "name": "Nariño" },
+      "91": { "name": "Amazonas" }
+    }
+  },
+  "88": {
+    "name": "Archipiélago de San Andrés, Providencia Y Santa Catalina",
+    "closeDepartments": {}
+  },
+  "91": {
+    "name": "Amazonas",
+    "closeDepartments": {
+      "18": { "name": "Caquetá" },
+      "86": { "name": "Putumayo" },
+      "97": { "name": "Vaupés" }
+    }
+  },
+  "94": {
+    "name": "Guainía",
+    "closeDepartments": {
+      "95": { "name": "Guaviare" },
+      "97": { "name": "Vaupés" },
+      "99": { "name": "Vichada" }
+    }
+  },
+  "95": {
+    "name": "Guaviare",
+    "closeDepartments": {
+      "18": { "name": "Caquetá" },
+      "50": { "name": "Meta" },
+      "94": { "name": "Guainía" },
+      "97": { "name": "Vaupés" },
+      "99": { "name": "Vichada" }
+    }
+  },
+  "97": {
+    "name": "Vaupés",
+    "closeDepartments": {
+      "18": { "name": "Caquetá" },
+      "91": { "name": "Amazonas" },
+      "94": { "name": "Guainía" },
+      "95": { "name": "Guaviare" }
+    }
+  },
+  "99": {
+    "name": "Vichada",
+    "closeDepartments": {
+      "50": { "name": "Meta" },
+      "81": { "name": "Arauca" },
+      "85": { "name": "Casanare" },
+      "94": { "name": "Guainía" },
+      "95": { "name": "Guaviare" }
+    }
+  }
+}

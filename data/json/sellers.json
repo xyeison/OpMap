@@ -1,0 +1,226 @@
+  [
+  {
+    "id": "barranquilla",
+    "name": "KAM Barranquilla",
+    "address": "Cra. 54 #76-120",
+    "lat": 11.002689878603764,
+    "lng": -74.81448489302309,
+    "areaId": "08001",
+    "kamPerson": "Laura Jiménez",
+    "expansionConfig": {
+      "enableLevel2": true,
+      "maxTravelTime": 240,
+      "priority": 2
+    }
+  },
+  {
+    "id": "bucaramanga",
+    "name": "KAM Bucaramanga",
+    "address": "Cra. 27 #36-45",
+    "lat": 7.126714307270854,
+    "lng": -73.11446761061566,
+    "areaId": "68001",
+    "kamPerson": "Natalia Rincón",
+    "expansionConfig": {
+      "enableLevel2": true,
+      "maxTravelTime": 240,
+      "priority": 2
+    }
+  },
+  {
+    "id": "cali",
+    "name": "KAM Cali",
+    "address": "Av. 6N #24-48",
+    "lat": 3.452424382685351,
+    "lng": -76.4931246763714,
+    "areaId": "76001",
+    "kamPerson": "Camila Torres",
+    "expansionConfig": {
+      "enableLevel2": true,
+      "maxTravelTime": 240,
+      "priority": 2
+    }
+  },
+  {
+    "id": "cartagena",
+    "name": "KAM Cartagena",
+    "address": "Cra. 10 #31-21",
+    "lat": 10.420495819286762,
+    "lng": -75.53385812286801,
+    "areaId": "13001",
+    "kamPerson": "Valeria Mendoza",
+    "expansionConfig": {
+      "enableLevel2": true,
+      "maxTravelTime": 240,
+      "priority": 2
+    }
+  },
+  {
+    "id": "cucuta",
+    "name": "KAM Cúcuta",
+    "address": "Av. 0 #5-72",
+    "lat": 7.89752044391865,
+    "lng": -72.5062011718628,
+    "areaId": "54001",
+    "kamPerson": "Tatiana Villamizar",
+    "expansionConfig": {
+      "enableLevel2": true,
+      "maxTravelTime": 240,
+      "priority": 2
+    }
+  },
+  {
+    "id": "medellin",
+    "name": "KAM Medellín",
+    "address": "Cra. 43A #1-50",
+    "lat": 6.262431895656156,
+    "lng": -75.56404755453853,
+    "areaId": "05001",
+    "kamPerson": "Daniela Restrepo",
+    "expansionConfig": {
+      "enableLevel2": true,
+      "maxTravelTime": 240,
+      "priority": 2
+    }
+  },
+  {
+    "id": "monteria",
+    "name": "KAM Montería",
+    "address": "Cra. 2 #35-70",
+    "lat": 8.751549528798737,
+    "lng": -75.88373388085706,
+    "areaId": "23001",
+    "kamPerson": "Mariana Suárez",
+    "expansionConfig": {
+      "enableLevel2": true,
+      "maxTravelTime": 240,
+      "priority": 2
+    }
+  },
+  {
+    "id": "neiva",
+    "name": "KAM Neiva",
+    "address": "Cra. 7 #14-56",
+    "lat": 2.932486149243003,
+    "lng": -75.28494502446691,
+    "areaId": "41001",
+    "kamPerson": "Isabela Rojas",
+    "expansionConfig": {
+      "enableLevel2": true,
+      "maxTravelTime": 240,
+      "priority": 2
+    }
+  },
+  {
+    "id": "pasto",
+    "name": "KAM Pasto",
+    "address": "Cra. 25 #18-40",
+    "lat": 1.222545892365123,
+    "lng": -77.28277453386823,
+    "areaId": "52001",
+    "kamPerson": "Carolina Narváez",
+    "expansionConfig": {
+      "enableLevel2": true,
+      "maxTravelTime": 240,
+      "priority": 2
+    }
+  },
+  {
+    "id": "pereira",
+    "name": "KAM Pereira",
+    "address": "Cra. 7 #20-30",
+    "lat": 4.817888136171111,
+    "lng": -75.69976105300874,
+    "areaId": "66001",
+    "kamPerson": "Paola Gómez",
+    "expansionConfig": {
+      "enableLevel2": true,
+      "maxTravelTime": 240,
+      "priority": 2
+    }
+  },
+  {
+    "id": "sincelejo",
+    "name": "KAM Sincelejo",
+    "address": "Cra. 19 #21-60",
+    "lat": 9.303929148438568,
+    "lng": -75.39277521496017,
+    "areaId": "70001",
+    "kamPerson": "Juliana Ortega",
+    "expansionConfig": {
+      "enableLevel2": true,
+      "maxTravelTime": 240,
+      "priority": 2
+    }
+  },
+  {
+    "id": "chapinero",
+    "name": "KAM Chapinero",
+    "address": "Calle 59 #13-50",
+    "lat": 4.633794896229732,
+    "lng": -74.06733995774036,
+    "areaId": "1100102",
+    "kamPerson": "Gabriela Fonseca",
+    "expansionConfig": {
+      "enableLevel2": true,
+      "maxTravelTime": 240,
+      "priority": 2
+    }
+  },
+  {
+    "id": "engativa",
+    "name": "KAM Engativá",
+    "address": "Cra. 113 #66-20",
+    "lat": 4.7070992225391795,
+    "lng": -74.10950060822498,
+    "areaId": "1100110",
+    "kamPerson": "Fernanda Castaño",
+    "expansionConfig": {
+      "enableLevel2": true,
+      "maxTravelTime": 240,
+      "priority": 2
+    }
+  },
+  {
+    "id": "sancristobal",
+    "name": "KAM San Cristóbal",
+    "address": "Calle 17 Sur #8-65",
+    "lat": 4.570360700521882,
+    "lng": -74.0884026481501,
+    "areaId": "1100104",
+    "kamPerson": "Alejandra Díaz",
+    "expansionConfig": {
+      "enableLevel2": true,
+      "maxTravelTime": 240,
+      "priority": 2
+    }
+  },
+  {
+    "id": "kennedy",
+    "name": "KAM Kennedy",
+    "address": "Av. Ciudad de Cali #40-50",
+    "lat": 4.616406790731776,
+    "lng": -74.15623608648288,
+    "areaId": "1100108",
+    "kamPerson": "Verónica Lozano",
+    "expansionConfig": {
+      "enableLevel2": true,
+      "maxTravelTime": 240,
+      "priority": 2
+    }
+  },
+  {
+    "id": "valledupar",
+    "name": "KAM Valledupar",
+    "address": "Cra. 19C #16-15",
+    "lat": 10.47088147604149,
+    "lng": -73.2538037172899,
+    "areaId": "20001",
+    "kamPerson": "Luisa Fernanda Silva",
+    "expansionConfig": {
+      "enableLevel2": true,
+      "maxTravelTime": 240,
+      "priority": 2
+    }
+  }
+]

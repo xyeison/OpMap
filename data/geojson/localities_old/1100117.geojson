@@ -1,0 +1,59 @@
+{
+  "type": "FeatureCollection",
+  "name": "1100117",
+  "crs": {
+    "type": "name",
+    "properties": {
+      "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+    }
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "id": "1100117",
+      "properties": {
+        "name": "Candelaria",
+        "area": 2,
+        "localityId": "1100117",
+        "population2025": 18941,
+        "population2035": 21601,
+        "density2025": 9194,
+        "density2035": 10486,
+        "type": "localidad",
+        "municipalityId": "11001",
+        "municipalityName": "BOGOTÁ, D.C."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -74.0662087259999,
+              4.603171742000086
+            ],
+            [
+              -74.05926130599994,
+              4.601382841000088
+            ],
+            [
+              -74.06832146399995,
+              4.589936039000065
+            ],
+            [
+              -74.0806290939999,
+              4.591689828000085
+            ],
+            [
+              -74.0766983449999,
+              4.602111298000068
+            ],
+            [
+              -74.0662087259999,
+              4.603171742000086
+            ]
+          ]
+        ]
+      }
+    }
+  ]
+}
