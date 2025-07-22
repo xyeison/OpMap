@@ -1,7 +1,12 @@
+import RecalculateButton from '@/components/RecalculateButton'
+
 export default function HomePage() {
   return (
     <div className="container mx-auto p-6">
-      <h2 className="text-3xl font-bold mb-6">Dashboard</h2>
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-3xl font-bold">Dashboard</h2>
+        <RecalculateButton />
+      </div>
       
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <div className="bg-white rounded-lg shadow p-6">

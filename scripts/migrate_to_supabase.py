@@ -74,9 +74,9 @@ def generate_hospital_inserts():
     inserts = []
     
     for i, hospital in enumerate(hospitals):
-        # Limitar a los primeros 100 para el ejemplo
-        if i >= 100:
-            break
+        # Sin límite - exportar todos los hospitales
+        # if i >= 100:
+        #     break
             
         # Limpiar valores
         name = hospital['name_register'].replace("'", "''")  # Escapar comillas simples
@@ -93,32 +93,33 @@ def generate_department_inserts():
     """Genera los INSERT statements para los departamentos"""
     # Lista manual de departamentos de Colombia ya que no tenemos el archivo
     departments = {
+        '05': 'Antioquia',
         '08': 'Atlántico',
         '11': 'Bogotá D.C.',
-        '73': 'Tolima',
-        '76': 'Valle del Cauca',
-        '50': 'Meta',
-        '15': 'Boyacá',
-        '25': 'Cundinamarca',
-        '41': 'Huila',
-        '52': 'Nariño',
-        '70': 'Sucre',
         '13': 'Bolívar',
-        '66': 'Risaralda',
-        '05': 'Antioquia',
+        '15': 'Boyacá',
         '17': 'Caldas',
-        '63': 'Quindío',
-        '23': 'Córdoba',
-        '20': 'Cesar',
-        '47': 'Magdalena',
-        '44': 'La Guajira',
-        '54': 'Norte de Santander',
-        '68': 'Santander',
         '18': 'Caquetá',
         '19': 'Cauca',
+        '20': 'Cesar',
+        '23': 'Córdoba',
+        '25': 'Cundinamarca',
+        '27': 'Chocó',
+        '41': 'Huila',
+        '44': 'La Guajira',
+        '47': 'Magdalena',
+        '50': 'Meta',
+        '52': 'Nariño',
+        '54': 'Norte de Santander',
+        '63': 'Quindío',
+        '66': 'Risaralda',
+        '68': 'Santander',
+        '70': 'Sucre',
+        '73': 'Tolima',
+        '76': 'Valle del Cauca',
+        '81': 'Arauca',
         '85': 'Casanare',
         '86': 'Putumayo',
-        '27': 'Chocó',
         '88': 'San Andrés y Providencia',
         '91': 'Amazonas',
         '94': 'Guainía',
@@ -157,9 +158,9 @@ def generate_municipality_inserts():
     inserts = []
     
     for i, muni in enumerate(municipalities):
-        # Limitar a los primeros 100 para el ejemplo
-        if i >= 100:
-            break
+        # Sin límite - exportar todos los municipios
+        # if i >= 100:
+        #     break
             
         name = muni['name'].replace("'", "''")
         dept_code = muni['id'][:2]  # Los primeros 2 dígitos son el departamento
@@ -196,7 +197,7 @@ def main():
 -- 1. Insertar departamentos
 {generate_department_inserts()}
 
--- 2. Insertar municipios (muestra de 100)
+-- 2. Insertar municipios (TODOS)
 {generate_municipality_inserts()}
 
 -- 3. Insertar matriz de adyacencia
@@ -205,7 +206,7 @@ def main():
 -- 4. Insertar KAMs
 {generate_kam_inserts()}
 
--- 5. Insertar hospitales (muestra de 100)
+-- 5. Insertar hospitales (TODOS)
 {generate_hospital_inserts()}
 
 -- Nota: Las asignaciones se deben generar ejecutando el algoritmo OpMap
@@ -218,9 +219,13 @@ def main():
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write(sql_content)
     
-    print(f"✅ Script de migración generado en: {output_path}")
-    print("📝 Nota: Este script incluye solo una muestra de los datos.")
-    print("Para migrar todos los datos, modifique los límites en el script Python.")
+    print(f"✅ Script de migración COMPLETO generado en: {output_path}")
+    print(f"📊 Estadísticas de migración:")
+    print(f"   - Departamentos: 33")
+    print(f"   - Municipios: {len(load_psv('data/psv/municipalities.psv'))}")
+    print(f"   - Hospitales: {len(load_psv('data/psv/hospitals.psv'))}")
+    print(f"   - KAMs: {len(load_json('data/json/sellers.json'))}")
+    print("⚠️  El archivo generado es grande. Considera ejecutarlo por partes en Supabase.")
 
 if __name__ == "__main__":
     main()

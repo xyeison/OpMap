@@ -1,5 +1,5 @@
 -- Script de migración de datos OpMap a Supabase
--- Generado el 2025-07-22 11:22:39
+-- Generado el 2025-07-22 11:34:04
 
 -- IMPORTANTE: Este script contiene datos de ejemplo.
 -- Para la migración completa, use el script Python directamente.
@@ -15,57 +15,59 @@
 
 -- 1. Insertar departamentos
 INSERT INTO departments (code, name, excluded) VALUES
+('05', 'Antioquia', false);
+INSERT INTO departments (code, name, excluded) VALUES
 ('08', 'Atlántico', false);
 INSERT INTO departments (code, name, excluded) VALUES
 ('11', 'Bogotá D.C.', false);
 INSERT INTO departments (code, name, excluded) VALUES
-('73', 'Tolima', false);
-INSERT INTO departments (code, name, excluded) VALUES
-('76', 'Valle del Cauca', false);
-INSERT INTO departments (code, name, excluded) VALUES
-('50', 'Meta', false);
+('13', 'Bolívar', false);
 INSERT INTO departments (code, name, excluded) VALUES
 ('15', 'Boyacá', false);
 INSERT INTO departments (code, name, excluded) VALUES
-('25', 'Cundinamarca', false);
-INSERT INTO departments (code, name, excluded) VALUES
-('41', 'Huila', false);
-INSERT INTO departments (code, name, excluded) VALUES
-('52', 'Nariño', false);
-INSERT INTO departments (code, name, excluded) VALUES
-('70', 'Sucre', false);
-INSERT INTO departments (code, name, excluded) VALUES
-('13', 'Bolívar', false);
-INSERT INTO departments (code, name, excluded) VALUES
-('66', 'Risaralda', false);
-INSERT INTO departments (code, name, excluded) VALUES
-('05', 'Antioquia', false);
-INSERT INTO departments (code, name, excluded) VALUES
 ('17', 'Caldas', false);
-INSERT INTO departments (code, name, excluded) VALUES
-('63', 'Quindío', false);
-INSERT INTO departments (code, name, excluded) VALUES
-('23', 'Córdoba', false);
-INSERT INTO departments (code, name, excluded) VALUES
-('20', 'Cesar', false);
-INSERT INTO departments (code, name, excluded) VALUES
-('47', 'Magdalena', false);
-INSERT INTO departments (code, name, excluded) VALUES
-('44', 'La Guajira', false);
-INSERT INTO departments (code, name, excluded) VALUES
-('54', 'Norte de Santander', false);
-INSERT INTO departments (code, name, excluded) VALUES
-('68', 'Santander', false);
 INSERT INTO departments (code, name, excluded) VALUES
 ('18', 'Caquetá', false);
 INSERT INTO departments (code, name, excluded) VALUES
 ('19', 'Cauca', false);
 INSERT INTO departments (code, name, excluded) VALUES
+('20', 'Cesar', false);
+INSERT INTO departments (code, name, excluded) VALUES
+('23', 'Córdoba', false);
+INSERT INTO departments (code, name, excluded) VALUES
+('25', 'Cundinamarca', false);
+INSERT INTO departments (code, name, excluded) VALUES
+('27', 'Chocó', true);
+INSERT INTO departments (code, name, excluded) VALUES
+('41', 'Huila', false);
+INSERT INTO departments (code, name, excluded) VALUES
+('44', 'La Guajira', false);
+INSERT INTO departments (code, name, excluded) VALUES
+('47', 'Magdalena', false);
+INSERT INTO departments (code, name, excluded) VALUES
+('50', 'Meta', false);
+INSERT INTO departments (code, name, excluded) VALUES
+('52', 'Nariño', false);
+INSERT INTO departments (code, name, excluded) VALUES
+('54', 'Norte de Santander', false);
+INSERT INTO departments (code, name, excluded) VALUES
+('63', 'Quindío', false);
+INSERT INTO departments (code, name, excluded) VALUES
+('66', 'Risaralda', false);
+INSERT INTO departments (code, name, excluded) VALUES
+('68', 'Santander', false);
+INSERT INTO departments (code, name, excluded) VALUES
+('70', 'Sucre', false);
+INSERT INTO departments (code, name, excluded) VALUES
+('73', 'Tolima', false);
+INSERT INTO departments (code, name, excluded) VALUES
+('76', 'Valle del Cauca', false);
+INSERT INTO departments (code, name, excluded) VALUES
+('81', 'Arauca', false);
+INSERT INTO departments (code, name, excluded) VALUES
 ('85', 'Casanare', false);
 INSERT INTO departments (code, name, excluded) VALUES
 ('86', 'Putumayo', false);
-INSERT INTO departments (code, name, excluded) VALUES
-('27', 'Chocó', true);
 INSERT INTO departments (code, name, excluded) VALUES
 ('88', 'San Andrés y Providencia', true);
 INSERT INTO departments (code, name, excluded) VALUES
