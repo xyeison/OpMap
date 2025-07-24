@@ -21,6 +21,10 @@ data/json/
 data/psv/
 data/geojson/
 
+# Large GeoJSON files in web
+web/public/*.geojson
+web/public/*.min.geojson
+
 # Database files (contain sensitive data)
 database/*.sql
 !database/schema.sql
