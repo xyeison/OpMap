@@ -13,7 +13,21 @@ venv/
 
 # Output files
 output/
+
+# Data files (too large for git)
 data/cache/
+data/geojson_old2/
+data/json/
+data/psv/
+data/geojson/
+
+# Database files (contain sensitive data)
+database/*.sql
+!database/schema.sql
+!database/seed.sql
+
+# Script outputs
+scripts/*.sql
 
 # OS
 .DS_Store
