@@ -91,14 +91,27 @@ const kams = await kamService.getAll()
 
 ### Vercel (Recomendado)
 1. Conecta tu repositorio a Vercel
-2. Configura las variables de entorno
-3. Deploy automático con cada push
+2. Configura las siguientes variables de entorno:
+   ```
+   NEXT_PUBLIC_SUPABASE_URL=tu_url_de_supabase
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=tu_anon_key_de_supabase
+   ```
+3. Configuración del proyecto:
+   - Root Directory: `web`
+   - Build Command: `npm run build`
+   - Output Directory: `.next`
+4. Deploy automático con cada push
 
 ### Manual
 ```bash
 npm run build
 npm start
 ```
+
+### Notas Importantes para Producción
+- Los archivos GeoJSON grandes no están incluidos en el repositorio
+- La API de geojson requiere que los archivos estén disponibles localmente
+- Actualiza la ruta en `app/api/geojson/[type]/[id]/route.ts` según tu entorno
 
 ## 🔒 Seguridad
 
