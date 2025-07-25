@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { hospitalService } from '@/lib/supabase'
-import HospitalActions from './HospitalActionsComplete'
+import HospitalActions from './HospitalActionsFixed'
 import ProtectedRoute from '@/components/ProtectedRoute'
 
 export default function HospitalsPage() {

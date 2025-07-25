@@ -63,7 +63,9 @@ export default function ContractsList({ hospitalId, onClose }: ContractsListProp
         current_provider: newContract.current_provider,
         description: newContract.description || null,
         active: newContract.active,
-        created_by: (JSON.parse(localStorage.getItem('opmap_user') || '{}')).id
+        created_by: typeof window !== 'undefined' 
+          ? (JSON.parse(localStorage.getItem('opmap_user') || '{}')).id
+          : null
       })
 
     if (!error) {
