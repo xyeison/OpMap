@@ -64,6 +64,7 @@ export async function GET() {
         const { data: cachedTime } = await supabase
           .from('travel_time_cache')
           .select('travel_time')
+          .eq('source', 'google_maps') // Solo datos de Google Maps
           .gte('origin_lat', kam.lat - 0.0001)
           .lte('origin_lat', kam.lat + 0.0001)
           .gte('origin_lng', kam.lng - 0.0001)
@@ -72,14 +73,16 @@ export async function GET() {
           .lte('dest_lat', hospital.lat + 0.0001)
           .gte('dest_lng', hospital.lng - 0.0001)
           .lte('dest_lng', hospital.lng + 0.0001)
-          .single()
+          .limit(1)
+          .maybeSingle()
         
         if (cachedTime) {
           hospitalData.travel_times.push({
             kam_id: kam.id,
             kam_name: kam.name,
             travel_time: cachedTime.travel_time,
-            is_real: true // Indicar que es tiempo real de Google Maps
+            is_real: true, // Indicar que es tiempo real de Google Maps
+            source: 'Google Maps Distance Matrix API'
           })
         }
       }
