@@ -43,7 +43,12 @@ export async function POST(request: Request) {
       // Ver quién lo tiene actualmente
       const { data: currentAssignment } = await supabase
         .from('assignments')
-        .select('kam_id, sellers!inner(name)')
+        .select(`
+          kam_id,
+          sellers!inner (
+            name
+          )
+        `)
         .eq('hospital_id', hospital.id)
         .single()
       
@@ -68,9 +73,10 @@ export async function POST(request: Request) {
       territoryClaimed++
       
       if (currentAssignment && currentAssignment.kam_id !== kamId) {
+        const previousKamName = (currentAssignment.sellers as any)?.name || 'Desconocido'
         changes.push({
           hospital: hospital.name,
-          previousKam: currentAssignment.sellers.name,
+          previousKam: previousKamName,
           action: 'Recuperado (territorio base)'
         })
       }
@@ -79,7 +85,16 @@ export async function POST(request: Request) {
     // 4. Buscar hospitales cercanos que podrían estar mejor con este KAM
     const { data: nearbyHospitals } = await supabase
       .from('hospitals')
-      .select('*, assignments!inner(kam_id, travel_time, sellers!inner(name))')
+      .select(`
+        *,
+        assignments!inner (
+          kam_id,
+          travel_time,
+          sellers!inner (
+            name
+          )
+        )
+      `)
       .eq('active', true)
       .eq('department_id', kam.area_id.substring(0, 2)) // Mismo departamento
       .neq('municipality_id', kam.area_id) // No en su municipio base
@@ -114,12 +129,15 @@ export async function POST(request: Request) {
         
         stolenFromOthers++
         
+        const assignment = hospital.assignments as any
+        const previousKamName = assignment?.sellers?.name || 'Desconocido'
+        
         changes.push({
           hospital: hospital.name,
-          previousKam: hospital.assignments.sellers.name,
-          previousTime: hospital.assignments.travel_time,
+          previousKam: previousKamName,
+          previousTime: assignment.travel_time,
           newTime: newTime.travel_time,
-          timeSaved: hospital.assignments.travel_time - newTime.travel_time,
+          timeSaved: assignment.travel_time - newTime.travel_time,
           action: 'Optimizado (más cercano)'
         })
       }
