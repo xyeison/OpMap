@@ -7,7 +7,6 @@ const supabase = createClient(
 )
 
 export async function GET() {
-  console.log('🔍 API unassigned-real-v2 llamada')
   try {
     // 1. Obtener TODOS los hospitales activos primero
     const { data: allHospitals } = await supabase
@@ -33,18 +32,6 @@ export async function GET() {
     // 3. Filtrar hospitales sin asignar en memoria
     const unassignedHospitals = allHospitals.filter(h => !assignedIds.has(h.id))
     
-    console.log(`Total hospitales activos: ${allHospitals.length}`)
-    console.log(`Hospitales asignados: ${assignedIds.size}`)
-    console.log(`Hospitales sin asignar: ${unassignedHospitals.length}`)
-    
-    // Verificar si Málaga está en la lista
-    const malaga = unassignedHospitals.find(h => 
-      h.municipality_name?.toLowerCase().includes('málaga')
-    )
-    if (malaga) {
-      console.log('✅ Málaga encontrado en hospitales sin asignar:', malaga.id)
-    }
-    
     if (unassignedHospitals.length === 0) {
       return NextResponse.json({ 
         unassigned_hospitals: [],
@@ -52,7 +39,7 @@ export async function GET() {
       })
     }
     
-    // 2. Obtener todos los KAMs activos
+    // 4. Obtener todos los KAMs activos
     const { data: kams } = await supabase
       .from('kams')
       .select('*')
@@ -60,34 +47,30 @@ export async function GET() {
     
     if (!kams || kams.length === 0) {
       return NextResponse.json({ 
-        unassigned_hospitals: [],
-        total: 0,
+        unassigned_hospitals: unassignedHospitals.map(h => ({
+          ...h,
+          travel_times: []
+        })),
+        total: unassignedHospitals.length,
         error: 'No active KAMs found' 
       })
     }
     
-    // 3. Obtener TODOS los tiempos de viaje (con límite aumentado)
-    const { data: allTravelTimes, error: travelError } = await supabase
+    // 5. Obtener TODOS los tiempos de viaje de Google Maps
+    const { data: allTravelTimes } = await supabase
       .from('travel_time_cache')
       .select('origin_lat, origin_lng, dest_lat, dest_lng, travel_time')
       .eq('source', 'google_maps')
-      .limit(10000) // Aumentar límite para obtener todas las 3,603 filas
-    
-    if (travelError) {
-      console.error('Error cargando travel times:', travelError)
-    }
-    
-    console.log(`Tiempos de viaje cargados: ${allTravelTimes?.length || 0}`)
     
     // Crear un mapa para búsqueda rápida
     const travelTimeMap = new Map<string, number>()
     allTravelTimes?.forEach(tt => {
-      // Crear clave con precisión reducida (8 decimales)
+      // Crear clave con precisión de 8 decimales
       const key = `${tt.origin_lat.toFixed(8)},${tt.origin_lng.toFixed(8)}|${tt.dest_lat.toFixed(8)},${tt.dest_lng.toFixed(8)}`
       travelTimeMap.set(key, tt.travel_time)
     })
     
-    // 4. Para cada hospital sin asignar, buscar tiempos
+    // 6. Para cada hospital sin asignar, buscar tiempos
     const hospitalsWithTimes: any[] = []
     
     for (const hospital of unassignedHospitals) {
@@ -96,6 +79,7 @@ export async function GET() {
         name: string
         code: string
         municipality_name: string
+        department_name: string
         lat: number
         lng: number
         travel_times: Array<{
@@ -110,6 +94,7 @@ export async function GET() {
         name: hospital.name,
         code: hospital.code,
         municipality_name: hospital.municipality_name,
+        department_name: hospital.department_name,
         lat: hospital.lat,
         lng: hospital.lng,
         travel_times: []
@@ -132,12 +117,12 @@ export async function GET() {
         }
       }
       
-      // Solo incluir hospitales que tienen al menos un tiempo calculado
+      // Incluir TODOS los hospitales sin asignar, incluso sin tiempos calculados
+      // Ordenar por tiempo de viaje si hay tiempos disponibles
       if (hospitalData.travel_times.length > 0) {
-        // Ordenar por tiempo de viaje
         hospitalData.travel_times.sort((a, b) => a.travel_time - b.travel_time)
-        hospitalsWithTimes.push(hospitalData)
       }
+      hospitalsWithTimes.push(hospitalData)
     }
     
     return NextResponse.json({
@@ -147,11 +132,9 @@ export async function GET() {
         total_active_hospitals: allHospitals.length,
         total_assignments: assignedIds.size,
         total_unassigned: unassignedHospitals.length,
-        with_travel_times: hospitalsWithTimes.length,
-        without_travel_times: unassignedHospitals.length - hospitalsWithTimes.length,
+        with_travel_times: hospitalsWithTimes.filter(h => h.travel_times.length > 0).length,
+        without_travel_times: hospitalsWithTimes.filter(h => h.travel_times.length === 0).length,
         total_cache_entries: travelTimeMap.size,
-        total_travel_times_loaded: allTravelTimes?.length || 0,
-        total_active_kams: kams.length,
         total_active_kams: kams.length
       }
     })
