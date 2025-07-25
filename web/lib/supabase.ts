@@ -29,16 +29,6 @@ export const kamService = {
     if (error) throw error
     return data
   },
-  async getById(id: string) {
-    const { data, error } = await supabase
-      .from('sellers')
-      .select('*')
-      .eq('id', id)
-      .single()
-    
-    if (error) throw error
-    return data
-  },
 
   async create(kam: any) {
     const { data, error } = await supabase
@@ -65,6 +55,19 @@ export const kamService = {
 
   async archive(id: string) {
     return this.update(id, { active: false })
+  }
+}
+
+export const sellerService = {
+  async getById(id: string) {
+    const { data, error } = await supabase
+      .from('sellers')
+      .select('*')
+      .eq('id', id)
+      .single()
+    
+    if (error) throw error
+    return data
   }
 }
 
