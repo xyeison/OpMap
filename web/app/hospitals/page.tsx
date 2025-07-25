@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { hospitalService } from '@/lib/supabase'
-import HospitalActions from './HospitalActionsTest'
+import Link from 'next/link'
 import ProtectedRoute from '@/components/ProtectedRoute'
 
 export default function HospitalsPage() {
@@ -88,10 +88,12 @@ export default function HospitalsPage() {
                   -
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-center">
-                  <HospitalActions 
-                    hospital={hospital} 
-                    onUpdate={handleUpdate}
-                  />
+                  <Link
+                    href={`/hospitals/${hospital.id}`}
+                    className="inline-flex items-center px-3 py-1 text-sm bg-blue-100 text-blue-700 hover:bg-blue-200 rounded"
+                  >
+                    Ver detalle
+                  </Link>
                 </td>
               </tr>
             ))}

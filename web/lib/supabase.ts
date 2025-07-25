@@ -29,6 +29,16 @@ export const kamService = {
     if (error) throw error
     return data
   },
+  async getById(id: string) {
+    const { data, error } = await supabase
+      .from('sellers')
+      .select('*')
+      .eq('id', id)
+      .single()
+    
+    if (error) throw error
+    return data
+  },
 
   async create(kam: any) {
     const { data, error } = await supabase
