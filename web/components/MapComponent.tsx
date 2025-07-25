@@ -482,7 +482,7 @@ export default function MapComponent() {
                   <strong style={{ fontSize: '13px' }}>{hospital.name}</strong><br/>
                   <div style={{ marginTop: '4px' }}>
                     <strong>Código NIT:</strong> {hospital.code}<br/>
-                    <strong>Ubicación:</strong> {hospital.municipality_name || mapData.municipalityNames[hospital.municipality_id] || hospital.municipality_id}<br/>
+                    <strong>Ubicación:</strong> {hospital.municipality_name || mapData.municipalityNames[hospital.municipality_id] || hospital.municipality_id}{hospital.department_name ? `, ${hospital.department_name}` : ''}<br/>
                     <strong>Camas:</strong> {hospital.beds || 0}<br/>
                     <strong>Nivel:</strong> {hospital.service_level || 'N/A'}<br/>
                     <div style={{ marginTop: '4px', paddingTop: '4px', borderTop: '1px solid #ddd' }}>
