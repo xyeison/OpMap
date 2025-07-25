@@ -19,6 +19,13 @@ export async function POST(request: Request) {
       .eq('id', kamId)
       .single()
     
+    if (!kam) {
+      return NextResponse.json(
+        { success: false, error: 'KAM no encontrado' },
+        { status: 404 }
+      )
+    }
+    
     const { data: assignedHospitals } = await supabase
       .from('assignments')
       .select('hospital_id, hospitals!inner(id, name, lat, lng, municipality_id)')
