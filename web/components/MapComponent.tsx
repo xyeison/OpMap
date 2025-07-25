@@ -116,16 +116,21 @@ export default function MapComponent() {
 
     const fetchUnassignedTravelTimes = async () => {
       try {
-        const response = await fetch('/api/travel-times/unassigned')
+        const response = await fetch('/api/travel-times/unassigned-v2')
         if (response.ok) {
           const data = await response.json()
           const timesMap: Record<string, any[]> = {}
+          
+          console.log('Loaded travel times for', data.total, 'unassigned hospitals')
+          console.log('Debug info:', data.debug)
           
           data.unassigned_hospitals.forEach((hospital: any) => {
             timesMap[hospital.id] = hospital.travel_times
           })
           
           setUnassignedTravelTimes(timesMap)
+        } else {
+          console.error('Failed to fetch travel times:', response.status, await response.text())
         }
       } catch (error) {
         console.error('Error fetching unassigned travel times:', error)
@@ -518,9 +523,14 @@ export default function MapComponent() {
                           )}
                         </div>
                       ) : (
-                        <em style={{ fontSize: '11px', color: '#666' }}>
-                          Cargando distancias...
-                        </em>
+                        <div style={{ fontSize: '11px', color: '#CC0000', marginTop: '4px' }}>
+                          <strong>⚠️ Sin datos de distancia</strong><br/>
+                          <em style={{ color: '#666' }}>
+                            No se encontraron tiempos de viaje calculados.<br/>
+                            Todos los KAMs están a más de 4 horas de distancia<br/>
+                            o no hay rutas disponibles a esta ubicación.
+                          </em>
+                        </div>
                       )}
                       {travelTimes.length > 0 && travelTimes[0].travel_time > 240 && travelTimes[0].travel_time <= 300 && (
                         <div style={{ marginTop: '6px', padding: '4px', backgroundColor: '#FFF3CD', border: '1px solid #FFE69C', borderRadius: '4px' }}>

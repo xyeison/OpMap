@@ -46,15 +46,19 @@ export async function GET(request: NextRequest) {
         // Query travel times from cache for this hospital to all KAMs
         const travelTimes = await Promise.all(
           (kams || []).map(async (kam) => {
+            // Use a small tolerance for floating point comparison
             const { data: cacheData } = await supabase
               .from('travel_time_cache')
               .select('travel_time')
-              .match({
-                origin_lat: kam.lat,
-                origin_lng: kam.lng,
-                dest_lat: hospital.lat,
-                dest_lng: hospital.lng
-              })
+              .gte('origin_lat', kam.lat - 0.0001)
+              .lte('origin_lat', kam.lat + 0.0001)
+              .gte('origin_lng', kam.lng - 0.0001)
+              .lte('origin_lng', kam.lng + 0.0001)
+              .gte('dest_lat', hospital.lat - 0.0001)
+              .lte('dest_lat', hospital.lat + 0.0001)
+              .gte('dest_lng', hospital.lng - 0.0001)
+              .lte('dest_lng', hospital.lng + 0.0001)
+              .limit(1)
               .single()
 
             return {
