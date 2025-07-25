@@ -117,8 +117,8 @@ export default function MapComponent() {
 
     const fetchUnassignedTravelTimes = async () => {
       try {
-        // Usar la nueva API que consulta datos reales de Google Maps
-        const response = await fetch('/api/travel-times/unassigned-real')
+        // Usar la API que consulta datos reales de Google Maps desde el caché
+        const response = await fetch('/api/travel-times/unassigned-google')
         if (response.ok) {
           const data = await response.json()
           const timesMap: Record<string, any[]> = {}
