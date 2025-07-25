@@ -57,12 +57,18 @@ export async function POST() {
     // 2. Obtener solo los IDs de hospitales a recalcular
     const hospitalIds = hospitalsToReassign.map(h => h.id)
     
-    // 3. Ejecutar recálculo solo para estos hospitales
+    // 3. Ejecutar recálculo completo
+    // TODO: En el futuro, implementar recálculo parcial
     const algorithm = new OpMapAlgorithm()
     await algorithm.initialize()
     
-    // Llamar a un método específico para recálculo parcial
-    const assignments = await algorithm.recalculateSpecificHospitals(hospitalIds)
+    // Por ahora, recalcular todo
+    const allAssignments = await algorithm.calculateAssignments()
+    
+    // Filtrar solo las asignaciones de los hospitales que necesitamos
+    const assignments = allAssignments.filter(a => 
+      hospitalIds.includes(a.hospital_id)
+    )
     
     // 4. Actualizar solo las asignaciones necesarias
     for (const assignment of assignments) {
