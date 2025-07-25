@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useUser } from '@/contexts/UserContext'
+import ContractsList from '@/components/ContractsList'
 
 interface HospitalActionsProps {
   hospital: any
@@ -12,7 +13,7 @@ interface HospitalActionsProps {
 export default function HospitalActionsComplete({ hospital, onUpdate }: HospitalActionsProps) {
   const { user } = useUser()
   const [showReasonModal, setShowReasonModal] = useState(false)
-  const [showContractModal, setShowContractModal] = useState(false)
+  const [showContractsList, setShowContractsList] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
   const [loading, setLoading] = useState(false)
   const [reason, setReason] = useState('')
@@ -27,13 +28,6 @@ export default function HospitalActionsComplete({ hospital, onUpdate }: Hospital
     active: hospital.active
   })
   
-  const [contract, setContract] = useState({
-    contract_value: '',
-    start_date: '',
-    duration_months: '',
-    current_provider: '',
-    description: ''
-  })
 
   const handleToggleActive = async () => {
     if (!reason.trim()) {
@@ -113,48 +107,6 @@ export default function HospitalActionsComplete({ hospital, onUpdate }: Hospital
     }
   }
 
-  const handleAddContract = async () => {
-    if (!contract.contract_value || !contract.start_date || !contract.duration_months || !contract.current_provider) {
-      alert('Por favor complete todos los campos requeridos')
-      return
-    }
-
-    if (!user) {
-      alert('Debe iniciar sesión')
-      return
-    }
-
-    setLoading(true)
-    try {
-      const { error } = await supabase.from('hospital_contracts').insert({
-        hospital_id: hospital.id,
-        contract_value: parseFloat(contract.contract_value),
-        start_date: contract.start_date,
-        duration_months: parseInt(contract.duration_months),
-        current_provider: contract.current_provider,
-        description: contract.description || null,
-        created_by: user.id // Usando el ID del usuario logueado
-      })
-
-      if (error) throw error
-
-      alert('Contrato agregado exitosamente')
-      setShowContractModal(false)
-      setContract({
-        contract_value: '',
-        start_date: '',
-        duration_months: '',
-        current_provider: '',
-        description: ''
-      })
-      
-    } catch (error: any) {
-      console.error('Error:', error)
-      alert(`Error: ${error.message || 'No se pudo agregar el contrato'}`)
-    } finally {
-      setLoading(false)
-    }
-  }
 
   return (
     <>
@@ -178,10 +130,10 @@ export default function HospitalActionsComplete({ hospital, onUpdate }: Hospital
         </button>
         
         <button
-          onClick={() => setShowContractModal(true)}
+          onClick={() => setShowContractsList(true)}
           className="px-3 py-1 text-sm bg-blue-100 text-blue-700 hover:bg-blue-200 rounded"
         >
-          + Contrato
+          Contratos
         </button>
       </div>
 
@@ -304,107 +256,12 @@ export default function HospitalActionsComplete({ hospital, onUpdate }: Hospital
         </div>
       )}
 
-      {/* Modal para agregar contrato */}
-      {showContractModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg max-w-lg w-full">
-            <h3 className="text-lg font-bold mb-4">Agregar Contrato</h3>
-            <p className="mb-4 text-sm text-gray-600">
-              Hospital: <strong>{hospital.name}</strong>
-            </p>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  Valor del contrato <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="number"
-                  className="w-full p-2 border rounded"
-                  value={contract.contract_value}
-                  onChange={(e) => setContract({...contract, contract_value: e.target.value})}
-                  disabled={loading}
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  Fecha inicio <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="date"
-                  className="w-full p-2 border rounded"
-                  value={contract.start_date}
-                  onChange={(e) => setContract({...contract, start_date: e.target.value})}
-                  disabled={loading}
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  Plazo (meses) <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="number"
-                  className="w-full p-2 border rounded"
-                  value={contract.duration_months}
-                  onChange={(e) => setContract({...contract, duration_months: e.target.value})}
-                  disabled={loading}
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  Proveedor actual <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  className="w-full p-2 border rounded"
-                  value={contract.current_provider}
-                  onChange={(e) => setContract({...contract, current_provider: e.target.value})}
-                  disabled={loading}
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium mb-1">Descripción</label>
-                <textarea
-                  className="w-full p-2 border rounded"
-                  rows={3}
-                  value={contract.description}
-                  onChange={(e) => setContract({...contract, description: e.target.value})}
-                  disabled={loading}
-                />
-              </div>
-            </div>
-            
-            <div className="flex gap-2 justify-end mt-6">
-              <button
-                onClick={() => {
-                  setShowContractModal(false)
-                  setContract({
-                    contract_value: '',
-                    start_date: '',
-                    duration_months: '',
-                    current_provider: '',
-                    description: ''
-                  })
-                }}
-                className="px-4 py-2 text-gray-600 hover:text-gray-800"
-                disabled={loading}
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleAddContract}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-                disabled={loading}
-              >
-                {loading ? 'Guardando...' : 'Guardar Contrato'}
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* Lista de contratos */}
+      {showContractsList && (
+        <ContractsList 
+          hospitalId={hospital.id} 
+          onClose={() => setShowContractsList(false)}
+        />
       )}
     </>
   )

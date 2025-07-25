@@ -67,10 +67,13 @@ export default function KamsPage() {
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="flex items-center">
                     <div
-                      className="w-4 h-4 rounded-full mr-3"
+                      className={`w-4 h-4 rounded-full mr-3 ${!kam.active ? 'opacity-50' : ''}`}
                       style={{ backgroundColor: kam.color }}
                     />
-                    <div className="text-sm font-medium text-gray-900">{kam.name}</div>
+                    <div className={`text-sm font-medium ${kam.active ? 'text-gray-900' : 'text-gray-400'}`}>
+                      {kam.name}
+                      {!kam.active && <span className="ml-2 text-xs">(Inactivo)</span>}
+                    </div>
                   </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">

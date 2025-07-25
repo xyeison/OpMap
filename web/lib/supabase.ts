@@ -12,7 +12,7 @@ export const kamService = {
     const { data, error } = await supabase
       .from('kams')
       .select('*')
-      .eq('active', true)
+      .order('active', { ascending: false })
       .order('name')
     
     if (error) throw error
