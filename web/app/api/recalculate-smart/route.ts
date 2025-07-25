@@ -18,13 +18,20 @@ export async function POST() {
       .eq('active', true)
       .is('assigned_kam_id', null)
     
+    // Primero obtener los KAMs inactivos
+    const { data: inactiveKams } = await supabase
+      .from('sellers')
+      .select('id')
+      .eq('active', false)
+    
+    const inactiveKamIds = inactiveKams?.map(k => k.id) || []
+    
+    // Luego buscar hospitales asignados a esos KAMs
     const { data: hospitalsWithInactiveKam } = await supabase
       .from('hospitals')
-      .select('hospitals.id, hospitals.name, sellers.name as kam_name')
-      .eq('hospitals.active', true)
-      .not('assigned_kam_id', 'is', null)
-      .inner_join('sellers', { 'hospitals.assigned_kam_id': 'sellers.id' })
-      .eq('sellers.active', false)
+      .select('id, name, assigned_kam_id')
+      .eq('active', true)
+      .in('assigned_kam_id', inactiveKamIds)
     
     const hospitalsToReassign = [
       ...(unassignedHospitals || []),
