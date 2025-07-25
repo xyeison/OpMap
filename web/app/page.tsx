@@ -1,8 +1,12 @@
+'use client'
+
 import RecalculateButton from '@/components/RecalculateButton'
+import ProtectedRoute from '@/components/ProtectedRoute'
 
 export default function HomePage() {
   return (
-    <div className="container mx-auto p-6">
+    <ProtectedRoute>
+      <div className="container mx-auto p-6">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-3xl font-bold">Dashboard</h2>
         <RecalculateButton />
@@ -73,6 +77,7 @@ export default function HomePage() {
           </div>
         </div>
       </div>
-    </div>
+      </div>
+    </ProtectedRoute>
   )
 }
