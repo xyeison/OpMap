@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import bcrypt from 'bcryptjs'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -10,27 +9,21 @@ const supabase = createClient(
 export async function POST(request: Request) {
   const { email, password } = await request.json()
   
-  // Buscar usuario
+  // Buscar usuario y verificar contraseña directamente
   const { data: user, error } = await supabase
     .from('users')
     .select('*')
     .eq('email', email)
+    .eq('password', password) // Comparación directa sin hash
     .eq('active', true)
     .single()
   
   if (error || !user) {
-    return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 401 })
+    return NextResponse.json({ error: 'Email o contraseña incorrectos' }, { status: 401 })
   }
   
-  // Verificar contraseña
-  const validPassword = await bcrypt.compare(password, user.password_hash)
-  
-  if (!validPassword) {
-    return NextResponse.json({ error: 'Contraseña incorrecta' }, { status: 401 })
-  }
-  
-  // Retornar usuario sin password_hash
-  const { password_hash, ...userWithoutPassword } = user
+  // Retornar usuario sin la contraseña
+  const { password: _, ...userWithoutPassword } = user
   
   return NextResponse.json({ 
     user: userWithoutPassword,

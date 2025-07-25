@@ -1,6 +1,6 @@
 'use client'
 
-import RecalculateButton from '@/components/RecalculateButton'
+import RecalculateButton from '@/components/RecalculateButtonEnhanced'
 import ProtectedRoute from '@/components/ProtectedRoute'
 
 export default function HomePage() {

@@ -17,6 +17,9 @@ export default function HospitalActionsComplete({ hospital, onUpdate }: Hospital
   const [loading, setLoading] = useState(false)
   const [reason, setReason] = useState('')
   
+  // Debug: verificar si el componente se está renderizando
+  console.log('HospitalActionsComplete renderizando para:', hospital.name, 'Usuario:', user?.email)
+  
   const [editData, setEditData] = useState({
     name: hospital.name,
     beds: hospital.beds || 0,

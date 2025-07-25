@@ -39,8 +39,12 @@ export class OpMapAlgorithm {
   private hospitals: Hospital[] = []
   private adjacencyMatrix: Record<string, string[]> = {}
   private travelTimeCache: Record<string, number> = {}
+  private cacheHits = 0
+  private cacheMisses = 0
 
   async initialize() {
+    console.log('📦 Inicializando algoritmo OpMap...')
+    
     // Cargar KAMs
     const { data: kamsData } = await supabase
       .from('kams')
@@ -48,6 +52,7 @@ export class OpMapAlgorithm {
       .eq('active', true)
     
     this.kams = kamsData || []
+    console.log(`✅ ${this.kams.length} KAMs activos cargados`)
 
     // Cargar Hospitales
     const { data: hospitalsData } = await supabase
@@ -56,6 +61,7 @@ export class OpMapAlgorithm {
       .eq('active', true)
     
     this.hospitals = hospitalsData || []
+    console.log(`🏥 ${this.hospitals.length} hospitales activos cargados`)
 
     // Cargar matriz de adyacencia
     const { data: adjacencyData } = await supabase
@@ -79,6 +85,19 @@ export class OpMapAlgorithm {
       const key = `${row.origin_lat},${row.origin_lng}|${row.dest_lat},${row.dest_lng}`
       this.travelTimeCache[key] = row.travel_time
     })
+    console.log(`🗑️ ${Object.keys(this.travelTimeCache).length} rutas en caché`)
+    
+    // Calcular rutas faltantes
+    const totalPossibleRoutes = this.kams.length * this.hospitals.length
+    const missingRoutes = totalPossibleRoutes - Object.keys(this.travelTimeCache).length
+    
+    if (missingRoutes > 0) {
+      console.log(`⚠️ Faltan ${missingRoutes} rutas en caché (se usará estimación por distancia)`)
+      console.log(`💵 Para completar el caché se necesitarían ${missingRoutes} llamadas a Google Maps API`)
+      console.log(`💰 Costo estimado: $${(missingRoutes * 0.005).toFixed(2)} USD`)
+    } else {
+      console.log(`✅ Caché completo! No se necesitan llamadas a Google Maps API`)
+    }
   }
 
   private haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -102,6 +121,7 @@ export class OpMapAlgorithm {
     // Primero revisar caché en memoria
     const cacheKey = `${originLat},${originLng}|${destLat},${destLng}`
     if (this.travelTimeCache[cacheKey]) {
+      this.cacheHits++
       return this.travelTimeCache[cacheKey]
     }
 
@@ -117,10 +137,12 @@ export class OpMapAlgorithm {
 
     if (cachedTime) {
       this.travelTimeCache[cacheKey] = cachedTime.travel_time
+      this.cacheHits++
       return cachedTime.travel_time
     }
 
     // Si no está en BD, calcular con Haversine
+    this.cacheMisses++
     const distance = this.haversineDistance(originLat, originLng, destLat, destLng)
     const avgSpeed = 60 // km/h promedio
     const time = Math.round((distance / avgSpeed) * 60) // minutos
@@ -272,6 +294,17 @@ export class OpMapAlgorithm {
       }
     }
 
+    // Mostrar estadísticas de caché
+    console.log('\n📊 Estadísticas de caché:')
+    console.log(`✅ Hits de caché: ${this.cacheHits}`)
+    console.log(`❌ Misses de caché: ${this.cacheMisses}`)
+    console.log(`🎯 Tasa de acierto: ${((this.cacheHits / (this.cacheHits + this.cacheMisses)) * 100).toFixed(1)}%`)
+    
+    if (this.cacheMisses > 0) {
+      console.log(`\n⚠️ Se usaron ${this.cacheMisses} estimaciones por distancia Haversine`)
+      console.log('💡 Para mejorar la precisión, considera ejecutar una actualización de caché')
+    }
+    
     return assignments
   }
 

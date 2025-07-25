@@ -4,6 +4,8 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { kamService } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
+import KamDeactivateButton from '@/components/KamDeactivateButton'
+import KamActivateButton from '@/components/KamActivateButton'
 
 export default function KamsPage() {
   const [showForm, setShowForm] = useState(false)
@@ -16,34 +18,9 @@ export default function KamsPage() {
     queryFn: kamService.getAll,
   })
 
-  const handleDeactivateKam = async (kamId: string, kamName: string) => {
-    if (!confirm(`¿Estás seguro de desactivar a ${kamName}? Sus hospitales se reasignarán automáticamente.`)) {
-      return
-    }
-
-    setLoading(true)
-    try {
-      const response = await fetch('/api/deactivate-kam', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kamId })
-      })
-
-      const data = await response.json()
-
-      if (data.success) {
-        alert(data.message)
-        // Refrescar datos
-        queryClient.invalidateQueries({ queryKey: ['kams'] })
-        router.refresh()
-      } else {
-        alert(`Error: ${data.error}`)
-      }
-    } catch (error) {
-      alert('Error al desactivar KAM')
-    } finally {
-      setLoading(false)
-    }
+  const handleUpdate = () => {
+    queryClient.invalidateQueries({ queryKey: ['kams'] })
+    router.refresh()
   }
 
   if (isLoading) return <div className="p-6">Cargando...</div>
@@ -113,15 +90,22 @@ export default function KamsPage() {
                   </span>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                  <button className="text-indigo-600 hover:text-indigo-900 mr-3">
-                    Editar
-                  </button>
-                  <button 
-                    onClick={() => handleDeactivateKam(kam.id, kam.name)}
-                    className="text-red-600 hover:text-red-900"
-                  >
-                    Desactivar
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button className="text-indigo-600 hover:text-indigo-900">
+                      Editar
+                    </button>
+                    {kam.active ? (
+                      <KamDeactivateButton 
+                        kam={kam} 
+                        onUpdate={handleUpdate}
+                      />
+                    ) : (
+                      <KamActivateButton 
+                        kam={kam} 
+                        onUpdate={handleUpdate}
+                      />
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
