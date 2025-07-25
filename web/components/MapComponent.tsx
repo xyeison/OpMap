@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { useEffect, useState } from 'react'
-import { estimateTravelTime, getZoneInfo } from '@/utils/distance-estimator'
+// NO usar estimaciones - solo datos reales de Google Maps
 
 // Fix for default markers in Next.js
 delete (L.Icon.Default.prototype as any)._getIconUrl
@@ -111,18 +111,19 @@ export default function MapComponent() {
     setKamColors(colors)
   }, [mapData])
 
-  // Cargar tiempos de viaje para hospitales sin asignar
+  // Cargar tiempos de viaje REALES para hospitales sin asignar
   useEffect(() => {
     if (!mapData || mapData.unassignedHospitals.length === 0) return
 
     const fetchUnassignedTravelTimes = async () => {
       try {
-        const response = await fetch('/api/travel-times/unassigned-v2')
+        // Usar la nueva API que consulta datos reales de Google Maps
+        const response = await fetch('/api/travel-times/unassigned-real')
         if (response.ok) {
           const data = await response.json()
           const timesMap: Record<string, any[]> = {}
           
-          console.log('Loaded travel times for', data.total, 'unassigned hospitals')
+          console.log('Loaded REAL travel times for', data.total, 'unassigned hospitals')
           console.log('Debug info:', data.debug)
           
           data.unassigned_hospitals.forEach((hospital: any) => {
@@ -455,24 +456,12 @@ export default function MapComponent() {
         
         {/* Hospitales sin asignar (zonas vacantes) */}
         {mapData.unassignedHospitals.map((hospital: any) => {
-          let travelTimes = unassignedTravelTimes[hospital.id] || []
+          const travelTimes = unassignedTravelTimes[hospital.id] || []
           
-          // Si no hay tiempos en caché, estimar basado en distancia
-          if (travelTimes.length === 0 && mapData.kams) {
-            travelTimes = mapData.kams.map((kam: any) => ({
-              kam_id: kam.id,
-              kam_name: kam.name,
-              travel_time: estimateTravelTime(
-                { lat: kam.lat, lng: kam.lng },
-                { lat: hospital.lat, lng: hospital.lng }
-              ),
-              is_estimated: true
-            }))
-            .sort((a: any, b: any) => a.travel_time - b.travel_time)
-            .slice(0, 5) // Solo mostrar los 5 más cercanos
-          }
+          // SOLO mostrar tiempos reales de Google Maps
+          // NO estimar si no hay datos
           
-          const zoneInfo = getZoneInfo(hospital.municipality_name)
+          // const zoneInfo = getZoneInfo(hospital.municipality_name) // Removido - usar solo datos reales
           
           return (
             <CircleMarker
@@ -527,7 +516,7 @@ export default function MapComponent() {
                                       textAlign: 'right',
                                       color: isClose ? '#FF6B00' : (isOverLimit ? '#CC0000' : '#666')
                                     }}>
-                                      {timeStr} {isClose && '⚠️'} {tt.is_estimated && '*'}
+                                      {timeStr} {isClose && '⚠️'}
                                     </td>
                                   </tr>
                                 )
@@ -539,30 +528,16 @@ export default function MapComponent() {
                               ...y {travelTimes.length - 8} KAMs más
                             </div>
                           )}
-                          {travelTimes.some((tt: any) => tt.is_estimated) && (
-                            <div style={{ marginTop: '4px', fontSize: '10px', fontStyle: 'italic', color: '#999' }}>
-                              * Tiempos estimados por distancia
-                            </div>
-                          )}
+                          <div style={{ marginTop: '4px', fontSize: '10px', color: '#666' }}>
+                            <em>Tiempos reales de Google Maps</em>
+                          </div>
                         </div>
                       ) : (
-                        <div style={{ fontSize: '11px', color: '#CC0000', marginTop: '4px' }}>
-                          <strong>⚠️ Zona muy lejana</strong><br/>
-                          <div style={{ marginTop: '4px', color: '#666' }}>
-                            Todos los KAMs están a <strong>más de 4 horas</strong> de distancia.<br/>
-                            <br/>
-                            <strong>Ubicación:</strong> {hospital.municipality_name || 'Desconocida'}<br/>
-                            {hospital.department_name && (
-                              <>
-                                <strong>Departamento:</strong> {hospital.department_name}<br/>
-                              </>
-                            )}
-                            <br/>
-                            <em style={{ fontSize: '10px' }}>
-                              Esta zona requiere evaluación especial.<br/>
-                              Considere contratar un KAM local o<br/>
-                              establecer alianzas estratégicas.
-                            </em>
+                        <div style={{ fontSize: '11px', color: '#999', marginTop: '4px' }}>
+                          <em>Cargando tiempos de viaje...</em><br/>
+                          <div style={{ marginTop: '4px', fontSize: '10px' }}>
+                            Si no aparecen datos, es posible que no se hayan<br/>
+                            calculado rutas con Google Maps para esta zona.
                           </div>
                         </div>
                       )}
@@ -574,13 +549,7 @@ export default function MapComponent() {
                           </div>
                         </div>
                       )}
-                      {zoneInfo && (
-                        <div style={{ marginTop: '6px', padding: '4px', backgroundColor: '#E3F2FD', border: '1px solid #90CAF9', borderRadius: '4px' }}>
-                          <div style={{ fontSize: '10px', color: '#1565C0' }}>
-                            📍 <strong>Zona especial:</strong> {zoneInfo}
-                          </div>
-                        </div>
-                      )}
+                      {/* Información de zona removida - usar solo datos reales */}
                     </div>
                   </div>
                 </div>
