@@ -7,7 +7,6 @@ const supabase = createClient(
 )
 
 export async function GET() {
-  console.log('API /travel-times/unassigned-real llamada')
   try {
     // 1. Obtener hospitales sin asignar
     const { data: assignments } = await supabase
@@ -29,21 +28,6 @@ export async function GET() {
       })
     }
     
-    console.log(`Found ${unassignedHospitals.length} unassigned hospitals`)
-    
-    // Log específico para Málaga
-    const malagaHospital = unassignedHospitals.find((h: any) => 
-      h.municipality_name?.toLowerCase().includes('málaga')
-    )
-    if (malagaHospital) {
-      console.log('Hospital de Málaga encontrado:', {
-        id: malagaHospital.id,
-        name: malagaHospital.name,
-        lat: malagaHospital.lat,
-        lng: malagaHospital.lng
-      })
-    }
-    
     // 2. Obtener todos los KAMs activos
     const { data: kams } = await supabase
       .from('kams')
@@ -58,7 +42,21 @@ export async function GET() {
       })
     }
     
-    // 3. Para cada hospital sin asignar, buscar tiempos reales en caché
+    // 3. Obtener TODOS los tiempos de viaje de una vez
+    const { data: allTravelTimes } = await supabase
+      .from('travel_time_cache')
+      .select('origin_lat, origin_lng, dest_lat, dest_lng, travel_time')
+      .eq('source', 'google_maps')
+    
+    // Crear un mapa para búsqueda rápida
+    const travelTimeMap = new Map<string, number>()
+    allTravelTimes?.forEach(tt => {
+      // Crear clave con precisión reducida (8 decimales)
+      const key = `${tt.origin_lat.toFixed(8)},${tt.origin_lng.toFixed(8)}|${tt.dest_lat.toFixed(8)},${tt.dest_lng.toFixed(8)}`
+      travelTimeMap.set(key, tt.travel_time)
+    })
+    
+    // 4. Para cada hospital sin asignar, buscar tiempos
     const hospitalsWithTimes: any[] = []
     
     for (const hospital of unassignedHospitals) {
@@ -86,50 +84,20 @@ export async function GET() {
         travel_times: []
       }
       
-      // Buscar tiempos para cada KAM desde el caché
+      // Buscar tiempos para cada KAM
       for (const kam of kams) {
-        // Para debug de Málaga
-        if (hospital.municipality_name?.toLowerCase().includes('málaga') && 
-            kam.name?.toLowerCase().includes('bucaramanga')) {
-          console.log('Buscando Bucaramanga → Málaga:', {
-            kam_coords: { lat: kam.lat, lng: kam.lng },
-            hospital_coords: { lat: hospital.lat, lng: hospital.lng }
-          })
-        }
+        // Crear clave con la misma precisión
+        const key = `${kam.lat.toFixed(8)},${kam.lng.toFixed(8)}|${hospital.lat.toFixed(8)},${hospital.lng.toFixed(8)}`
+        const travelTime = travelTimeMap.get(key)
         
-        // Buscar en travel_time_cache con tolerancia para coordenadas
-        const { data: cachedTime } = await supabase
-          .from('travel_time_cache')
-          .select('travel_time')
-          .eq('source', 'google_maps') // Solo datos de Google Maps
-          .gte('origin_lat', kam.lat - 0.00001) // Tolerancia muy pequeña
-          .lte('origin_lat', kam.lat + 0.00001)
-          .gte('origin_lng', kam.lng - 0.00001)
-          .lte('origin_lng', kam.lng + 0.00001)
-          .gte('dest_lat', hospital.lat - 0.00001)
-          .lte('dest_lat', hospital.lat + 0.00001)
-          .gte('dest_lng', hospital.lng - 0.00001)
-          .lte('dest_lng', hospital.lng + 0.00001)
-          .limit(1)
-          .maybeSingle()
-        
-        if (cachedTime) {
-          // Debug para Málaga
-          if (hospital.municipality_name?.toLowerCase().includes('málaga') && 
-              kam.name?.toLowerCase().includes('bucaramanga')) {
-            console.log('✅ Tiempo encontrado Bucaramanga → Málaga:', cachedTime.travel_time, 'minutos')
-          }
-          
+        if (travelTime !== undefined) {
           hospitalData.travel_times.push({
             kam_id: kam.id,
             kam_name: kam.name,
-            travel_time: cachedTime.travel_time,
-            is_real: true, // Indicar que es tiempo real de Google Maps
+            travel_time: travelTime,
+            is_real: true,
             source: 'Google Maps Distance Matrix API'
           })
-        } else if (hospital.municipality_name?.toLowerCase().includes('málaga') && 
-                   kam.name?.toLowerCase().includes('bucaramanga')) {
-          console.log('❌ NO se encontró tiempo Bucaramanga → Málaga')
         }
       }
       
@@ -147,7 +115,8 @@ export async function GET() {
       debug: {
         total_unassigned: unassignedHospitals.length,
         with_travel_times: hospitalsWithTimes.length,
-        without_travel_times: unassignedHospitals.length - hospitalsWithTimes.length
+        without_travel_times: unassignedHospitals.length - hospitalsWithTimes.length,
+        total_cache_entries: travelTimeMap.size
       }
     })
     
