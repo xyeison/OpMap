@@ -45,10 +45,24 @@ export async function GET() {
     }
     
     // 3. Para cada hospital sin asignar, buscar tiempos reales en caché
-    const hospitalsWithTimes = []
+    const hospitalsWithTimes: any[] = []
     
     for (const hospital of unassignedHospitals) {
-      const hospitalData = {
+      const hospitalData: {
+        id: string
+        name: string
+        code: string
+        municipality_name: string
+        lat: number
+        lng: number
+        travel_times: Array<{
+          kam_id: string
+          kam_name: string
+          travel_time: number
+          is_real: boolean
+          source: string
+        }>
+      } = {
         id: hospital.id,
         name: hospital.name,
         code: hospital.code,
