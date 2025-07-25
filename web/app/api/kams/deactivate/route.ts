@@ -28,7 +28,16 @@ export async function POST(request: Request) {
     
     const { data: assignedHospitals } = await supabase
       .from('assignments')
-      .select('hospital_id, hospitals!inner(id, name, lat, lng, municipality_id)')
+      .select(`
+        hospital_id,
+        hospitals!inner (
+          id,
+          name,
+          lat,
+          lng,
+          municipality_id
+        )
+      `)
       .eq('kam_id', kamId)
     
     console.log(`📊 ${kam.name} tiene ${assignedHospitals?.length || 0} hospitales asignados`)
@@ -50,7 +59,9 @@ export async function POST(request: Request) {
     let reassignedCount = 0
     
     for (const assignment of assignedHospitals || []) {
-      const hospital = assignment.hospitals
+      const hospital = (assignment as any).hospitals
+      if (!hospital) continue
+      
       let bestKam = null
       let bestTime = Infinity
       
