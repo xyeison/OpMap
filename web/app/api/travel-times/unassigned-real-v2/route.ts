@@ -151,7 +151,6 @@ export async function GET() {
         without_travel_times: unassignedHospitals.length - hospitalsWithTimes.length,
         total_cache_entries: travelTimeMap.size,
         total_travel_times_loaded: allTravelTimes?.length || 0,
-        total_active_kams: kams.length,
         total_active_kams: kams.length
       }
     })
