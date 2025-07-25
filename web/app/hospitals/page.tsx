@@ -61,9 +61,9 @@ export default function HospitalsPage() {
                 Camas
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Estado
+                KAM Asignado
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Acciones
               </th>
             </tr>
@@ -83,16 +83,10 @@ export default function HospitalsPage() {
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                   {hospital.beds || '-'}
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm">
-                  <span className={`px-2 py-1 text-xs rounded-full ${
-                    hospital.active 
-                      ? 'bg-green-100 text-green-800' 
-                      : 'bg-red-100 text-red-800'
-                  }`}>
-                    {hospital.active ? 'Activo' : 'Inactivo'}
-                  </span>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  -
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                <td className="px-6 py-4 whitespace-nowrap text-center">
                   <HospitalActions 
                     hospital={hospital} 
                     onUpdate={handleUpdate}

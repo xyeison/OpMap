@@ -27,47 +27,70 @@ export default function HospitalActions({ hospital, onUpdate, userRole = 'user' 
       return
     }
 
-    // Registrar en historial
-    await supabase.from('hospital_history').insert({
-      hospital_id: hospital.id,
-      user_id: 'TEMP_USER_ID', // Esto vendría del contexto de usuario
-      action: hospital.active ? 'deactivated' : 'activated',
-      reason: reason,
-      previous_state: hospital.active,
-      new_state: !hospital.active
-    })
+    try {
+      // Por ahora solo mostrar alert
+      alert(`Hospital ${hospital.active ? 'desactivado' : 'activado'}.\nRazón: ${reason}`)
+      
+      // TODO: Implementar guardado en BD cuando las tablas estén creadas
+      /*
+      await supabase.from('hospital_history').insert({
+        hospital_id: hospital.id,
+        user_id: 'TEMP_USER_ID',
+        action: hospital.active ? 'deactivated' : 'activated',
+        reason: reason,
+        previous_state: hospital.active,
+        new_state: !hospital.active
+      })
 
-    // Actualizar estado del hospital
-    await supabase
-      .from('hospitals')
-      .update({ active: !hospital.active })
-      .eq('id', hospital.id)
-
-    setShowReasonModal(false)
-    setReason('')
-    onUpdate()
+      await supabase
+        .from('hospitals')
+        .update({ active: !hospital.active })
+        .eq('id', hospital.id)
+      */
+      
+      setShowReasonModal(false)
+      setReason('')
+      onUpdate()
+    } catch (error) {
+      console.error('Error:', error)
+      alert('Error al actualizar el hospital')
+    }
   }
 
   const handleAddContract = async () => {
-    await supabase.from('hospital_contracts').insert({
-      hospital_id: hospital.id,
-      contract_value: parseFloat(contract.contract_value),
-      start_date: contract.start_date,
-      duration_months: parseInt(contract.duration_months),
-      current_provider: contract.current_provider,
-      description: contract.description,
-      created_by: 'TEMP_USER_ID' // Esto vendría del contexto de usuario
-    })
-
-    setShowContractModal(false)
-    setContract({
-      contract_value: '',
-      start_date: '',
-      duration_months: '',
-      current_provider: '',
-      description: ''
-    })
-    alert('Contrato agregado exitosamente')
+    try {
+      // Por ahora solo mostrar los datos
+      alert(`Contrato agregado:\n` +
+        `Valor: $${contract.contract_value}\n` +
+        `Fecha inicio: ${contract.start_date}\n` +
+        `Duración: ${contract.duration_months} meses\n` +
+        `Proveedor: ${contract.current_provider}`)
+      
+      // TODO: Implementar guardado en BD cuando las tablas estén creadas
+      /*
+      await supabase.from('hospital_contracts').insert({
+        hospital_id: hospital.id,
+        contract_value: parseFloat(contract.contract_value),
+        start_date: contract.start_date,
+        duration_months: parseInt(contract.duration_months),
+        current_provider: contract.current_provider,
+        description: contract.description,
+        created_by: 'TEMP_USER_ID'
+      })
+      */
+      
+      setShowContractModal(false)
+      setContract({
+        contract_value: '',
+        start_date: '',
+        duration_months: '',
+        current_provider: '',
+        description: ''
+      })
+    } catch (error) {
+      console.error('Error:', error)
+      alert('Error al agregar el contrato')
+    }
   }
 
   return (
