@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { useEffect, useState } from 'react'
+import { estimateTravelTime, getZoneInfo } from '@/utils/distance-estimator'
 
 // Fix for default markers in Next.js
 delete (L.Icon.Default.prototype as any)._getIconUrl
@@ -454,7 +455,24 @@ export default function MapComponent() {
         
         {/* Hospitales sin asignar (zonas vacantes) */}
         {mapData.unassignedHospitals.map((hospital: any) => {
-          const travelTimes = unassignedTravelTimes[hospital.id] || []
+          let travelTimes = unassignedTravelTimes[hospital.id] || []
+          
+          // Si no hay tiempos en caché, estimar basado en distancia
+          if (travelTimes.length === 0 && mapData.kams) {
+            travelTimes = mapData.kams.map((kam: any) => ({
+              kam_id: kam.id,
+              kam_name: kam.name,
+              travel_time: estimateTravelTime(
+                { lat: kam.lat, lng: kam.lng },
+                { lat: hospital.lat, lng: hospital.lng }
+              ),
+              is_estimated: true
+            }))
+            .sort((a: any, b: any) => a.travel_time - b.travel_time)
+            .slice(0, 5) // Solo mostrar los 5 más cercanos
+          }
+          
+          const zoneInfo = getZoneInfo(hospital.municipality_name)
           
           return (
             <CircleMarker
@@ -509,7 +527,7 @@ export default function MapComponent() {
                                       textAlign: 'right',
                                       color: isClose ? '#FF6B00' : (isOverLimit ? '#CC0000' : '#666')
                                     }}>
-                                      {timeStr} {isClose && '⚠️'}
+                                      {timeStr} {isClose && '⚠️'} {tt.is_estimated && '*'}
                                     </td>
                                   </tr>
                                 )
@@ -521,15 +539,31 @@ export default function MapComponent() {
                               ...y {travelTimes.length - 8} KAMs más
                             </div>
                           )}
+                          {travelTimes.some((tt: any) => tt.is_estimated) && (
+                            <div style={{ marginTop: '4px', fontSize: '10px', fontStyle: 'italic', color: '#999' }}>
+                              * Tiempos estimados por distancia
+                            </div>
+                          )}
                         </div>
                       ) : (
                         <div style={{ fontSize: '11px', color: '#CC0000', marginTop: '4px' }}>
-                          <strong>⚠️ Sin datos de distancia</strong><br/>
-                          <em style={{ color: '#666' }}>
-                            No se encontraron tiempos de viaje calculados.<br/>
-                            Todos los KAMs están a más de 4 horas de distancia<br/>
-                            o no hay rutas disponibles a esta ubicación.
-                          </em>
+                          <strong>⚠️ Zona muy lejana</strong><br/>
+                          <div style={{ marginTop: '4px', color: '#666' }}>
+                            Todos los KAMs están a <strong>más de 4 horas</strong> de distancia.<br/>
+                            <br/>
+                            <strong>Ubicación:</strong> {hospital.municipality_name || 'Desconocida'}<br/>
+                            {hospital.department_name && (
+                              <>
+                                <strong>Departamento:</strong> {hospital.department_name}<br/>
+                              </>
+                            )}
+                            <br/>
+                            <em style={{ fontSize: '10px' }}>
+                              Esta zona requiere evaluación especial.<br/>
+                              Considere contratar un KAM local o<br/>
+                              establecer alianzas estratégicas.
+                            </em>
+                          </div>
                         </div>
                       )}
                       {travelTimes.length > 0 && travelTimes[0].travel_time > 240 && travelTimes[0].travel_time <= 300 && (
@@ -537,6 +571,13 @@ export default function MapComponent() {
                           <div style={{ fontSize: '11px', color: '#856404' }}>
                             💡 <strong>Sugerencia:</strong> {travelTimes[0].kam_name} está a solo {Math.floor(travelTimes[0].travel_time / 60)}h {travelTimes[0].travel_time % 60}min.
                             Considere ajustar su límite de tiempo máximo de 4 a 5 horas.
+                          </div>
+                        </div>
+                      )}
+                      {zoneInfo && (
+                        <div style={{ marginTop: '6px', padding: '4px', backgroundColor: '#E3F2FD', border: '1px solid #90CAF9', borderRadius: '4px' }}>
+                          <div style={{ fontSize: '10px', color: '#1565C0' }}>
+                            📍 <strong>Zona especial:</strong> {zoneInfo}
                           </div>
                         </div>
                       )}
