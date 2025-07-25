@@ -1,16 +1,22 @@
 'use client'
 
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { hospitalService } from '@/lib/supabase'
+import HospitalActions from './HospitalActions'
 
 export default function HospitalsPage() {
   const [searchTerm, setSearchTerm] = useState('')
+  const queryClient = useQueryClient()
   
   const { data: hospitals, isLoading } = useQuery({
     queryKey: ['hospitals'],
     queryFn: hospitalService.getAll,
   })
+  
+  const handleUpdate = () => {
+    queryClient.invalidateQueries({ queryKey: ['hospitals'] })
+  }
 
   const filteredHospitals = hospitals?.filter(hospital =>
     hospital.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -55,7 +61,7 @@ export default function HospitalsPage() {
                 Camas
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                KAM Asignado
+                Estado
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Acciones
@@ -77,16 +83,20 @@ export default function HospitalsPage() {
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                   {hospital.beds || '-'}
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  -
+                <td className="px-6 py-4 whitespace-nowrap text-sm">
+                  <span className={`px-2 py-1 text-xs rounded-full ${
+                    hospital.active 
+                      ? 'bg-green-100 text-green-800' 
+                      : 'bg-red-100 text-red-800'
+                  }`}>
+                    {hospital.active ? 'Activo' : 'Inactivo'}
+                  </span>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                  <button className="text-indigo-600 hover:text-indigo-900 mr-3">
-                    Ver detalle
-                  </button>
-                  <button className="text-green-600 hover:text-green-900">
-                    Oportunidad
-                  </button>
+                  <HospitalActions 
+                    hospital={hospital} 
+                    onUpdate={handleUpdate}
+                  />
                 </td>
               </tr>
             ))}
