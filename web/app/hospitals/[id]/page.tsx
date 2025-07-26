@@ -18,6 +18,7 @@ export default function HospitalDetailPage() {
   const [showDeactivateModal, setShowDeactivateModal] = useState(false)
   const [deactivateReason, setDeactivateReason] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [contractStats, setContractStats] = useState({ activeCount: 0, totalValue: 0 })
 
   useEffect(() => {
     loadHospitalData()
@@ -51,6 +52,19 @@ export default function HospitalDetailPage() {
             .single()
           
           setKam(kamData)
+        }
+        
+        // Cargar estadísticas de contratos
+        const { data: contracts } = await supabase
+          .from('hospital_contracts')
+          .select('contract_value')
+          .eq('hospital_id', hospitalId)
+          .eq('active', true)
+        
+        if (contracts) {
+          const activeCount = contracts.length
+          const totalValue = contracts.reduce((sum, contract) => sum + (contract.contract_value || 0), 0)
+          setContractStats({ activeCount, totalValue })
         }
       }
     } catch (error) {
@@ -269,44 +283,20 @@ export default function HospitalDetailPage() {
           </div>
         </div>
 
-        {/* Estadísticas */}
-        <div className="bg-white rounded-lg shadow p-6 mb-8">
-          <h2 className="text-xl font-semibold mb-4">Estadísticas y Métricas</h2>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="text-center">
-              <p className="text-3xl font-bold text-blue-600">0</p>
+        {/* Estadísticas de Contratos */}
+        <div className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-xl font-semibold mb-4">Contratos</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="text-center p-4">
+              <p className="text-3xl font-bold text-blue-600">{contractStats.activeCount}</p>
               <p className="text-gray-600">Contratos activos</p>
             </div>
-            <div className="text-center">
-              <p className="text-3xl font-bold text-green-600">$0</p>
+            <div className="text-center p-4">
+              <p className="text-3xl font-bold text-green-600">
+                ${contractStats.totalValue.toLocaleString('es-CO')}
+              </p>
               <p className="text-gray-600">Valor total contratos</p>
             </div>
-            <div className="text-center">
-              <p className="text-3xl font-bold text-purple-600">0</p>
-              <p className="text-gray-600">Oportunidades</p>
-            </div>
-            <div className="text-center">
-              <p className="text-3xl font-bold text-orange-600">0</p>
-              <p className="text-gray-600">Visitas este mes</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Ubicación */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold mb-4">Ubicación</h2>
-          <div className="grid grid-cols-2 gap-4 mb-4">
-            <div>
-              <span className="text-gray-600">Latitud:</span>
-              <span className="ml-2 font-medium">{hospital.lat}</span>
-            </div>
-            <div>
-              <span className="text-gray-600">Longitud:</span>
-              <span className="ml-2 font-medium">{hospital.lng}</span>
-            </div>
-          </div>
-          <div className="bg-gray-100 rounded h-64 flex items-center justify-center">
-            <p className="text-gray-500">Mapa próximamente</p>
           </div>
         </div>
 
@@ -314,7 +304,10 @@ export default function HospitalDetailPage() {
         {showContracts && (
           <ContractsList
             hospitalId={hospitalId}
-            onClose={() => setShowContracts(false)}
+            onClose={() => {
+              setShowContracts(false)
+              loadHospitalData() // Recargar datos para actualizar estadísticas
+            }}
           />
         )}
 
