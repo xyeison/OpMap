@@ -366,6 +366,11 @@ export default function ContractsPage() {
                         {contract.active ? 'Activo' : 'Inactivo'}
                       </span>
                     </td>
+                    <td className="px-6 py-4 text-sm text-gray-900">
+                      <div className="max-w-xs truncate" title={contract.description || ''}>
+                        {contract.description || '-'}
+                      </div>
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div className="flex gap-3">
                         <button

@@ -12,6 +12,7 @@ interface Contract {
   contract_value: number
   start_date: string
   end_date: string
+  description?: string
   active: boolean
   created_at: string
 }
@@ -305,6 +306,12 @@ export default function ContractsList({ hospitalId, onClose }: ContractsListProp
                         </span>
                       </div>
                     </div>
+                    {contract.description && (
+                      <div className="mt-3 text-sm">
+                        <span className="text-gray-600">Descripción:</span>
+                        <p className="text-gray-800 mt-1">{contract.description}</p>
+                      </div>
+                    )}
                   </div>
                   <div className="flex gap-2">
                     <button
