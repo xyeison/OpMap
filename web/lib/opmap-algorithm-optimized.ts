@@ -144,8 +144,48 @@ export class OpMapAlgorithmOptimized {
       return cachedTime
     }
 
-    // Si no está en caché, calcular con Haversine
+    // Si no está en caché, consultar Google Maps API
     this.cacheMisses++
+    
+    try {
+      // Llamar a la API de Google Maps Distance Matrix
+      const response = await fetch('/api/google-maps/distance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          origin: { lat: originLat, lng: originLng },
+          destination: { lat: destLat, lng: destLng }
+        })
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        if (data.duration) {
+          const time = Math.round(data.duration / 60) // convertir segundos a minutos
+          
+          // Guardar en caché local
+          this.travelTimeCache.set(cacheKey, time)
+          
+          // Guardar en BD
+          await supabase.from('travel_time_cache').insert({
+            origin_lat: originLat,
+            origin_lng: originLng,
+            dest_lat: destLat,
+            dest_lng: destLng,
+            travel_time: time,
+            distance: data.distance || 0,
+            source: 'google_maps'
+          })
+          
+          return time
+        }
+      }
+    } catch (error) {
+      console.error('Error consultando Google Maps:', error)
+    }
+    
+    // Si falla Google Maps, usar Haversine como fallback
+    console.log('⚠️ Usando Haversine como fallback')
     const distance = this.haversineDistance(originLat, originLng, destLat, destLng)
     const avgSpeed = 60 // km/h promedio
     const time = Math.round((distance / avgSpeed) * 60) // minutos
@@ -153,26 +193,6 @@ export class OpMapAlgorithmOptimized {
     // Guardar en caché local
     this.travelTimeCache.set(cacheKey, time)
     
-    // También guardar en BD para futuras consultas (asíncrono, no esperamos)
-    const saveToDb = async () => {
-      try {
-        await supabase.from('travel_time_cache').insert({
-          origin_lat: originLat,
-          origin_lng: originLng,
-          dest_lat: destLat,
-          dest_lng: destLng,
-          travel_time: time,
-          distance: distance,
-          source: 'haversine'
-        })
-      } catch (err) {
-        console.error('Error guardando en caché:', err)
-      }
-    }
-    
-    // Ejecutar sin esperar
-    saveToDb()
-
     return time
   }
 
@@ -270,6 +290,12 @@ export class OpMapAlgorithmOptimized {
     const unassignedHospitals = this.hospitals.filter(h => !assignedHospitals.has(h.id))
     console.log(`   Hospitales sin asignar: ${unassignedHospitals.length}`)
     
+    // Agregar logs específicos para hospitales de Barranquilla
+    const barranquillaHospitals = unassignedHospitals.filter(h => h.municipality_id === '08001')
+    if (barranquillaHospitals.length > 0) {
+      console.log(`   🏥 Hospitales de Barranquilla sin asignar: ${barranquillaHospitals.length}`)
+    }
+    
     for (const hospital of unassignedHospitals) {
       let bestKam: KAM | null = null
       let bestTime = Infinity
@@ -284,6 +310,17 @@ export class OpMapAlgorithmOptimized {
         const isSameDepartment = kamDept === hospitalDept
         const isAdjacent = this.adjacencyMatrix[kamDept]?.includes(hospitalDept)
         const isLevel2Adjacent = kam.enable_level2 && this.isLevel2Adjacent(kamDept, hospitalDept)
+        
+        // Log específico para hospitales de Barranquilla y KAM Cartagena
+        if (hospital.municipality_id === '08001' && kam.id === 'cartagena') {
+          console.log(`   🔍 Evaluando Cartagena para hospital de Barranquilla:`)
+          console.log(`      - KAM Dept: ${kamDept}, Hospital Dept: ${hospitalDept}`)
+          console.log(`      - Mismo departamento: ${isSameDepartment}`)
+          console.log(`      - Adyacente: ${isAdjacent}`)
+          console.log(`      - Level2 habilitado: ${kam.enable_level2}`)
+          console.log(`      - Es Level2 adyacente: ${isLevel2Adjacent}`)
+          console.log(`      - Matriz adyacencia para ${kamDept}: ${JSON.stringify(this.adjacencyMatrix[kamDept])}`)
+        }
         
         if (!isSameDepartment && !isAdjacent && !isLevel2Adjacent) {
           continue
@@ -303,6 +340,8 @@ export class OpMapAlgorithmOptimized {
             bestTime = time
             bestKam = kam
           }
+        } else if (hospital.municipality_id === '08001' && kam.id === 'cartagena') {
+          console.log(`      ⏰ Tiempo excede el límite: ${Math.round(time / 60)}h ${time % 60}min > ${kam.max_travel_time} min`)
         }
       }
 
