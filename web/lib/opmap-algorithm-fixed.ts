@@ -415,52 +415,68 @@ export class OpMapAlgorithmFixed {
   async saveAssignments(assignments: Assignment[]) {
     console.log(`💾 Guardando ${assignments.length} asignaciones...`)
     
-    // Estrategia: Eliminar TODAS las asignaciones existentes y recrearlas
-    console.log('🗑️ Eliminando todas las asignaciones anteriores...')
-    
-    // Primero limpiar todos los assigned_kam_id
-    const { error: clearError } = await supabase
-      .from('hospitals')
-      .update({ assigned_kam_id: null })
-      .eq('active', true)
-    
-    if (clearError) {
-      console.error('Error limpiando assigned_kam_id:', clearError)
-    }
-    
-    // Eliminar TODAS las asignaciones
-    const { error: deleteError } = await supabase
-      .from('assignments')
-      .delete()
-      .gte('id', 0) // Truco para eliminar todas las filas
-    
-    if (deleteError) {
-      console.error('Error eliminando asignaciones:', deleteError)
-    }
+    try {
+      // Estrategia: Usar una transacción para eliminar y recrear
+      console.log('🗑️ Eliminando todas las asignaciones anteriores...')
+      
+      // Primero obtener todas las asignaciones existentes
+      const { data: existingAssignments } = await supabase
+        .from('assignments')
+        .select('id')
+      
+      if (existingAssignments && existingAssignments.length > 0) {
+        // Eliminar por lotes usando los IDs
+        const deletePromises = []
+        const batchSize = 100
+        
+        for (let i = 0; i < existingAssignments.length; i += batchSize) {
+          const batch = existingAssignments.slice(i, i + batchSize)
+          const ids = batch.map(a => a.id)
+          
+          deletePromises.push(
+            supabase
+              .from('assignments')
+              .delete()
+              .in('id', ids)
+          )
+        }
+        
+        await Promise.all(deletePromises)
+        console.log(`✅ Eliminadas ${existingAssignments.length} asignaciones anteriores`)
+      }
 
-    // Insertar nuevas asignaciones
-    console.log(`📝 Insertando ${assignments.length} nuevas asignaciones...`)
-    const { error } = await supabase
-      .from('assignments')
-      .insert(assignments)
+      // Insertar nuevas asignaciones
+      console.log(`📝 Insertando ${assignments.length} nuevas asignaciones...`)
+      
+      // Insertar por lotes para evitar problemas
+      const insertPromises = []
+      const batchSize = 100
+      
+      for (let i = 0; i < assignments.length; i += batchSize) {
+        const batch = assignments.slice(i, i + batchSize)
+        insertPromises.push(
+          supabase
+            .from('assignments')
+            .insert(batch)
+        )
+      }
+      
+      const results = await Promise.all(insertPromises)
+      
+      // Verificar errores
+      for (const result of results) {
+        if (result.error) {
+          console.error('Error en inserción:', result.error)
+          throw new Error(`Error saving assignments: ${result.error.message}`)
+        }
+      }
 
-    if (error) {
-      console.error('Error completo:', error)
-      throw new Error(`Error saving assignments: ${error.message}`)
+      console.log(`✅ ${assignments.length} asignaciones guardadas exitosamente`)
+      return assignments.length
+      
+    } catch (error) {
+      console.error('Error en saveAssignments:', error)
+      throw error
     }
-    
-    // Actualizar assigned_kam_id en hospitals
-    console.log('🔄 Actualizando assigned_kam_id en hospitals...')
-    const updatePromises = assignments.map(assignment => 
-      supabase
-        .from('hospitals')
-        .update({ assigned_kam_id: assignment.kam_id })
-        .eq('id', assignment.hospital_id)
-    )
-    
-    await Promise.all(updatePromises)
-
-    console.log(`✅ ${assignments.length} asignaciones guardadas exitosamente`)
-    return assignments.length
   }
 }
