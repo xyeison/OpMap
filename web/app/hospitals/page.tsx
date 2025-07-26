@@ -85,9 +85,15 @@ export default function HospitalsPage() {
     try {
       const response = await fetch('/api/locations/departments')
       const data = await response.json()
-      setDepartments(data)
+      if (response.ok && Array.isArray(data)) {
+        setDepartments(data)
+      } else {
+        console.error('Invalid departments response:', data)
+        setDepartments([])
+      }
     } catch (error) {
       console.error('Error loading departments:', error)
+      setDepartments([])
     } finally {
       setLoadingLocations(false)
     }
@@ -102,9 +108,15 @@ export default function HospitalsPage() {
     try {
       const response = await fetch(`/api/locations/municipalities?departmentId=${departmentId}`)
       const data = await response.json()
-      setMunicipalities(data)
+      if (response.ok && Array.isArray(data)) {
+        setMunicipalities(data)
+      } else {
+        console.error('Invalid municipalities response:', data)
+        setMunicipalities([])
+      }
     } catch (error) {
       console.error('Error loading municipalities:', error)
+      setMunicipalities([])
     } finally {
       setLoadingLocations(false)
     }
@@ -118,9 +130,15 @@ export default function HospitalsPage() {
     try {
       const response = await fetch(`/api/locations/localities?municipalityId=${municipalityId}`)
       const data = await response.json()
-      setLocalities(data)
+      if (response.ok && Array.isArray(data)) {
+        setLocalities(data)
+      } else {
+        console.error('Invalid localities response:', data)
+        setLocalities([])
+      }
     } catch (error) {
       console.error('Error loading localities:', error)
+      setLocalities([])
     } finally {
       setLoadingLocations(false)
     }
@@ -428,7 +446,7 @@ export default function HospitalsPage() {
                   </option>
                   {municipalities.map(mun => (
                     <option key={mun.id} value={mun.id}>
-                      {mun.name} {mun.is_capital ? '(Capital)' : ''}
+                      {mun.name}
                     </option>
                   ))}
                 </select>

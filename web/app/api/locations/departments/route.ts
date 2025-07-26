@@ -8,18 +8,6 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
 export async function GET() {
   try {
-    // Primero verificar qué columnas existen
-    const { data: sample, error: sampleError } = await supabase
-      .from('municipalities')
-      .select('*')
-      .limit(1)
-
-    if (sampleError) {
-      console.error('Error getting sample:', sampleError)
-      throw sampleError
-    }
-
-    console.log('Municipality columns:', sample ? Object.keys(sample[0] || {}) : [])
 
     // Lista de departamentos de Colombia
     const colombianDepartments = [

@@ -20,13 +20,19 @@ export async function GET(request: NextRequest) {
     
     const { data: municipalities, error } = await supabase
       .from('municipalities')
-      .select('id, name')
-      .like('id', `${deptId}%`) // Buscar municipios que empiecen con el código del departamento
+      .select('code, name')
+      .eq('department_code', deptId) // Buscar municipios por código de departamento
       .order('name')
 
     if (error) throw error
 
-    return NextResponse.json(municipalities || [])
+    // Transform the response to match expected format
+    const formattedMunicipalities = (municipalities || []).map(m => ({
+      id: m.code,
+      name: m.name
+    }))
+
+    return NextResponse.json(formattedMunicipalities)
   } catch (error) {
     console.error('Error fetching municipalities:', error)
     return NextResponse.json({ error: 'Error al obtener municipios' }, { status: 500 })
