@@ -5,10 +5,12 @@ import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import ContractsList from '@/components/ContractsList'
+import { useQueryClient } from '@tanstack/react-query'
 
 export default function HospitalDetailPage() {
   const params = useParams()
   const router = useRouter()
+  const queryClient = useQueryClient()
   const hospitalId = params.id as string
   
   const [hospital, setHospital] = useState<any>(null)
@@ -19,6 +21,7 @@ export default function HospitalDetailPage() {
   const [deactivateReason, setDeactivateReason] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [contractStats, setContractStats] = useState({ activeCount: 0, totalValue: 0 })
+  const [isRecalculating, setIsRecalculating] = useState(false)
 
   useEffect(() => {
     loadHospitalData()
@@ -151,15 +154,38 @@ export default function HospitalDetailPage() {
         if (historyError) throw historyError
       }
 
+      // Recalcular asignaciones para actualizar territorios
+      setIsRecalculating(true)
+      console.log('Recalculando asignaciones después de cambiar estado del hospital...')
+      const recalcResponse = await fetch('/api/recalculate-assignments', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      })
+
+      if (!recalcResponse.ok) {
+        console.error('Error al recalcular asignaciones')
+        throw new Error('Error al recalcular asignaciones territoriales')
+      }
+
+      const recalcResult = await recalcResponse.json()
+      console.log('Recálculo completado:', recalcResult)
+
+      // Invalidar caché del mapa para que se actualice
+      await queryClient.invalidateQueries({ queryKey: ['map-data'] })
+
       // Recargar datos
       await loadHospitalData()
       setShowDeactivateModal(false)
       setDeactivateReason('')
+      setIsRecalculating(false)
       
-      alert(`Hospital ${hospital.active ? 'desactivado' : 'activado'} exitosamente`)
+      alert(`Hospital ${hospital.active ? 'desactivado' : 'activado'} exitosamente. Las asignaciones territoriales han sido actualizadas.`)
     } catch (error: any) {
       console.error('Error toggling hospital status:', error)
       alert(`Error al cambiar el estado del hospital: ${error.message || 'Error desconocido'}`)
+      setIsRecalculating(false)
     } finally {
       setIsSubmitting(false)
     }
@@ -346,6 +372,19 @@ export default function HospitalDetailPage() {
                   {isSubmitting ? 'Desactivando...' : 'Confirmar Desactivación'}
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal de recálculo de territorios */}
+        {isRecalculating && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 max-w-sm w-full text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+              <h3 className="text-lg font-semibold mb-2">Actualizando Territorios</h3>
+              <p className="text-gray-600">
+                Recalculando asignaciones territoriales...
+              </p>
             </div>
           </div>
         )}
