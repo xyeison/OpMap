@@ -60,20 +60,27 @@ export default function ContractsListImproved({ hospitalId, onClose }: Contracts
       ? JSON.parse(localStorage.getItem('opmap_user') || '{}').id
       : null
 
-    const { error } = await supabase
-      .from('hospital_contracts')
-      .insert({
-        hospital_id: hospitalId,
-        contract_number: newContract.contract_number,
-        contract_type: newContract.contract_type,
-        contract_value: parseFloat(newContract.contract_value),
-        start_date: newContract.start_date,
-        end_date: newContract.end_date,
-        active: newContract.active,
-        created_by: userId
-      })
+    try {
+      const { data, error } = await supabase
+        .from('hospital_contracts')
+        .insert({
+          hospital_id: hospitalId,
+          contract_number: newContract.contract_number,
+          contract_type: newContract.contract_type,
+          contract_value: parseFloat(newContract.contract_value),
+          start_date: newContract.start_date,
+          end_date: newContract.end_date,
+          active: newContract.active,
+          created_by: userId || null
+        })
+        .select()
 
-    if (!error) {
+      if (error) {
+        console.error('Error detallado al agregar contrato:', error)
+        alert(`Error al agregar contrato: ${error.message}\n${error.details || ''}\n${error.hint || ''}`)
+        return
+      }
+
       setNewContract({
         contract_number: '',
         contract_type: 'capita',
@@ -85,8 +92,9 @@ export default function ContractsListImproved({ hospitalId, onClose }: Contracts
       setShowAddForm(false)
       loadContracts()
       alert('Contrato agregado exitosamente')
-    } else {
-      alert('Error al agregar contrato')
+    } catch (err) {
+      console.error('Error inesperado:', err)
+      alert('Error inesperado al agregar contrato')
     }
   }
 
