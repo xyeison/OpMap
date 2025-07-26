@@ -58,6 +58,7 @@ export default function HospitalsPage() {
             <div className="text-sm text-gray-600 mb-3">
               <p>Municipio: {hospital.municipality_id}</p>
               <p>Camas: {hospital.beds || '-'}</p>
+              <p className="font-medium">KAM: {hospital.assigned_kam_name || 'Sin asignar'}</p>
             </div>
             <button
               onClick={() => {
@@ -77,19 +78,13 @@ export default function HospitalsPage() {
         <table className="min-w-full">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Código
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Hospital
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Nombre
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">
                 Municipio
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Camas
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 KAM Asignado
               </th>
               <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -100,22 +95,21 @@ export default function HospitalsPage() {
           <tbody className="bg-white divide-y divide-gray-200">
             {filteredHospitals?.slice(0, 20).map((hospital) => (
               <tr key={hospital.id}>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {hospital.code}
+                <td className="px-4 py-4">
+                  <div>
+                    <div className="text-sm font-medium text-gray-900">{hospital.name}</div>
+                    <div className="text-xs text-gray-500">{hospital.code}</div>
+                  </div>
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm font-medium text-gray-900">{hospital.name}</div>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 hidden lg:table-cell">
                   {hospital.municipality_id}
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {hospital.beds || '-'}
+                <td className="px-4 py-4 whitespace-nowrap text-sm">
+                  <span className="text-gray-900">
+                    {hospital.assigned_kam_name || '-'}
+                  </span>
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  -
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-center">
+                <td className="px-4 py-4 whitespace-nowrap text-center">
                   <button
                     onClick={() => {
                       console.log('Navigating to hospital:', hospital.id);
