@@ -75,25 +75,12 @@ export const hospitalService = {
   async getAll() {
     const { data, error } = await supabase
       .from('hospitals')
-      .select(`
-        *,
-        assignments!left (
-          kam_id,
-          sellers!inner (
-            name
-          )
-        )
-      `)
+      .select('*')
       .eq('active', true)
       .order('name')
     
     if (error) throw error
-    
-    // Flatten the data to include KAM name
-    return data?.map(hospital => ({
-      ...hospital,
-      assigned_kam_name: hospital.assignments?.[0]?.sellers?.name || null
-    }))
+    return data
   },
 
   async getById(id: string) {

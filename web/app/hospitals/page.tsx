@@ -2,17 +2,53 @@
 
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { hospitalService } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
 import ProtectedRoute from '@/components/ProtectedRoute'
 
 export default function HospitalsPage() {
   const [searchTerm, setSearchTerm] = useState('')
+  const [hospitalsWithKam, setHospitalsWithKam] = useState<any[]>([])
   const queryClient = useQueryClient()
   
   const { data: hospitals, isLoading } = useQuery({
     queryKey: ['hospitals'],
-    queryFn: hospitalService.getAll,
+    queryFn: async () => {
+      // Cargar hospitales
+      const { data: hospitalsData } = await supabase
+        .from('hospitals')
+        .select('*')
+        .eq('active', true)
+        .order('name')
+      
+      // Cargar asignaciones con detalles de KAM
+      const { data: assignments } = await supabase
+        .from('assignments')
+        .select(`
+          hospital_id,
+          kam_id,
+          kams (
+            id,
+            name
+          )
+        `)
+      
+      // Crear mapa de hospital_id -> kam_name
+      const kamMap = new Map()
+      assignments?.forEach(a => {
+        if (a.kams) {
+          kamMap.set(a.hospital_id, a.kams.name)
+        }
+      })
+      
+      // Combinar datos
+      const hospitalsWithKamData = hospitalsData?.map(h => ({
+        ...h,
+        assigned_kam_name: kamMap.get(h.id) || null
+      }))
+      
+      return hospitalsWithKamData
+    },
   })
   
   const handleUpdate = () => {
