@@ -90,7 +90,15 @@ export default function HospitalsPage() {
                   -
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-center">
-                  <span className="text-blue-600">Ver</span>
+                  <button
+                    onClick={() => {
+                      console.log('Navigating to hospital:', hospital.id);
+                      window.location.href = `/hospitals/${hospital.id}`;
+                    }}
+                    className="px-3 py-1 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded cursor-pointer"
+                  >
+                    Ver detalle
+                  </button>
                 </td>
               </tr>
             ))}
