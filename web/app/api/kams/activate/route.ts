@@ -20,6 +20,7 @@ export async function POST(request: Request) {
       .single()
     
     console.log(`📍 KAM ${kam.name} en ${kam.area_id}`)
+    console.log('KAM completo:', kam)
     
     // 2. Activar el KAM
     await supabase
@@ -33,6 +34,8 @@ export async function POST(request: Request) {
       .select('*')
       .eq('municipality_id', kam.area_id)
       .eq('active', true)
+    
+    console.log(`🏥 Hospitales en territorio base (${kam.area_id}):`, baseHospitals?.length || 0)
     
     let territoryClaimed = 0
     let stolenFromOthers = 0
@@ -99,6 +102,8 @@ export async function POST(request: Request) {
       .eq('department_id', kam.area_id.substring(0, 2)) // Mismo departamento
       .neq('municipality_id', kam.area_id) // No en su municipio base
     
+    console.log(`🔍 Hospitales cercanos en el departamento:`, nearbyHospitals?.length || 0)
+    
     for (const hospital of nearbyHospitals || []) {
       // Calcular tiempo desde el KAM reactivado
       const { data: newTime } = await supabase
@@ -143,8 +148,61 @@ export async function POST(request: Request) {
       }
     }
     
+    // 5. Si no se asignó ningún hospital, buscar hospitales sin asignar cercanos
+    if (territoryClaimed === 0 && stolenFromOthers === 0) {
+      console.log('⚠️ No se asignaron hospitales, buscando hospitales sin asignar...')
+      
+      const { data: unassignedHospitals } = await supabase
+        .from('hospitals')
+        .select('*')
+        .eq('active', true)
+        .is('assigned_kam_id', null)
+        .eq('department_id', kam.area_id.substring(0, 2))
+      
+      console.log(`🏥 Hospitales sin asignar en el departamento: ${unassignedHospitals?.length || 0}`)
+      
+      for (const hospital of unassignedHospitals || []) {
+        const { data: travelTime } = await supabase
+          .from('travel_time_cache')
+          .select('travel_time')
+          .eq('origin_lat', kam.lat)
+          .eq('origin_lng', kam.lng)
+          .eq('dest_lat', hospital.lat)
+          .eq('dest_lng', hospital.lng)
+          .single()
+        
+        if (travelTime && travelTime.travel_time <= (kam.max_travel_time || 240)) {
+          await supabase
+            .from('assignments')
+            .upsert({
+              kam_id: kamId,
+              hospital_id: hospital.id,
+              travel_time: travelTime.travel_time,
+              assignment_type: 'automatic',
+              updated_at: new Date().toISOString()
+            }, {
+              onConflict: 'hospital_id'
+            })
+          
+          await supabase
+            .from('hospitals')
+            .update({ assigned_kam_id: kamId })
+            .eq('id', hospital.id)
+          
+          stolenFromOthers++
+          
+          changes.push({
+            hospital: hospital.name,
+            previousKam: 'Sin asignar',
+            newTime: travelTime.travel_time,
+            action: 'Asignado (sin KAM previo)'
+          })
+        }
+      }
+    }
+    
     console.log(`✅ Territorio base recuperado: ${territoryClaimed} hospitales`)
-    console.log(`🎯 Hospitales optimizados: ${stolenFromOthers}`)
+    console.log(`🎯 Hospitales optimizados/asignados: ${stolenFromOthers}`)
     
     return NextResponse.json({
       success: true,
