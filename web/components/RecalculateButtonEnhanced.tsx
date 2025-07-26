@@ -16,6 +16,7 @@ interface PreviewData {
     percentage: string
     lastUpdate: string
   }
+  warning?: string
 }
 
 export default function RecalculateButtonEnhanced() {
@@ -138,10 +139,17 @@ export default function RecalculateButtonEnhanced() {
                 </div>
               )}
 
-              {preview.missingRoutes === 0 && (
+              {preview.missingRoutes === 0 && !preview.warning && (
                 <div className="bg-green-50 p-3 rounded">
                   <p className="text-sm font-semibold text-green-800">✅ Caché Completo</p>
                   <p className="text-sm">Todas las rutas están en caché. No se necesitan llamadas a la API.</p>
+                </div>
+              )}
+              
+              {preview.warning && (
+                <div className="bg-red-50 p-3 rounded">
+                  <p className="text-sm font-semibold text-red-800">⚠️ Advertencia</p>
+                  <p className="text-sm">{preview.warning}</p>
                 </div>
               )}
             </div>

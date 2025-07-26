@@ -9,10 +9,14 @@ const supabase = createClient(
 export async function GET() {
   try {
     // 1. Obtener todos los KAMs activos
-    const { data: sellers } = await supabase
-      .from('sellers')
+    const { data: sellers, error: sellersError } = await supabase
+      .from('kams')
       .select('*')
       .eq('active', true)
+    
+    if (sellersError) {
+      console.error('Error loading KAMs:', sellersError)
+    }
 
     // 2. Obtener todos los hospitales activos
     const { data: hospitals } = await supabase
@@ -27,9 +31,31 @@ export async function GET() {
       .eq('source', 'google_maps')
 
     // 4. Calcular rutas necesarias (estimación más realista)
-    // No es KAMs × Hospitales porque el algoritmo solo calcula rutas para hospitales cercanos
-    // Estimamos que cada hospital será evaluado por ~3-4 KAMs en promedio (los más cercanos)
-    const avgKamsPerHospital = 4
+    // Si no hay KAMs activos, no hay rutas que calcular
+    if (!sellers || sellers.length === 0) {
+      return NextResponse.json({
+        success: true,
+        preview: {
+          totalKams: 0,
+          totalHospitals: hospitals?.length || 0,
+          totalRoutesNeeded: 0,
+          routesInCache: cacheData?.length || 0,
+          missingRoutes: 0,
+          googleMapsApiCalls: 0,
+          estimatedTimeSeconds: 0,
+          estimatedCostUSD: "0.00",
+          cacheInfo: {
+            percentage: "0",
+            lastUpdate: cacheData?.[0]?.created_at || 'N/A'
+          },
+          warning: "No hay KAMs activos. Active al menos un KAM antes de recalcular."
+        }
+      })
+    }
+    
+    // Estimación realista: cada hospital será evaluado por KAMs cercanos
+    // En promedio, un hospital es evaluado por 3-4 KAMs (los del mismo y departamentos adyacentes)
+    const avgKamsPerHospital = Math.min(sellers.length, 4)
     const estimatedTotalRoutes = hospitals!.length * avgKamsPerHospital
     const cachedRoutes = cacheData?.length || 0
     const missingRoutes = Math.max(0, estimatedTotalRoutes - cachedRoutes)
