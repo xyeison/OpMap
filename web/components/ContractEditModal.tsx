@@ -11,6 +11,7 @@ interface Contract {
   contract_value: number
   start_date: string
   end_date: string
+  description?: string
   active: boolean
 }
 
@@ -27,6 +28,7 @@ export default function ContractEditModal({ contract, onClose, onSave }: Contrac
     contract_value: contract.contract_value,
     start_date: contract.start_date,
     end_date: contract.end_date,
+    description: contract.description || '',
     active: contract.active
   })
   const [saving, setSaving] = useState(false)
@@ -127,6 +129,19 @@ export default function ContractEditModal({ contract, onClose, onSave }: Contrac
               className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               required
               min={formData.start_date}
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Descripción de la Oportunidad
+            </label>
+            <textarea
+              value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              rows={4}
+              placeholder="Describa los detalles de la oportunidad..."
             />
           </div>
 

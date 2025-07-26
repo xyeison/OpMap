@@ -32,6 +32,7 @@ export default function ContractsList({ hospitalId, onClose }: ContractsListProp
     contract_value: '',
     start_date: '',
     end_date: '',
+    description: '',
     active: true
   })
 
@@ -79,6 +80,7 @@ export default function ContractsList({ hospitalId, onClose }: ContractsListProp
           end_date: newContract.end_date,
           duration_months: durationMonths,
           current_provider: 'Proveedor', // Agregar valor por defecto
+          description: newContract.description || null,
           active: newContract.active,
           created_by: userId || null
         })
@@ -96,6 +98,7 @@ export default function ContractsList({ hospitalId, onClose }: ContractsListProp
         contract_value: '',
         start_date: '',
         end_date: '',
+        description: '',
         active: true
       })
       setShowAddForm(false)
@@ -226,6 +229,19 @@ export default function ContractsList({ hospitalId, onClose }: ContractsListProp
                   <span className="text-sm font-medium">Contrato activo</span>
                 </label>
               </div>
+            </div>
+            
+            <div className="mt-4">
+              <label className="block text-sm font-medium mb-1">
+                Descripción de la oportunidad
+              </label>
+              <textarea
+                className="w-full p-2 border rounded"
+                rows={4}
+                placeholder="Describa los detalles de la oportunidad..."
+                value={newContract.description}
+                onChange={(e) => setNewContract({...newContract, description: e.target.value})}
+              />
             </div>
             
             <div className="flex gap-2 mt-4">
