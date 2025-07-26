@@ -88,14 +88,42 @@ export default function HospitalDetailPage() {
 
       // Si se está desactivando, registrar en el historial
       if (hospital.active) {
+        const historyData: any = {
+          hospital_id: hospitalId,
+          action: 'deactivated',
+          reason: deactivateReason
+        }
+        
+        // Solo agregar created_by si hay un usuario logueado
+        if (userId) {
+          historyData.created_by = userId
+        }
+        
+        console.log('Inserting history:', historyData)
+        
+        const { data: historyInsertData, error: historyError } = await supabase
+          .from('hospital_history')
+          .insert(historyData)
+          .select()
+
+        console.log('History insert result:', { data: historyInsertData, error: historyError })
+
+        if (historyError) throw historyError
+      } else {
+        // Si se está activando, también registrar en el historial
+        const historyData: any = {
+          hospital_id: hospitalId,
+          action: 'activated',
+          reason: 'Reactivación del hospital'
+        }
+        
+        if (userId) {
+          historyData.created_by = userId
+        }
+        
         const { error: historyError } = await supabase
           .from('hospital_history')
-          .insert({
-            hospital_id: hospitalId,
-            action: 'deactivated',
-            reason: deactivateReason,
-            created_by: userId
-          })
+          .insert(historyData)
 
         if (historyError) throw historyError
       }
