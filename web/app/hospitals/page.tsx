@@ -96,7 +96,36 @@ export default function HospitalsPage() {
 
       if (error) throw error
 
-      alert('Hospital agregado exitosamente')
+      // Asignar el hospital al KAM más cercano
+      if (data) {
+        try {
+          const assignResponse = await fetch('/api/hospitals/assign-to-kam', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              hospitalId: data.id,
+              hospitalLat: data.lat,
+              hospitalLng: data.lng,
+              municipalityId: data.municipality_id
+            })
+          })
+
+          const assignResult = await assignResponse.json()
+          
+          if (!assignResponse.ok) {
+            console.error('Error asignando hospital:', assignResult.error)
+            alert(`Hospital agregado pero no se pudo asignar a un KAM: ${assignResult.error}`)
+          } else {
+            alert(`Hospital agregado y asignado exitosamente a ${assignResult.kamName}`)
+          }
+        } catch (assignError) {
+          console.error('Error en asignación:', assignError)
+          alert('Hospital agregado pero hubo un error al asignarlo a un KAM')
+        }
+      }
+
       setShowAddModal(false)
       setNewHospital({
         name: '',
