@@ -72,11 +72,17 @@ export default function HospitalDetailPage() {
         ? JSON.parse(localStorage.getItem('opmap_user') || '{}').id
         : null
 
+      console.log('Toggling hospital:', hospitalId, 'from', hospital.active, 'to', !hospital.active)
+      console.log('User ID:', userId)
+
       // Actualizar estado del hospital
-      const { error: updateError } = await supabase
+      const { data: updateData, error: updateError } = await supabase
         .from('hospitals')
         .update({ active: !hospital.active })
         .eq('id', hospitalId)
+        .select()
+
+      console.log('Update result:', { data: updateData, error: updateError })
 
       if (updateError) throw updateError
 
@@ -100,9 +106,9 @@ export default function HospitalDetailPage() {
       setDeactivateReason('')
       
       alert(`Hospital ${hospital.active ? 'desactivado' : 'activado'} exitosamente`)
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error toggling hospital status:', error)
-      alert('Error al cambiar el estado del hospital')
+      alert(`Error al cambiar el estado del hospital: ${error.message || 'Error desconocido'}`)
     } finally {
       setIsSubmitting(false)
     }
