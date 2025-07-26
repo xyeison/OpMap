@@ -15,10 +15,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'departmentId es requerido' }, { status: 400 })
     }
 
+    // Primero obtener el department_id correcto (sin ceros iniciales para comparación)
+    const deptId = departmentId.padStart(2, '0')
+    
     const { data: municipalities, error } = await supabase
       .from('municipalities')
-      .select('id, name, is_capital')
-      .eq('department_id', departmentId)
+      .select('id, name')
+      .like('id', `${deptId}%`) // Buscar municipios que empiecen con el código del departamento
       .order('name')
 
     if (error) throw error
