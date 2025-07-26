@@ -91,15 +91,17 @@ export default function HospitalDetailPage() {
         const historyData: any = {
           hospital_id: hospitalId,
           action: 'deactivated',
-          reason: deactivateReason
+          reason: deactivateReason,
+          previous_state: true,
+          new_state: false
         }
         
-        // Solo agregar created_by si hay un usuario logueado
+        // Usar user_id en lugar de created_by
         if (userId) {
-          historyData.created_by = userId
+          historyData.user_id = userId
         }
         
-        console.log('Inserting history:', historyData)
+        console.log('Inserting deactivation history:', historyData)
         
         const { data: historyInsertData, error: historyError } = await supabase
           .from('hospital_history')
@@ -114,16 +116,23 @@ export default function HospitalDetailPage() {
         const historyData: any = {
           hospital_id: hospitalId,
           action: 'activated',
-          reason: 'Reactivación del hospital'
+          reason: 'Reactivación del hospital',
+          previous_state: false,
+          new_state: true
         }
         
         if (userId) {
-          historyData.created_by = userId
+          historyData.user_id = userId
         }
         
-        const { error: historyError } = await supabase
+        console.log('Inserting activation history:', historyData)
+        
+        const { data: historyInsertData, error: historyError } = await supabase
           .from('hospital_history')
           .insert(historyData)
+          .select()
+
+        console.log('History insert result:', { data: historyInsertData, error: historyError })
 
         if (historyError) throw historyError
       }
