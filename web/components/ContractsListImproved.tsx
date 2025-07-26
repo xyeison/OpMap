@@ -77,7 +77,8 @@ export default function ContractsListImproved({ hospitalId, onClose }: Contracts
           contract_value: parseFloat(newContract.contract_value),
           start_date: newContract.start_date,
           end_date: newContract.end_date,
-          duration_months: durationMonths, // Agregar este campo
+          duration_months: durationMonths,
+          current_provider: 'Proveedor', // Agregar valor por defecto
           active: newContract.active,
           created_by: userId || null
         })
