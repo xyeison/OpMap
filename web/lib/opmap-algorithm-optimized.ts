@@ -154,19 +154,24 @@ export class OpMapAlgorithmOptimized {
     this.travelTimeCache.set(cacheKey, time)
     
     // También guardar en BD para futuras consultas (asíncrono, no esperamos)
-    supabase.from('travel_time_cache').insert({
-      origin_lat: originLat,
-      origin_lng: originLng,
-      dest_lat: destLat,
-      dest_lng: destLng,
-      travel_time: time,
-      distance: distance,
-      source: 'haversine'
-    }).then(() => {
-      // Silently handle success
-    }).catch(err => {
-      console.error('Error guardando en caché:', err)
-    })
+    const saveToDb = async () => {
+      try {
+        await supabase.from('travel_time_cache').insert({
+          origin_lat: originLat,
+          origin_lng: originLng,
+          dest_lat: destLat,
+          dest_lng: destLng,
+          travel_time: time,
+          distance: distance,
+          source: 'haversine'
+        })
+      } catch (err) {
+        console.error('Error guardando en caché:', err)
+      }
+    }
+    
+    // Ejecutar sin esperar
+    saveToDb()
 
     return time
   }
