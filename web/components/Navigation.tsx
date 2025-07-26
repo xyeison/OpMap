@@ -16,6 +16,7 @@ export default function Navigation() {
               <Link href="/" className="hover:text-blue-200">Dashboard</Link>
               <Link href="/kams" className="hover:text-blue-200">KAMs</Link>
               <Link href="/hospitals" className="hover:text-blue-200">Hospitales</Link>
+              <Link href="/contracts" className="hover:text-blue-200">Contratos</Link>
               <Link href="/map" className="hover:text-blue-200">Mapa</Link>
               <span className="text-sm">|</span>
               <span className="text-sm">{user.full_name}</span>

@@ -22,6 +22,9 @@ export default function HospitalDetailPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [contractStats, setContractStats] = useState({ activeCount: 0, totalValue: 0 })
   const [isRecalculating, setIsRecalculating] = useState(false)
+  const [municipalityName, setMunicipalityName] = useState('')
+  const [departmentName, setDepartmentName] = useState('')
+  const [kamMunicipalityName, setKamMunicipalityName] = useState('')
 
   useEffect(() => {
     loadHospitalData()
@@ -39,6 +42,28 @@ export default function HospitalDetailPage() {
       if (hospitalData) {
         setHospital(hospitalData)
         
+        // Cargar nombre del municipio
+        const { data: municipality } = await supabase
+          .from('municipalities')
+          .select('name')
+          .eq('code', hospitalData.municipality_id)
+          .single()
+        
+        if (municipality) {
+          setMunicipalityName(municipality.name)
+        }
+        
+        // Cargar nombre del departamento
+        const { data: department } = await supabase
+          .from('departments')
+          .select('name')
+          .eq('code', hospitalData.department_id)
+          .single()
+        
+        if (department) {
+          setDepartmentName(department.name)
+        }
+        
         // Buscar la asignación del hospital
         const { data: assignment } = await supabase
           .from('assignments')
@@ -55,6 +80,19 @@ export default function HospitalDetailPage() {
             .single()
           
           setKam(kamData)
+          
+          // Cargar nombre del municipio del KAM
+          if (kamData) {
+            const { data: kamMunicipality } = await supabase
+              .from('municipalities')
+              .select('name')
+              .eq('code', kamData.area_id)
+              .single()
+            
+            if (kamMunicipality) {
+              setKamMunicipalityName(kamMunicipality.name)
+            }
+          }
         }
         
         // Cargar estadísticas de contratos
@@ -263,11 +301,11 @@ export default function HospitalDetailPage() {
             <div className="space-y-3">
               <div>
                 <span className="text-gray-600">Municipio:</span>
-                <span className="ml-2 font-medium">{hospital.municipality_id}</span>
+                <span className="ml-2 font-medium">{municipalityName || hospital.municipality_id}</span>
               </div>
               <div>
                 <span className="text-gray-600">Departamento:</span>
-                <span className="ml-2 font-medium">{hospital.department_id}</span>
+                <span className="ml-2 font-medium">{departmentName || hospital.department_id}</span>
               </div>
               <div>
                 <span className="text-gray-600">Número de camas:</span>
@@ -296,7 +334,7 @@ export default function HospitalDetailPage() {
                 </div>
                 <div>
                   <span className="text-gray-600">Municipio base:</span>
-                  <span className="ml-2 font-medium">{kam.area_id}</span>
+                  <span className="ml-2 font-medium">{kamMunicipalityName || kam.area_id}</span>
                 </div>
                 <div>
                   <span className="text-gray-600">Teléfono:</span>

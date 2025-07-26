@@ -1,15 +1,28 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { kamService } from '@/lib/supabase'
+import { kamService, supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import KamDeactivateButton from '@/components/KamDeactivateButton'
 import KamActivateButton from '@/components/KamActivateButton'
 
+interface KamWithData {
+  id: string
+  name: string
+  area_id: string
+  color: string
+  active: boolean
+  max_travel_time: number
+  enable_level2: boolean
+  municipalityName?: string
+  hospitalCount?: number
+}
+
 export default function KamsPage() {
   const [showForm, setShowForm] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [kamsWithData, setKamsWithData] = useState<KamWithData[]>([])
   const queryClient = useQueryClient()
   const router = useRouter()
   
@@ -17,6 +30,41 @@ export default function KamsPage() {
     queryKey: ['kams'],
     queryFn: kamService.getAll,
   })
+
+  useEffect(() => {
+    if (kams) {
+      loadAdditionalData()
+    }
+  }, [kams])
+
+  const loadAdditionalData = async () => {
+    if (!kams) return
+
+    const updatedKams = await Promise.all(
+      kams.map(async (kam) => {
+        // Cargar nombre del municipio
+        const { data: municipality } = await supabase
+          .from('municipalities')
+          .select('name')
+          .eq('code', kam.area_id)
+          .single()
+
+        // Contar hospitales asignados
+        const { count } = await supabase
+          .from('assignments')
+          .select('*', { count: 'exact', head: true })
+          .eq('kam_id', kam.id)
+
+        return {
+          ...kam,
+          municipalityName: municipality?.name,
+          hospitalCount: count || 0
+        }
+      })
+    )
+
+    setKamsWithData(updatedKams)
+  }
 
   const handleUpdate = () => {
     queryClient.invalidateQueries({ queryKey: ['kams'] })
@@ -62,7 +110,7 @@ export default function KamsPage() {
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {kams?.map((kam) => (
+            {kamsWithData.map((kam) => (
               <tr key={kam.id}>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="flex items-center">
@@ -77,10 +125,10 @@ export default function KamsPage() {
                   </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {kam.area_id}
+                  {kam.municipalityName || kam.area_id}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  -
+                  {kam.hospitalCount || 0}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                   {kam.max_travel_time} min
