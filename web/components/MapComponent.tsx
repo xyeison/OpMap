@@ -568,11 +568,13 @@ export default function MapComponent() {
                           </div>
                         </div>
                       ) : (
-                        <div style={{ fontSize: '11px', color: '#999', marginTop: '4px' }}>
-                          <em>Cargando tiempos de viaje...</em><br/>
-                          <div style={{ marginTop: '4px', fontSize: '10px' }}>
-                            Si no aparecen datos, es posible que no se hayan<br/>
-                            calculado rutas con Google Maps para esta zona.
+                        <div style={{ fontSize: '11px', color: '#666', marginTop: '4px' }}>
+                          <div style={{ padding: '4px', backgroundColor: '#f8f9fa', borderRadius: '4px' }}>
+                            <strong>Hospital sin asignar</strong><br/>
+                            <div style={{ marginTop: '4px', fontSize: '10px' }}>
+                              No hay tiempos de viaje calculados para este hospital.<br/>
+                              Ejecute un recálculo completo para incluirlo en el análisis.
+                            </div>
                           </div>
                         </div>
                       )}
