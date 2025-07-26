@@ -16,12 +16,12 @@ interface Contract {
   created_at: string
 }
 
-interface ContractsListProps {
+interface ContractsListImprovedProps {
   hospitalId: string
   onClose: () => void
 }
 
-export default function ContractsList({ hospitalId, onClose }: ContractsListProps) {
+export default function ContractsListImproved({ hospitalId, onClose }: ContractsListImprovedProps) {
   const [contracts, setContracts] = useState<Contract[]>([])
   const [loading, setLoading] = useState(true)
   const [showAddForm, setShowAddForm] = useState(false)
@@ -51,37 +51,42 @@ export default function ContractsList({ hospitalId, onClose }: ContractsListProp
   }
 
   const handleAdd = async () => {
-    if (!newContract.contract_value || !newContract.start_date || !newContract.duration_months || !newContract.current_provider) {
+    if (!newContract.contract_number || !newContract.contract_value || !newContract.start_date || !newContract.end_date) {
       alert('Por favor complete todos los campos requeridos')
       return
     }
+
+    const userId = typeof window !== 'undefined' 
+      ? JSON.parse(localStorage.getItem('opmap_user') || '{}').id
+      : null
 
     const { error } = await supabase
       .from('hospital_contracts')
       .insert({
         hospital_id: hospitalId,
+        contract_number: newContract.contract_number,
+        contract_type: newContract.contract_type,
         contract_value: parseFloat(newContract.contract_value),
         start_date: newContract.start_date,
-        duration_months: parseInt(newContract.duration_months),
-        current_provider: newContract.current_provider,
-        description: newContract.description || null,
+        end_date: newContract.end_date,
         active: newContract.active,
-        created_by: typeof window !== 'undefined' 
-          ? (JSON.parse(localStorage.getItem('opmap_user') || '{}')).id
-          : null
+        created_by: userId
       })
 
     if (!error) {
       setNewContract({
+        contract_number: '',
+        contract_type: 'capita',
         contract_value: '',
         start_date: '',
-        duration_months: '',
-        current_provider: '',
-        description: '',
+        end_date: '',
         active: true
       })
       setShowAddForm(false)
       loadContracts()
+      alert('Contrato agregado exitosamente')
+    } else {
+      alert('Error al agregar contrato')
     }
   }
 
@@ -94,10 +99,17 @@ export default function ContractsList({ hospitalId, onClose }: ContractsListProp
     loadContracts()
   }
 
-  const calculateEndDate = (startDate: string, months: number) => {
-    const date = new Date(startDate)
-    date.setMonth(date.getMonth() + months)
-    return date.toLocaleDateString('es-CO')
+  const formatCurrency = (value: number) => {
+    return new Intl.NumberFormat('es-CO', {
+      style: 'currency',
+      currency: 'COP',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
+    }).format(value)
+  }
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('es-CO')
   }
 
   return (
@@ -125,6 +137,33 @@ export default function ContractsList({ hospitalId, onClose }: ContractsListProp
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium mb-1">
+                  Número de Contrato *
+                </label>
+                <input
+                  type="text"
+                  className="w-full p-2 border rounded"
+                  value={newContract.contract_number}
+                  onChange={(e) => setNewContract({...newContract, contract_number: e.target.value})}
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Tipo de Contrato *
+                </label>
+                <select
+                  className="w-full p-2 border rounded"
+                  value={newContract.contract_type}
+                  onChange={(e) => setNewContract({...newContract, contract_type: e.target.value})}
+                >
+                  <option value="capita">Cápita</option>
+                  <option value="evento">Evento</option>
+                  <option value="pgp">PGP</option>
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium mb-1">
                   Valor del contrato *
                 </label>
                 <input
@@ -132,18 +171,6 @@ export default function ContractsList({ hospitalId, onClose }: ContractsListProp
                   className="w-full p-2 border rounded"
                   value={newContract.contract_value}
                   onChange={(e) => setNewContract({...newContract, contract_value: e.target.value})}
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  Proveedor actual *
-                </label>
-                <input
-                  type="text"
-                  className="w-full p-2 border rounded"
-                  value={newContract.current_provider}
-                  onChange={(e) => setNewContract({...newContract, current_provider: e.target.value})}
                 />
               </div>
               
@@ -161,29 +188,18 @@ export default function ContractsList({ hospitalId, onClose }: ContractsListProp
               
               <div>
                 <label className="block text-sm font-medium mb-1">
-                  Vigencia (meses) *
+                  Fecha fin *
                 </label>
                 <input
-                  type="number"
+                  type="date"
                   className="w-full p-2 border rounded"
-                  value={newContract.duration_months}
-                  onChange={(e) => setNewContract({...newContract, duration_months: e.target.value})}
+                  value={newContract.end_date}
+                  onChange={(e) => setNewContract({...newContract, end_date: e.target.value})}
+                  min={newContract.start_date}
                 />
               </div>
               
-              <div className="col-span-2">
-                <label className="block text-sm font-medium mb-1">
-                  Descripción
-                </label>
-                <textarea
-                  className="w-full p-2 border rounded"
-                  rows={2}
-                  value={newContract.description}
-                  onChange={(e) => setNewContract({...newContract, description: e.target.value})}
-                />
-              </div>
-              
-              <div className="col-span-2">
+              <div>
                 <label className="flex items-center gap-2">
                   <input
                     type="checkbox"
@@ -223,53 +239,71 @@ export default function ContractsList({ hospitalId, onClose }: ContractsListProp
                 <div className="flex justify-between items-start">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-2">
-                      <h4 className="font-semibold">{contract.current_provider}</h4>
+                      <h4 className="font-semibold">{contract.contract_number}</h4>
                       <span className={`text-xs px-2 py-1 rounded ${
                         contract.active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
                       }`}>
                         {contract.active ? 'Activo' : 'Inactivo'}
+                      </span>
+                      <span className="text-xs px-2 py-1 bg-blue-100 text-blue-800 rounded">
+                        {contract.contract_type === 'capita' ? 'Cápita' : 
+                         contract.contract_type === 'evento' ? 'Evento' : 'PGP'}
                       </span>
                     </div>
                     <div className="grid grid-cols-2 gap-4 text-sm">
                       <div>
                         <span className="text-gray-600">Valor:</span>
                         <span className="ml-2 font-medium">
-                          ${contract.contract_value.toLocaleString('es-CO')}
+                          {formatCurrency(contract.contract_value)}
                         </span>
                       </div>
                       <div>
-                        <span className="text-gray-600">Vigencia:</span>
-                        <span className="ml-2">{contract.duration_months} meses</span>
-                      </div>
-                      <div>
                         <span className="text-gray-600">Inicio:</span>
-                        <span className="ml-2">{new Date(contract.start_date).toLocaleDateString('es-CO')}</span>
+                        <span className="ml-2">{formatDate(contract.start_date)}</span>
                       </div>
                       <div>
                         <span className="text-gray-600">Fin:</span>
-                        <span className="ml-2">{calculateEndDate(contract.start_date, contract.duration_months)}</span>
+                        <span className="ml-2">{formatDate(contract.end_date)}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-600">Duración:</span>
+                        <span className="ml-2">
+                          {Math.round((new Date(contract.end_date).getTime() - new Date(contract.start_date).getTime()) / (1000 * 60 * 60 * 24 * 30))} meses
+                        </span>
                       </div>
                     </div>
-                    {contract.description && (
-                      <p className="text-sm text-gray-600 mt-2">{contract.description}</p>
-                    )}
                   </div>
-                  <button
-                    onClick={() => toggleActive(contract.id, contract.active)}
-                    className={`px-3 py-1 text-sm rounded ${
-                      contract.active 
-                        ? 'bg-red-100 text-red-700 hover:bg-red-200' 
-                        : 'bg-green-100 text-green-700 hover:bg-green-200'
-                    }`}
-                  >
-                    {contract.active ? 'Desactivar' : 'Activar'}
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setEditingContract(contract)}
+                      className="text-blue-600 hover:text-blue-800"
+                    >
+                      Editar
+                    </button>
+                    <button
+                      onClick={() => toggleActive(contract.id, contract.active)}
+                      className={contract.active ? 'text-red-600 hover:text-red-800' : 'text-green-600 hover:text-green-800'}
+                    >
+                      {contract.active ? 'Desactivar' : 'Activar'}
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
           </div>
         )}
       </div>
+
+      {editingContract && (
+        <ContractEditModal
+          contract={editingContract}
+          onClose={() => setEditingContract(null)}
+          onSave={() => {
+            setEditingContract(null)
+            loadContracts()
+          }}
+        />
+      )}
     </div>
   )
 }

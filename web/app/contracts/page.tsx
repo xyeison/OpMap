@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import { useRouter } from 'next/navigation'
+import ContractEditModal from '@/components/ContractEditModal'
 
 interface Contract {
   id: string
@@ -44,6 +45,7 @@ export default function ContractsPage() {
     totalValue: 0,
     averageValue: 0
   })
+  const [editingContract, setEditingContract] = useState<Contract | null>(null)
 
   useEffect(() => {
     loadData()
@@ -365,12 +367,20 @@ export default function ContractsPage() {
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <button
-                        onClick={() => router.push(`/hospitals/${contract.hospital_id}`)}
-                        className="text-indigo-600 hover:text-indigo-900"
-                      >
-                        Ver Hospital
-                      </button>
+                      <div className="flex gap-3">
+                        <button
+                          onClick={() => setEditingContract(contract)}
+                          className="text-blue-600 hover:text-blue-900"
+                        >
+                          Editar
+                        </button>
+                        <button
+                          onClick={() => router.push(`/hospitals/${contract.hospital_id}`)}
+                          className="text-indigo-600 hover:text-indigo-900"
+                        >
+                          Ver Hospital
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -384,6 +394,18 @@ export default function ContractsPage() {
             </div>
           )}
         </div>
+
+        {/* Modal de edición */}
+        {editingContract && (
+          <ContractEditModal
+            contract={editingContract}
+            onClose={() => setEditingContract(null)}
+            onSave={() => {
+              setEditingContract(null)
+              loadData()
+            }}
+          />
+        )}
       </div>
     </ProtectedRoute>
   )

@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import ProtectedRoute from '@/components/ProtectedRoute'
-import ContractsList from '@/components/ContractsList'
+import ContractsListImproved from '@/components/ContractsListImproved'
 import { useQueryClient } from '@tanstack/react-query'
 
 export default function HospitalDetailPage() {
@@ -370,7 +370,7 @@ export default function HospitalDetailPage() {
 
         {/* Modal de contratos */}
         {showContracts && (
-          <ContractsList
+          <ContractsListImproved
             hospitalId={hospitalId}
             onClose={() => {
               setShowContracts(false)
