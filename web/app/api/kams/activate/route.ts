@@ -14,7 +14,7 @@ export async function POST(request: Request) {
     
     // 1. Obtener info del KAM
     const { data: kam } = await supabase
-      .from('sellers')
+      .from('kams')
       .select('*')
       .eq('id', kamId)
       .single()
@@ -23,7 +23,7 @@ export async function POST(request: Request) {
     
     // 2. Activar el KAM
     await supabase
-      .from('sellers')
+      .from('kams')
       .update({ active: true })
       .eq('id', kamId)
     
@@ -45,7 +45,7 @@ export async function POST(request: Request) {
         .from('assignments')
         .select(`
           kam_id,
-          sellers!inner (
+          kams!inner (
             name
           )
         `)
@@ -73,7 +73,7 @@ export async function POST(request: Request) {
       territoryClaimed++
       
       if (currentAssignment && currentAssignment.kam_id !== kamId) {
-        const previousKamName = (currentAssignment.sellers as any)?.name || 'Desconocido'
+        const previousKamName = (currentAssignment.kams as any)?.name || 'Desconocido'
         changes.push({
           hospital: hospital.name,
           previousKam: previousKamName,
@@ -90,7 +90,7 @@ export async function POST(request: Request) {
         assignments!inner (
           kam_id,
           travel_time,
-          sellers!inner (
+          kams!inner (
             name
           )
         )
@@ -110,7 +110,7 @@ export async function POST(request: Request) {
         .eq('dest_lng', hospital.lng)
         .single()
       
-      if (newTime && newTime.travel_time < hospital.assignments.travel_time && newTime.travel_time <= kam.max_travel_time) {
+      if (newTime && newTime.travel_time < hospital.assignments.travel_time && newTime.travel_time <= (kam.max_travel_time || 240)) {
         // Este KAM está más cerca, reasignar
         await supabase
           .from('assignments')
@@ -130,7 +130,7 @@ export async function POST(request: Request) {
         stolenFromOthers++
         
         const assignment = hospital.assignments as any
-        const previousKamName = assignment?.sellers?.name || 'Desconocido'
+        const previousKamName = assignment?.kams?.name || 'Desconocido'
         
         changes.push({
           hospital: hospital.name,

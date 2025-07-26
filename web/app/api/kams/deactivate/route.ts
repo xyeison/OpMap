@@ -14,7 +14,7 @@ export async function POST(request: Request) {
     
     // 1. Obtener info del KAM y sus hospitales asignados
     const { data: kam } = await supabase
-      .from('sellers')
+      .from('kams')
       .select('name, area_id')
       .eq('id', kamId)
       .single()
@@ -44,13 +44,13 @@ export async function POST(request: Request) {
     
     // 2. Desactivar el KAM
     await supabase
-      .from('sellers')
+      .from('kams')
       .update({ active: false })
       .eq('id', kamId)
     
     // 3. Obtener KAMs activos cercanos
     const { data: activeKams } = await supabase
-      .from('sellers')
+      .from('kams')
       .select('*')
       .eq('active', true)
     
