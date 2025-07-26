@@ -60,11 +60,12 @@ export default function MapComponent() {
     queryKey: ['map-data'],
     queryFn: async () => {
       // Cargar todos los datos necesarios
-      const [kamsResult, assignmentsResult, municipalitiesResult, hospitalsResult] = await Promise.all([
+      const [kamsResult, assignmentsResult, municipalitiesResult, hospitalsResult, contractsResult] = await Promise.all([
         supabase.from('kams').select('*').eq('active', true),
         supabase.from('assignments').select('*, hospitals!inner(*), kams!inner(*)'),
         supabase.from('municipalities').select('id, name, population_2025'),
-        supabase.from('hospitals').select('*').eq('active', true)
+        supabase.from('hospitals').select('*').eq('active', true),
+        supabase.from('hospital_contracts').select('hospital_id, contract_value').eq('active', true)
       ])
       
       // Crear mapas de población y nombres por municipio
@@ -73,6 +74,15 @@ export default function MapComponent() {
       municipalitiesResult.data?.forEach(m => {
         populationMap[m.id] = m.population_2025 || 0
         municipalityNames[m.id] = m.name
+      })
+      
+      // Crear mapa de valores de contratos activos por hospital
+      const contractValuesByHospital: Record<string, number> = {}
+      contractsResult.data?.forEach(contract => {
+        if (!contractValuesByHospital[contract.hospital_id]) {
+          contractValuesByHospital[contract.hospital_id] = 0
+        }
+        contractValuesByHospital[contract.hospital_id] += contract.contract_value
       })
       
       // Identificar hospitales sin asignar (zonas vacantes)
@@ -85,7 +95,8 @@ export default function MapComponent() {
         hospitals: hospitalsResult.data || [],
         unassignedHospitals,
         populationMap,
-        municipalityNames
+        municipalityNames,
+        contractValuesByHospital
       }
     }
   })
@@ -432,6 +443,11 @@ export default function MapComponent() {
                     <strong>Camas:</strong> {hospital.beds || 0}<br/>
                     <strong>Nivel:</strong> {hospital.service_level || 'N/A'}<br/>
                     <strong>KAM asignado:</strong> {kam.name}<br/>
+                    {mapData.contractValuesByHospital[hospital.id] && (
+                      <>
+                        <strong style={{ color: '#2ECC71' }}>Contratos activos:</strong> ${mapData.contractValuesByHospital[hospital.id].toLocaleString('es-CO')}<br/>
+                      </>
+                    )}
                     <strong>Tiempo de llegada:</strong> {
                       assignment.travel_time === 0 || assignment.travel_time === null 
                         ? 'En territorio base' 
@@ -485,6 +501,11 @@ export default function MapComponent() {
                     <strong>Ubicación:</strong> {hospital.municipality_name || mapData.municipalityNames[hospital.municipality_id] || hospital.municipality_id}{hospital.department_name ? `, ${hospital.department_name}` : ''}<br/>
                     <strong>Camas:</strong> {hospital.beds || 0}<br/>
                     <strong>Nivel:</strong> {hospital.service_level || 'N/A'}<br/>
+                    {mapData.contractValuesByHospital[hospital.id] && (
+                      <>
+                        <strong style={{ color: '#2ECC71' }}>Contratos activos:</strong> ${mapData.contractValuesByHospital[hospital.id].toLocaleString('es-CO')}<br/>
+                      </>
+                    )}
                     <div style={{ marginTop: '4px', paddingTop: '4px', borderTop: '1px solid #ddd' }}>
                       <strong>Distancia desde cada KAM:</strong><br/>
                       {travelTimes.length > 0 ? (
