@@ -85,8 +85,8 @@ export default function KamDeactivateButton({ kam, onUpdate }: KamDeactivateButt
             </p>
             
             <p className="text-sm text-gray-600 mb-4">
-              Los hospitales asignados a este KAM serán reasignados automáticamente
-              al KAM activo más cercano.
+              Se recalcularán TODAS las asignaciones del sistema.
+              Los hospitales de este KAM serán reasignados según el algoritmo OpMap.
             </p>
 
             <div className="flex gap-2 justify-end">
@@ -118,25 +118,9 @@ export default function KamDeactivateButton({ kam, onUpdate }: KamDeactivateButt
             </h3>
             
             <div className="bg-gray-50 p-4 rounded mb-4">
-              <p className="text-sm"><strong>Total de hospitales:</strong> {result.stats.totalHospitals}</p>
-              <p className="text-sm"><strong>Reasignados:</strong> {result.stats.reassigned}</p>
-              <p className="text-sm"><strong>Sin asignar:</strong> {result.stats.unassigned}</p>
+              <p className="text-sm"><strong>Total de asignaciones recalculadas:</strong> {result.stats.totalAssignments}</p>
+              <p className="text-sm"><strong>Hospitales que tenía {kam.name}:</strong> {result.stats.hospitalsReassigned}</p>
             </div>
-
-            {result.reassignments.length > 0 && (
-              <>
-                <h4 className="font-semibold mb-2">Ejemplos de reasignaciones:</h4>
-                <div className="space-y-2 mb-4">
-                  {result.reassignments.map((r: any, i: number) => (
-                    <div key={i} className="text-sm bg-blue-50 p-2 rounded">
-                      <strong>{r.hospital}</strong>
-                      <br />
-                      {r.oldKam} → {r.newKam} ({Math.round(r.travelTime)} min)
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
 
             <p className="text-sm text-gray-600">
               Actualizando vista en 3 segundos...

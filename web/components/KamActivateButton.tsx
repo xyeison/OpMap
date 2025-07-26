@@ -85,9 +85,9 @@ export default function KamActivateButton({ kam, onUpdate }: KamActivateButtonPr
             <div className="text-sm text-gray-600 mb-4 space-y-2">
               <p>Al activar este KAM:</p>
               <ul className="list-disc list-inside ml-2">
-                <li>Recuperará automáticamente los hospitales de su municipio base</li>
-                <li>Se le asignarán hospitales cercanos si está más cerca que el KAM actual</li>
-                <li>Optimizará las rutas para reducir tiempos de viaje</li>
+                <li>Se recalcularán TODAS las asignaciones del sistema</li>
+                <li>El algoritmo OpMap asignará hospitales según proximidad</li>
+                <li>Respetará los territorios base de cada KAM</li>
               </ul>
             </div>
 
@@ -121,48 +121,13 @@ export default function KamActivateButton({ kam, onUpdate }: KamActivateButtonPr
             
             <div className="bg-gray-50 p-4 rounded mb-4 space-y-2">
               <p className="text-sm">
-                <strong>Territorio base recuperado:</strong> {result.stats.territoryBase} hospitales
-              </p>
-              <p className="text-sm">
-                <strong>Hospitales optimizados:</strong> {result.stats.optimized} 
-                <span className="text-gray-500"> (estaban más lejos con otros KAMs)</span>
+                <strong>Total de asignaciones recalculadas:</strong> {result.stats.totalAssignments}
               </p>
               <p className="text-sm font-semibold">
-                <strong>Total ganado:</strong> {result.stats.totalGained} hospitales
+                <strong>Hospitales asignados a {kam.name}:</strong> {result.stats.kamAssignments}
               </p>
             </div>
 
-            {result.changes.length > 0 && (
-              <>
-                <h4 className="font-semibold mb-2">Cambios realizados:</h4>
-                <div className="space-y-2 mb-4">
-                  {result.changes.map((change: any, i: number) => (
-                    <div key={i} className="text-sm bg-blue-50 p-2 rounded">
-                      <strong>{change.hospital}</strong>
-                      <br />
-                      {change.action === 'Recuperado (territorio base)' ? (
-                        <span className="text-green-600">
-                          Recuperado de {change.previousKam} (territorio base)
-                        </span>
-                      ) : (
-                        <>
-                          <span className="text-blue-600">
-                            {change.previousKam} → {kam.name}
-                          </span>
-                          <br />
-                          <span className="text-gray-600">
-                            Tiempo: {change.previousTime} min → {change.newTime} min 
-                            <span className="text-green-600 font-semibold">
-                              {' '}(-{change.timeSaved} min ahorro)
-                            </span>
-                          </span>
-                        </>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
 
             <p className="text-sm text-gray-600">
               Actualizando vista en 3 segundos...
