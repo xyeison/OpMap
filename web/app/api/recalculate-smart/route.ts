@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { OpMapAlgorithm } from '@/lib/opmap-algorithm'
+import { OpMapAlgorithmFixed } from '@/lib/opmap-algorithm-fixed'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -59,7 +59,7 @@ export async function POST() {
     
     // 3. Ejecutar recálculo completo
     // TODO: En el futuro, implementar recálculo parcial
-    const algorithm = new OpMapAlgorithm()
+    const algorithm = new OpMapAlgorithmFixed()
     await algorithm.initialize()
     
     // Por ahora, recalcular todo
