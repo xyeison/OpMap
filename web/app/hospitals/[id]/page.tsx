@@ -32,12 +32,19 @@ export default function HospitalDetailPage() {
       if (hospitalData) {
         setHospital(hospitalData)
         
+        // Buscar la asignación del hospital
+        const { data: assignment } = await supabase
+          .from('assignments')
+          .select('kam_id')
+          .eq('hospital_id', hospitalId)
+          .single()
+        
         // Si tiene KAM asignado, cargar sus datos
-        if (hospitalData.assigned_kam_id) {
+        if (assignment?.kam_id) {
           const { data: kamData } = await supabase
-            .from('sellers')
+            .from('kams')
             .select('*')
-            .eq('id', hospitalData.assigned_kam_id)
+            .eq('id', assignment.kam_id)
             .single()
           
           setKam(kamData)
