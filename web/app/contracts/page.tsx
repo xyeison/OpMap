@@ -14,6 +14,7 @@ interface Contract {
   contract_value: number
   start_date: string
   end_date: string
+  description?: string
   active: boolean
   created_at: string
   hospital?: {
