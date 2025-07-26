@@ -339,12 +339,15 @@ export default function HospitalsPage() {
                     code: '',
                     municipality_id: '',
                     department_id: '',
+                    locality_id: '',
                     lat: '',
                     lng: '',
                     beds: '',
                     service_level: '',
                     active: true
                   })
+                  setMunicipalities([])
+                  setLocalities([])
                 }}
                 className="text-gray-500 hover:text-gray-700"
               >
@@ -528,12 +531,15 @@ export default function HospitalsPage() {
                     code: '',
                     municipality_id: '',
                     department_id: '',
+                    locality_id: '',
                     lat: '',
                     lng: '',
                     beds: '',
                     service_level: '',
                     active: true
                   })
+                  setMunicipalities([])
+                  setLocalities([])
                 }}
                 className="px-4 py-2 text-gray-600 hover:text-gray-800"
                 disabled={isSubmitting}
