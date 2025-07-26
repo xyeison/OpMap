@@ -23,6 +23,8 @@ export default function HospitalsPage() {
     hospital.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     hospital.code.includes(searchTerm)
   )
+  
+  console.log('Hospitals loaded:', hospitals?.length)
 
   if (isLoading) return <div className="p-6">Cargando...</div>
 
@@ -88,12 +90,7 @@ export default function HospitalsPage() {
                   -
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-center">
-                  <Link
-                    href={`/hospitals/${hospital.id}`}
-                    className="inline-flex items-center px-3 py-1 text-sm bg-blue-100 text-blue-700 hover:bg-blue-200 rounded"
-                  >
-                    Ver detalle
-                  </Link>
+                  <span className="text-blue-600">Ver</span>
                 </td>
               </tr>
             ))}
