@@ -47,7 +47,33 @@ export default function HospitalsPage() {
         />
       </div>
 
-      <div className="bg-white rounded-lg shadow overflow-hidden">
+      {/* Vista móvil */}
+      <div className="block md:hidden">
+        {filteredHospitals?.slice(0, 20).map((hospital) => (
+          <div key={hospital.id} className="bg-white rounded-lg shadow mb-4 p-4">
+            <div className="mb-2">
+              <p className="text-sm text-gray-500">Código: {hospital.code}</p>
+              <h3 className="font-semibold">{hospital.name}</h3>
+            </div>
+            <div className="text-sm text-gray-600 mb-3">
+              <p>Municipio: {hospital.municipality_id}</p>
+              <p>Camas: {hospital.beds || '-'}</p>
+            </div>
+            <button
+              onClick={() => {
+                console.log('Navigating to hospital:', hospital.id);
+                window.location.href = `/hospitals/${hospital.id}`;
+              }}
+              className="w-full px-3 py-2 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded"
+            >
+              Ver detalle del hospital
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {/* Vista desktop */}
+      <div className="hidden md:block bg-white rounded-lg shadow overflow-x-auto">
         <table className="min-w-full">
           <thead className="bg-gray-50">
             <tr>
