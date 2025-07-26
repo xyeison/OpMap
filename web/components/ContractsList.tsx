@@ -61,6 +61,13 @@ export default function ContractsList({ hospitalId, onClose }: ContractsListProp
       : null
 
     try {
+      // Calcular duration_months a partir de las fechas
+      const startDate = new Date(newContract.start_date)
+      const endDate = new Date(newContract.end_date)
+      const monthsDiff = (endDate.getFullYear() - startDate.getFullYear()) * 12 + 
+                        (endDate.getMonth() - startDate.getMonth())
+      const durationMonths = Math.max(1, Math.round(monthsDiff))
+
       const { data, error } = await supabase
         .from('hospital_contracts')
         .insert({
@@ -70,6 +77,7 @@ export default function ContractsList({ hospitalId, onClose }: ContractsListProp
           contract_value: parseFloat(newContract.contract_value),
           start_date: newContract.start_date,
           end_date: newContract.end_date,
+          duration_months: durationMonths, // Agregar este campo
           active: newContract.active,
           created_by: userId || null
         })
