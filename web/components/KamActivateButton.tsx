@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useQueryClient } from '@tanstack/react-query'
 
 interface KamActivateButtonProps {
   kam: {
@@ -17,6 +18,7 @@ export default function KamActivateButton({ kam, onUpdate }: KamActivateButtonPr
   const [showModal, setShowModal] = useState(false)
   const [result, setResult] = useState<any>(null)
   const router = useRouter()
+  const queryClient = useQueryClient()
 
   const handleActivate = async () => {
     setLoading(true)
@@ -35,6 +37,12 @@ export default function KamActivateButton({ kam, onUpdate }: KamActivateButtonPr
         
         // Actualizar después de 3 segundos
         setTimeout(() => {
+          // Invalidar todas las queries relevantes
+          queryClient.invalidateQueries({ queryKey: ['map-data'] })
+          queryClient.invalidateQueries({ queryKey: ['kams'] })
+          queryClient.invalidateQueries({ queryKey: ['hospitals'] })
+          queryClient.invalidateQueries({ queryKey: ['assignments'] })
+          
           if (onUpdate) onUpdate()
           router.refresh()
           setShowModal(false)
