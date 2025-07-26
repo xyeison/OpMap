@@ -415,27 +415,31 @@ export class OpMapAlgorithmFixed {
   async saveAssignments(assignments: Assignment[]) {
     console.log(`💾 Guardando ${assignments.length} asignaciones...`)
     
-    // Primero, obtener todos los hospital_ids que vamos a asignar
-    const hospitalIds = assignments.map(a => a.hospital_id)
+    // Estrategia: Eliminar TODAS las asignaciones existentes y recrearlas
+    console.log('🗑️ Eliminando todas las asignaciones anteriores...')
     
-    // Eliminar TODAS las asignaciones existentes para estos hospitales
+    // Primero limpiar todos los assigned_kam_id
+    const { error: clearError } = await supabase
+      .from('hospitals')
+      .update({ assigned_kam_id: null })
+      .eq('active', true)
+    
+    if (clearError) {
+      console.error('Error limpiando assigned_kam_id:', clearError)
+    }
+    
+    // Eliminar TODAS las asignaciones
     const { error: deleteError } = await supabase
       .from('assignments')
       .delete()
-      .in('hospital_id', hospitalIds)
+      .gte('id', 0) // Truco para eliminar todas las filas
     
     if (deleteError) {
-      console.error('Error eliminando asignaciones anteriores:', deleteError)
-      // Continuar de todos modos
+      console.error('Error eliminando asignaciones:', deleteError)
     }
-    
-    // También limpiar el campo assigned_kam_id en hospitals
-    await supabase
-      .from('hospitals')
-      .update({ assigned_kam_id: null })
-      .in('id', hospitalIds)
 
     // Insertar nuevas asignaciones
+    console.log(`📝 Insertando ${assignments.length} nuevas asignaciones...`)
     const { error } = await supabase
       .from('assignments')
       .insert(assignments)
@@ -446,12 +450,15 @@ export class OpMapAlgorithmFixed {
     }
     
     // Actualizar assigned_kam_id en hospitals
-    for (const assignment of assignments) {
-      await supabase
+    console.log('🔄 Actualizando assigned_kam_id en hospitals...')
+    const updatePromises = assignments.map(assignment => 
+      supabase
         .from('hospitals')
         .update({ assigned_kam_id: assignment.kam_id })
         .eq('id', assignment.hospital_id)
-    }
+    )
+    
+    await Promise.all(updatePromises)
 
     console.log(`✅ ${assignments.length} asignaciones guardadas exitosamente`)
     return assignments.length
