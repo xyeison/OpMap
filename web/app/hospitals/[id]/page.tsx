@@ -15,6 +15,9 @@ export default function HospitalDetailPage() {
   const [kam, setKam] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [showContracts, setShowContracts] = useState(false)
+  const [showDeactivateModal, setShowDeactivateModal] = useState(false)
+  const [deactivateReason, setDeactivateReason] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   useEffect(() => {
     loadHospitalData()
@@ -54,6 +57,54 @@ export default function HospitalDetailPage() {
       console.error('Error loading hospital:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleToggleActive = async () => {
+    if (hospital.active && !deactivateReason.trim()) {
+      alert('Por favor ingrese el motivo de desactivación')
+      return
+    }
+
+    setIsSubmitting(true)
+    try {
+      const userId = typeof window !== 'undefined' 
+        ? JSON.parse(localStorage.getItem('opmap_user') || '{}').id
+        : null
+
+      // Actualizar estado del hospital
+      const { error: updateError } = await supabase
+        .from('hospitals')
+        .update({ active: !hospital.active })
+        .eq('id', hospitalId)
+
+      if (updateError) throw updateError
+
+      // Si se está desactivando, registrar en el historial
+      if (hospital.active) {
+        const { error: historyError } = await supabase
+          .from('hospital_history')
+          .insert({
+            hospital_id: hospitalId,
+            action: 'deactivated',
+            reason: deactivateReason,
+            created_by: userId
+          })
+
+        if (historyError) throw historyError
+      }
+
+      // Recargar datos
+      await loadHospitalData()
+      setShowDeactivateModal(false)
+      setDeactivateReason('')
+      
+      alert(`Hospital ${hospital.active ? 'desactivado' : 'activado'} exitosamente`)
+    } catch (error) {
+      console.error('Error toggling hospital status:', error)
+      alert('Error al cambiar el estado del hospital')
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -98,6 +149,22 @@ export default function HospitalDetailPage() {
               className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
             >
               Gestionar Contratos/Oportunidades
+            </button>
+            <button
+              onClick={() => {
+                if (hospital.active) {
+                  setShowDeactivateModal(true)
+                } else {
+                  handleToggleActive()
+                }
+              }}
+              className={`px-4 py-2 rounded ${
+                hospital.active 
+                  ? 'bg-red-600 text-white hover:bg-red-700' 
+                  : 'bg-green-600 text-white hover:bg-green-700'
+              }`}
+            >
+              {hospital.active ? 'Desactivar Hospital' : 'Activar Hospital'}
             </button>
           </div>
         </div>
@@ -206,6 +273,45 @@ export default function HospitalDetailPage() {
             hospitalId={hospitalId}
             onClose={() => setShowContracts(false)}
           />
+        )}
+
+        {/* Modal de confirmación para desactivar */}
+        {showDeactivateModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 max-w-md w-full">
+              <h3 className="text-xl font-bold mb-4">Desactivar Hospital</h3>
+              <p className="text-gray-600 mb-4">
+                Está a punto de desactivar el hospital <strong>{hospital.name}</strong>.
+                Por favor, indique el motivo:
+              </p>
+              <textarea
+                className="w-full p-3 border rounded-lg mb-4"
+                rows={4}
+                placeholder="Motivo de desactivación..."
+                value={deactivateReason}
+                onChange={(e) => setDeactivateReason(e.target.value)}
+              />
+              <div className="flex gap-2 justify-end">
+                <button
+                  onClick={() => {
+                    setShowDeactivateModal(false)
+                    setDeactivateReason('')
+                  }}
+                  className="px-4 py-2 text-gray-600 hover:text-gray-800"
+                  disabled={isSubmitting}
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleToggleActive}
+                  className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+                  disabled={isSubmitting || !deactivateReason.trim()}
+                >
+                  {isSubmitting ? 'Desactivando...' : 'Confirmar Desactivación'}
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </ProtectedRoute>
