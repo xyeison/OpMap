@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 // NO usar estimaciones - solo datos reales de Google Maps
 
 // Fix for default markers in Next.js
@@ -51,6 +52,7 @@ const BACKUP_COLORS = [
 ]
 
 export default function MapComponent() {
+  const router = useRouter()
   const [territoryGeoJsons, setTerritoryGeoJsons] = useState<any[]>([])
   const [kamColors, setKamColors] = useState<Record<string, string>>({})
   const [unassignedTravelTimes, setUnassignedTravelTimes] = useState<Record<string, any[]>>({})
@@ -428,9 +430,15 @@ export default function MapComponent() {
                 color: '#222222',
                 weight: 0.5,
                 fillColor: kamColors[kam.id],
-                fillOpacity: 0.9
+                fillOpacity: 0.9,
+                className: 'hospital-marker'
               }}
               pane="markerPane"
+              eventHandlers={{
+                click: () => {
+                  router.push(`/hospitals/${hospital.id}`)
+                }
+              }}
             >
               <Tooltip sticky={false} opacity={0.95}>
                 <div style={{ fontSize: '12px', minWidth: '200px' }}>
@@ -488,9 +496,15 @@ export default function MapComponent() {
                 color: '#FF0000',
                 weight: 1,
                 fillColor: '#CCCCCC',
-                fillOpacity: 0.7
+                fillOpacity: 0.7,
+                className: 'hospital-marker'
               }}
               pane="markerPane"
+              eventHandlers={{
+                click: () => {
+                  router.push(`/hospitals/${hospital.id}`)
+                }
+              }}
             >
               <Tooltip sticky={false} opacity={0.95}>
                 <div style={{ fontSize: '12px', minWidth: '300px' }}>
@@ -668,6 +682,17 @@ export default function MapComponent() {
           y su zona de cobertura asignada
         </div>
       </div>
+      
+      {/* Estilos CSS para el cursor */}
+      <style jsx global>{`
+        .hospital-marker {
+          cursor: pointer !important;
+        }
+        .hospital-marker:hover {
+          stroke-width: 2 !important;
+          stroke-opacity: 1 !important;
+        }
+      `}</style>
     </>
   )
 }
