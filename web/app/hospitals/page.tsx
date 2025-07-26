@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
@@ -15,6 +15,7 @@ export default function HospitalsPage() {
     code: '',
     municipality_id: '',
     department_id: '',
+    locality_id: '',
     lat: '',
     lng: '',
     beds: '',
@@ -22,6 +23,10 @@ export default function HospitalsPage() {
     active: true
   })
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [departments, setDepartments] = useState<any[]>([])
+  const [municipalities, setMunicipalities] = useState<any[]>([])
+  const [localities, setLocalities] = useState<any[]>([])
+  const [loadingLocations, setLoadingLocations] = useState(false)
   const queryClient = useQueryClient()
   
   const { data: hospitals, isLoading } = useQuery({
@@ -68,6 +73,59 @@ export default function HospitalsPage() {
     queryClient.invalidateQueries({ queryKey: ['hospitals'] })
   }
 
+  // Cargar departamentos al abrir el modal
+  useEffect(() => {
+    if (showAddModal) {
+      loadDepartments()
+    }
+  }, [showAddModal])
+
+  const loadDepartments = async () => {
+    setLoadingLocations(true)
+    try {
+      const response = await fetch('/api/locations/departments')
+      const data = await response.json()
+      setDepartments(data)
+    } catch (error) {
+      console.error('Error loading departments:', error)
+    } finally {
+      setLoadingLocations(false)
+    }
+  }
+
+  const loadMunicipalities = async (departmentId: string) => {
+    setLoadingLocations(true)
+    setMunicipalities([])
+    setLocalities([])
+    setNewHospital(prev => ({ ...prev, municipality_id: '', locality_id: '' }))
+    
+    try {
+      const response = await fetch(`/api/locations/municipalities?departmentId=${departmentId}`)
+      const data = await response.json()
+      setMunicipalities(data)
+    } catch (error) {
+      console.error('Error loading municipalities:', error)
+    } finally {
+      setLoadingLocations(false)
+    }
+  }
+
+  const loadLocalities = async (municipalityId: string) => {
+    setLoadingLocations(true)
+    setLocalities([])
+    setNewHospital(prev => ({ ...prev, locality_id: '' }))
+    
+    try {
+      const response = await fetch(`/api/locations/localities?municipalityId=${municipalityId}`)
+      const data = await response.json()
+      setLocalities(data)
+    } catch (error) {
+      console.error('Error loading localities:', error)
+    } finally {
+      setLoadingLocations(false)
+    }
+  }
+
   const handleAddHospital = async () => {
     if (!newHospital.name || !newHospital.code || !newHospital.municipality_id || !newHospital.lat || !newHospital.lng) {
       alert('Por favor complete todos los campos obligatorios')
@@ -80,7 +138,8 @@ export default function HospitalsPage() {
         name: newHospital.name,
         code: newHospital.code,
         municipality_id: newHospital.municipality_id,
-        department_id: newHospital.department_id || newHospital.municipality_id.substring(0, 2),
+        department_id: newHospital.department_id,
+        locality_id: newHospital.locality_id || null,
         lat: parseFloat(newHospital.lat),
         lng: parseFloat(newHospital.lng),
         beds: newHospital.beds ? parseInt(newHospital.beds) : null,
@@ -132,12 +191,15 @@ export default function HospitalsPage() {
         code: '',
         municipality_id: '',
         department_id: '',
+        locality_id: '',
         lat: '',
         lng: '',
         beds: '',
         service_level: '',
         active: true
       })
+      setMunicipalities([])
+      setLocalities([])
       handleUpdate()
     } catch (error: any) {
       console.error('Error adding hospital:', error)
@@ -319,16 +381,75 @@ export default function HospitalsPage() {
 
               <div>
                 <label className="block text-sm font-medium mb-1">
-                  Código Municipio *
+                  Departamento *
                 </label>
-                <input
-                  type="text"
+                <select
+                  className="w-full p-2 border rounded"
+                  value={newHospital.department_id}
+                  onChange={(e) => {
+                    setNewHospital({...newHospital, department_id: e.target.value})
+                    if (e.target.value) {
+                      loadMunicipalities(e.target.value)
+                    }
+                  }}
+                  disabled={loadingLocations}
+                >
+                  <option value="">Seleccione un departamento</option>
+                  {departments.map(dept => (
+                    <option key={dept.id} value={dept.id}>
+                      {dept.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Municipio *
+                </label>
+                <select
                   className="w-full p-2 border rounded"
                   value={newHospital.municipality_id}
-                  onChange={(e) => setNewHospital({...newHospital, municipality_id: e.target.value})}
-                  placeholder="Ej: 11001 (Bogotá)"
-                />
+                  onChange={(e) => {
+                    setNewHospital({...newHospital, municipality_id: e.target.value})
+                    if (e.target.value) {
+                      loadLocalities(e.target.value)
+                    }
+                  }}
+                  disabled={!newHospital.department_id || loadingLocations}
+                >
+                  <option value="">
+                    {!newHospital.department_id 
+                      ? 'Primero seleccione un departamento' 
+                      : 'Seleccione un municipio'}
+                  </option>
+                  {municipalities.map(mun => (
+                    <option key={mun.id} value={mun.id}>
+                      {mun.name} {mun.is_capital ? '(Capital)' : ''}
+                    </option>
+                  ))}
+                </select>
               </div>
+
+              {localities.length > 0 && (
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium mb-1">
+                    Localidad (Solo para Bogotá)
+                  </label>
+                  <select
+                    className="w-full p-2 border rounded"
+                    value={newHospital.locality_id}
+                    onChange={(e) => setNewHospital({...newHospital, locality_id: e.target.value})}
+                  >
+                    <option value="">Seleccione una localidad (opcional)</option>
+                    {localities.map(loc => (
+                      <option key={loc.id} value={loc.id}>
+                        {loc.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <div>
                 <label className="block text-sm font-medium mb-1">
