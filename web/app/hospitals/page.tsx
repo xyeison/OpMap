@@ -27,7 +27,7 @@ export default function HospitalsPage() {
         .select(`
           hospital_id,
           kam_id,
-          kams (
+          kams!inner (
             id,
             name
           )
@@ -35,8 +35,8 @@ export default function HospitalsPage() {
       
       // Crear mapa de hospital_id -> kam_name
       const kamMap = new Map()
-      assignments?.forEach(a => {
-        if (a.kams) {
+      assignments?.forEach((a: any) => {
+        if (a.kams && typeof a.kams === 'object' && 'name' in a.kams) {
           kamMap.set(a.hospital_id, a.kams.name)
         }
       })
