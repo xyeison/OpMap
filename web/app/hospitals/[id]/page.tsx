@@ -157,11 +157,15 @@ export default function HospitalDetailPage() {
       // Recalcular asignaciones para actualizar territorios
       setIsRecalculating(true)
       console.log('Recalculando asignaciones después de cambiar estado del hospital...')
-      const recalcResponse = await fetch('/api/recalculate-assignments', {
+      const recalcResponse = await fetch('/api/recalculate-smart-hospital', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
-        }
+        },
+        body: JSON.stringify({
+          hospitalId: hospitalId,
+          action: hospital.active ? 'deactivated' : 'activated'
+        })
       })
 
       if (!recalcResponse.ok) {
