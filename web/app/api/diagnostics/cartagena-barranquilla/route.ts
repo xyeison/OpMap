@@ -46,17 +46,13 @@ export async function GET() {
       hospitals!inner(
         name,
         municipality_id
-      ),
-      sellers!inner(
-        name,
-        id
       )
     `)
     .eq('hospitals.municipality_id', '08001')
 
   const kamCounts: Record<string, number> = {}
   assignments?.forEach(a => {
-    const kamId = a.sellers?.id || 'unknown'
+    const kamId = a.kam_id || 'unknown'
     kamCounts[kamId] = (kamCounts[kamId] || 0) + 1
   })
   diagnostics.currentAssignments = kamCounts
