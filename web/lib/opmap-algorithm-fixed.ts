@@ -91,6 +91,10 @@ export class OpMapAlgorithmFixed {
       }
       this.adjacencyMatrix[row.department_code].push(row.adjacent_department_code)
     })
+    
+    // Verificar adyacencia Atlántico-Bolívar
+    console.log(`📍 Adyacencias de Atlántico (08): ${this.adjacencyMatrix['08']?.join(', ') || 'Ninguna'}`)
+    console.log(`📍 Adyacencias de Bolívar (13): ${this.adjacencyMatrix['13']?.join(', ') || 'Ninguna'}`)
 
     // Cargar caché de tiempos
     const { data: cacheData } = await supabase
@@ -298,6 +302,11 @@ export class OpMapAlgorithmFixed {
           hospital.lat, hospital.lng
         )
 
+        // Logging especial para Cartagena y Barranquilla
+        if (hospital.municipality_id === '13001' && kam.name.includes('Barranquilla')) {
+          console.log(`   🔍 ${kam.name} -> Hospital en Cartagena: ${time} min (límite: ${kam.max_travel_time} min)`)
+        }
+
         // Solo considerar si está dentro del límite de tiempo del KAM
         if (time <= kam.max_travel_time) {
           candidateKams.push({ kam, time })
@@ -343,6 +352,9 @@ export class OpMapAlgorithmFixed {
       }
 
       if (bestKam) {
+        if (hospital.municipality_id === '13001') {
+          console.log(`   ✅ Hospital de Cartagena asignado a ${bestKam.name} (${Math.round(bestTime)} min)`)
+        }
         assignments.push({
           kam_id: bestKam.id,
           hospital_id: hospital.id,
@@ -350,6 +362,10 @@ export class OpMapAlgorithmFixed {
           assignment_type: 'automatic'
         })
         assignedHospitals.add(hospital.id)
+      } else {
+        if (hospital.municipality_id === '13001') {
+          console.log(`   ⚠️ Hospital de Cartagena sin asignar: ${hospital.name} - Sin KAMs candidatos dentro del límite de tiempo`)
+        }
       }
     }
 
@@ -397,11 +413,27 @@ export class OpMapAlgorithmFixed {
   }
 
   async saveAssignments(assignments: Assignment[]) {
-    // Limpiar asignaciones automáticas anteriores
-    await supabase
+    console.log(`💾 Guardando ${assignments.length} asignaciones...`)
+    
+    // Primero, obtener todos los hospital_ids que vamos a asignar
+    const hospitalIds = assignments.map(a => a.hospital_id)
+    
+    // Eliminar TODAS las asignaciones existentes para estos hospitales
+    const { error: deleteError } = await supabase
       .from('assignments')
       .delete()
-      .in('assignment_type', ['automatic', 'territory_base'])
+      .in('hospital_id', hospitalIds)
+    
+    if (deleteError) {
+      console.error('Error eliminando asignaciones anteriores:', deleteError)
+      // Continuar de todos modos
+    }
+    
+    // También limpiar el campo assigned_kam_id en hospitals
+    await supabase
+      .from('hospitals')
+      .update({ assigned_kam_id: null })
+      .in('id', hospitalIds)
 
     // Insertar nuevas asignaciones
     const { error } = await supabase
@@ -409,9 +441,19 @@ export class OpMapAlgorithmFixed {
       .insert(assignments)
 
     if (error) {
+      console.error('Error completo:', error)
       throw new Error(`Error saving assignments: ${error.message}`)
     }
+    
+    // Actualizar assigned_kam_id en hospitals
+    for (const assignment of assignments) {
+      await supabase
+        .from('hospitals')
+        .update({ assigned_kam_id: assignment.kam_id })
+        .eq('id', assignment.hospital_id)
+    }
 
+    console.log(`✅ ${assignments.length} asignaciones guardadas exitosamente`)
     return assignments.length
   }
 }
