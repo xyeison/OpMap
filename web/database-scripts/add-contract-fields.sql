@@ -5,7 +5,8 @@
 ALTER TABLE hospital_contracts 
 ADD COLUMN IF NOT EXISTS contract_number VARCHAR(100),
 ADD COLUMN IF NOT EXISTS contract_type VARCHAR(50) DEFAULT 'capita',
-ADD COLUMN IF NOT EXISTS end_date DATE;
+ADD COLUMN IF NOT EXISTS end_date DATE,
+ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
 
 -- 2. Migrar datos existentes (si hay campos antiguos)
 -- Si tienes contratos con duration_months, calcular end_date

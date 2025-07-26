@@ -38,10 +38,7 @@ export default function ContractEditModal({ contract, onClose, onSave }: Contrac
     try {
       const { error } = await supabase
         .from('hospital_contracts')
-        .update({
-          ...formData,
-          updated_at: new Date().toISOString()
-        })
+        .update(formData)
         .eq('id', contract.id)
 
       if (error) throw error
