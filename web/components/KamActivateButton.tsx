@@ -126,6 +126,11 @@ export default function KamActivateButton({ kam, onUpdate }: KamActivateButtonPr
               <p className="text-sm font-semibold">
                 <strong>Hospitales asignados a {kam.name}:</strong> {result.stats.kamAssignments}
               </p>
+              {result.stats.hospitalsInMunicipality !== undefined && (
+                <p className="text-sm text-gray-600">
+                  <strong>Hospitales en su municipio:</strong> {result.stats.hospitalsInMunicipality}
+                </p>
+              )}
             </div>
 
 

@@ -34,6 +34,19 @@ export async function POST(request: Request) {
     
     if (updateError) throw updateError
     
+    // 2.5 Verificar que el KAM fue activado correctamente
+    const { data: verifyKam } = await supabase
+      .from('kams')
+      .select('active')
+      .eq('id', kamId)
+      .single()
+    
+    if (!verifyKam?.active) {
+      throw new Error('El KAM no se activó correctamente')
+    }
+    
+    console.log('✅ KAM activado correctamente en la BD')
+    
     // 3. Recalcular todas las asignaciones (igual que el algoritmo inicial)
     console.log('🔄 Recalculando asignaciones con el KAM activado...')
     
@@ -50,12 +63,23 @@ export async function POST(request: Request) {
       .select('hospital_id')
       .eq('kam_id', kamId)
     
+    // 5. Verificar hospitales en el municipio de Cartagena
+    const { count: hospitalsInMunicipality } = await supabase
+      .from('hospitals')
+      .select('*', { count: 'exact', head: true })
+      .eq('municipality_id', kam.area_id)
+      .eq('active', true)
+    
+    console.log(`🏥 Hospitales en ${kam.area_id}: ${hospitalsInMunicipality || 0}`)
+    console.log(`📊 Asignaciones para ${kam.name}: ${kamAssignments?.length || 0}`)
+    
     return NextResponse.json({
       success: true,
       message: `KAM ${kam.name} activado exitosamente`,
       stats: {
         totalAssignments: saved,
-        kamAssignments: kamAssignments?.length || 0
+        kamAssignments: kamAssignments?.length || 0,
+        hospitalsInMunicipality: hospitalsInMunicipality || 0
       }
     })
     
