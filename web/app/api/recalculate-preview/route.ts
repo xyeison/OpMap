@@ -26,10 +26,13 @@ export async function GET() {
       .select('*')
       .eq('source', 'google_maps')
 
-    // 4. Calcular rutas necesarias
-    const totalRoutes = sellers!.length * hospitals!.length
+    // 4. Calcular rutas necesarias (estimación más realista)
+    // No es KAMs × Hospitales porque el algoritmo solo calcula rutas para hospitales cercanos
+    // Estimamos que cada hospital será evaluado por ~3-4 KAMs en promedio (los más cercanos)
+    const avgKamsPerHospital = 4
+    const estimatedTotalRoutes = hospitals!.length * avgKamsPerHospital
     const cachedRoutes = cacheData?.length || 0
-    const missingRoutes = Math.max(0, totalRoutes - cachedRoutes)
+    const missingRoutes = Math.max(0, estimatedTotalRoutes - cachedRoutes)
     
     // 5. Estimar tiempo y costo
     const apiCallsNeeded = missingRoutes
@@ -41,14 +44,14 @@ export async function GET() {
       preview: {
         totalKams: sellers?.length || 0,
         totalHospitals: hospitals?.length || 0,
-        totalRoutesNeeded: totalRoutes,
+        totalRoutesNeeded: estimatedTotalRoutes,
         routesInCache: cachedRoutes,
         missingRoutes: missingRoutes,
         googleMapsApiCalls: apiCallsNeeded,
         estimatedTimeSeconds: estimatedTime,
         estimatedCostUSD: estimatedCost,
         cacheInfo: {
-          percentage: ((cachedRoutes / totalRoutes) * 100).toFixed(1),
+          percentage: ((cachedRoutes / estimatedTotalRoutes) * 100).toFixed(1),
           lastUpdate: cacheData?.[0]?.created_at || 'N/A'
         }
       }
