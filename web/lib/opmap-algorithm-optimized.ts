@@ -285,116 +285,167 @@ export class OpMapAlgorithmOptimized {
       }
     }
 
-    // FASE 3: Asignación competitiva
-    console.log('\n🏃 FASE 3: Asignación competitiva...')
+    // FASE 3: Asignación competitiva por municipio
+    console.log('\n🏃 FASE 3: Asignación competitiva por municipio...')
     const unassignedHospitals = this.hospitals.filter(h => !assignedHospitals.has(h.id))
     console.log(`   Hospitales sin asignar: ${unassignedHospitals.length}`)
     
-    // Agregar logs específicos para hospitales de Barranquilla
-    const barranquillaHospitals = unassignedHospitals.filter(h => h.municipality_id === '08001')
-    if (barranquillaHospitals.length > 0) {
-      console.log(`   🏥 Hospitales de Barranquilla sin asignar: ${barranquillaHospitals.length}`)
-    }
+    // Agrupar hospitales no asignados por municipio
+    const hospitalsByMunicipality: Record<string, Hospital[]> = {}
+    unassignedHospitals.forEach(h => {
+      if (!hospitalsByMunicipality[h.municipality_id]) {
+        hospitalsByMunicipality[h.municipality_id] = []
+      }
+      hospitalsByMunicipality[h.municipality_id].push(h)
+    })
     
-    for (const hospital of unassignedHospitals) {
-      let bestKam: KAM | null = null
-      let bestTime = Infinity
-      let candidateKams: Array<{kam: KAM, time: number}> = []
+    console.log(`   Municipios a procesar: ${Object.keys(hospitalsByMunicipality).length}`)
+    
+    // Procesar cada municipio
+    for (const [municipalityId, municipalityHospitals] of Object.entries(hospitalsByMunicipality)) {
+      const kamVotes: Record<string, { count: number, totalTime: number }> = {}
+      const hospitalAssignments: Array<{hospital: Hospital, kam: KAM, time: number}> = []
+      
+      // Para cada hospital del municipio, determinar qué KAM está más cerca
+      for (const hospital of municipalityHospitals) {
+        let bestKam: KAM | null = null
+        let bestTime = Infinity
+        let candidateKams: Array<{kam: KAM, time: number}> = []
 
-      // Buscar TODOS los KAMs que pueden atender este hospital
-      for (const kam of this.kams) {
-        const kamDept = kam.area_id.substring(0, 2)
-        const hospitalDept = hospital.department_id
-
-        // MEJORA: Incluir KAMs del mismo departamento siempre
-        const isSameDepartment = kamDept === hospitalDept
-        const isAdjacent = this.adjacencyMatrix[kamDept]?.includes(hospitalDept)
-        const isLevel2Adjacent = kam.enable_level2 && this.isLevel2Adjacent(kamDept, hospitalDept)
-        
-        // Log específico para hospitales de Barranquilla y KAM Cartagena
-        if (hospital.municipality_id === '08001' && kam.id === 'cartagena') {
-          console.log(`   🔍 Evaluando Cartagena para hospital de Barranquilla:`)
-          console.log(`      - KAM Dept: ${kamDept}, Hospital Dept: ${hospitalDept}`)
-          console.log(`      - Mismo departamento: ${isSameDepartment}`)
-          console.log(`      - Adyacente: ${isAdjacent}`)
-          console.log(`      - Level2 habilitado: ${kam.enable_level2}`)
-          console.log(`      - Es Level2 adyacente: ${isLevel2Adjacent}`)
-          console.log(`      - Matriz adyacencia para ${kamDept}: ${JSON.stringify(this.adjacencyMatrix[kamDept])}`)
-        }
-        
-        if (!isSameDepartment && !isAdjacent && !isLevel2Adjacent) {
-          continue
-        }
-
-        // Calcular tiempo
-        const time = await this.getTravelTime(
-          kam.lat, kam.lng,
-          hospital.lat, hospital.lng
-        )
-
-        // Solo considerar si está dentro del límite de tiempo del KAM
-        if (time <= kam.max_travel_time) {
-          candidateKams.push({ kam, time })
-          
-          if (time < bestTime) {
-            bestTime = time
-            bestKam = kam
-          }
-        } else if (hospital.municipality_id === '08001' && kam.id === 'cartagena') {
-          console.log(`      ⏰ Tiempo excede el límite: ${Math.round(time / 60)}h ${time % 60}min > ${kam.max_travel_time} min`)
-        }
-      }
-
-      // Si hay múltiples candidatos con tiempos similares, priorizar
-      if (candidateKams.length > 0) {
-        candidateKams.sort((a, b) => {
-          const aDept = a.kam.area_id.substring(0, 2)
-          const bDept = b.kam.area_id.substring(0, 2)
+        // Buscar TODOS los KAMs que pueden atender este hospital
+        for (const kam of this.kams) {
+          const kamDept = kam.area_id.substring(0, 2)
           const hospitalDept = hospital.department_id
-          
-          // Priorizar mismo departamento
-          const aSameDept = aDept === hospitalDept
-          const bSameDept = bDept === hospitalDept
-          
-          if (aSameDept && !bSameDept) return -1
-          if (!aSameDept && bSameDept) return 1
-          
-          // Si ambos están en el mismo estado (mismo dept o no), comparar por tiempo
-          const timeDiff = Math.abs(a.time - b.time)
-          if (timeDiff < 10) { // Si la diferencia es menor a 10 minutos
-            // Usar prioridad como desempate
-            return b.kam.priority - a.kam.priority
-          }
-          
-          // Si no, el de menor tiempo gana
-          return a.time - b.time
-        })
-        
-        bestKam = candidateKams[0].kam
-        bestTime = candidateKams[0].time
-      }
 
-      if (bestKam) {
-        assignments.push({
-          kam_id: bestKam.id,
-          hospital_id: hospital.id,
-          travel_time: bestTime,
-          assignment_type: 'automatic'
-        })
-        assignedHospitals.add(hospital.id)
+          // Verificar si el KAM puede competir por este hospital
+          const isSameDepartment = kamDept === hospitalDept
+          const isAdjacent = this.adjacencyMatrix[kamDept]?.includes(hospitalDept)
+          const isLevel2Adjacent = kam.enable_level2 && this.isLevel2Adjacent(kamDept, hospitalDept)
+          
+          if (!isSameDepartment && !isAdjacent && !isLevel2Adjacent) {
+            continue
+          }
+
+          // Calcular tiempo
+          const time = await this.getTravelTime(
+            kam.lat, kam.lng,
+            hospital.lat, hospital.lng
+          )
+
+          // Solo considerar si está dentro del límite de tiempo del KAM
+          if (time <= kam.max_travel_time) {
+            candidateKams.push({ kam, time })
+            
+            if (time < bestTime) {
+              bestTime = time
+              bestKam = kam
+            }
+          }
+        }
+
+        // Si hay múltiples candidatos con tiempos similares, priorizar
+        if (candidateKams.length > 0) {
+          candidateKams.sort((a, b) => {
+            const aDept = a.kam.area_id.substring(0, 2)
+            const bDept = b.kam.area_id.substring(0, 2)
+            const hospitalDept = hospital.department_id
+            
+            // Priorizar mismo departamento
+            const aSameDept = aDept === hospitalDept
+            const bSameDept = bDept === hospitalDept
+            
+            if (aSameDept && !bSameDept) return -1
+            if (!aSameDept && bSameDept) return 1
+            
+            // Si ambos están en el mismo estado (mismo dept o no), comparar por tiempo
+            const timeDiff = Math.abs(a.time - b.time)
+            if (timeDiff < 10) { // Si la diferencia es menor a 10 minutos
+              // Usar prioridad como desempate
+              return b.kam.priority - a.kam.priority
+            }
+            
+            // Si no, el de menor tiempo gana
+            return a.time - b.time
+          })
+          
+          bestKam = candidateKams[0].kam
+          bestTime = candidateKams[0].time
+        }
+
+        // Guardar el resultado para este hospital
+        if (bestKam) {
+          hospitalAssignments.push({ hospital, kam: bestKam, time: bestTime })
+          
+          // Contar voto para este KAM
+          if (!kamVotes[bestKam.id]) {
+            kamVotes[bestKam.id] = { count: 0, totalTime: 0 }
+          }
+          kamVotes[bestKam.id].count++
+          kamVotes[bestKam.id].totalTime += bestTime
+        }
+      }
+      
+      // Determinar el KAM ganador para este municipio
+      const winner = Object.entries(kamVotes)
+        .sort(([,a], [,b]) => {
+          // Primero por cantidad de hospitales ganados
+          if (b.count !== a.count) {
+            return b.count - a.count
+          }
+          // Si empatan, por menor tiempo promedio
+          return (a.totalTime / a.count) - (b.totalTime / b.count)
+        })[0]
+      
+      if (winner) {
+        const winnerKamId = winner[0]
+        const winnerKam = this.kams.find(k => k.id === winnerKamId)
+        const municipalityName = municipalityHospitals[0].name.split(' - ')[1] || municipalityId
+        const voteSummary = Object.entries(kamVotes)
+          .map(([kamId, votes]) => {
+            const kam = this.kams.find(k => k.id === kamId)
+            return `${kam?.name}: ${votes.count}`
+          })
+          .join(', ')
+        
+        console.log(`   📍 Municipio ${municipalityName} (${municipalityId}): ${municipalityHospitals.length} hospitales`)
+        console.log(`      Votos: ${voteSummary}`)
+        console.log(`      Ganador: ${winnerKam?.name} con ${kamVotes[winnerKamId].count} hospitales`)
+        
+        // Asignar TODOS los hospitales del municipio al KAM ganador
+        for (const { hospital, kam, time } of hospitalAssignments) {
+          assignments.push({
+            kam_id: winnerKamId, // Siempre el ganador del municipio
+            hospital_id: hospital.id,
+            travel_time: kam.id === winnerKamId ? time : null, // Solo guardar tiempo si es el KAM ganador
+            assignment_type: 'automatic'
+          })
+          assignedHospitals.add(hospital.id)
+        }
       }
     }
 
     // Resumen final
     console.log('\n📊 RESUMEN DE ASIGNACIONES:')
     const assignmentsByKam: Record<string, number> = {}
+    const municipalitiesByKam: Record<string, Set<string>> = {}
+    
     assignments.forEach(a => {
       assignmentsByKam[a.kam_id] = (assignmentsByKam[a.kam_id] || 0) + 1
+      
+      // Contar municipios únicos por KAM
+      if (!municipalitiesByKam[a.kam_id]) {
+        municipalitiesByKam[a.kam_id] = new Set()
+      }
+      const hospital = this.hospitals.find(h => h.id === a.hospital_id)
+      if (hospital) {
+        municipalitiesByKam[a.kam_id].add(hospital.municipality_id)
+      }
     })
     
     for (const kam of this.kams) {
-      const count = assignmentsByKam[kam.id] || 0
-      console.log(`   ${kam.name}: ${count} hospitales`)
+      const hospitalCount = assignmentsByKam[kam.id] || 0
+      const municipalityCount = municipalitiesByKam[kam.id]?.size || 0
+      console.log(`   ${kam.name}: ${hospitalCount} hospitales en ${municipalityCount} municipios`)
     }
 
     // Mostrar estadísticas de caché
