@@ -84,7 +84,7 @@ export async function GET() {
         estimatedCostUSD: estimatedCost,
         cacheInfo: {
           percentage: ((cachedRoutes / estimatedTotalRoutes) * 100).toFixed(1),
-          lastUpdate: cacheData?.[0]?.created_at || 'N/A'
+          lastUpdate: latestCache?.[0]?.created_at || 'N/A'
         }
       }
     })
