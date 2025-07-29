@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server'
-import { OpMapAlgorithmOptimized } from '@/lib/opmap-algorithm-optimized'
+import { OpMapAlgorithmBogotaFixed } from '@/lib/opmap-algorithm-bogota-fixed'
 
 export async function POST() {
   try {
-    // Inicializar algoritmo optimizado
-    const algorithm = new OpMapAlgorithmOptimized()
+    // Inicializar algoritmo con Bogotá corregido
+    const algorithm = new OpMapAlgorithmBogotaFixed()
     await algorithm.initialize()
     
     // Calcular asignaciones

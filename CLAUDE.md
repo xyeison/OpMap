@@ -2,7 +2,33 @@
 
 ## ESTADO ACTUAL DEL PROYECTO
 
-### Archivos Principales
+### Aplicación Web (Next.js/TypeScript) - EN PRODUCCIÓN
+
+La aplicación web está desplegada en Vercel y permite visualizar las asignaciones en tiempo real:
+
+1. **Arquitectura**:
+   - Frontend: Next.js 14 con TypeScript
+   - Base de datos: Supabase (PostgreSQL)
+   - Mapas: Leaflet con react-leaflet
+   - Estado: React Query para caché y sincronización
+   - Despliegue: Vercel
+
+2. **Funcionalidades principales**:
+   - Visualización de territorios asignados por KAM con colores distintivos
+   - Marcadores de hospitales coloreados según KAM asignado
+   - Hospitales sin asignar (zonas vacantes) con tiempos de viaje reales a cada KAM
+   - Tooltips detallados con información de hospitales, contratos y territorios
+   - API para recálculo de asignaciones (`/api/recalculate-assignments`)
+   - Vista de hospitales sin asignar con tiempos reales de Google Maps desde Supabase
+
+3. **Integración con Supabase**:
+   - Tabla `travel_time_cache`: 10,330+ rutas calculadas con Google Maps
+   - Tabla `assignments`: Asignaciones actuales KAM-Hospital
+   - Tabla `hospitals`: Base de datos de IPS activas
+   - Tabla `kams`: Configuración de vendedores
+   - Precisión de coordenadas: 6 decimales para matching exacto
+
+### Scripts Python (Procesamiento Backend)
 
 1. **`opmap_bogota_complete.py`** - Sistema completo con algoritmo y visualización
    - Algoritmo de asignación con lógica especial para Bogotá
@@ -16,6 +42,11 @@
 3. **`resume_google_calculations.py`** - Script para usar caché existente
    - Ejecuta el algoritmo sin hacer nuevas consultas a Google Maps
    - Genera mapas con los tiempos ya calculados
+
+4. **`calculate_routes_batch.py`** - Calculador masivo de rutas
+   - Procesa rutas por departamento para evitar timeouts
+   - Integración directa con Supabase
+   - Muestra progreso y estimación de costos en tiempo real
 
 ### Algoritmo Implementado
 
@@ -41,14 +72,21 @@
 ### Ejecución
 
 ```bash
-# Con distancia Haversine (rápido, sin costo)
-python3 opmap_bogota_complete.py
+# Para uso en desarrollo/testing local
+python3 opmap_bogota_complete.py        # Con distancia Haversine (rápido, sin costo)
+python3 opmap_google_matrix.py          # Con tiempos reales de Google Maps (requiere API key)
+python3 resume_google_calculations.py   # Usando caché existente de Google Maps
 
-# Con tiempos reales de Google Maps (requiere API key)
-python3 opmap_google_matrix.py
+# PRODUCCIÓN: Usando Supabase como backend
+python3 opmap_supabase.py              # Lee de Supabase, calcula faltantes con Google
+python3 resume_supabase_calculations.py # Solo lee de Supabase (no hace llamadas API)
+python3 calculate_routes_batch.py       # Calcula rutas masivamente por departamento
 
-# Usando caché existente de Google Maps
-python3 resume_google_calculations.py
+# Aplicación Web (Next.js)
+cd web
+npm install
+npm run dev                             # Desarrollo local
+vercel                                  # Desplegar a producción
 ```
 
 ## VISUALIZACIÓN DEL MAPA - IMPORTANTE
@@ -377,12 +415,13 @@ Estos departamentos no tienen IPS asignables o están demasiado remotos (más de
 
 ## RESULTADOS ACTUALES CON GOOGLE MAPS
 
-### Estadísticas del Caché
-- **Rutas calculadas**: 3,399 tiempos de viaje reales
+### Estadísticas del Caché (Actualizado)
+- **Rutas calculadas**: 10,330+ tiempos de viaje reales en Supabase
 - **Tiempo mínimo**: 4.2 minutos
 - **Tiempo máximo**: 789.5 minutos (13.1 horas)
 - **Tiempo promedio**: 290.1 minutos (4.8 horas)
-- **Costo real**: ~$17.00 USD en consultas a Google Maps
+- **Costo estimado**: ~$50.00 USD en consultas a Google Maps
+- **Cobertura**: 22 departamentos procesados sistemáticamente
 
 ### Asignaciones Finales (con tiempos reales)
 - **Total IPS asignadas**: 728 de 768 (94.8%)
@@ -416,9 +455,22 @@ Estos departamentos no tienen IPS asignables o están demasiado remotos (más de
 ## ARCHIVOS CLAVE DEL PROYECTO
 
 ### Código Principal
+
+#### Aplicación Web (web/)
+- **`web/app/`**: Aplicación Next.js con App Router
+- **`web/lib/opmap-algorithm-bogota-fixed.ts`**: Algoritmo OpMap portado a TypeScript
+- **`web/components/MapComponent.tsx`**: Componente principal del mapa interactivo
+- **`web/app/api/recalculate-assignments/`**: API para recálculo de asignaciones
+- **`web/app/api/travel-times/unassigned/`**: API para hospitales sin asignar
+
+#### Scripts Python
 - **`opmap_bogota_complete.py`**: Sistema completo con algoritmo y visualización mejorada
 - **`opmap_google_matrix.py`**: Versión que calcula tiempos reales con Google Maps
 - **`resume_google_calculations.py`**: Script para usar caché existente sin nuevas consultas
+- **`calculate_routes_batch.py`**: Calculador masivo de rutas por departamento
+- **`opmap_supabase.py`**: Versión que usa Supabase como backend (recomendado)
+- **`resume_supabase_calculations.py`**: Lee solo de Supabase sin hacer nuevas llamadas API
+- **`migrate_cache_to_supabase.py`**: Migra caché JSON existente a Supabase
 
 ### Datos de Entrada
 - **`data/json/sellers.json`**: Configuración de los 16 KAMs con expansión nivel 2 habilitada
@@ -427,9 +479,13 @@ Estos departamentos no tienen IPS asignables o están demasiado remotos (más de
 - **`data/json/adjacency_matrix.json`**: Matriz de departamentos limítrofes
 
 ### Caché y Resultados
-- **`data/cache/google_distance_matrix_cache.json`**: 3,399 tiempos de viaje calculados
+- **Supabase `travel_time_cache`**: 10,330+ tiempos de viaje calculados (producción)
+- **`data/cache/google_distance_matrix_cache.json`**: Caché local (desarrollo)
 - **`output/`**: Carpeta con resultados JSON y mapas HTML generados
-- **`.env`**: Archivo con API key de Google Maps (GOOGLE_MAPS_API_KEY)
+- **`.env`**: Variables de entorno:
+  - `GOOGLE_MAPS_API_KEY`: API key de Google Maps
+  - `SUPABASE_URL`: URL de la instancia de Supabase
+  - `SUPABASE_KEY`: API key de Supabase
 
 ## COLORES DE KAMS
 
@@ -450,3 +506,305 @@ El sistema usa colores distintivos para cada KAM:
 - sancristobal: #6C5CE7 (Púrpura)
 - kennedy: #00D2D3 (Cian)
 - valledupar: #2ECC71 (Verde)
+
+## ESTRUCTURA DE BASE DE DATOS (SUPABASE)
+
+### Tablas Principales
+
+#### 1. `hospitals`
+Tabla central que contiene todas las instituciones prestadoras de salud (IPS).
+```sql
+- id: uuid (PK)
+- code: varchar (código único de la IPS)
+- name: varchar (nombre oficial)
+- department_id: varchar (código del departamento)
+- municipality_id: varchar (código del municipio) 
+- locality_id: varchar (código de localidad, solo para Bogotá)
+- lat, lng: numeric (coordenadas geográficas)
+- beds: integer (número de camas)
+- address: text
+- phone: varchar
+- email: varchar
+- active: boolean (estado activo/inactivo)
+- service_level: integer (nivel de servicio)
+- services: text (servicios que ofrece)
+- surgeries: integer (cirugías realizadas)
+- ambulances: integer (número de ambulancias)
+- municipality_name: varchar
+- department_name: varchar
+- locality_name: varchar
+- created_at, updated_at: timestamp
+```
+
+#### 2. `kams`
+Key Account Managers (vendedores) del sistema.
+```sql
+- id: uuid (PK)
+- name: varchar (nombre del KAM)
+- area_id: varchar (código del municipio/localidad base)
+- lat, lng: numeric (ubicación del KAM)
+- enable_level2: boolean (expansión a nivel 2)
+- max_travel_time: integer (tiempo máximo de viaje en minutos)
+- priority: integer (prioridad en caso de empate)
+- color: varchar (color para visualización)
+- active: boolean
+- created_at, updated_at: timestamp
+```
+
+#### 3. `assignments`
+Asignaciones de hospitales a KAMs.
+```sql
+- id: uuid (PK)
+- kam_id: uuid (FK → kams)
+- hospital_id: uuid (FK → hospitals)
+- travel_time: integer (tiempo de viaje en minutos)
+- assignment_type: varchar (tipo de asignación)
+- assigned_at: timestamp
+- is_base_territory: boolean (si es territorio base del KAM)
+```
+
+#### 4. `travel_time_cache`
+Caché de tiempos de viaje calculados.
+```sql
+- id: uuid (PK)
+- origin_lat, origin_lng: numeric (coordenadas origen)
+- dest_lat, dest_lng: numeric (coordenadas destino)
+- travel_time: integer (tiempo en minutos)
+- distance: numeric (distancia en km, opcional)
+- source: varchar (fuente del cálculo)
+- calculated_at: timestamp
+```
+
+#### 5. `hospital_contracts`
+Contratos asociados a hospitales.
+```sql
+- id: uuid (PK)
+- hospital_id: uuid (FK → hospitals)
+- contract_value: numeric (valor anual)
+- start_date: date
+- end_date: date
+- duration_months: integer
+- current_provider: text (proveedor actual)
+- contract_number: varchar
+- contract_type: varchar
+- description: text
+- active: boolean
+- created_by: uuid (FK → users)
+- created_at, updated_at: timestamp
+```
+
+#### 6. `hospital_history`
+Historial de cambios en hospitales.
+```sql
+- id: uuid (PK)
+- hospital_id: uuid (FK → hospitals)
+- user_id: uuid (FK → users)
+- action: text (acción realizada)
+- reason: text (razón del cambio)
+- previous_state: boolean
+- new_state: boolean
+- changes: jsonb (cambios detallados)
+- created_at: timestamp
+- created_by: uuid
+```
+
+#### 7. `users`
+Usuarios del sistema.
+```sql
+- id: uuid (PK)
+- email: text (único)
+- password: text (hash)
+- full_name: text
+- role: text ('admin', 'sales', 'viewer')
+- active: boolean
+- created_at: timestamp
+```
+
+#### 8. `departments`
+Departamentos de Colombia.
+```sql
+- code: varchar (PK) (código DANE)
+- name: varchar
+- excluded: boolean (si está excluido del análisis)
+```
+
+#### 9. `municipalities`
+Municipios de Colombia.
+```sql
+- code: varchar (PK) (código DANE)
+- name: varchar
+- department_code: varchar (FK → departments)
+- lat, lng: numeric
+- population_2025: integer
+```
+
+#### 10. `department_adjacency`
+Matriz de adyacencia entre departamentos.
+```sql
+- department_code: varchar (FK → departments)
+- adjacent_department_code: varchar (FK → departments)
+```
+
+#### 11. `opportunities`
+Oportunidades comerciales (obsoleta, reemplazada por hospital_contracts).
+```sql
+- id: uuid (PK)
+- hospital_id: uuid (FK → hospitals)
+- annual_contract_value: numeric
+- current_provider: varchar
+- notes: text
+- contract_end_date: date
+- created_by: uuid
+- created_at, updated_at: timestamp
+```
+
+### Vistas
+
+#### 1. `kam_statistics`
+Vista que calcula estadísticas por KAM.
+```sql
+- id: uuid (KAM ID)
+- name: varchar
+- total_hospitals: bigint
+- total_municipalities: bigint
+- total_opportunity_value: numeric
+- avg_travel_time: numeric
+```
+
+#### 2. `territory_assignments`
+Vista que muestra asignaciones por territorio.
+```sql
+- municipality_id: varchar
+- locality_id: varchar
+- department_id: varchar
+- kam_id: uuid
+- kam_name: varchar
+- kam_color: varchar
+- hospital_count: bigint
+```
+
+### Tablas del Sistema (PostGIS)
+
+- `spatial_ref_sys`: Sistemas de referencia espacial
+- `geography_columns`: Columnas geográficas
+- `geometry_columns`: Columnas geométricas
+
+### Índices y Restricciones Importantes
+
+1. **Unicidad**:
+   - `hospitals.code` debe ser único
+   - `users.email` debe ser único
+   - `(origin_lat, origin_lng, dest_lat, dest_lng)` en `travel_time_cache`
+
+2. **Claves Foráneas**:
+   - Todas las referencias a `users`, `hospitals`, `kams` están protegidas
+   - Cascada de eliminación configurada donde corresponde
+
+3. **Índices de Rendimiento**:
+   - Índices en coordenadas para búsquedas geoespaciales
+   - Índices en claves foráneas para joins eficientes
+   - Índices en campos de búsqueda frecuente (active, department_id, etc.)
+
+### Políticas RLS (Row Level Security)
+
+Las tablas tienen políticas RLS habilitadas para controlar el acceso:
+- `admin`: Acceso completo a todas las tablas
+- `sales`: Acceso de lectura/escritura limitado a sus territorios
+- `viewer`: Solo lectura en tablas permitidas
+
+## ESTRUCTURA DE ARCHIVOS DEL PROYECTO
+
+### Código Principal
+```
+/
+├── opmap_bogota_complete.py      # Sistema completo con algoritmo y visualización
+├── opmap_google_matrix.py        # Versión con Google Distance Matrix API
+├── resume_google_calculations.py # Script para usar caché existente
+├── opmap_supabase.py            # Versión con Supabase (recomendado)
+├── resume_supabase_calculations.py # Solo lectura desde Supabase
+├── migrate_cache_to_supabase.py # Migración de caché JSON a Supabase
+├── clean_google_cache.py         # Limpieza de cálculos Haversine del caché
+├── SUPABASE_SETUP.md            # Guía de configuración de Supabase
+└── .env                          # Variables de entorno
+```
+
+### Base de Datos
+```
+database/
+├── README.md                     # Guía de uso de scripts SQL
+├── 01_setup/                     # Scripts iniciales de configuración
+│   ├── schema.sql               # Estructura principal
+│   ├── create_rls_policies.sql  # Políticas RLS
+│   ├── create-simple-auth-tables-safe.sql
+│   ├── create-users-contracts-tables.sql
+│   ├── create-hospital-history.sql
+│   ├── create-storage-bucket.sql
+│   └── storage-policies.sql
+│
+├── 02_migration/                 # Scripts de migración de datos
+│   ├── fix_departments.sql
+│   ├── migration_complete_no_departments.sql
+│   ├── add_hospital_fields.sql
+│   ├── add-contract-fields.sql
+│   ├── travel_time_cache.sql
+│   ├── assignments_from_json.sql
+│   └── seed.sql
+│
+├── 03_maintenance/               # Scripts de mantenimiento
+│   ├── update_all_assignments_final.sql
+│   ├── update_assignment_travel_times.sql
+│   ├── update_travel_times_from_cache.sql
+│   ├── clean_haversine_from_cache.sql
+│   ├── fix_excessive_assignments_now.sql
+│   └── [otros scripts de actualización]
+│
+├── 04_utilities/                 # Scripts de utilidad
+│   ├── show_all_tables_structure.sql
+│   ├── show_tables_simple.sql
+│   ├── check_data_status.sql
+│   ├── verify_territory_base_rule.sql
+│   ├── check-users.sql
+│   └── verify-hospital-setup.sql
+│
+└── archive/                      # Scripts obsoletos (NO USAR)
+    ├── debug/
+    ├── old_versions/
+    └── temporary_fixes/
+```
+
+### Datos
+```
+data/
+├── cache/
+│   └── google_distance_matrix_cache.json  # 3,399 tiempos calculados
+├── json/
+│   ├── sellers.json              # Configuración de KAMs
+│   ├── adjacency_matrix.json     # Matriz de departamentos limítrofes
+│   └── excluded_departments.json # Departamentos excluidos
+├── psv/
+│   └── hospitals.psv             # Base de datos de 768 IPS
+└── geojson/                      # Archivos GeoJSON de territorios
+    ├── departments/
+    └── municipalities/
+```
+
+### Salida
+```
+output/
+├── [archivos recientes].json     # Resultados de asignaciones
+├── [archivos recientes].html     # Mapas generados
+└── archive_2024/                 # Archivos antiguos archivados
+```
+
+### Código Fuente
+```
+src/
+├── algorithms/
+│   ├── opmap_algorithm.py
+│   └── opmap_algorithm_bogota.py
+├── visualizers/
+│   └── clean_map_visualizer.py
+└── utils/
+    ├── distance_calculator.py
+    └── google_maps_client.py
+```

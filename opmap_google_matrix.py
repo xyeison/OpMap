@@ -54,6 +54,7 @@ class GoogleMapsOpMapAlgorithm:
         self.travel_times = {}
         self.bogota_kams = []
         self.locality_ips_count = defaultdict(lambda: defaultdict(int))
+        self.municipality_ips_count = defaultdict(lambda: defaultdict(int))
         self.cache_file = "data/cache/google_distance_matrix_cache.json"
         self.cached_times = {}
         
@@ -384,6 +385,7 @@ class GoogleMapsOpMapAlgorithm:
         
         # Procesar IPS fuera de Bogotá
         for hospital in other_unassigned:
+            municipality_id = hospital.get('municipalityid')
             candidates = []
             
             # Buscar en todos los KAMs posibles
@@ -408,11 +410,18 @@ class GoogleMapsOpMapAlgorithm:
                 self.assignments[winner_kam].append(hospital)
                 assigned_competitive += 1
                 
+                # Registrar para mayoría por municipio
+                if municipality_id:
+                    self.municipality_ips_count[municipality_id][winner_kam] += 1
+                
                 if len(candidates) > 1:
                     conflicts += 1
         
         # Asignar localidades de Bogotá por mayoría
         self._assign_localities_by_majority()
+        
+        # Asignar municipios por mayoría
+        self._assign_municipalities_by_majority()
         
         print(f"   ✓ {assigned_competitive} IPS asignadas competitivamente")
         print(f"   ✓ {conflicts} conflictos resueltos")
@@ -491,6 +500,35 @@ class GoogleMapsOpMapAlgorithm:
         
         if localities_reassigned > 0:
             print(f"   ✓ {localities_reassigned} IPS reasignadas por mayoría de localidad")
+    
+    def _assign_municipalities_by_majority(self):
+        """
+        Reasigna municipios completos al KAM con mayoría
+        """
+        print("\n   📊 Asignando municipios por mayoría...")
+        
+        municipalities_reassigned = 0
+        
+        for municipality_id, kam_counts in self.municipality_ips_count.items():
+            if len(kam_counts) > 1:
+                # Encontrar ganador
+                winner_kam = max(kam_counts.items(), key=lambda x: x[1])[0]
+                
+                # Reasignar todas las IPS de este municipio
+                for kam_id in list(self.assignments.keys()):
+                    if kam_id != winner_kam:
+                        ips_to_move = []
+                        for ips in self.assignments[kam_id]:
+                            if ips.get('municipalityid') == municipality_id:
+                                ips_to_move.append(ips)
+                        
+                        for ips in ips_to_move:
+                            self.assignments[kam_id].remove(ips)
+                            self.assignments[winner_kam].append(ips)
+                            municipalities_reassigned += 1
+        
+        if municipalities_reassigned > 0:
+            print(f"   ✓ {municipalities_reassigned} IPS reasignadas por mayoría de municipio")
 
 
 def main():

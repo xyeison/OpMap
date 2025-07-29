@@ -40,7 +40,7 @@ export async function GET() {
       hospitals: Array<{name: string, kam: string}> 
     }> = {}
     
-    assignments.forEach(assignment => {
+    assignments.forEach((assignment: any) => {
       const municipalityId = assignment.hospitals.municipality_id
       const kamName = assignment.kams.name
       const hospitalName = assignment.hospitals.name
