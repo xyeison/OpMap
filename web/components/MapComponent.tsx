@@ -130,8 +130,8 @@ export default function MapComponent() {
 
     const fetchUnassignedTravelTimes = async () => {
       try {
-        // Usar la API mejorada que consulta datos reales de Google Maps
-        const response = await fetch('/api/travel-times/unassigned-real-v2')
+        // Usar la API que incluye TODOS los hospitales sin asignar
+        const response = await fetch('/api/travel-times/unassigned-all')
         if (response.ok) {
           const data = await response.json()
           const timesMap: Record<string, any[]> = {}

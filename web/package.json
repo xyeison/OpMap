@@ -15,6 +15,7 @@
     "@types/bcryptjs": "^2.4.6",
     "autoprefixer": "^10.0.1",
     "bcryptjs": "^3.0.2",
+    "dotenv": "^17.2.1",
     "leaflet": "^1.9.4",
     "next": "14.0.4",
     "postcss": "^8.0.0",
