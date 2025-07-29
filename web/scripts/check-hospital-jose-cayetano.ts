@@ -96,7 +96,7 @@ async function checkHospitalJoseCayetano() {
         console.log(`✅ Tiempo ${idx + 1} coincide con KAM: ${matchingKam.name}`)
       } else {
         // Buscar el KAM más cercano
-        let closestKam = null
+        let closestKam: any = null
         let minDistance = Infinity
         kams?.forEach(kam => {
           const dist = Math.sqrt(
