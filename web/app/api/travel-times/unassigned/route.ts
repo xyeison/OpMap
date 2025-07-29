@@ -46,20 +46,20 @@ export async function GET(request: NextRequest) {
         // Query travel times from cache for this hospital to all KAMs
         const travelTimes = await Promise.all(
           (kams || []).map(async (kam) => {
-            // Use a small tolerance for floating point comparison
+            // Round coordinates to 6 decimals to match database precision
+            const roundedKamLat = parseFloat(kam.lat.toFixed(6))
+            const roundedKamLng = parseFloat(kam.lng.toFixed(6))
+            const roundedHospitalLat = parseFloat(hospital.lat.toFixed(6))
+            const roundedHospitalLng = parseFloat(hospital.lng.toFixed(6))
+            
             const { data: cacheData } = await supabase
               .from('travel_time_cache')
               .select('travel_time')
-              .gte('origin_lat', kam.lat - 0.0001)
-              .lte('origin_lat', kam.lat + 0.0001)
-              .gte('origin_lng', kam.lng - 0.0001)
-              .lte('origin_lng', kam.lng + 0.0001)
-              .gte('dest_lat', hospital.lat - 0.0001)
-              .lte('dest_lat', hospital.lat + 0.0001)
-              .gte('dest_lng', hospital.lng - 0.0001)
-              .lte('dest_lng', hospital.lng + 0.0001)
-              .limit(1)
-              .single()
+              .eq('origin_lat', roundedKamLat)
+              .eq('origin_lng', roundedKamLng)
+              .eq('dest_lat', roundedHospitalLat)
+              .eq('dest_lng', roundedHospitalLng)
+              .maybeSingle()
 
             return {
               kam_id: kam.id,
