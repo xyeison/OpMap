@@ -1,6 +1,7 @@
 'use client'
 
 import RecalculateButton from '@/components/RecalculateButtonEnhanced'
+import RecalculateCompleteButton from '@/components/RecalculateCompleteButton'
 import ProtectedRoute from '@/components/ProtectedRoute'
 
 export default function HomePage() {
@@ -13,7 +14,6 @@ export default function HomePage() {
           <a href="/diagnostics" className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700">
             Diagnóstico del Sistema
           </a>
-          <RecalculateButton />
         </div>
       </div>
       
@@ -40,6 +40,15 @@ export default function HomePage() {
           <h3 className="text-gray-600 text-sm font-medium">Cobertura</h3>
           <p className="text-3xl font-bold text-purple-600">94.8%</p>
           <p className="text-gray-600 text-sm">IPS asignadas</p>
+        </div>
+      </div>
+
+      {/* Sección de Administración del Sistema */}
+      <div className="mt-8">
+        <h2 className="text-2xl font-bold mb-4">Administración del Sistema</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <RecalculateButton />
+          <RecalculateCompleteButton />
         </div>
       </div>
 
