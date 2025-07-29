@@ -216,13 +216,18 @@ async function fixEverything() {
       .from('assignments')
       .select('*', { count: 'exact', head: true })
     
-    const { count: finalUnassigned } = await supabase
+    // Contar hospitales sin asignar de forma simple
+    const { data: allActiveHospitals } = await supabase
       .from('hospitals')
-      .select('h.*', { count: 'exact', head: true })
-      .from('hospitals as h')
-      .leftJoin('assignments as a', 'h.id', 'a.hospital_id')
-      .is('a.hospital_id', null)
-      .eq('h.active', true)
+      .select('id')
+      .eq('active', true)
+    
+    const { data: assignedHospitals } = await supabase
+      .from('assignments')
+      .select('hospital_id')
+    
+    const assignedSet = new Set((assignedHospitals || []).map(a => a.hospital_id))
+    const finalUnassigned = (allActiveHospitals || []).filter(h => !assignedSet.has(h.id)).length
     
     console.log(`   - Total asignaciones finales: ${finalAssignments}`)
     console.log(`   - Hospitales sin asignar finales: ${finalUnassigned || 0}`)
