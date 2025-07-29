@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
 import { Providers } from './providers'
-import Navigation from '@/components/Navigation'
+import NavigationWithPermissions from '@/components/NavigationWithPermissions'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -20,7 +20,7 @@ export default function RootLayout({
     <html lang="es">
       <body className={inter.className}>
         <Providers>
-          <Navigation />
+          <NavigationWithPermissions />
           <main className="min-h-screen bg-gray-50">
             {children}
           </main>

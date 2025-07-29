@@ -1,19 +1,37 @@
 'use client'
 
+import Link from 'next/link'
 import RecalculateButton from '@/components/RecalculateButtonEnhanced'
 import RecalculateCompleteButton from '@/components/RecalculateCompleteButton'
 import ProtectedRoute from '@/components/ProtectedRoute'
+import PermissionGuard from '@/components/PermissionGuard'
+import { usePermissions } from '@/hooks/usePermissions'
 
 export default function HomePage() {
+  const { can } = usePermissions()
+  
   return (
     <ProtectedRoute>
-      <div className="container mx-auto p-6">
+      <PermissionGuard 
+        permission="dashboard:view" 
+        fallback={
+          <div className="container mx-auto p-6">
+            <div className="bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded">
+              <strong>Acceso limitado:</strong> No tienes permisos para ver el dashboard completo.
+              <Link href="/map" className="ml-2 underline">Ir al mapa</Link>
+            </div>
+          </div>
+        }
+      >
+        <div className="container mx-auto p-6">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-3xl font-bold">Dashboard</h2>
         <div className="flex gap-3">
-          <a href="/diagnostics" className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700">
-            Diagnóstico del Sistema
-          </a>
+          <PermissionGuard permission="diagnostics:view">
+            <a href="/diagnostics" className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700">
+              Diagnóstico del Sistema
+            </a>
+          </PermissionGuard>
         </div>
       </div>
       
@@ -44,13 +62,19 @@ export default function HomePage() {
       </div>
 
       {/* Sección de Administración del Sistema */}
-      <div className="mt-8">
-        <h2 className="text-2xl font-bold mb-4">Administración del Sistema</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <RecalculateButton />
-          <RecalculateCompleteButton />
+      <PermissionGuard permissions={['recalculate:simple', 'recalculate:complete']}>
+        <div className="mt-8">
+          <h2 className="text-2xl font-bold mb-4">Administración del Sistema</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <PermissionGuard permission="recalculate:simple">
+              <RecalculateButton />
+            </PermissionGuard>
+            <PermissionGuard permission="recalculate:complete">
+              <RecalculateCompleteButton />
+            </PermissionGuard>
+          </div>
         </div>
-      </div>
+      </PermissionGuard>
 
       <div className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-white rounded-lg shadow p-6">
@@ -92,6 +116,7 @@ export default function HomePage() {
         </div>
       </div>
       </div>
+      </PermissionGuard>
     </ProtectedRoute>
   )
 }
