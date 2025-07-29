@@ -2,6 +2,7 @@
 
 import dynamic from 'next/dynamic'
 import RecalculateButton from '@/components/RecalculateButtonEnhanced'
+import RecalculateCompleteButton from '@/components/RecalculateCompleteButton'
 
 // Importar Leaflet dinámicamente para evitar errores de SSR
 const MapComponent = dynamic(() => import('@/components/MapComponent'), {
@@ -13,8 +14,9 @@ export default function MapPage() {
   return (
     <div className="h-screen relative">
       <MapComponent />
-      <div className="absolute top-4 right-4 z-[1000]">
+      <div className="absolute top-4 right-4 z-[1000] space-y-4">
         <RecalculateButton />
+        <RecalculateCompleteButton />
       </div>
     </div>
   )
