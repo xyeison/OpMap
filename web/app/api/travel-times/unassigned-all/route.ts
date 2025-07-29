@@ -51,11 +51,12 @@ export async function GET() {
       })
     }
     
-    // 5. Obtener TODOS los tiempos de viaje
-    const { data: allTravelTimes } = await supabase
+    // 5. Obtener TODOS los tiempos de viaje de Google Maps
+    const { data: allTravelTimes, count } = await supabase
       .from('travel_time_cache')
-      .select('origin_lat, origin_lng, dest_lat, dest_lng, travel_time, source')
-      .limit(20000) // Aumentar límite significativamente
+      .select('origin_lat, origin_lng, dest_lat, dest_lng, travel_time, source', { count: 'exact' })
+      .eq('source', 'google_maps') // Solo tiempos reales de Google Maps
+      .limit(50000) // Límite muy alto para obtener todos
     
     console.log(`Tiempos de viaje cargados: ${allTravelTimes?.length || 0}`)
     

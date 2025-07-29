@@ -130,8 +130,8 @@ export default function MapComponent() {
 
     const fetchUnassignedTravelTimes = async () => {
       try {
-        // Usar la API que incluye TODOS los hospitales sin asignar
-        const response = await fetch('/api/travel-times/unassigned-all')
+        // Usar la API optimizada que busca tiempos específicos por hospital
+        const response = await fetch('/api/travel-times/unassigned-optimized')
         if (response.ok) {
           const data = await response.json()
           const timesMap: Record<string, any[]> = {}
