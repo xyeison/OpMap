@@ -50,7 +50,7 @@ async function checkCartagenaBarranquilla() {
   console.log('Asignaciones actuales de hospitales de Barranquilla:')
   const kamCounts: Record<string, number> = {}
   assignments?.forEach(a => {
-    const kamName = a.sellers?.name || 'Desconocido'
+    const kamName = (a.sellers as any)?.name || 'Desconocido'
     kamCounts[kamName] = (kamCounts[kamName] || 0) + 1
   })
 
