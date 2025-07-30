@@ -89,13 +89,13 @@ export async function POST(request: Request) {
     }
     
     // Generar UUID (usar diferentes métodos según disponibilidad)
-    let userId: string
+    let newUserId: string
     try {
       // Intentar usar crypto.randomUUID() primero
-      userId = crypto.randomUUID()
+      newUserId = crypto.randomUUID()
     } catch {
       // Fallback: generar un UUID simple
-      userId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+      newUserId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
         const r = Math.random() * 16 | 0
         const v = c == 'x' ? r : (r & 0x3 | 0x8)
         return v.toString(16)
@@ -106,7 +106,7 @@ export async function POST(request: Request) {
     const { data: newUser, error } = await supabase
       .from('users')
       .insert({
-        id: userId,
+        id: newUserId,
         email,
         password, // En producción esto debería ser hasheado
         full_name,
