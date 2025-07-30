@@ -84,22 +84,31 @@ export async function POST(request: NextRequest) {
     }
 
     // Registrar la importación
-    const { error: importError } = await supabase
-      .from('visit_imports')
-      .insert({
-        import_batch: importBatch,
-        filename,
-        month,
-        year,
-        total_records: visits.length,
-        successful_records: successfulCount,
-        failed_records: failedVisits.length,
-        error_details: errors.length > 0 ? { errors, failedVisits } : null,
-        imported_by: user.id
-      })
+    try {
+      const { error: importError } = await supabase
+        .from('visit_imports')
+        .insert({
+          import_batch: importBatch,
+          filename,
+          month,
+          year,
+          total_records: visits.length,
+          successful_records: successfulCount,
+          failed_records: failedVisits.length,
+          error_details: errors.length > 0 ? { errors, failedVisits } : null,
+          imported_by: user.id
+        })
 
-    if (importError) {
-      console.error('Error registering import:', importError)
+      if (importError) {
+        console.error('Error registering import:', importError)
+        // Si falla por RLS, continuar de todos modos
+        if (importError.code !== '42501') {
+          throw importError
+        }
+      }
+    } catch (error) {
+      console.error('Error al registrar importación, continuando de todos modos:', error)
+      // No fallar la importación completa si solo falla el registro
     }
 
     return NextResponse.json({
