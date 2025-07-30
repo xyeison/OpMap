@@ -71,7 +71,12 @@ export async function POST(request: NextRequest) {
           })
 
         if (insertError) {
-          errors.push(`Error insertando visita: ${insertError.message}`)
+          console.error('Error insertando visita individual:', insertError)
+          if (insertError.code === '42501') {
+            errors.push(`Error de permisos RLS en tabla visits. Ejecute el script SQL para desactivar RLS.`)
+          } else {
+            errors.push(`Error insertando visita: ${insertError.message}`)
+          }
           failedVisits.push(visit)
         } else {
           successfulCount++
