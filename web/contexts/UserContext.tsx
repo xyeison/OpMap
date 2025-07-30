@@ -6,7 +6,7 @@ interface User {
   id: string
   email: string
   full_name: string
-  role: 'admin' | 'sales_manager' | 'contract_manager' | 'data_manager' | 'viewer'
+  role: 'admin' | 'sales_manager' | 'contract_manager' | 'data_manager' | 'viewer' | 'user'
 }
 
 interface UserContextType {

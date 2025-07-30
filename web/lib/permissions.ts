@@ -1,6 +1,6 @@
 // Sistema de permisos para OpMap
 
-export type Role = 'admin' | 'sales_manager' | 'contract_manager' | 'data_manager' | 'viewer'
+export type Role = 'admin' | 'sales_manager' | 'contract_manager' | 'data_manager' | 'viewer' | 'user'
 
 export type Permission = 
   | 'dashboard:view'
@@ -56,6 +56,10 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'kams:edit'
   ],
   viewer: [
+    'map:view',
+    'hospitals:view'
+  ],
+  user: [
     'map:view',
     'hospitals:view'
   ]
@@ -138,7 +142,8 @@ export function getRoleTitle(role: Role): string {
     sales_manager: 'Ventas',
     contract_manager: 'Contratos',
     data_manager: 'Datos',
-    viewer: 'Visualizador'
+    viewer: 'Visualizador',
+    user: 'Usuario'
   }
   
   return titles[role] || 'Usuario'

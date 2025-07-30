@@ -9,7 +9,7 @@ interface User {
   id: string
   email: string
   full_name: string
-  role: 'admin' | 'sales_manager' | 'contract_manager' | 'data_manager' | 'viewer'
+  role: 'admin' | 'sales_manager' | 'contract_manager' | 'data_manager' | 'viewer' | 'user'
   active: boolean
   created_at: string
 }
@@ -23,7 +23,7 @@ export default function UsersPage() {
     email: '',
     password: '',
     full_name: '',
-    role: 'viewer' as User['role']
+    role: 'user' as any // Temporalmente usar 'user' si la BD lo requiere
   })
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -122,7 +122,8 @@ export default function UsersPage() {
     sales_manager: 'Ventas',
     contract_manager: 'Contratos',
     data_manager: 'Datos',
-    viewer: 'Visualizador'
+    viewer: 'Visualizador',
+    user: 'Usuario'
   }
 
   const roleColors = {
@@ -130,7 +131,8 @@ export default function UsersPage() {
     sales_manager: 'bg-blue-100 text-blue-800',
     contract_manager: 'bg-green-100 text-green-800',
     data_manager: 'bg-yellow-100 text-yellow-800',
-    viewer: 'bg-gray-100 text-gray-800'
+    viewer: 'bg-gray-100 text-gray-800',
+    user: 'bg-gray-100 text-gray-800'
   }
 
   // Solo admin puede ver esta página
@@ -235,7 +237,7 @@ export default function UsersPage() {
                       value={formData.role}
                       onChange={(e) => setFormData({ ...formData, role: e.target.value as User['role'] })}
                     >
-                      <option value="viewer">Visualizador</option>
+                      <option value="user">Usuario</option>
                       <option value="data_manager">Datos</option>
                       <option value="contract_manager">Contratos</option>
                       <option value="sales_manager">Ventas</option>
@@ -316,7 +318,7 @@ export default function UsersPage() {
                             onChange={(e) => handleRoleChange(user.id, e.target.value as User['role'])}
                             className="text-sm border rounded px-2 py-1"
                           >
-                            <option value="viewer">Visualizador</option>
+                            <option value="user">Usuario</option>
                             <option value="data_manager">Datos</option>
                             <option value="contract_manager">Contratos</option>
                             <option value="sales_manager">Ventas</option>
