@@ -15,6 +15,8 @@ export type Permission =
   | 'recalculate:complete'
   | 'diagnostics:view'
   | 'users:manage'
+  | 'visits:view'
+  | 'visits:manage'
 
 // Definición de permisos por rol
 export const rolePermissions: Record<Role, Permission[]> = {
@@ -30,7 +32,9 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'recalculate:simple',
     'recalculate:complete',
     'diagnostics:view',
-    'users:manage'
+    'users:manage',
+    'visits:view',
+    'visits:manage'
   ],
   sales_manager: [
     'map:view',
@@ -48,7 +52,9 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'hospitals:view',
     'hospitals:edit',
     'kams:view',
-    'kams:edit'
+    'kams:edit',
+    'visits:view',
+    'visits:manage'
   ],
   viewer: [
     'map:view',
@@ -88,6 +94,7 @@ export function getAllowedRoutes(role: Role | undefined): string[] {
   if (permissions.includes('contracts:view')) routes.push('/contracts')
   if (permissions.includes('diagnostics:view')) routes.push('/diagnostics')
   if (permissions.includes('users:manage')) routes.push('/users')
+  if (permissions.includes('visits:view')) routes.push('/visits')
   
   return routes
 }
@@ -125,6 +132,10 @@ export function getNavigationMenu(role: Role | undefined) {
   
   if (permissions.includes('users:manage')) {
     menu.push({ name: 'Usuarios', href: '/users', icon: 'user-group' })
+  }
+  
+  if (permissions.includes('visits:view')) {
+    menu.push({ name: 'Visitas', href: '/visits', icon: 'location' })
   }
   
   return menu

@@ -1,0 +1,22 @@
+# Plantilla Excel para Importación de Visitas
+
+Este es un archivo de plantilla para ayudar a los usuarios a entender el formato correcto para importar visitas.
+
+## Columnas requeridas:
+
+1. **kam_name** - Nombre del KAM (debe coincidir exactamente con el nombre en el sistema)
+2. **tipo_visita** - Valores permitidos: "Visita efectiva", "Visita extra", "Visita no efectiva"
+3. **tipo_contacto** - Valores permitidos: "Visita presencial", "Visita virtual"
+4. **latitud** - Coordenada de latitud (decimal, ej: 4.710989)
+5. **longitud** - Coordenada de longitud (decimal, ej: -74.072092)
+6. **fecha_reporte** - Fecha en formato YYYY-MM-DD (ej: 2024-01-15)
+7. **hospital_visitado** - (Opcional) Nombre del hospital visitado
+8. **observaciones** - (Opcional) Notas adicionales sobre la visita
+
+## Ejemplo de datos:
+
+| kam_name | tipo_visita | tipo_contacto | latitud | longitud | fecha_reporte | hospital_visitado | observaciones |
+|----------|-------------|---------------|---------|----------|---------------|-------------------|---------------|
+| Juan Pérez | Visita efectiva | Visita presencial | 4.710989 | -74.072092 | 2024-01-15 | Hospital San Juan | Reunión con director médico |
+| María García | Visita extra | Visita virtual | 6.244203 | -75.581211 | 2024-01-16 | Clínica Santa María | Seguimiento contrato |
+| Carlos López | Visita no efectiva | Visita presencial | 10.963889 | -74.796387 | 2024-01-17 | | Cliente no disponible |
