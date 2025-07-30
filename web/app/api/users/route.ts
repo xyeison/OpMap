@@ -88,11 +88,25 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'El email ya está registrado' }, { status: 400 })
     }
     
+    // Generar UUID (usar diferentes métodos según disponibilidad)
+    let userId: string
+    try {
+      // Intentar usar crypto.randomUUID() primero
+      userId = crypto.randomUUID()
+    } catch {
+      // Fallback: generar un UUID simple
+      userId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        const r = Math.random() * 16 | 0
+        const v = c == 'x' ? r : (r & 0x3 | 0x8)
+        return v.toString(16)
+      })
+    }
+
     // Crear el nuevo usuario con UUID
     const { data: newUser, error } = await supabase
       .from('users')
       .insert({
-        id: crypto.randomUUID(),
+        id: userId,
         email,
         password, // En producción esto debería ser hasheado
         full_name,
@@ -106,8 +120,13 @@ export async function POST(request: Request) {
     if (error) throw error
     
     return NextResponse.json({ user: newUser, message: 'Usuario creado exitosamente' })
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error al crear usuario:', error)
-    return NextResponse.json({ error: 'Error al crear usuario' }, { status: 500 })
+    // Devolver más detalles del error para debugging
+    return NextResponse.json({ 
+      error: 'Error al crear usuario',
+      details: error?.message || 'Error desconocido',
+      code: error?.code
+    }, { status: 500 })
   }
 }

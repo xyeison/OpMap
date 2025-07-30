@@ -66,10 +66,13 @@ export default function UsersPage() {
       if (response.ok) {
         setSuccess('Usuario creado exitosamente')
         setShowCreateForm(false)
-        setFormData({ email: '', password: '', full_name: '', role: 'viewer' })
+        setFormData({ email: '', password: '', full_name: '', role: 'user' })
         loadUsers()
       } else {
-        setError(data.error || 'Error al crear usuario')
+        // Mostrar más detalles del error
+        const errorMsg = data.details ? `${data.error}: ${data.details}` : data.error
+        setError(errorMsg || 'Error al crear usuario')
+        console.error('Error detallado:', data)
       }
     } catch (error) {
       setError('Error al crear usuario')
@@ -250,7 +253,7 @@ export default function UsersPage() {
                       type="button"
                       onClick={() => {
                         setShowCreateForm(false)
-                        setFormData({ email: '', password: '', full_name: '', role: 'viewer' })
+                        setFormData({ email: '', password: '', full_name: '', role: 'user' })
                         setError('')
                       }}
                       className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600"
