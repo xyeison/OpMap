@@ -5,6 +5,9 @@ import type { NextRequest } from 'next/server'
 // Rutas públicas que no requieren autenticación
 const publicRoutes = ['/login', '/api/auth/login', '/api/test-connection', '/api/auth/me']
 
+// Rutas API que manejan su propia autenticación
+const apiRoutesWithOwnAuth = ['/api/visits', '/api/users', '/api/hospitals', '/api/kams', '/api/assignments', '/api/contracts']
+
 export async function middleware(request: NextRequest) {
   // Verificar si es una ruta pública
   const isPublicRoute = publicRoutes.some(route => 
@@ -13,6 +16,16 @@ export async function middleware(request: NextRequest) {
 
   // Si es una ruta pública, permitir acceso
   if (isPublicRoute) {
+    return NextResponse.next()
+  }
+
+  // Verificar si es una ruta API que maneja su propia autenticación
+  const isApiRouteWithOwnAuth = apiRoutesWithOwnAuth.some(route =>
+    request.nextUrl.pathname.startsWith(route)
+  )
+
+  // Si es una ruta API con su propia autenticación, permitir acceso
+  if (isApiRouteWithOwnAuth) {
     return NextResponse.next()
   }
 

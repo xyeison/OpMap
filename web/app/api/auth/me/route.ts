@@ -1,39 +1,35 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, NextRequest } from 'next/server'
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
-import { createClient } from '@supabase/supabase-js'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
-
-export async function GET() {
-  const cookieStore = cookies()
-  const sessionToken = cookieStore.get('sb-access-token')
-  
-  if (!sessionToken) {
-    return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-  }
-  
+export async function GET(request: NextRequest) {
   try {
-    // Decodificar el token simple (en producción usar JWT)
-    const decoded = Buffer.from(sessionToken.value, 'base64').toString()
-    const [userId] = decoded.split(':')
+    const cookieStore = cookies()
+    const supabase = createRouteHandlerClient({ cookies: () => cookieStore })
     
-    // Buscar el usuario
-    const { data: user, error } = await supabase
+    // Obtener la sesión actual
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+    
+    if (sessionError || !session) {
+      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+    }
+    
+    // Obtener información del usuario desde nuestra tabla
+    const { data: user, error: userError } = await supabase
       .from('users')
       .select('id, email, full_name, role')
-      .eq('id', userId)
+      .eq('id', session.user.id)
       .eq('active', true)
       .single()
     
-    if (error || !user) {
+    if (userError || !user) {
+      console.error('Error obteniendo usuario:', userError)
       return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 401 })
     }
     
     return NextResponse.json({ user })
   } catch (error) {
-    return NextResponse.json({ error: 'Token inválido' }, { status: 401 })
+    console.error('Error en /api/auth/me:', error)
+    return NextResponse.json({ error: 'Error interno' }, { status: 500 })
   }
 }
