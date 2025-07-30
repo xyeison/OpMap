@@ -47,8 +47,7 @@ ON CONFLICT (email) DO UPDATE SET
     password = EXCLUDED.password,
     full_name = EXCLUDED.full_name,
     role = EXCLUDED.role,
-    active = EXCLUDED.active,
-    updated_at = NOW();
+    active = EXCLUDED.active;
 
 -- Verificar que los usuarios fueron creados
 SELECT email, full_name, role, active, created_at 
