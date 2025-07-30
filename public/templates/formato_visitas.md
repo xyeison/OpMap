@@ -7,11 +7,9 @@
 | A | kam | Texto | KAM en formato "Kam [Ciudad]" | Kam Barranquilla |
 | B | tipo_visita | Lista | Tipo de visita realizada | Visita efectiva |
 | C | tipo_contacto | Lista | Modalidad de la visita | Visita presencial |
-| D | latitud | Decimal | Coordenada latitud | 4.710989 |
-| E | longitud | Decimal | Coordenada longitud | -74.072092 |
+| D | latitud | Decimal | Coordenada latitud | 10.963889 |
+| E | longitud | Decimal | Coordenada longitud | -74.796387 |
 | F | fecha_reporte | Fecha | Fecha de la visita (YYYY-MM-DD) | 2024-01-15 |
-| G | hospital_visitado | Texto | Nombre del hospital (opcional) | Hospital San Juan |
-| H | observaciones | Texto | Notas adicionales (opcional) | Reunión exitosa |
 
 ## Valores permitidos:
 
@@ -49,9 +47,15 @@ Use el formato estándar "Kam [Ciudad]":
 - **longitud**: Entre -180 y 180
 - **fecha_reporte**: Formato YYYY-MM-DD
 
+## Formato simplificado:
+Este formato minimalista permite:
+- Carga rápida de datos mensuales
+- Identificación de zonas no visitadas
+- Análisis de cobertura territorial
+- Mapas de calor de actividad
+
 ## Notas importantes:
 1. El archivo debe ser .xlsx o .xls
-2. La primera fila debe contener los nombres de las columnas exactamente como se muestran
+2. Solo se requieren 6 columnas de datos
 3. No dejar filas vacías entre los datos
-4. Los campos opcionales pueden dejarse en blanco
-5. El sistema intentará asociar automáticamente la visita con el hospital más cercano (máximo 5km)
+4. El sistema asocia automáticamente visitas con hospitales cercanos (máximo 5km)

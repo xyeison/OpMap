@@ -159,6 +159,14 @@ export default function VisitsControls({
               </strong></p>
             </div>
           )}
+
+          {/* Análisis de cobertura */}
+          <button
+            onClick={() => window.open(`/visits/coverage?month=${selectedMonth}&year=${selectedYear}`, '_blank')}
+            className="mt-3 w-full px-3 py-2 bg-purple-600 text-white text-sm rounded hover:bg-purple-700"
+          >
+            Ver Zonas No Visitadas
+          </button>
         </div>
       )}
 

@@ -197,8 +197,8 @@ export default function VisitsPage() {
           lat: lat,
           lng: lng,
           visit_date: visitDate.toISOString().split('T')[0],
-          hospital_name: row.hospital_visitado || null,
-          observations: row.observaciones || null,
+          hospital_name: null,  // Simplificado - no se requiere
+          observations: null,   // Simplificado - no se requiere
           import_batch: importBatch
         })
       })
@@ -274,9 +274,7 @@ export default function VisitsPage() {
         tipo_contacto: 'Visita presencial',
         latitud: 10.963889,
         longitud: -74.796387,
-        fecha_reporte: '2024-01-15',
-        hospital_visitado: 'Hospital Universitario del Caribe',
-        observaciones: 'Reunión con director médico'
+        fecha_reporte: '2024-01-15'
       },
       {
         kam: 'Kam Cali',
@@ -284,9 +282,7 @@ export default function VisitsPage() {
         tipo_contacto: 'Visita virtual',
         latitud: 3.451647,
         longitud: -76.531985,
-        fecha_reporte: '2024-01-16',
-        hospital_visitado: 'Clínica Valle del Lili',
-        observaciones: 'Seguimiento de contrato'
+        fecha_reporte: '2024-01-16'
       },
       {
         kam: 'Kam Medellin',
@@ -294,9 +290,15 @@ export default function VisitsPage() {
         tipo_contacto: 'Visita presencial',
         latitud: 6.244203,
         longitud: -75.581211,
-        fecha_reporte: '2024-01-17',
-        hospital_visitado: '',
-        observaciones: 'Cliente no disponible'
+        fecha_reporte: '2024-01-17'
+      },
+      {
+        kam: 'Kam Chapinero',
+        tipo_visita: 'Visita efectiva',
+        tipo_contacto: 'Visita presencial',
+        latitud: 4.645530,
+        longitud: -74.064644,
+        fecha_reporte: '2024-01-18'
       }
     ]
 
