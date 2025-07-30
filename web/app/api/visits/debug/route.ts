@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
       recentVisits,
       specificVisit,
       debug: {
-        hasVisits: totalVisits > 0,
+        hasVisits: (totalVisits ?? 0) > 0,
         firstVisitCoords: recentVisits?.[0] ? {
           lat: recentVisits[0].lat,
           lng: recentVisits[0].lng
