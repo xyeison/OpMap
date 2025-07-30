@@ -5,7 +5,7 @@ import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
 
 // Importar Leaflet dinámicamente para evitar errores de SSR
-const MapWithVisits = dynamic(() => import('@/components/MapWithVisits'), {
+const MapWithVisitsSimple = dynamic(() => import('@/components/MapWithVisitsSimple'), {
   ssr: false,
   loading: () => <div className="flex items-center justify-center h-screen">Cargando mapa...</div>
 })
@@ -24,7 +24,7 @@ export default function MapPage() {
         }
       >
         <div className="h-screen relative">
-          <MapWithVisits />
+          <MapWithVisitsSimple />
         </div>
       </PermissionGuard>
     </ProtectedRoute>

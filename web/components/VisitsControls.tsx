@@ -1,64 +1,24 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import dynamic from 'next/dynamic'
-import { MapContainer, TileLayer, GeoJSON, CircleMarker, Marker, Tooltip } from 'react-leaflet'
-import { useQuery } from '@tanstack/react-query'
-import { supabase } from '@/lib/supabase'
-import L from 'leaflet'
-import 'leaflet/dist/leaflet.css'
-import { useRouter } from 'next/navigation'
-import { VisitsHeatmapLayer } from './VisitsHeatmapLayer'
 import { useVisits } from '@/hooks/useVisits'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 
-// Import all the necessary constants and setup from MapComponent
-delete (L.Icon.Default.prototype as any)._getIconUrl
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-})
-
-if (typeof window !== 'undefined' && !document.querySelector('link[href*="fontawesome"]')) {
-  const link = document.createElement('link')
-  link.rel = 'stylesheet'
-  link.href = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.2.0/css/all.min.css'
-  document.head.appendChild(link)
+interface VisitsControlsProps {
+  onVisitsChange?: (visits: any[]) => void
+  onShowVisitsChange?: (show: boolean) => void
+  onShowHeatmapChange?: (show: boolean) => void
+  onShowMarkersChange?: (show: boolean) => void
 }
 
-const KAM_COLOR_MAPPING: Record<string, string> = {
-  'barranquilla': '#FF6B6B',
-  'bucaramanga': '#4ECDC4',
-  'cali': '#45B7D1',
-  'cartagena': '#96CEB4',
-  'cucuta': '#FECA57',
-  'medellin': '#FF9FF3',
-  'monteria': '#54A0FF',
-  'neiva': '#8B4513',
-  'pasto': '#1DD1A1',
-  'pereira': '#FF7675',
-  'sincelejo': '#A29BFE',
-  'chapinero': '#FD79A8',
-  'engativa': '#FDCB6E',
-  'sancristobal': '#6C5CE7',
-  'kennedy': '#00D2D3',
-  'valledupar': '#2ECC71'
-}
-
-const BACKUP_COLORS = [
-  '#E74C3C', '#3498DB', '#2ECC71', '#F39C12', '#9B59B6',
-  '#1ABC9C', '#34495E', '#E67E22', '#16A085', '#8E44AD'
-]
-
-// Dynamic import of MapComponent
-const MapComponent = dynamic(() => import('./MapComponent'), {
-  ssr: false
-})
-
-export default function MapWithVisits() {
-  const [showVisits, setShowVisits] = useState(false)
+export default function VisitsControls({
+  onVisitsChange,
+  onShowVisitsChange,
+  onShowHeatmapChange,
+  onShowMarkersChange
+}: VisitsControlsProps) {
+  const [showControls, setShowControls] = useState(false)
   const [showHeatmap, setShowHeatmap] = useState(true)
   const [showMarkers, setShowMarkers] = useState(false)
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1)
@@ -74,17 +34,35 @@ export default function MapWithVisits() {
     contactType: contactTypeFilter === 'all' ? undefined : contactTypeFilter
   })
 
-  // Colores para diferentes tipos de visitas
-  const getVisitColor = (visit: any) => {
-    if (visit.visit_type === 'Visita efectiva') return '#2ECC71'
-    if (visit.visit_type === 'Visita extra') return '#3498DB'
-    return '#E74C3C' // Visita no efectiva
-  }
+  // Notificar cambios
+  useEffect(() => {
+    if (onVisitsChange && visits) {
+      onVisitsChange(visits)
+    }
+  }, [visits, onVisitsChange])
+
+  useEffect(() => {
+    if (onShowVisitsChange) {
+      onShowVisitsChange(showControls)
+    }
+  }, [showControls, onShowVisitsChange])
+
+  useEffect(() => {
+    if (onShowHeatmapChange) {
+      onShowHeatmapChange(showHeatmap)
+    }
+  }, [showHeatmap, onShowHeatmapChange])
+
+  useEffect(() => {
+    if (onShowMarkersChange) {
+      onShowMarkersChange(showMarkers)
+    }
+  }, [showMarkers, onShowMarkersChange])
 
   return (
-    <div className="relative h-full">
+    <>
       {/* Controles de visitas */}
-      {showVisits && (
+      {showControls && (
         <div className="absolute top-4 left-4 z-[1000] bg-white p-4 rounded-lg shadow-lg max-w-sm">
           <h3 className="font-bold text-lg mb-3">Control de Visitas</h3>
           
@@ -186,51 +164,16 @@ export default function MapWithVisits() {
 
       {/* Botón para mostrar/ocultar controles */}
       <button
-        onClick={() => setShowVisits(!showVisits)}
+        onClick={() => setShowControls(!showControls)}
         className="absolute top-4 left-4 z-[999] bg-white px-4 py-2 rounded-lg shadow-lg hover:bg-gray-100 flex items-center gap-2"
-        style={{ left: showVisits ? '340px' : '10px' }}
+        style={{ left: showControls ? '340px' : '10px' }}
       >
         <i className="fas fa-map-marked-alt"></i>
-        {showVisits ? 'Ocultar' : 'Mostrar'} Visitas
+        {showControls ? 'Ocultar' : 'Mostrar'} Visitas
       </button>
 
-      {/* Mapa base con las capas adicionales */}
-      <MapComponent>
-        {/* Capa de mapa de calor */}
-        {showVisits && showHeatmap && visits && visits.length > 0 && (
-          <VisitsHeatmapLayer visits={visits} />
-        )}
-
-        {/* Marcadores individuales */}
-        {showVisits && showMarkers && visits && visits.map((visit) => (
-          <CircleMarker
-            key={visit.id}
-            center={[visit.lat, visit.lng]}
-            radius={8}
-            pathOptions={{
-              fillColor: getVisitColor(visit),
-              color: '#fff',
-              weight: 2,
-              opacity: 1,
-              fillOpacity: 0.8
-            }}
-          >
-            <Tooltip>
-              <div className="text-xs">
-                <p><strong>{visit.kam_name}</strong></p>
-                <p>{visit.visit_type}</p>
-                <p>{visit.contact_type}</p>
-                <p>{format(new Date(visit.visit_date), 'dd/MM/yyyy')}</p>
-                {visit.hospital_name && <p>Hospital: {visit.hospital_name}</p>}
-                {visit.observations && <p className="text-gray-600">{visit.observations}</p>}
-              </div>
-            </Tooltip>
-          </CircleMarker>
-        ))}
-      </MapComponent>
-
       {/* Leyenda adicional para visitas */}
-      {showVisits && showMarkers && (
+      {showControls && showMarkers && (
         <div className="absolute bottom-40 right-4 z-[1000] bg-white p-3 rounded-lg shadow-lg">
           <h4 className="font-bold text-sm mb-2">Tipos de Visita</h4>
           <div className="space-y-1 text-xs">
@@ -249,6 +192,6 @@ export default function MapWithVisits() {
           </div>
         </div>
       )}
-    </div>
+    </>
   )
 }
