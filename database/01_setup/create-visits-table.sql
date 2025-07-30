@@ -167,4 +167,4 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- 10. Índice para búsquedas geoespaciales eficientes
-CREATE INDEX idx_hospitals_lat_lng_active ON hospitals(lat, lng) WHERE active = true;
+CREATE INDEX IF NOT EXISTS idx_hospitals_lat_lng_active ON hospitals(lat, lng) WHERE active = true;
