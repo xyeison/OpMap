@@ -64,6 +64,10 @@ export const rolePermissions: Record<Role, Permission[]> = {
 // Función para verificar si un rol tiene un permiso específico
 export function hasPermission(role: Role | undefined, permission: Permission): boolean {
   if (!role) return false
+  
+  // Admin siempre tiene todos los permisos
+  if (role === 'admin') return true
+  
   return rolePermissions[role]?.includes(permission) || false
 }
 

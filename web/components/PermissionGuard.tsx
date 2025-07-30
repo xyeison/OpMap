@@ -19,11 +19,14 @@ export default function PermissionGuard({
   requireAll = false,
   fallback = null 
 }: PermissionGuardProps) {
-  const { can, canAny, canAll, loading } = usePermissions()
+  const { can, canAny, canAll, loading, role } = usePermissions()
   
   if (loading) {
     return <div className="animate-pulse">Cargando...</div>
   }
+  
+  // Debug log temporalmente
+  console.log('PermissionGuard check:', { permission, permissions, role, loading })
   
   let hasAccess = false
   
