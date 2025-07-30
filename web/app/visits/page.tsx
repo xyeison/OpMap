@@ -94,14 +94,13 @@ export default function VisitsPage() {
     setImportSuccess(null)
 
     try {
-      // Leer el archivo Excel/CSV
+      // Leer el archivo Excel
       const data = await file.arrayBuffer()
       const workbook = XLSX.read(data, { 
         type: 'array',
         raw: false,
         dateNF: 'yyyy-mm-dd',
-        cellDates: true,
-        FS: ';' // Soporte para archivos CSV con punto y coma
+        cellDates: true
       })
       const worksheet = workbook.Sheets[workbook.SheetNames[0]]
       const jsonData = XLSX.utils.sheet_to_json(worksheet, {
@@ -364,20 +363,11 @@ export default function VisitsPage() {
       }
     ]
 
-    // Crear archivo CSV con punto y coma como separador
-    const headers = Object.keys(template[0])
-    const csvContent = [
-      headers.join(';'),
-      ...template.map(row => headers.map(h => row[h]).join(';'))
-    ].join('\n')
-
-    // Crear blob y descargar
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
-    const link = document.createElement('a')
-    link.href = URL.createObjectURL(blob)
-    link.download = 'plantilla_visitas.csv'
-    link.click()
-    URL.revokeObjectURL(link.href)
+    // Crear archivo Excel
+    const ws = XLSX.utils.json_to_sheet(template)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Visitas')
+    XLSX.writeFile(wb, 'plantilla_visitas.xlsx')
   }
 
   return (

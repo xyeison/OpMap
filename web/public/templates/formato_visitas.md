@@ -2,7 +2,7 @@
 
 ## Formato del Archivo
 
-El archivo debe ser CSV (separado por punto y coma `;`) con las siguientes columnas:
+El archivo debe ser Excel (.xlsx) con las siguientes columnas:
 
 | Columna | Descripción | Formato | Ejemplo |
 |---------|-------------|---------|---------|
@@ -43,18 +43,17 @@ Debe usar el formato exacto "Kam [Ciudad]":
 - Visita presencial
 - Visita virtual
 
-## Ejemplo de Archivo CSV
+## Ejemplo de Archivo Excel
 
-```csv
-Representante;Tipo de visitas;Tipo de contacto;Latitud;Longitud;Fecha de la visita
-Kam Barranquilla;Visita efectiva;Visita presencial;10.963889;-74.796387;15 Ene 2024 09:00:00
-Kam Cali;Visita extra;Visita virtual;3.451647;-76.531985;16 Ene 2024 14:30:00
-Kam Engativá;Visita efectiva;Visita presencial;4.703464;-74.113736;17 Ene 2024 10:00:00
-```
+| Representante | Tipo de visitas | Tipo de contacto | Latitud | Longitud | Fecha de la visita |
+|---------------|-----------------|------------------|---------|----------|-------------------|
+| Kam Barranquilla | Visita efectiva | Visita presencial | 10.963889 | -74.796387 | 15 Ene 2024 09:00:00 |
+| Kam Cali | Visita extra | Visita virtual | 3.451647 | -76.531985 | 16 Ene 2024 14:30:00 |
+| Kam Engativá | Visita efectiva | Visita presencial | 4.703464 | -74.113736 | 17 Ene 2024 10:00:00 |
 
 ## Notas Importantes
 
-1. **Separador**: El archivo debe usar punto y coma (`;`) como separador de columnas
+1. **Formato de archivo**: Excel (.xlsx) 
 2. **Formato de fecha**: DD MMM YYYY HH:mm:ss (ejemplo: 23 Ene 2025 15:30:00)
 3. **Coordenadas**: Usar punto (`.`) como separador decimal
 4. **Acentos**: Se aceptan tanto con acentos (Engativá) como sin acentos (Engativa)
