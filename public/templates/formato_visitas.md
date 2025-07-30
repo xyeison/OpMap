@@ -4,7 +4,7 @@
 
 | Columna | Nombre | Tipo | Descripción | Ejemplo |
 |---------|--------|------|-------------|---------|
-| A | kam_name | Texto | Nombre completo del KAM | Juan Pérez |
+| A | kam_id o kam_name | Texto | ID del KAM (recomendado) o nombre completo | barranquilla o Juan Pérez |
 | B | tipo_visita | Lista | Tipo de visita realizada | Visita efectiva |
 | C | tipo_contacto | Lista | Modalidad de la visita | Visita presencial |
 | D | latitud | Decimal | Coordenada latitud | 4.710989 |
@@ -25,7 +25,10 @@
 - Visita virtual
 
 ## Validaciones:
-- **kam_name**: Debe coincidir exactamente con el nombre del KAM en el sistema
+- **kam_id/kam_name**: 
+  - Preferiblemente use el ID del KAM (ej: 'barranquilla', 'cali', 'medellin')
+  - También puede usar el nombre completo si lo conoce exactamente
+  - El sistema acepta las columnas: kam_id, kam, o kam_name
 - **latitud**: Entre -90 y 90
 - **longitud**: Entre -180 y 180
 - **fecha_reporte**: Formato YYYY-MM-DD

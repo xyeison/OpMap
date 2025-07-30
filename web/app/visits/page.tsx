@@ -111,21 +111,37 @@ export default function VisitsPage() {
         .select('id, name')
         .eq('active', true)
 
-      const kamMap = new Map(kams?.map(k => [k.name.toLowerCase(), k.id]) || [])
+      // Crear mapa tanto por nombre como por ID
+      const kamMapByName = new Map(kams?.map(k => [k.name.toLowerCase(), k.id]) || [])
+      const kamMapById = new Map(kams?.map(k => [k.id.toLowerCase(), k.id]) || [])
 
       jsonData.forEach((row: any, index: number) => {
         const rowNum = index + 2 // +2 porque Excel empieza en 1 y tiene headers
 
-        // Validar campos requeridos
-        if (!row.kam_name) {
-          errors.push(`Fila ${rowNum}: Falta el nombre del KAM`)
+        // Validar campos requeridos - aceptar kam_id o kam_name
+        const kamInput = row.kam_id || row.kam || row.kam_name
+        if (!kamInput) {
+          errors.push(`Fila ${rowNum}: Falta el KAM (puede usar kam_id como 'barranquilla' o kam_name como 'Juan Pérez')`)
           return
         }
 
-        // Buscar KAM
-        const kamId = kamMap.get(row.kam_name.toLowerCase())
+        // Buscar KAM por ID primero, luego por nombre
+        let kamId = kamMapById.get(kamInput.toLowerCase())
+        let kamName = kamInput
+        
         if (!kamId) {
-          errors.push(`Fila ${rowNum}: KAM '${row.kam_name}' no encontrado`)
+          // Si no se encontró por ID, buscar por nombre
+          kamId = kamMapByName.get(kamInput.toLowerCase())
+          const kamData = kams?.find(k => k.id === kamId)
+          kamName = kamData?.name || kamInput
+        } else {
+          // Si se encontró por ID, obtener el nombre
+          const kamData = kams?.find(k => k.id === kamId)
+          kamName = kamData?.name || kamInput
+        }
+        
+        if (!kamId) {
+          errors.push(`Fila ${rowNum}: KAM '${kamInput}' no encontrado (use ID como 'barranquilla' o nombre completo)`)
           return
         }
 
@@ -169,7 +185,7 @@ export default function VisitsPage() {
 
         validVisits.push({
           kam_id: kamId,
-          kam_name: row.kam_name,
+          kam_name: kamName,  // Usar el nombre correcto del KAM
           visit_type: row.tipo_visita,
           contact_type: row.tipo_contacto,
           lat: lat,
@@ -247,7 +263,7 @@ export default function VisitsPage() {
   const downloadTemplate = () => {
     const template = [
       {
-        kam_name: 'Juan Pérez',
+        kam_id: 'barranquilla',  // Puede usar el ID del KAM
         tipo_visita: 'Visita efectiva',
         tipo_contacto: 'Visita presencial',
         latitud: 4.710989,
@@ -255,6 +271,16 @@ export default function VisitsPage() {
         fecha_reporte: '2024-01-15',
         hospital_visitado: 'Hospital San Juan',
         observaciones: 'Reunión con director médico'
+      },
+      {
+        kam_name: 'Juan Pérez',  // O puede usar el nombre completo
+        tipo_visita: 'Visita extra',
+        tipo_contacto: 'Visita virtual',
+        latitud: 6.244203,
+        longitud: -75.581211,
+        fecha_reporte: '2024-01-16',
+        hospital_visitado: 'Clínica Santa María',
+        observaciones: 'Seguimiento de contrato'
       }
     ]
 
