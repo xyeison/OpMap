@@ -7,6 +7,7 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { VisitsHeatmapLayer } from './VisitsHeatmapLayer'
 // NO usar estimaciones - solo datos reales de Google Maps
 
 // Fix for default markers in Next.js
@@ -51,7 +52,13 @@ const BACKUP_COLORS = [
   '#1ABC9C', '#34495E', '#E67E22', '#16A085', '#8E44AD'
 ]
 
-export default function MapComponent() {
+interface MapComponentProps {
+  visits?: any[]
+  showHeatmap?: boolean
+  showMarkers?: boolean
+}
+
+export default function MapComponent({ visits = [], showHeatmap = false, showMarkers = false }: MapComponentProps) {
   const router = useRouter()
   const [territoryGeoJsons, setTerritoryGeoJsons] = useState<any[]>([])
   const [kamColors, setKamColors] = useState<Record<string, string>>({})
@@ -633,6 +640,42 @@ export default function MapComponent() {
               </div>
             </Tooltip>
           </Marker>
+        ))}
+        
+        {/* Capa de mapa de calor de visitas */}
+        {showHeatmap && visits.length > 0 && (
+          <VisitsHeatmapLayer 
+            visits={visits}
+            intensity={1}
+            radius={35}
+            blur={20}
+          />
+        )}
+        
+        {/* Marcadores individuales de visitas */}
+        {showMarkers && visits.map((visit, index) => (
+          <CircleMarker
+            key={`visit-${index}`}
+            center={[visit.lat, visit.lng]}
+            radius={6}
+            pathOptions={{
+              fillColor: visit.visit_type === 'Visita efectiva' ? '#2ECC71' :
+                        visit.visit_type === 'Visita extra' ? '#3498DB' : '#E74C3C',
+              color: '#fff',
+              weight: 2,
+              opacity: 1,
+              fillOpacity: 0.8
+            }}
+          >
+            <Tooltip>
+              <div style={{ fontSize: '11px' }}>
+                <strong>{visit.kam_name}</strong><br/>
+                {visit.visit_type}<br/>
+                {visit.contact_type}<br/>
+                {visit.visit_date}
+              </div>
+            </Tooltip>
+          </CircleMarker>
         ))}
       </MapContainer>
       

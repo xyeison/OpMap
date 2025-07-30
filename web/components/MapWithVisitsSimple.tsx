@@ -26,17 +26,12 @@ export default function MapWithVisitsSimple() {
         onShowMarkersChange={setShowMarkers}
       />
       
-      {/* Mapa base */}
-      <MapComponent />
-      
-      {/* Por ahora, mostraremos un mensaje indicando que las visitas están cargadas */}
-      {showVisits && visits.length > 0 && (
-        <div className="absolute bottom-4 left-4 z-[1000] bg-white p-3 rounded-lg shadow-lg">
-          <p className="text-sm text-gray-600">
-            {visits.length} visitas cargadas para el período seleccionado
-          </p>
-        </div>
-      )}
+      {/* Mapa base con visitas */}
+      <MapComponent 
+        visits={showVisits ? visits : []}
+        showHeatmap={showHeatmap}
+        showMarkers={showMarkers}
+      />
     </div>
   )
 }
