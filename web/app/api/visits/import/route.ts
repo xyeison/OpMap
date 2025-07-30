@@ -10,9 +10,16 @@ export async function POST(request: NextRequest) {
     
     // Verificar autenticación
     const user = await getUserFromRequest(request)
+    console.log('Usuario intentando importar:', { 
+      email: user?.email, 
+      role: user?.role,
+      id: user?.id 
+    })
+    
     if (!user || !['admin', 'data_manager'].includes(user.role)) {
+      console.log('Acceso denegado. Rol actual:', user?.role)
       return NextResponse.json(
-        { error: 'No autorizado para importar visitas' },
+        { error: `No autorizado para importar visitas. Tu rol: ${user?.role || 'no autenticado'}` },
         { status: 403 }
       )
     }
