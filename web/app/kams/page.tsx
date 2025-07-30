@@ -6,6 +6,8 @@ import { kamService, supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import KamDeactivateButton from '@/components/KamDeactivateButton'
 import KamActivateButton from '@/components/KamActivateButton'
+import ProtectedRoute from '@/components/ProtectedRoute'
+import PermissionGuard from '@/components/PermissionGuard'
 
 interface KamWithData {
   id: string
@@ -74,7 +76,18 @@ export default function KamsPage() {
   if (isLoading) return <div className="p-6">Cargando...</div>
 
   return (
-    <div className="container mx-auto p-6">
+    <ProtectedRoute>
+      <PermissionGuard 
+        permission="kams:view"
+        fallback={
+          <div className="container mx-auto p-6">
+            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+              <strong>Acceso denegado:</strong> No tienes permisos para ver los KAMs.
+            </div>
+          </div>
+        }
+      >
+        <div className="container mx-auto p-6">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-3xl font-bold">Key Account Managers</h2>
         <button
@@ -164,5 +177,7 @@ export default function KamsPage() {
         </table>
       </div>
     </div>
+      </PermissionGuard>
+    </ProtectedRoute>
   )
 }

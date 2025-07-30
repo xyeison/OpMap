@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { cookies } from 'next/headers'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -21,6 +22,19 @@ export async function POST(request: Request) {
   if (error || !user) {
     return NextResponse.json({ error: 'Email o contraseña incorrectos' }, { status: 401 })
   }
+  
+  // Generar un token de sesión simple (en producción usar JWT)
+  const sessionToken = Buffer.from(`${user.id}:${Date.now()}`).toString('base64')
+  
+  // Configurar cookies seguras
+  const cookieStore = cookies()
+  cookieStore.set('sb-access-token', sessionToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 60 * 60 * 24 * 7, // 7 días
+    path: '/',
+  })
   
   // Retornar usuario sin la contraseña
   const { password: _, ...userWithoutPassword } = user

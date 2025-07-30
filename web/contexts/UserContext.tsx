@@ -6,7 +6,7 @@ interface User {
   id: string
   email: string
   full_name: string
-  role: 'admin' | 'user'
+  role: 'admin' | 'sales_manager' | 'contract_manager' | 'data_manager' | 'viewer'
 }
 
 interface UserContextType {
@@ -24,12 +24,26 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
   // Verificar si hay sesión guardada
   useEffect(() => {
-    const savedUser = localStorage.getItem('opmap_user')
-    if (savedUser) {
-      setUser(JSON.parse(savedUser))
+    checkSession()
+  }, [])
+  
+  const checkSession = async () => {
+    try {
+      const response = await fetch('/api/auth/me')
+      if (response.ok) {
+        const { user } = await response.json()
+        setUser(user)
+        localStorage.setItem('opmap_user', JSON.stringify(user))
+      } else {
+        // Si no hay sesión válida, limpiar localStorage
+        localStorage.removeItem('opmap_user')
+      }
+    } catch (error) {
+      console.error('Error verificando sesión:', error)
+      localStorage.removeItem('opmap_user')
     }
     setIsLoading(false)
-  }, [])
+  }
 
   const login = async (email: string, password: string): Promise<boolean> => {
     try {
@@ -52,7 +66,15 @@ export function UserProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+      })
+    } catch (error) {
+      console.error('Error en logout:', error)
+    }
+    
     setUser(null)
     localStorage.removeItem('opmap_user')
     window.location.href = '/login'
