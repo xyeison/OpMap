@@ -94,11 +94,20 @@ export default function VisitsPage() {
     setImportSuccess(null)
 
     try {
-      // Leer el archivo Excel
+      // Leer el archivo Excel/CSV
       const data = await file.arrayBuffer()
-      const workbook = XLSX.read(data)
+      const workbook = XLSX.read(data, { 
+        type: 'array',
+        raw: false,
+        dateNF: 'yyyy-mm-dd',
+        cellDates: true,
+        FS: ';' // Soporte para archivos CSV con punto y coma
+      })
       const worksheet = workbook.Sheets[workbook.SheetNames[0]]
-      const jsonData = XLSX.utils.sheet_to_json(worksheet)
+      const jsonData = XLSX.utils.sheet_to_json(worksheet, {
+        raw: false,
+        dateNF: 'yyyy-mm-dd'
+      })
 
       // Validar y preparar datos
       const errors: string[] = []
@@ -118,8 +127,15 @@ export default function VisitsPage() {
       jsonData.forEach((row: any, index: number) => {
         const rowNum = index + 2 // +2 porque Excel empieza en 1 y tiene headers
 
-        // Validar campos requeridos - aceptar kam_id o kam_name
-        const kamInput = row.kam_id || row.kam || row.kam_name
+        // Mapear nombres de columnas del formato real
+        const kamInput = row.Representante || row.kam_id || row.kam || row.kam_name
+        const tipoVisita = row['Tipo de visitas'] || row.tipo_visita
+        const tipoContacto = row['Tipo de contacto'] || row.tipo_contacto
+        const latitud = row.Latitud || row.latitud
+        const longitud = row.Longitud || row.longitud
+        const fechaVisita = row['Fecha de la visita'] || row.fecha_reporte || row.fecha_visita
+
+        // Validar campos requeridos
         if (!kamInput) {
           errors.push(`Fila ${rowNum}: Falta el KAM (use formato 'Kam Barranquilla', 'Kam Cali', etc.)`)
           return
@@ -133,6 +149,13 @@ export default function VisitsPage() {
           processedInput = processedInput.substring(4) // Quitar "kam "
         }
         
+        // Normalizar acentos para la búsqueda
+        const normalizeAccents = (str: string) => {
+          return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        }
+        
+        processedInput = normalizeAccents(processedInput)
+        
         // Buscar KAM por ID
         let kamId = kamMapById.get(processedInput)
         let kamName = kamInput
@@ -140,6 +163,11 @@ export default function VisitsPage() {
         if (!kamId) {
           // Si no se encontró por ID, buscar por nombre completo
           kamId = kamMapByName.get(processedInput)
+        }
+        
+        // Si aún no se encuentra, intentar con las variaciones conocidas
+        if (!kamId && processedInput === 'engativa') {
+          kamId = kamMapById.get('engativa')
         }
         
         if (kamId) {
@@ -153,47 +181,73 @@ export default function VisitsPage() {
 
         // Validar tipo de visita
         const validVisitTypes = ['Visita efectiva', 'Visita extra', 'Visita no efectiva']
-        if (!validVisitTypes.includes(row.tipo_visita)) {
-          errors.push(`Fila ${rowNum}: Tipo de visita inválido '${row.tipo_visita}'`)
+        if (!tipoVisita || !validVisitTypes.includes(tipoVisita)) {
+          errors.push(`Fila ${rowNum}: Tipo de visita inválido '${tipoVisita}'`)
           return
         }
 
         // Validar tipo de contacto
         const validContactTypes = ['Visita presencial', 'Visita virtual']
-        if (!validContactTypes.includes(row.tipo_contacto)) {
-          errors.push(`Fila ${rowNum}: Tipo de contacto inválido '${row.tipo_contacto}'`)
+        if (!tipoContacto || !validContactTypes.includes(tipoContacto)) {
+          errors.push(`Fila ${rowNum}: Tipo de contacto inválido '${tipoContacto}'`)
           return
         }
 
         // Validar coordenadas
-        const lat = parseFloat(row.latitud)
-        const lng = parseFloat(row.longitud)
+        const lat = parseFloat(latitud)
+        const lng = parseFloat(longitud)
         if (isNaN(lat) || lat < -90 || lat > 90) {
-          errors.push(`Fila ${rowNum}: Latitud inválida '${row.latitud}'`)
+          errors.push(`Fila ${rowNum}: Latitud inválida '${latitud}'`)
           return
         }
         if (isNaN(lng) || lng < -180 || lng > 180) {
-          errors.push(`Fila ${rowNum}: Longitud inválida '${row.longitud}'`)
+          errors.push(`Fila ${rowNum}: Longitud inválida '${longitud}'`)
           return
         }
 
-        // Validar fecha
+        // Validar y procesar fecha
         let visitDate: Date
         try {
-          visitDate = new Date(row.fecha_reporte)
-          if (isNaN(visitDate.getTime())) {
-            throw new Error('Fecha inválida')
+          // Intentar parsear diferentes formatos de fecha
+          if (fechaVisita) {
+            // Si es string con formato "23 Ene 2025 3:58:35"
+            if (typeof fechaVisita === 'string' && fechaVisita.includes(' ')) {
+              // Mapear nombres de meses en español
+              const monthMap: { [key: string]: string } = {
+                'Ene': '01', 'Feb': '02', 'Mar': '03', 'Abr': '04',
+                'May': '05', 'Jun': '06', 'Jul': '07', 'Ago': '08',
+                'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dic': '12'
+              }
+              
+              const parts = fechaVisita.split(' ')
+              if (parts.length >= 3) {
+                const day = parts[0].padStart(2, '0')
+                const month = monthMap[parts[1]] || parts[1]
+                const year = parts[2]
+                visitDate = new Date(`${year}-${month}-${day}`)
+              } else {
+                visitDate = new Date(fechaVisita)
+              }
+            } else {
+              visitDate = new Date(fechaVisita)
+            }
+            
+            if (isNaN(visitDate.getTime())) {
+              throw new Error('Fecha inválida')
+            }
+          } else {
+            throw new Error('Fecha vacía')
           }
         } catch {
-          errors.push(`Fila ${rowNum}: Fecha inválida '${row.fecha_reporte}'`)
+          errors.push(`Fila ${rowNum}: Fecha inválida '${fechaVisita}'`)
           return
         }
 
         validVisits.push({
           kam_id: kamId,
           kam_name: kamName,  // Usar el nombre correcto del KAM
-          visit_type: row.tipo_visita,
-          contact_type: row.tipo_contacto,
+          visit_type: tipoVisita,
+          contact_type: tipoContacto,
           lat: lat,
           lng: lng,
           visit_date: visitDate.toISOString().split('T')[0],
@@ -269,43 +323,61 @@ export default function VisitsPage() {
   const downloadTemplate = () => {
     const template = [
       {
-        kam: 'Kam Barranquilla',
-        tipo_visita: 'Visita efectiva',
-        tipo_contacto: 'Visita presencial',
-        latitud: 10.963889,
-        longitud: -74.796387,
-        fecha_reporte: '2024-01-15'
+        'Representante': 'Kam Barranquilla',
+        'Tipo de visitas': 'Visita efectiva',
+        'Tipo de contacto': 'Visita presencial',
+        'Latitud': 10.963889,
+        'Longitud': -74.796387,
+        'Fecha de la visita': '15 Ene 2024 09:00:00'
       },
       {
-        kam: 'Kam Cali',
-        tipo_visita: 'Visita extra',
-        tipo_contacto: 'Visita virtual',
-        latitud: 3.451647,
-        longitud: -76.531985,
-        fecha_reporte: '2024-01-16'
+        'Representante': 'Kam Cali',
+        'Tipo de visitas': 'Visita extra',
+        'Tipo de contacto': 'Visita virtual',
+        'Latitud': 3.451647,
+        'Longitud': -76.531985,
+        'Fecha de la visita': '16 Ene 2024 14:30:00'
       },
       {
-        kam: 'Kam Medellin',
-        tipo_visita: 'Visita no efectiva',
-        tipo_contacto: 'Visita presencial',
-        latitud: 6.244203,
-        longitud: -75.581211,
-        fecha_reporte: '2024-01-17'
+        'Representante': 'Kam Medellin',
+        'Tipo de visitas': 'Visita no efectiva',
+        'Tipo de contacto': 'Visita presencial',
+        'Latitud': 6.244203,
+        'Longitud': -75.581211,
+        'Fecha de la visita': '17 Ene 2024 11:15:00'
       },
       {
-        kam: 'Kam Chapinero',
-        tipo_visita: 'Visita efectiva',
-        tipo_contacto: 'Visita presencial',
-        latitud: 4.645530,
-        longitud: -74.064644,
-        fecha_reporte: '2024-01-18'
+        'Representante': 'Kam Chapinero',
+        'Tipo de visitas': 'Visita efectiva',
+        'Tipo de contacto': 'Visita presencial',
+        'Latitud': 4.645530,
+        'Longitud': -74.064644,
+        'Fecha de la visita': '18 Ene 2024 16:45:00'
+      },
+      {
+        'Representante': 'Kam Engativá',
+        'Tipo de visitas': 'Visita efectiva',
+        'Tipo de contacto': 'Visita presencial',
+        'Latitud': 4.703464,
+        'Longitud': -74.113736,
+        'Fecha de la visita': '19 Ene 2024 10:00:00'
       }
     ]
 
-    const ws = XLSX.utils.json_to_sheet(template)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Plantilla')
-    XLSX.writeFile(wb, 'plantilla_visitas.xlsx')
+    // Crear archivo CSV con punto y coma como separador
+    const headers = Object.keys(template[0])
+    const csvContent = [
+      headers.join(';'),
+      ...template.map(row => headers.map(h => row[h]).join(';'))
+    ].join('\n')
+
+    // Crear blob y descargar
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = 'plantilla_visitas.csv'
+    link.click()
+    URL.revokeObjectURL(link.href)
   }
 
   return (
@@ -400,7 +472,7 @@ export default function VisitsPage() {
               <input
                 id="file-upload"
                 type="file"
-                accept=".xlsx,.xls"
+                accept=".xlsx,.xls,.csv"
                 onChange={handleFileUpload}
                 className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />

@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
     const kamId = searchParams.get('kamId')
 
     // Construir filtros de fecha
-    let dateFilter = {}
+    let dateFilter: { start?: string; end?: string } = {}
     if (month && year) {
       const startDate = `${year}-${String(month).padStart(2, '0')}-01`
       const endMonth = parseInt(month) === 12 ? 1 : parseInt(month) + 1
@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
       .select('id, lat, lng, kam_id, visit_type')
       .is('deleted_at', null)
 
-    if (dateFilter.start) {
+    if (dateFilter.start && dateFilter.end) {
       visitsQuery = visitsQuery
         .gte('visit_date', dateFilter.start)
         .lt('visit_date', dateFilter.end)
