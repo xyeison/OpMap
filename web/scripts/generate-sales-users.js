@@ -34,7 +34,7 @@ INSERT INTO users (email, password, full_name, role, active, created_at) VALUES
         return `    ('${user.email}',
      '${hash}',
      '${user.name}',
-     'sales',
+     'sales_manager',
      true,
      NOW())${isLast ? '' : ','}
     -- Contraseña: ${user.password}`;
@@ -64,7 +64,7 @@ DECLARE
 BEGIN
     SELECT COUNT(*) INTO user_count
     FROM users 
-    WHERE role = 'sales' AND active = true;
+    WHERE role = 'sales_manager' AND active = true;
     
     RAISE NOTICE 'Total de usuarios de ventas activos: %', user_count;
 END $$;

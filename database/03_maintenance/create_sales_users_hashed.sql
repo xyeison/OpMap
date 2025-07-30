@@ -19,7 +19,7 @@ INSERT INTO users (email, password, full_name, role, active, created_at) VALUES
     ('a.galvan@vgmedical.com.co',
      '$2b$10$N/4fhlpOA82oltMpkiVSTOVXZXpC/ftdjjgw4KRXTbWhFR0J0BA0K',
      'Andrea Juliana Galvan Ramirez',
-     'sales',
+     'sales_manager',
      true,
      NOW()),
     -- Contraseña: andrea901$
@@ -27,7 +27,7 @@ INSERT INTO users (email, password, full_name, role, active, created_at) VALUES
     ('carmenbarrios@vgmedical.com.co',
      '$2b$10$7zdL/Li7j1rPhTGrtMqXN.ZTnxza/CLNiHdCDbKXdztIrDA2tSoay',
      'Carmen Edith Barrios Barrios',
-     'sales',
+     'sales_manager',
      true,
      NOW()),
     -- Contraseña: carmen901$
@@ -35,7 +35,7 @@ INSERT INTO users (email, password, full_name, role, active, created_at) VALUES
     ('i.contreras@vgmedical.com.co',
      '$2b$10$Mj3liqVwfH6oq9ih/TCDxuZV0qjgx2VKQonOooEO8oSSujmR.EzKe',
      'Iván Rodolfo Contreras Prieto',
-     'sales',
+     'sales_manager',
      true,
      NOW()),
     -- Contraseña: ivan901$
@@ -43,7 +43,7 @@ INSERT INTO users (email, password, full_name, role, active, created_at) VALUES
     ('katherinnesolano1@hotmail.com',
      '$2b$10$UiLft4EGZ.iEKLv42UF.ee12PL5EkRXVKASketzdN62uxah76k1cm',
      'Katherinne Solano Escamilla',
-     'sales',
+     'sales_manager',
      true,
      NOW()),
     -- Contraseña: katherinne901$
@@ -51,7 +51,7 @@ INSERT INTO users (email, password, full_name, role, active, created_at) VALUES
     ('m.buelvas@vgmedical.com.co',
      '$2b$10$h9rwwCiC56Xm/CCjygxxouFuKtgEUiINwA.EpbHELy.9U2gKB0H.G',
      'Mileydis Amaparo Buelvas Castellar',
-     'sales',
+     'sales_manager',
      true,
      NOW()),
     -- Contraseña: mileydis901$
@@ -59,7 +59,7 @@ INSERT INTO users (email, password, full_name, role, active, created_at) VALUES
     ('m.cobo@vgmedical.com.co',
      '$2b$10$qSTIPI3fKO8CGWa0F0DzMOZHPtI.3OLq9selCPZlkE0bj.AMEQQgu',
      'Maria Alejandra Cobo Bulla',
-     'sales',
+     'sales_manager',
      true,
      NOW()),
     -- Contraseña: alejandra901$
@@ -67,7 +67,7 @@ INSERT INTO users (email, password, full_name, role, active, created_at) VALUES
     ('mn@vgmedical.com.co',
      '$2b$10$VERwb992/ueswsAwPmW5PukMdFqIxqlsy9IDVCFVYRgk/MYX.r9le',
      'Maryerith Aimee Núñez Padilla',
-     'sales',
+     'sales_manager',
      true,
      NOW()),
     -- Contraseña: maryerith901$
@@ -75,7 +75,7 @@ INSERT INTO users (email, password, full_name, role, active, created_at) VALUES
     ('sramirez@vgmedical.com.co',
      '$2b$10$.nxIkF4k3zYytohsi2qoJ.YdTdnQRpvD2dObiapvnjfO6a0VYBp4C',
      'Sindy Lorena Ramirez de la Rosa',
-     'sales',
+     'sales_manager',
      true,
      NOW())
     -- Contraseña: sindy901$
@@ -107,7 +107,7 @@ DECLARE
 BEGIN
     SELECT COUNT(*) INTO user_count
     FROM users 
-    WHERE role = 'sales' AND active = true;
+    WHERE role = 'sales_manager' AND active = true;
     
     RAISE NOTICE 'Total de usuarios de ventas activos: %', user_count;
 END $$;
