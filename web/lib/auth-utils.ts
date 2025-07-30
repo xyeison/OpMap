@@ -5,13 +5,40 @@ import { cookies } from 'next/headers'
 export async function getUserFromRequest(request: NextRequest) {
   try {
     const cookieStore = cookies()
-    const supabase = createRouteHandlerClient({ cookies: () => cookieStore })
     
-    // Obtener la sesión actual usando el método estándar de Supabase
+    // Primero intentar con el token personalizado del sistema
+    const customToken = cookieStore.get('sb-access-token')?.value
+    
+    if (customToken) {
+      try {
+        // Decodificar el token personalizado
+        const decoded = Buffer.from(customToken, 'base64').toString()
+        const [userId] = decoded.split(':')
+        
+        // Crear cliente de Supabase
+        const supabase = createRouteHandlerClient({ cookies: () => cookieStore })
+        
+        // Buscar el usuario por ID
+        const { data: userData, error } = await supabase
+          .from('users')
+          .select('id, email, full_name, role')
+          .eq('id', userId)
+          .eq('active', true)
+          .single()
+        
+        if (!error && userData) {
+          return userData
+        }
+      } catch (e) {
+        console.log('Error con token personalizado:', e)
+      }
+    }
+    
+    // Si no funciona con token personalizado, intentar con Supabase Auth
+    const supabase = createRouteHandlerClient({ cookies: () => cookieStore })
     const { data: { session }, error: sessionError } = await supabase.auth.getSession()
     
     if (sessionError || !session) {
-      console.log('No hay sesión activa:', sessionError)
       return null
     }
     
@@ -23,7 +50,6 @@ export async function getUserFromRequest(request: NextRequest) {
       .single()
     
     if (userError) {
-      console.error('Error obteniendo datos del usuario:', userError)
       return null
     }
     

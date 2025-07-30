@@ -29,24 +29,28 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  // Crear cliente de Supabase para middleware
+  // Verificar si hay algún tipo de autenticación
+  const customToken = request.cookies.get('sb-access-token')
+  
+  // Si hay token personalizado, permitir acceso
+  if (customToken) {
+    return NextResponse.next()
+  }
+  
+  // Si no, verificar con Supabase Auth
   const res = NextResponse.next()
   const supabase = createMiddlewareClient({ req: request, res })
-
-  // Verificar la sesión
   const { data: { session } } = await supabase.auth.getSession()
 
-  // Si no hay sesión, redirigir a login
+  // Si no hay ningún tipo de sesión, redirigir a login
   if (!session) {
     const redirectUrl = new URL('/login', request.url)
-    // Guardar la URL original para redirigir después del login
     if (request.nextUrl.pathname !== '/') {
       redirectUrl.searchParams.set('redirect', request.nextUrl.pathname)
     }
     return NextResponse.redirect(redirectUrl)
   }
 
-  // Si hay sesión, continuar
   return res
 }
 
