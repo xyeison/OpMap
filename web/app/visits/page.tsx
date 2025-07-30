@@ -119,8 +119,14 @@ export default function VisitsPage() {
         .select('id, name')
         .eq('active', true)
 
+      // Función para normalizar acentos
+      const normalizeAccents = (str: string) => {
+        return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      }
+
       // Crear mapa tanto por nombre como por ID
       const kamMapByName = new Map(kams?.map(k => [k.name.toLowerCase(), k.id]) || [])
+      const kamMapByNameNormalized = new Map(kams?.map(k => [normalizeAccents(k.name.toLowerCase()), k.id]) || [])
       const kamMapById = new Map(kams?.map(k => [k.id.toLowerCase(), k.id]) || [])
 
       jsonData.forEach((row: any, index: number) => {
@@ -143,30 +149,21 @@ export default function VisitsPage() {
         // Procesar el input del KAM
         let processedInput = kamInput.trim().toLowerCase()
         
-        // Si viene como "Kam Barranquilla", extraer solo "barranquilla"
+        // Si viene como "Kam Barranquilla" o "KAM Barranquilla", extraer solo "barranquilla"
         if (processedInput.startsWith('kam ')) {
           processedInput = processedInput.substring(4) // Quitar "kam "
         }
         
-        // Normalizar acentos para la búsqueda
-        const normalizeAccents = (str: string) => {
-          return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-        }
-        
-        processedInput = normalizeAccents(processedInput)
+        // Normalizar el input
+        const processedInputNormalized = normalizeAccents(processedInput)
         
         // Buscar KAM por ID
-        let kamId = kamMapById.get(processedInput)
+        let kamId = kamMapById.get(processedInput) || kamMapById.get(processedInputNormalized)
         let kamName = kamInput
         
         if (!kamId) {
           // Si no se encontró por ID, buscar por nombre completo
-          kamId = kamMapByName.get(processedInput)
-        }
-        
-        // Si aún no se encuentra, intentar con las variaciones conocidas
-        if (!kamId && processedInput === 'engativa') {
-          kamId = kamMapById.get('engativa')
+          kamId = kamMapByName.get(processedInput) || kamMapByNameNormalized.get(processedInputNormalized)
         }
         
         if (kamId) {
