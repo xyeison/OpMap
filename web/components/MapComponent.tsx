@@ -644,12 +644,15 @@ export default function MapComponent({ visits = [], showHeatmap = false, showMar
         
         {/* Capa de mapa de calor de visitas */}
         {showHeatmap && visits.length > 0 && (
-          <VisitsHeatmapLayer 
-            visits={visits}
-            intensity={1}
-            radius={35}
-            blur={20}
-          />
+          <>
+            {console.log('MapComponent - Mostrando heatmap con', visits.length, 'visitas')}
+            <VisitsHeatmapLayer 
+              visits={visits}
+              intensity={1}
+              radius={35}
+              blur={20}
+            />
+          </>
         )}
         
         {/* Marcadores individuales de visitas */}

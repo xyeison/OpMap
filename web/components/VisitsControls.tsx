@@ -36,6 +36,10 @@ export default function VisitsControls({
 
   // Notificar cambios
   useEffect(() => {
+    console.log('VisitsControls - Visits loaded:', visits?.length, 'visits')
+    if (visits?.length > 0) {
+      console.log('VisitsControls - First visit:', visits[0])
+    }
     if (onVisitsChange && visits) {
       onVisitsChange(visits)
     }

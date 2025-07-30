@@ -41,7 +41,13 @@ export function VisitsHeatmapLayer({
   const map = useMap()
 
   useEffect(() => {
-    if (!visits || visits.length === 0) return
+    console.log('VisitsHeatmapLayer - Total visitas:', visits?.length)
+    console.log('VisitsHeatmapLayer - Primeras 5 visitas:', visits?.slice(0, 5))
+    
+    if (!visits || visits.length === 0) {
+      console.log('VisitsHeatmapLayer - No hay visitas para mostrar')
+      return
+    }
 
     // Convertir visitas a formato de heatmap
     // El tercer valor es la intensidad (peso) del punto
