@@ -3,71 +3,147 @@
 import { useState, useEffect } from 'react'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
-import { createClient } from '@supabase/supabase-js'
-import { getRoleTitle, type Role } from '@/lib/permissions'
+import { useUser } from '@/contexts/UserContext'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
+interface User {
+  id: string
+  email: string
+  full_name: string
+  role: 'admin' | 'sales_manager' | 'contract_manager' | 'data_manager' | 'viewer'
+  active: boolean
+  created_at: string
+}
 
 export default function UsersPage() {
-  const [users, setUsers] = useState<any[]>([])
+  const { user: currentUser } = useUser()
+  const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
-  const [editingUser, setEditingUser] = useState<string | null>(null)
-  const [selectedRole, setSelectedRole] = useState<Role>('viewer')
+  const [showCreateForm, setShowCreateForm] = useState(false)
+  const [formData, setFormData] = useState({
+    email: '',
+    password: '',
+    full_name: '',
+    role: 'viewer' as User['role']
+  })
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
 
   useEffect(() => {
-    fetchUsers()
+    loadUsers()
   }, [])
 
-  const fetchUsers = async () => {
+  const loadUsers = async () => {
     try {
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .order('created_at', { ascending: false })
-
-      if (error) throw error
-      setUsers(data || [])
+      const response = await fetch('/api/users')
+      const data = await response.json()
+      
+      if (response.ok) {
+        setUsers(data.users)
+      } else {
+        setError(data.error || 'Error al cargar usuarios')
+      }
     } catch (error) {
-      console.error('Error fetching users:', error)
+      setError('Error al cargar usuarios')
     } finally {
       setLoading(false)
     }
   }
 
-  const updateUserRole = async (userId: string, newRole: Role) => {
-    try {
-      const { error } = await supabase
-        .from('users')
-        .update({ role: newRole })
-        .eq('id', userId)
+  const handleCreateUser = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    setSuccess('')
 
-      if (error) throw error
-      
-      await fetchUsers()
-      setEditingUser(null)
+    try {
+      const response = await fetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData)
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        setSuccess('Usuario creado exitosamente')
+        setShowCreateForm(false)
+        setFormData({ email: '', password: '', full_name: '', role: 'viewer' })
+        loadUsers()
+      } else {
+        setError(data.error || 'Error al crear usuario')
+      }
     } catch (error) {
-      console.error('Error updating user role:', error)
-      alert('Error al actualizar el rol')
+      setError('Error al crear usuario')
     }
   }
 
-  const toggleUserStatus = async (userId: string, currentStatus: boolean) => {
+  const handleToggleActive = async (userId: string, currentActive: boolean) => {
     try {
-      const { error } = await supabase
-        .from('users')
-        .update({ active: !currentStatus })
-        .eq('id', userId)
+      const response = await fetch(`/api/users/${userId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: !currentActive })
+      })
 
-      if (error) throw error
-      
-      await fetchUsers()
+      const data = await response.json()
+
+      if (response.ok) {
+        loadUsers()
+      } else {
+        setError(data.error || 'Error al actualizar usuario')
+      }
     } catch (error) {
-      console.error('Error updating user status:', error)
-      alert('Error al actualizar el estado')
+      setError('Error al actualizar usuario')
     }
+  }
+
+  const handleRoleChange = async (userId: string, newRole: User['role']) => {
+    try {
+      const response = await fetch(`/api/users/${userId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: newRole })
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        loadUsers()
+        setSuccess('Rol actualizado exitosamente')
+      } else {
+        setError(data.error || 'Error al actualizar rol')
+      }
+    } catch (error) {
+      setError('Error al actualizar rol')
+    }
+  }
+
+  const roleLabels = {
+    admin: 'Administrador',
+    sales_manager: 'Gerente de Ventas',
+    contract_manager: 'Gerente de Contratos',
+    data_manager: 'Gerente de Datos',
+    viewer: 'Visualizador'
+  }
+
+  const roleColors = {
+    admin: 'bg-purple-100 text-purple-800',
+    sales_manager: 'bg-blue-100 text-blue-800',
+    contract_manager: 'bg-green-100 text-green-800',
+    data_manager: 'bg-yellow-100 text-yellow-800',
+    viewer: 'bg-gray-100 text-gray-800'
+  }
+
+  // Solo admin puede ver esta página
+  if (currentUser?.role !== 'admin') {
+    return (
+      <ProtectedRoute>
+        <div className="container mx-auto p-6">
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+            <strong>Acceso denegado:</strong> Solo los administradores pueden gestionar usuarios.
+          </div>
+        </div>
+      </ProtectedRoute>
+    )
   }
 
   return (
@@ -77,16 +153,122 @@ export default function UsersPage() {
         fallback={
           <div className="container mx-auto p-6">
             <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
-              <strong>Acceso denegado:</strong> No tienes permisos para administrar usuarios.
+              <strong>Acceso denegado:</strong> No tienes permisos para gestionar usuarios.
             </div>
           </div>
         }
       >
         <div className="container mx-auto p-6">
-          <h1 className="text-3xl font-bold mb-6">Gestión de Usuarios</h1>
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-3xl font-bold">Gestión de Usuarios</h2>
+            <button
+              onClick={() => setShowCreateForm(true)}
+              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+            >
+              Crear Usuario
+            </button>
+          </div>
+
+          {error && (
+            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+              {error}
+            </div>
+          )}
+
+          {success && (
+            <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-4">
+              {success}
+            </div>
+          )}
+
+          {/* Modal de crear usuario */}
+          {showCreateForm && (
+            <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-8 max-w-md w-full">
+                <h3 className="text-xl font-bold mb-4">Crear Nuevo Usuario</h3>
+                <form onSubmit={handleCreateUser}>
+                  <div className="mb-4">
+                    <label className="block text-gray-700 text-sm font-bold mb-2">
+                      Email
+                    </label>
+                    <input
+                      type="email"
+                      required
+                      className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                      value={formData.email}
+                      onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                    />
+                  </div>
+
+                  <div className="mb-4">
+                    <label className="block text-gray-700 text-sm font-bold mb-2">
+                      Contraseña
+                    </label>
+                    <input
+                      type="password"
+                      required
+                      className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                      value={formData.password}
+                      onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                    />
+                  </div>
+
+                  <div className="mb-4">
+                    <label className="block text-gray-700 text-sm font-bold mb-2">
+                      Nombre Completo
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                      value={formData.full_name}
+                      onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
+                    />
+                  </div>
+
+                  <div className="mb-6">
+                    <label className="block text-gray-700 text-sm font-bold mb-2">
+                      Rol
+                    </label>
+                    <select
+                      className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                      value={formData.role}
+                      onChange={(e) => setFormData({ ...formData, role: e.target.value as User['role'] })}
+                    >
+                      <option value="viewer">Visualizador</option>
+                      <option value="data_manager">Gerente de Datos</option>
+                      <option value="contract_manager">Gerente de Contratos</option>
+                      <option value="sales_manager">Gerente de Ventas</option>
+                      <option value="admin">Administrador</option>
+                    </select>
+                  </div>
+
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowCreateForm(false)
+                        setFormData({ email: '', password: '', full_name: '', role: 'viewer' })
+                        setError('')
+                      }}
+                      className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+                    >
+                      Crear Usuario
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
 
           {loading ? (
-            <div className="animate-pulse">Cargando usuarios...</div>
+            <div className="text-center py-8">Cargando usuarios...</div>
           ) : (
             <div className="bg-white rounded-lg shadow overflow-hidden">
               <table className="min-w-full">
@@ -105,7 +287,7 @@ export default function UsersPage() {
                       Estado
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Creado
+                      Fecha Creación
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Acciones
@@ -124,29 +306,27 @@ export default function UsersPage() {
                         <div className="text-sm text-gray-500">{user.email}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        {editingUser === user.id ? (
+                        {user.id === currentUser?.id ? (
+                          <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${roleColors[user.role]}`}>
+                            {roleLabels[user.role]}
+                          </span>
+                        ) : (
                           <select
-                            value={selectedRole}
-                            onChange={(e) => setSelectedRole(e.target.value as Role)}
+                            value={user.role}
+                            onChange={(e) => handleRoleChange(user.id, e.target.value as User['role'])}
                             className="text-sm border rounded px-2 py-1"
                           >
-                            <option value="admin">Administrador</option>
+                            <option value="viewer">Visualizador</option>
+                            <option value="data_manager">Gerente de Datos</option>
+                            <option value="contract_manager">Gerente de Contratos</option>
                             <option value="sales_manager">Gerente de Ventas</option>
-                            <option value="contract_manager">Gestor de Contratos</option>
-                            <option value="data_manager">Gestor de Datos</option>
-                            <option value="viewer">Usuario</option>
+                            <option value="admin">Administrador</option>
                           </select>
-                        ) : (
-                          <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
-                            {getRoleTitle(user.role as Role)}
-                          </span>
                         )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                          user.active 
-                            ? 'bg-green-100 text-green-800' 
-                            : 'bg-red-100 text-red-800'
+                          user.active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
                         }`}>
                           {user.active ? 'Activo' : 'Inactivo'}
                         </span>
@@ -155,42 +335,15 @@ export default function UsersPage() {
                         {new Date(user.created_at).toLocaleDateString()}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        {editingUser === user.id ? (
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => updateUserRole(user.id, selectedRole)}
-                              className="text-green-600 hover:text-green-900"
-                            >
-                              Guardar
-                            </button>
-                            <button
-                              onClick={() => setEditingUser(null)}
-                              className="text-gray-600 hover:text-gray-900"
-                            >
-                              Cancelar
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => {
-                                setEditingUser(user.id)
-                                setSelectedRole(user.role as Role)
-                              }}
-                              className="text-blue-600 hover:text-blue-900"
-                            >
-                              Editar Rol
-                            </button>
-                            <button
-                              onClick={() => toggleUserStatus(user.id, user.active)}
-                              className={user.active 
-                                ? "text-red-600 hover:text-red-900" 
-                                : "text-green-600 hover:text-green-900"
-                              }
-                            >
-                              {user.active ? 'Desactivar' : 'Activar'}
-                            </button>
-                          </div>
+                        {user.id !== currentUser?.id && (
+                          <button
+                            onClick={() => handleToggleActive(user.id, user.active)}
+                            className={`${
+                              user.active ? 'text-red-600 hover:text-red-900' : 'text-green-600 hover:text-green-900'
+                            }`}
+                          >
+                            {user.active ? 'Desactivar' : 'Activar'}
+                          </button>
                         )}
                       </td>
                     </tr>
@@ -205,24 +358,24 @@ export default function UsersPage() {
             <h2 className="text-xl font-semibold mb-4">Información sobre Roles</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               <div>
-                <h3 className="font-semibold text-blue-600">Administrador</h3>
-                <p className="text-sm text-gray-600">Control total del sistema</p>
+                <h3 className="font-semibold text-purple-600">Administrador</h3>
+                <p className="text-sm text-gray-600">Control total del sistema, gestión de usuarios</p>
               </div>
               <div>
-                <h3 className="font-semibold text-green-600">Gerente de Ventas</h3>
-                <p className="text-sm text-gray-600">Gestiona KAMs y ve estadísticas</p>
+                <h3 className="font-semibold text-blue-600">Gerente de Ventas</h3>
+                <p className="text-sm text-gray-600">Gestiona KAMs, ve estadísticas y reportes</p>
               </div>
               <div>
-                <h3 className="font-semibold text-purple-600">Gestor de Contratos</h3>
-                <p className="text-sm text-gray-600">Administra contratos y oportunidades</p>
+                <h3 className="font-semibold text-green-600">Gerente de Contratos</h3>
+                <p className="text-sm text-gray-600">Administra contratos y oportunidades comerciales</p>
               </div>
               <div>
-                <h3 className="font-semibold text-orange-600">Gestor de Datos</h3>
-                <p className="text-sm text-gray-600">Actualiza hospitales y KAMs</p>
+                <h3 className="font-semibold text-yellow-600">Gerente de Datos</h3>
+                <p className="text-sm text-gray-600">Actualiza información de hospitales y KAMs</p>
               </div>
               <div>
-                <h3 className="font-semibold text-gray-600">Usuario</h3>
-                <p className="text-sm text-gray-600">Solo consulta mapa e información básica</p>
+                <h3 className="font-semibold text-gray-600">Visualizador</h3>
+                <p className="text-sm text-gray-600">Solo puede consultar el mapa e información básica</p>
               </div>
             </div>
           </div>

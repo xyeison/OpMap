@@ -27,6 +27,11 @@ export default function HomePage() {
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-3xl font-bold">Dashboard</h2>
         <div className="flex gap-3">
+          <PermissionGuard permission="users:manage">
+            <Link href="/users" className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700">
+              Gestionar Usuarios
+            </Link>
+          </PermissionGuard>
           <PermissionGuard permission="diagnostics:view">
             <a href="/diagnostics" className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700">
               Diagnóstico del Sistema

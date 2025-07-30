@@ -18,6 +18,9 @@ export default function Navigation() {
               <Link href="/hospitals" className="hover:text-blue-200">Hospitales</Link>
               <Link href="/contracts" className="hover:text-blue-200">Contratos</Link>
               <Link href="/map" className="hover:text-blue-200">Mapa</Link>
+              {user.role === 'admin' && (
+                <Link href="/users" className="hover:text-blue-200">Usuarios</Link>
+              )}
               <span className="text-sm">|</span>
               <span className="text-sm">{user.full_name}</span>
               <button
