@@ -121,27 +121,33 @@ export default function VisitsPage() {
         // Validar campos requeridos - aceptar kam_id o kam_name
         const kamInput = row.kam_id || row.kam || row.kam_name
         if (!kamInput) {
-          errors.push(`Fila ${rowNum}: Falta el KAM (puede usar kam_id como 'barranquilla' o kam_name como 'Juan Pérez')`)
+          errors.push(`Fila ${rowNum}: Falta el KAM (use formato 'Kam Barranquilla', 'Kam Cali', etc.)`)
           return
         }
 
-        // Buscar KAM por ID primero, luego por nombre
-        let kamId = kamMapById.get(kamInput.toLowerCase())
+        // Procesar el input del KAM
+        let processedInput = kamInput.trim().toLowerCase()
+        
+        // Si viene como "Kam Barranquilla", extraer solo "barranquilla"
+        if (processedInput.startsWith('kam ')) {
+          processedInput = processedInput.substring(4) // Quitar "kam "
+        }
+        
+        // Buscar KAM por ID
+        let kamId = kamMapById.get(processedInput)
         let kamName = kamInput
         
         if (!kamId) {
-          // Si no se encontró por ID, buscar por nombre
-          kamId = kamMapByName.get(kamInput.toLowerCase())
+          // Si no se encontró por ID, buscar por nombre completo
+          kamId = kamMapByName.get(processedInput)
+        }
+        
+        if (kamId) {
+          // Si se encontró el KAM, obtener su nombre real
           const kamData = kams?.find(k => k.id === kamId)
           kamName = kamData?.name || kamInput
         } else {
-          // Si se encontró por ID, obtener el nombre
-          const kamData = kams?.find(k => k.id === kamId)
-          kamName = kamData?.name || kamInput
-        }
-        
-        if (!kamId) {
-          errors.push(`Fila ${rowNum}: KAM '${kamInput}' no encontrado (use ID como 'barranquilla' o nombre completo)`)
+          errors.push(`Fila ${rowNum}: KAM '${kamInput}' no encontrado (use formato 'Kam Barranquilla' o 'Kam Cali')`)
           return
         }
 
@@ -263,24 +269,34 @@ export default function VisitsPage() {
   const downloadTemplate = () => {
     const template = [
       {
-        kam_id: 'barranquilla',  // Puede usar el ID del KAM
+        kam: 'Kam Barranquilla',
         tipo_visita: 'Visita efectiva',
         tipo_contacto: 'Visita presencial',
-        latitud: 4.710989,
-        longitud: -74.072092,
+        latitud: 10.963889,
+        longitud: -74.796387,
         fecha_reporte: '2024-01-15',
-        hospital_visitado: 'Hospital San Juan',
+        hospital_visitado: 'Hospital Universitario del Caribe',
         observaciones: 'Reunión con director médico'
       },
       {
-        kam_name: 'Juan Pérez',  // O puede usar el nombre completo
+        kam: 'Kam Cali',
         tipo_visita: 'Visita extra',
         tipo_contacto: 'Visita virtual',
+        latitud: 3.451647,
+        longitud: -76.531985,
+        fecha_reporte: '2024-01-16',
+        hospital_visitado: 'Clínica Valle del Lili',
+        observaciones: 'Seguimiento de contrato'
+      },
+      {
+        kam: 'Kam Medellin',
+        tipo_visita: 'Visita no efectiva',
+        tipo_contacto: 'Visita presencial',
         latitud: 6.244203,
         longitud: -75.581211,
-        fecha_reporte: '2024-01-16',
-        hospital_visitado: 'Clínica Santa María',
-        observaciones: 'Seguimiento de contrato'
+        fecha_reporte: '2024-01-17',
+        hospital_visitado: '',
+        observaciones: 'Cliente no disponible'
       }
     ]
 

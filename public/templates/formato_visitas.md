@@ -4,7 +4,7 @@
 
 | Columna | Nombre | Tipo | Descripción | Ejemplo |
 |---------|--------|------|-------------|---------|
-| A | kam_id o kam_name | Texto | ID del KAM (recomendado) o nombre completo | barranquilla o Juan Pérez |
+| A | kam | Texto | KAM en formato "Kam [Ciudad]" | Kam Barranquilla |
 | B | tipo_visita | Lista | Tipo de visita realizada | Visita efectiva |
 | C | tipo_contacto | Lista | Modalidad de la visita | Visita presencial |
 | D | latitud | Decimal | Coordenada latitud | 4.710989 |
@@ -24,11 +24,27 @@
 - Visita presencial
 - Visita virtual
 
+## Formato del KAM:
+Use el formato estándar "Kam [Ciudad]":
+- Kam Barranquilla
+- Kam Bucaramanga
+- Kam Cali
+- Kam Cartagena
+- Kam Cucuta
+- Kam Medellin
+- Kam Monteria
+- Kam Neiva
+- Kam Pasto
+- Kam Pereira
+- Kam Sincelejo
+- Kam Chapinero
+- Kam Engativa
+- Kam Sancristobal
+- Kam Kennedy
+- Kam Valledupar
+
 ## Validaciones:
-- **kam_id/kam_name**: 
-  - Preferiblemente use el ID del KAM (ej: 'barranquilla', 'cali', 'medellin')
-  - También puede usar el nombre completo si lo conoce exactamente
-  - El sistema acepta las columnas: kam_id, kam, o kam_name
+- **kam**: El sistema acepta las columnas kam_id, kam, o kam_name
 - **latitud**: Entre -90 y 90
 - **longitud**: Entre -180 y 180
 - **fecha_reporte**: Formato YYYY-MM-DD
