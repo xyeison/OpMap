@@ -33,13 +33,9 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'users:manage'
   ],
   sales_manager: [
-    'dashboard:view',
     'map:view',
-    'hospitals:view',
-    'kams:view',
-    'kams:edit',
-    'contracts:view',
-    'recalculate:simple'
+    'hospitals:view',  // Solo ver hospitales, NO editar
+    'contracts:view'   // Solo ver contratos, NO editar
   ],
   contract_manager: [
     'map:view',

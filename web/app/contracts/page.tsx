@@ -3,8 +3,10 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import ProtectedRoute from '@/components/ProtectedRoute'
+import PermissionGuard from '@/components/PermissionGuard'
 import { useRouter } from 'next/navigation'
 import ContractEditModal from '@/components/ContractEditModal'
+import { usePermissions } from '@/hooks/usePermissions'
 
 interface Contract {
   id: string
@@ -30,6 +32,7 @@ interface Contract {
 
 export default function ContractsPage() {
   const router = useRouter()
+  const { can } = usePermissions()
   const [contracts, setContracts] = useState<Contract[]>([])
   const [filteredContracts, setFilteredContracts] = useState<Contract[]>([])
   const [loading, setLoading] = useState(true)
@@ -47,6 +50,7 @@ export default function ContractsPage() {
     averageValue: 0
   })
   const [editingContract, setEditingContract] = useState<Contract | null>(null)
+  const canViewKams = can('kams:view')
 
   useEffect(() => {
     loadData()
@@ -108,14 +112,16 @@ export default function ContractsPage() {
         calculateStats(contractsWithKams)
       }
 
-      // Cargar lista de KAMs para filtro
-      const { data: kamsData } = await supabase
-        .from('kams')
-        .select('id, name')
-        .eq('active', true)
-        .order('name')
+      // Cargar lista de KAMs para filtro solo si el usuario tiene permisos
+      if (canViewKams) {
+        const { data: kamsData } = await supabase
+          .from('kams')
+          .select('id, name')
+          .eq('active', true)
+          .order('name')
 
-      setKams(kamsData || [])
+        setKams(kamsData || [])
+      }
     } catch (error) {
       console.error('Error loading data:', error)
     } finally {
@@ -271,23 +277,25 @@ export default function ContractsPage() {
               </select>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                KAM
-              </label>
-              <select
-                className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                value={filters.kam}
-                onChange={(e) => setFilters({ ...filters, kam: e.target.value })}
-              >
-                <option value="all">Todos</option>
-                {kams.map(kam => (
-                  <option key={kam.id} value={kam.name}>
-                    {kam.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <PermissionGuard permission="kams:view">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  KAM
+                </label>
+                <select
+                  className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  value={filters.kam}
+                  onChange={(e) => setFilters({ ...filters, kam: e.target.value })}
+                >
+                  <option value="all">Todos</option>
+                  {kams.map(kam => (
+                    <option key={kam.id} value={kam.name}>
+                      {kam.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </PermissionGuard>
           </div>
         </div>
 
@@ -312,9 +320,11 @@ export default function ContractsPage() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Vigencia
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    KAM
-                  </th>
+                  {can('kams:view') && (
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      KAM
+                    </th>
+                  )}
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Estado
                   </th>
@@ -355,9 +365,11 @@ export default function ContractsPage() {
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {contract.kam?.name || '-'}
-                    </td>
+                    {can('kams:view') && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {contract.kam?.name || '-'}
+                      </td>
+                    )}
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                         contract.active 
@@ -374,12 +386,14 @@ export default function ContractsPage() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div className="flex gap-3">
-                        <button
-                          onClick={() => setEditingContract(contract)}
-                          className="text-blue-600 hover:text-blue-900"
-                        >
-                          Editar
-                        </button>
+                        <PermissionGuard permission="contracts:edit">
+                          <button
+                            onClick={() => setEditingContract(contract)}
+                            className="text-blue-600 hover:text-blue-900"
+                          >
+                            Editar
+                          </button>
+                        </PermissionGuard>
                         <button
                           onClick={() => router.push(`/hospitals/${contract.hospital_id}`)}
                           className="text-indigo-600 hover:text-indigo-900"
