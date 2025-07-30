@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS visits (
     import_batch UUID NOT NULL, -- Para agrupar visitas importadas juntas
     imported_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     imported_by UUID REFERENCES users(id),
+    deleted_at TIMESTAMP WITH TIME ZONE, -- Para soft delete
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -78,8 +79,7 @@ JOIN kams k ON v.kam_id = k.id
 WHERE v.deleted_at IS NULL
 GROUP BY k.id, k.name, k.color, DATE_TRUNC('month', v.visit_date), v.visit_type, v.contact_type;
 
--- 7. Agregar columna deleted_at a visits para soft delete
-ALTER TABLE visits ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP WITH TIME ZONE;
+-- 7. La columna deleted_at ya fue agregada en la creación de la tabla
 
 -- 8. Crear políticas RLS
 ALTER TABLE visits ENABLE ROW LEVEL SECURITY;
