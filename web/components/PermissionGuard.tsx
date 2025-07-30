@@ -25,9 +25,6 @@ export default function PermissionGuard({
     return <div className="animate-pulse">Cargando...</div>
   }
   
-  // Debug log temporalmente
-  console.log('PermissionGuard check:', { permission, permissions, role, loading })
-  
   let hasAccess = false
   
   if (permission) {

@@ -119,9 +119,9 @@ export default function UsersPage() {
 
   const roleLabels = {
     admin: 'Administrador',
-    sales_manager: 'Gerente de Ventas',
-    contract_manager: 'Gerente de Contratos',
-    data_manager: 'Gerente de Datos',
+    sales_manager: 'Ventas',
+    contract_manager: 'Contratos',
+    data_manager: 'Datos',
     viewer: 'Visualizador'
   }
 
@@ -236,9 +236,9 @@ export default function UsersPage() {
                       onChange={(e) => setFormData({ ...formData, role: e.target.value as User['role'] })}
                     >
                       <option value="viewer">Visualizador</option>
-                      <option value="data_manager">Gerente de Datos</option>
-                      <option value="contract_manager">Gerente de Contratos</option>
-                      <option value="sales_manager">Gerente de Ventas</option>
+                      <option value="data_manager">Datos</option>
+                      <option value="contract_manager">Contratos</option>
+                      <option value="sales_manager">Ventas</option>
                       <option value="admin">Administrador</option>
                     </select>
                   </div>
@@ -317,9 +317,9 @@ export default function UsersPage() {
                             className="text-sm border rounded px-2 py-1"
                           >
                             <option value="viewer">Visualizador</option>
-                            <option value="data_manager">Gerente de Datos</option>
-                            <option value="contract_manager">Gerente de Contratos</option>
-                            <option value="sales_manager">Gerente de Ventas</option>
+                            <option value="data_manager">Datos</option>
+                            <option value="contract_manager">Contratos</option>
+                            <option value="sales_manager">Ventas</option>
                             <option value="admin">Administrador</option>
                           </select>
                         )}
@@ -362,15 +362,15 @@ export default function UsersPage() {
                 <p className="text-sm text-gray-600">Control total del sistema, gestión de usuarios</p>
               </div>
               <div>
-                <h3 className="font-semibold text-blue-600">Gerente de Ventas</h3>
+                <h3 className="font-semibold text-blue-600">Ventas</h3>
                 <p className="text-sm text-gray-600">Gestiona KAMs, ve estadísticas y reportes</p>
               </div>
               <div>
-                <h3 className="font-semibold text-green-600">Gerente de Contratos</h3>
+                <h3 className="font-semibold text-green-600">Contratos</h3>
                 <p className="text-sm text-gray-600">Administra contratos y oportunidades comerciales</p>
               </div>
               <div>
-                <h3 className="font-semibold text-yellow-600">Gerente de Datos</h3>
+                <h3 className="font-semibold text-yellow-600">Datos</h3>
                 <p className="text-sm text-gray-600">Actualiza información de hospitales y KAMs</p>
               </div>
               <div>

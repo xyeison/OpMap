@@ -135,10 +135,10 @@ export function getNavigationMenu(role: Role | undefined) {
 export function getRoleTitle(role: Role): string {
   const titles: Record<Role, string> = {
     admin: 'Administrador',
-    sales_manager: 'Gerente de Ventas',
-    contract_manager: 'Gestor de Contratos',
-    data_manager: 'Gestor de Datos',
-    viewer: 'Usuario'
+    sales_manager: 'Ventas',
+    contract_manager: 'Contratos',
+    data_manager: 'Datos',
+    viewer: 'Visualizador'
   }
   
   return titles[role] || 'Usuario'

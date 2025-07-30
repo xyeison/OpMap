@@ -79,25 +79,26 @@ export async function POST(request: Request) {
     }
     
     // Verificar si el email ya existe
-    const { data: existingUser } = await supabase
+    const { data: existingUsers } = await supabase
       .from('users')
       .select('id')
       .eq('email', email)
-      .single()
     
-    if (existingUser) {
+    if (existingUsers && existingUsers.length > 0) {
       return NextResponse.json({ error: 'El email ya está registrado' }, { status: 400 })
     }
     
-    // Crear el nuevo usuario
+    // Crear el nuevo usuario con UUID
     const { data: newUser, error } = await supabase
       .from('users')
       .insert({
+        id: crypto.randomUUID(),
         email,
         password, // En producción esto debería ser hasheado
         full_name,
         role,
-        active: true
+        active: true,
+        created_at: new Date().toISOString()
       })
       .select('id, email, full_name, role, active, created_at')
       .single()
