@@ -1,3 +1,4 @@
+import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
@@ -15,12 +16,15 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  // Verificar si hay un token de sesión en las cookies
-  const sessionToken = request.cookies.get('sb-access-token')
-  const refreshToken = request.cookies.get('sb-refresh-token')
+  // Crear cliente de Supabase para middleware
+  const res = NextResponse.next()
+  const supabase = createMiddlewareClient({ req: request, res })
 
-  // Si no hay tokens de sesión, redirigir a login
-  if (!sessionToken && !refreshToken) {
+  // Verificar la sesión
+  const { data: { session } } = await supabase.auth.getSession()
+
+  // Si no hay sesión, redirigir a login
+  if (!session) {
     const redirectUrl = new URL('/login', request.url)
     // Guardar la URL original para redirigir después del login
     if (request.nextUrl.pathname !== '/') {
@@ -29,8 +33,8 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(redirectUrl)
   }
 
-  // Si hay tokens, continuar (la verificación real se hace en el cliente)
-  return NextResponse.next()
+  // Si hay sesión, continuar
+  return res
 }
 
 // Configurar las rutas que el middleware debe interceptar

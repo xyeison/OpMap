@@ -7,26 +7,25 @@ export async function getUserFromRequest(request: NextRequest) {
     const cookieStore = cookies()
     const supabase = createRouteHandlerClient({ cookies: () => cookieStore })
     
-    // Obtener el token de la cookie
-    const token = cookieStore.get('sb-access-token')?.value
+    // Obtener la sesión actual usando el método estándar de Supabase
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession()
     
-    if (!token) {
-      return null
-    }
-    
-    // Verificar el token y obtener el usuario
-    const { data: { user }, error } = await supabase.auth.getUser(token)
-    
-    if (error || !user) {
+    if (sessionError || !session) {
+      console.log('No hay sesión activa:', sessionError)
       return null
     }
     
     // Obtener información adicional del usuario desde nuestra tabla
-    const { data: userData } = await supabase
+    const { data: userData, error: userError } = await supabase
       .from('users')
       .select('id, email, full_name, role')
-      .eq('id', user.id)
+      .eq('id', session.user.id)
       .single()
+    
+    if (userError) {
+      console.error('Error obteniendo datos del usuario:', userError)
+      return null
+    }
     
     return userData
   } catch (error) {
