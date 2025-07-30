@@ -114,20 +114,51 @@ export default function VisitsPage() {
       const importBatch = crypto.randomUUID()
 
       // Obtener KAMs de la base de datos
-      const { data: kams } = await supabase
+      const { data: kams, error: kamsError } = await supabase
         .from('kams')
         .select('id, name')
         .eq('active', true)
+      
+      if (kamsError) {
+        console.error('Error obteniendo KAMs:', kamsError)
+        setImportErrors(['Error al obtener la lista de KAMs'])
+        setLoading(false)
+        return
+      }
 
       // Función para normalizar acentos
       const normalizeAccents = (str: string) => {
         return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
       }
 
-      // Crear mapa tanto por nombre como por ID
-      const kamMapByName = new Map(kams?.map(k => [k.name.toLowerCase(), k.id]) || [])
-      const kamMapByNameNormalized = new Map(kams?.map(k => [normalizeAccents(k.name.toLowerCase()), k.id]) || [])
-      const kamMapById = new Map(kams?.map(k => [k.id.toLowerCase(), k.id]) || [])
+      // Crear múltiples mapas para búsqueda flexible
+      const kamLookupMap = new Map<string, string>()
+      
+      // Log temporal para depuración
+      console.log('KAMs disponibles en Supabase:', kams)
+      
+      if (kams) {
+        for (const kam of kams) {
+          // Agregar por ID exacto
+          kamLookupMap.set(kam.id.toLowerCase(), kam.id)
+          
+          // Agregar por nombre completo
+          kamLookupMap.set(kam.name.toLowerCase(), kam.id)
+          
+          // Agregar por nombre sin acentos
+          kamLookupMap.set(normalizeAccents(kam.name.toLowerCase()), kam.id)
+          
+          // Si el nombre empieza con "KAM ", agregar también sin el prefijo
+          if (kam.name.toLowerCase().startsWith('kam ')) {
+            const withoutPrefix = kam.name.toLowerCase().substring(4)
+            kamLookupMap.set(withoutPrefix, kam.id)
+            kamLookupMap.set(normalizeAccents(withoutPrefix), kam.id)
+          }
+        }
+        
+        // Log temporal para ver todas las claves del mapa
+        console.log('Claves de búsqueda disponibles:', Array.from(kamLookupMap.keys()))
+      }
 
       jsonData.forEach((row: any, index: number) => {
         const rowNum = index + 2 // +2 porque Excel empieza en 1 y tiene headers
@@ -147,24 +178,32 @@ export default function VisitsPage() {
         }
 
         // Procesar el input del KAM
-        let processedInput = kamInput.trim().toLowerCase()
+        const kamInputLower = kamInput.trim().toLowerCase()
         
-        // Si viene como "Kam Barranquilla" o "KAM Barranquilla", extraer solo "barranquilla"
-        if (processedInput.startsWith('kam ')) {
-          processedInput = processedInput.substring(4) // Quitar "kam "
+        // Intentar múltiples formas de búsqueda
+        let kamId = null
+        
+        // 1. Buscar input completo
+        kamId = kamLookupMap.get(kamInputLower)
+        
+        // 2. Si empieza con "kam ", buscar sin el prefijo
+        if (!kamId && kamInputLower.startsWith('kam ')) {
+          const withoutPrefix = kamInputLower.substring(4)
+          kamId = kamLookupMap.get(withoutPrefix)
         }
         
-        // Normalizar el input
-        const processedInputNormalized = normalizeAccents(processedInput)
-        
-        // Buscar KAM por ID
-        let kamId = kamMapById.get(processedInput) || kamMapById.get(processedInputNormalized)
-        let kamName = kamInput
-        
+        // 3. Buscar versión sin acentos
         if (!kamId) {
-          // Si no se encontró por ID, buscar por nombre completo
-          kamId = kamMapByName.get(processedInput) || kamMapByNameNormalized.get(processedInputNormalized)
+          const normalized = normalizeAccents(kamInputLower)
+          kamId = kamLookupMap.get(normalized)
+          
+          // 4. Si tiene "kam ", buscar sin prefijo y sin acentos
+          if (!kamId && normalized.startsWith('kam ')) {
+            kamId = kamLookupMap.get(normalized.substring(4))
+          }
         }
+        
+        let kamName = kamInput
         
         if (kamId) {
           // Si se encontró el KAM, obtener su nombre real
