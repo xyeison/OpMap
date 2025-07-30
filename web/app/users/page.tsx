@@ -372,7 +372,7 @@ export default function UsersPage() {
               </div>
               <div>
                 <h3 className="font-semibold text-green-600">Contratos</h3>
-                <p className="text-sm text-gray-600">Administra contratos y oportunidades comerciales</p>
+                <p className="text-sm text-gray-600">Ve hospitales y administra contratos/oportunidades</p>
               </div>
               <div>
                 <h3 className="font-semibold text-yellow-600">Datos</h3>

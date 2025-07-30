@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
 import ProtectedRoute from '@/components/ProtectedRoute'
+import PermissionGuard from '@/components/PermissionGuard'
 
 export default function HospitalsPage() {
   const [searchTerm, setSearchTerm] = useState('')
@@ -241,12 +242,14 @@ export default function HospitalsPage() {
       <div className="container mx-auto p-6">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-3xl font-bold">Hospitales / IPS</h2>
-        <button 
-          onClick={() => setShowAddModal(true)}
-          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-        >
-          Agregar Hospital
-        </button>
+        <PermissionGuard permission="hospitals:edit">
+          <button 
+            onClick={() => setShowAddModal(true)}
+            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+          >
+            Agregar Hospital
+          </button>
+        </PermissionGuard>
       </div>
 
       <div className="mb-4">

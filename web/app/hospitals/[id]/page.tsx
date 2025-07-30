@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import ProtectedRoute from '@/components/ProtectedRoute'
+import PermissionGuard from '@/components/PermissionGuard'
 import ContractsListImproved from '@/components/ContractsListImproved'
 import { useQueryClient } from '@tanstack/react-query'
 
@@ -275,22 +276,24 @@ export default function HospitalDetailPage() {
             >
               Gestionar Contratos/Oportunidades
             </button>
-            <button
-              onClick={() => {
-                if (hospital.active) {
-                  setShowDeactivateModal(true)
-                } else {
-                  handleToggleActive()
-                }
-              }}
-              className={`px-4 py-2 rounded ${
-                hospital.active 
-                  ? 'bg-red-600 text-white hover:bg-red-700' 
-                  : 'bg-green-600 text-white hover:bg-green-700'
-              }`}
-            >
-              {hospital.active ? 'Desactivar Hospital' : 'Activar Hospital'}
-            </button>
+            <PermissionGuard permission="hospitals:edit">
+              <button
+                onClick={() => {
+                  if (hospital.active) {
+                    setShowDeactivateModal(true)
+                  } else {
+                    handleToggleActive()
+                  }
+                }}
+                className={`px-4 py-2 rounded ${
+                  hospital.active 
+                    ? 'bg-red-600 text-white hover:bg-red-700' 
+                    : 'bg-green-600 text-white hover:bg-green-700'
+                }`}
+              >
+                {hospital.active ? 'Desactivar Hospital' : 'Activar Hospital'}
+              </button>
+            </PermissionGuard>
           </div>
         </div>
 
