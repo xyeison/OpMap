@@ -98,12 +98,13 @@ export async function GET(request: NextRequest) {
       // Identificar hospitales no visitados
       for (const hospital of hospitals) {
         if (!visitedHospitalIds.has(hospital.id)) {
-          const kam = hospital.assignments?.[0]?.kams
+          const assignment = hospital.assignments?.[0]
+          const kam = assignment?.kams as any
           unvisitedHospitals.push({
             ...hospital,
-            kam_id: kam?.id,
-            kam_name: kam?.name,
-            kam_color: kam?.color
+            kam_id: kam?.id || null,
+            kam_name: kam?.name || null,
+            kam_color: kam?.color || null
           })
         }
       }
