@@ -197,9 +197,10 @@ export default function ContractsListWithPDF({ hospitalId, onClose }: ContractsL
           errorMessage += ': ' + uploadError.message
         }
         
-        if (uploadError.statusCode === 400) {
+        const statusCode = (uploadError as any).statusCode
+        if (statusCode === 400) {
           errorMessage += '\n\nError 400 puede indicar:\n- El bucket no acepta archivos PDF\n- Problema con el nombre del archivo\n- Políticas de acceso incorrectas'
-        } else if (uploadError.statusCode === 403) {
+        } else if (statusCode === 403) {
           errorMessage += '\n\nError 403: Sin permisos para subir archivos'
         }
         
