@@ -14,13 +14,14 @@ export default function RecalculateUnified() {
   const handleRecalculate = async () => {
     const confirmed = confirm(
       '¿Estás seguro? Este proceso:\n\n' +
-      '1. Calculará TODAS las rutas faltantes con Google Maps\n' +
-      '2. Asignará hospitales según:\n' +
-      '   • Territorios base de cada KAM\n' +
-      '   • Tiempos de viaje reales por carretera\n' +
-      '   • Competencia entre KAMs (gana el más cercano)\n' +
-      '   • Expansión a departamentos limítrofes\n\n' +
-      '⚠️ IMPORTANTE: Si hay muchas rutas faltantes, puede necesitar ejecutarse varias veces'
+      '1. Analizará qué tiempos de viaje faltan según las reglas territoriales\n' +
+      '2. Calculará SOLO las rutas necesarias con Google Maps\n' +
+      '3. Asignará hospitales según:\n' +
+      '   • Territorios base de cada KAM (automático)\n' +
+      '   • Expansión territorial (Nivel 1 y 2)\n' +
+      '   • Tiempos de viaje reales (máx. 4 horas)\n' +
+      '   • Competencia entre KAMs (gana el más cercano)\n\n' +
+      '⚠️ IMPORTANTE: Si hay muchas rutas, puede ejecutarse varias veces'
     )
     
     if (!confirmed) return
@@ -30,8 +31,8 @@ export default function RecalculateUnified() {
     setDetails(null)
 
     try {
-      // Usar el endpoint simplificado que solo ejecuta el algoritmo
-      const response = await fetch('/api/recalculate-simple', {
+      // Usar el endpoint inteligente que calcula solo lo necesario
+      const response = await fetch('/api/recalculate-smart', {
         method: 'POST',
       })
 
