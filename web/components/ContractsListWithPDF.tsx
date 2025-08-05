@@ -77,6 +77,9 @@ export default function ContractsListWithPDF({ hospitalId, onClose }: ContractsL
       const durationMonths = Math.max(1, Math.round(monthsDiff))
 
       // Primero crear el contrato
+      // Primero obtener el usuario actual de Supabase
+      const { data: { user } } = await supabase.auth.getUser()
+      
       const { data, error } = await supabase
         .from('hospital_contracts')
         .insert({
@@ -90,7 +93,7 @@ export default function ContractsListWithPDF({ hospitalId, onClose }: ContractsL
           current_provider: 'Proveedor',
           description: newContract.description || null,
           active: newContract.active,
-          created_by: userId || null
+          created_by: user?.id || userId || null
         })
         .select()
         .single()
