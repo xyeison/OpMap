@@ -30,7 +30,8 @@ export default function RecalculateUnified() {
     setDetails(null)
 
     try {
-      const response = await fetch('/api/recalculate-complete', {
+      // Usar el endpoint simplificado que solo ejecuta el algoritmo
+      const response = await fetch('/api/recalculate-simple', {
         method: 'POST',
       })
 
