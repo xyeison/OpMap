@@ -2,6 +2,11 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { OpMapAlgorithmBogotaFixed } from '@/lib/opmap-algorithm-bogota-fixed'
 
+// Forzar esta ruta como dinámica
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+export const maxDuration = 300 // 5 minutos
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
