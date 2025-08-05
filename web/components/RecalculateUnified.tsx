@@ -30,7 +30,7 @@ export default function RecalculateUnified() {
     setDetails(null)
 
     try {
-      const response = await fetch('/api/recalculate-full', {
+      const response = await fetch('/api/recalculate-google-only', {
         method: 'POST',
       })
 
