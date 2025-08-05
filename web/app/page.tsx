@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import RecalculateUnified from '@/components/RecalculateUnified'
 import TestGoogleAPI from '@/components/TestGoogleAPI'
+import CalculateGirardot from '@/components/CalculateGirardot'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
 import { usePermissions } from '@/hooks/usePermissions'
@@ -71,6 +72,7 @@ export default function HomePage() {
         <div className="mt-8">
           <h2 className="text-2xl font-bold mb-4">Administración del Sistema</h2>
           <TestGoogleAPI />
+          <CalculateGirardot />
           <RecalculateUnified />
         </div>
       </PermissionGuard>
