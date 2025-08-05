@@ -80,6 +80,21 @@ export default function ContractsListWithPDF({ hospitalId, onClose }: ContractsL
       // Primero obtener el usuario actual de Supabase
       const { data: { user } } = await supabase.auth.getUser()
       
+      // Si no hay usuario autenticado, obtener un usuario por defecto
+      let createdBy = user?.id || userId
+      
+      if (!createdBy) {
+        // Intentar obtener el ID del usuario admin por defecto
+        const { data: adminUser } = await supabase
+          .from('users')
+          .select('id')
+          .or('email.eq.admin@opmap.com,role.eq.admin')
+          .limit(1)
+          .single()
+        
+        createdBy = adminUser?.id
+      }
+      
       const { data, error } = await supabase
         .from('hospital_contracts')
         .insert({
@@ -93,7 +108,7 @@ export default function ContractsListWithPDF({ hospitalId, onClose }: ContractsL
           current_provider: 'Proveedor',
           description: newContract.description || null,
           active: newContract.active,
-          created_by: user?.id || userId || null
+          created_by: createdBy // Sin || null porque necesita un valor
         })
         .select()
         .single()
