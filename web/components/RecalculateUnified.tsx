@@ -13,12 +13,14 @@ export default function RecalculateUnified() {
 
   const handleRecalculate = async () => {
     const confirmed = confirm(
-      '¿Estás seguro? Esto recalculará TODAS las asignaciones basándose en:\n\n' +
-      '• Territorios base de cada KAM\n' +
-      '• Tiempos de viaje reales desde Google Maps\n' +
-      '• Competencia entre KAMs por territorios compartidos\n' +
-      '• Expansión a departamentos limítrofes (Nivel 1 y 2)\n\n' +
-      'El proceso puede tardar varios minutos.'
+      '¿Estás seguro? Este proceso ejecutará:\n\n' +
+      '1. Cálculo de TODOS los tiempos faltantes con Google Maps\n' +
+      '2. Asignación automática basada en:\n' +
+      '   • Territorios base de cada KAM\n' +
+      '   • Tiempos de viaje reales por carretera\n' +
+      '   • Competencia entre KAMs (gana el más cercano)\n' +
+      '   • Expansión a departamentos limítrofes\n\n' +
+      '⚠️ IMPORTANTE: Esto puede tardar 10-30 minutos y consumir cuota de Google Maps API'
     )
     
     if (!confirmed) return
@@ -28,7 +30,7 @@ export default function RecalculateUnified() {
     setDetails(null)
 
     try {
-      const response = await fetch('/api/recalculate-complete', {
+      const response = await fetch('/api/recalculate-full', {
         method: 'POST',
       })
 
@@ -121,7 +123,11 @@ export default function RecalculateUnified() {
               <li>• Total hospitales activos: {details.totalHospitals}</li>
               <li>• Hospitales asignados: {details.assignedHospitals}</li>
               <li>• Hospitales sin asignar: {details.unassignedHospitals}</li>
-              <li>• Nuevos tiempos calculados: {details.newTravelTimes}</li>
+              <li>• Nuevos tiempos calculados con Google Maps: {details.newTravelTimes}</li>
+              <li>• Tiempos ya existentes en caché: {details.existingTravelTimes}</li>
+              {details.failedCalculations > 0 && (
+                <li className="text-red-600">• Cálculos fallidos: {details.failedCalculations}</li>
+              )}
             </ul>
           </div>
         )}
