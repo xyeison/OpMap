@@ -31,8 +31,8 @@ export default function RecalculateUnified() {
     setDetails(null)
 
     try {
-      // Usar el endpoint inteligente que calcula solo lo necesario
-      const response = await fetch('/api/recalculate-smart', {
+      // Usar el algoritmo original que YA funciona
+      const response = await fetch('/api/recalculate-original', {
         method: 'POST',
       })
 
