@@ -1,8 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import RecalculateButton from '@/components/RecalculateButtonEnhanced'
-import RecalculateCompleteButton from '@/components/RecalculateCompleteButton'
+import RecalculateUnified from '@/components/RecalculateUnified'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
 import { usePermissions } from '@/hooks/usePermissions'
@@ -70,14 +69,7 @@ export default function HomePage() {
       <PermissionGuard permissions={['recalculate:simple', 'recalculate:complete']}>
         <div className="mt-8">
           <h2 className="text-2xl font-bold mb-4">Administración del Sistema</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <PermissionGuard permission="recalculate:simple">
-              <RecalculateButton />
-            </PermissionGuard>
-            <PermissionGuard permission="recalculate:complete">
-              <RecalculateCompleteButton />
-            </PermissionGuard>
-          </div>
+          <RecalculateUnified />
         </div>
       </PermissionGuard>
 
