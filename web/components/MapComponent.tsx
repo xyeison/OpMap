@@ -457,6 +457,19 @@ export default function MapComponent({ visits = [], showHeatmap = false, showMar
                       `${hospital.municipality_name || hospital.municipality_id}, ${hospital.department_name || ''}`}<br/>
                     <strong>Camas:</strong> {hospital.beds || 0}<br/>
                     <strong>Nivel:</strong> {hospital.service_level || 'N/A'}<br/>
+                    {hospital.type && (
+                      <>
+                        <strong>Tipo:</strong> <span style={{ 
+                          padding: '2px 6px', 
+                          borderRadius: '4px', 
+                          fontSize: '11px',
+                          backgroundColor: hospital.type === 'Publico' ? '#DBEAFE' : 
+                                         hospital.type === 'Privada' ? '#E9D5FF' : '#D1FAE5',
+                          color: hospital.type === 'Publico' ? '#1E40AF' : 
+                                hospital.type === 'Privada' ? '#6B21A8' : '#065F46'
+                        }}>{hospital.type}</span><br/>
+                      </>
+                    )}
                     <strong>KAM asignado:</strong> {kam.name}<br/>
                     {mapData.contractValuesByHospital[hospital.id] && (
                       <>
@@ -522,6 +535,19 @@ export default function MapComponent({ visits = [], showHeatmap = false, showMar
                     <strong>Ubicación:</strong> {hospital.municipality_name || mapData.municipalityNames[hospital.municipality_id] || hospital.municipality_id}{hospital.department_name ? `, ${hospital.department_name}` : ''}<br/>
                     <strong>Camas:</strong> {hospital.beds || 0}<br/>
                     <strong>Nivel:</strong> {hospital.service_level || 'N/A'}<br/>
+                    {hospital.type && (
+                      <>
+                        <strong>Tipo:</strong> <span style={{ 
+                          padding: '2px 6px', 
+                          borderRadius: '4px', 
+                          fontSize: '11px',
+                          backgroundColor: hospital.type === 'Publico' ? '#DBEAFE' : 
+                                         hospital.type === 'Privada' ? '#E9D5FF' : '#D1FAE5',
+                          color: hospital.type === 'Publico' ? '#1E40AF' : 
+                                hospital.type === 'Privada' ? '#6B21A8' : '#065F46'
+                        }}>{hospital.type}</span><br/>
+                      </>
+                    )}
                     {mapData.contractValuesByHospital[hospital.id] && (
                       <>
                         <strong style={{ color: '#2ECC71' }}>Contratos activos:</strong> ${mapData.contractValuesByHospital[hospital.id].toLocaleString('es-CO')}<br/>

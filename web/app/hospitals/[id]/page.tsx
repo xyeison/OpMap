@@ -324,6 +324,22 @@ export default function HospitalDetailPage() {
                   {hospital.active ? 'Activo' : 'Inactivo'}
                 </span>
               </div>
+              <div>
+                <span className="text-gray-600">Tipo:</span>
+                <span className="ml-2 font-medium">
+                  {hospital.type ? (
+                    <span className={`px-2 py-1 rounded text-xs ${
+                      hospital.type === 'Publico' ? 'bg-blue-100 text-blue-800' :
+                      hospital.type === 'Privada' ? 'bg-purple-100 text-purple-800' :
+                      'bg-green-100 text-green-800'
+                    }`}>
+                      {hospital.type}
+                    </span>
+                  ) : (
+                    'No especificado'
+                  )}
+                </span>
+              </div>
             </div>
           </div>
 

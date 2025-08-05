@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useUser } from '@/contexts/UserContext'
-import ContractsList from '@/components/ContractsList'
+import ContractsListWithPDF from '@/components/ContractsListWithPDF'
 
 interface HospitalActionsProps {
   hospital: any
@@ -258,7 +258,7 @@ export default function HospitalActionsComplete({ hospital, onUpdate }: Hospital
 
       {/* Lista de contratos */}
       {showContractsList && (
-        <ContractsList 
+        <ContractsListWithPDF 
           hospitalId={hospital.id} 
           onClose={() => setShowContractsList(false)}
         />

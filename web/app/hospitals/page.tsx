@@ -274,6 +274,17 @@ export default function HospitalsPage() {
               <p>Municipio: {hospital.municipality_id}</p>
               <p>Camas: {hospital.beds || '-'}</p>
               <p className="font-medium">KAM: {hospital.assigned_kam_name || 'Sin asignar'}</p>
+              {hospital.type && (
+                <p>
+                  Tipo: <span className={`px-2 py-1 rounded text-xs ${
+                    hospital.type === 'Publico' ? 'bg-blue-100 text-blue-800' :
+                    hospital.type === 'Privada' ? 'bg-purple-100 text-purple-800' :
+                    'bg-green-100 text-green-800'
+                  }`}>
+                    {hospital.type}
+                  </span>
+                </p>
+              )}
             </div>
             <button
               onClick={() => {
@@ -302,6 +313,9 @@ export default function HospitalsPage() {
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 KAM Asignado
               </th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Tipo
+              </th>
               <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Acciones
               </th>
@@ -323,6 +337,19 @@ export default function HospitalsPage() {
                   <span className="text-gray-900">
                     {hospital.assigned_kam_name || '-'}
                   </span>
+                </td>
+                <td className="px-4 py-4 whitespace-nowrap text-sm">
+                  {hospital.type ? (
+                    <span className={`px-2 py-1 rounded text-xs ${
+                      hospital.type === 'Publico' ? 'bg-blue-100 text-blue-800' :
+                      hospital.type === 'Privada' ? 'bg-purple-100 text-purple-800' :
+                      'bg-green-100 text-green-800'
+                    }`}>
+                      {hospital.type}
+                    </span>
+                  ) : (
+                    <span className="text-gray-400">-</span>
+                  )}
                 </td>
                 <td className="px-4 py-4 whitespace-nowrap text-center">
                   <button
