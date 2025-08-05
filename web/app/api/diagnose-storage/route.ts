@@ -5,12 +5,12 @@ export async function GET() {
   const diagnosis = {
     timestamp: new Date().toISOString(),
     checks: {
-      buckets: { status: 'pending', details: null },
-      contractsBucket: { status: 'pending', details: null },
-      policies: { status: 'pending', details: null },
-      testUpload: { status: 'pending', details: null }
+      buckets: { status: 'pending' as 'pending' | 'error' | 'warning' | 'success', details: null as any },
+      contractsBucket: { status: 'pending' as 'pending' | 'error' | 'warning' | 'success', details: null as any },
+      policies: { status: 'pending' as 'pending' | 'error' | 'warning' | 'success', details: null as any },
+      testUpload: { status: 'pending' as 'pending' | 'error' | 'warning' | 'success', details: null as any }
     },
-    recommendations: []
+    recommendations: [] as string[]
   }
 
   try {
