@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
-import ContractsListWithPDF from '@/components/ContractsListWithPDF'
+import ContractsListSimple from '@/components/ContractsListSimple'
 import { useQueryClient } from '@tanstack/react-query'
 
 export default function HospitalDetailPage() {
@@ -389,7 +389,7 @@ export default function HospitalDetailPage() {
 
         {/* Modal de contratos */}
         {showContracts && (
-          <ContractsListWithPDF
+          <ContractsListSimple
             hospitalId={hospitalId}
             onClose={() => {
               setShowContracts(false)

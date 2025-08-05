@@ -12,6 +12,7 @@ interface Contract {
   start_date: string
   end_date: string
   description?: string
+  documents_link?: string
   active: boolean
 }
 
@@ -29,6 +30,7 @@ export default function ContractEditModal({ contract, onClose, onSave }: Contrac
     start_date: contract.start_date,
     end_date: contract.end_date,
     description: contract.description || '',
+    documents_link: contract.documents_link || '',
     active: contract.active
   })
   const [saving, setSaving] = useState(false)
@@ -143,6 +145,22 @@ export default function ContractEditModal({ contract, onClose, onSave }: Contrac
               rows={4}
               placeholder="Describa los detalles de la oportunidad..."
             />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Enlace a documentos (Google Drive, Zoho Docs, etc.)
+            </label>
+            <input
+              type="url"
+              value={formData.documents_link}
+              onChange={(e) => setFormData({ ...formData, documents_link: e.target.value })}
+              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="https://drive.google.com/..."
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Pegue el enlace a la carpeta donde están los documentos del contrato
+            </p>
           </div>
 
           <div className="flex items-center">
