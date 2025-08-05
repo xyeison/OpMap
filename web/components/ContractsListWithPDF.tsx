@@ -130,6 +130,22 @@ export default function ContractsListWithPDF({ hospitalId, onClose }: ContractsL
     setUploadingPdf(contractId)
     
     try {
+      // Primero verificar si el bucket existe
+      const { data: buckets, error: bucketsError } = await supabase.storage.listBuckets()
+      
+      if (bucketsError) {
+        console.error('Error al listar buckets:', bucketsError)
+        alert('Error: No se puede acceder al sistema de storage. Contacte al administrador.')
+        return
+      }
+
+      const contractsBucket = buckets?.find(b => b.id === 'contracts' || b.name === 'contracts')
+      
+      if (!contractsBucket) {
+        alert('Error: El bucket "contracts" no existe.\n\nPor favor, solicite al administrador que:\n1. Vaya a Storage en Supabase\n2. Cree un nuevo bucket llamado "contracts"\n3. Configure las políticas de acceso')
+        return
+      }
+
       // Generar un nombre único para el archivo
       const timestamp = new Date().getTime()
       const filename = `${contractId}/${timestamp}_${file.name}`
@@ -144,7 +160,19 @@ export default function ContractsListWithPDF({ hospitalId, onClose }: ContractsL
 
       if (uploadError) {
         console.error('Error detallado al subir PDF:', uploadError)
-        alert(`Error al subir el PDF: ${uploadError.message || 'Error desconocido'}\n\nPosibles causas:\n- El bucket 'contracts' no existe\n- Falta configuración de permisos\n- El archivo es muy grande (máx 10MB)`)
+        let errorMessage = 'Error al subir el PDF'
+        
+        if (uploadError.message) {
+          errorMessage += ': ' + uploadError.message
+        }
+        
+        if (uploadError.statusCode === 400) {
+          errorMessage += '\n\nError 400 puede indicar:\n- El bucket no acepta archivos PDF\n- Problema con el nombre del archivo\n- Políticas de acceso incorrectas'
+        } else if (uploadError.statusCode === 403) {
+          errorMessage += '\n\nError 403: Sin permisos para subir archivos'
+        }
+        
+        alert(errorMessage)
         return
       }
 
