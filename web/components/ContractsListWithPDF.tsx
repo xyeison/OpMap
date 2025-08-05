@@ -100,7 +100,20 @@ export default function ContractsListWithPDF({ hospitalId, onClose }: ContractsL
 
       if (error) {
         console.error('Error detallado al agregar contrato:', error)
-        alert(`Error al agregar contrato: ${error.message}`)
+        console.error('Datos enviados:', {
+          hospital_id: hospitalId,
+          contract_number: newContract.contract_number,
+          contract_type: newContract.contract_type,
+          contract_value: parseFloat(newContract.contract_value),
+          start_date: newContract.start_date,
+          end_date: newContract.end_date,
+          duration_months: durationMonths,
+          current_provider: 'Proveedor',
+          description: newContract.description || null,
+          active: newContract.active,
+          created_by: user?.id || userId || null
+        })
+        alert(`Error al agregar contrato: ${error.message}\n\nCódigo: ${error.code}\nDetalles: ${error.details}\nHint: ${error.hint}`)
         return
       }
 
