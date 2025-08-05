@@ -158,18 +158,28 @@ export async function POST() {
           route.hospital.lat, route.hospital.lng
         )
         
-        if (result && result.duration <= route.kam.max_travel_time * 60) {
-          await supabase.from('travel_time_cache').insert({
-            origin_lat: route.kam.lat,
-            origin_lng: route.kam.lng,
-            dest_lat: route.hospital.lat,
-            dest_lng: route.hospital.lng,
-            travel_time: result.duration,
-            distance: result.distance,
-            source: 'google_maps'
-          })
+        if (result) {
+          // Intentar guardar en caché
+          const { data: insertData, error: insertError } = await supabase
+            .from('travel_time_cache')
+            .insert({
+              origin_lat: route.kam.lat,
+              origin_lng: route.kam.lng,
+              dest_lat: route.hospital.lat,
+              dest_lng: route.hospital.lng,
+              travel_time: result.duration,
+              distance: result.distance,
+              source: 'google_maps'
+            })
+            .select()
           
-          calculated++
+          if (insertError) {
+            console.error(`   ❌ Error guardando en caché: ${insertError.message}`)
+            console.error(`      Ruta: ${route.kam.name} → ${route.hospital.name}`)
+          } else {
+            calculated++
+            console.log(`   ✅ Guardado: ${route.kam.name} → ${route.hospital.name} (${Math.round(result.duration/60)} min)`)
+          }
           
           if (calculated % 10 === 0) {
             console.log(`   Progreso: ${calculated}/${routesNeeded.length}`)
@@ -177,6 +187,8 @@ export async function POST() {
           
           // Pequeña pausa para no saturar la API
           await new Promise(resolve => setTimeout(resolve, 200))
+        } else {
+          console.log(`   ⚠️ No se pudo calcular: ${route.kam.name} → ${route.hospital.name}`)
         }
       }
       
