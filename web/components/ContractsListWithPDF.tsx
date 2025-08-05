@@ -143,8 +143,8 @@ export default function ContractsListWithPDF({ hospitalId, onClose }: ContractsL
         })
 
       if (uploadError) {
-        console.error('Error al subir PDF:', uploadError)
-        alert('Error al subir el PDF')
+        console.error('Error detallado al subir PDF:', uploadError)
+        alert(`Error al subir el PDF: ${uploadError.message || 'Error desconocido'}\n\nPosibles causas:\n- El bucket 'contracts' no existe\n- Falta configuración de permisos\n- El archivo es muy grande (máx 10MB)`)
         return
       }
 
