@@ -7,125 +7,211 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
+// Cliente para Google Maps
+async function calculateGoogleMapsTime(
+  originLat: number, 
+  originLng: number, 
+  destLat: number, 
+  destLng: number
+): Promise<{ duration: number; distance: number } | null> {
+  const apiKey = process.env.GOOGLE_MAPS_API_KEY
+  if (!apiKey) {
+    console.error('No Google Maps API key configured')
+    return null
+  }
+
+  const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${originLat},${originLng}&destinations=${destLat},${destLng}&mode=driving&language=es&units=metric&key=${apiKey}`
+  
+  try {
+    const response = await fetch(url)
+    const data = await response.json()
+    
+    if (data.status === 'OK' && data.rows[0].elements[0].status === 'OK') {
+      const element = data.rows[0].elements[0]
+      return {
+        duration: element.duration.value, // segundos
+        distance: element.distance.value / 1000 // km
+      }
+    }
+  } catch (error) {
+    console.error('Error calling Google Maps:', error)
+  }
+  
+  return null
+}
+
 export async function POST() {
   try {
-    console.log('🔧 RECÁLCULO COMPLETO INICIADO')
+    console.log('🚀 RECÁLCULO COMPLETO - PROCESANDO TODO')
     
-    // 1. Ejecutar algoritmo de asignación
-    console.log('1. Ejecutando algoritmo de asignación...')
-    const algorithm = new OpMapAlgorithmBogotaFixed()
-    await algorithm.initialize()
+    // 1. Obtener todos los datos necesarios
+    const [hospitalsResult, kamsResult, adjacencyResult] = await Promise.all([
+      supabase.from('hospitals').select('*').eq('active', true),
+      supabase.from('kams').select('*').eq('active', true),
+      supabase.from('department_adjacency').select('*')
+    ])
+
+    const hospitals = hospitalsResult.data || []
+    const kams = kamsResult.data || []
     
-    const assignments = await algorithm.calculateAssignments()
-    const savedAssignments = await algorithm.saveAssignments(assignments)
+    console.log(`\n📊 Datos cargados:`)
+    console.log(`   - Hospitales: ${hospitals.length}`)
+    console.log(`   - KAMs: ${kams.length}`)
+
+    // 2. Construir mapa de adyacencia
+    const adjacencyMap: Record<string, Set<string>> = {}
+    for (const adj of adjacencyResult.data || []) {
+      if (!adjacencyMap[adj.department_code]) {
+        adjacencyMap[adj.department_code] = new Set()
+      }
+      adjacencyMap[adj.department_code].add(adj.adjacent_department_code)
+    }
+
+    // 3. Para cada KAM, determinar qué hospitales puede competir
+    const kamSearchAreas: Record<string, Set<string>> = {}
     
-    console.log(`   ✅ ${savedAssignments} asignaciones guardadas`)
+    for (const kam of kams) {
+      const kamDept = kam.area_id.substring(0, 2)
+      const searchDepts = new Set<string>([kamDept])
+      
+      // Nivel 1: departamentos fronterizos
+      if (adjacencyMap[kamDept]) {
+        adjacencyMap[kamDept].forEach(dept => searchDepts.add(dept))
+      }
+      
+      // Nivel 2: fronterizos de fronterizos (si está habilitado)
+      if (kam.enable_level2) {
+        const level1Depts = Array.from(searchDepts)
+        for (const dept of level1Depts) {
+          if (adjacencyMap[dept]) {
+            adjacencyMap[dept].forEach(d => searchDepts.add(d))
+          }
+        }
+      }
+      
+      kamSearchAreas[kam.id] = searchDepts
+    }
+
+    // 4. Identificar todos los pares KAM-Hospital que necesitan tiempo
+    console.log('\n🔍 Identificando rutas necesarias...')
+    const routesNeeded: Array<{kam: any, hospital: any}> = []
     
-    // 2. Identificar hospitales sin asignar
-    console.log('2. Identificando hospitales sin asignar...')
-    
-    const { data: allHospitals } = await supabase
-      .from('hospitals')
-      .select('*')
-      .eq('active', true)
-    
-    const { data: currentAssignments } = await supabase
-      .from('assignments')
-      .select('hospital_id')
-    
-    const assignedIds = new Set((currentAssignments || []).map(a => a.hospital_id))
-    const unassignedHospitals = (allHospitals || []).filter(h => !assignedIds.has(h.id))
-    
-    console.log(`   📊 Hospitales sin asignar: ${unassignedHospitals.length}`)
-    
-    // 3. Calcular tiempos para hospitales sin asignar
-    console.log('3. Calculando tiempos de viaje para hospitales sin asignar...')
-    
-    const { data: kams } = await supabase
-      .from('kams')
-      .select('*')
-      .eq('active', true)
-    
-    let newTravelTimes = 0
-    let existingTimes = 0
-    
-    // Para cada hospital sin asignar
-    for (const hospital of unassignedHospitals.slice(0, 10)) { // Limitar a 10 para evitar timeout
-      // Calcular tiempo a cada KAM
-      for (const kam of kams || []) {
-        // Verificar si ya existe
-        const { data: existing } = await supabase
+    for (const kam of kams) {
+      const searchDepts = kamSearchAreas[kam.id]
+      
+      for (const hospital of hospitals) {
+        // Skip si es territorio base
+        if (hospital.municipality_id === kam.area_id || hospital.locality_id === kam.area_id) {
+          continue
+        }
+        
+        // Skip si el hospital no está en área de búsqueda
+        if (!searchDepts.has(hospital.department_id)) {
+          continue
+        }
+        
+        // Verificar si ya existe el tiempo
+        const existingTime = await supabase
           .from('travel_time_cache')
-          .select('id')
+          .select('travel_time')
           .eq('origin_lat', kam.lat)
           .eq('origin_lng', kam.lng)
           .eq('dest_lat', hospital.lat)
           .eq('dest_lng', hospital.lng)
-          .eq('source', 'google_maps')
           .single()
         
-        if (existing) {
-          existingTimes++
-        } else {
-          // Calcular distancia Haversine como estimación
-          const R = 6371
-          const dLat = (hospital.lat - kam.lat) * Math.PI / 180
-          const dLon = (hospital.lng - kam.lng) * Math.PI / 180
-          const a = 
-            Math.sin(dLat/2) * Math.sin(dLat/2) +
-            Math.cos(kam.lat * Math.PI / 180) * Math.cos(hospital.lat * Math.PI / 180) *
-            Math.sin(dLon/2) * Math.sin(dLon/2)
-          const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
-          const distance = R * c
-          
-          // Estimar tiempo (60 km/h promedio)
-          const estimatedTime = Math.round(distance * 60) // minutos
-          
-          // Guardar estimación temporal
-          await supabase
-            .from('travel_time_cache')
-            .insert({
-              origin_lat: kam.lat,
-              origin_lng: kam.lng,
-              dest_lat: hospital.lat,
-              dest_lng: hospital.lng,
-              travel_time: estimatedTime * 60, // segundos
-              distance: distance,
-              source: 'haversine_estimate'
-            })
-          
-          newTravelTimes++
+        if (!existingTime.data) {
+          routesNeeded.push({ kam, hospital })
         }
       }
     }
+
+    console.log(`   Rutas faltantes: ${routesNeeded.length}`)
+
+    // 5. Calcular tiempos faltantes con Google Maps
+    let calculated = 0
+    const errors: string[] = []
+    const startTime = Date.now()
+    const maxExecutionTime = 280000 // 4:40 minutos para dejar margen
     
-    console.log(`   ✅ Tiempos existentes: ${existingTimes}`)
-    console.log(`   ✅ Nuevos tiempos estimados: ${newTravelTimes}`)
+    console.log('\n⏱️ Calculando tiempos con Google Maps...')
     
-    // 4. Resumen final
-    const { count: finalAssignments } = await supabase
+    for (const route of routesNeeded) {
+      // Verificar tiempo de ejecución
+      if (Date.now() - startTime > maxExecutionTime) {
+        console.log('   ⚠️ Acercándose al límite de tiempo, guardando progreso...')
+        break
+      }
+      
+      const result = await calculateGoogleMapsTime(
+        route.kam.lat, route.kam.lng,
+        route.hospital.lat, route.hospital.lng
+      )
+      
+      if (result && result.duration <= route.kam.max_travel_time * 60) {
+        await supabase.from('travel_time_cache').insert({
+          origin_lat: route.kam.lat,
+          origin_lng: route.kam.lng,
+          dest_lat: route.hospital.lat,
+          dest_lng: route.hospital.lng,
+          travel_time: result.duration,
+          distance: result.distance,
+          source: 'google_maps'
+        })
+        
+        calculated++
+        
+        if (calculated % 10 === 0) {
+          console.log(`   Progreso: ${calculated}/${routesNeeded.length}`)
+        }
+        
+        // Pequeña pausa para no saturar la API
+        await new Promise(resolve => setTimeout(resolve, 200))
+      }
+    }
+
+    console.log(`\n✅ Tiempos calculados: ${calculated}`)
+    
+    // 6. Ejecutar el algoritmo de asignación
+    console.log('\n🤖 Ejecutando algoritmo de asignación...')
+    const algorithm = new OpMapAlgorithmBogotaFixed()
+    await algorithm.initialize()
+    
+    const assignments = await algorithm.calculateAssignments()
+    await algorithm.saveAssignments(assignments)
+    
+    // 7. Estadísticas finales
+    const { count: assignedCount } = await supabase
       .from('assignments')
       .select('*', { count: 'exact', head: true })
     
-    const { count: totalHospitals } = await supabase
-      .from('hospitals')
-      .select('*', { count: 'exact', head: true })
-      .eq('active', true)
+    const unassignedCount = hospitals.length - (assignedCount || 0)
+    const remainingRoutes = routesNeeded.length - calculated
+    
+    console.log('\n📊 RESUMEN FINAL:')
+    console.log(`   Total hospitales: ${hospitals.length}`)
+    console.log(`   Hospitales asignados: ${assignedCount || 0}`)
+    console.log(`   Hospitales sin asignar: ${unassignedCount}`)
+    console.log(`   Rutas calculadas: ${calculated}`)
+    console.log(`   Rutas pendientes: ${remainingRoutes}`)
     
     return NextResponse.json({
       success: true,
-      message: 'Recálculo completo exitoso',
+      message: remainingRoutes > 0 
+        ? 'Recálculo parcial completado. Ejecute nuevamente para continuar.'
+        : 'Recálculo completo finalizado',
       summary: {
-        totalHospitals: totalHospitals || 0,
-        assignedHospitals: finalAssignments || 0,
-        unassignedHospitals: unassignedHospitals.length,
-        newTravelTimes: newTravelTimes,
-        existingTravelTimes: existingTimes
+        totalHospitals: hospitals.length,
+        assignedHospitals: assignedCount || 0,
+        unassignedHospitals: unassignedCount,
+        routesCalculated: calculated,
+        routesPending: remainingRoutes,
+        errors: errors.length
       }
     })
     
   } catch (error) {
-    console.error('Error en recálculo completo:', error)
+    console.error('Error en recálculo:', error)
     return NextResponse.json(
       { 
         success: false, 

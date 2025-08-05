@@ -13,40 +13,45 @@ export default function RecalculateUnified() {
 
   const handleRecalculate = async () => {
     const confirmed = confirm(
-      '¿Estás seguro? Este proceso ejecutará:\n\n' +
-      '1. Cálculo de TODOS los tiempos faltantes con Google Maps\n' +
-      '2. Asignación automática basada en:\n' +
+      '¿Estás seguro? Este proceso:\n\n' +
+      '1. Calculará TODAS las rutas faltantes con Google Maps\n' +
+      '2. Asignará hospitales según:\n' +
       '   • Territorios base de cada KAM\n' +
       '   • Tiempos de viaje reales por carretera\n' +
       '   • Competencia entre KAMs (gana el más cercano)\n' +
       '   • Expansión a departamentos limítrofes\n\n' +
-      '⚠️ IMPORTANTE: Esto puede tardar 10-30 minutos y consumir cuota de Google Maps API'
+      '⚠️ IMPORTANTE: Si hay muchas rutas faltantes, puede necesitar ejecutarse varias veces'
     )
     
     if (!confirmed) return
 
     setLoading(true)
-    setMessage('Iniciando recálculo de asignaciones...')
+    setMessage('Ejecutando recálculo de asignaciones...')
     setDetails(null)
 
     try {
-      const response = await fetch('/api/recalculate-google-only', {
+      const response = await fetch('/api/recalculate-complete', {
         method: 'POST',
       })
 
       const data = await response.json()
 
       if (data.success) {
-        setMessage('✅ Recálculo exitoso')
+        setMessage('✅ ' + (data.message || 'Recálculo exitoso'))
         setDetails(data.summary)
         
         // Invalidar caché y refrescar
         await queryClient.invalidateQueries({ queryKey: ['map-data'] })
         
-        setTimeout(() => {
-          router.refresh()
-          window.location.reload()
-        }, 2000)
+        // Si quedan rutas pendientes, mostrar opción de continuar
+        if (data.summary?.routesPending > 0) {
+          setMessage(`✅ Progreso guardado. ${data.summary.routesCalculated} rutas calculadas, ${data.summary.routesPending} pendientes. Ejecute nuevamente para continuar.`)
+        } else {
+          setTimeout(() => {
+            router.refresh()
+            window.location.reload()
+          }, 2000)
+        }
       } else {
         setMessage(`❌ Error: ${data.error}`)
       }
@@ -123,8 +128,18 @@ export default function RecalculateUnified() {
               <li>• Total hospitales activos: {details.totalHospitals}</li>
               <li>• Hospitales asignados: {details.assignedHospitals}</li>
               <li>• Hospitales sin asignar: {details.unassignedHospitals}</li>
-              <li>• Nuevos tiempos calculados con Google Maps: {details.newTravelTimes}</li>
-              <li>• Tiempos ya existentes en caché: {details.existingTravelTimes}</li>
+              {details.newTravelTimes !== undefined && (
+                <li>• Nuevos tiempos calculados con Google Maps: {details.newTravelTimes}</li>
+              )}
+              {details.existingTravelTimes !== undefined && (
+                <li>• Tiempos ya existentes en caché: {details.existingTravelTimes}</li>
+              )}
+              {details.routesCalculated !== undefined && (
+                <li>• Rutas calculadas: {details.routesCalculated}</li>
+              )}
+              {details.routesPending !== undefined && details.routesPending > 0 && (
+                <li className="text-orange-600">• Rutas pendientes: {details.routesPending}</li>
+              )}
               {details.failedCalculations > 0 && (
                 <li className="text-red-600">• Cálculos fallidos: {details.failedCalculations}</li>
               )}
