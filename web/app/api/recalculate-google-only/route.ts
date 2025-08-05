@@ -171,15 +171,15 @@ export async function POST() {
     await algorithm2.saveAssignments(finalAssignments)
     
     // 5. Verificar resultados
-    const { data: finalAssignmentCount } = await supabase
+    const { count: finalAssignmentCount } = await supabase
       .from('assignments')
       .select('*', { count: 'exact', head: true })
     
-    const finalUnassigned = (allHospitals?.length || 0) - (finalAssignmentCount?.count || 0)
+    const finalUnassigned = (allHospitals?.length || 0) - (finalAssignmentCount || 0)
     
     console.log('\n📊 RESUMEN FINAL:')
     console.log(`   Total hospitales: ${allHospitals?.length || 0}`)
-    console.log(`   Hospitales asignados: ${finalAssignmentCount?.count || 0}`)
+    console.log(`   Hospitales asignados: ${finalAssignmentCount || 0}`)
     console.log(`   Hospitales sin asignar: ${finalUnassigned}`)
     console.log(`   Nuevos cálculos Google Maps: ${newCalculations}`)
     
@@ -188,7 +188,7 @@ export async function POST() {
       message: 'Recálculo completado (solo Google Maps)',
       summary: {
         totalHospitals: allHospitals?.length || 0,
-        assignedHospitals: finalAssignmentCount?.count || 0,
+        assignedHospitals: finalAssignmentCount || 0,
         unassignedHospitals: finalUnassigned,
         newTravelTimes: newCalculations,
         existingTravelTimes: 0,
