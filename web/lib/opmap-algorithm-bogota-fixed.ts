@@ -42,7 +42,7 @@ export class OpMapAlgorithmBogotaFixed {
   private cacheHits = 0
   private cacheMisses = 0
   private googleCalculations = 0
-  private googleApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ''
+  private googleApiKey = ''
 
   getStats() {
     return {
@@ -53,8 +53,22 @@ export class OpMapAlgorithmBogotaFixed {
     }
   }
 
-  async initialize() {
+  async initialize(googleApiKey?: string) {
     console.log('📦 Inicializando algoritmo OpMap (BOGOTÁ FIXED)...')
+    
+    // Configurar API key si se proporciona
+    if (googleApiKey) {
+      this.googleApiKey = googleApiKey
+      console.log('🔑 Google Maps API key configurada desde parámetro')
+      console.log('   Longitud de API key:', googleApiKey.length)
+    } else {
+      // Intentar obtener del entorno
+      this.googleApiKey = process.env.GOOGLE_MAPS_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ''
+      console.log('🔑 Google Maps API key:', this.googleApiKey ? 'encontrada en entorno' : 'NO CONFIGURADA')
+      if (this.googleApiKey) {
+        console.log('   Longitud de API key del entorno:', this.googleApiKey.length)
+      }
+    }
     
     // Cargar KAMs
     const { data: kamsData } = await supabase
@@ -116,6 +130,7 @@ export class OpMapAlgorithmBogotaFixed {
     }
     
     console.log(`✅ ${totalLoaded} rutas en caché cargadas en ${Date.now() - startCache}ms`)
+    console.log(`🔑 Estado final de API Key: ${this.googleApiKey ? 'CONFIGURADA' : 'NO CONFIGURADA'}`)
   }
 
   private getCacheKey(originLat: number, originLng: number, destLat: number, destLng: number): string {
@@ -128,27 +143,36 @@ export class OpMapAlgorithmBogotaFixed {
     destLat: number, 
     destLng: number
   ): Promise<{ duration: number; distance: number } | null> {
+    console.log(`🌐 calculateGoogleMapsTime llamado`)
     if (!this.googleApiKey) {
-      console.error('No Google Maps API key configured')
+      console.error('❌ No Google Maps API key configured')
+      console.error('   API Key value:', this.googleApiKey)
       return null
     }
 
     const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${originLat},${originLng}&destinations=${destLat},${destLng}&mode=driving&language=es&units=metric&key=${this.googleApiKey}`
     
+    console.log(`🚀 Llamando a Google Maps API...`)
+    
     try {
       const response = await fetch(url)
       const data = await response.json()
       
+      console.log(`📡 Respuesta de Google Maps:`, data.status)
+      
       if (data.status === 'OK' && data.rows[0].elements[0].status === 'OK') {
         const element = data.rows[0].elements[0]
         this.googleCalculations++
+        console.log(`✅ Google calculation #${this.googleCalculations}: ${Math.round(element.duration.value/60)} min`)
         return {
           duration: element.duration.value, // segundos
           distance: element.distance.value / 1000 // km
         }
+      } else {
+        console.error(`❌ Google Maps error:`, data.status, data.rows?.[0]?.elements?.[0]?.status)
       }
     } catch (error) {
-      console.error('Error calling Google Maps:', error)
+      console.error('❌ Error calling Google Maps:', error)
     }
     
     return null
@@ -164,6 +188,7 @@ export class OpMapAlgorithmBogotaFixed {
     }
     
     this.cacheMisses++
+    console.log(`🔍 Cache miss para ruta: ${cacheKey}`)
     
     // Buscar en Supabase con las coordenadas redondeadas
     const roundedOriginLat = parseFloat(originLat.toFixed(6))
@@ -171,7 +196,9 @@ export class OpMapAlgorithmBogotaFixed {
     const roundedDestLat = parseFloat(destLat.toFixed(6))
     const roundedDestLng = parseFloat(destLng.toFixed(6))
     
-    const { data: cachedTime } = await supabase
+    console.log(`🔍 Buscando en Supabase: ${roundedOriginLat},${roundedOriginLng} → ${roundedDestLat},${roundedDestLng}`)
+    
+    const { data: cachedTime, error: cacheError } = await supabase
       .from('travel_time_cache')
       .select('travel_time')
       .eq('origin_lat', roundedOriginLat)
@@ -179,6 +206,10 @@ export class OpMapAlgorithmBogotaFixed {
       .eq('dest_lat', roundedDestLat)
       .eq('dest_lng', roundedDestLng)
       .single()
+    
+    if (cacheError && cacheError.code !== 'PGRST116') {
+      console.error('❌ Error buscando en Supabase:', cacheError)
+    }
     
     if (cachedTime) {
       const time = cachedTime.travel_time
@@ -188,11 +219,15 @@ export class OpMapAlgorithmBogotaFixed {
     }
     
     // Si no está en caché, intentar calcular con Google Maps
+    console.log(`📍 Intentando calcular con Google Maps...`)
+    console.log(`   API Key configurada: ${!!this.googleApiKey}`)
+    
     const googleTime = await this.calculateGoogleMapsTime(
       originLat, originLng, destLat, destLng
     )
     
     if (googleTime !== null) {
+      console.log(`✅ Google Maps respondió: ${Math.round(googleTime.duration/60)} minutos`)
       // Guardar en Supabase para futuros usos
       const { error } = await supabase
         .from('travel_time_cache')

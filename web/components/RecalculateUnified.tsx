@@ -42,6 +42,11 @@ export default function RecalculateUnified() {
         setMessage('✅ ' + (data.message || 'Recálculo exitoso'))
         setDetails(data.summary)
         
+        // Mostrar información de depuración si está disponible
+        if (data.debug) {
+          console.log('🔍 Debug info:', data.debug)
+        }
+        
         // Invalidar caché y refrescar
         await queryClient.invalidateQueries({ queryKey: ['map-data'] })
         
@@ -127,9 +132,24 @@ export default function RecalculateUnified() {
           <div className="bg-gray-100 p-3 rounded text-sm">
             <h4 className="font-semibold mb-2">Resumen del recálculo:</h4>
             <ul className="space-y-1">
-              <li>• Total hospitales activos: {details.totalHospitals}</li>
-              <li>• Hospitales asignados: {details.assignedHospitals}</li>
-              <li>• Hospitales sin asignar: {details.unassignedHospitals}</li>
+              <li>• Total asignaciones: {details.totalAssignments}</li>
+              <li>• Cache hits: {details.cacheHits}</li>
+              <li>• Cache misses: {details.cacheMisses}</li>
+              {details.googleCalculations !== undefined && (
+                <li className="text-green-600 font-bold">• Llamadas a Google Maps API: {details.googleCalculations}</li>
+              )}
+              {details.hospitalsWithoutTravelTime !== undefined && (
+                <li>• Hospitales sin tiempo de viaje: {details.hospitalsWithoutTravelTime}</li>
+              )}
+              {details.totalHospitals !== undefined && (
+                <li>• Total hospitales activos: {details.totalHospitals}</li>
+              )}
+              {details.assignedHospitals !== undefined && (
+                <li>• Hospitales asignados: {details.assignedHospitals}</li>
+              )}
+              {details.unassignedHospitals !== undefined && (
+                <li>• Hospitales sin asignar: {details.unassignedHospitals}</li>
+              )}
               {details.newTravelTimes !== undefined && (
                 <li>• Nuevos tiempos calculados con Google Maps: {details.newTravelTimes}</li>
               )}
