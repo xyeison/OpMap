@@ -38,13 +38,16 @@ export default function NavigationWithPermissions() {
   return (
     <>
       {/* Barra de navegación fija */}
-      <nav className="fixed top-0 left-0 right-0 bg-white border-b border-gray-200 z-50">
+      <nav className="fixed top-0 left-0 right-0 bg-white border-b border-gray-200 z-[9999]">
         <div className="container mx-auto px-4 h-16 flex justify-between items-center">
           {/* Logo y título */}
           <div className="flex items-center gap-3">
             <button
-              onClick={() => setIsOpen(!isOpen)}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              onClick={(e) => {
+                e.stopPropagation()
+                setIsOpen(!isOpen)
+              }}
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors relative z-[10000]"
               aria-label="Toggle menu"
             >
               <svg 
@@ -97,7 +100,7 @@ export default function NavigationWithPermissions() {
       {/* Menú lateral deslizante */}
       <div 
         ref={menuRef}
-        className={`fixed top-16 left-0 h-full bg-white border-r border-gray-200 w-72 transform transition-transform duration-300 ease-in-out z-40 ${
+        className={`fixed top-16 left-0 h-full bg-white border-r border-gray-200 w-72 transform transition-transform duration-300 ease-in-out z-[9998] ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
@@ -167,8 +170,9 @@ export default function NavigationWithPermissions() {
       {/* Overlay oscuro cuando el menú está abierto */}
       {isOpen && (
         <div 
-          className="fixed inset-0 bg-black bg-opacity-50 z-30"
+          className="fixed inset-0 top-16 bg-black bg-opacity-50 z-[9997]"
           onClick={() => setIsOpen(false)}
+          style={{ pointerEvents: 'auto' }}
         />
       )}
 
