@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getUserFromRequest } from '@/lib/auth-server'
 
@@ -15,7 +15,7 @@ const supabase = createClient(
 
 // PUT - Actualizar contraseña de usuario
 export async function PUT(
-  request: Request,
+  request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
