@@ -25,8 +25,9 @@ export function useVisits(filters?: {
 }) {
   return useQuery({
     queryKey: ['visits', filters],
+    enabled: true, // Siempre habilitado
     queryFn: async () => {
-      console.log('useVisits - Filtros recibidos:', {
+      console.log('useVisits - INICIANDO QUERY con filtros:', {
         ...filters,
         monthName: filters?.month ? new Date(2000, filters.month - 1, 1).toLocaleString('es', {month: 'long'}) : 'N/A',
         kamCount: filters?.kamIds?.length || 0
@@ -124,7 +125,12 @@ export function useVisits(filters?: {
         primeras_3: data?.slice(0, 3)
       })
       
-      if (error) throw error
+      if (error) {
+        console.error('useVisits - ERROR en query:', error)
+        throw error
+      }
+      
+      console.log('useVisits - Devolviendo', data?.length || 0, 'visitas')
       return data as Visit[]
     },
     staleTime: 60000, // 1 minuto

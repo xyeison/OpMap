@@ -46,7 +46,7 @@ export default function MapControls({
   const [contactTypeFilter, setContactTypeFilter] = useState('all')
   const [multipleMonthsMode, setMultipleMonthsMode] = useState(false)
   const [selectedMonths, setSelectedMonths] = useState<number[]>([7]) // Julio por defecto
-  const [selectedKams, setSelectedKams] = useState<string[]>([])
+  const [selectedKams, setSelectedKams] = useState<string[]>([]) // Vacío para mostrar todas las visitas
   const [availableKams, setAvailableKams] = useState<{id: string, name: string, color: string}[]>([])
   
   // Asegurar que el mes inicial sea julio al montar el componente
@@ -84,17 +84,35 @@ export default function MapControls({
     })
   }, [selectedMonth, selectedYear, selectedKams, multipleMonthsMode, selectedMonths])
 
-  const { data: visitsData } = useVisits({
+  const queryParams = {
     month: multipleMonthsMode ? undefined : selectedMonth,
     months: multipleMonthsMode && selectedMonths.length > 0 ? selectedMonths.sort((a, b) => a - b) : undefined,
     year: selectedYear,
     visitType: visitTypeFilter === 'all' ? undefined : visitTypeFilter,
     contactType: contactTypeFilter === 'all' ? undefined : contactTypeFilter,
     kamIds: selectedKams.length > 0 ? selectedKams : undefined // Si no hay KAMs seleccionados, no filtrar por KAM
-  })
+  }
+  
+  // Debug de los parámetros de la query
+  useEffect(() => {
+    console.log('MapControls - Query params para useVisits:', queryParams)
+  }, [JSON.stringify(queryParams)])
+  
+  const { data: visitsData, isLoading, error } = useVisits(queryParams)
   
   // Solo usar las visitas si deberíamos cargarlas
   const visits = shouldLoadVisits ? (visitsData || []) : []
+  
+  // Debug del resultado
+  useEffect(() => {
+    console.log('MapControls - Resultado de visitas:', {
+      shouldLoadVisits,
+      isLoading,
+      error,
+      visitsDataLength: visitsData?.length || 0,
+      visitsLength: visits.length
+    })
+  }, [shouldLoadVisits, isLoading, error, visitsData, visits])
 
   // Cargar KAMs disponibles
   useEffect(() => {
@@ -571,13 +589,26 @@ export default function MapControls({
 
                 {/* Estadísticas de visitas */}
                 <div className="mt-3 pt-3 border-t text-xs text-gray-600">
-                  <p>Total visitas: <strong className="text-gray-900">{visits ? visits.length : 0}</strong></p>
-                  <p>Efectivas: <strong className="text-gray-800">
-                    {visits ? visits.filter(v => v.visit_type === 'Visita efectiva').length : 0}
-                  </strong></p>
-                  <p>Presenciales: <strong className="text-gray-800">
-                    {visits ? visits.filter(v => v.contact_type === 'Visita presencial').length : 0}
-                  </strong></p>
+                  {isLoading ? (
+                    <p className="text-gray-500">Cargando visitas...</p>
+                  ) : error ? (
+                    <p className="text-red-500">Error: {error.message}</p>
+                  ) : (
+                    <>
+                      <p>Total visitas: <strong className="text-gray-900">{visits ? visits.length : 0}</strong></p>
+                      <p>Efectivas: <strong className="text-gray-800">
+                        {visits ? visits.filter(v => v.visit_type === 'Visita efectiva').length : 0}
+                      </strong></p>
+                      <p>Presenciales: <strong className="text-gray-800">
+                        {visits ? visits.filter(v => v.contact_type === 'Visita presencial').length : 0}
+                      </strong></p>
+                      {visits?.length === 0 && (
+                        <p className="text-xs text-amber-600 mt-1">
+                          Filtros: {selectedMonth}/{selectedYear}, {selectedKams.length} KAMs
+                        </p>
+                      )}
+                    </>
+                  )}
                 </div>
               </div>
             )}
