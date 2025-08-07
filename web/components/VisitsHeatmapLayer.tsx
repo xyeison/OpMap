@@ -72,17 +72,25 @@ export function VisitsHeatmapLayer({
     // El tercer valor es la intensidad (peso) del punto
     const heatPoints: Array<[number, number, number]> = visits
       .filter((visit) => {
+        // Convertir a número por si acaso
+        const lat = Number(visit.lat)
+        const lng = Number(visit.lng)
+        
         // Filtrar visitas con coordenadas inválidas
-        const isValid = visit.lat && visit.lng && 
-                       !isNaN(visit.lat) && !isNaN(visit.lng) &&
-                       visit.lat >= -90 && visit.lat <= 90 &&
-                       visit.lng >= -180 && visit.lng <= 180
+        const isValid = lat && lng && 
+                       !isNaN(lat) && !isNaN(lng) &&
+                       lat >= -90 && lat <= 90 &&
+                       lng >= -180 && lng <= 180
         if (!isValid) {
-          console.warn('Visita con coordenadas inválidas:', visit)
+          console.warn('Visita con coordenadas inválidas:', { ...visit, lat, lng })
         }
         return isValid
       })
       .map((visit) => {
+        // Convertir a número
+        const lat = Number(visit.lat)
+        const lng = Number(visit.lng)
+        
         // Dar más peso a visitas efectivas
         let weight = 0.5
         if (visit.visit_type === 'Visita efectiva') {
@@ -96,7 +104,7 @@ export function VisitsHeatmapLayer({
           weight *= 1.2
         }
 
-        return [visit.lat, visit.lng, weight]
+        return [lat, lng, weight]
       })
 
     console.log('VisitsHeatmapLayer - Puntos de calor generados:', heatPoints.length)

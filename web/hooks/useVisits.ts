@@ -130,8 +130,15 @@ export function useVisits(filters?: {
         throw error
       }
       
-      console.log('useVisits - Devolviendo', data?.length || 0, 'visitas')
-      return data as Visit[]
+      // Convertir numeric a number para lat/lng
+      const visitsWithNumbers = data?.map(visit => ({
+        ...visit,
+        lat: typeof visit.lat === 'string' ? parseFloat(visit.lat) : Number(visit.lat),
+        lng: typeof visit.lng === 'string' ? parseFloat(visit.lng) : Number(visit.lng)
+      })) || []
+      
+      console.log('useVisits - Devolviendo', visitsWithNumbers.length, 'visitas con coordenadas convertidas')
+      return visitsWithNumbers as Visit[]
     },
     staleTime: 60000, // 1 minuto
   })
