@@ -108,8 +108,11 @@ export default function MapControls({
       if (kams) {
         console.log('MapControls - KAMs cargados:', kams.length)
         setAvailableKams(kams)
-        setSelectedKams(kams.map(k => k.id)) // Seleccionar todos por defecto
-        console.log('MapControls - KAMs seleccionados inicialmente:', kams.map(k => k.id))
+        
+        // NO seleccionar KAMs por defecto - dejar que el usuario los seleccione
+        // Esto permite que la consulta inicial no filtre por KAMs
+        setSelectedKams([])
+        console.log('MapControls - Iniciando sin KAMs seleccionados para mostrar todas las visitas')
       }
     }
     loadKams()
@@ -517,35 +520,51 @@ export default function MapControls({
                   <label className="text-xs font-medium text-gray-700 mb-1 block">
                     KAMs a mostrar
                     <button
-                      onClick={() => setSelectedKams(selectedKams.length === availableKams.length ? [] : availableKams.map(k => k.id))}
+                      onClick={() => {
+                        if (selectedKams.length === 0) {
+                          // Si no hay ninguno, seleccionar solo los que tienen visitas
+                          const kamsWithVisits = ['11dae2e2-b01e-43b4-a927-62aa994d25b7', 'f44b0557-1c17-41b9-ac66-f1ef5d23d75c', '1b2f89c9-4709-4764-afc2-36a7faafe609', 'ef69d4fa-63cb-474c-964f-33aa323dc5c9', '3ce353cc-64d0-454e-9017-e78e20a1ea59', '0422850d-2cb9-4099-b8e0-010d5dfb15ee', '247f8e1a-c9c9-4e15-9f3b-25dbf46f439c']
+                          setSelectedKams(kamsWithVisits.filter(id => availableKams.some(k => k.id === id)))
+                        } else {
+                          // Si hay alguno seleccionado, deseleccionar todos
+                          setSelectedKams([])
+                        }
+                      }}
                       className="ml-2 text-gray-700 hover:text-black font-medium"
                     >
-                      ({selectedKams.length === 0 ? 'Ninguno' : selectedKams.length === availableKams.length ? 'Todos' : selectedKams.length})
+                      ({selectedKams.length === 0 ? 'Mostrar todos' : `${selectedKams.length} seleccionados`})
                     </button>
                   </label>
                   <div className="max-h-24 overflow-y-auto border rounded p-2">
                     <div className="grid grid-cols-2 gap-1">
-                      {availableKams.map(kam => (
-                        <label key={kam.id} className="flex items-center text-xs">
-                          <input
-                            type="checkbox"
-                            checked={selectedKams.includes(kam.id)}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedKams([...selectedKams, kam.id])
-                              } else {
-                                setSelectedKams(selectedKams.filter(k => k !== kam.id))
-                              }
-                            }}
-                            className="mr-1"
-                          />
-                          <span 
-                            className="w-2 h-2 rounded-full mr-1" 
-                            style={{ backgroundColor: kam.color }}
-                          />
-                          {kam.name}
-                        </label>
-                      ))}
+                      {availableKams.map(kam => {
+                        // KAMs que tienen visitas en julio 2025
+                        const kamsWithVisitsJuly2025 = ['11dae2e2-b01e-43b4-a927-62aa994d25b7', 'f44b0557-1c17-41b9-ac66-f1ef5d23d75c', '1b2f89c9-4709-4764-afc2-36a7faafe609', 'ef69d4fa-63cb-474c-964f-33aa323dc5c9', '3ce353cc-64d0-454e-9017-e78e20a1ea59', '0422850d-2cb9-4099-b8e0-010d5dfb15ee', '247f8e1a-c9c9-4e15-9f3b-25dbf46f439c']
+                        const hasVisits = kamsWithVisitsJuly2025.includes(kam.id)
+                        
+                        return (
+                          <label key={kam.id} className={`flex items-center text-xs ${!hasVisits ? 'opacity-50' : ''}`}>
+                            <input
+                              type="checkbox"
+                              checked={selectedKams.includes(kam.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedKams([...selectedKams, kam.id])
+                                } else {
+                                  setSelectedKams(selectedKams.filter(k => k !== kam.id))
+                                }
+                              }}
+                              className="mr-1"
+                            />
+                            <span 
+                              className="w-2 h-2 rounded-full mr-1" 
+                              style={{ backgroundColor: kam.color }}
+                            />
+                            {kam.name}
+                            {hasVisits && <span className="ml-1 text-green-600">●</span>}
+                          </label>
+                        )
+                      })}
                     </div>
                   </div>
                 </div>

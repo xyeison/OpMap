@@ -28,7 +28,8 @@ export function useVisits(filters?: {
     queryFn: async () => {
       console.log('useVisits - Filtros recibidos:', {
         ...filters,
-        monthName: filters?.month ? new Date(2000, filters.month - 1, 1).toLocaleString('es', {month: 'long'}) : 'N/A'
+        monthName: filters?.month ? new Date(2000, filters.month - 1, 1).toLocaleString('es', {month: 'long'}) : 'N/A',
+        kamCount: filters?.kamIds?.length || 0
       })
       
       let query = supabase
@@ -88,6 +89,8 @@ export function useVisits(filters?: {
           ? `${filters.year + 1}-01-01`
           : `${filters.year}-${String(filters.month + 1).padStart(2, '0')}-01`
         
+        console.log('useVisits - Aplicando filtro de fecha única:', { startDate, endDate })
+        
         query = query
           .gte('visit_date', startDate)
           .lt('visit_date', endDate)
@@ -103,10 +106,14 @@ export function useVisits(filters?: {
 
       if (filters?.kamIds && filters.kamIds.length > 0) {
         // Múltiples KAMs
+        console.log('useVisits - Filtrando por KAMs:', filters.kamIds)
         query = query.in('kam_id', filters.kamIds)
       } else if (filters?.kamId) {
         // Un solo KAM
+        console.log('useVisits - Filtrando por un solo KAM:', filters.kamId)
         query = query.eq('kam_id', filters.kamId)
+      } else {
+        console.log('useVisits - Sin filtro de KAM')
       }
 
       const { data, error } = await query
