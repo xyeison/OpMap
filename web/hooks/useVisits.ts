@@ -1,5 +1,4 @@
 import { useQuery } from '@tanstack/react-query'
-import { supabase } from '@/lib/supabase'
 
 interface Visit {
   id: string
@@ -33,112 +32,48 @@ export function useVisits(filters?: {
         kamCount: filters?.kamIds?.length || 0
       })
       
-      let query = supabase
-        .from('visits')
-        .select('*')
-        .is('deleted_at', null)
-        .order('visit_date', { ascending: false })
-
-      // Aplicar filtros si existen
-      if (filters?.months && filters?.months.length > 0 && filters?.year) {
-        console.log('useVisits - Aplicando filtro de múltiples meses:', filters.months)
-        
-        // Para múltiples meses, hacer queries separadas y combinar
-        const allVisits: Visit[] = []
-        
-        for (const month of filters.months) {
-          const startDate = `${filters.year}-${String(month).padStart(2, '0')}-01`
-          const endDate = month === 12 
-            ? `${filters.year + 1}-01-01`
-            : `${filters.year}-${String(month + 1).padStart(2, '0')}-01`
-          
-          let monthQuery = supabase
-            .from('visits')
-            .select('*')
-            .is('deleted_at', null)
-            .gte('visit_date', startDate)
-            .lt('visit_date', endDate)
-          
-          // Aplicar otros filtros
-          if (filters?.visitType) {
-            monthQuery = monthQuery.eq('visit_type', filters.visitType)
-          }
-          if (filters?.contactType) {
-            monthQuery = monthQuery.eq('contact_type', filters.contactType)
-          }
-          if (filters?.kamIds && filters.kamIds.length > 0) {
-            monthQuery = monthQuery.in('kam_id', filters.kamIds)
-          }
-          
-          const { data: monthData, error } = await monthQuery
-          if (error) throw error
-          if (monthData) {
-            allVisits.push(...(monthData as Visit[]))
-          }
-        }
-        
-        // Ordenar por fecha descendente y eliminar duplicados
-        const uniqueVisits = Array.from(new Map(allVisits.map(v => [v.id, v])).values())
-        uniqueVisits.sort((a, b) => new Date(b.visit_date).getTime() - new Date(a.visit_date).getTime())
-        
-        console.log('useVisits - Total visitas múltiples meses:', uniqueVisits.length)
-        return uniqueVisits
-      } else if (filters?.month && filters?.year) {
-        // Un solo mes
-        const startDate = `${filters.year}-${String(filters.month).padStart(2, '0')}-01`
-        const endDate = filters.month === 12 
-          ? `${filters.year + 1}-01-01`
-          : `${filters.year}-${String(filters.month + 1).padStart(2, '0')}-01`
-        
-        console.log('useVisits - Aplicando filtro de fecha única:', { startDate, endDate })
-        
-        query = query
-          .gte('visit_date', startDate)
-          .lt('visit_date', endDate)
+      // Construir parámetros de query
+      const params = new URLSearchParams()
+      
+      if (filters?.month) {
+        params.append('month', filters.month.toString())
       }
-
+      if (filters?.months && filters.months.length > 0) {
+        params.append('months', filters.months.join(','))
+      }
+      if (filters?.year) {
+        params.append('year', filters.year.toString())
+      }
       if (filters?.visitType) {
-        query = query.eq('visit_type', filters.visitType)
+        params.append('visitType', filters.visitType)
       }
-
       if (filters?.contactType) {
-        query = query.eq('contact_type', filters.contactType)
+        params.append('contactType', filters.contactType)
       }
-
       if (filters?.kamIds && filters.kamIds.length > 0) {
-        // Múltiples KAMs
-        console.log('useVisits - Filtrando por KAMs:', filters.kamIds)
-        query = query.in('kam_id', filters.kamIds)
+        params.append('kamIds', filters.kamIds.join(','))
       } else if (filters?.kamId) {
-        // Un solo KAM
-        console.log('useVisits - Filtrando por un solo KAM:', filters.kamId)
-        query = query.eq('kam_id', filters.kamId)
-      } else {
-        console.log('useVisits - Sin filtro de KAM')
+        params.append('kamIds', filters.kamId)
       }
-
-      const { data, error } = await query
-
-      console.log('useVisits - Resultado final de la query:', { 
-        count: data?.length || 0, 
-        error: error?.message,
+      
+      // Hacer la llamada a la API que usa Service Role Key
+      const response = await fetch(`/api/visits/filtered?${params.toString()}`)
+      
+      if (!response.ok) {
+        const error = await response.json()
+        console.error('useVisits - ERROR en API:', error)
+        throw new Error(error.error || 'Error al cargar visitas')
+      }
+      
+      const data = await response.json()
+      
+      console.log('useVisits - Resultado final:', { 
+        count: data?.length || 0,
         primeras_3: data?.slice(0, 3)
       })
       
-      if (error) {
-        console.error('useVisits - ERROR en query:', error)
-        throw error
-      }
-      
-      // Convertir numeric a number para lat/lng
-      const visitsWithNumbers = data?.map(visit => ({
-        ...visit,
-        lat: typeof visit.lat === 'string' ? parseFloat(visit.lat) : Number(visit.lat),
-        lng: typeof visit.lng === 'string' ? parseFloat(visit.lng) : Number(visit.lng)
-      })) || []
-      
-      console.log('useVisits - Devolviendo', visitsWithNumbers.length, 'visitas con coordenadas convertidas')
-      return visitsWithNumbers as Visit[]
+      console.log('useVisits - Devolviendo', data?.length || 0, 'visitas')
+      return data as Visit[]
     },
     staleTime: 60000, // 1 minuto
   })
