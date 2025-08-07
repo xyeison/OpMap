@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { supabase } from '@/lib/supabase'
@@ -109,8 +109,17 @@ export default function MapControls({
   // Solo hacer la query si shouldLoadVisits es true
   const { data: visitsData, isLoading, error } = useVisits(shouldLoadVisits ? queryParams : null)
   
-  // Usar las visitas o array vacío - MUY IMPORTANTE para limpiar el mapa
-  const visits = shouldLoadVisits && visitsData ? visitsData : []
+  // CRÍTICO: Usar las visitas SOLO si shouldLoadVisits es true
+  // Cuando shouldLoadVisits es false, SIEMPRE usar array vacío sin importar visitsData
+  const visits = useMemo(() => {
+    if (!shouldLoadVisits) {
+      console.log('MapControls - shouldLoadVisits es false, usando array vacío')
+      return []
+    }
+    const result = visitsData || []
+    console.log('MapControls - shouldLoadVisits es true, usando', result.length, 'visitas')
+    return result
+  }, [shouldLoadVisits, visitsData])
   
   // Debug para verificar que las visitas se limpian correctamente
   useEffect(() => {
@@ -154,7 +163,7 @@ export default function MapControls({
     loadKams()
   }, [])
 
-  // Notificar cambios de visitas - SIEMPRE notificar, incluso con array vacío
+  // Notificar cambios de visitas - FORZAR LIMPIEZA cuando no hay datos
   useEffect(() => {
     console.log('MapControls - Notificando cambio de visitas:', {
       cantidad: visits?.length || 0,
@@ -163,9 +172,14 @@ export default function MapControls({
       selectedMonths: selectedMonths.length,
       shouldLoadVisits
     })
+    
     if (onVisitsChange) {
-      // Siempre notificar, incluso si visits es un array vacío
-      onVisitsChange(visits || [])
+      if (!shouldLoadVisits || visits.length === 0) {
+        console.log('MapControls - LIMPIANDO visitas del mapa')
+        onVisitsChange([]) // Forzar array vacío
+      } else {
+        onVisitsChange(visits)
+      }
     }
   }, [visits, onVisitsChange, multipleMonthsMode, selectedMonths.length, shouldLoadVisits])
 
@@ -269,13 +283,14 @@ export default function MapControls({
 
   // Manejar cambio de modo múltiples meses
   const handleMultipleMonthsModeChange = (enabled: boolean) => {
+    console.log('MapControls - Cambiando modo múltiple a:', enabled)
     setMultipleMonthsMode(enabled)
     if (!enabled) {
       // Al desactivar modo múltiple, volver al mes actual
       setSelectedMonths([selectedMonth])
-    } else if (selectedMonths.length === 0) {
-      // Al activar, si no hay meses seleccionados, seleccionar el actual
-      setSelectedMonths([selectedMonth])
+    } else {
+      // Al activar modo múltiple, limpiar selección para forzar al usuario a elegir
+      setSelectedMonths([])
     }
   }
 

@@ -23,8 +23,10 @@ export function useVisits(filters?: {
   kamIds?: string[]  // Para múltiples KAMs
 } | null) {
   return useQuery({
-    queryKey: ['visits', filters],
+    queryKey: ['visits', JSON.stringify(filters)], // Stringificar para forzar nueva query cuando cambian filtros
     enabled: !!filters, // Solo habilitar si hay filtros
+    staleTime: 0, // No cachear, siempre hacer nueva consulta
+    cacheTime: 0, // No mantener en caché
     queryFn: async () => {
       // Si no hay filtros, retornar array vacío
       if (!filters) {
@@ -79,7 +81,6 @@ export function useVisits(filters?: {
       
       console.log('useVisits - Devolviendo', data?.length || 0, 'visitas')
       return data as Visit[]
-    },
-    staleTime: 60000, // 1 minuto
+    }
   })
 }
