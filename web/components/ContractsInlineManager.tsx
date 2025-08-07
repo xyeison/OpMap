@@ -15,7 +15,6 @@ interface Contract {
   provider?: string
   active: boolean
   created_at: string
-  documents_link?: string
   isEditing?: boolean
   isNew?: boolean
 }
@@ -58,7 +57,6 @@ export default function ContractsInlineManager({ hospitalId, onUpdate }: Contrac
       end_date: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
       description: '',
       provider: '',
-      documents_link: '',
       active: true,
       created_at: new Date().toISOString(),
       isEditing: true,
@@ -93,10 +91,9 @@ export default function ContractsInlineManager({ hospitalId, onUpdate }: Contrac
             start_date: contract.start_date,
             end_date: contract.end_date,
             duration_months: durationMonths,
-            current_provider: 'Proveedor',
+            current_provider: contract.provider || 'Proveedor',
             provider: contract.provider || null,
             description: contract.description || null,
-            documents_link: contract.documents_link || null,
             active: contract.active
           })
           .select()
@@ -121,7 +118,6 @@ export default function ContractsInlineManager({ hospitalId, onUpdate }: Contrac
             duration_months: durationMonths,
             provider: contract.provider,
             description: contract.description,
-            documents_link: contract.documents_link,
             active: contract.active
           })
           .eq('id', contract.id)

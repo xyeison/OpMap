@@ -1,19 +1,52 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  supabaseServiceKey
 )
 
 export async function POST(request: Request) {
   try {
-    const { territoryId, territoryType, kamId } = await request.json()
+    const { territoryId, territoryType, kamId, territoryName, reason } = await request.json()
 
     if (!territoryId || !territoryType || !kamId) {
       return NextResponse.json(
         { error: 'Faltan parámetros requeridos' },
         { status: 400 }
+      )
+    }
+
+    // Primero desactivar cualquier asignación forzada existente para este territorio
+    const { error: deactivateError } = await supabase
+      .from('forced_assignments')
+      .update({ active: false })
+      .eq('territory_id', territoryId)
+      .eq('active', true)
+
+    if (deactivateError) {
+      console.error('Error desactivando asignaciones anteriores:', deactivateError)
+    }
+
+    // Crear nueva asignación forzada
+    const { error: insertError } = await supabase
+      .from('forced_assignments')
+      .insert({
+        territory_id: territoryId,
+        territory_type: territoryType,
+        territory_name: territoryName || territoryId,
+        kam_id: kamId,
+        reason: reason || null,
+        active: true
+      })
+
+    if (insertError) {
+      console.error('Error insertando asignación forzada:', insertError)
+      return NextResponse.json(
+        { error: 'Error al crear asignación forzada: ' + insertError.message },
+        { status: 500 }
       )
     }
 
@@ -58,11 +91,11 @@ export async function POST(request: Request) {
       is_base_territory: false
     }))
 
-    const { error: insertError } = await supabase
+    const { error: assignmentsError } = await supabase
       .from('assignments')
       .insert(newAssignments)
 
-    if (insertError) throw insertError
+    if (assignmentsError) throw assignmentsError
 
     return NextResponse.json({
       success: true,

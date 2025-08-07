@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { supabase } from '@/lib/supabase'
 
 interface Contract {
   id: string
@@ -12,7 +11,7 @@ interface Contract {
   start_date: string
   end_date: string
   description?: string
-  documents_link?: string
+  provider?: string
   active: boolean
 }
 
@@ -30,7 +29,7 @@ export default function ContractEditModal({ contract, onClose, onSave }: Contrac
     start_date: contract.start_date,
     end_date: contract.end_date,
     description: contract.description || '',
-    documents_link: contract.documents_link || '',
+    provider: contract.provider || '',
     active: contract.active
   })
   const [saving, setSaving] = useState(false)
@@ -40,18 +39,24 @@ export default function ContractEditModal({ contract, onClose, onSave }: Contrac
     setSaving(true)
 
     try {
-      const { error } = await supabase
-        .from('hospital_contracts')
-        .update(formData)
-        .eq('id', contract.id)
+      const response = await fetch(`/api/contracts/${contract.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(formData)
+      })
 
-      if (error) throw error
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Error al actualizar el contrato')
+      }
 
       alert('Contrato actualizado exitosamente')
       onSave()
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error updating contract:', error)
-      alert('Error al actualizar el contrato')
+      alert('Error al actualizar el contrato: ' + (error.message || 'Error desconocido'))
     } finally {
       setSaving(false)
     }
@@ -99,11 +104,9 @@ export default function ContractEditModal({ contract, onClose, onSave }: Contrac
             <input
               type="number"
               value={formData.contract_value}
-              onChange={(e) => setFormData({ ...formData, contract_value: parseFloat(e.target.value) })}
+              onChange={(e) => setFormData({ ...formData, contract_value: parseFloat(e.target.value) || 0 })}
               className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               required
-              min="0"
-              step="1000"
             />
           </div>
 
@@ -149,18 +152,15 @@ export default function ContractEditModal({ contract, onClose, onSave }: Contrac
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Enlace a documentos (Google Drive, Zoho Docs, etc.)
+              Proveedor Actual
             </label>
             <input
-              type="url"
-              value={formData.documents_link}
-              onChange={(e) => setFormData({ ...formData, documents_link: e.target.value })}
+              type="text"
+              value={formData.provider}
+              onChange={(e) => setFormData({ ...formData, provider: e.target.value })}
               className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="https://drive.google.com/..."
+              placeholder="Nombre del proveedor actual"
             />
-            <p className="text-xs text-gray-500 mt-1">
-              Pegue el enlace a la carpeta donde están los documentos del contrato
-            </p>
           </div>
 
           <div className="flex items-center">

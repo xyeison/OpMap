@@ -34,82 +34,23 @@ export default function HospitalDetailPage() {
 
   const loadHospitalData = async () => {
     try {
-      // Cargar datos del hospital
-      const { data: hospitalData } = await supabase
-        .from('hospitals')
-        .select('*')
-        .eq('id', hospitalId)
-        .single()
+      // Cargar datos del hospital desde el API
+      const response = await fetch(`/api/hospitals/${hospitalId}`)
       
-      if (hospitalData) {
-        setHospital(hospitalData)
-        setDoctors(hospitalData.doctors || '')
-        
-        // Cargar nombre del municipio
-        const { data: municipality } = await supabase
-          .from('municipalities')
-          .select('name')
-          .eq('code', hospitalData.municipality_id)
-          .single()
-        
-        if (municipality) {
-          setMunicipalityName(municipality.name)
-        }
-        
-        // Cargar nombre del departamento
-        const { data: department } = await supabase
-          .from('departments')
-          .select('name')
-          .eq('code', hospitalData.department_id)
-          .single()
-        
-        if (department) {
-          setDepartmentName(department.name)
-        }
-        
-        // Buscar la asignación del hospital
-        const { data: assignment } = await supabase
-          .from('assignments')
-          .select('kam_id')
-          .eq('hospital_id', hospitalId)
-          .single()
-        
-        // Si tiene KAM asignado, cargar sus datos
-        if (assignment?.kam_id) {
-          const { data: kamData } = await supabase
-            .from('kams')
-            .select('*')
-            .eq('id', assignment.kam_id)
-            .single()
-          
-          setKam(kamData)
-          
-          // Cargar nombre del municipio del KAM
-          if (kamData) {
-            const { data: kamMunicipality } = await supabase
-              .from('municipalities')
-              .select('name')
-              .eq('code', kamData.area_id)
-              .single()
-            
-            if (kamMunicipality) {
-              setKamMunicipalityName(kamMunicipality.name)
-            }
-          }
-        }
-        
-        // Cargar estadísticas de contratos
-        const { data: contracts } = await supabase
-          .from('hospital_contracts')
-          .select('contract_value')
-          .eq('hospital_id', hospitalId)
-          .eq('active', true)
-        
-        if (contracts) {
-          const activeCount = contracts.length
-          const totalValue = contracts.reduce((sum, contract) => sum + (contract.contract_value || 0), 0)
-          setContractStats({ activeCount, totalValue })
-        }
+      if (!response.ok) {
+        throw new Error('Error al cargar datos del hospital')
+      }
+      
+      const data = await response.json()
+      
+      if (data.hospital) {
+        setHospital(data.hospital)
+        setDoctors(data.hospital.doctors || '')
+        setMunicipalityName(data.municipalityName || '')
+        setDepartmentName(data.departmentName || '')
+        setKam(data.kam)
+        setKamMunicipalityName(data.kamMunicipalityName || '')
+        setContractStats(data.contractStats)
       }
     } catch (error) {
       console.error('Error loading hospital:', error)
@@ -118,7 +59,7 @@ export default function HospitalDetailPage() {
     }
   }
 
-  const handleToggleActive = async () => {
+  const toggleHospitalStatus = async () => {
     if (hospital.active && !deactivateReason.trim()) {
       alert('Por favor ingrese el motivo de desactivación')
       return
@@ -126,74 +67,34 @@ export default function HospitalDetailPage() {
 
     setIsSubmitting(true)
     try {
-      const userId = typeof window !== 'undefined' 
-        ? JSON.parse(localStorage.getItem('opmap_user') || '{}').id
-        : null
-
       console.log('Toggling hospital:', hospitalId, 'from', hospital.active, 'to', !hospital.active)
-      console.log('User ID:', userId)
 
-      // Actualizar estado del hospital
-      const { data: updateData, error: updateError } = await supabase
-        .from('hospitals')
-        .update({ active: !hospital.active })
-        .eq('id', hospitalId)
-        .select()
+      // Usar el API endpoint apropiado
+      const endpoint = hospital.active 
+        ? `/api/hospitals/${hospitalId}/deactivate`
+        : `/api/hospitals/${hospitalId}/activate`
 
-      console.log('Update result:', { data: updateData, error: updateError })
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          reason: hospital.active ? deactivateReason : 'Reactivación del hospital'
+        })
+      })
 
-      if (updateError) throw updateError
+      console.log('API Response status:', response.status)
 
-      // Si se está desactivando, registrar en el historial
-      if (hospital.active) {
-        const historyData: any = {
-          hospital_id: hospitalId,
-          action: 'deactivated',
-          reason: deactivateReason,
-          previous_state: true,
-          new_state: false
-        }
-        
-        // Usar user_id en lugar de created_by
-        if (userId) {
-          historyData.user_id = userId
-        }
-        
-        console.log('Inserting deactivation history:', historyData)
-        
-        const { data: historyInsertData, error: historyError } = await supabase
-          .from('hospital_history')
-          .insert(historyData)
-          .select()
-
-        console.log('History insert result:', { data: historyInsertData, error: historyError })
-
-        if (historyError) throw historyError
-      } else {
-        // Si se está activando, también registrar en el historial
-        const historyData: any = {
-          hospital_id: hospitalId,
-          action: 'activated',
-          reason: 'Reactivación del hospital',
-          previous_state: false,
-          new_state: true
-        }
-        
-        if (userId) {
-          historyData.user_id = userId
-        }
-        
-        console.log('Inserting activation history:', historyData)
-        
-        const { data: historyInsertData, error: historyError } = await supabase
-          .from('hospital_history')
-          .insert(historyData)
-          .select()
-
-        console.log('History insert result:', { data: historyInsertData, error: historyError })
-
-        if (historyError) throw historyError
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Error al cambiar el estado del hospital')
       }
+
+      const result = await response.json()
+      console.log('Toggle result:', result)
+
+      // El historial ya se registra en el API endpoint
 
       // Recalcular asignaciones para actualizar territorios
       setIsRecalculating(true)
@@ -278,19 +179,36 @@ export default function HospitalDetailPage() {
             <PermissionGuard permission="hospitals:edit">
               <button
                 onClick={() => {
+                  console.log('Botón clickeado, hospital.active:', hospital.active)
                   if (hospital.active) {
+                    console.log('Mostrando modal de desactivación')
                     setShowDeactivateModal(true)
                   } else {
-                    handleToggleActive()
+                    console.log('Activando hospital')
+                    toggleHospitalStatus()
                   }
                 }}
-                className={`px-6 py-3 rounded-lg font-medium transition-all hover:shadow-md ${
+                className={`group relative px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200 transform hover:scale-[1.02] hover:shadow-md flex items-center gap-2 ${
                   hospital.active 
-                    ? 'bg-gray-700 text-white hover:bg-gray-900' 
-                    : 'bg-gray-900 text-white hover:bg-black'
+                    ? 'bg-gradient-to-r from-red-500 to-red-600 text-white hover:from-red-600 hover:to-red-700' 
+                    : 'bg-gradient-to-r from-green-500 to-green-600 text-white hover:from-green-600 hover:to-green-700'
                 }`}
               >
-                {hospital.active ? 'Desactivar Hospital' : 'Activar Hospital'}
+                {hospital.active ? (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                    </svg>
+                    Desactivar
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Activar
+                  </>
+                )}
               </button>
             </PermissionGuard>
           </div>
@@ -397,19 +315,25 @@ export default function HospitalDetailPage() {
                 <button
                   onClick={async () => {
                     try {
-                      const { error } = await supabase
-                        .from('hospitals')
-                        .update({ doctors })
-                        .eq('id', hospitalId)
+                      const response = await fetch(`/api/hospitals/${hospitalId}`, {
+                        method: 'PUT',
+                        headers: {
+                          'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ doctors })
+                      })
                       
-                      if (error) throw error
+                      if (!response.ok) {
+                        const error = await response.json()
+                        throw new Error(error.error || 'Error al actualizar')
+                      }
                       
                       setHospital({ ...hospital, doctors })
                       setEditingDoctors(false)
                       alert('Doctores actualizados exitosamente')
-                    } catch (error) {
+                    } catch (error: any) {
                       console.error('Error updating doctors:', error)
-                      alert('Error al actualizar doctores')
+                      alert('Error al actualizar doctores: ' + error.message)
                     }
                   }}
                   className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-black transition-all"
@@ -466,37 +390,84 @@ export default function HospitalDetailPage() {
 
         {/* Modal de confirmación para desactivar */}
         {showDeactivateModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 max-w-md w-full">
-              <h3 className="text-xl font-bold mb-4">Desactivar Hospital</h3>
-              <p className="text-gray-600 mb-4">
-                Está a punto de desactivar el hospital <strong>{hospital.name}</strong>.
-                Por favor, indique el motivo:
-              </p>
-              <textarea
-                className="w-full p-3 border rounded-lg mb-4"
-                rows={4}
-                placeholder="Motivo de desactivación..."
-                value={deactivateReason}
-                onChange={(e) => setDeactivateReason(e.target.value)}
-              />
-              <div className="flex gap-2 justify-end">
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fadeIn">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden transform transition-all animate-slideUp">
+              {/* Header con gradiente */}
+              <div className="bg-gradient-to-r from-red-500 to-red-600 px-6 py-5">
+                <div className="flex items-center gap-3">
+                  <div className="bg-white/20 backdrop-blur-sm rounded-full p-3">
+                    <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-white">Desactivar Hospital</h3>
+                    <p className="text-white/80 text-sm">Esta acción afectará las asignaciones</p>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Content */}
+              <div className="p-6">
+                <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-4">
+                  <p className="text-gray-700">
+                    Está a punto de desactivar el hospital:
+                  </p>
+                  <p className="font-semibold text-gray-900 mt-1">{hospital.name}</p>
+                </div>
+                
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Motivo de desactivación <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all resize-none"
+                  rows={4}
+                  placeholder="Ej: Cierre temporal por remodelación, cambio de administración..."
+                  value={deactivateReason}
+                  onChange={(e) => setDeactivateReason(e.target.value)}
+                  disabled={isSubmitting}
+                />
+                
+                {!deactivateReason.trim() && (
+                  <p className="text-xs text-gray-500 mt-2">
+                    El motivo es obligatorio para el registro de auditoría
+                  </p>
+                )}
+              </div>
+              
+              {/* Footer */}
+              <div className="bg-gray-50 px-6 py-4 flex gap-3 justify-end">
                 <button
                   onClick={() => {
                     setShowDeactivateModal(false)
                     setDeactivateReason('')
                   }}
-                  className="px-4 py-2 text-gray-600 hover:text-gray-800"
+                  className="px-5 py-2.5 text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 transition-colors font-medium"
                   disabled={isSubmitting}
                 >
                   Cancelar
                 </button>
                 <button
-                  onClick={handleToggleActive}
-                  className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+                  onClick={toggleHospitalStatus}
+                  className="px-5 py-2.5 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-xl hover:from-red-600 hover:to-red-700 transition-all font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                   disabled={isSubmitting || !deactivateReason.trim()}
                 >
-                  {isSubmitting ? 'Desactivando...' : 'Confirmar Desactivación'}
+                  {isSubmitting ? (
+                    <>
+                      <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Desactivando...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                      </svg>
+                      Confirmar Desactivación
+                    </>
+                  )}
                 </button>
               </div>
             </div>
@@ -516,6 +487,36 @@ export default function HospitalDetailPage() {
           </div>
         )}
       </div>
+
+      <style jsx>{`
+        @keyframes fadeIn {
+          from {
+            opacity: 0;
+          }
+          to {
+            opacity: 1;
+          }
+        }
+        
+        @keyframes slideUp {
+          from {
+            opacity: 0;
+            transform: translateY(20px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        
+        .animate-fadeIn {
+          animation: fadeIn 0.2s ease-out;
+        }
+        
+        .animate-slideUp {
+          animation: slideUp 0.3s ease-out;
+        }
+      `}</style>
     </ProtectedRoute>
   )
 }

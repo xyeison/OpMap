@@ -12,7 +12,6 @@ import { formatTravelTimeFromSeconds, formatTravelTime } from '@/lib/format-util
 import MapControls from './MapControls'
 import MapController from './MapController'
 import HospitalMarker from './HospitalMarker'
-import MapNavMenu from './MapNavMenu'
 // NO usar estimaciones - solo datos reales de Google Maps
 
 // Fix for default markers in Next.js
@@ -74,58 +73,22 @@ export default function MapComponent({ visits: initialVisits = [], showHeatmap: 
   const [mapCenter, setMapCenter] = useState<[number, number] | undefined>(undefined)
   const [mapZoom, setMapZoom] = useState<number | undefined>(undefined)
   
-  // Cargar datos
+  // Cargar datos desde el API
   const { data: mapData, isLoading } = useQuery({
     queryKey: ['map-data'],
     queryFn: async () => {
-      // Cargar todos los datos necesarios
-      const [kamsResult, assignmentsResult, municipalitiesResult, hospitalsResult, contractsResult] = await Promise.all([
-        supabase.from('kams').select('*').eq('active', true),
-        supabase.from('assignments').select('*, hospitals!inner(*), kams!inner(*)'),
-        supabase.from('municipalities').select('id, name, population_2025'),
-        supabase.from('hospitals').select('*').eq('active', true),
-        supabase.from('hospital_contracts').select('hospital_id, contract_value, provider').eq('active', true)
-      ])
-      
-      // Crear mapas de población y nombres por municipio
-      const populationMap: Record<string, number> = {}
-      const municipalityNames: Record<string, string> = {}
-      municipalitiesResult.data?.forEach(m => {
-        populationMap[m.id] = m.population_2025 || 0
-        municipalityNames[m.id] = m.name
-      })
-      
-      // Crear mapa de valores de contratos activos y proveedores por hospital
-      const contractValuesByHospital: Record<string, number> = {}
-      const contractProvidersByHospital: Record<string, string[]> = {}
-      
-      contractsResult.data?.forEach(contract => {
-        if (!contractValuesByHospital[contract.hospital_id]) {
-          contractValuesByHospital[contract.hospital_id] = 0
-          contractProvidersByHospital[contract.hospital_id] = []
-        }
-        contractValuesByHospital[contract.hospital_id] += contract.contract_value
-        
-        // Agregar proveedor si existe y no está duplicado
-        if (contract.provider && !contractProvidersByHospital[contract.hospital_id].includes(contract.provider)) {
-          contractProvidersByHospital[contract.hospital_id].push(contract.provider)
-        }
-      })
-      
-      // Identificar hospitales sin asignar (zonas vacantes)
-      const assignedHospitalIds = new Set(assignmentsResult.data?.map(a => a.hospitals.id) || [])
-      const unassignedHospitals = hospitalsResult.data?.filter(h => !assignedHospitalIds.has(h.id)) || []
-      
-      return {
-        kams: kamsResult.data || [],
-        assignments: assignmentsResult.data || [],
-        hospitals: hospitalsResult.data || [],
-        unassignedHospitals,
-        populationMap,
-        municipalityNames,
-        contractValuesByHospital,
-        contractProvidersByHospital
+      const response = await fetch('/api/map/data')
+      if (!response.ok) {
+        throw new Error('Error al cargar datos del mapa')
       }
+      const data = await response.json()
+      console.log('Map data received:', {
+        kams: data.kams?.length || 0,
+        assignments: data.assignments?.length || 0,
+        hospitals: data.hospitals?.length || 0,
+        unassignedHospitals: data.unassignedHospitals?.length || 0
+      })
+      return data
     }
   })
 
@@ -375,9 +338,6 @@ export default function MapComponent({ visits: initialVisits = [], showHeatmap: 
 
   return (
     <>
-      {/* Menú de navegación */}
-      <MapNavMenu />
-      
       {/* Control unificado del mapa */}
       <MapControls
         mapData={mapData}

@@ -194,26 +194,13 @@ export default function UsersPage() {
   const activeUsers = filteredUsers.filter(u => u.active).length
   const adminUsers = filteredUsers.filter(u => u.role === 'admin').length
 
-  // Solo admin puede ver esta página
-  if (currentUser?.role !== 'admin') {
-    return (
-      <ProtectedRoute>
-        <div className="container mx-auto p-6">
-          <div className="bg-gray-100 border border-gray-400 text-gray-800 px-6 py-4 rounded-xl shadow-lg">
-            <div className="flex items-center gap-3">
-              <svg className="w-6 h-6 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
-              </svg>
-              <div>
-                <strong className="font-semibold">Acceso denegado</strong>
-                <p className="text-sm mt-1">Solo los administradores pueden gestionar usuarios.</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </ProtectedRoute>
-    )
-  }
+  // Debugging - Verificar el usuario actual
+  useEffect(() => {
+    if (currentUser) {
+      console.log('Usuario actual:', currentUser)
+      console.log('Rol del usuario:', currentUser.role)
+    }
+  }, [currentUser])
 
   return (
     <ProtectedRoute>

@@ -6,7 +6,6 @@ import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
 import { usePermissions } from '@/hooks/usePermissions'
 import { useQuery } from '@tanstack/react-query'
-import { supabase } from '@/lib/supabase'
 import { useEffect, useState } from 'react'
 
 export default function HomePage() {
@@ -20,40 +19,23 @@ export default function HomePage() {
     activeDepartments: 0
   })
   
-  // Cargar estadísticas reales desde la base de datos
-  const { data: dashboardData } = useQuery({
+  // Cargar estadísticas reales desde la API
+  const { data: dashboardData, isLoading } = useQuery({
     queryKey: ['dashboard-stats'],
     queryFn: async () => {
-      const [kamsResult, hospitalsResult, assignmentsResult, contractsResult, departmentsResult] = await Promise.all([
-        supabase.from('kams').select('*').eq('active', true),
-        supabase.from('hospitals').select('*').eq('active', true),
-        supabase.from('assignments').select('*'),
-        supabase.from('hospital_contracts').select('contract_value').eq('active', true),
-        supabase.from('assignments').select('hospitals!inner(department_id)').eq('hospitals.active', true)
-      ])
-      
-      const uniqueDepartments = new Set(departmentsResult.data?.map(a => a.hospitals.department_id) || [])
-      
-      return {
-        totalKams: kamsResult.data?.length || 0,
-        totalHospitals: hospitalsResult.data?.length || 0,
-        assignedHospitals: assignmentsResult.data?.length || 0,
-        totalContractValue: contractsResult.data?.reduce((sum, c) => sum + (c.contract_value || 0), 0) || 0,
-        activeDepartments: uniqueDepartments.size
+      const response = await fetch('/api/dashboard/stats')
+      if (!response.ok) {
+        throw new Error('Error al cargar estadísticas')
       }
+      return response.json()
     },
     refetchInterval: 60000 // Actualizar cada minuto
   })
   
   useEffect(() => {
     if (dashboardData) {
-      const coveragePercentage = dashboardData.totalHospitals > 0 
-        ? ((dashboardData.assignedHospitals / dashboardData.totalHospitals) * 100).toFixed(1)
-        : 0
-      
       setStats({
-        ...dashboardData,
-        coveragePercentage: Number(coveragePercentage)
+        ...dashboardData
       })
     }
   }, [dashboardData])
@@ -84,13 +66,13 @@ export default function HomePage() {
             </div>
       
             {/* Stats Grid */}
-            {!dashboardData && (
+            {isLoading && (
               <div className="text-center py-8">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto"></div>
                 <p className="text-gray-600 mt-4">Cargando estadísticas...</p>
               </div>
             )}
-            {dashboardData && (
+            {!isLoading && (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
               <div className="bg-white rounded-2xl shadow-lg hover:shadow-2xl p-7 transform hover:-translate-y-1 transition-all duration-300 border border-gray-100">
                 <div className="flex items-center justify-between mb-4">

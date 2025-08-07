@@ -15,7 +15,7 @@ interface Contract {
   description?: string
   active: boolean
   created_at: string
-  documents_link?: string
+  provider?: string
 }
 
 interface ContractsListSimpleProps {
@@ -35,7 +35,7 @@ export default function ContractsListSimple({ hospitalId, onClose }: ContractsLi
     start_date: '',
     end_date: '',
     description: '',
-    documents_link: '',
+    provider: '',
     active: true
   })
 
@@ -78,9 +78,9 @@ export default function ContractsListSimple({ hospitalId, onClose }: ContractsLi
           start_date: newContract.start_date,
           end_date: newContract.end_date,
           duration_months: durationMonths,
-          current_provider: 'Proveedor',
+          current_provider: newContract.provider || 'Proveedor',
+          provider: newContract.provider || null,
           description: newContract.description || null,
-          documents_link: newContract.documents_link || null,
           active: newContract.active
         })
         .select()
@@ -99,7 +99,7 @@ export default function ContractsListSimple({ hospitalId, onClose }: ContractsLi
         start_date: '',
         end_date: '',
         description: '',
-        documents_link: '',
+        provider: '',
         active: true
       })
       setShowAddForm(false)
@@ -234,18 +234,15 @@ export default function ContractsListSimple({ hospitalId, onClose }: ContractsLi
             
             <div className="mt-4">
               <label className="block text-sm font-medium mb-1">
-                Enlace a documentos (Google Drive, Zoho Docs, etc.)
+                Proveedor Actual
               </label>
               <input
-                type="url"
+                type="text"
                 className="w-full p-2 border rounded"
-                placeholder="https://drive.google.com/..."
-                value={newContract.documents_link}
-                onChange={(e) => setNewContract({...newContract, documents_link: e.target.value})}
+                placeholder="Nombre del proveedor actual"
+                value={newContract.provider}
+                onChange={(e) => setNewContract({...newContract, provider: e.target.value})}
               />
-              <p className="text-xs text-gray-500 mt-1">
-                Pegue el enlace a la carpeta donde están los documentos del contrato
-              </p>
             </div>
 
             <div className="mt-4">
@@ -328,17 +325,10 @@ export default function ContractsListSimple({ hospitalId, onClose }: ContractsLi
                         <p className="text-gray-800 mt-1">{contract.description}</p>
                       </div>
                     )}
-                    {contract.documents_link && (
+                    {contract.provider && (
                       <div className="mt-3 text-sm">
-                        <span className="text-gray-600">Documentos:</span>
-                        <a 
-                          href={contract.documents_link} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="ml-2 text-blue-600 hover:text-blue-800 underline"
-                        >
-                          Ver documentos en línea
-                        </a>
+                        <span className="text-gray-600">Proveedor:</span>
+                        <span className="ml-2 font-medium">{contract.provider}</span>
                       </div>
                     )}
                   </div>

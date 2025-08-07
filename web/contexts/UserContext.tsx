@@ -30,12 +30,29 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const checkSession = async () => {
     console.log('UserContext - Verificando sesión...')
     try {
-      const response = await fetch('/api/auth/me')
+      // Primero intentar recuperar de localStorage
+      const cachedUser = localStorage.getItem('opmap_user')
+      if (cachedUser) {
+        try {
+          const parsedUser = JSON.parse(cachedUser)
+          console.log('UserContext - Usuario en caché:', parsedUser)
+          setUser(parsedUser)
+        } catch (e) {
+          console.error('Error parseando usuario en caché:', e)
+          localStorage.removeItem('opmap_user')
+        }
+      }
+      
+      // Luego verificar con el servidor
+      const response = await fetch('/api/auth/me', {
+        credentials: 'include',
+        cache: 'no-cache'
+      })
       console.log('UserContext - Respuesta de /api/auth/me:', response.status)
       
       if (response.ok) {
         const data = await response.json()
-        console.log('UserContext - Usuario encontrado:', data.user)
+        console.log('UserContext - Usuario validado:', data.user)
         setUser(data.user)
         localStorage.setItem('opmap_user', JSON.stringify(data.user))
       } else {
@@ -46,8 +63,13 @@ export function UserProvider({ children }: { children: ReactNode }) {
       }
     } catch (error) {
       console.error('Error verificando sesión:', error)
-      localStorage.removeItem('opmap_user')
-      setUser(null)
+      // No limpiar el usuario si es solo un error de red
+      if (!navigator.onLine) {
+        console.log('Sin conexión, manteniendo usuario en caché')
+      } else {
+        localStorage.removeItem('opmap_user')
+        setUser(null)
+      }
     } finally {
       setIsLoading(false)
     }

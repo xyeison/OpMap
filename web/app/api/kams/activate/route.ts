@@ -2,9 +2,11 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { SimplifiedOpMapAlgorithm } from '@/lib/opmap-algorithm-simplified'
 
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  supabaseServiceKey
 )
 
 export async function POST(request: Request) {
@@ -27,21 +29,21 @@ export async function POST(request: Request) {
     console.log(`📍 Activando KAM ${kam.name} en ${kam.area_id}`)
     
     // 2. Activar el KAM
-    const { error: updateError } = await supabase
+    const { data: updatedKam, error: updateError } = await supabase
       .from('kams')
       .update({ active: true })
       .eq('id', kamId)
-    
-    if (updateError) throw updateError
-    
-    // 2.5 Verificar que el KAM fue activado correctamente
-    const { data: verifyKam } = await supabase
-      .from('kams')
-      .select('active')
-      .eq('id', kamId)
+      .select()
       .single()
     
-    if (!verifyKam?.active) {
+    if (updateError) {
+      console.error('Error al actualizar KAM:', updateError)
+      throw updateError
+    }
+    
+    // Verificar resultado directo del update
+    if (!updatedKam || !updatedKam.active) {
+      console.error('KAM no se activó correctamente:', updatedKam)
       throw new Error('El KAM no se activó correctamente')
     }
     

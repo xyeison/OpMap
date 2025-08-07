@@ -45,36 +45,36 @@ export default function VisitsPage() {
 
   const loadImportHistory = async () => {
     try {
-      const { data } = await supabase
-        .from('visit_imports')
-        .select('*')
-        .order('imported_at', { ascending: false })
-        .limit(10)
-
-      if (data) {
-        setImportHistory(data)
+      console.log('Cargando historial de importaciones...')
+      const response = await fetch('/api/visits/imports')
+      
+      if (!response.ok) {
+        const error = await response.json()
+        console.error('Error al cargar historial:', error)
+        return
       }
+
+      const data = await response.json()
+      console.log('Historial cargado:', data.length, 'registros')
+      setImportHistory(data || [])
     } catch (error) {
       console.error('Error loading import history:', error)
+      setImportHistory([])
     }
   }
 
   const loadStats = async () => {
     try {
-      const { data } = await supabase
-        .from('visits')
-        .select('visit_type, contact_type')
-        .is('deleted_at', null)
-
-      if (data) {
+      const response = await fetch('/api/visits/stats')
+      
+      if (response.ok) {
+        const data = await response.json()
         setStats({
-          totalVisits: data.length,
-          effectiveVisits: data.filter(v => v.visit_type === 'Visita efectiva').length,
-          inPersonVisits: data.filter(v => v.contact_type === 'Visita presencial').length,
-          virtualVisits: data.filter(v => v.contact_type === 'Visita virtual').length,
+          ...data,
           loadingStats: false
         })
       } else {
+        console.error('Error loading stats:', await response.json())
         setStats(prev => ({ ...prev, loadingStats: false }))
       }
     } catch (error) {
@@ -353,16 +353,21 @@ export default function VisitsPage() {
     }
 
     try {
-      const response = await fetch(`/api/visits/import/${importBatch}`, {
+      const response = await fetch(`/api/visits/imports?batch=${importBatch}`, {
         method: 'DELETE'
       })
 
       if (response.ok) {
         loadImportHistory()
         loadStats()
+        alert('Importación eliminada exitosamente')
+      } else {
+        const error = await response.json()
+        alert('Error al eliminar: ' + (error.error || 'Error desconocido'))
       }
     } catch (error) {
       console.error('Error deleting import:', error)
+      alert('Error al eliminar la importación')
     }
   }
 
@@ -769,7 +774,7 @@ export default function VisitsPage() {
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-100">
                   {importHistory.map((imp) => (
-                    <tr key={imp.id} className={`hover:bg-gray-50 transition-colors ${imp.deleted_at ? 'opacity-50' : ''}`}>
+                    <tr key={imp.id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-6 py-4">
                         <div className="flex items-center">
                           <div className="flex-shrink-0 h-10 w-10 bg-gray-900 rounded-lg flex items-center justify-center">
@@ -813,17 +818,15 @@ export default function VisitsPage() {
                         </div>
                       </td>
                       <td className="px-6 py-4 text-center">
-                        {!imp.deleted_at && (
-                          <button
-                            onClick={() => deleteImport(imp.import_batch)}
-                            className="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-all group"
-                            title="Eliminar importación"
-                          >
-                            <svg className="w-4 h-4 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                            </svg>
-                          </button>
-                        )}
+                        <button
+                          onClick={() => deleteImport(imp.import_batch)}
+                          className="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-all group"
+                          title="Eliminar importación"
+                        >
+                          <svg className="w-4 h-4 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
                       </td>
                     </tr>
                   ))}

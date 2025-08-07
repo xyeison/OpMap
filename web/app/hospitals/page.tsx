@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
@@ -33,40 +32,17 @@ export default function HospitalsPage() {
   const { data: hospitals, isLoading } = useQuery({
     queryKey: ['hospitals'],
     queryFn: async () => {
-      // Cargar hospitales
-      const { data: hospitalsData } = await supabase
-        .from('hospitals')
-        .select('*')
-        .eq('active', true)
-        .order('name')
+      const response = await fetch('/api/hospitals')
       
-      // Cargar asignaciones con detalles de KAM
-      const { data: assignments } = await supabase
-        .from('assignments')
-        .select(`
-          hospital_id,
-          kam_id,
-          kams!inner (
-            id,
-            name
-          )
-        `)
+      if (!response.ok) {
+        const error = await response.json()
+        console.error('Error loading hospitals:', error)
+        throw new Error(error.error || 'Error al cargar hospitales')
+      }
       
-      // Crear mapa de hospital_id -> kam_name
-      const kamMap = new Map()
-      assignments?.forEach((a: any) => {
-        if (a.kams && typeof a.kams === 'object' && 'name' in a.kams) {
-          kamMap.set(a.hospital_id, a.kams.name)
-        }
-      })
-      
-      // Combinar datos
-      const hospitalsWithKamData = hospitalsData?.map(h => ({
-        ...h,
-        assigned_kam_name: kamMap.get(h.id) || null
-      }))
-      
-      return hospitalsWithKamData
+      const data = await response.json()
+      console.log('Hospitals loaded:', data?.length)
+      return data
     },
   })
   
@@ -166,13 +142,20 @@ export default function HospitalsPage() {
         active: newHospital.active
       }
 
-      const { data, error } = await supabase
-        .from('hospitals')
-        .insert(hospitalData)
-        .select()
-        .single()
+      const response = await fetch('/api/hospitals', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(hospitalData),
+      })
 
-      if (error) throw error
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Error al crear hospital')
+      }
+
+      const data = await response.json()
 
       // Asignar el hospital al KAM más cercano
       if (data) {

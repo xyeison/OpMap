@@ -15,8 +15,13 @@ export async function getUserFromRequest(request: NextRequest) {
         const decoded = Buffer.from(customToken, 'base64').toString()
         const [userId] = decoded.split(':')
         
-        // Crear cliente de Supabase
-        const supabase = createRouteHandlerClient({ cookies: () => cookieStore })
+        // Crear cliente de Supabase con Service Role Key
+        const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+        const { createClient } = await import('@supabase/supabase-js')
+        const supabase = createClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          supabaseServiceKey
+        )
         
         // Buscar el usuario por ID
         const { data: userData, error } = await supabase

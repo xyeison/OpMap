@@ -11,6 +11,7 @@ export type Permission =
   | 'kams:edit'
   | 'contracts:view'
   | 'contracts:edit'
+  | 'contracts:delete'
   | 'recalculate:simple'
   | 'recalculate:complete'
   | 'users:manage'
@@ -30,6 +31,7 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'kams:edit',
     'contracts:view',
     'contracts:edit',
+    'contracts:delete',
     'recalculate:simple',
     'recalculate:complete',
     'users:manage',
@@ -50,7 +52,8 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'map:view',
     'hospitals:view',  // Solo ver hospitales, NO editar
     'contracts:view',
-    'contracts:edit'
+    'contracts:edit',
+    'contracts:delete'
   ],
   data_manager: [
     'map:view',

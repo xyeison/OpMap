@@ -63,65 +63,39 @@ export default function ContractsPage() {
 
   const loadData = async () => {
     try {
-      // Cargar contratos con información del hospital
-      const { data: contractsData } = await supabase
-        .from('hospital_contracts')
-        .select(`
-          *,
-          hospitals (
-            name,
-            code,
-            municipality_id,
-            department_id
-          )
-        `)
-        .order('created_at', { ascending: false })
-
+      // Cargar contratos desde el API
+      const response = await fetch('/api/contracts')
+      
+      if (!response.ok) {
+        const errorData = await response.json()
+        console.error('Error cargando contratos:', errorData)
+        
+        if (response.status === 403) {
+          alert('Acceso denegado: ' + (errorData.error || 'Sin permisos para ver contratos'))
+          return
+        } else if (response.status === 401) {
+          alert('No autorizado: ' + (errorData.error || 'Debe iniciar sesión'))
+          router.push('/login')
+          return
+        }
+        throw new Error(errorData.error || 'Error al cargar contratos')
+      }
+      
+      const contractsData = await response.json()
+      console.log('Contratos cargados:', contractsData.length)
+      
       if (contractsData) {
-        // Obtener KAMs para cada hospital
-        const contractsWithKams = await Promise.all(
-          contractsData.map(async (contract) => {
-            const { data: assignment } = await supabase
-              .from('assignments')
-              .select('kam_id')
-              .eq('hospital_id', contract.hospital_id)
-              .single()
-
-            if (assignment?.kam_id) {
-              const { data: kam } = await supabase
-                .from('kams')
-                .select('name')
-                .eq('id', assignment.kam_id)
-                .single()
-              
-              return {
-                ...contract,
-                hospital: contract.hospitals,
-                kam: kam
-              }
-            }
-
-            return {
-              ...contract,
-              hospital: contract.hospitals,
-              kam: null
-            }
-          })
-        )
-
-        setContracts(contractsWithKams)
-        calculateStats(contractsWithKams)
+        setContracts(contractsData)
+        calculateStats(contractsData)
       }
 
       // Cargar lista de KAMs para filtro solo si el usuario tiene permisos
       if (canViewKams) {
-        const { data: kamsData } = await supabase
-          .from('kams')
-          .select('id, name')
-          .eq('active', true)
-          .order('name')
-
-        setKams(kamsData || [])
+        const kamsResponse = await fetch('/api/kams')
+        if (kamsResponse.ok) {
+          const kamsData = await kamsResponse.json()
+          setKams(kamsData.filter((k: any) => k.active) || [])
+        }
       }
     } catch (error) {
       console.error('Error loading data:', error)
@@ -135,15 +109,20 @@ export default function ContractsPage() {
       return
     }
 
-    const { error } = await supabase
-      .from('hospital_contracts')
-      .delete()
-      .eq('id', contractId)
+    try {
+      const response = await fetch(`/api/contracts/${contractId}`, {
+        method: 'DELETE'
+      })
 
-    if (error) {
-      alert('Error al eliminar el contrato: ' + error.message)
-    } else {
-      await loadData()
+      if (!response.ok) {
+        const error = await response.json()
+        alert('Error al eliminar el contrato: ' + (error.error || 'Error desconocido'))
+      } else {
+        await loadData()
+      }
+    } catch (error) {
+      alert('Error al eliminar el contrato')
+      console.error(error)
     }
   }
 
@@ -630,6 +609,14 @@ export default function ContractsPage() {
                 >
                   Ver Hospital
                 </button>
+                {can('contracts:delete') && (
+                  <button
+                    onClick={() => handleDeleteContract(contract.id)}
+                    className="px-3 py-1 text-xs bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                  >
+                    Eliminar
+                  </button>
+                )}
               </div>
             </div>
           ))}
