@@ -76,7 +76,7 @@ export default function MapControls({
     year: selectedYear,
     visitType: visitTypeFilter === 'all' ? undefined : visitTypeFilter,
     contactType: contactTypeFilter === 'all' ? undefined : contactTypeFilter,
-    kamIds: selectedKams.length > 0 ? selectedKams : undefined
+    kamIds: selectedKams.length > 0 ? selectedKams : undefined // Si no hay KAMs seleccionados, no filtrar por KAM
   })
   
   // Solo usar las visitas si deberíamos cargarlas
@@ -92,8 +92,10 @@ export default function MapControls({
         .order('name')
       
       if (kams) {
+        console.log('MapControls - KAMs cargados:', kams.length)
         setAvailableKams(kams)
-        setSelectedKams(kams.map(k => k.id))
+        setSelectedKams(kams.map(k => k.id)) // Seleccionar todos por defecto
+        console.log('MapControls - KAMs seleccionados inicialmente:', kams.map(k => k.id))
       }
     }
     loadKams()
