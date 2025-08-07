@@ -6,7 +6,6 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import ForcedAssignmentModal from '@/components/ForcedAssignmentModal'
 import PermissionGuard from '@/components/PermissionGuard'
-import { useAuth } from '@/contexts/AuthContext'
 
 interface Territory {
   id: string
