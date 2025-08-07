@@ -34,6 +34,7 @@ export default function UsersPage() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
+  const [isChangingPassword, setIsChangingPassword] = useState(false)
 
   useEffect(() => {
     loadUsers()
@@ -133,14 +134,17 @@ export default function UsersPage() {
     
     setError('')
     setSuccess('')
+    setIsChangingPassword(true)
 
     if (passwordData.newPassword !== passwordData.confirmPassword) {
       setError('Las contraseñas no coinciden')
+      setIsChangingPassword(false)
       return
     }
 
     if (passwordData.newPassword.length < 6) {
       setError('La contraseña debe tener al menos 6 caracteres')
+      setIsChangingPassword(false)
       return
     }
 
@@ -158,12 +162,16 @@ export default function UsersPage() {
         setShowPasswordModal(false)
         setPasswordData({ newPassword: '', confirmPassword: '' })
         setSelectedUser(null)
+        setError('')
         setTimeout(() => setSuccess(''), 3000)
       } else {
         setError(data.error || 'Error al actualizar contraseña')
       }
     } catch (error) {
+      console.error('Error cambiando contraseña:', error)
       setError('Error al actualizar contraseña')
+    } finally {
+      setIsChangingPassword(false)
     }
   }
 
@@ -479,6 +487,11 @@ export default function UsersPage() {
 
                 {/* Content */}
                 <div className="p-8">
+                  {error && (
+                    <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                      {error}
+                    </div>
+                  )}
                   <form onSubmit={(e) => { e.preventDefault(); handlePasswordChange(); }}>
                     <div className="space-y-5">
                       <div>
@@ -489,11 +502,22 @@ export default function UsersPage() {
                           type="password"
                           required
                           minLength={6}
-                          className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent transition-all"
+                          className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent transition-all ${
+                            passwordData.newPassword
+                              ? passwordData.newPassword.length >= 6
+                                ? 'border-green-500 focus:ring-green-500'
+                                : 'border-amber-500 focus:ring-amber-500'
+                              : 'border-gray-300 focus:ring-gray-700'
+                          }`}
                           value={passwordData.newPassword}
                           onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
                           placeholder="Mínimo 6 caracteres"
                         />
+                        {passwordData.newPassword && passwordData.newPassword.length < 6 && (
+                          <p className="text-xs text-amber-600 mt-1">
+                            ⚠ La contraseña debe tener al menos 6 caracteres ({passwordData.newPassword.length}/6)
+                          </p>
+                        )}
                       </div>
 
                       <div>
@@ -504,11 +528,28 @@ export default function UsersPage() {
                           type="password"
                           required
                           minLength={6}
-                          className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent transition-all"
+                          className={`w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent transition-all ${
+                            passwordData.confirmPassword && passwordData.newPassword
+                              ? passwordData.confirmPassword === passwordData.newPassword
+                                ? 'border-green-500 focus:ring-green-500'
+                                : 'border-red-500 focus:ring-red-500'
+                              : 'border-gray-300 focus:ring-gray-700'
+                          }`}
                           value={passwordData.confirmPassword}
                           onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
                           placeholder="Repite la contraseña"
                         />
+                        {passwordData.confirmPassword && passwordData.newPassword && (
+                          <p className={`text-xs mt-1 ${
+                            passwordData.confirmPassword === passwordData.newPassword
+                              ? 'text-green-600'
+                              : 'text-red-600'
+                          }`}>
+                            {passwordData.confirmPassword === passwordData.newPassword
+                              ? '✓ Las contraseñas coinciden'
+                              : '✗ Las contraseñas no coinciden'}
+                          </p>
+                        )}
                       </div>
                     </div>
 
@@ -521,18 +562,36 @@ export default function UsersPage() {
                           setSelectedUser(null)
                           setError('')
                         }}
-                        className="px-6 py-3 text-gray-700 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors font-medium"
+                        disabled={isChangingPassword}
+                        className="px-6 py-3 text-gray-700 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         Cancelar
                       </button>
                       <button
                         type="submit"
-                        className="px-6 py-3 bg-gradient-to-r from-gray-800 to-gray-900 text-white rounded-xl hover:from-gray-900 hover:to-black transition-all font-medium flex items-center gap-2"
+                        disabled={!passwordData.newPassword || !passwordData.confirmPassword || passwordData.newPassword !== passwordData.confirmPassword || isChangingPassword}
+                        className={`px-6 py-3 rounded-xl font-medium flex items-center gap-2 transition-all ${
+                          !passwordData.newPassword || !passwordData.confirmPassword || passwordData.newPassword !== passwordData.confirmPassword || isChangingPassword
+                            ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                            : 'bg-gradient-to-r from-gray-800 to-gray-900 text-white hover:from-gray-900 hover:to-black'
+                        }`}
                       >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-                        </svg>
-                        Cambiar Contraseña
+                        {isChangingPassword ? (
+                          <>
+                            <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                            </svg>
+                            Cambiando...
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                            </svg>
+                            Cambiar Contraseña
+                          </>
+                        )}
                       </button>
                     </div>
                   </form>

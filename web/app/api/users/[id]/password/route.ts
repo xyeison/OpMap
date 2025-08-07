@@ -1,11 +1,16 @@
 import { NextResponse } from 'next/server'
-import { cookies } from 'next/headers'
 import { createClient } from '@supabase/supabase-js'
-import * as bcrypt from 'bcrypt'
+import { getUserFromRequest } from '@/lib/auth-server'
+
+// Usar Service Role Key para bypasear RLS
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+if (!supabaseServiceKey) {
+  console.warn('SUPABASE_SERVICE_ROLE_KEY no configurada, usando ANON KEY')
+}
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  supabaseServiceKey || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
 // PUT - Actualizar contraseña de usuario
@@ -13,26 +18,16 @@ export async function PUT(
   request: Request,
   { params }: { params: { id: string } }
 ) {
-  const cookieStore = cookies()
-  const sessionToken = cookieStore.get('sb-access-token')
-  
-  if (!sessionToken) {
-    return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-  }
-  
   try {
+    // Verificar autenticación y autorización
+    const user = await getUserFromRequest(request)
+    if (!user) {
+      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+    }
+    
     // Verificar que el usuario actual es admin
-    const decoded = Buffer.from(sessionToken.value, 'base64').toString()
-    const [userId] = decoded.split(':')
-    
-    const { data: currentUser } = await supabase
-      .from('users')
-      .select('role')
-      .eq('id', userId)
-      .single()
-    
-    if (!currentUser || currentUser.role !== 'admin') {
-      return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 })
+    if (user.role !== 'admin') {
+      return NextResponse.json({ error: 'Solo los administradores pueden cambiar contraseñas' }, { status: 403 })
     }
     
     // Obtener la nueva contraseña
@@ -43,14 +38,13 @@ export async function PUT(
       return NextResponse.json({ error: 'La contraseña debe tener al menos 6 caracteres' }, { status: 400 })
     }
     
-    // Hashear la nueva contraseña
-    const saltRounds = 10
-    const hashedPassword = await bcrypt.hash(password, saltRounds)
+    // NOTA: El sistema actual guarda contraseñas en texto plano (no recomendado)
+    // En producción, deberías usar bcrypt o similar para hashear contraseñas
     
-    // Actualizar la contraseña del usuario
+    // Actualizar la contraseña del usuario (sin hashear para mantener compatibilidad con el sistema actual)
     const { error } = await supabase
       .from('users')
-      .update({ password: hashedPassword })
+      .update({ password: password })
       .eq('id', id)
     
     if (error) throw error
