@@ -39,12 +39,12 @@ export default function MapControls({
   // Estados para visitas
   const [showHeatmap, setShowHeatmap] = useState(false)
   const [showMarkers, setShowMarkers] = useState(false)
-  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1)
-  const [selectedYear, setSelectedYear] = useState(2024) // Por defecto 2024 donde hay datos
+  const [selectedMonth, setSelectedMonth] = useState(7) // Julio donde hay datos
+  const [selectedYear, setSelectedYear] = useState(2025) // 2025 donde están las visitas
   const [visitTypeFilter, setVisitTypeFilter] = useState('all')
   const [contactTypeFilter, setContactTypeFilter] = useState('all')
   const [multipleMonthsMode, setMultipleMonthsMode] = useState(false)
-  const [selectedMonths, setSelectedMonths] = useState<number[]>([new Date().getMonth() + 1])
+  const [selectedMonths, setSelectedMonths] = useState<number[]>([7]) // Julio por defecto
   const [selectedKams, setSelectedKams] = useState<string[]>([])
   const [availableKams, setAvailableKams] = useState<{id: string, name: string, color: string}[]>([])
 
