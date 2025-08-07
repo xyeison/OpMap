@@ -51,8 +51,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Email o contraseña incorrectos' }, { status: 401 })
     }
   
+    // Type assertion para el usuario retornado
+    const userData = data as { id: string; email: string; full_name: string; role: string; active: boolean }
+    
     // Generar un token de sesión simple
-    const sessionToken = Buffer.from(`${data.id}:${Date.now()}`).toString('base64')
+    const sessionToken = Buffer.from(`${userData.id}:${Date.now()}`).toString('base64')
     
     // Configurar cookies seguras
     const cookieStore = cookies()
@@ -64,10 +67,10 @@ export async function POST(request: Request) {
       path: '/',
     })
     
-    console.log('Login exitoso para usuario:', data.email)
+    console.log('Login exitoso para usuario:', userData.email)
     
     return NextResponse.json({ 
-      user: data,
+      user: userData,
       message: 'Login exitoso' 
     })
   } catch (error) {
