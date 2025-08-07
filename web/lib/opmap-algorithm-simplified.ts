@@ -349,7 +349,7 @@ export class SimplifiedOpMapAlgorithm {
           if (timeInMinutes <= kam.max_travel_time) {
             // En caso de empate, usar prioridad
             if (travelTime < bestTime || 
-                (travelTime === bestTime && kam.priority > bestKam?.priority)) {
+                (travelTime === bestTime && kam.priority > (bestKam?.priority || 0))) {
               bestTime = travelTime
               bestKam = kam
             }

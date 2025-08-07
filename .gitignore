@@ -55,6 +55,11 @@ backup_*/
 
 # Archivos sensibles y temporales
 Trash/
+trash/
+**/trash/
+**/Trash/
+database/trash/
+web/trash/
 backups/
 *.backup
 .env.local

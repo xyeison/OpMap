@@ -104,7 +104,7 @@ export default function TerritoriesPage() {
         
         // Agregar información de KAM asignado (no forzado)
         if (assignmentsData) {
-          assignmentsData.forEach(assignment => {
+          assignmentsData.forEach((assignment: any) => {
             const territoryId = assignment.hospitals.locality_id || assignment.hospitals.municipality_id
             const territory = territoryMap.get(territoryId)
             
@@ -321,7 +321,7 @@ export default function TerritoriesPage() {
                     <span className="font-semibold">{territory.highLevelHospitals}</span>
                   </div>
                 )}
-                {territory.population > 0 && (
+                {territory.population && territory.population > 0 && (
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Población:</span>
                     <span className="font-semibold">{territory.population.toLocaleString()}</span>

@@ -16,6 +16,7 @@
     "@types/bcryptjs": "^2.4.6",
     "@types/leaflet.heat": "^0.2.4",
     "autoprefixer": "^10.0.1",
+    "bcrypt": "^6.0.0",
     "bcryptjs": "^3.0.2",
     "date-fns": "^4.1.0",
     "dotenv": "^17.2.1",
@@ -31,6 +32,7 @@
     "zod": "^3.22.0"
   },
   "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
     "@types/leaflet": "^1.9.0",
     "@types/node": "^20.0.0",
     "@types/react": "^18.0.0",

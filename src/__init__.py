@@ -1,1 +1,0 @@
-# OpMap source package

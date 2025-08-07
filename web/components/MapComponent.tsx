@@ -99,7 +99,7 @@ export default function MapComponent({ visits: initialVisits = [], showHeatmap: 
     const colors: Record<string, string> = {}
     let backupIdx = 0
     
-    mapData.kams.forEach((kam) => {
+    mapData.kams.forEach((kam: any) => {
       // Usar el color del KAM desde la base de datos
       if (kam.color && kam.color.startsWith('#')) {
         colors[kam.id] = kam.color
@@ -308,7 +308,7 @@ export default function MapComponent({ visits: initialVisits = [], showHeatmap: 
       : 0
     
     // Calcular población total
-    const totalPopulation = Array.from(municipalities).reduce((sum, munId) => {
+    const totalPopulation = Array.from(municipalities).reduce((sum, munId: any) => {
       return sum + (mapData.populationMap[munId] || 0)
     }, 0)
     

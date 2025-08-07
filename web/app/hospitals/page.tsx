@@ -211,7 +211,7 @@ export default function HospitalsPage() {
     }
   }
 
-  const filteredHospitals = hospitals?.filter(hospital =>
+  const filteredHospitals = hospitals?.filter((hospital: any) =>
     hospital.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     hospital.code.includes(searchTerm)
   )
@@ -258,7 +258,7 @@ export default function HospitalsPage() {
 
       {/* Vista móvil */}
       <div className="block md:hidden">
-        {filteredHospitals?.slice(0, 20).map((hospital) => (
+        {filteredHospitals?.slice(0, 20).map((hospital: any) => (
           <div key={hospital.id} className="bg-white rounded-lg shadow mb-4 p-4">
             <div className="mb-2">
               <p className="text-sm text-gray-500">Código: {hospital.code}</p>
@@ -316,7 +316,7 @@ export default function HospitalsPage() {
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {filteredHospitals?.slice(0, 20).map((hospital) => (
+            {filteredHospitals?.slice(0, 20).map((hospital: any) => (
               <tr key={hospital.id}>
                 <td className="px-4 py-4">
                   <div>
