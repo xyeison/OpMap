@@ -36,17 +36,30 @@ export default function MapControls({
   const [searchTerm, setSearchTerm] = useState('')
   const [searchResults, setSearchResults] = useState<any[]>([])
   
-  // Estados para visitas
+  // Estados para visitas - Inicializar con julio 2025 donde hay datos
+  // IMPORTANTE: Los meses son 1-based (1=enero, 7=julio, 12=diciembre)
   const [showHeatmap, setShowHeatmap] = useState(false)
   const [showMarkers, setShowMarkers] = useState(false)
-  const [selectedMonth, setSelectedMonth] = useState(7) // Julio donde hay datos
-  const [selectedYear, setSelectedYear] = useState(2025) // 2025 donde están las visitas
+  const [selectedMonth, setSelectedMonth] = useState<number>(7) // 7 = Julio (donde están los datos)
+  const [selectedYear, setSelectedYear] = useState<number>(2025) // 2025 donde están las visitas
   const [visitTypeFilter, setVisitTypeFilter] = useState('all')
   const [contactTypeFilter, setContactTypeFilter] = useState('all')
   const [multipleMonthsMode, setMultipleMonthsMode] = useState(false)
   const [selectedMonths, setSelectedMonths] = useState<number[]>([7]) // Julio por defecto
   const [selectedKams, setSelectedKams] = useState<string[]>([])
   const [availableKams, setAvailableKams] = useState<{id: string, name: string, color: string}[]>([])
+  
+  // Asegurar que el mes inicial sea julio al montar el componente
+  useEffect(() => {
+    console.log('MapControls - Inicialización del componente, mes inicial:', selectedMonth, 'año inicial:', selectedYear)
+    // Forzar julio 2025 en la inicialización
+    if (selectedMonth !== 7 || selectedYear !== 2025) {
+      console.log('MapControls - Estableciendo valores iniciales: julio (7) 2025')
+      setSelectedMonth(7)
+      setSelectedYear(2025)
+      setSelectedMonths([7])
+    }
+  }, [])
 
   // Cargar visitas con filtros - corregido para manejar múltiples meses correctamente
   // Si está en modo múltiple y no hay meses seleccionados, no cargar visitas
@@ -61,12 +74,13 @@ export default function MapControls({
   
   // Debug - log de los parámetros de búsqueda
   useEffect(() => {
-    console.log('MapControls - Parámetros de búsqueda de visitas:', {
+    console.log('MapControls - Parámetros actuales de búsqueda:', {
       selectedMonth,
       selectedYear,
       selectedKams: selectedKams.length,
       multipleMonthsMode,
-      selectedMonths
+      selectedMonths,
+      kamIds: selectedKams
     })
   }, [selectedMonth, selectedYear, selectedKams, multipleMonthsMode, selectedMonths])
 
@@ -414,19 +428,24 @@ export default function MapControls({
                     <div>
                       <label className="text-xs font-medium text-gray-700">Mes</label>
                       <select
-                        value={selectedMonth}
+                        value={String(selectedMonth)}
                         onChange={(e) => {
                           const month = Number(e.target.value)
+                          console.log('MapControls - Cambiando mes de', selectedMonth, 'a', month)
                           setSelectedMonth(month)
                           setSelectedMonths([month])
                         }}
                         className="w-full px-2 py-1 text-sm border rounded"
                       >
-                        {[...Array(12)].map((_, i) => (
-                          <option key={i + 1} value={i + 1}>
-                            {format(new Date(2000, i, 1), 'MMMM', { locale: es })}
-                          </option>
-                        ))}
+                        {[...Array(12)].map((_, i) => {
+                          const monthValue = i + 1
+                          return (
+                            <option key={monthValue} value={String(monthValue)}>
+                              {format(new Date(2000, i, 1), 'MMMM', { locale: es })}
+                              {monthValue === 7 ? ' (datos disponibles)' : ''}
+                            </option>
+                          )
+                        })}
                       </select>
                     </div>
                     <div>

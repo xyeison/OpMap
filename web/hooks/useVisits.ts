@@ -26,7 +26,10 @@ export function useVisits(filters?: {
   return useQuery({
     queryKey: ['visits', filters],
     queryFn: async () => {
-      console.log('useVisits - Filtros recibidos:', filters)
+      console.log('useVisits - Filtros recibidos:', {
+        ...filters,
+        monthName: filters?.month ? new Date(2000, filters.month - 1, 1).toLocaleString('es', {month: 'long'}) : 'N/A'
+      })
       
       let query = supabase
         .from('visits')
