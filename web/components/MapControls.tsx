@@ -62,15 +62,17 @@ export default function MapControls({
   }, [])
 
   // Cargar visitas con filtros - corregido para manejar múltiples meses correctamente
-  // Si está en modo múltiple y no hay meses seleccionados, no cargar visitas
-  const shouldLoadVisits = !multipleMonthsMode || (multipleMonthsMode && selectedMonths.length > 0)
+  // En modo múltiple: solo cargar si hay meses seleccionados
+  // En modo simple: siempre cargar
+  const shouldLoadVisits = multipleMonthsMode ? selectedMonths.length > 0 : true
   
   // Debug
   useEffect(() => {
     console.log('MapControls - Modo visitas:', {
       multipleMonthsMode,
       selectedMonths: selectedMonths.length,
-      shouldLoadVisits
+      shouldLoadVisits,
+      mesesSeleccionados: selectedMonths
     })
   }, [multipleMonthsMode, selectedMonths, shouldLoadVisits])
   
@@ -88,7 +90,10 @@ export default function MapControls({
 
   // Solo crear queryParams si deberíamos cargar visitas
   const queryParams = shouldLoadVisits ? {
-    month: multipleMonthsMode ? undefined : selectedMonth,
+    // En modo múltiple, NO enviar month (solo months)
+    // En modo simple, enviar month
+    month: !multipleMonthsMode ? selectedMonth : undefined,
+    // En modo múltiple, enviar months solo si hay seleccionados
     months: multipleMonthsMode && selectedMonths.length > 0 ? selectedMonths.sort((a, b) => a - b) : undefined,
     year: selectedYear,
     visitType: visitTypeFilter === 'all' ? undefined : visitTypeFilter,
@@ -104,8 +109,15 @@ export default function MapControls({
   // Solo hacer la query si shouldLoadVisits es true
   const { data: visitsData, isLoading, error } = useVisits(shouldLoadVisits ? queryParams : null)
   
-  // Usar las visitas o array vacío
-  const visits = (shouldLoadVisits && visitsData) ? visitsData : []
+  // Usar las visitas o array vacío - MUY IMPORTANTE para limpiar el mapa
+  const visits = shouldLoadVisits && visitsData ? visitsData : []
+  
+  // Debug para verificar que las visitas se limpian correctamente
+  useEffect(() => {
+    if (!shouldLoadVisits) {
+      console.log('MapControls - Limpiando visitas porque shouldLoadVisits es false')
+    }
+  }, [shouldLoadVisits])
   
   // Debug del resultado
   useEffect(() => {
@@ -142,17 +154,20 @@ export default function MapControls({
     loadKams()
   }, [])
 
-  // Notificar cambios de visitas
+  // Notificar cambios de visitas - SIEMPRE notificar, incluso con array vacío
   useEffect(() => {
     console.log('MapControls - Notificando cambio de visitas:', {
       cantidad: visits?.length || 0,
       tiene_onVisitsChange: !!onVisitsChange,
-      primeras_3: visits?.slice(0, 3)
+      multipleMonthsMode,
+      selectedMonths: selectedMonths.length,
+      shouldLoadVisits
     })
-    if (onVisitsChange && visits) {
-      onVisitsChange(visits)
+    if (onVisitsChange) {
+      // Siempre notificar, incluso si visits es un array vacío
+      onVisitsChange(visits || [])
     }
-  }, [visits, onVisitsChange])
+  }, [visits, onVisitsChange, multipleMonthsMode, selectedMonths.length, shouldLoadVisits])
 
   useEffect(() => {
     if (onShowHeatmapChange) {
