@@ -108,9 +108,10 @@ export function useVisits(filters?: {
 
       const { data, error } = await query
 
-      console.log('useVisits - Resultado:', { 
+      console.log('useVisits - Resultado final de la query:', { 
         count: data?.length || 0, 
-        error: error?.message 
+        error: error?.message,
+        primeras_3: data?.slice(0, 3)
       })
       
       if (error) throw error

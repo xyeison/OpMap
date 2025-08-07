@@ -70,6 +70,15 @@ export default function MapComponent({ visits: initialVisits = [], showHeatmap: 
   const [visits, setVisits] = useState(initialVisits)
   const [showHeatmap, setShowHeatmap] = useState(initialShowHeatmap)
   const [showMarkers, setShowMarkers] = useState(initialShowMarkers)
+  
+  // Debug de visitas
+  useEffect(() => {
+    console.log('MapComponent - Visitas actualizadas:', {
+      cantidad: visits?.length || 0,
+      showHeatmap,
+      primeras_3: visits?.slice(0, 3)
+    })
+  }, [visits, showHeatmap])
   const [mapCenter, setMapCenter] = useState<[number, number] | undefined>(undefined)
   const [mapZoom, setMapZoom] = useState<number | undefined>(undefined)
   

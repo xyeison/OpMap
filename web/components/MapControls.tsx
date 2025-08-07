@@ -90,6 +90,11 @@ export default function MapControls({
 
   // Notificar cambios de visitas
   useEffect(() => {
+    console.log('MapControls - Notificando cambio de visitas:', {
+      cantidad: visits?.length || 0,
+      tiene_onVisitsChange: !!onVisitsChange,
+      primeras_3: visits?.slice(0, 3)
+    })
     if (onVisitsChange && visits) {
       onVisitsChange(visits)
     }
