@@ -1,16 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-// Usar Service Role Key para bypass RLS
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+// IMPORTANTE: Usar Service Role Key para bypass RLS
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+if (!supabaseServiceKey) {
+  console.error('SUPABASE_SERVICE_ROLE_KEY no está configurado - RLS bloqueará las consultas')
+}
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  supabaseServiceKey
+  supabaseServiceKey || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
 export async function GET(request: NextRequest) {
   try {
+    // Log si estamos usando Service Role Key o no
+    console.log('API visits/filtered - Usando:', supabaseServiceKey ? 'Service Role Key (bypass RLS)' : 'Anon Key (RLS activo)')
+    
     const searchParams = request.nextUrl.searchParams
     
     // Obtener parámetros de filtro

@@ -108,11 +108,13 @@ export default function MapControls({
     console.log('MapControls - Resultado de visitas:', {
       shouldLoadVisits,
       isLoading,
-      error,
+      error: error?.message || null,
       visitsDataLength: visitsData?.length || 0,
-      visitsLength: visits.length
+      visitsLength: visits.length,
+      showHeatmap,
+      primeras3: visits?.slice(0, 3)
     })
-  }, [shouldLoadVisits, isLoading, error, visitsData, visits])
+  }, [shouldLoadVisits, isLoading, error, visitsData, visits, showHeatmap])
 
   // Cargar KAMs disponibles
   useEffect(() => {
