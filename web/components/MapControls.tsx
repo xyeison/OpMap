@@ -40,7 +40,7 @@ export default function MapControls({
   const [showHeatmap, setShowHeatmap] = useState(false)
   const [showMarkers, setShowMarkers] = useState(false)
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1)
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
+  const [selectedYear, setSelectedYear] = useState(2024) // Por defecto 2024 donde hay datos
   const [visitTypeFilter, setVisitTypeFilter] = useState('all')
   const [contactTypeFilter, setContactTypeFilter] = useState('all')
   const [multipleMonthsMode, setMultipleMonthsMode] = useState(false)
@@ -219,7 +219,7 @@ export default function MapControls({
           e.stopPropagation()
           setIsOpen(!isOpen)
         }}
-        className="absolute top-4 right-4 z-[1001] bg-white rounded-xl shadow-lg px-5 py-3 hover:shadow-xl transform hover:-translate-y-0.5 transition-all duration-200 flex items-center gap-2 text-sm font-medium border border-gray-100"
+        className="absolute top-4 right-4 z-[9996] bg-white rounded-xl shadow-lg px-5 py-3 hover:shadow-xl transform hover:-translate-y-0.5 transition-all duration-200 flex items-center gap-2 text-sm font-medium border border-gray-100"
         type="button"
       >
         {isOpen ? (
@@ -236,7 +236,7 @@ export default function MapControls({
 
       {/* Panel de controles moderno */}
       {isOpen && (
-        <div className="absolute top-20 right-4 z-[1000] bg-white rounded-2xl shadow-2xl border border-gray-100" style={{ width: '360px', maxHeight: '80vh', overflowY: 'auto' }}>
+        <div className="absolute top-20 right-4 z-[9995] bg-white rounded-2xl shadow-2xl border border-gray-100" style={{ width: '360px', maxHeight: '80vh', overflowY: 'auto' }}>
           {/* Botón de cerrar dentro del panel */}
           <button
             onClick={() => setIsOpen(false)}
