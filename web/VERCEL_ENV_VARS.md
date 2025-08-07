@@ -2,23 +2,31 @@
 
 Para que la aplicación funcione correctamente en Vercel, necesitas configurar las siguientes variables de entorno en el dashboard de Vercel:
 
-## Variables Requeridas
+## Variables Requeridas (TODAS SON NECESARIAS)
 
-1. **NEXT_PUBLIC_SUPABASE_URL**
-   - Descripción: URL de tu proyecto de Supabase
-   - Ejemplo: `https://xxxxxxxxxxxxx.supabase.co`
-   - Dónde encontrarla: Supabase Dashboard > Settings > API
+### 1. **NEXT_PUBLIC_SUPABASE_URL**
+   - **Descripción**: URL de tu proyecto de Supabase
+   - **Ejemplo**: `https://xxxxxxxxxxxxx.supabase.co`
+   - **Dónde encontrarla**: 
+     - Supabase Dashboard → Settings → API → Project URL
 
-2. **NEXT_PUBLIC_SUPABASE_ANON_KEY**
-   - Descripción: Clave pública (anon) de Supabase
-   - Ejemplo: `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...`
-   - Dónde encontrarla: Supabase Dashboard > Settings > API > anon public
+### 2. **NEXT_PUBLIC_SUPABASE_ANON_KEY**
+   - **Descripción**: Clave pública (anon) de Supabase
+   - **Ejemplo**: `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...` (muy larga)
+   - **Dónde encontrarla**: 
+     - Supabase Dashboard → Settings → API → Project API keys → `anon` `public`
+   - **Nota**: Esta es la clave PÚBLICA, es segura para el frontend
 
-3. **SUPABASE_SERVICE_ROLE_KEY**
-   - Descripción: Clave de servicio (service_role) de Supabase - MANTENER SECRETA
-   - Ejemplo: `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...`
-   - Dónde encontrarla: Supabase Dashboard > Settings > API > service_role (secret)
-   - ⚠️ IMPORTANTE: Esta clave da acceso completo a tu base de datos, nunca la expongas
+### 3. **SUPABASE_SERVICE_ROLE_KEY** ⚠️ CRÍTICA PARA LOGIN
+   - **Descripción**: Clave de servicio (service_role) de Supabase
+   - **Ejemplo**: `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...` (muy larga, DIFERENTE a la anon)
+   - **Dónde encontrarla**: 
+     - Supabase Dashboard → Settings → API → Project API keys → `service_role` `secret`
+   - **⚠️ IMPORTANTE**: 
+     - Esta clave es DIFERENTE a la anon key
+     - NUNCA la expongas públicamente
+     - Es NECESARIA para que funcione el login porque bypasea RLS
+     - Sin esta clave, el login NO funcionará
 
 4. **GOOGLE_MAPS_API_KEY** (Opcional, para cálculo de rutas)
    - Descripción: API Key de Google Maps

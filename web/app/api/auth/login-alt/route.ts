@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 
+// Este endpoint alternativo funciona con ANON KEY usando una función SQL pública
 export async function POST(request: Request) {
   try {
     const { email, password } = await request.json()
@@ -12,47 +13,46 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Error de configuración del servidor' }, { status: 500 })
     }
     
-    // Para login necesitamos Service Role Key porque necesitamos bypasear RLS
-    // para leer la tabla users que tiene políticas restrictivas
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-    
-    if (!supabaseKey) {
-      console.error('SUPABASE_SERVICE_ROLE_KEY no está configurada')
-      console.error('Esta clave es necesaria para el login porque la tabla users tiene RLS habilitado')
-      console.error('Configúrala en Vercel: Settings > Environment Variables')
-      return NextResponse.json({ 
-        error: 'Error de configuración: Falta SUPABASE_SERVICE_ROLE_KEY en las variables de entorno de Vercel' 
-      }, { status: 500 })
+    if (!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+      console.error('NEXT_PUBLIC_SUPABASE_ANON_KEY no está configurada')
+      return NextResponse.json({ error: 'Error de configuración del servidor' }, { status: 500 })
     }
     
+    // Usar ANON KEY (no necesita Service Role Key)
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL,
-      supabaseKey
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
     )
     
-    console.log('Intentando login para:', email)
+    console.log('Intentando login alternativo para:', email)
     
-    // Buscar usuario y verificar contraseña directamente
-    const { data: user, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('email', email)
-      .eq('password', password) // Comparación directa sin hash
-      .eq('active', true)
+    // Llamar a la función SQL pública que puede ser ejecutada con ANON key
+    const { data, error } = await supabase
+      .rpc('authenticate_user', {
+        user_email: email,
+        user_password: password
+      })
       .single()
     
     if (error) {
-      console.error('Error al buscar usuario:', error)
+      console.error('Error en authenticate_user:', error)
+      // Si la función no existe, dar instrucciones
+      if (error.message?.includes('function') || error.message?.includes('does not exist')) {
+        return NextResponse.json({ 
+          error: 'La función de autenticación no está configurada. Ejecuta el script SQL: database/create-public-login-view.sql',
+          details: error.message
+        }, { status: 500 })
+      }
       return NextResponse.json({ error: 'Email o contraseña incorrectos' }, { status: 401 })
     }
     
-    if (!user) {
+    if (!data) {
       console.log('Usuario no encontrado o credenciales incorrectas')
       return NextResponse.json({ error: 'Email o contraseña incorrectos' }, { status: 401 })
     }
   
-    // Generar un token de sesión simple (en producción usar JWT)
-    const sessionToken = Buffer.from(`${user.id}:${Date.now()}`).toString('base64')
+    // Generar un token de sesión simple
+    const sessionToken = Buffer.from(`${data.id}:${Date.now()}`).toString('base64')
     
     // Configurar cookies seguras
     const cookieStore = cookies()
@@ -64,17 +64,14 @@ export async function POST(request: Request) {
       path: '/',
     })
     
-    console.log('Login exitoso para usuario:', user.email)
-    
-    // Retornar usuario sin la contraseña
-    const { password: _, ...userWithoutPassword } = user
+    console.log('Login exitoso para usuario:', data.email)
     
     return NextResponse.json({ 
-      user: userWithoutPassword,
+      user: data,
       message: 'Login exitoso' 
     })
   } catch (error) {
-    console.error('Error en login:', error)
+    console.error('Error en login alternativo:', error)
     return NextResponse.json({ 
       error: 'Error interno del servidor',
       details: process.env.NODE_ENV === 'development' ? error?.toString() : undefined

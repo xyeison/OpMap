@@ -77,11 +77,23 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
   const login = async (email: string, password: string): Promise<boolean> => {
     try {
-      const response = await fetch('/api/auth/login', {
+      // Primero intentar con el endpoint principal (requiere Service Role Key)
+      let response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })
       })
+
+      // Si falla con error 500 (posiblemente falta Service Role Key), 
+      // intentar con el endpoint alternativo que usa ANON key
+      if (response.status === 500) {
+        console.log('Intentando login alternativo con ANON key...')
+        response = await fetch('/api/auth/login-alt', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        })
+      }
 
       if (response.ok) {
         const { user } = await response.json()
@@ -89,6 +101,13 @@ export function UserProvider({ children }: { children: ReactNode }) {
         localStorage.setItem('opmap_user', JSON.stringify(user))
         return true
       }
+      
+      // Si la respuesta tiene detalles del error, mostrarlos en consola
+      if (!response.ok) {
+        const errorData = await response.json()
+        console.error('Error de login:', errorData)
+      }
+      
       return false
     } catch (error) {
       console.error('Error en login:', error)
