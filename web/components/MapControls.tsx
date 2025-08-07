@@ -59,6 +59,17 @@ export default function MapControls({
     }
   }, [multipleMonthsMode, selectedMonths])
   
+  // Debug - log de los parámetros de búsqueda
+  useEffect(() => {
+    console.log('MapControls - Parámetros de búsqueda de visitas:', {
+      selectedMonth,
+      selectedYear,
+      selectedKams: selectedKams.length,
+      multipleMonthsMode,
+      selectedMonths
+    })
+  }, [selectedMonth, selectedYear, selectedKams, multipleMonthsMode, selectedMonths])
+
   const { data: visitsData } = useVisits({
     month: multipleMonthsMode ? undefined : selectedMonth,
     months: multipleMonthsMode && selectedMonths.length > 0 ? selectedMonths.sort((a, b) => a - b) : undefined,
@@ -488,7 +499,7 @@ export default function MapControls({
                       onClick={() => setSelectedKams(selectedKams.length === availableKams.length ? [] : availableKams.map(k => k.id))}
                       className="ml-2 text-gray-700 hover:text-black font-medium"
                     >
-                      ({selectedKams.length === availableKams.length ? 'Ninguno' : 'Todos'})
+                      ({selectedKams.length === 0 ? 'Ninguno' : selectedKams.length === availableKams.length ? 'Todos' : selectedKams.length})
                     </button>
                   </label>
                   <div className="max-h-24 overflow-y-auto border rounded p-2">
