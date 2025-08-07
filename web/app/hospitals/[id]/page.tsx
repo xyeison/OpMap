@@ -18,8 +18,11 @@ export default function HospitalDetailPage() {
   const [kam, setKam] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [showDeactivateModal, setShowDeactivateModal] = useState(false)
+  const [showActivateModal, setShowActivateModal] = useState(false)
   const [deactivateReason, setDeactivateReason] = useState('')
+  const [activateReason, setActivateReason] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [history, setHistory] = useState<any[]>([])
   const [contractStats, setContractStats] = useState({ activeCount: 0, totalValue: 0 })
   const [isRecalculating, setIsRecalculating] = useState(false)
   const [municipalityName, setMunicipalityName] = useState('')
@@ -51,6 +54,11 @@ export default function HospitalDetailPage() {
         setKam(data.kam)
         setKamMunicipalityName(data.kamMunicipalityName || '')
         setContractStats(data.contractStats)
+        
+        // Cargar historial si existe
+        if (data.history) {
+          setHistory(data.history)
+        }
       }
     } catch (error) {
       console.error('Error loading hospital:', error)
@@ -80,7 +88,7 @@ export default function HospitalDetailPage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          reason: hospital.active ? deactivateReason : 'Reactivación del hospital'
+          reason: hospital.active ? deactivateReason : activateReason
         })
       })
 
@@ -124,7 +132,9 @@ export default function HospitalDetailPage() {
       // Recargar datos
       await loadHospitalData()
       setShowDeactivateModal(false)
+      setShowActivateModal(false)
       setDeactivateReason('')
+      setActivateReason('')
       setIsRecalculating(false)
       
       alert(`Hospital ${hospital.active ? 'desactivado' : 'activado'} exitosamente. Las asignaciones territoriales han sido actualizadas.`)
@@ -184,8 +194,8 @@ export default function HospitalDetailPage() {
                     console.log('Mostrando modal de desactivación')
                     setShowDeactivateModal(true)
                   } else {
-                    console.log('Activando hospital')
-                    toggleHospitalStatus()
+                    console.log('Mostrando modal de activación')
+                    setShowActivateModal(true)
                   }
                 }}
                 className={`group relative px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200 transform hover:scale-[1.02] hover:shadow-md flex items-center gap-2 ${
@@ -388,6 +398,47 @@ export default function HospitalDetailPage() {
         </div>
 
 
+        {/* Historial de cambios */}
+        {history && history.length > 0 && (
+          <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6">
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Historial de Cambios</h2>
+            <div className="space-y-3 max-h-96 overflow-y-auto">
+              {history.map((entry: any, index: number) => (
+                <div key={index} className="border-l-4 border-gray-200 pl-4 py-2">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        {entry.action === 'activated' ? (
+                          <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">
+                            Activado
+                          </span>
+                        ) : entry.action === 'deactivated' ? (
+                          <span className="px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs font-medium">
+                            Desactivado
+                          </span>
+                        ) : (
+                          <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-medium">
+                            {entry.action}
+                          </span>
+                        )}
+                        <span className="text-xs text-gray-500">
+                          {new Date(entry.created_at).toLocaleString('es-CO')}
+                        </span>
+                      </div>
+                      <p className="text-sm text-gray-700 mb-1">
+                        <strong>Razón:</strong> {entry.reason}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        Por: {entry.users?.full_name || entry.users?.email || 'Usuario desconocido'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Modal de confirmación para desactivar */}
         {showDeactivateModal && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fadeIn">
@@ -466,6 +517,96 @@ export default function HospitalDetailPage() {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
                       </svg>
                       Confirmar Desactivación
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal de activación */}
+        {showActivateModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full">
+              {/* Header */}
+              <div className="bg-gradient-to-r from-green-500 to-green-600 p-6 rounded-t-2xl">
+                <div className="flex items-center gap-4">
+                  <div className="bg-white bg-opacity-20 p-3 rounded-full">
+                    <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-white">Activar Hospital</h3>
+                    <p className="text-white/80 text-sm">Esta acción afectará las asignaciones</p>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Content */}
+              <div className="p-6">
+                <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-4">
+                  <p className="text-gray-700">
+                    Está a punto de activar el hospital:
+                  </p>
+                  <p className="font-semibold text-gray-900 mt-1">{hospital.name}</p>
+                </div>
+                
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Motivo de activación <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all resize-none"
+                  rows={4}
+                  placeholder="Ej: Reapertura tras remodelación, nuevo convenio activo..."
+                  value={activateReason}
+                  onChange={(e) => setActivateReason(e.target.value)}
+                  disabled={isSubmitting}
+                />
+                
+                {!activateReason.trim() && (
+                  <p className="text-xs text-gray-500 mt-2">
+                    El motivo es obligatorio para el registro de auditoría
+                  </p>
+                )}
+              </div>
+              
+              {/* Footer */}
+              <div className="bg-gray-50 px-6 py-4 flex gap-3 justify-end">
+                <button
+                  onClick={() => {
+                    setShowActivateModal(false)
+                    setActivateReason('')
+                  }}
+                  className="px-5 py-2.5 text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 transition-colors font-medium"
+                  disabled={isSubmitting}
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={toggleHospitalStatus}
+                  disabled={!activateReason.trim() || isSubmitting}
+                  className={`px-5 py-2.5 rounded-xl font-medium transition-all flex items-center gap-2 
+                    ${!activateReason.trim() 
+                      ? 'bg-gray-200 text-gray-400 cursor-not-allowed' 
+                      : 'bg-gradient-to-r from-green-500 to-green-600 text-white hover:from-green-600 hover:to-green-700 transform hover:scale-[1.02] hover:shadow-md'
+                    }`}
+                >
+                  {isSubmitting ? (
+                    <>
+                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      Procesando...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      Confirmar Activación
                     </>
                   )}
                 </button>

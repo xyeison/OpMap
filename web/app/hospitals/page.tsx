@@ -8,6 +8,7 @@ import PermissionGuard from '@/components/PermissionGuard'
 
 export default function HospitalsPage() {
   const [searchTerm, setSearchTerm] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('active')
   const [hospitalsWithKam, setHospitalsWithKam] = useState<any[]>([])
   const [showAddModal, setShowAddModal] = useState(false)
   const [newHospital, setNewHospital] = useState({
@@ -211,10 +212,16 @@ export default function HospitalsPage() {
     }
   }
 
-  const filteredHospitals = hospitals?.filter((hospital: any) =>
-    hospital.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    hospital.code.includes(searchTerm)
-  )
+  const filteredHospitals = hospitals?.filter((hospital: any) => {
+    const matchesSearch = hospital.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      hospital.code.includes(searchTerm)
+    
+    const matchesStatus = statusFilter === 'all' || 
+      (statusFilter === 'active' && hospital.active) ||
+      (statusFilter === 'inactive' && !hospital.active)
+    
+    return matchesSearch && matchesStatus
+  })
   
   console.log('Hospitals loaded:', hospitals?.length)
 
@@ -242,26 +249,61 @@ export default function HospitalsPage() {
       </div>
 
       <div className="mb-6 bg-white rounded-2xl shadow-lg border border-gray-100 p-6">
-        <div className="flex items-center gap-3">
-          <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
-          </svg>
-          <input
-            type="text"
-            placeholder="Buscar por nombre o código..."
-            className="w-full max-w-md px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent transition-all bg-white"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
+        <div className="flex flex-col md:flex-row gap-4">
+          <div className="flex items-center gap-3 flex-1">
+            <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+            </svg>
+            <input
+              type="text"
+              placeholder="Buscar por nombre o código..."
+              className="w-full max-w-md px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent transition-all bg-white"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-600">Estado:</span>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as 'all' | 'active' | 'inactive')}
+              className="px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent transition-all bg-white"
+            >
+              <option value="active">Activos</option>
+              <option value="inactive">Inactivos</option>
+              <option value="all">Todos</option>
+            </select>
+          </div>
         </div>
+        
+        {statusFilter !== 'active' && (
+          <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+            <div className="flex items-center gap-2">
+              <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <span className="text-sm text-amber-800">
+                Mostrando hospitales {statusFilter === 'inactive' ? 'inactivos' : 'activos e inactivos'}
+              </span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Vista móvil */}
       <div className="block md:hidden">
         {filteredHospitals?.slice(0, 20).map((hospital: any) => (
-          <div key={hospital.id} className="bg-white rounded-lg shadow mb-4 p-4">
+          <div key={hospital.id} className={`bg-white rounded-lg shadow mb-4 p-4 ${!hospital.active ? 'opacity-75' : ''}`}>
             <div className="mb-2">
-              <p className="text-sm text-gray-500">Código: {hospital.code}</p>
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-gray-500">Código: {hospital.code}</p>
+                {!hospital.active && (
+                  <span className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded-full">
+                    Inactivo
+                  </span>
+                )}
+              </div>
               <h3 className="font-semibold">{hospital.name}</h3>
             </div>
             <div className="text-sm text-gray-600 mb-3">
@@ -317,10 +359,17 @@ export default function HospitalsPage() {
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
             {filteredHospitals?.slice(0, 20).map((hospital: any) => (
-              <tr key={hospital.id}>
+              <tr key={hospital.id} className={!hospital.active ? 'bg-gray-50 opacity-75' : ''}>
                 <td className="px-4 py-4">
                   <div>
-                    <div className="text-sm font-medium text-gray-900">{hospital.name}</div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-gray-900">{hospital.name}</span>
+                      {!hospital.active && (
+                        <span className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded-full">
+                          Inactivo
+                        </span>
+                      )}
+                    </div>
                     <div className="text-xs text-gray-500">{hospital.code}</div>
                   </div>
                 </td>

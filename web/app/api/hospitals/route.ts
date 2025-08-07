@@ -17,11 +17,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
     }
 
-    // Obtener hospitales activos
+    // Obtener todos los hospitales (activos e inactivos)
     const { data: hospitals, error: hospitalsError } = await supabase
       .from('hospitals')
       .select('*')
-      .eq('active', true)
       .order('name')
 
     if (hospitalsError) {

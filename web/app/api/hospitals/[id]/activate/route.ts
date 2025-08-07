@@ -18,6 +18,15 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     const hospitalId = params.id
+    const body = await request.json()
+    const { reason } = body
+
+    // Validar que se proporcione una razón
+    if (!reason || reason.trim() === '') {
+      return NextResponse.json({ 
+        error: 'La razón de activación es obligatoria' 
+      }, { status: 400 })
+    }
 
     // Obtener el hospital actual
     const { data: hospital, error: fetchError } = await supabase
@@ -48,7 +57,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       hospital_id: hospitalId,
       user_id: user.id,
       action: 'activated',
-      reason: 'Reactivación del hospital',
+      reason: reason,
       previous_state: false,
       new_state: true
     }

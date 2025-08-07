@@ -86,13 +86,27 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       totalValue: contracts?.reduce((sum, contract) => sum + (contract.contract_value || 0), 0) || 0
     }
 
+    // Obtener historial de cambios
+    const { data: history } = await supabase
+      .from('hospital_history')
+      .select(`
+        *,
+        users!hospital_history_user_id_fkey (
+          full_name,
+          email
+        )
+      `)
+      .eq('hospital_id', hospitalId)
+      .order('created_at', { ascending: false })
+
     return NextResponse.json({
       hospital,
       municipalityName: municipality?.name,
       departmentName: department?.name,
       kam,
       kamMunicipalityName,
-      contractStats
+      contractStats,
+      history: history || []
     })
   } catch (error) {
     console.error('Error in GET /api/hospitals/[id]:', error)

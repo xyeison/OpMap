@@ -21,6 +21,13 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     const body = await request.json()
     const { reason } = body
 
+    // Validar que se proporcione una razón
+    if (!reason || reason.trim() === '') {
+      return NextResponse.json({ 
+        error: 'La razón de desactivación es obligatoria' 
+      }, { status: 400 })
+    }
+
     // Obtener el hospital actual
     const { data: hospital, error: fetchError } = await supabase
       .from('hospitals')
