@@ -21,11 +21,16 @@ export function useVisits(filters?: {
   contactType?: string
   kamId?: string
   kamIds?: string[]  // Para múltiples KAMs
-}) {
+} | null) {
   return useQuery({
     queryKey: ['visits', filters],
-    enabled: true, // Siempre habilitado
+    enabled: !!filters, // Solo habilitar si hay filtros
     queryFn: async () => {
+      // Si no hay filtros, retornar array vacío
+      if (!filters) {
+        console.log('useVisits - Sin filtros, retornando array vacío')
+        return []
+      }
       console.log('useVisits - INICIANDO QUERY con filtros:', {
         ...filters,
         monthName: filters?.month ? new Date(2000, filters.month - 1, 1).toLocaleString('es', {month: 'long'}) : 'N/A',

@@ -67,10 +67,12 @@ export default function MapControls({
   
   // Debug
   useEffect(() => {
-    if (multipleMonthsMode) {
-      console.log('MapControls - Modo múltiple activado, meses seleccionados:', selectedMonths)
-    }
-  }, [multipleMonthsMode, selectedMonths])
+    console.log('MapControls - Modo visitas:', {
+      multipleMonthsMode,
+      selectedMonths: selectedMonths.length,
+      shouldLoadVisits
+    })
+  }, [multipleMonthsMode, selectedMonths, shouldLoadVisits])
   
   // Debug - log de los parámetros de búsqueda
   useEffect(() => {
@@ -84,24 +86,26 @@ export default function MapControls({
     })
   }, [selectedMonth, selectedYear, selectedKams, multipleMonthsMode, selectedMonths])
 
-  const queryParams = {
+  // Solo crear queryParams si deberíamos cargar visitas
+  const queryParams = shouldLoadVisits ? {
     month: multipleMonthsMode ? undefined : selectedMonth,
     months: multipleMonthsMode && selectedMonths.length > 0 ? selectedMonths.sort((a, b) => a - b) : undefined,
     year: selectedYear,
     visitType: visitTypeFilter === 'all' ? undefined : visitTypeFilter,
     contactType: contactTypeFilter === 'all' ? undefined : contactTypeFilter,
     kamIds: selectedKams.length > 0 ? selectedKams : undefined // Si no hay KAMs seleccionados, no filtrar por KAM
-  }
+  } : null
   
   // Debug de los parámetros de la query
   useEffect(() => {
     console.log('MapControls - Query params para useVisits:', queryParams)
   }, [JSON.stringify(queryParams)])
   
-  const { data: visitsData, isLoading, error } = useVisits(queryParams)
+  // Solo hacer la query si shouldLoadVisits es true
+  const { data: visitsData, isLoading, error } = useVisits(shouldLoadVisits ? queryParams : null)
   
-  // Solo usar las visitas si deberíamos cargarlas
-  const visits = shouldLoadVisits ? (visitsData || []) : []
+  // Usar las visitas o array vacío
+  const visits = (shouldLoadVisits && visitsData) ? visitsData : []
   
   // Debug del resultado
   useEffect(() => {

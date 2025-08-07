@@ -733,7 +733,7 @@ export default function MapComponent({ visits: initialVisits = [], showHeatmap: 
         ))}
         
         {/* Capa de mapa de calor de visitas */}
-        {showHeatmap && visits && visits.length > 0 && (
+        {showHeatmap && visits && visits.length > 0 ? (
           <>
             {console.log('MapComponent - Mostrando heatmap con', visits.length, 'visitas')}
             <VisitsHeatmapLayer 
@@ -752,7 +752,9 @@ export default function MapComponent({ visits: initialVisits = [], showHeatmap: 
               }}
             />
           </>
-        )}
+        ) : showHeatmap ? (
+          console.log('MapComponent - Heatmap activado pero sin visitas para mostrar')
+        ) : null}
         
         {/* Marcadores individuales de visitas */}
         {showMarkers && visits && visits.length > 0 && visits.map((visit, index) => {
