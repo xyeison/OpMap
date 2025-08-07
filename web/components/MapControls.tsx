@@ -465,7 +465,6 @@ export default function MapControls({
                           return (
                             <option key={monthValue} value={String(monthValue)}>
                               {format(new Date(2000, i, 1), 'MMMM', { locale: es })}
-                              {monthValue === 7 ? ' (datos disponibles)' : ''}
                             </option>
                           )
                         })}
