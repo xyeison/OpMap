@@ -83,17 +83,17 @@ export function VisitsHeatmapLayer({
         return isValid
       })
       .map((visit) => {
-        // Dar más peso a visitas efectivas
-        let weight = 0.5
+        // Dar peso más sutil a las visitas
+        let weight = 0.3
         if (visit.visit_type === 'Visita efectiva') {
-          weight = 1.0
+          weight = 0.6
         } else if (visit.visit_type === 'Visita extra') {
-          weight = 0.7
+          weight = 0.4
         }
         
         // Visitas presenciales tienen un poco más de peso
         if (visit.contact_type === 'Visita presencial') {
-          weight *= 1.2
+          weight *= 1.1
         }
 
         return [visit.lat, visit.lng, weight]

@@ -74,13 +74,13 @@ export default function MapControls({
   
   // Debug - log de los parámetros de búsqueda
   useEffect(() => {
-    console.log('MapControls - Parámetros actuales de búsqueda:', {
+    console.log('MapControls - Estado actualizado:', {
       selectedMonth,
       selectedYear,
-      selectedKams: selectedKams.length,
+      selectedKamsCount: selectedKams.length,
+      selectedKamsIds: selectedKams,
       multipleMonthsMode,
-      selectedMonths,
-      kamIds: selectedKams
+      selectedMonths
     })
   }, [selectedMonth, selectedYear, selectedKams, multipleMonthsMode, selectedMonths])
 
@@ -568,8 +568,10 @@ export default function MapControls({
                               checked={selectedKams.includes(kam.id)}
                               onChange={(e) => {
                                 if (e.target.checked) {
+                                  console.log('MapControls - Agregando KAM:', kam.name, kam.id)
                                   setSelectedKams([...selectedKams, kam.id])
                                 } else {
+                                  console.log('MapControls - Quitando KAM:', kam.name, kam.id)
                                   setSelectedKams(selectedKams.filter(k => k !== kam.id))
                                 }
                               }}

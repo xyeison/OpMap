@@ -738,9 +738,18 @@ export default function MapComponent({ visits: initialVisits = [], showHeatmap: 
             {console.log('MapComponent - Mostrando heatmap con', visits.length, 'visitas')}
             <VisitsHeatmapLayer 
               visits={visits}
-              intensity={1}
-              radius={35}
-              blur={20}
+              intensity={0.5}
+              radius={15}
+              blur={25}
+              maxZoom={15}
+              gradient={{
+                0.0: 'blue',
+                0.25: 'cyan',
+                0.5: 'lime',
+                0.75: 'yellow',
+                0.85: 'orange',
+                1.0: 'red'
+              }}
             />
           </>
         )}
