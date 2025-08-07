@@ -5,6 +5,8 @@ import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import ForcedAssignmentModal from '@/components/ForcedAssignmentModal'
+import PermissionGuard from '@/components/PermissionGuard'
+import { useAuth } from '@/contexts/AuthContext'
 
 interface Territory {
   id: string
@@ -357,23 +359,25 @@ export default function TerritoriesPage() {
               >
                 Ver detalles
               </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setSelectedTerritory({
-                    ...territory,
-                    currentKam: territory.assignedKamName
-                  } as any)
-                  setShowAssignmentModal(true)
-                }}
-                className="flex-1 text-sm text-purple-600 hover:text-purple-800 font-medium flex items-center justify-center gap-1"
-                title="Asignación forzada"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-                </svg>
-                Asignar
-              </button>
+              <PermissionGuard permission="territories:manage">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setSelectedTerritory({
+                      ...territory,
+                      currentKam: territory.assignedKamName
+                    } as any)
+                    setShowAssignmentModal(true)
+                  }}
+                  className="flex-1 text-sm text-purple-600 hover:text-purple-800 font-medium flex items-center justify-center gap-1"
+                  title="Asignación forzada"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                  </svg>
+                  Asignar
+                </button>
+              </PermissionGuard>
             </div>
           </div>
         ))}

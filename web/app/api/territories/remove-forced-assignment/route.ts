@@ -1,5 +1,7 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { getUserFromRequest } from '@/lib/auth-server'
+import { hasPermission } from '@/lib/permissions'
 
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
@@ -8,8 +10,22 @@ const supabase = createClient(
   supabaseServiceKey
 )
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
+    // Verificar autenticación
+    const user = await getUserFromRequest(request)
+    if (!user) {
+      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+    }
+
+    // Verificar permisos - solo Admin y Gestor de Datos pueden remover asignaciones forzadas
+    if (!hasPermission(user.role as any, 'territories:manage')) {
+      return NextResponse.json(
+        { error: 'No tienes permisos para remover asignaciones forzadas de territorio' },
+        { status: 403 }
+      )
+    }
+
     const { territoryId, territoryType } = await request.json()
 
     if (!territoryId || !territoryType) {
