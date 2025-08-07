@@ -1,14 +1,14 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useMap } from 'react-leaflet'
 import L from 'leaflet'
 
-// Importación dinámica de leaflet.heat para evitar problemas de SSR
-let HeatLayer: any = null
-if (typeof window !== 'undefined') {
-  require('leaflet.heat')
-  HeatLayer = (L as any).heatLayer
+// Declaración de tipos para leaflet.heat
+declare global {
+  interface Window {
+    L: any
+  }
 }
 
 interface Visit {
@@ -37,6 +37,7 @@ export function VisitsHeatmapLayer({
   gradient
 }: VisitsHeatmapLayerProps) {
   const map = useMap()
+  const [heatmapLayer, setHeatmapLayer] = useState<any>(null)
 
   useEffect(() => {
     console.log('VisitsHeatmapLayer - Total visitas:', visits?.length)
@@ -47,24 +48,25 @@ export function VisitsHeatmapLayer({
       return
     }
 
-    // Verificar que HeatLayer esté disponible
-    if (!HeatLayer) {
-      console.error('leaflet.heat no está cargado correctamente')
-      // Intentar cargar de nuevo
-      if (typeof window !== 'undefined' && L) {
-        try {
-          require('leaflet.heat')
-          HeatLayer = (L as any).heatLayer
-        } catch (error) {
-          console.error('Error cargando leaflet.heat:', error)
-          return
-        }
-      }
-      if (!HeatLayer) {
-        console.error('No se pudo cargar leaflet.heat')
+    // Cargar leaflet.heat dinámicamente
+    const loadHeatmapLibrary = async () => {
+      if (typeof window === 'undefined') return
+      
+      try {
+        // Importar leaflet.heat
+        await import('leaflet.heat')
+        console.log('leaflet.heat cargado exitosamente')
+      } catch (error) {
+        console.error('Error cargando leaflet.heat:', error)
         return
       }
     }
+
+    loadHeatmapLibrary().then(() => {
+      if (!window.L || !window.L.heatLayer) {
+        console.error('leaflet.heat no está disponible después de cargar')
+        return
+      }
 
     // Convertir visitas a formato de heatmap
     // El tercer valor es la intensidad (peso) del punto
@@ -114,32 +116,36 @@ export function VisitsHeatmapLayer({
       1.0: 'red'
     }
 
-    try {
-      // Crear la capa de calor
-      const heatLayer = HeatLayer(heatPoints, {
-        radius,
-        blur,
-        maxZoom,
-        max: intensity,
-        gradient: heatGradient,
-        minOpacity: 0.5
-      })
+      try {
+        // Crear la capa de calor usando window.L
+        const heatLayer = window.L.heatLayer(heatPoints, {
+          radius,
+          blur,
+          maxZoom,
+          max: intensity,
+          gradient: heatGradient,
+          minOpacity: 0.5
+        })
 
-      // Agregar la capa al mapa
-      heatLayer.addTo(map)
-      console.log('VisitsHeatmapLayer - Capa de calor agregada al mapa')
+        // Agregar la capa al mapa
+        heatLayer.addTo(map)
+        console.log('VisitsHeatmapLayer - Capa de calor agregada al mapa')
+        setHeatmapLayer(heatLayer)
+      } catch (error) {
+        console.error('Error creando capa de calor:', error)
+      }
+    })
 
-      // Limpiar al desmontar
-      return () => {
+    // Limpiar al desmontar
+    return () => {
+      if (heatmapLayer) {
         try {
-          map.removeLayer(heatLayer)
+          map.removeLayer(heatmapLayer)
           console.log('VisitsHeatmapLayer - Capa de calor removida del mapa')
         } catch (error) {
           console.error('Error removiendo capa de calor:', error)
         }
       }
-    } catch (error) {
-      console.error('Error creando capa de calor:', error)
     }
   }, [map, visits, intensity, radius, blur, maxZoom, gradient])
 
