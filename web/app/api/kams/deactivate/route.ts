@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { OpMapAlgorithmOptimized } from '@/lib/opmap-algorithm-optimized'
+import { SimplifiedOpMapAlgorithm } from '@/lib/opmap-algorithm-simplified'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -40,13 +40,14 @@ export async function POST(request: Request) {
     
     if (updateError) throw updateError
     
-    // 4. Recalcular todas las asignaciones (igual que el algoritmo inicial)
+    // 4. Recalcular todas las asignaciones usando el algoritmo simplificado
     console.log('🔄 Recalculando asignaciones sin el KAM desactivado...')
     
-    const algorithm = new OpMapAlgorithmOptimized()
-    await algorithm.initialize()
+    const algorithm = new SimplifiedOpMapAlgorithm()
+    await algorithm.loadData()
     const assignments = await algorithm.calculateAssignments()
-    const saved = await algorithm.saveAssignments(assignments)
+    await algorithm.saveAssignments(assignments)
+    const saved = assignments.length
     
     console.log(`✅ Recálculo completado: ${saved} asignaciones actualizadas`)
     

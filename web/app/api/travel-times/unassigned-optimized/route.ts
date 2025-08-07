@@ -55,79 +55,81 @@ export async function GET() {
       })
     }
     
-    // 5. Para cada hospital sin asignar, buscar tiempos específicamente
+    // 5. Obtener TODOS los tiempos de una sola vez desde hospital_kam_distances
+    const hospitalIds = unassignedHospitals.map(h => h.id)
+    
+    // Primero obtener las distancias
+    const { data: allDistances } = await supabase
+      .from('hospital_kam_distances')
+      .select('hospital_id, kam_id, travel_time, distance')
+      .in('hospital_id', hospitalIds)
+    
+    // Crear mapa de distancias por hospital
+    const distancesByHospital: Record<string, any[]> = {}
+    
+    // Crear mapa de KAMs para búsqueda rápida
+    const kamsMap: Record<string, any> = {}
+    kams?.forEach(kam => {
+      kamsMap[kam.id] = kam
+    })
+    
+    if (allDistances) {
+      allDistances.forEach(d => {
+        const kam = kamsMap[d.kam_id]
+        if (kam && kam.active) {  // Solo incluir KAMs activos
+          if (!distancesByHospital[d.hospital_id]) {
+            distancesByHospital[d.hospital_id] = []
+          }
+          distancesByHospital[d.hospital_id].push({
+            kam_id: d.kam_id,
+            kam_name: kam.name,
+            travel_time: d.travel_time,
+            max_travel_time: kam.max_travel_time || 240
+          })
+        }
+      })
+    }
+    
+    // 6. Construir hospitales con tiempos
     const hospitalsWithTimes: any[] = []
     
-    // Procesar en lotes para evitar timeout
-    const batchSize = 10
-    for (let i = 0; i < unassignedHospitals.length; i += batchSize) {
-      const batch = unassignedHospitals.slice(i, i + batchSize)
+    for (const hospital of unassignedHospitals) {
+      const distances = distancesByHospital[hospital.id] || []
       
-      await Promise.all(batch.map(async (hospital) => {
-        // Buscar tiempos de viaje para este hospital específico
-        const { data: travelTimes } = await supabase
-          .from('travel_time_cache')
-          .select('origin_lat, origin_lng, travel_time, source')
-          .eq('dest_lat', hospital.lat)
-          .eq('dest_lng', hospital.lng)
-          .eq('source', 'google_maps')
-        
-        const hospitalData: {
-          id: string
-          name: string
-          code: string
-          municipality_name: string
-          department_name: string
-          lat: number
-          lng: number
-          beds: number
-          service_level: number
-          travel_times: Array<{
-            kam_id: string
-            kam_name: string
-            travel_time: number
-            is_real: boolean
-            source: string
-          }>
-        } = {
-          id: hospital.id,
-          name: hospital.name,
-          code: hospital.code,
-          municipality_name: hospital.municipality_name,
-          department_name: hospital.department_name,
-          lat: hospital.lat,
-          lng: hospital.lng,
-          beds: hospital.beds || 0,
-          service_level: hospital.service_level || 1,
-          travel_times: []
-        }
-        
-        // Mapear tiempos con KAMs
-        if (travelTimes && travelTimes.length > 0) {
-          travelTimes.forEach(tt => {
-            // Buscar el KAM que coincide con estas coordenadas
-            const kam = kams.find(k => 
-              Math.abs(k.lat - tt.origin_lat) < 0.00001 && 
-              Math.abs(k.lng - tt.origin_lng) < 0.00001
-            )
-            
-            if (kam) {
-              hospitalData.travel_times.push({
-                kam_id: kam.id,
-                kam_name: kam.name,
-                travel_time: tt.travel_time,
-                is_real: true,
-                source: 'Google Maps Distance Matrix API'
-              })
-            }
+      // Agregar KAMs que no tienen tiempo calculado
+      const kamsWithTimes = new Set(distances.map(d => d.kam_id))
+      kams?.forEach(kam => {
+        if (!kamsWithTimes.has(kam.id)) {
+          distances.push({
+            kam_id: kam.id,
+            kam_name: kam.name,
+            travel_time: null,
+            max_travel_time: kam.max_travel_time || 240
           })
-          
-          // Ordenar por tiempo de viaje
-          hospitalData.travel_times.sort((a, b) => a.travel_time - b.travel_time)
         }
+      })
+      
+      // Ordenar: primero los que tienen tiempo (menor a mayor), luego los null
+      distances.sort((a, b) => {
+        if (a.travel_time === null && b.travel_time === null) return 0
+        if (a.travel_time === null) return 1
+        if (b.travel_time === null) return -1
+        return a.travel_time - b.travel_time
+      })
         
-        hospitalsWithTimes.push(hospitalData)
-      }))
+      
+      hospitalsWithTimes.push({
+        id: hospital.id,
+        name: hospital.name,
+        code: hospital.code,
+        municipality_name: hospital.municipality_name,
+        department_name: hospital.department_name,
+        lat: hospital.lat,
+        lng: hospital.lng,
+        beds: hospital.beds || 0,
+        service_level: hospital.service_level || 1,
+        travel_times: distances
+      })
     }
     
     // Ordenar hospitales por nombre para consistencia

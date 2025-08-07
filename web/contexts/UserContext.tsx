@@ -28,21 +28,29 @@ export function UserProvider({ children }: { children: ReactNode }) {
   }, [])
   
   const checkSession = async () => {
+    console.log('UserContext - Verificando sesión...')
     try {
       const response = await fetch('/api/auth/me')
+      console.log('UserContext - Respuesta de /api/auth/me:', response.status)
+      
       if (response.ok) {
-        const { user } = await response.json()
-        setUser(user)
-        localStorage.setItem('opmap_user', JSON.stringify(user))
+        const data = await response.json()
+        console.log('UserContext - Usuario encontrado:', data.user)
+        setUser(data.user)
+        localStorage.setItem('opmap_user', JSON.stringify(data.user))
       } else {
         // Si no hay sesión válida, limpiar localStorage
+        console.log('UserContext - No hay sesión válida, status:', response.status)
         localStorage.removeItem('opmap_user')
+        setUser(null)
       }
     } catch (error) {
       console.error('Error verificando sesión:', error)
       localStorage.removeItem('opmap_user')
+      setUser(null)
+    } finally {
+      setIsLoading(false)
     }
-    setIsLoading(false)
   }
 
   const login = async (email: string, password: string): Promise<boolean> => {

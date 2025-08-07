@@ -14,10 +14,10 @@ export default function RecalculateButton() {
     }
 
     setLoading(true)
-    setMessage('')
+    setMessage('⏳ Procesando... esto puede tomar unos segundos')
 
     try {
-      const response = await fetch('/api/recalculate-assignments', {
+      const response = await fetch('/api/recalculate-simplified', {
         method: 'POST',
       })
 
@@ -33,6 +33,7 @@ export default function RecalculateButton() {
         setMessage(`❌ Error: ${data.error}`)
       }
     } catch (error) {
+      console.error('Error en recálculo:', error)
       setMessage('❌ Error al recalcular asignaciones')
     } finally {
       setLoading(false)

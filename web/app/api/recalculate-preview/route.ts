@@ -9,14 +9,10 @@ const supabase = createClient(
 export async function GET() {
   try {
     // 1. Obtener todos los KAMs activos
-    const { data: sellers, error: sellersError } = await supabase
-      .from('kams')
+    const { data: sellers } = await supabase
+      .from('sellers')
       .select('*')
       .eq('active', true)
-    
-    if (sellersError) {
-      console.error('Error loading KAMs:', sellersError)
-    }
 
     // 2. Obtener todos los hospitales activos
     const { data: hospitals } = await supabase
@@ -24,47 +20,16 @@ export async function GET() {
       .select('*')
       .eq('active', true)
 
-    // 3. Obtener el conteo real del caché (no todos los registros)
-    const { count: totalCacheCount } = await supabase
+    // 3. Obtener el caché actual
+    const { data: cacheData } = await supabase
       .from('travel_time_cache')
-      .select('*', { count: 'exact', head: true })
-    
-    // También obtener info del caché más reciente para mostrar última actualización
-    const { data: latestCache } = await supabase
-      .from('travel_time_cache')
-      .select('created_at')
-      .order('created_at', { ascending: false })
-      .limit(1)
+      .select('*')
+      .eq('source', 'google_maps')
 
-    // 4. Calcular rutas necesarias (estimación más realista)
-    // Si no hay KAMs activos, no hay rutas que calcular
-    if (!sellers || sellers.length === 0) {
-      return NextResponse.json({
-        success: true,
-        preview: {
-          totalKams: 0,
-          totalHospitals: hospitals?.length || 0,
-          totalRoutesNeeded: 0,
-          routesInCache: totalCacheCount || 0,
-          missingRoutes: 0,
-          googleMapsApiCalls: 0,
-          estimatedTimeSeconds: 0,
-          estimatedCostUSD: "0.00",
-          cacheInfo: {
-            percentage: "0",
-            lastUpdate: latestCache?.[0]?.created_at || 'N/A'
-          },
-          warning: "No hay KAMs activos. Active al menos un KAM antes de recalcular."
-        }
-      })
-    }
-    
-    // Estimación realista: cada hospital será evaluado por KAMs cercanos
-    // En promedio, un hospital es evaluado por 3-4 KAMs (los del mismo y departamentos adyacentes)
-    const avgKamsPerHospital = Math.min(sellers.length, 4)
-    const estimatedTotalRoutes = hospitals!.length * avgKamsPerHospital
-    const cachedRoutes = totalCacheCount || 0
-    const missingRoutes = Math.max(0, estimatedTotalRoutes - cachedRoutes)
+    // 4. Calcular rutas necesarias
+    const totalRoutes = sellers!.length * hospitals!.length
+    const cachedRoutes = cacheData?.length || 0
+    const missingRoutes = Math.max(0, totalRoutes - cachedRoutes)
     
     // 5. Estimar tiempo y costo
     const apiCallsNeeded = missingRoutes
@@ -76,15 +41,15 @@ export async function GET() {
       preview: {
         totalKams: sellers?.length || 0,
         totalHospitals: hospitals?.length || 0,
-        totalRoutesNeeded: estimatedTotalRoutes,
+        totalRoutesNeeded: totalRoutes,
         routesInCache: cachedRoutes,
         missingRoutes: missingRoutes,
         googleMapsApiCalls: apiCallsNeeded,
         estimatedTimeSeconds: estimatedTime,
         estimatedCostUSD: estimatedCost,
         cacheInfo: {
-          percentage: ((cachedRoutes / estimatedTotalRoutes) * 100).toFixed(1),
-          lastUpdate: latestCache?.[0]?.created_at || 'N/A'
+          percentage: ((cachedRoutes / totalRoutes) * 100).toFixed(1),
+          lastUpdate: cacheData?.[0]?.created_at || 'N/A'
         }
       }
     })

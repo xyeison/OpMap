@@ -1,22 +1,22 @@
 import { NextResponse } from 'next/server'
-import { OpMapAlgorithmBogotaFixed } from '@/lib/opmap-algorithm-bogota-fixed'
+import { SimplifiedOpMapAlgorithm } from '@/lib/opmap-algorithm-simplified'
 
 export async function POST() {
   try {
-    // Inicializar algoritmo con Bogotá corregido
-    const algorithm = new OpMapAlgorithmBogotaFixed()
-    await algorithm.initialize()
+    // Inicializar algoritmo simplificado que usa hospital_kam_distances
+    const algorithm = new SimplifiedOpMapAlgorithm()
+    await algorithm.loadData()
     
-    // Calcular asignaciones
+    // Calcular asignaciones usando tiempos precalculados
     const assignments = await algorithm.calculateAssignments()
     
     // Guardar en base de datos
-    const saved = await algorithm.saveAssignments(assignments)
+    await algorithm.saveAssignments(assignments)
     
     return NextResponse.json({
       success: true,
-      message: `Se recalcularon y guardaron ${saved} asignaciones`,
-      assignments: saved
+      message: `Se recalcularon y guardaron ${assignments.length} asignaciones`,
+      assignments: assignments.length
     })
   } catch (error) {
     console.error('Error recalculating assignments:', error)

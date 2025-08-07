@@ -30,10 +30,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: hospitalsError.message }, { status: 500 })
     }
 
-    // Get all active KAMs
+    // Get all active KAMs with their max_travel_time
     const { data: kams, error: kamsError } = await supabase
       .from('kams')
-      .select('id, name, lat, lng')
+      .select('id, name, lat, lng, max_travel_time')
       .eq('active', true)
 
     if (kamsError) {
@@ -64,15 +64,25 @@ export async function GET(request: NextRequest) {
             return {
               kam_id: kam.id,
               kam_name: kam.name,
-              travel_time: cacheData?.travel_time || null
+              travel_time: cacheData?.travel_time || null,
+              max_travel_time: kam.max_travel_time || 240
             }
           })
         )
 
-        // Sort by travel time (shortest first)
+        // Sort by travel time (shortest first), but keep ALL KAMs even without times
         const sortedTimes = travelTimes
-          .filter(tt => tt.travel_time !== null)
-          .sort((a, b) => (a.travel_time || 0) - (b.travel_time || 0))
+          .sort((a, b) => {
+            // Si ambos tienen tiempo, ordenar por tiempo
+            if (a.travel_time !== null && b.travel_time !== null) {
+              return a.travel_time - b.travel_time
+            }
+            // Si solo uno tiene tiempo, ese va primero
+            if (a.travel_time !== null) return -1
+            if (b.travel_time !== null) return 1
+            // Si ninguno tiene tiempo, mantener orden original
+            return 0
+          })
 
         return {
           ...hospital,

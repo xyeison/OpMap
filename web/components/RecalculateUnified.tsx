@@ -31,8 +31,8 @@ export default function RecalculateUnified() {
     setDetails(null)
 
     try {
-      // Usar el algoritmo original que YA funciona
-      const response = await fetch('/api/recalculate-original', {
+      // Usar el algoritmo simplificado mejorado
+      const response = await fetch('/api/recalculate-simplified', {
         method: 'POST',
       })
 
@@ -71,101 +71,149 @@ export default function RecalculateUnified() {
   }
 
   return (
-    <div className="bg-white p-6 rounded-lg shadow">
-      <h3 className="text-lg font-semibold mb-4">Sistema de Asignación Territorial</h3>
-      
-      <div className="space-y-4">
-        <div className="text-sm text-gray-600">
-          <p className="mb-2 font-medium">El algoritmo OpMap asigna hospitales a KAMs considerando:</p>
-          <ul className="list-disc list-inside space-y-1 ml-2">
-            <li><strong>Territorio base</strong>: Cada KAM tiene prioridad en su municipio/localidad</li>
-            <li><strong>Expansión geográfica</strong>: 
-              <ul className="ml-4 mt-1 text-xs">
-                <li>• Nivel 1: Departamentos limítrofes directos</li>
-                <li>• Nivel 2: Departamentos limítrofes de los limítrofes</li>
-              </ul>
-            </li>
-            <li><strong>Tiempos de viaje</strong>: Máximo 4 horas por carretera</li>
-            <li><strong>Competencia</strong>: El KAM más cercano gana el territorio</li>
-            <li><strong>Regla de mayoría</strong>: En territorios compartidos, gana quien tenga más hospitales</li>
-          </ul>
+    <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-8">      
+      <div className="space-y-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-xl font-bold text-gray-900">Recálculo de Asignaciones</h3>
+            <p className="text-sm text-gray-600 mt-1">Actualiza las asignaciones territoriales con Google Maps</p>
+          </div>
+          <div className="w-12 h-12 bg-gradient-to-br from-gray-700 to-gray-900 rounded-xl flex items-center justify-center">
+            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+            </svg>
+          </div>
         </div>
-
-        <div className="bg-blue-50 p-3 rounded text-sm">
-          <p className="font-medium text-blue-900 mb-1">Nota sobre nuevos KAMs:</p>
-          <p className="text-blue-700">Al agregar un nuevo KAM, ejecute este recálculo para que compita por hospitales en departamentos limítrofes según las reglas del algoritmo.</p>
-        </div>
-
+        
         <button
           onClick={handleRecalculate}
           disabled={loading}
-          className={`w-full px-4 py-3 rounded font-medium transition-colors ${
+          className={`w-full px-6 py-4 rounded-xl font-medium transition-all duration-200 ${
             loading 
-              ? 'bg-gray-400 cursor-not-allowed' 
-              : 'bg-blue-600 hover:bg-blue-700 text-white'
+              ? 'bg-gray-200 text-gray-400 cursor-not-allowed' 
+              : 'bg-gray-900 text-white hover:bg-black transform hover:-translate-y-0.5 shadow-lg hover:shadow-xl'
           }`}
         >
           {loading ? (
             <span className="flex items-center justify-center">
-              <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <svg className="animate-spin -ml-1 mr-3 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
               </svg>
               Procesando...
             </span>
           ) : (
-            '🔄 Recalcular Asignaciones'
+            <span className="flex items-center justify-center">
+              <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+              </svg>
+              Recalcular Asignaciones
+            </span>
           )}
         </button>
 
         {message && (
-          <div className={`p-3 rounded text-sm ${
-            message.includes('✅') ? 'bg-green-100 text-green-800' : 
-            message.includes('❌') ? 'bg-red-100 text-red-800' : 
-            'bg-blue-100 text-blue-800'
+          <div className={`p-5 rounded-xl text-sm font-medium flex items-center gap-3 shadow-md ${
+            message.includes('✅') ? 'bg-gray-50 border border-gray-300 text-gray-800' : 
+            message.includes('❌') ? 'bg-gray-100 border border-gray-400 text-gray-900' : 
+            'bg-gray-50 border border-gray-200 text-gray-700'
           }`}>
-            {message}
+            {message.includes('✅') && (
+              <svg className="w-5 h-5 text-gray-700 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+              </svg>
+            )}
+            {message.includes('❌') && (
+              <svg className="w-5 h-5 text-gray-800 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+              </svg>
+            )}
+            <span>{message.replace('✅', '').replace('❌', '').trim()}</span>
           </div>
         )}
 
         {details && (
-          <div className="bg-gray-100 p-3 rounded text-sm">
-            <h4 className="font-semibold mb-2">Resumen del recálculo:</h4>
-            <ul className="space-y-1">
-              <li>• Total asignaciones: {details.totalAssignments}</li>
-              <li>• Cache hits: {details.cacheHits}</li>
-              <li>• Cache misses: {details.cacheMisses}</li>
+          <div className="bg-gray-50 border border-gray-300 rounded-xl p-6 shadow-inner">
+            <h4 className="font-semibold text-sm text-gray-700 mb-4 flex items-center">
+              <svg className="w-4 h-4 mr-2 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+              </svg>
+              Resumen de Operación
+            </h4>
+            <div className="space-y-3 text-sm">
+              <div className="flex justify-between">
+                <span>Total asignaciones:</span>
+                <span>{details.totalAssignments}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Cache hits:</span>
+                <span>{details.cacheHits}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Cache misses:</span>
+                <span>{details.cacheMisses}</span>
+              </div>
               {details.googleCalculations !== undefined && (
-                <li className="text-green-600 font-bold">• Llamadas a Google Maps API: {details.googleCalculations}</li>
+                <div className="flex justify-between font-semibold">
+                  <span>Google Maps API:</span>
+                  <span>{details.googleCalculations}</span>
+                </div>
               )}
               {details.hospitalsWithoutTravelTime !== undefined && (
-                <li>• Hospitales sin tiempo de viaje: {details.hospitalsWithoutTravelTime}</li>
+                <div className="flex justify-between">
+                  <span>Sin tiempo de viaje:</span>
+                  <span>{details.hospitalsWithoutTravelTime}</span>
+                </div>
               )}
               {details.totalHospitals !== undefined && (
-                <li>• Total hospitales activos: {details.totalHospitals}</li>
+                <div className="flex justify-between">
+                  <span>Hospitales activos:</span>
+                  <span>{details.totalHospitals}</span>
+                </div>
               )}
               {details.assignedHospitals !== undefined && (
-                <li>• Hospitales asignados: {details.assignedHospitals}</li>
+                <div className="flex justify-between">
+                  <span>Hospitales asignados:</span>
+                  <span>{details.assignedHospitals}</span>
+                </div>
               )}
               {details.unassignedHospitals !== undefined && (
-                <li>• Hospitales sin asignar: {details.unassignedHospitals}</li>
+                <div className="flex justify-between">
+                  <span>Hospitales sin asignar:</span>
+                  <span>{details.unassignedHospitals}</span>
+                </div>
               )}
               {details.newTravelTimes !== undefined && (
-                <li>• Nuevos tiempos calculados con Google Maps: {details.newTravelTimes}</li>
+                <div className="flex justify-between">
+                  <span>Nuevos tiempos Google Maps:</span>
+                  <span>{details.newTravelTimes}</span>
+                </div>
               )}
               {details.existingTravelTimes !== undefined && (
-                <li>• Tiempos ya existentes en caché: {details.existingTravelTimes}</li>
+                <div className="flex justify-between">
+                  <span>Tiempos en caché:</span>
+                  <span>{details.existingTravelTimes}</span>
+                </div>
               )}
               {details.routesCalculated !== undefined && (
-                <li>• Rutas calculadas: {details.routesCalculated}</li>
+                <div className="flex justify-between">
+                  <span>Rutas calculadas:</span>
+                  <span>{details.routesCalculated}</span>
+                </div>
               )}
               {details.routesPending !== undefined && details.routesPending > 0 && (
-                <li className="text-orange-600">• Rutas pendientes: {details.routesPending}</li>
+                <div className="flex justify-between text-gray-700 font-semibold">
+                  <span>Rutas pendientes:</span>
+                  <span>{details.routesPending}</span>
+                </div>
               )}
               {details.failedCalculations > 0 && (
-                <li className="text-red-600">• Cálculos fallidos: {details.failedCalculations}</li>
+                <div className="flex justify-between text-gray-800 font-semibold">
+                  <span>Cálculos fallidos:</span>
+                  <span>{details.failedCalculations}</span>
+                </div>
               )}
-            </ul>
+            </div>
           </div>
         )}
       </div>

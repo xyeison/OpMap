@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
-import ContractsListSimple from '@/components/ContractsListSimple'
+import ContractsInlineManager from '@/components/ContractsInlineManager'
 import { useQueryClient } from '@tanstack/react-query'
 
 export default function HospitalDetailPage() {
@@ -17,7 +17,6 @@ export default function HospitalDetailPage() {
   const [hospital, setHospital] = useState<any>(null)
   const [kam, setKam] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [showContracts, setShowContracts] = useState(false)
   const [showDeactivateModal, setShowDeactivateModal] = useState(false)
   const [deactivateReason, setDeactivateReason] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -26,6 +25,8 @@ export default function HospitalDetailPage() {
   const [municipalityName, setMunicipalityName] = useState('')
   const [departmentName, setDepartmentName] = useState('')
   const [kamMunicipalityName, setKamMunicipalityName] = useState('')
+  const [editingDoctors, setEditingDoctors] = useState(false)
+  const [doctors, setDoctors] = useState('')
 
   useEffect(() => {
     loadHospitalData()
@@ -42,6 +43,7 @@ export default function HospitalDetailPage() {
       
       if (hospitalData) {
         setHospital(hospitalData)
+        setDoctors(hospitalData.doctors || '')
         
         // Cargar nombre del municipio
         const { data: municipality } = await supabase
@@ -258,24 +260,21 @@ export default function HospitalDetailPage() {
     <ProtectedRoute>
       <div className="container mx-auto p-6">
         {/* Header */}
-        <div className="flex justify-between items-start mb-6">
+        <div className="flex justify-between items-start mb-8">
           <div>
             <button
               onClick={() => router.push('/hospitals')}
-              className="text-blue-600 hover:text-blue-800 mb-4 flex items-center gap-2"
+              className="text-gray-700 hover:text-gray-900 mb-4 flex items-center gap-2 font-medium"
             >
-              ← Volver a hospitales
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path>
+              </svg>
+              Volver a hospitales
             </button>
-            <h1 className="text-3xl font-bold">{hospital.name}</h1>
-            <p className="text-gray-600">Código: {hospital.code}</p>
+            <h1 className="text-4xl font-bold text-gray-900">{hospital.name}</h1>
+            <p className="text-gray-600 mt-2">Código NIT: {hospital.code}</p>
           </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setShowContracts(true)}
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-            >
-              Gestionar Contratos/Oportunidades
-            </button>
+          <div className="flex gap-3">
             <PermissionGuard permission="hospitals:edit">
               <button
                 onClick={() => {
@@ -285,10 +284,10 @@ export default function HospitalDetailPage() {
                     handleToggleActive()
                   }
                 }}
-                className={`px-4 py-2 rounded ${
+                className={`px-6 py-3 rounded-lg font-medium transition-all hover:shadow-md ${
                   hospital.active 
-                    ? 'bg-red-600 text-white hover:bg-red-700' 
-                    : 'bg-green-600 text-white hover:bg-green-700'
+                    ? 'bg-gray-700 text-white hover:bg-gray-900' 
+                    : 'bg-gray-900 text-white hover:bg-black'
                 }`}
               >
                 {hospital.active ? 'Desactivar Hospital' : 'Activar Hospital'}
@@ -299,8 +298,8 @@ export default function HospitalDetailPage() {
 
         {/* Información general */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-semibold mb-4">Información General</h2>
+          <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6">
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Información General</h2>
             <div className="space-y-3">
               <div>
                 <span className="text-gray-600">Municipio:</span>
@@ -320,7 +319,7 @@ export default function HospitalDetailPage() {
               </div>
               <div>
                 <span className="text-gray-600">Estado:</span>
-                <span className={`ml-2 font-medium ${hospital.active ? 'text-green-600' : 'text-red-600'}`}>
+                <span className={`ml-2 font-medium ${hospital.active ? 'text-gray-900' : 'text-gray-500'}`}>
                   {hospital.active ? 'Activo' : 'Inactivo'}
                 </span>
               </div>
@@ -328,10 +327,10 @@ export default function HospitalDetailPage() {
                 <span className="text-gray-600">Tipo:</span>
                 <span className="ml-2 font-medium">
                   {hospital.type ? (
-                    <span className={`px-2 py-1 rounded text-xs ${
-                      hospital.type === 'Publico' ? 'bg-blue-100 text-blue-800' :
-                      hospital.type === 'Privada' ? 'bg-purple-100 text-purple-800' :
-                      'bg-green-100 text-green-800'
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                      hospital.type === 'Publico' ? 'bg-gray-200 text-gray-800' :
+                      hospital.type === 'Privada' ? 'bg-gray-800 text-white' :
+                      'bg-gray-100 text-gray-700'
                     }`}>
                       {hospital.type}
                     </span>
@@ -343,8 +342,8 @@ export default function HospitalDetailPage() {
             </div>
           </div>
 
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-semibold mb-4">KAM Asignado</h2>
+          <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6">
+            <h2 className="text-xl font-bold text-gray-900 mb-4">KAM Asignado</h2>
             {kam ? (
               <div className="space-y-3">
                 <div>
@@ -370,33 +369,100 @@ export default function HospitalDetailPage() {
           </div>
         </div>
 
-        {/* Estadísticas de Contratos */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold mb-4">Contratos</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="text-center p-4">
-              <p className="text-3xl font-bold text-blue-600">{contractStats.activeCount}</p>
-              <p className="text-gray-600">Contratos activos</p>
-            </div>
-            <div className="text-center p-4">
-              <p className="text-3xl font-bold text-green-600">
-                ${contractStats.totalValue.toLocaleString('es-CO')}
-              </p>
-              <p className="text-gray-600">Valor total contratos</p>
-            </div>
+        {/* Doctores */}
+        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6 mb-8">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-bold text-gray-900">Doctores</h2>
+            <PermissionGuard permission="hospitals:edit">
+              {!editingDoctors && (
+                <button
+                  onClick={() => setEditingDoctors(true)}
+                  className="px-4 py-2 text-sm bg-gray-900 text-white rounded-lg hover:bg-black transition-all"
+                >
+                  Editar
+                </button>
+              )}
+            </PermissionGuard>
           </div>
+          {editingDoctors ? (
+            <div>
+              <textarea
+                className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent"
+                rows={6}
+                value={doctors}
+                onChange={(e) => setDoctors(e.target.value)}
+                placeholder="Ingrese los nombres de los doctores, uno por línea..."
+              />
+              <div className="flex gap-2 mt-3">
+                <button
+                  onClick={async () => {
+                    try {
+                      const { error } = await supabase
+                        .from('hospitals')
+                        .update({ doctors })
+                        .eq('id', hospitalId)
+                      
+                      if (error) throw error
+                      
+                      setHospital({ ...hospital, doctors })
+                      setEditingDoctors(false)
+                      alert('Doctores actualizados exitosamente')
+                    } catch (error) {
+                      console.error('Error updating doctors:', error)
+                      alert('Error al actualizar doctores')
+                    }
+                  }}
+                  className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-black transition-all"
+                >
+                  Guardar
+                </button>
+                <button
+                  onClick={() => {
+                    setDoctors(hospital.doctors || '')
+                    setEditingDoctors(false)
+                  }}
+                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-all"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="text-gray-700 whitespace-pre-wrap">
+              {doctors || <span className="text-gray-400 italic">No hay doctores registrados</span>}
+            </div>
+          )}
         </div>
 
-        {/* Modal de contratos */}
-        {showContracts && (
-          <ContractsListSimple
-            hospitalId={hospitalId}
-            onClose={() => {
-              setShowContracts(false)
-              loadHospitalData() // Recargar datos para actualizar estadísticas
-            }}
-          />
-        )}
+        {/* Contratos y Oportunidades */}
+        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6 mb-8">
+          <h2 className="text-xl font-bold text-gray-900 mb-6">Contratos y Oportunidades</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+            <div className="text-center p-6 bg-gray-50 rounded-xl">
+              <p className="text-3xl font-bold text-gray-900">{contractStats.activeCount}</p>
+              <p className="text-gray-600 mt-2">Contratos activos</p>
+            </div>
+            <div className="text-center p-6 bg-gray-50 rounded-xl">
+              <p className="text-3xl font-bold text-gray-900">
+                ${contractStats.totalValue.toLocaleString('es-CO')}
+              </p>
+              <p className="text-gray-600 mt-2">Valor total contratos</p>
+            </div>
+          </div>
+          <PermissionGuard permission="contracts:edit" fallback={
+            <div className="text-center py-8 text-gray-500">
+              No tienes permisos para gestionar contratos
+            </div>
+          }>
+            <ContractsInlineManager
+              hospitalId={hospitalId}
+              onUpdate={() => {
+                loadHospitalData() // Recargar datos para actualizar estadísticas
+              }}
+            />
+          </PermissionGuard>
+        </div>
+
 
         {/* Modal de confirmación para desactivar */}
         {showDeactivateModal && (

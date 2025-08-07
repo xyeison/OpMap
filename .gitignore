@@ -52,3 +52,10 @@ backup_*/
 # Temporary files
 *.tmp
 *.temp
+
+# Archivos sensibles y temporales
+Trash/
+backups/
+*.backup
+.env.local
+.env.production

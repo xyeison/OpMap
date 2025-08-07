@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useVisits } from '@/hooks/useVisits'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
+import { supabase } from '@/lib/supabase'
 
 interface VisitsControlsProps {
   onVisitsChange?: (visits: any[]) => void
@@ -25,14 +26,38 @@ export default function VisitsControls({
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
   const [visitTypeFilter, setVisitTypeFilter] = useState('all')
   const [contactTypeFilter, setContactTypeFilter] = useState('all')
+  const [multipleMonthsMode, setMultipleMonthsMode] = useState(false)
+  const [selectedMonths, setSelectedMonths] = useState<number[]>([new Date().getMonth() + 1])
+  const [selectedKams, setSelectedKams] = useState<string[]>([]) // KAMs seleccionados para mostrar
+  const [availableKams, setAvailableKams] = useState<{id: string, name: string, color: string}[]>([]) // KAMs disponibles
 
   // Cargar visitas con filtros
   const { data: visits, isLoading: visitsLoading } = useVisits({
-    month: selectedMonth,
+    month: multipleMonthsMode ? undefined : selectedMonth,
+    months: multipleMonthsMode ? selectedMonths : undefined, 
     year: selectedYear,
     visitType: visitTypeFilter === 'all' ? undefined : visitTypeFilter,
-    contactType: contactTypeFilter === 'all' ? undefined : contactTypeFilter
+    contactType: contactTypeFilter === 'all' ? undefined : contactTypeFilter,
+    kamIds: selectedKams.length > 0 ? selectedKams : undefined
   })
+
+  // Cargar KAMs disponibles al montar el componente
+  useEffect(() => {
+    const loadKams = async () => {
+      const { data: kams } = await supabase
+        .from('kams')
+        .select('id, name, color')
+        .eq('active', true)
+        .order('name')
+      
+      if (kams) {
+        setAvailableKams(kams)
+        // Por defecto, seleccionar todos los KAMs
+        setSelectedKams(kams.map(k => k.id))
+      }
+    }
+    loadKams()
+  }, [])
 
   // Notificar cambios
   useEffect(() => {
@@ -70,35 +95,90 @@ export default function VisitsControls({
         <div className="absolute top-4 left-4 z-[1000] bg-white p-4 rounded-lg shadow-lg max-w-sm">
           <h3 className="font-bold text-lg mb-3">Control de Visitas</h3>
           
-          {/* Filtros de fecha */}
-          <div className="grid grid-cols-2 gap-2 mb-3">
-            <div>
-              <label className="text-xs font-medium text-gray-700">Mes</label>
-              <select
-                value={selectedMonth}
-                onChange={(e) => setSelectedMonth(Number(e.target.value))}
-                className="w-full px-2 py-1 text-sm border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                {[...Array(12)].map((_, i) => (
-                  <option key={i + 1} value={i + 1}>
-                    {format(new Date(2000, i, 1), 'MMMM', { locale: es })}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="text-xs font-medium text-gray-700">Año</label>
-              <select
-                value={selectedYear}
-                onChange={(e) => setSelectedYear(Number(e.target.value))}
-                className="w-full px-2 py-1 text-sm border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                {[2023, 2024, 2025].map(year => (
-                  <option key={year} value={year}>{year}</option>
-                ))}
-              </select>
-            </div>
+          {/* Modo de selección de meses */}
+          <div className="mb-3">
+            <label className="flex items-center text-sm mb-2">
+              <input
+                type="checkbox"
+                checked={multipleMonthsMode}
+                onChange={(e) => {
+                  setMultipleMonthsMode(e.target.checked)
+                  if (!e.target.checked) {
+                    setSelectedMonths([selectedMonth])
+                  }
+                }}
+                className="mr-2"
+              />
+              Seleccionar múltiples meses
+            </label>
           </div>
+
+          {/* Filtros de fecha */}
+          {!multipleMonthsMode ? (
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              <div>
+                <label className="text-xs font-medium text-gray-700">Mes</label>
+                <select
+                  value={selectedMonth}
+                  onChange={(e) => setSelectedMonth(Number(e.target.value))}
+                  className="w-full px-2 py-1 text-sm border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {[...Array(12)].map((_, i) => (
+                    <option key={i + 1} value={i + 1}>
+                      {format(new Date(2000, i, 1), 'MMMM', { locale: es })}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-700">Año</label>
+                <select
+                  value={selectedYear}
+                  onChange={(e) => setSelectedYear(Number(e.target.value))}
+                  className="w-full px-2 py-1 text-sm border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {[2023, 2024, 2025].map(year => (
+                    <option key={year} value={year}>{year}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          ) : (
+            <div className="mb-3">
+              <label className="text-xs font-medium text-gray-700 mb-1 block">Meses seleccionados</label>
+              <div className="grid grid-cols-3 gap-1">
+                {[...Array(12)].map((_, i) => (
+                  <label key={i + 1} className="flex items-center text-xs">
+                    <input
+                      type="checkbox"
+                      checked={selectedMonths.includes(i + 1)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedMonths([...selectedMonths, i + 1])
+                        } else {
+                          setSelectedMonths(selectedMonths.filter(m => m !== i + 1))
+                        }
+                      }}
+                      className="mr-1"
+                    />
+                    {format(new Date(2000, i, 1), 'MMM', { locale: es })}
+                  </label>
+                ))}
+              </div>
+              <div className="mt-2">
+                <label className="text-xs font-medium text-gray-700">Año</label>
+                <select
+                  value={selectedYear}
+                  onChange={(e) => setSelectedYear(Number(e.target.value))}
+                  className="w-full px-2 py-1 text-sm border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {[2023, 2024, 2025].map(year => (
+                    <option key={year} value={year}>{year}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
 
           {/* Filtros de tipo */}
           <div className="space-y-2 mb-3">
@@ -126,6 +206,44 @@ export default function VisitsControls({
                 <option value="Visita presencial">Presencial</option>
                 <option value="Visita virtual">Virtual</option>
               </select>
+            </div>
+          </div>
+
+          {/* Filtro de KAMs */}
+          <div className="mb-3">
+            <label className="text-xs font-medium text-gray-700 mb-1 block">
+              KAMs a mostrar
+              <button
+                onClick={() => setSelectedKams(selectedKams.length === availableKams.length ? [] : availableKams.map(k => k.id))}
+                className="ml-2 text-blue-600 hover:text-blue-800"
+              >
+                ({selectedKams.length === availableKams.length ? 'Ninguno' : 'Todos'})
+              </button>
+            </label>
+            <div className="max-h-32 overflow-y-auto border rounded p-2">
+              <div className="grid grid-cols-2 gap-1">
+                {availableKams.map(kam => (
+                  <label key={kam.id} className="flex items-center text-xs">
+                    <input
+                      type="checkbox"
+                      checked={selectedKams.includes(kam.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedKams([...selectedKams, kam.id])
+                        } else {
+                          setSelectedKams(selectedKams.filter(k => k !== kam.id))
+                        }
+                      }}
+                      className="mr-1"
+                    />
+                    <span 
+                      className="w-2 h-2 rounded-full mr-1" 
+                      style={{ backgroundColor: kam.color }}
+                    />
+                    {kam.name}
+                  </label>
+                ))}
+              </div>
             </div>
           </div>
 

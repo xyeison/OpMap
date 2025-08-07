@@ -240,26 +240,37 @@ export default function HospitalsPage() {
   return (
     <ProtectedRoute>
       <div className="container mx-auto p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-3xl font-bold">Hospitales / IPS</h2>
+      <div className="flex justify-between items-center mb-8">
+        <div>
+          <h1 className="text-4xl font-bold text-gray-900">Hospitales / IPS</h1>
+          <p className="text-gray-600 mt-2">Gestión de instituciones prestadoras de salud</p>
+        </div>
         <PermissionGuard permission="hospitals:edit">
           <button 
             onClick={() => setShowAddModal(true)}
-            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+            className="px-6 py-3 bg-gray-900 text-white rounded-lg hover:bg-black transform hover:-translate-y-0.5 transition-all duration-200 shadow-md hover:shadow-lg font-medium flex items-center gap-2"
           >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
+            </svg>
             Agregar Hospital
           </button>
         </PermissionGuard>
       </div>
 
-      <div className="mb-4">
-        <input
-          type="text"
-          placeholder="Buscar por nombre o código..."
-          className="w-full max-w-md px-4 py-2 border rounded-lg"
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-        />
+      <div className="mb-6 bg-white rounded-2xl shadow-lg border border-gray-100 p-6">
+        <div className="flex items-center gap-3">
+          <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+          </svg>
+          <input
+            type="text"
+            placeholder="Buscar por nombre o código..."
+            className="w-full max-w-md px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent transition-all bg-white"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
       </div>
 
       {/* Vista móvil */}
@@ -277,9 +288,9 @@ export default function HospitalsPage() {
               {hospital.type && (
                 <p>
                   Tipo: <span className={`px-2 py-1 rounded text-xs ${
-                    hospital.type === 'Publico' ? 'bg-blue-100 text-blue-800' :
-                    hospital.type === 'Privada' ? 'bg-purple-100 text-purple-800' :
-                    'bg-green-100 text-green-800'
+                    hospital.type === 'Publico' ? 'bg-gray-200 text-gray-800' :
+                    hospital.type === 'Privada' ? 'bg-gray-800 text-white' :
+                    'bg-gray-100 text-gray-700'
                   }`}>
                     {hospital.type}
                   </span>
@@ -291,7 +302,7 @@ export default function HospitalsPage() {
                 console.log('Navigating to hospital:', hospital.id);
                 window.location.href = `/hospitals/${hospital.id}`;
               }}
-              className="w-full px-3 py-2 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded"
+              className="w-full px-3 py-2 text-sm bg-gray-900 text-white hover:bg-black rounded transition-colors"
             >
               Ver detalle del hospital
             </button>
@@ -300,20 +311,20 @@ export default function HospitalsPage() {
       </div>
 
       {/* Vista desktop */}
-      <div className="hidden md:block bg-white rounded-lg shadow overflow-x-auto">
+      <div className="hidden md:block bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
         <table className="min-w-full">
-          <thead className="bg-gray-50">
+          <thead className="bg-gray-100">
             <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
                 Hospital
               </th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">
                 Municipio
               </th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
                 KAM Asignado
               </th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
                 Tipo
               </th>
               <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -333,17 +344,17 @@ export default function HospitalsPage() {
                 <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 hidden lg:table-cell">
                   {hospital.municipality_id}
                 </td>
-                <td className="px-4 py-4 whitespace-nowrap text-sm">
+                <td className="px-6 py-4 whitespace-nowrap text-sm">
                   <span className="text-gray-900">
                     {hospital.assigned_kam_name || '-'}
                   </span>
                 </td>
-                <td className="px-4 py-4 whitespace-nowrap text-sm">
+                <td className="px-6 py-4 whitespace-nowrap text-sm">
                   {hospital.type ? (
-                    <span className={`px-2 py-1 rounded text-xs ${
-                      hospital.type === 'Publico' ? 'bg-blue-100 text-blue-800' :
-                      hospital.type === 'Privada' ? 'bg-purple-100 text-purple-800' :
-                      'bg-green-100 text-green-800'
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                      hospital.type === 'Publico' ? 'bg-gray-200 text-gray-800' :
+                      hospital.type === 'Privada' ? 'bg-gray-800 text-white' :
+                      'bg-gray-100 text-gray-700'
                     }`}>
                       {hospital.type}
                     </span>
@@ -357,7 +368,7 @@ export default function HospitalsPage() {
                       console.log('Navigating to hospital:', hospital.id);
                       window.location.href = `/hospitals/${hospital.id}`;
                     }}
-                    className="px-3 py-1 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded cursor-pointer"
+                    className="px-4 py-2 text-sm bg-gray-900 text-white hover:bg-black rounded-lg transition-all hover:shadow-md cursor-pointer"
                   >
                     Ver detalle
                   </button>
@@ -376,9 +387,9 @@ export default function HospitalsPage() {
       {/* Modal para agregar hospital */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-2xl w-full max-h-[90vh] overflow-y-auto border border-gray-100">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-bold">Agregar Nuevo Hospital</h3>
+              <h3 className="text-2xl font-bold text-gray-900">Agregar Nuevo Hospital</h3>
               <button
                 onClick={() => {
                   setShowAddModal(false)

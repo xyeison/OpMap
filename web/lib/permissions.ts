@@ -13,10 +13,11 @@ export type Permission =
   | 'contracts:edit'
   | 'recalculate:simple'
   | 'recalculate:complete'
-  | 'diagnostics:view'
   | 'users:manage'
   | 'visits:view'
   | 'visits:manage'
+  | 'territories:view'
+  | 'territories:manage'
 
 // Definición de permisos por rol
 export const rolePermissions: Record<Role, Permission[]> = {
@@ -31,15 +32,19 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'contracts:edit',
     'recalculate:simple',
     'recalculate:complete',
-    'diagnostics:view',
     'users:manage',
     'visits:view',
-    'visits:manage'
+    'visits:manage',
+    'territories:view',
+    'territories:manage'
   ],
   sales_manager: [
+    'dashboard:view',
     'map:view',
     'hospitals:view',  // Solo ver hospitales, NO editar
-    'contracts:view'   // Solo ver contratos, NO editar
+    'contracts:view',  // Solo ver contratos, NO editar
+    'territories:view',
+    'territories:manage'
   ],
   contract_manager: [
     'map:view',
@@ -92,9 +97,9 @@ export function getAllowedRoutes(role: Role | undefined): string[] {
   if (permissions.includes('hospitals:view')) routes.push('/hospitals', '/hospitals/[id]')
   if (permissions.includes('kams:view')) routes.push('/kams')
   if (permissions.includes('contracts:view')) routes.push('/contracts')
-  if (permissions.includes('diagnostics:view')) routes.push('/diagnostics')
   if (permissions.includes('users:manage')) routes.push('/users')
   if (permissions.includes('visits:view')) routes.push('/visits')
+  if (permissions.includes('territories:view')) routes.push('/territories', '/territories/[id]')
   
   return routes
 }
@@ -108,6 +113,11 @@ export function getNavigationMenu(role: Role | undefined) {
   
   if (permissions.includes('dashboard:view')) {
     menu.push({ name: 'Dashboard', href: '/', icon: 'home' })
+  }
+  
+  // Municipios como segundo ítem después de Dashboard
+  if (permissions.includes('territories:view')) {
+    menu.push({ name: 'Municipios', href: '/territories', icon: 'map' })
   }
   
   if (permissions.includes('map:view')) {
@@ -124,10 +134,6 @@ export function getNavigationMenu(role: Role | undefined) {
   
   if (permissions.includes('contracts:view')) {
     menu.push({ name: 'Contratos', href: '/contracts', icon: 'document' })
-  }
-  
-  if (permissions.includes('diagnostics:view')) {
-    menu.push({ name: 'Diagnóstico', href: '/diagnostics', icon: 'chart' })
   }
   
   if (permissions.includes('users:manage')) {

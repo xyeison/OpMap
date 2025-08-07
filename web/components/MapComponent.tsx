@@ -8,6 +8,11 @@ import 'leaflet/dist/leaflet.css'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { VisitsHeatmapLayer } from './VisitsHeatmapLayer'
+import { formatTravelTimeFromSeconds, formatTravelTime } from '@/lib/format-utils'
+import MapControls from './MapControls'
+import MapController from './MapController'
+import HospitalMarker from './HospitalMarker'
+import MapNavMenu from './MapNavMenu'
 // NO usar estimaciones - solo datos reales de Google Maps
 
 // Fix for default markers in Next.js
@@ -26,30 +31,28 @@ if (typeof window !== 'undefined' && !document.querySelector('link[href*="fontaw
   document.head.appendChild(link)
 }
 
-// Mapeo específico de colores por KAM (igual que en Python)
-const KAM_COLOR_MAPPING: Record<string, string> = {
-  'barranquilla': '#FF6B6B',  // Rojo coral
-  'bucaramanga': '#4ECDC4',   // Turquesa
-  'cali': '#45B7D1',          // Azul cielo
-  'cartagena': '#96CEB4',     // Verde menta
-  'cucuta': '#FECA57',        // Amarillo dorado
-  'medellin': '#FF9FF3',      // Rosa
-  'monteria': '#54A0FF',      // Azul brillante
-  'neiva': '#8B4513',         // Marrón
-  'pasto': '#1DD1A1',         // Verde esmeralda
-  'pereira': '#FF7675',       // Rojo claro
-  'sincelejo': '#A29BFE',     // Lavanda
-  'chapinero': '#FD79A8',     // Rosa chicle
-  'engativa': '#FDCB6E',      // Amarillo
-  'sancristobal': '#6C5CE7',  // Púrpura
-  'kennedy': '#00D2D3',       // Cian
-  'valledupar': '#2ECC71'     // Verde
+// Add CSS for custom KAM markers
+if (typeof window !== 'undefined' && !document.querySelector('#custom-kam-marker-styles')) {
+  const style = document.createElement('style')
+  style.id = 'custom-kam-marker-styles'
+  style.innerHTML = `
+    .custom-kam-marker {
+      cursor: pointer !important;
+      pointer-events: auto !important;
+    }
+    .custom-kam-marker:hover {
+      z-index: 10000 !important;
+    }
+  `
+  document.head.appendChild(style)
 }
 
-// Colores de respaldo para KAMs adicionales
+// Colores de respaldo para KAMs sin color definido en la base de datos
 const BACKUP_COLORS = [
-  '#E74C3C', '#3498DB', '#2ECC71', '#F39C12', '#9B59B6',
-  '#1ABC9C', '#34495E', '#E67E22', '#16A085', '#8E44AD'
+  '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FECA57',
+  '#FF9FF3', '#54A0FF', '#8B4513', '#1DD1A1', '#FF7675',
+  '#A29BFE', '#FD79A8', '#FDCB6E', '#6C5CE7', '#00D2D3',
+  '#2ECC71', '#E74C3C', '#3498DB', '#F39C12', '#9B59B6'
 ]
 
 interface MapComponentProps {
@@ -58,11 +61,18 @@ interface MapComponentProps {
   showMarkers?: boolean
 }
 
-export default function MapComponent({ visits = [], showHeatmap = false, showMarkers = false }: MapComponentProps) {
+export default function MapComponent({ visits: initialVisits = [], showHeatmap: initialShowHeatmap = false, showMarkers: initialShowMarkers = false }: MapComponentProps) {
   const router = useRouter()
   const [territoryGeoJsons, setTerritoryGeoJsons] = useState<any[]>([])
   const [kamColors, setKamColors] = useState<Record<string, string>>({})
   const [unassignedTravelTimes, setUnassignedTravelTimes] = useState<Record<string, any[]>>({})
+  const [selectedHospitalId, setSelectedHospitalId] = useState<string | null>(null)
+  const [hospitalTypeFilter, setHospitalTypeFilter] = useState<string>('all') // 'all', 'Publico', 'Privada', 'Mixta'
+  const [visits, setVisits] = useState(initialVisits)
+  const [showHeatmap, setShowHeatmap] = useState(initialShowHeatmap)
+  const [showMarkers, setShowMarkers] = useState(initialShowMarkers)
+  const [mapCenter, setMapCenter] = useState<[number, number] | undefined>(undefined)
+  const [mapZoom, setMapZoom] = useState<number | undefined>(undefined)
   
   // Cargar datos
   const { data: mapData, isLoading } = useQuery({
@@ -74,7 +84,7 @@ export default function MapComponent({ visits = [], showHeatmap = false, showMar
         supabase.from('assignments').select('*, hospitals!inner(*), kams!inner(*)'),
         supabase.from('municipalities').select('id, name, population_2025'),
         supabase.from('hospitals').select('*').eq('active', true),
-        supabase.from('hospital_contracts').select('hospital_id, contract_value').eq('active', true)
+        supabase.from('hospital_contracts').select('hospital_id, contract_value, provider').eq('active', true)
       ])
       
       // Crear mapas de población y nombres por municipio
@@ -85,13 +95,21 @@ export default function MapComponent({ visits = [], showHeatmap = false, showMar
         municipalityNames[m.id] = m.name
       })
       
-      // Crear mapa de valores de contratos activos por hospital
+      // Crear mapa de valores de contratos activos y proveedores por hospital
       const contractValuesByHospital: Record<string, number> = {}
+      const contractProvidersByHospital: Record<string, string[]> = {}
+      
       contractsResult.data?.forEach(contract => {
         if (!contractValuesByHospital[contract.hospital_id]) {
           contractValuesByHospital[contract.hospital_id] = 0
+          contractProvidersByHospital[contract.hospital_id] = []
         }
         contractValuesByHospital[contract.hospital_id] += contract.contract_value
+        
+        // Agregar proveedor si existe y no está duplicado
+        if (contract.provider && !contractProvidersByHospital[contract.hospital_id].includes(contract.provider)) {
+          contractProvidersByHospital[contract.hospital_id].push(contract.provider)
+        }
       })
       
       // Identificar hospitales sin asignar (zonas vacantes)
@@ -105,12 +123,13 @@ export default function MapComponent({ visits = [], showHeatmap = false, showMar
         unassignedHospitals,
         populationMap,
         municipalityNames,
-        contractValuesByHospital
+        contractValuesByHospital,
+        contractProvidersByHospital
       }
     }
   })
 
-  // Asignar colores a KAMs basado en su ID/nombre
+  // Asignar colores a KAMs desde la base de datos
   useEffect(() => {
     if (!mapData) return
     
@@ -118,11 +137,11 @@ export default function MapComponent({ visits = [], showHeatmap = false, showMar
     let backupIdx = 0
     
     mapData.kams.forEach((kam) => {
-      // Usar el ID del KAM (que es como 'barranquilla', 'cali', etc.)
-      if (KAM_COLOR_MAPPING[kam.id]) {
-        colors[kam.id] = KAM_COLOR_MAPPING[kam.id]
+      // Usar el color del KAM desde la base de datos
+      if (kam.color && kam.color.startsWith('#')) {
+        colors[kam.id] = kam.color
       } else {
-        // Usar color de respaldo si no está en el mapeo
+        // Usar color de respaldo si no tiene color definido
         colors[kam.id] = BACKUP_COLORS[backupIdx % BACKUP_COLORS.length]
         backupIdx++
       }
@@ -137,17 +156,18 @@ export default function MapComponent({ visits = [], showHeatmap = false, showMar
 
     const fetchUnassignedTravelTimes = async () => {
       try {
-        // Usar la API optimizada que busca tiempos específicos por hospital
+        // Usar la API optimizada con la nueva tabla hospital_kam_distances
         const response = await fetch('/api/travel-times/unassigned-optimized')
         if (response.ok) {
           const data = await response.json()
           const timesMap: Record<string, any[]> = {}
           
-          console.log('Loaded REAL travel times for', data.total, 'unassigned hospitals')
-          console.log('Debug info:', data.debug)
+          console.log('Loaded travel times for', data.unassigned_hospitals?.length || 0, 'unassigned hospitals')
           
-          data.unassigned_hospitals.forEach((hospital: any) => {
-            timesMap[hospital.id] = hospital.travel_times
+          data.unassigned_hospitals?.forEach((hospital: any) => {
+            if (hospital.travel_times && hospital.travel_times.length > 0) {
+              timesMap[hospital.id] = hospital.travel_times
+            }
           })
           
           setUnassignedTravelTimes(timesMap)
@@ -169,7 +189,7 @@ export default function MapComponent({ visits = [], showHeatmap = false, showMar
     // Analizar asignaciones para identificar territorios con IPS
     const kamTerritories: Record<string, Set<string>> = {}
     const territoriesWithIps = new Set<string>()
-    const localityIpsCount: Record<string, Record<string, number>> = {}
+    const territoryBedCount: Record<string, Record<string, number>> = {} // Cuenta CAMAS por territorio (localidad o municipio) y KAM
     const vacantTerritories = new Set<string>()
 
     // Primero, identificar territorios con hospitales sin asignar (vacantes)
@@ -190,39 +210,42 @@ export default function MapComponent({ visits = [], showHeatmap = false, showMar
       }
 
       // Registrar territorio
-      if (hospital.locality_id) {
-        territoriesWithIps.add(hospital.locality_id)
-        kamTerritories[kamId].add(hospital.locality_id)
+      const territoryId = hospital.locality_id || hospital.municipality_id
+      if (territoryId) {
+        territoriesWithIps.add(territoryId)
+        kamTerritories[kamId].add(territoryId)
         
-        // Contar para mayoría en localidades
-        if (!localityIpsCount[hospital.locality_id]) {
-          localityIpsCount[hospital.locality_id] = {}
+        // Contar CAMAS para mayoría en TODOS los territorios (localidades Y municipios)
+        if (!territoryBedCount[territoryId]) {
+          territoryBedCount[territoryId] = {}
         }
-        localityIpsCount[hospital.locality_id][kamId] = 
-          (localityIpsCount[hospital.locality_id][kamId] || 0) + 1
-      } else if (hospital.municipality_id) {
-        territoriesWithIps.add(hospital.municipality_id)
-        kamTerritories[kamId].add(hospital.municipality_id)
+        // Sumar CAMAS del hospital
+        const beds = hospital.beds || 0
+        territoryBedCount[territoryId][kamId] = 
+          (territoryBedCount[territoryId][kamId] || 0) + beds
       }
     })
 
-    // Determinar ganadores para localidades compartidas
+    // Determinar ganadores para territorios compartidos
     const territoryWinners: Record<string, string> = {}
     
-    // Para cada territorio, asignar al KAM correspondiente
-    Object.entries(kamTerritories).forEach(([kamId, territories]) => {
-      territories.forEach(territoryId => {
-        // Si es una localidad con múltiples KAMs, usar mayoría
-        if (territoryId.length === 7 && localityIpsCount[territoryId]) {
-          const counts = localityIpsCount[territoryId]
-          const winner = Object.entries(counts)
-            .sort(([,a], [,b]) => b - a)[0][0]
-          territoryWinners[territoryId] = winner
-        } else {
-          // Para municipios o localidades sin competencia
-          territoryWinners[territoryId] = kamId
+    // Para cada territorio con IPS, determinar el KAM ganador por mayoría de CAMAS
+    territoriesWithIps.forEach(territoryId => {
+      const bedCounts = territoryBedCount[territoryId]
+      if (bedCounts) {
+        // El ganador es el KAM con más CAMAS en ese territorio
+        const winner = Object.entries(bedCounts)
+          .sort(([,a], [,b]) => b - a)[0][0]
+        territoryWinners[territoryId] = winner
+        
+        // Log para municipios con múltiples KAMs
+        if (Object.keys(bedCounts).length > 1) {
+          const totalBeds = Object.values(bedCounts).reduce((sum, beds) => sum + beds, 0)
+          const winnerBeds = bedCounts[winner]
+          const percentage = ((winnerBeds / totalBeds) * 100).toFixed(1)
+          console.log(`Territorio ${territoryId}: Ganador KAM ${winner} con ${winnerBeds}/${totalBeds} camas (${percentage}%)`)
         }
-      })
+      }
     })
 
     // Cargar GeoJSON para cada territorio
@@ -274,7 +297,7 @@ export default function MapComponent({ visits = [], showHeatmap = false, showMar
     return L.divIcon({
       className: 'custom-kam-marker',
       html: `
-        <div style="text-align: center;">
+        <div style="width: 42px; height: 52px; position: relative;">
           <div style="
             width: 36px;
             height: 36px;
@@ -285,6 +308,7 @@ export default function MapComponent({ visits = [], showHeatmap = false, showMar
             display: flex;
             align-items: center;
             justify-content: center;
+            margin: 0 auto;
           ">
             <i class="fa fa-user" style="
               color: white;
@@ -302,8 +326,10 @@ export default function MapComponent({ visits = [], showHeatmap = false, showMar
           "></div>
         </div>
       `,
-      iconSize: [36, 46],
-      iconAnchor: [18, 46]
+      iconSize: [42, 52],
+      iconAnchor: [21, 52],
+      popupAnchor: [0, -52],
+      tooltipAnchor: [0, -52]
     })
   }
 
@@ -333,14 +359,54 @@ export default function MapComponent({ visits = [], showHeatmap = false, showMar
     }
   })
 
+  // Filtrar hospitales según el tipo seleccionado
+  const filterHospitalsByType = (hospitals: any[]) => {
+    if (hospitalTypeFilter === 'all') return hospitals
+    return hospitals.filter(h => h.type === hospitalTypeFilter || (hospitalTypeFilter === 'sin_tipo' && !h.type))
+  }
+
+  const filteredAssignments = mapData.assignments.filter((a: any) => {
+    if (hospitalTypeFilter === 'all') return true
+    if (hospitalTypeFilter === 'sin_tipo') return !a.hospitals.type
+    return a.hospitals.type === hospitalTypeFilter
+  })
+
+  const filteredUnassignedHospitals = filterHospitalsByType(mapData.unassignedHospitals)
+
   return (
     <>
+      {/* Menú de navegación */}
+      <MapNavMenu />
+      
+      {/* Control unificado del mapa */}
+      <MapControls
+        mapData={mapData}
+        hospitalTypeFilter={hospitalTypeFilter}
+        setHospitalTypeFilter={setHospitalTypeFilter}
+        filteredAssignments={filteredAssignments}
+        filteredUnassignedHospitals={filteredUnassignedHospitals}
+        onVisitsChange={setVisits}
+        onShowHeatmapChange={setShowHeatmap}
+        onShowMarkersChange={setShowMarkers}
+        onHospitalSelect={setSelectedHospitalId}
+        onMapNavigate={(lat: number, lng: number, zoom: number) => {
+          setMapCenter([lat, lng])
+          setMapZoom(zoom)
+          // Limpiar después de un momento para permitir nuevas navegaciones
+          setTimeout(() => {
+            setMapCenter(undefined)
+            setMapZoom(undefined)
+          }, 100)
+        }}
+      />
+
       <MapContainer
         center={[4.5709, -74.2973]}
         zoom={6}
         className="h-full w-full"
         preferCanvas={true}
       >
+        <MapController center={mapCenter} zoom={mapZoom} />
         <TileLayer
           attribution='&copy; <a href="https://carto.com/attributions">CARTO</a>'
           url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
@@ -363,6 +429,7 @@ export default function MapComponent({ visits = [], showHeatmap = false, showMar
               ).map((a: any) => a.hospitals)
           
           const totalBeds = territoryHospitals.reduce((sum: number, h: any) => sum + (h.beds || 0), 0)
+          const totalIPS = territoryHospitals.length
           const population = mapData.populationMap[territory.territoryId] || 0
           
           return (
@@ -375,45 +442,138 @@ export default function MapComponent({ visits = [], showHeatmap = false, showMar
                 weight: isVacant ? 1 : (isLocality ? 1.5 : 0.8),
                 fillOpacity: isVacant ? 0.3 : (isLocality ? 0.5 : 0.4)
               }}
+              eventHandlers={{
+                mouseover: (e: any) => {
+                  e.target.setStyle({
+                    weight: isVacant ? 2 : (isLocality ? 2.5 : 1.5),
+                    fillOpacity: isVacant ? 0.5 : (isLocality ? 0.7 : 0.6)
+                  })
+                },
+                mouseout: (e: any) => {
+                  e.target.setStyle({
+                    weight: isVacant ? 1 : (isLocality ? 1.5 : 0.8),
+                    fillOpacity: isVacant ? 0.3 : (isLocality ? 0.5 : 0.4)
+                  })
+                }
+              }}
             >
-              <Tooltip sticky={false} opacity={0.95}>
-                <div style={{ fontSize: '12px', minWidth: '250px' }}>
-                  <strong style={{ fontSize: '14px', color: isVacant ? '#FF0000' : color }}>
+              <Tooltip sticky={true} opacity={1} direction="top">
+                <div style={{ 
+                  fontSize: '13px', 
+                  minWidth: '280px',
+                  backgroundColor: 'white',
+                  padding: '14px',
+                  borderRadius: '12px',
+                  border: '2px solid #000',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.2)'
+                }}>
+                  <div style={{ 
+                    fontSize: '16px', 
+                    fontWeight: 'bold',
+                    color: '#000',
+                    marginBottom: '10px',
+                    borderBottom: '2px solid #000',
+                    paddingBottom: '8px'
+                  }}>
                     {mapData.municipalityNames[territory.territoryId] || `Localidad ${territory.territoryId}`}
-                  </strong>
-                  <div style={{ fontSize: '11px', marginBottom: '4px' }}>
-                    {isVacant ? '⚠️ ZONA VACANTE' : `Asignado a: ${territory.kamId?.toUpperCase()}`}
                   </div>
-                  <div style={{ marginTop: '4px', borderTop: '1px solid #ddd', paddingTop: '4px' }}>
-                    <table style={{ width: '100%', borderSpacing: '0' }}>
-                      <tbody>
-                        <tr>
-                          <td><strong>Población:</strong></td>
-                          <td style={{ textAlign: 'right' }}>{population.toLocaleString()}</td>
-                        </tr>
-                        <tr>
-                          <td><strong>Hospitales:</strong></td>
-                          <td style={{ textAlign: 'right' }}>{territoryHospitals.length}</td>
-                        </tr>
-                        <tr>
-                          <td><strong>Total camas:</strong></td>
-                          <td style={{ textAlign: 'right' }}>{totalBeds}</td>
-                        </tr>
-                        {population > 0 && (
-                          <tr>
-                            <td><strong>Camas/1000 hab:</strong></td>
-                            <td style={{ textAlign: 'right' }}>
-                              {(totalBeds / population * 1000).toFixed(2)}
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                    {isVacant && (
-                      <div style={{ marginTop: '4px', fontSize: '11px', color: '#FF0000' }}>
-                        ⚠️ Sin cobertura de KAM
+                  
+                  {/* Información principal */}
+                  <div style={{ marginBottom: '10px' }}>
+                    <div style={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'space-between',
+                      padding: '8px 10px',
+                      backgroundColor: '#f5f5f5',
+                      borderRadius: '8px',
+                      marginBottom: '8px',
+                      border: '1px solid #d4d4d4'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '18px' }}>🏥</span>
+                        <span style={{ fontWeight: '600', color: '#000' }}>IPS:</span>
+                      </div>
+                      <span style={{ 
+                        fontSize: '20px', 
+                        fontWeight: 'bold',
+                        color: '#000'
+                      }}>
+                        {totalIPS}
+                      </span>
+                    </div>
+                    
+                    <div style={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'space-between',
+                      padding: '8px 10px',
+                      backgroundColor: '#f5f5f5',
+                      borderRadius: '8px',
+                      border: '1px solid #d4d4d4'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '18px' }}>🛏️</span>
+                        <span style={{ fontWeight: '600', color: '#000' }}>Camas:</span>
+                      </div>
+                      <span style={{ 
+                        fontSize: '20px', 
+                        fontWeight: 'bold',
+                        color: '#000'
+                      }}>
+                        {totalBeds.toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                  
+                  {/* Información adicional */}
+                  <div style={{ 
+                    borderTop: '1px solid #d4d4d4', 
+                    paddingTop: '10px',
+                    marginTop: '10px' 
+                  }}>
+                    <div style={{ 
+                      display: 'flex', 
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      marginBottom: '6px'
+                    }}>
+                      <span style={{ color: '#666', fontSize: '12px' }}>Población:</span>
+                      <span style={{ fontWeight: '600', color: '#000' }}>
+                        {population.toLocaleString()}
+                      </span>
+                    </div>
+                    
+                    {population > 0 && (
+                      <div style={{ 
+                        display: 'flex', 
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        marginBottom: '6px'
+                      }}>
+                        <span style={{ color: '#666', fontSize: '12px' }}>Camas/1000 hab:</span>
+                        <span style={{ fontWeight: '600', color: '#000' }}>
+                          {(totalBeds / population * 1000).toFixed(2)}
+                        </span>
                       </div>
                     )}
+                    
+                    <div style={{ 
+                      marginTop: '10px',
+                      padding: '8px',
+                      backgroundColor: isVacant ? '#f5f5f5' : '#000',
+                      borderRadius: '6px',
+                      textAlign: 'center',
+                      border: isVacant ? '2px solid #000' : 'none'
+                    }}>
+                      <span style={{ 
+                        fontSize: '12px',
+                        fontWeight: '700',
+                        color: isVacant ? '#000' : '#fff'
+                      }}>
+                        {isVacant ? '⚠️ ZONA VACANTE' : `KAM: ${territory.kamId?.toUpperCase()}`}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </Tooltip>
@@ -422,84 +582,26 @@ export default function MapComponent({ visits = [], showHeatmap = false, showMar
         })}
         
         {/* Puntos de IPS - Segunda capa (encima de territorios) */}
-        {mapData.assignments.map((assignment: any) => {
+        {filteredAssignments.map((assignment: any) => {
           const hospital = assignment.hospitals
           const kam = assignment.kams
-          const serviceLevel = parseInt(hospital.service_level) || 1
-          const radius = 3 + (serviceLevel * 1.0)
           
           return (
-            <CircleMarker
+            <HospitalMarker
               key={hospital.id}
-              center={[hospital.lat, hospital.lng]}
-              radius={radius}
-              pathOptions={{
-                color: '#222222',
-                weight: 0.5,
-                fillColor: kamColors[kam.id],
-                fillOpacity: 0.9,
-                className: 'hospital-marker'
-              }}
-              pane="markerPane"
-              eventHandlers={{
-                click: () => {
-                  router.push(`/hospitals/${hospital.id}`)
-                }
-              }}
-            >
-              <Tooltip sticky={false} opacity={0.95}>
-                <div style={{ fontSize: '12px', minWidth: '200px' }}>
-                  <strong style={{ fontSize: '13px' }}>{hospital.name}</strong><br/>
-                  <div style={{ marginTop: '4px' }}>
-                    <strong>Código NIT:</strong> {hospital.code}<br/>
-                    <strong>Ubicación:</strong> {hospital.locality_id ? 
-                      `${hospital.locality_name || 'Localidad'}, Bogotá` : 
-                      `${hospital.municipality_name || hospital.municipality_id}, ${hospital.department_name || ''}`}<br/>
-                    <strong>Camas:</strong> {hospital.beds || 0}<br/>
-                    <strong>Nivel:</strong> {hospital.service_level || 'N/A'}<br/>
-                    {hospital.type && (
-                      <>
-                        <strong>Tipo:</strong> <span style={{ 
-                          padding: '2px 6px', 
-                          borderRadius: '4px', 
-                          fontSize: '11px',
-                          backgroundColor: hospital.type === 'Publico' ? '#DBEAFE' : 
-                                         hospital.type === 'Privada' ? '#E9D5FF' : '#D1FAE5',
-                          color: hospital.type === 'Publico' ? '#1E40AF' : 
-                                hospital.type === 'Privada' ? '#6B21A8' : '#065F46'
-                        }}>{hospital.type}</span><br/>
-                      </>
-                    )}
-                    <strong>KAM asignado:</strong> {kam.name}<br/>
-                    {mapData.contractValuesByHospital[hospital.id] && (
-                      <>
-                        <strong style={{ color: '#2ECC71' }}>Contratos activos:</strong> ${mapData.contractValuesByHospital[hospital.id].toLocaleString('es-CO')}<br/>
-                      </>
-                    )}
-                    <strong>Tiempo de llegada:</strong> {
-                      assignment.travel_time === 0 || assignment.travel_time === null 
-                        ? 'En territorio base' 
-                        : (() => {
-                            const hours = Math.floor(assignment.travel_time / 60)
-                            const minutes = assignment.travel_time % 60
-                            if (hours === 0) {
-                              return `${minutes} minutos`
-                            } else if (minutes === 0) {
-                              return `${hours} hora${hours > 1 ? 's' : ''}`
-                            } else {
-                              return `${hours} hora${hours > 1 ? 's' : ''} y ${minutes} minutos`
-                            }
-                          })()
-                    }
-                  </div>
-                </div>
-              </Tooltip>
-            </CircleMarker>
+              hospital={hospital}
+              kam={kam}
+              kamColor={kamColors[kam.id]}
+              assignment={assignment}
+              contractValue={mapData.contractValuesByHospital[hospital.id]}
+              contractProviders={mapData.contractProvidersByHospital[hospital.id]}
+              isSelected={selectedHospitalId === hospital.id}
+            />
           )
         })}
         
         {/* Hospitales sin asignar (zonas vacantes) */}
-        {mapData.unassignedHospitals.map((hospital: any) => {
+        {filteredUnassignedHospitals.map((hospital: any) => {
           const travelTimes = unassignedTravelTimes[hospital.id] || []
           
           // SOLO mostrar tiempos reales de Google Maps
@@ -526,7 +628,11 @@ export default function MapComponent({ visits = [], showHeatmap = false, showMar
                 }
               }}
             >
-              <Tooltip sticky={false} opacity={0.95}>
+              <Tooltip 
+                sticky={false} 
+                opacity={0.95}
+                permanent={selectedHospitalId === hospital.id}
+              >
                 <div style={{ fontSize: '12px', minWidth: '300px' }}>
                   <strong style={{ fontSize: '13px', color: '#FF0000' }}>⚠️ SIN COBERTURA</strong><br/>
                   <strong style={{ fontSize: '13px' }}>{hospital.name}</strong><br/>
@@ -560,29 +666,28 @@ export default function MapComponent({ visits = [], showHeatmap = false, showMar
                           <table style={{ width: '100%', borderSpacing: '0 2px' }}>
                             <tbody>
                               {travelTimes.slice(0, 8).map((tt: any, idx: number) => {
-                                const hours = Math.floor(tt.travel_time / 60)
-                                const minutes = tt.travel_time % 60
-                                const timeStr = hours === 0 
-                                  ? `${minutes} min`
-                                  : minutes === 0
-                                    ? `${hours}h`
-                                    : `${hours}h ${minutes}min`
+                                const hasTime = tt.travel_time !== null && tt.travel_time !== undefined
+                                // Los tiempos vienen en SEGUNDOS desde hospital_kam_distances
+                                const timeStr = hasTime 
+                                  ? formatTravelTimeFromSeconds(tt.travel_time) // Convertir segundos a formato legible
+                                  : 'Sin calcular'
                                 
-                                const isOverLimit = tt.travel_time > 240
-                                const isClose = tt.travel_time > 240 && tt.travel_time <= 300 // 5 horas
+                                const minutes = hasTime ? Math.round(tt.travel_time / 60) : 0
+                                const isOverLimit = hasTime && minutes > (tt.max_travel_time || 240)
+                                const isClose = hasTime && minutes > 240 && minutes <= 300 // 5 horas
                                 
                                 return (
                                   <tr key={idx}>
                                     <td style={{ 
                                       paddingRight: '10px',
                                       fontWeight: 'bold',
-                                      color: isClose ? '#FF6B00' : (isOverLimit ? '#CC0000' : '#333')
+                                      color: !hasTime ? '#999' : (isClose ? '#FF6B00' : (isOverLimit ? '#CC0000' : '#333'))
                                     }}>
                                       {tt.kam_name}:
                                     </td>
                                     <td style={{ 
                                       textAlign: 'right',
-                                      color: isClose ? '#FF6B00' : (isOverLimit ? '#CC0000' : '#666')
+                                      color: !hasTime ? '#999' : (isClose ? '#FF6B00' : (isOverLimit ? '#CC0000' : '#666'))
                                     }}>
                                       {timeStr} {isClose && '⚠️'}
                                     </td>
@@ -611,10 +716,10 @@ export default function MapComponent({ visits = [], showHeatmap = false, showMar
                           </div>
                         </div>
                       )}
-                      {travelTimes.length > 0 && travelTimes[0].travel_time > 240 && travelTimes[0].travel_time <= 300 && (
+                      {travelTimes.length > 0 && travelTimes[0].travel_time && travelTimes[0].travel_time/60 > 240 && travelTimes[0].travel_time/60 <= 300 && (
                         <div style={{ marginTop: '6px', padding: '4px', backgroundColor: '#FFF3CD', border: '1px solid #FFE69C', borderRadius: '4px' }}>
                           <div style={{ fontSize: '11px', color: '#856404' }}>
-                            💡 <strong>Sugerencia:</strong> {travelTimes[0].kam_name} está a solo {Math.floor(travelTimes[0].travel_time / 60)}h {travelTimes[0].travel_time % 60}min.
+                            💡 <strong>Sugerencia:</strong> {travelTimes[0].kam_name} está a solo {formatTravelTimeFromSeconds(travelTimes[0].travel_time)}.
                             Considere ajustar su límite de tiempo máximo de 4 a 5 horas.
                           </div>
                         </div>
@@ -629,39 +734,29 @@ export default function MapComponent({ visits = [], showHeatmap = false, showMar
         })}
         
         {/* Marcadores de KAMs */}
-        {kamStats.map((kam: any) => (
+        {kamStats.filter((kam: any) => kam.lat && kam.lng).map((kam: any) => (
           <Marker
             key={kam.id}
             position={[kam.lat, kam.lng]}
             icon={createKamIcon(kam.id)}
+            zIndexOffset={1000}
           >
-            <Tooltip sticky={false}>
-              <div style={{ fontSize: '12px', minWidth: '180px' }}>
+            <Tooltip 
+              sticky={true} 
+              opacity={0.95}
+              direction="top"
+              offset={[0, -30]}
+              permanent={false}
+              interactive={false}
+            >
+              <div style={{ fontSize: '12px', minWidth: '200px' }}>
                 <strong style={{ fontSize: '14px', color: kamColors[kam.id] }}>{kam.name}</strong>
-                <div style={{ marginTop: '4px', borderTop: '1px solid #ddd', paddingTop: '4px' }}>
-                  <table style={{ width: '100%', borderSpacing: '0' }}>
-                    <tbody>
-                      <tr>
-                        <td><strong>IPS:</strong></td>
-                        <td style={{ textAlign: 'right' }}>{kam.hospitalCount}</td>
-                      </tr>
-                      <tr>
-                        <td><strong>Municipios:</strong></td>
-                        <td style={{ textAlign: 'right' }}>{kam.municipalityCount}</td>
-                      </tr>
-                      <tr>
-                        <td><strong>Población:</strong></td>
-                        <td style={{ textAlign: 'right' }}>{kam.totalPopulation.toLocaleString()}</td>
-                      </tr>
-                      <tr>
-                        <td><strong>Total camas:</strong></td>
-                        <td style={{ textAlign: 'right' }}>{kam.totalBeds.toLocaleString()}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-                <div style={{ marginTop: '4px', fontSize: '11px', color: '#666' }}>
-                  Base: {kam.area_id}
+                <div style={{ marginTop: '4px' }}>
+                  <strong>Total IPS:</strong> {kam.hospitalCount}<br/>
+                  <strong>Total Camas:</strong> {kam.totalBeds.toLocaleString()}<br/>
+                  <strong>Municipios:</strong> {kam.municipalityCount}<br/>
+                  <strong>Población:</strong> {kam.totalPopulation.toLocaleString()}<br/>
+                  <strong>Base:</strong> {kam.area_id}
                 </div>
               </div>
             </Tooltip>
@@ -669,7 +764,7 @@ export default function MapComponent({ visits = [], showHeatmap = false, showMar
         ))}
         
         {/* Capa de mapa de calor de visitas */}
-        {showHeatmap && visits.length > 0 && (
+        {showHeatmap && visits && visits.length > 0 && (
           <>
             {console.log('MapComponent - Mostrando heatmap con', visits.length, 'visitas')}
             <VisitsHeatmapLayer 
@@ -682,80 +777,77 @@ export default function MapComponent({ visits = [], showHeatmap = false, showMar
         )}
         
         {/* Marcadores individuales de visitas */}
-        {showMarkers && visits.map((visit, index) => (
-          <CircleMarker
-            key={`visit-${index}`}
-            center={[visit.lat, visit.lng]}
-            radius={6}
-            pathOptions={{
-              fillColor: visit.visit_type === 'Visita efectiva' ? '#2ECC71' :
-                        visit.visit_type === 'Visita extra' ? '#3498DB' : '#E74C3C',
-              color: '#fff',
-              weight: 2,
-              opacity: 1,
-              fillOpacity: 0.8
-            }}
-          >
-            <Tooltip>
-              <div style={{ fontSize: '11px' }}>
-                <strong>{visit.kam_name}</strong><br/>
-                {visit.visit_type}<br/>
-                {visit.contact_type}<br/>
-                {visit.visit_date}
-              </div>
-            </Tooltip>
-          </CircleMarker>
-        ))}
+        {showMarkers && visits && visits.length > 0 && visits.map((visit, index) => {
+          // Buscar el KAM para obtener su color
+          const kam = mapData.kams.find((k: any) => k.id === visit.kam_id)
+          const kamColor = kam ? kamColors[kam.id] : '#888888'
+          
+          return (
+            <CircleMarker
+              key={`visit-${index}`}
+              center={[visit.lat, visit.lng]}
+              radius={6}
+              pathOptions={{
+                fillColor: visit.visit_type === 'Visita efectiva' ? '#2ECC71' :
+                          visit.visit_type === 'Visita extra' ? '#3498DB' : '#E74C3C',
+                color: kamColor,
+                weight: 2,
+                opacity: 1,
+                fillOpacity: 0.8
+              }}
+            >
+              <Tooltip>
+                <div style={{ fontSize: '12px', minWidth: '200px' }}>
+                  <strong style={{ fontSize: '13px', color: kamColor }}>
+                    {visit.kam_name}
+                  </strong>
+                  <div style={{ marginTop: '4px', borderTop: '1px solid #ddd', paddingTop: '4px' }}>
+                    <table style={{ width: '100%', borderSpacing: '0' }}>
+                      <tbody>
+                        <tr>
+                          <td style={{ paddingRight: '10px' }}><strong>Tipo:</strong></td>
+                          <td style={{ 
+                            color: visit.visit_type === 'Visita efectiva' ? '#2ECC71' :
+                                  visit.visit_type === 'Visita extra' ? '#3498DB' : '#E74C3C'
+                          }}>
+                            {visit.visit_type}
+                          </td>
+                        </tr>
+                        <tr>
+                          <td><strong>Contacto:</strong></td>
+                          <td>{visit.contact_type}</td>
+                        </tr>
+                        <tr>
+                          <td><strong>Fecha:</strong></td>
+                          <td>{new Date(visit.visit_date).toLocaleDateString('es-CO')}</td>
+                        </tr>
+                        {visit.hospital_name && (
+                          <tr>
+                            <td><strong>Hospital:</strong></td>
+                            <td>{visit.hospital_name}</td>
+                          </tr>
+                        )}
+                        {visit.observations && (
+                          <tr>
+                            <td colSpan={2}>
+                              <div style={{ marginTop: '4px', fontSize: '11px', fontStyle: 'italic' }}>
+                                {visit.observations}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div style={{ marginTop: '4px', fontSize: '10px', color: '#666' }}>
+                    KAM ID: {visit.kam_id}
+                  </div>
+                </div>
+              </Tooltip>
+            </CircleMarker>
+          )
+        })}
       </MapContainer>
-      
-      {/* Leyenda */}
-      <div style={{
-        position: 'fixed',
-        bottom: '30px',
-        right: '10px',
-        width: '260px',
-        backgroundColor: 'rgba(255,255,255,0.95)',
-        zIndex: 1000,
-        border: '1px solid #ccc',
-        borderRadius: '8px',
-        padding: '12px',
-        fontSize: '12px',
-        boxShadow: '0 2px 6px rgba(0,0,0,0.2)'
-      }}>
-        <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', color: '#333' }}>Convenciones</h4>
-        <div style={{ marginBottom: '6px' }}>
-          <i className="fa fa-user" style={{ color: '#000', fontSize: '14px' }}></i>{' '}
-          <span style={{ verticalAlign: 'middle' }}>KAM (Key Account Manager)</span>
-        </div>
-        <div style={{ marginBottom: '6px' }}>
-          <span style={{
-            display: 'inline-block',
-            width: '12px',
-            height: '12px',
-            backgroundColor: '#888',
-            borderRadius: '50%',
-            border: '1px solid #222',
-            verticalAlign: 'middle'
-          }}></span>{' '}
-          <span style={{ verticalAlign: 'middle' }}>Institución Prestadora de Salud</span>
-        </div>
-        <div style={{ marginBottom: '6px' }}>
-          <span style={{
-            display: 'inline-block',
-            width: '30px',
-            height: '12px',
-            backgroundColor: '#888',
-            opacity: 0.4,
-            border: '1px solid #333',
-            verticalAlign: 'middle'
-          }}></span>{' '}
-          <span style={{ verticalAlign: 'middle' }}>Territorio asignado</span>
-        </div>
-        <div style={{ marginTop: '10px', paddingTop: '8px', borderTop: '1px solid #ddd', fontSize: '11px', color: '#666' }}>
-          <i className="fa fa-info-circle"></i> Los colores identifican a cada KAM<br/>
-          y su zona de cobertura asignada
-        </div>
-      </div>
       
       {/* Estilos CSS para el cursor */}
       <style jsx global>{`
