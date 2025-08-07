@@ -45,8 +45,7 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'map:view',
     'hospitals:view',  // Solo ver hospitales, NO editar
     'contracts:view',  // Solo ver contratos, NO editar
-    'territories:view',
-    'territories:manage'
+    'territories:view'  // Solo ver territorios, NO gestionar
   ],
   contract_manager: [
     'map:view',
@@ -62,7 +61,9 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'kams:view',
     'kams:edit',
     'visits:view',
-    'visits:manage'
+    'visits:manage',
+    'territories:view',
+    'territories:manage'  // Puede gestionar asignaciones forzadas
   ],
   viewer: [
     'map:view',
