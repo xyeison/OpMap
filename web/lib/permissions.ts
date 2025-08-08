@@ -49,7 +49,8 @@ export const rolePermissions: Record<Role, Permission[]> = {
   ],
   contract_manager: [
     'map:view',
-    'hospitals:view',  // Solo ver hospitales, NO editar
+    'hospitals:view',
+    'hospitals:edit',  // Puede editar hospitales (incluyendo doctores)
     'contracts:view',
     'contracts:edit',
     'contracts:delete'
