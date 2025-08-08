@@ -7,11 +7,13 @@ import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
 import ContractsInlineManager from '@/components/ContractsInlineManager'
 import { useQueryClient } from '@tanstack/react-query'
+import { usePermissions } from '@/hooks/usePermissions'
 
 export default function HospitalDetailPage() {
   const params = useParams()
   const router = useRouter()
   const queryClient = useQueryClient()
+  const { role } = usePermissions()
   const hospitalId = params.id as string
   
   const [hospital, setHospital] = useState<any>(null)
@@ -33,6 +35,10 @@ export default function HospitalDetailPage() {
   const [kamDistances, setKamDistances] = useState<any[]>([])
   const [editingDocumentsUrl, setEditingDocumentsUrl] = useState(false)
   const [documentsUrl, setDocumentsUrl] = useState('')
+  const [showEditModal, setShowEditModal] = useState(false)
+  const [editForm, setEditForm] = useState<any>({})
+  const [userRole, setUserRole] = useState<string>('')
+  const [isSavingEdit, setIsSavingEdit] = useState(false)
 
   useEffect(() => {
     loadHospitalData()
@@ -58,6 +64,24 @@ export default function HospitalDetailPage() {
         setKam(data.kam)
         setKamMunicipalityName(data.kamMunicipalityName || '')
         setContractStats(data.contractStats)
+        setUserRole(role || '')
+        
+        // Inicializar formulario de edición
+        setEditForm({
+          name: data.hospital.name,
+          code: data.hospital.code,
+          beds: data.hospital.beds || 0,
+          service_level: data.hospital.service_level || 1,
+          address: data.hospital.address || '',
+          phone: data.hospital.phone || '',
+          email: data.hospital.email || '',
+          lat: data.hospital.lat,
+          lng: data.hospital.lng,
+          hospital_type: data.hospital.hospital_type || 'Publico',
+          services: data.hospital.services || '',
+          surgeries: data.hospital.surgeries || 0,
+          ambulances: data.hospital.ambulances || 0
+        })
         
         // Cargar historial si existe
         if (data.history) {
@@ -197,6 +221,36 @@ export default function HospitalDetailPage() {
             <p className="text-gray-600 mt-2">Código NIT: {hospital.code}</p>
           </div>
           <div className="flex gap-3">
+            {/* Botón de Editar Hospital - Visible para todos los usuarios autenticados */}
+            <button
+              onClick={() => {
+                console.log('Botón Editar clickeado')
+                setEditForm({
+                  name: hospital.name,
+                  code: hospital.code,
+                  beds: hospital.beds || 0,
+                  service_level: hospital.service_level || 1,
+                  address: hospital.address || '',
+                  phone: hospital.phone || '',
+                  email: hospital.email || '',
+                  lat: hospital.lat,
+                  lng: hospital.lng,
+                  hospital_type: hospital.hospital_type || 'Publico',
+                  services: hospital.services || '',
+                  surgeries: hospital.surgeries || 0,
+                  ambulances: hospital.ambulances || 0
+                })
+                setShowEditModal(true)
+              }}
+              className="group px-5 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all duration-200 font-medium flex items-center gap-2 shadow-md hover:shadow-lg transform hover:scale-[1.02]"
+            >
+              <svg className="w-5 h-5 group-hover:rotate-12 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+              Editar Información
+            </button>
+            
+            {/* Botón de Activar/Desactivar - Solo para usuarios con permisos */}
             <PermissionGuard permission="hospitals:edit">
               <button
                 onClick={() => {
@@ -265,13 +319,13 @@ export default function HospitalDetailPage() {
               <div>
                 <span className="text-gray-600">Tipo:</span>
                 <span className="ml-2 font-medium">
-                  {hospital.type ? (
+                  {hospital.hospital_type ? (
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                      hospital.type === 'Publico' ? 'bg-gray-200 text-gray-800' :
-                      hospital.type === 'Privada' ? 'bg-gray-800 text-white' :
-                      'bg-gray-100 text-gray-700'
+                      hospital.hospital_type === 'Publico' ? 'bg-blue-100 text-blue-700' :
+                      hospital.hospital_type === 'Privado' ? 'bg-purple-100 text-purple-700' :
+                      'bg-green-100 text-green-700'
                     }`}>
-                      {hospital.type}
+                      {hospital.hospital_type}
                     </span>
                   ) : (
                     'No especificado'
@@ -791,6 +845,299 @@ export default function HospitalDetailPage() {
               <p className="text-gray-600">
                 Recalculando asignaciones territoriales...
               </p>
+            </div>
+          </div>
+        )}
+
+        {/* Modal de edición general */}
+        {showEditModal && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fadeIn">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden transform transition-all animate-slideUp">
+              {/* Header con gradiente */}
+              <div className="bg-gradient-to-r from-blue-500 to-blue-600 px-6 py-5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="bg-white/20 backdrop-blur-sm rounded-full p-3">
+                      <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-bold text-white">Editar Hospital</h3>
+                      <p className="text-white/80 text-sm">Actualizar información del hospital</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setShowEditModal(false)}
+                    className="text-white/80 hover:text-white transition-colors"
+                    disabled={isSavingEdit}
+                  >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              
+              {/* Content - scrollable */}
+              <div className="p-6 overflow-y-auto" style={{ maxHeight: 'calc(90vh - 200px)' }}>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Información básica */}
+                  <div className="space-y-4">
+                    <h4 className="font-semibold text-gray-900 mb-3">Información Básica</h4>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Nombre del Hospital <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={editForm.name || ''}
+                        onChange={(e) => setEditForm({...editForm, name: e.target.value})}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        required
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Código NIT <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={editForm.code || ''}
+                        onChange={(e) => setEditForm({...editForm, code: e.target.value})}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        required
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Tipo de Hospital <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        value={editForm.hospital_type || 'Publico'}
+                        onChange={(e) => setEditForm({...editForm, hospital_type: e.target.value})}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      >
+                        <option value="Publico">Público</option>
+                        <option value="Privado">Privado</option>
+                        <option value="Mixto">Mixto</option>
+                      </select>
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Número de Camas
+                      </label>
+                      <input
+                        type="number"
+                        value={editForm.beds || 0}
+                        onChange={(e) => setEditForm({...editForm, beds: parseInt(e.target.value) || 0})}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        min="0"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Nivel de Servicio
+                      </label>
+                      <select
+                        value={editForm.service_level || 1}
+                        onChange={(e) => setEditForm({...editForm, service_level: parseInt(e.target.value)})}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      >
+                        <option value="1">Nivel 1</option>
+                        <option value="2">Nivel 2</option>
+                        <option value="3">Nivel 3</option>
+                        <option value="4">Nivel 4</option>
+                      </select>
+                    </div>
+                  </div>
+                  
+                  {/* Información de contacto y ubicación */}
+                  <div className="space-y-4">
+                    <h4 className="font-semibold text-gray-900 mb-3">Contacto y Ubicación</h4>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Dirección
+                      </label>
+                      <input
+                        type="text"
+                        value={editForm.address || ''}
+                        onChange={(e) => setEditForm({...editForm, address: e.target.value})}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Teléfono
+                      </label>
+                      <input
+                        type="tel"
+                        value={editForm.phone || ''}
+                        onChange={(e) => setEditForm({...editForm, phone: e.target.value})}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Email
+                      </label>
+                      <input
+                        type="email"
+                        value={editForm.email || ''}
+                        onChange={(e) => setEditForm({...editForm, email: e.target.value})}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                    
+                    {/* Coordenadas - Solo editable por admin */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Latitud {role !== 'admin' && <span className="text-xs text-gray-500">(Solo lectura)</span>}
+                      </label>
+                      <input
+                        type="number"
+                        value={editForm.lat || 0}
+                        onChange={(e) => role === 'admin' && setEditForm({...editForm, lat: parseFloat(e.target.value)})}
+                        className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none ${
+                          role === 'admin' ? 'focus:ring-2 focus:ring-blue-500 focus:border-transparent' : 'bg-gray-100 cursor-not-allowed'
+                        }`}
+                        step="0.000001"
+                        readOnly={role !== 'admin'}
+                        disabled={role !== 'admin'}
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Longitud {role !== 'admin' && <span className="text-xs text-gray-500">(Solo lectura)</span>}
+                      </label>
+                      <input
+                        type="number"
+                        value={editForm.lng || 0}
+                        onChange={(e) => role === 'admin' && setEditForm({...editForm, lng: parseFloat(e.target.value)})}
+                        className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none ${
+                          role === 'admin' ? 'focus:ring-2 focus:ring-blue-500 focus:border-transparent' : 'bg-gray-100 cursor-not-allowed'
+                        }`}
+                        step="0.000001"
+                        readOnly={role !== 'admin'}
+                        disabled={role !== 'admin'}
+                      />
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Información adicional */}
+                <div className="mt-6 space-y-4">
+                  <h4 className="font-semibold text-gray-900 mb-3">Información Adicional</h4>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Número de Cirugías
+                      </label>
+                      <input
+                        type="number"
+                        value={editForm.surgeries || 0}
+                        onChange={(e) => setEditForm({...editForm, surgeries: parseInt(e.target.value) || 0})}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        min="0"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Número de Ambulancias
+                      </label>
+                      <input
+                        type="number"
+                        value={editForm.ambulances || 0}
+                        onChange={(e) => setEditForm({...editForm, ambulances: parseInt(e.target.value) || 0})}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        min="0"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Servicios
+                    </label>
+                    <textarea
+                      value={editForm.services || ''}
+                      onChange={(e) => setEditForm({...editForm, services: e.target.value})}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      rows={3}
+                      placeholder="Lista de servicios que ofrece el hospital..."
+                    />
+                  </div>
+                </div>
+              </div>
+              
+              {/* Footer */}
+              <div className="bg-gray-50 px-6 py-4 flex gap-3 justify-end border-t">
+                <button
+                  onClick={() => setShowEditModal(false)}
+                  className="px-5 py-2.5 text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 transition-colors font-medium"
+                  disabled={isSavingEdit}
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={async () => {
+                    setIsSavingEdit(true)
+                    try {
+                      const response = await fetch(`/api/hospitals/${hospitalId}`, {
+                        method: 'PUT',
+                        headers: {
+                          'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(editForm)
+                      })
+                      
+                      if (!response.ok) {
+                        const error = await response.json()
+                        throw new Error(error.error || 'Error al actualizar hospital')
+                      }
+                      
+                      await loadHospitalData()
+                      setShowEditModal(false)
+                      alert('Hospital actualizado exitosamente')
+                    } catch (error: any) {
+                      console.error('Error updating hospital:', error)
+                      alert('Error al actualizar hospital: ' + error.message)
+                    } finally {
+                      setIsSavingEdit(false)
+                    }
+                  }}
+                  className="px-5 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl hover:from-blue-600 hover:to-blue-700 transition-all font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  disabled={isSavingEdit || !editForm.name || !editForm.code}
+                >
+                  {isSavingEdit ? (
+                    <>
+                      <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Guardando...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      Guardar Cambios
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         )}

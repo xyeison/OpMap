@@ -127,6 +127,17 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 
     const hospitalId = params.id
     const body = await request.json()
+    
+    // Si el usuario no es admin, no puede editar coordenadas
+    if (user.role !== 'admin') {
+      delete body.lat
+      delete body.lng
+    }
+    
+    // Validar el tipo de hospital si se proporciona
+    if (body.hospital_type && !['Publico', 'Privado', 'Mixto'].includes(body.hospital_type)) {
+      return NextResponse.json({ error: 'Tipo de hospital inválido' }, { status: 400 })
+    }
 
     const { data, error } = await supabase
       .from('hospitals')
