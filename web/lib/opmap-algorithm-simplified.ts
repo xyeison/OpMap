@@ -114,39 +114,39 @@ export class SimplifiedOpMapAlgorithm {
     }
     console.log(`✅ Matriz de adyacencia cargada`)
     
-    // 5. Cargar TODAS las distancias precalculadas
-    console.log('📊 Cargando distancias precalculadas...')
+    // 5. Cargar solo las distancias necesarias para KAMs activos
+    console.log('📊 Cargando distancias precalculadas (optimizado)...')
     this.distances = []
     
-    // Cargar TODAS las distancias sin filtros, paginando
-    let offset = 0
-    const batchSize = 1000
+    // Solo cargar distancias para KAMs activos
+    const activeKamIds = this.kams.map(k => k.id)
     
-    while (true) {
-      const { data: distBatch, error } = await supabase
-        .from('hospital_kam_distances')
-        .select('hospital_id, kam_id, travel_time')
-        .range(offset, offset + batchSize - 1)
+    if (activeKamIds.length > 0) {
+      // Cargar distancias en lotes por KAM para evitar consultas muy grandes
+      const kamBatchSize = 5 // Procesar 5 KAMs a la vez
       
-      if (error) {
-        console.error('Error cargando distancias:', error)
-        break
-      }
-      
-      if (distBatch && distBatch.length > 0) {
-        this.distances.push(...distBatch)
-        console.log(`  Cargadas ${this.distances.length} distancias...`)
-        offset += batchSize
+      for (let i = 0; i < activeKamIds.length; i += kamBatchSize) {
+        const kamBatch = activeKamIds.slice(i, i + kamBatchSize)
         
-        if (distBatch.length < batchSize) {
-          break // Última página
+        // Cargar distancias para este lote de KAMs
+        const { data: distBatch, error } = await supabase
+          .from('hospital_kam_distances')
+          .select('hospital_id, kam_id, travel_time')
+          .in('kam_id', kamBatch)
+        
+        if (error) {
+          console.error('Error cargando distancias:', error)
+          continue
         }
-      } else {
-        break
+        
+        if (distBatch && distBatch.length > 0) {
+          this.distances.push(...distBatch)
+          console.log(`  Cargadas ${this.distances.length} distancias (${i + kamBatch.length}/${activeKamIds.length} KAMs)...`)
+        }
       }
     }
     
-    console.log(`✅ ${this.distances.length} distancias cargadas`)
+    console.log(`✅ ${this.distances.length} distancias cargadas para ${activeKamIds.length} KAMs activos`)
     
     // 6. Cargar asignaciones forzadas
     console.log('🔒 Cargando asignaciones forzadas...')
