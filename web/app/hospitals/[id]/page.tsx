@@ -31,6 +31,8 @@ export default function HospitalDetailPage() {
   const [editingDoctors, setEditingDoctors] = useState(false)
   const [doctors, setDoctors] = useState('')
   const [kamDistances, setKamDistances] = useState<any[]>([])
+  const [editingDocumentsUrl, setEditingDocumentsUrl] = useState(false)
+  const [documentsUrl, setDocumentsUrl] = useState('')
 
   useEffect(() => {
     loadHospitalData()
@@ -50,6 +52,7 @@ export default function HospitalDetailPage() {
       if (data.hospital) {
         setHospital(data.hospital)
         setDoctors(data.hospital.doctors || '')
+        setDocumentsUrl(data.hospital.documents_url || '')
         setMunicipalityName(data.municipalityName || '')
         setDepartmentName(data.departmentName || '')
         setKam(data.kam)
@@ -433,6 +436,104 @@ export default function HospitalDetailPage() {
             </div>
           </div>
         )}
+
+        {/* URL de Documentos */}
+        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6 mb-8">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-bold text-gray-900">Carpeta de Documentos</h2>
+            <PermissionGuard permission="hospitals:edit">
+              {!editingDocumentsUrl && (
+                <button
+                  onClick={() => setEditingDocumentsUrl(true)}
+                  className="text-gray-600 hover:text-gray-900 transition-colors"
+                  title="Editar URL de documentos"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                  </svg>
+                </button>
+              )}
+            </PermissionGuard>
+          </div>
+          {editingDocumentsUrl ? (
+            <div>
+              <input
+                type="url"
+                className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent"
+                value={documentsUrl}
+                onChange={(e) => setDocumentsUrl(e.target.value)}
+                placeholder="https://drive.google.com/drive/folders/... o https://docs.zoho.com/folder/..."
+              />
+              <div className="flex gap-3 mt-3">
+                <button
+                  onClick={async () => {
+                    try {
+                      const response = await fetch(`/api/hospitals/${hospitalId}`, {
+                        method: 'PATCH',
+                        headers: {
+                          'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ documents_url: documentsUrl })
+                      })
+                      
+                      if (!response.ok) {
+                        throw new Error('Error al actualizar URL')
+                      }
+                      
+                      setHospital({ ...hospital, documents_url: documentsUrl })
+                      setEditingDocumentsUrl(false)
+                      alert('URL de documentos actualizada exitosamente')
+                    } catch (error: any) {
+                      console.error('Error updating documents URL:', error)
+                      alert('Error al actualizar URL: ' + error.message)
+                    }
+                  }}
+                  className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-black transition-all"
+                >
+                  Guardar
+                </button>
+                <button
+                  onClick={() => {
+                    setDocumentsUrl(hospital.documents_url || '')
+                    setEditingDocumentsUrl(false)
+                  }}
+                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-all"
+                >
+                  Cancelar
+                </button>
+              </div>
+              <p className="text-xs text-gray-500 mt-2">
+                Ingrese la URL de la carpeta compartida en Google Drive o Zoho Docs donde se almacenan todos los contratos y documentos del hospital
+              </p>
+            </div>
+          ) : (
+            <div>
+              {documentsUrl ? (
+                <div className="flex items-center gap-3">
+                  <a 
+                    href={documentsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 text-blue-600 hover:text-blue-700 transition-colors"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path>
+                    </svg>
+                    <span className="font-medium">Ver carpeta de documentos</span>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
+                    </svg>
+                  </a>
+                  <span className="text-sm text-gray-500">
+                    ({documentsUrl.includes('google') ? 'Google Drive' : documentsUrl.includes('zoho') ? 'Zoho Docs' : 'Carpeta externa'})
+                  </span>
+                </div>
+              ) : (
+                <span className="text-gray-400 italic">No hay carpeta de documentos configurada</span>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Contratos y Oportunidades */}
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6 mb-8">

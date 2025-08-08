@@ -149,3 +149,47 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     )
   }
 }
+
+export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+  try {
+    // Verificar autenticación
+    const user = await getUserFromRequest(request)
+    if (!user) {
+      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+    }
+
+    const hospitalId = params.id
+    const body = await request.json()
+
+    // Actualizar solo los campos proporcionados
+    const updateData: any = {}
+    
+    if (body.documents_url !== undefined) {
+      updateData.documents_url = body.documents_url
+    }
+    
+    if (body.doctors !== undefined) {
+      updateData.doctors = body.doctors
+    }
+
+    const { data, error } = await supabase
+      .from('hospitals')
+      .update(updateData)
+      .eq('id', hospitalId)
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error updating hospital:', error)
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+
+    return NextResponse.json(data)
+  } catch (error) {
+    console.error('Error in PATCH /api/hospitals/[id]:', error)
+    return NextResponse.json(
+      { error: 'Error interno del servidor' },
+      { status: 500 }
+    )
+  }
+}
