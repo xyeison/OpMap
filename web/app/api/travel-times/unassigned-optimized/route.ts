@@ -175,8 +175,8 @@ export async function GET() {
         total_assignments: assignedIds.size,
         total_unassigned: unassignedHospitals.length,
         hospitals_returned: hospitalsWithTimes.length,
-        with_travel_times: hospitalsWithTimes.filter(h => h.travel_times.some(t => t.travel_time !== null)).length,
-        without_any_travel_times: hospitalsWithTimes.filter(h => h.travel_times.every(t => t.travel_time === null)).length,
+        with_travel_times: hospitalsWithTimes.filter((h: any) => h.travel_times.some((t: any) => t.travel_time !== null)).length,
+        without_any_travel_times: hospitalsWithTimes.filter((h: any) => h.travel_times.every((t: any) => t.travel_time === null)).length,
         total_active_kams: kams?.length || 0
       }
     })
