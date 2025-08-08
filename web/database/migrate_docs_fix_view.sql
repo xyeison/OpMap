@@ -1,15 +1,19 @@
 -- Script para migrar documentos y arreglar la vista que depende de las columnas PDF
 
--- 1. Primero eliminar la vista que depende de las columnas
+-- 1. PRIMERO agregar columna documents_url a hospitals si no existe
+ALTER TABLE hospitals
+ADD COLUMN IF NOT EXISTS documents_url TEXT;
+
+-- 2. Eliminar la vista que depende de las columnas PDF
 DROP VIEW IF EXISTS hospital_contracts_view CASCADE;
 
--- 2. Ahora sí eliminar las columnas PDF de hospital_contracts
+-- 3. Ahora sí eliminar las columnas PDF de hospital_contracts
 ALTER TABLE hospital_contracts 
 DROP COLUMN IF EXISTS pdf_url CASCADE,
 DROP COLUMN IF EXISTS pdf_filename CASCADE,
 DROP COLUMN IF EXISTS pdf_uploaded_at CASCADE;
 
--- 3. Recrear la vista sin las columnas PDF
+-- 4. Recrear la vista sin las columnas PDF y con la nueva columna documents_url
 CREATE OR REPLACE VIEW hospital_contracts_view AS
 SELECT 
     hc.id,
@@ -35,10 +39,6 @@ SELECT
     h.documents_url as hospital_documents_url  -- Ahora la URL viene del hospital
 FROM hospital_contracts hc
 LEFT JOIN hospitals h ON h.id = hc.hospital_id;
-
--- 4. Agregar columna documents_url a hospitals si no existe
-ALTER TABLE hospitals
-ADD COLUMN IF NOT EXISTS documents_url TEXT;
 
 -- 5. Agregar comentario descriptivo
 COMMENT ON COLUMN hospitals.documents_url IS 'URL de la carpeta en Zoho Docs o Google Drive con todos los contratos y documentos del hospital';
