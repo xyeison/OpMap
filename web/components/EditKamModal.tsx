@@ -76,41 +76,57 @@ export default function EditKamModal({ kam, isOpen, onClose, onUpdate }: EditKam
     setShowConfirmModal(false)
 
     try {
-      // 1. Actualizar el KAM
-      const { error: updateError } = await supabase
-        .from('kams')
-        .update({
-          name: formData.name,
-          max_travel_time: formData.max_travel_time,
-          enable_level2: formData.enable_level2,
-          priority: formData.priority,
-          active: formData.active,
-          color: formData.color,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', kam.id)
-
-      if (updateError) throw updateError
-
-      // 2. Si cambió el estado, recalcular asignaciones automáticamente
       const statusChanged = kam.active !== formData.active
+      
       if (statusChanged) {
+        // Si cambió el estado, usar el endpoint de activar/desactivar que hace todo
         setRecalculating(true)
         setError('')
         
-        const action = formData.active ? 'activate' : 'deactivate'
-        const response = await fetch('/api/recalculate-zone', {
+        const endpoint = formData.active ? '/api/kams/activate' : '/api/kams/deactivate'
+        const response = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ kamId: kam.id, action })
+          body: JSON.stringify({ kamId: kam.id })
         })
 
         const result = await response.json()
         setRecalculating(false)
         
         if (!result.success) {
-          throw new Error(result.error || 'Error al recalcular asignaciones')
+          throw new Error(result.error || 'Error al cambiar estado del KAM')
         }
+        
+        // Ahora actualizar los otros campos (si es necesario)
+        const { error: updateError } = await supabase
+          .from('kams')
+          .update({
+            name: formData.name,
+            max_travel_time: formData.max_travel_time,
+            enable_level2: formData.enable_level2,
+            priority: formData.priority,
+            color: formData.color,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', kam.id)
+        
+        if (updateError) throw updateError
+        
+      } else {
+        // Si NO cambió el estado, solo actualizar los campos normales
+        const { error: updateError } = await supabase
+          .from('kams')
+          .update({
+            name: formData.name,
+            max_travel_time: formData.max_travel_time,
+            enable_level2: formData.enable_level2,
+            priority: formData.priority,
+            color: formData.color,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', kam.id)
+
+        if (updateError) throw updateError
       }
 
       queryClient.invalidateQueries({ queryKey: ['kams'] })
