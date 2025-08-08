@@ -180,7 +180,7 @@ export default function HomePage() {
                   <RecalculateUnified />
                   
                   {/* Cálculo de Rutas con Google Maps - Solo Administradores */}
-                  {can('admin:all') && (
+                  {can('recalculate:complete') && (
                     <RouteCalculator />
                   )}
                 </div>
