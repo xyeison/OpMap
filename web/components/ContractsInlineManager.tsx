@@ -8,6 +8,7 @@ interface Contract {
   hospital_id: string
   contract_number: string
   contract_type: string
+  contracting_model?: string
   contract_value: number
   start_date: string
   end_date: string
@@ -52,6 +53,7 @@ export default function ContractsInlineManager({ hospitalId, onUpdate }: Contrac
       hospital_id: hospitalId,
       contract_number: '',
       contract_type: 'capita',
+      contracting_model: 'contratacion_directa',
       contract_value: 0,
       start_date: new Date().toISOString().split('T')[0],
       end_date: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
@@ -87,6 +89,7 @@ export default function ContractsInlineManager({ hospitalId, onUpdate }: Contrac
             hospital_id: hospitalId,
             contract_number: contract.contract_number,
             contract_type: contract.contract_type,
+            contracting_model: contract.contracting_model || 'contratacion_directa',
             contract_value: contract.contract_value,
             start_date: contract.start_date,
             end_date: contract.end_date,
@@ -112,6 +115,7 @@ export default function ContractsInlineManager({ hospitalId, onUpdate }: Contrac
           .update({
             contract_number: contract.contract_number,
             contract_type: contract.contract_type,
+            contracting_model: contract.contracting_model || 'contratacion_directa',
             contract_value: contract.contract_value,
             start_date: contract.start_date,
             end_date: contract.end_date,
@@ -243,6 +247,19 @@ export default function ContractsInlineManager({ hospitalId, onUpdate }: Contrac
                   </div>
                   
                   <div>
+                    <label className="text-xs font-semibold text-gray-700">Modelo de Contratación</label>
+                    <select
+                      value={contract.contracting_model || 'contratacion_directa'}
+                      onChange={(e) => handleFieldChange(contract.id, 'contracting_model', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700"
+                    >
+                      <option value="contratacion_directa">Contratación Directa</option>
+                      <option value="licitacion">Licitación</option>
+                      <option value="invitacion_privada">Invitación Privada</option>
+                    </select>
+                  </div>
+                  
+                  <div>
                     <label className="text-xs font-semibold text-gray-700">Valor *</label>
                     <input
                       type="number"
@@ -334,6 +351,17 @@ export default function ContractsInlineManager({ hospitalId, onUpdate }: Contrac
                         }`}>
                           {contract.contract_type.toUpperCase()}
                         </span>
+                        {contract.contracting_model && (
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            contract.contracting_model === 'licitacion' ? 'bg-blue-100 text-blue-800' :
+                            contract.contracting_model === 'invitacion_privada' ? 'bg-purple-100 text-purple-800' :
+                            'bg-green-100 text-green-800'
+                          }`}>
+                            {contract.contracting_model === 'licitacion' ? 'Licitación' :
+                             contract.contracting_model === 'invitacion_privada' ? 'Invitación Privada' :
+                             'Contratación Directa'}
+                          </span>
+                        )}
                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                           contract.active ? 'bg-gray-900 text-white' : 'bg-gray-300 text-gray-700'
                         }`}>
