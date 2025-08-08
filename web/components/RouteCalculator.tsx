@@ -193,8 +193,8 @@ export default function RouteCalculator() {
         calculated: 0,
         failed: 0,
         saved: 0,
-        details: [],
-        errors: []
+        details: [] as any[],
+        errors: [] as any[]
       }
 
       // Procesar en lotes de 1000
