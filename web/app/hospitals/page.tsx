@@ -21,6 +21,7 @@ export default function HospitalsPage() {
     lng: '',
     beds: '',
     service_level: '',
+    hospital_type: 'Publico',
     active: true
   })
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -140,6 +141,7 @@ export default function HospitalsPage() {
         lng: parseFloat(newHospital.lng),
         beds: newHospital.beds ? parseInt(newHospital.beds) : null,
         service_level: newHospital.service_level || null,
+        hospital_type: newHospital.hospital_type || 'Publico',
         active: newHospital.active
       }
 
@@ -310,14 +312,14 @@ export default function HospitalsPage() {
               <p>Municipio: {hospital.municipality_id}</p>
               <p>Camas: {hospital.beds || '-'}</p>
               <p className="font-medium">KAM: {hospital.assigned_kam_name || 'Sin asignar'}</p>
-              {hospital.type && (
+              {hospital.hospital_type && (
                 <p>
                   Tipo: <span className={`px-2 py-1 rounded text-xs ${
-                    hospital.type === 'Publico' ? 'bg-gray-200 text-gray-800' :
-                    hospital.type === 'Privada' ? 'bg-gray-800 text-white' :
-                    'bg-gray-100 text-gray-700'
+                    hospital.hospital_type === 'Publico' ? 'bg-blue-100 text-blue-700' :
+                    hospital.hospital_type === 'Privado' ? 'bg-purple-100 text-purple-700' :
+                    'bg-green-100 text-green-700'
                   }`}>
-                    {hospital.type}
+                    {hospital.hospital_type}
                   </span>
                 </p>
               )}
@@ -382,16 +384,16 @@ export default function HospitalsPage() {
                   </span>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm">
-                  {hospital.type ? (
+                  {hospital.hospital_type ? (
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                      hospital.type === 'Publico' ? 'bg-gray-200 text-gray-800' :
-                      hospital.type === 'Privada' ? 'bg-gray-800 text-white' :
-                      'bg-gray-100 text-gray-700'
+                      hospital.hospital_type === 'Publico' ? 'bg-blue-100 text-blue-700' :
+                      hospital.hospital_type === 'Privado' ? 'bg-purple-100 text-purple-700' :
+                      'bg-green-100 text-green-700'
                     }`}>
-                      {hospital.type}
+                      {hospital.hospital_type}
                     </span>
                   ) : (
-                    <span className="text-gray-400">-</span>
+                    <span className="text-gray-400">No especificado</span>
                   )}
                 </td>
                 <td className="px-4 py-4 whitespace-nowrap text-center">
@@ -435,6 +437,7 @@ export default function HospitalsPage() {
                     lng: '',
                     beds: '',
                     service_level: '',
+                    hospital_type: 'Publico',
                     active: true
                   })
                   setMunicipalities([])
@@ -601,6 +604,21 @@ export default function HospitalsPage() {
                 </select>
               </div>
 
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Tipo de Hospital *
+                </label>
+                <select
+                  className="w-full p-2 border rounded"
+                  value={newHospital.hospital_type}
+                  onChange={(e) => setNewHospital({...newHospital, hospital_type: e.target.value})}
+                >
+                  <option value="Publico">Público</option>
+                  <option value="Privado">Privado</option>
+                  <option value="Mixto">Mixto</option>
+                </select>
+              </div>
+
               <div className="col-span-2">
                 <label className="flex items-center gap-2">
                   <input
@@ -627,6 +645,7 @@ export default function HospitalsPage() {
                     lng: '',
                     beds: '',
                     service_level: '',
+                    hospital_type: 'Publico',
                     active: true
                   })
                   setMunicipalities([])
