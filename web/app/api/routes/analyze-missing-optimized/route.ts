@@ -300,7 +300,7 @@ export async function POST(request: NextRequest) {
 
         // Determinar las zonas de búsqueda para este KAM (excluyendo departamentos excluidos)
         const kamDept = kam.area_id.substring(0, 2)
-        const searchZoneCodes = []
+        const searchZoneCodes: string[] = []
         
         // Solo agregar el departamento del KAM si no está excluido
         if (!excludedDeptCodes.has(kamDept)) {
