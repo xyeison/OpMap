@@ -34,15 +34,34 @@ export default function ContractsInlineManager({ hospitalId, onUpdate }: Contrac
   }, [hospitalId])
 
   const loadContracts = async () => {
-    const { data, error } = await supabase
-      .from('hospital_contracts')
-      .select('*')
-      .eq('hospital_id', hospitalId)
-      .order('created_at', { ascending: false })
+    try {
+      // Usar el endpoint API que tiene bypass de RLS
+      const response = await fetch(`/api/contracts/manage?hospital_id=${hospitalId}`)
+      
+      if (response.ok) {
+        const data = await response.json()
+        setContracts(data.map((c: any) => ({ ...c, isEditing: false })))
+      } else {
+        console.error('Error loading contracts from API')
+        // Fallback al cliente de supabase directo
+        const { data, error } = await supabase
+          .from('hospital_contracts')
+          .select('*')
+          .eq('hospital_id', hospitalId)
+          .order('created_at', { ascending: false })
 
-    if (data) {
-      setContracts(data.map(c => ({ ...c, isEditing: false })))
+        if (error) {
+          console.error('Error loading contracts:', error)
+        }
+
+        if (data) {
+          setContracts(data.map(c => ({ ...c, isEditing: false })))
+        }
+      }
+    } catch (err) {
+      console.error('Error in loadContracts:', err)
     }
+    
     setLoading(false)
     onUpdate?.()
   }
@@ -82,10 +101,11 @@ export default function ContractsInlineManager({ hospitalId, onUpdate }: Contrac
       const durationMonths = Math.max(1, Math.round(monthsDiff))
 
       if (contract.isNew) {
-        // Crear nuevo contrato
-        const { data, error } = await supabase
-          .from('hospital_contracts')
-          .insert({
+        // Crear nuevo contrato usando el API endpoint
+        const response = await fetch('/api/contracts/manage', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
             hospital_id: hospitalId,
             contract_number: contract.contract_number,
             contract_type: contract.contract_type,
@@ -93,43 +113,52 @@ export default function ContractsInlineManager({ hospitalId, onUpdate }: Contrac
             contract_value: contract.contract_value,
             start_date: contract.start_date,
             end_date: contract.end_date,
-            duration_months: durationMonths,
-            current_provider: contract.provider || 'Proveedor',
-            provider: contract.provider || null,
-            description: contract.description || null,
+            provider: contract.provider,
+            description: contract.description,
             active: contract.active
           })
-          .select()
+        })
 
-        if (error) throw error
+        if (!response.ok) {
+          const error = await response.json()
+          throw new Error(error.details || error.error || 'Error al crear contrato')
+        }
+
+        const data = await response.json()
         
-        if (data && data[0]) {
+        if (data) {
           setContracts(contracts.map(c => 
-            c.id === contract.id ? { ...data[0], isEditing: false } : c
+            c.id === contract.id ? { ...data, isEditing: false } : c
           ))
         }
       } else {
-        // Actualizar contrato existente
-        const { error } = await supabase
-          .from('hospital_contracts')
-          .update({
+        // Actualizar contrato existente usando el API endpoint
+        const response = await fetch('/api/contracts/manage', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: contract.id,
             contract_number: contract.contract_number,
             contract_type: contract.contract_type,
             contracting_model: contract.contracting_model || 'contratacion_directa',
             contract_value: contract.contract_value,
             start_date: contract.start_date,
             end_date: contract.end_date,
-            duration_months: durationMonths,
             provider: contract.provider,
             description: contract.description,
             active: contract.active
           })
-          .eq('id', contract.id)
+        })
 
-        if (error) throw error
+        if (!response.ok) {
+          const error = await response.json()
+          throw new Error(error.details || error.error || 'Error al actualizar contrato')
+        }
 
+        const data = await response.json()
+        
         setContracts(contracts.map(c => 
-          c.id === contract.id ? { ...contract, isEditing: false, isNew: false } : c
+          c.id === contract.id ? { ...data, isEditing: false, isNew: false } : c
         ))
       }
       
@@ -144,12 +173,15 @@ export default function ContractsInlineManager({ hospitalId, onUpdate }: Contrac
     if (!confirm('¿Está seguro de eliminar este contrato?')) return
 
     try {
-      const { error } = await supabase
-        .from('hospital_contracts')
-        .delete()
-        .eq('id', contractId)
+      // Usar el API endpoint para eliminar
+      const response = await fetch(`/api/contracts/manage?id=${contractId}`, {
+        method: 'DELETE'
+      })
 
-      if (error) throw error
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.details || error.error || 'Error al eliminar contrato')
+      }
 
       setContracts(contracts.filter(c => c.id !== contractId))
       onUpdate?.()
