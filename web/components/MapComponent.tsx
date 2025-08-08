@@ -128,19 +128,30 @@ export default function MapComponent({ visits: initialVisits = [], showHeatmap: 
 
     const fetchUnassignedTravelTimes = async () => {
       try {
+        console.log('🚀 MapComponent: Iniciando carga de tiempos para hospitales sin asignar...')
+        console.log('📊 MapComponent: Total hospitales sin asignar en mapData:', mapData.unassignedHospitals.length)
+        
         // Usar la API optimizada con la nueva tabla hospital_kam_distances
         const response = await fetch('/api/travel-times/unassigned-optimized')
         if (response.ok) {
           const data = await response.json()
           const timesMap: Record<string, any[]> = {}
           
-          console.log('Loaded travel times for', data.unassigned_hospitals?.length || 0, 'unassigned hospitals')
+          console.log('✅ MapComponent: Respuesta recibida del API')
+          console.log('📊 MapComponent: Hospitales con datos:', data.unassigned_hospitals?.length || 0)
+          console.log('🔍 MapComponent: Debug info del API:', data.debug)
+          
+          let hospitalsWithTravelTimes = 0
           
           data.unassigned_hospitals?.forEach((hospital: any) => {
             if (hospital.travel_times && hospital.travel_times.length > 0) {
               timesMap[hospital.id] = hospital.travel_times
+              hospitalsWithTravelTimes++
             }
           })
+          
+          console.log(`✨ MapComponent: ${hospitalsWithTravelTimes} hospitales tienen tiempos de viaje`)
+          console.log('📝 MapComponent: Ejemplo de hospital con tiempos:', Object.keys(timesMap)[0], timesMap[Object.keys(timesMap)[0]]?.slice(0, 3))
           
           setUnassignedTravelTimes(timesMap)
         } else {
@@ -387,18 +398,17 @@ export default function MapComponent({ visits: initialVisits = [], showHeatmap: 
           const color = isVacant ? '#808080' : (kamColors[territory.kamId] || '#cccccc')
           const isLocality = territory.type === 'localities'
           
-          // Calcular estadísticas del territorio
-          const territoryHospitals = isVacant 
-            ? mapData.unassignedHospitals.filter((h: any) => 
-                h.locality_id === territory.territoryId || h.municipality_id === territory.territoryId
-              )
-            : mapData.assignments.filter((a: any) => 
-                a.hospitals.locality_id === territory.territoryId || 
-                a.hospitals.municipality_id === territory.territoryId
-              ).map((a: any) => a.hospitals)
+          // Obtener estadísticas pre-calculadas del territorio
+          const stats = mapData.territoryStats?.[territory.territoryId] || {
+            totalHospitals: 0,
+            totalBeds: 0,
+            totalAmbulances: 0,
+            totalSurgeries: 0,
+            totalContracts: 0,
+            contractValue: 0,
+            providers: []
+          }
           
-          const totalBeds = territoryHospitals.reduce((sum: number, h: any) => sum + (h.beds || 0), 0)
-          const totalIPS = territoryHospitals.length
           const population = mapData.populationMap[territory.territoryId] || 0
           
           return (
@@ -417,135 +427,101 @@ export default function MapComponent({ visits: initialVisits = [], showHeatmap: 
                     weight: isVacant ? 2 : (isLocality ? 2.5 : 1.5),
                     fillOpacity: isVacant ? 0.5 : (isLocality ? 0.7 : 0.6)
                   })
+                  
+                  // Crear y mostrar popup con las estadísticas
+                  const popupContent = `
+                    <div style="min-width: 300px; padding: 10px;">
+                      <div style="font-size: 15px; font-weight: bold; margin-bottom: 10px; border-bottom: 2px solid #ddd; padding-bottom: 8px;">
+                        ${mapData.municipalityNames[territory.territoryId] || `Territorio ${territory.territoryId}`}
+                      </div>
+                      
+                      <!-- Estadísticas de hospitales -->
+                      <div style="margin-bottom: 10px;">
+                        <div style="font-size: 13px; font-weight: bold; margin-bottom: 5px; color: #666;">
+                          📊 ESTADÍSTICAS HOSPITALARIAS
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px; font-size: 12px;">
+                          <div style="display: flex; justify-content: space-between;">
+                            <span>🏥 Hospitales:</span>
+                            <strong>${stats.totalHospitals}</strong>
+                          </div>
+                          <div style="display: flex; justify-content: space-between;">
+                            <span>🛏️ Camas:</span>
+                            <strong>${stats.totalBeds.toLocaleString()}</strong>
+                          </div>
+                          <div style="display: flex; justify-content: space-between;">
+                            <span>🚑 Ambulancias:</span>
+                            <strong>${stats.totalAmbulances}</strong>
+                          </div>
+                          <div style="display: flex; justify-content: space-between;">
+                            <span>🏥 Cirugías:</span>
+                            <strong>${stats.totalSurgeries.toLocaleString()}</strong>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      ${stats.contractValue > 0 ? `
+                      <!-- Información de contratos -->
+                      <div style="margin-bottom: 10px; padding: 8px; background-color: #f0f9ff; border-radius: 6px;">
+                        <div style="font-size: 13px; font-weight: bold; margin-bottom: 5px; color: #0369a1;">
+                          💼 CONTRATOS ACTIVOS
+                        </div>
+                        <div style="font-size: 12px;">
+                          <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
+                            <span>Contratos:</span>
+                            <strong>${stats.totalContracts}</strong>
+                          </div>
+                          <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
+                            <span>Valor total:</span>
+                            <strong style="color: #059669;">$${(stats.contractValue / 1000000).toFixed(1)}M</strong>
+                          </div>
+                          ${stats.providers && stats.providers.length > 0 ? `
+                          <div style="margin-top: 5px; font-size: 11px; color: #64748b;">
+                            <span>Proveedores: </span>
+                            <span style="font-style: italic;">${stats.providers.slice(0, 3).join(', ')}</span>
+                            ${stats.providers.length > 3 ? `<span> (+${stats.providers.length - 3} más)</span>` : ''}
+                          </div>` : ''}
+                        </div>
+                      </div>` : ''}
+                      
+                      ${population > 0 ? `
+                      <!-- Población y métricas -->
+                      <div style="margin-bottom: 10px; font-size: 12px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
+                          <span>👥 Población 2025:</span>
+                          <strong>${population.toLocaleString()}</strong>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
+                          <span>📊 Camas/1000 hab:</span>
+                          <strong style="color: ${stats.totalBeds / population * 1000 < 1.5 ? '#dc2626' : stats.totalBeds / population * 1000 < 2.5 ? '#f59e0b' : '#059669'};">
+                            ${(stats.totalBeds / population * 1000).toFixed(2)}
+                          </strong>
+                        </div>
+                      </div>` : ''}
+                      
+                      <!-- Estado del territorio -->
+                      <div style="margin-top: 10px; padding: 8px; background-color: ${isVacant ? '#fef2f2' : '#1e293b'}; color: ${isVacant ? '#dc2626' : '#fff'}; text-align: center; border-radius: 6px; font-size: 13px; font-weight: bold;">
+                        ${isVacant ? '⚠️ ZONA VACANTE - SIN KAM ASIGNADO' : `✓ KAM: ${stats.kamName || territory.kamId?.toUpperCase()}`}
+                      </div>
+                    </div>
+                  `
+                  
+                  e.target.bindPopup(popupContent, {
+                    maxWidth: 350,
+                    minWidth: 300,
+                    className: 'territory-popup',
+                    autoPan: false
+                  }).openPopup()
                 },
                 mouseout: (e: any) => {
                   e.target.setStyle({
                     weight: isVacant ? 1 : (isLocality ? 1.5 : 0.8),
                     fillOpacity: isVacant ? 0.3 : (isLocality ? 0.5 : 0.4)
                   })
+                  e.target.closePopup()
                 }
               }}
             >
-              <Tooltip sticky={true} opacity={1} direction="top">
-                <div style={{ 
-                  fontSize: '13px', 
-                  minWidth: '280px',
-                  backgroundColor: 'white',
-                  padding: '14px',
-                  borderRadius: '12px',
-                  border: '2px solid #000',
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.2)'
-                }}>
-                  <div style={{ 
-                    fontSize: '16px', 
-                    fontWeight: 'bold',
-                    color: '#000',
-                    marginBottom: '10px',
-                    borderBottom: '2px solid #000',
-                    paddingBottom: '8px'
-                  }}>
-                    {mapData.municipalityNames[territory.territoryId] || `Localidad ${territory.territoryId}`}
-                  </div>
-                  
-                  {/* Información principal */}
-                  <div style={{ marginBottom: '10px' }}>
-                    <div style={{ 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      justifyContent: 'space-between',
-                      padding: '8px 10px',
-                      backgroundColor: '#f5f5f5',
-                      borderRadius: '8px',
-                      marginBottom: '8px',
-                      border: '1px solid #d4d4d4'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontSize: '18px' }}>🏥</span>
-                        <span style={{ fontWeight: '600', color: '#000' }}>IPS:</span>
-                      </div>
-                      <span style={{ 
-                        fontSize: '20px', 
-                        fontWeight: 'bold',
-                        color: '#000'
-                      }}>
-                        {totalIPS}
-                      </span>
-                    </div>
-                    
-                    <div style={{ 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      justifyContent: 'space-between',
-                      padding: '8px 10px',
-                      backgroundColor: '#f5f5f5',
-                      borderRadius: '8px',
-                      border: '1px solid #d4d4d4'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontSize: '18px' }}>🛏️</span>
-                        <span style={{ fontWeight: '600', color: '#000' }}>Camas:</span>
-                      </div>
-                      <span style={{ 
-                        fontSize: '20px', 
-                        fontWeight: 'bold',
-                        color: '#000'
-                      }}>
-                        {totalBeds.toLocaleString()}
-                      </span>
-                    </div>
-                  </div>
-                  
-                  {/* Información adicional */}
-                  <div style={{ 
-                    borderTop: '1px solid #d4d4d4', 
-                    paddingTop: '10px',
-                    marginTop: '10px' 
-                  }}>
-                    <div style={{ 
-                      display: 'flex', 
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      marginBottom: '6px'
-                    }}>
-                      <span style={{ color: '#666', fontSize: '12px' }}>Población:</span>
-                      <span style={{ fontWeight: '600', color: '#000' }}>
-                        {population.toLocaleString()}
-                      </span>
-                    </div>
-                    
-                    {population > 0 && (
-                      <div style={{ 
-                        display: 'flex', 
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        marginBottom: '6px'
-                      }}>
-                        <span style={{ color: '#666', fontSize: '12px' }}>Camas/1000 hab:</span>
-                        <span style={{ fontWeight: '600', color: '#000' }}>
-                          {(totalBeds / population * 1000).toFixed(2)}
-                        </span>
-                      </div>
-                    )}
-                    
-                    <div style={{ 
-                      marginTop: '10px',
-                      padding: '8px',
-                      backgroundColor: isVacant ? '#f5f5f5' : '#000',
-                      borderRadius: '6px',
-                      textAlign: 'center',
-                      border: isVacant ? '2px solid #000' : 'none'
-                    }}>
-                      <span style={{ 
-                        fontSize: '12px',
-                        fontWeight: '700',
-                        color: isVacant ? '#000' : '#fff'
-                      }}>
-                        {isVacant ? '⚠️ ZONA VACANTE' : `KAM: ${territory.kamId?.toUpperCase()}`}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </Tooltip>
             </GeoJSON>
           )
         })}
@@ -570,8 +546,16 @@ export default function MapComponent({ visits: initialVisits = [], showHeatmap: 
         })}
         
         {/* Hospitales sin asignar (zonas vacantes) */}
-        {filteredUnassignedHospitals.map((hospital: any) => {
+        {filteredUnassignedHospitals.map((hospital: any, index: number) => {
           const travelTimes = unassignedTravelTimes[hospital.id] || []
+          
+          // Log para el primer hospital sin asignar
+          if (index === 0) {
+            console.log('🏥 MapComponent Render - Hospital sin asignar:', hospital.name)
+            console.log('📍 MapComponent Render - ID:', hospital.id)
+            console.log('⏱️ MapComponent Render - Tiempos disponibles:', travelTimes.length)
+            console.log('📊 MapComponent Render - Primeros 3 tiempos:', travelTimes.slice(0, 3))
+          }
           
           // SOLO mostrar tiempos reales de Google Maps
           // NO estimar si no hay datos
@@ -580,7 +564,7 @@ export default function MapComponent({ visits: initialVisits = [], showHeatmap: 
           
           return (
             <CircleMarker
-              key={`unassigned-${hospital.id}`}
+              key={`unassigned-${hospital.id}-${travelTimes.length}`}
               center={[hospital.lat, hospital.lng]}
               radius={5}
               pathOptions={{
@@ -630,7 +614,7 @@ export default function MapComponent({ visits: initialVisits = [], showHeatmap: 
                     )}
                     <div style={{ marginTop: '4px', paddingTop: '4px', borderTop: '1px solid #ddd' }}>
                       <strong>Distancia desde cada KAM:</strong><br/>
-                      {travelTimes.length > 0 ? (
+                      {travelTimes && travelTimes.length > 0 ? (
                         <div style={{ fontSize: '11px', marginTop: '4px' }}>
                           <table style={{ width: '100%', borderSpacing: '0 2px' }}>
                             <tbody>
@@ -732,29 +716,31 @@ export default function MapComponent({ visits: initialVisits = [], showHeatmap: 
           </Marker>
         ))}
         
-        {/* Capa de mapa de calor de visitas */}
-        {showHeatmap && visits && visits.length > 0 ? (
-          <>
-            {console.log('MapComponent - Mostrando heatmap con', visits.length, 'visitas')}
-            <VisitsHeatmapLayer 
-              visits={visits}
-              intensity={0.5}
-              radius={15}
-              blur={25}
-              maxZoom={15}
-              gradient={{
-                0.0: 'blue',
-                0.25: 'cyan',
-                0.5: 'lime',
-                0.75: 'yellow',
-                0.85: 'orange',
-                1.0: 'red'
-              }}
-            />
-          </>
-        ) : showHeatmap ? (
-          console.log('MapComponent - Heatmap activado pero sin visitas para mostrar')
-        ) : null}
+        {/* Capa de mapa de calor de visitas - SOLO mostrar si hay visitas válidas */}
+        {showHeatmap && visits && Array.isArray(visits) && visits.length > 0 ? (
+          <VisitsHeatmapLayer 
+            key={`heatmap-${showHeatmap}-${visits.length}`} // Clave única para forzar remontaje
+            visits={visits}
+            intensity={0.5}
+            radius={15}
+            blur={25}
+            maxZoom={15}
+            gradient={{
+              0.0: 'blue',
+              0.25: 'cyan',
+              0.5: 'lime',
+              0.75: 'yellow',
+              0.85: 'orange',
+              1.0: 'red'
+            }}
+          />
+        ) : (
+          showHeatmap && console.log('MapComponent - Heatmap solicitado pero sin visitas válidas:', {
+            showHeatmap,
+            visitsLength: visits?.length || 0,
+            visitsIsArray: Array.isArray(visits)
+          })
+        )}
         
         {/* Marcadores individuales de visitas */}
         {showMarkers && visits && visits.length > 0 && visits.map((visit, index) => {
@@ -837,6 +823,16 @@ export default function MapComponent({ visits: initialVisits = [], showHeatmap: 
         .hospital-marker:hover {
           stroke-width: 2 !important;
           stroke-opacity: 1 !important;
+        }
+        .leaflet-tooltip {
+          background: white !important;
+          border: 1px solid #ddd !important;
+          border-radius: 8px !important;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.15) !important;
+          padding: 0 !important;
+        }
+        .leaflet-tooltip-top:before {
+          border-top-color: #ddd !important;
         }
       `}</style>
     </>

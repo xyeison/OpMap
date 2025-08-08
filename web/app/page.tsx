@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import RecalculateUnified from '@/components/RecalculateUnified'
+import RouteCalculator from '@/components/RouteCalculator'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
 import { usePermissions } from '@/hooks/usePermissions'
@@ -177,6 +178,11 @@ export default function HomePage() {
                 {/* Botones de administración */}
                 <div className="space-y-4">
                   <RecalculateUnified />
+                  
+                  {/* Cálculo de Rutas con Google Maps - Solo Administradores */}
+                  {can('admin:all') && (
+                    <RouteCalculator />
+                  )}
                 </div>
               </div>
             </PermissionGuard>

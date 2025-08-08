@@ -17,6 +17,9 @@ export function useVisits(filters?: {
   month?: number
   months?: number[]  // Para múltiples meses
   year?: number
+  startYear?: number  // Para rango de años
+  endYear?: number    // Para rango de años
+  allMonths?: boolean // Para incluir todos los meses en el rango
   visitType?: string
   contactType?: string
   kamId?: string
@@ -26,7 +29,7 @@ export function useVisits(filters?: {
     queryKey: ['visits', JSON.stringify(filters)], // Stringificar para forzar nueva query cuando cambian filtros
     enabled: !!filters, // Solo habilitar si hay filtros
     staleTime: 0, // No cachear, siempre hacer nueva consulta
-    cacheTime: 0, // No mantener en caché
+    gcTime: 0, // No mantener en caché (garbage collection time)
     queryFn: async () => {
       // Si no hay filtros, retornar array vacío
       if (!filters) {
@@ -42,15 +45,27 @@ export function useVisits(filters?: {
       // Construir parámetros de query
       const params = new URLSearchParams()
       
-      if (filters?.month) {
-        params.append('month', filters.month.toString())
+      // Para modo de rango de años
+      if (filters?.startYear && filters?.endYear) {
+        params.append('startYear', filters.startYear.toString())
+        params.append('endYear', filters.endYear.toString())
+        if (filters.allMonths) {
+          params.append('allMonths', 'true')
+        }
+      } 
+      // Para modo de mes(es) único(s)
+      else {
+        if (filters?.month) {
+          params.append('month', filters.month.toString())
+        }
+        if (filters?.months && filters.months.length > 0) {
+          params.append('months', filters.months.join(','))
+        }
+        if (filters?.year) {
+          params.append('year', filters.year.toString())
+        }
       }
-      if (filters?.months && filters.months.length > 0) {
-        params.append('months', filters.months.join(','))
-      }
-      if (filters?.year) {
-        params.append('year', filters.year.toString())
-      }
+      
       if (filters?.visitType) {
         params.append('visitType', filters.visitType)
       }

@@ -36,110 +36,110 @@ export default function MapControls({
   const [searchTerm, setSearchTerm] = useState('')
   const [searchResults, setSearchResults] = useState<any[]>([])
   
-  // Estados para visitas - Inicializar con julio 2025 donde hay datos
-  // IMPORTANTE: Los meses son 1-based (1=enero, 7=julio, 12=diciembre)
-  const [showHeatmap, setShowHeatmap] = useState(false)
-  const [showMarkers, setShowMarkers] = useState(false)
-  const [selectedMonth, setSelectedMonth] = useState<number>(7) // 7 = Julio (donde están los datos)
-  const [selectedYear, setSelectedYear] = useState<number>(2025) // 2025 donde están las visitas
+  // Estados para visitas - Tipo de visualización
+  const [visualizationType, setVisualizationType] = useState<'heatmap' | 'markers' | 'both'>('heatmap')
+  
+  // Filtros de período - año con múltiples meses
+  const [selectedYear, setSelectedYear] = useState<number>(2025) // Año seleccionado
+  const [selectedMonths, setSelectedMonths] = useState<number[]>([7]) // Meses seleccionados (julio por defecto)
+  
+  // Filtros de contenido
   const [visitTypeFilter, setVisitTypeFilter] = useState('all')
   const [contactTypeFilter, setContactTypeFilter] = useState('all')
-  const [multipleMonthsMode, setMultipleMonthsMode] = useState(false)
-  const [selectedMonths, setSelectedMonths] = useState<number[]>([7]) // Julio por defecto
-  const [selectedKams, setSelectedKams] = useState<string[]>([]) // Vacío para mostrar todas las visitas
+  const [selectedKams, setSelectedKams] = useState<string[]>([]) // Vacío = todos los KAMs
   const [availableKams, setAvailableKams] = useState<{id: string, name: string, color: string}[]>([])
   
-  // Asegurar que el mes inicial sea julio al montar el componente
+  // Calcular si las visualizaciones deben mostrarse automáticamente
+  const hasValidFilters = selectedMonths.length > 0 && selectedKams.length > 0;
+  const showHeatmap = hasValidFilters && (visualizationType === 'heatmap' || visualizationType === 'both');
+  const showMarkers = hasValidFilters && (visualizationType === 'markers' || visualizationType === 'both');
+  
+  // Inicialización del componente
   useEffect(() => {
-    console.log('MapControls - Inicialización del componente, mes inicial:', selectedMonth, 'año inicial:', selectedYear)
-    // Forzar julio 2025 en la inicialización
-    if (selectedMonth !== 7 || selectedYear !== 2025) {
-      console.log('MapControls - Estableciendo valores iniciales: julio (7) 2025')
-      setSelectedMonth(7)
-      setSelectedYear(2025)
-      setSelectedMonths([7])
-    }
+    console.log('MapControls - Inicialización del componente')
+    console.log('- Año inicial: 2025')
+    console.log('- Mes inicial: julio (7)')
+    console.log('- KAMs: Se cargarán todos por defecto')
   }, [])
 
-  // Cargar visitas con filtros - corregido para manejar múltiples meses correctamente
-  // En modo múltiple: solo cargar si hay meses seleccionados
-  // En modo simple: siempre cargar
-  const shouldLoadVisits = multipleMonthsMode ? selectedMonths.length > 0 : true
-  
-  // Debug
+  // Debug de estado de filtros
   useEffect(() => {
-    console.log('MapControls - Modo visitas:', {
-      multipleMonthsMode,
-      selectedMonths: selectedMonths.length,
-      shouldLoadVisits,
-      mesesSeleccionados: selectedMonths
+    console.log('MapControls - Estado de filtros:', {
+      año: selectedYear,
+      mesesSeleccionados: selectedMonths,
+      kamsSeleccionados: selectedKams.length,
+      tipoVisita: visitTypeFilter,
+      tipoContacto: contactTypeFilter
     })
-  }, [multipleMonthsMode, selectedMonths, shouldLoadVisits])
+  }, [selectedMonths, selectedYear, selectedKams, visitTypeFilter, contactTypeFilter])
   
   // Debug - log de los parámetros de búsqueda
   useEffect(() => {
     console.log('MapControls - Estado actualizado:', {
-      selectedMonth,
-      selectedYear,
-      selectedKamsCount: selectedKams.length,
-      selectedKamsIds: selectedKams,
-      multipleMonthsMode,
-      selectedMonths
+      año: selectedYear,
+      meses: selectedMonths,
+      kamsCount: selectedKams.length,
+      kamsIds: selectedKams
     })
-  }, [selectedMonth, selectedYear, selectedKams, multipleMonthsMode, selectedMonths])
+  }, [selectedYear, selectedKams, selectedMonths])
 
-  // Solo crear queryParams si deberíamos cargar visitas
-  const queryParams = shouldLoadVisits ? {
-    // En modo múltiple, NO enviar month (solo months)
-    // En modo simple, enviar month
-    month: !multipleMonthsMode ? selectedMonth : undefined,
-    // En modo múltiple, enviar months solo si hay seleccionados
-    months: multipleMonthsMode && selectedMonths.length > 0 ? selectedMonths.sort((a, b) => a - b) : undefined,
-    year: selectedYear,
-    visitType: visitTypeFilter === 'all' ? undefined : visitTypeFilter,
-    contactType: contactTypeFilter === 'all' ? undefined : contactTypeFilter,
-    kamIds: selectedKams.length > 0 ? selectedKams : undefined // Si no hay KAMs seleccionados, no filtrar por KAM
-  } : null
-  
-  // Debug de los parámetros de la query
-  useEffect(() => {
-    console.log('MapControls - Query params para useVisits:', queryParams)
-  }, [JSON.stringify(queryParams)])
-  
-  // Solo hacer la query si shouldLoadVisits es true
-  const { data: visitsData, isLoading, error } = useVisits(shouldLoadVisits ? queryParams : null)
-  
-  // CRÍTICO: Usar las visitas SOLO si shouldLoadVisits es true
-  // Cuando shouldLoadVisits es false, SIEMPRE usar array vacío sin importar visitsData
-  const visits = useMemo(() => {
-    if (!shouldLoadVisits) {
-      console.log('MapControls - shouldLoadVisits es false, usando array vacío')
-      return []
+  // Construir queryParams basado en el estado actual de TODOS los filtros
+  const queryParams = useMemo(() => {
+    // Verificar que haya meses seleccionados
+    if (selectedMonths.length === 0) {
+      console.log('MapControls - Sin meses seleccionados, NO se hará query')
+      return null
     }
-    const result = visitsData || []
-    console.log('MapControls - shouldLoadVisits es true, usando', result.length, 'visitas')
-    return result
-  }, [shouldLoadVisits, visitsData])
-  
-  // Debug para verificar que las visitas se limpian correctamente
-  useEffect(() => {
-    if (!shouldLoadVisits) {
-      console.log('MapControls - Limpiando visitas porque shouldLoadVisits es false')
+    
+    // Verificar que haya KAMs seleccionados
+    if (selectedKams.length === 0) {
+      console.log('MapControls - Sin KAMs seleccionados, NO se hará query')
+      return null
     }
-  }, [shouldLoadVisits])
+    
+    // Construir parámetros
+    const params: any = {
+      months: selectedMonths.sort((a, b) => a - b),
+      year: selectedYear
+    }
+    
+    // Agregar filtros de contenido
+    params.visitType = visitTypeFilter === 'all' ? undefined : visitTypeFilter
+    params.contactType = contactTypeFilter === 'all' ? undefined : contactTypeFilter
+    
+    // Agregar KAMs seleccionados
+    if (selectedKams.length < availableKams.length) {
+      // Solo enviar el filtro si no están todos seleccionados
+      params.kamIds = selectedKams
+    }
+    // Si todos los KAMs están seleccionados, no enviar el filtro (mostrar todos)
+    
+    console.log('MapControls - Query params construidos:', {
+      año: params.year,
+      meses: params.months?.join(','),
+      kams: params.kamIds?.length || 'todos',
+      filtros: [params.visitType, params.contactType].filter(Boolean).join(', ') || 'ninguno'
+    })
+    
+    return params
+  }, [selectedMonths, selectedYear, visitTypeFilter, contactTypeFilter, selectedKams, availableKams.length])
+  
+  // Hacer la query solo si hay parámetros válidos
+  const { data: visitsData, isLoading, error } = useVisits(queryParams)
+  
+  // Las visitas son simplemente lo que retorna la query, pero SOLO si hay parámetros válidos
+  const visits = queryParams && Array.isArray(visitsData) ? visitsData : []
   
   // Debug del resultado
   useEffect(() => {
-    console.log('MapControls - Resultado de visitas:', {
-      shouldLoadVisits,
-      isLoading,
-      error: error?.message || null,
-      visitsDataLength: visitsData?.length || 0,
-      visitsLength: visits.length,
-      showHeatmap,
-      primeras3: visits?.slice(0, 3)
+    console.log('MapControls - Estado de visitas:', {
+      total: visits.length,
+      cargando: isLoading,
+      error: error?.message,
+      hayParametros: !!queryParams,
+      mostrandoHeatmap: showHeatmap
     })
-  }, [shouldLoadVisits, isLoading, error, visitsData, visits, showHeatmap])
+  }, [visits.length, isLoading, error, queryParams, showHeatmap])
 
   // Cargar KAMs disponibles
   useEffect(() => {
@@ -154,35 +154,30 @@ export default function MapControls({
         console.log('MapControls - KAMs cargados:', kams.length)
         setAvailableKams(kams)
         
-        // NO seleccionar KAMs por defecto - dejar que el usuario los seleccione
-        // Esto permite que la consulta inicial no filtre por KAMs
-        setSelectedKams([])
-        console.log('MapControls - Iniciando sin KAMs seleccionados para mostrar todas las visitas')
+        // Seleccionar TODOS los KAMs por defecto
+        const allKamIds = kams.map(k => k.id)
+        setSelectedKams(allKamIds)
+        console.log('MapControls - Todos los KAMs seleccionados por defecto:', allKamIds.length)
       }
     }
     loadKams()
   }, [])
 
-  // Notificar cambios de visitas - FORZAR LIMPIEZA cuando no hay datos
+  // Notificar cambios de visitas al componente padre
   useEffect(() => {
-    console.log('MapControls - Notificando cambio de visitas:', {
-      cantidad: visits?.length || 0,
-      tiene_onVisitsChange: !!onVisitsChange,
-      multipleMonthsMode,
-      selectedMonths: selectedMonths.length,
-      shouldLoadVisits
-    })
-    
     if (onVisitsChange) {
-      if (!shouldLoadVisits || visits.length === 0) {
-        console.log('MapControls - LIMPIANDO visitas del mapa')
-        onVisitsChange([]) // Forzar array vacío
+      // Si no hay parámetros válidos (no hay meses o KAMs seleccionados), enviar array vacío
+      if (!queryParams) {
+        console.log('MapControls - Limpiando visitas (sin filtros válidos)')
+        onVisitsChange([])
       } else {
+        console.log('MapControls - Actualizando mapa con', visits.length, 'visitas (con filtros)')
         onVisitsChange(visits)
       }
     }
-  }, [visits, onVisitsChange, multipleMonthsMode, selectedMonths.length, shouldLoadVisits])
+  }, [visits, onVisitsChange, queryParams])
 
+  // Notificar cambios de visualización al componente padre
   useEffect(() => {
     if (onShowHeatmapChange) {
       onShowHeatmapChange(showHeatmap)
@@ -281,18 +276,6 @@ export default function MapControls({
     }
   }, [showMarkers, onShowMarkersChange])
 
-  // Manejar cambio de modo múltiples meses
-  const handleMultipleMonthsModeChange = (enabled: boolean) => {
-    console.log('MapControls - Cambiando modo múltiple a:', enabled)
-    setMultipleMonthsMode(enabled)
-    if (!enabled) {
-      // Al desactivar modo múltiple, volver al mes actual
-      setSelectedMonths([selectedMonth])
-    } else {
-      // Al activar modo múltiple, limpiar selección para forzar al usuario a elegir
-      setSelectedMonths([])
-    }
-  }
 
   return (
     <>
@@ -442,211 +425,270 @@ export default function MapControls({
             {/* Tab de Visitas */}
             {activeTab === 'visits' && (
               <div>
-                <h3 className="text-sm font-semibold mb-3">Control de Visitas</h3>
+                <h3 className="text-sm font-semibold mb-3">Visualización de Visitas Médicas</h3>
                 
-                {/* Opciones de visualización */}
-                <div className="space-y-2 mb-3">
-                  <label className="flex items-center text-sm">
-                    <input
-                      type="checkbox"
-                      checked={showHeatmap}
-                      onChange={(e) => setShowHeatmap(e.target.checked)}
-                      className="mr-2"
-                    />
-                    Mostrar mapa de calor
-                  </label>
-                  <label className="flex items-center text-sm">
-                    <input
-                      type="checkbox"
-                      checked={showMarkers}
-                      onChange={(e) => setShowMarkers(e.target.checked)}
-                      className="mr-2"
-                    />
-                    Mostrar marcadores individuales
-                  </label>
-                </div>
-
-                {/* Modo de selección de meses */}
-                <div className="mb-3 pb-3 border-b">
-                  <label className="flex items-center text-sm">
-                    <input
-                      type="checkbox"
-                      checked={multipleMonthsMode}
-                      onChange={(e) => handleMultipleMonthsModeChange(e.target.checked)}
-                      className="mr-2"
-                    />
-                    Seleccionar múltiples meses
-                  </label>
-                </div>
-
-                {/* Filtros de fecha */}
-                {!multipleMonthsMode ? (
-                  <div className="grid grid-cols-2 gap-2 mb-3">
-                    <div>
-                      <label className="text-xs font-medium text-gray-700">Mes</label>
-                      <select
-                        value={String(selectedMonth)}
-                        onChange={(e) => {
-                          const month = Number(e.target.value)
-                          console.log('MapControls - Cambiando mes de', selectedMonth, 'a', month)
-                          setSelectedMonth(month)
-                          setSelectedMonths([month])
-                        }}
-                        className="w-full px-2 py-1 text-sm border rounded"
+                {/* Tipo de visualización - Solo si hay filtros válidos */}
+                {hasValidFilters ? (
+                  <div className="mb-4">
+                    <label className="text-xs font-medium text-gray-700 mb-2 block">Tipo de visualización</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        onClick={() => setVisualizationType('heatmap')}
+                        className={`px-3 py-2 text-xs rounded-lg border transition-all ${
+                          visualizationType === 'heatmap'
+                            ? 'bg-blue-500 text-white border-blue-500 shadow-sm'
+                            : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                        }`}
                       >
-                        {[...Array(12)].map((_, i) => {
-                          const monthValue = i + 1
-                          return (
-                            <option key={monthValue} value={String(monthValue)}>
-                              {format(new Date(2000, i, 1), 'MMMM', { locale: es })}
-                            </option>
-                          )
-                        })}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-gray-700">Año</label>
-                      <select
-                        value={selectedYear}
-                        onChange={(e) => setSelectedYear(Number(e.target.value))}
-                        className="w-full px-2 py-1 text-sm border rounded"
+                        <svg className="w-4 h-4 mx-auto mb-1" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M5 2a2 2 0 00-2 2v14l3.5-2 3.5 2 3.5-2 3.5 2V4a2 2 0 00-2-2H5zm2.5 3a1.5 1.5 0 100 3 1.5 1.5 0 000-3zm6.207.293a1 1 0 00-1.414 0l-6 6a1 1 0 101.414 1.414l6-6a1 1 0 000-1.414zM12.5 10a1.5 1.5 0 100 3 1.5 1.5 0 000-3z" clipRule="evenodd" />
+                        </svg>
+                        Mapa de Calor
+                      </button>
+                      <button
+                        onClick={() => setVisualizationType('markers')}
+                        className={`px-3 py-2 text-xs rounded-lg border transition-all ${
+                          visualizationType === 'markers'
+                            ? 'bg-blue-500 text-white border-blue-500 shadow-sm'
+                            : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                        }`}
                       >
-                        {[2023, 2024, 2025].map(year => (
-                          <option key={year} value={year}>{year}</option>
-                        ))}
-                      </select>
+                        <svg className="w-4 h-4 mx-auto mb-1" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+                        </svg>
+                        Marcadores
+                      </button>
+                      <button
+                        onClick={() => setVisualizationType('both')}
+                        className={`px-3 py-2 text-xs rounded-lg border transition-all ${
+                          visualizationType === 'both'
+                            ? 'bg-blue-500 text-white border-blue-500 shadow-sm'
+                            : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                        }`}
+                      >
+                        <svg className="w-4 h-4 mx-auto mb-1" fill="currentColor" viewBox="0 0 20 20">
+                          <path d="M10 3.5a1.5 1.5 0 013 0V4a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-.5a1.5 1.5 0 000 3h.5a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-.5a1.5 1.5 0 00-3 0v.5a1 1 0 01-1 1H6a1 1 0 01-1-1v-3a1 1 0 00-1-1h-.5a1.5 1.5 0 010-3H4a1 1 0 001-1V6a1 1 0 011-1h3a1 1 0 001-1v-.5z" />
+                        </svg>
+                        Ambos
+                      </button>
                     </div>
                   </div>
                 ) : (
-                  <div className="mb-3">
-                    <label className="text-xs font-medium text-gray-700 mb-1 block">
-                      Meses seleccionados ({selectedMonths.length})
-                      {selectedMonths.length === 0 && (
-                        <span className="text-red-500 ml-1">(Seleccione al menos un mes)</span>
-                      )}
-                    </label>
-                    <div className="grid grid-cols-3 gap-1">
-                      {[...Array(12)].map((_, i) => (
-                        <label key={i + 1} className="flex items-center text-xs">
-                          <input
-                            type="checkbox"
-                            checked={selectedMonths.includes(i + 1)}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedMonths([...selectedMonths, i + 1])
-                              } else {
-                                const newMonths = selectedMonths.filter(m => m !== i + 1)
-                                setSelectedMonths(newMonths.length > 0 ? newMonths : [])
-                              }
-                            }}
-                            className="mr-1"
-                          />
-                          {format(new Date(2000, i, 1), 'MMM', { locale: es })}
-                        </label>
-                      ))}
-                    </div>
-                    {selectedMonths.length === 0 && (
-                      <div className="mt-2 p-2 bg-gray-100 border border-gray-300 rounded text-xs text-gray-700">
-                        <svg className="w-3 h-3 inline mr-1" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd"></path>
-                        </svg>
-                        No se mostrarán visitas hasta seleccionar al menos un mes
+                  <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                    <div className="flex items-start gap-2">
+                      <svg className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                      </svg>
+                      <div className="text-xs">
+                        <p className="font-semibold text-amber-800 mb-1">Seleccione filtros para visualizar</p>
+                        <p className="text-amber-700">
+                          {selectedMonths.length === 0 && selectedKams.length === 0
+                            ? 'Debe seleccionar al menos un mes y un KAM'
+                            : selectedMonths.length === 0
+                            ? 'Debe seleccionar al menos un mes'
+                            : 'Debe seleccionar al menos un KAM'
+                          }
+                        </p>
                       </div>
-                    )}
-                    <div className="mt-2">
-                      <label className="text-xs font-medium text-gray-700">Año</label>
-                      <select
-                        value={selectedYear}
-                        onChange={(e) => setSelectedYear(Number(e.target.value))}
-                        className="w-full px-2 py-1 text-sm border rounded"
-                      >
-                        {[2023, 2024, 2025].map(year => (
-                          <option key={year} value={year}>{year}</option>
-                        ))}
-                      </select>
                     </div>
                   </div>
                 )}
 
-                {/* Filtro de KAMs */}
-                <div className="mb-3">
-                  <label className="text-xs font-medium text-gray-700 mb-1 block">
-                    KAMs a mostrar
+                {/* Filtros de fecha mejorados */}
+                <div className="mb-4 border-t pt-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <label className="text-xs font-semibold text-gray-700">Período de Consulta</label>
+                    <select
+                      value={selectedYear}
+                      onChange={(e) => setSelectedYear(Number(e.target.value))}
+                      className="px-3 py-1 text-xs font-medium border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      {[2023, 2024, 2025].map(year => (
+                        <option key={year} value={year}>{year}</option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {[...Array(12)].map((_, i) => {
+                      const monthDate = new Date(2000, i, 1);
+                      const monthShort = format(monthDate, 'MMM', { locale: es });
+                      const monthFull = format(monthDate, 'MMMM', { locale: es });
+                      const isSelected = selectedMonths.includes(i + 1);
+                      
+                      return (
+                        <button
+                          key={i + 1}
+                          onClick={() => {
+                            if (isSelected) {
+                              setSelectedMonths(selectedMonths.filter(m => m !== i + 1))
+                            } else {
+                              setSelectedMonths([...selectedMonths, i + 1])
+                            }
+                          }}
+                          className={`py-2 px-1 text-xs font-medium rounded-lg transition-all capitalize ${
+                            isSelected
+                              ? 'bg-blue-500 text-white shadow-sm'
+                              : 'bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-200'
+                          }`}
+                          title={monthFull}
+                        >
+                          {monthShort}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  
+                  {selectedMonths.length > 0 && (
+                    <div className="mt-2 flex items-center justify-between text-xs">
+                      <span className="text-gray-600">
+                        {selectedMonths.length} {selectedMonths.length === 1 ? 'mes' : 'meses'} seleccionado{selectedMonths.length === 1 ? '' : 's'}
+                      </span>
+                      <button
+                        onClick={() => setSelectedMonths([])}
+                        className="text-gray-500 hover:text-red-600 transition-colors"
+                      >
+                        Limpiar
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Filtro de KAMs mejorado */}
+                <div className="mb-4 border-t pt-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <label className="text-xs font-semibold text-gray-700">Vendedores (KAMs)</label>
                     <button
                       onClick={() => {
-                        if (selectedKams.length === 0) {
-                          // Si no hay ninguno, seleccionar solo los que tienen visitas
-                          const kamsWithVisits = ['11dae2e2-b01e-43b4-a927-62aa994d25b7', 'f44b0557-1c17-41b9-ac66-f1ef5d23d75c', '1b2f89c9-4709-4764-afc2-36a7faafe609', 'ef69d4fa-63cb-474c-964f-33aa323dc5c9', '3ce353cc-64d0-454e-9017-e78e20a1ea59', '0422850d-2cb9-4099-b8e0-010d5dfb15ee', '247f8e1a-c9c9-4e15-9f3b-25dbf46f439c']
-                          setSelectedKams(kamsWithVisits.filter(id => availableKams.some(k => k.id === id)))
-                        } else {
-                          // Si hay alguno seleccionado, deseleccionar todos
+                        if (selectedKams.length === availableKams.length) {
                           setSelectedKams([])
+                        } else {
+                          setSelectedKams(availableKams.map(k => k.id))
                         }
                       }}
-                      className="ml-2 text-gray-700 hover:text-black font-medium"
+                      className="text-xs font-medium text-blue-600 hover:text-blue-800 transition-colors"
                     >
-                      ({selectedKams.length === 0 ? 'Mostrar todos' : `${selectedKams.length} seleccionados`})
+                      {selectedKams.length === availableKams.length ? 'Quitar todos' : 'Seleccionar todos'}
                     </button>
-                  </label>
-                  <div className="max-h-24 overflow-y-auto border rounded p-2">
+                  </div>
+                  
+                  <div className="max-h-32 overflow-y-auto border border-gray-200 rounded-lg p-2">
                     <div className="grid grid-cols-2 gap-1">
                       {availableKams.map(kam => {
-                        // KAMs que tienen visitas en julio 2025
-                        const kamsWithVisitsJuly2025 = ['11dae2e2-b01e-43b4-a927-62aa994d25b7', 'f44b0557-1c17-41b9-ac66-f1ef5d23d75c', '1b2f89c9-4709-4764-afc2-36a7faafe609', 'ef69d4fa-63cb-474c-964f-33aa323dc5c9', '3ce353cc-64d0-454e-9017-e78e20a1ea59', '0422850d-2cb9-4099-b8e0-010d5dfb15ee', '247f8e1a-c9c9-4e15-9f3b-25dbf46f439c']
-                        const hasVisits = kamsWithVisitsJuly2025.includes(kam.id)
-                        
+                        const isSelected = selectedKams.includes(kam.id);
                         return (
-                          <label key={kam.id} className={`flex items-center text-xs ${!hasVisits ? 'opacity-50' : ''}`}>
-                            <input
-                              type="checkbox"
-                              checked={selectedKams.includes(kam.id)}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  console.log('MapControls - Agregando KAM:', kam.name, kam.id)
-                                  setSelectedKams([...selectedKams, kam.id])
-                                } else {
-                                  console.log('MapControls - Quitando KAM:', kam.name, kam.id)
-                                  setSelectedKams(selectedKams.filter(k => k !== kam.id))
-                                }
-                              }}
-                              className="mr-1"
-                            />
+                          <button
+                            key={kam.id}
+                            onClick={() => {
+                              if (isSelected) {
+                                setSelectedKams(selectedKams.filter(k => k !== kam.id))
+                              } else {
+                                setSelectedKams([...selectedKams, kam.id])
+                              }
+                            }}
+                            className={`flex items-center gap-1.5 px-2 py-1.5 text-xs rounded-md transition-all ${
+                              isSelected
+                                ? 'bg-blue-50 text-blue-700 font-medium'
+                                : 'hover:bg-gray-50 text-gray-600'
+                            }`}
+                          >
                             <span 
-                              className="w-2 h-2 rounded-full mr-1" 
-                              style={{ backgroundColor: kam.color }}
+                              className="w-3 h-3 rounded-full border-2 flex-shrink-0" 
+                              style={{ 
+                                backgroundColor: isSelected ? kam.color : 'transparent',
+                                borderColor: kam.color 
+                              }}
                             />
-                            {kam.name}
-                            {hasVisits && <span className="ml-1 text-green-600">●</span>}
-                          </label>
+                            <span className="truncate">{kam.name}</span>
+                          </button>
                         )
                       })}
                     </div>
                   </div>
-                </div>
-
-                {/* Estadísticas de visitas */}
-                <div className="mt-3 pt-3 border-t text-xs text-gray-600">
-                  {isLoading ? (
-                    <p className="text-gray-500">Cargando visitas...</p>
-                  ) : error ? (
-                    <p className="text-red-500">Error: {error.message}</p>
-                  ) : (
-                    <>
-                      <p>Total visitas: <strong className="text-gray-900">{visits ? visits.length : 0}</strong></p>
-                      <p>Efectivas: <strong className="text-gray-800">
-                        {visits ? visits.filter(v => v.visit_type === 'Visita efectiva').length : 0}
-                      </strong></p>
-                      <p>Presenciales: <strong className="text-gray-800">
-                        {visits ? visits.filter(v => v.contact_type === 'Visita presencial').length : 0}
-                      </strong></p>
-                      {visits?.length === 0 && (
-                        <p className="text-xs text-amber-600 mt-1">
-                          Filtros: {selectedMonth}/{selectedYear}, {selectedKams.length} KAMs
-                        </p>
+                  
+                  {selectedKams.length > 0 && (
+                    <div className="mt-2 flex items-center justify-between text-xs">
+                      <span className="text-gray-600">
+                        {selectedKams.length} de {availableKams.length} vendedores
+                      </span>
+                      {selectedKams.length !== availableKams.length && (
+                        <button
+                          onClick={() => setSelectedKams([])}
+                          className="text-gray-500 hover:text-red-600 transition-colors"
+                        >
+                          Limpiar selección
+                        </button>
                       )}
-                    </>
+                    </div>
                   )}
                 </div>
+
+                {/* Estadísticas de visitas mejoradas */}
+                {hasValidFilters && (
+                  <div className="mt-4 pt-4 border-t">
+                    <h4 className="text-xs font-semibold text-gray-700 mb-3">Resumen de Visitas</h4>
+                    {isLoading ? (
+                      <div className="flex items-center justify-center py-4">
+                        <svg className="animate-spin h-5 w-5 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span className="ml-2 text-xs text-gray-500">Cargando visitas...</span>
+                      </div>
+                    ) : error ? (
+                      <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                        <p className="text-xs text-red-700">Error al cargar: {error.message}</p>
+                      </div>
+                    ) : visits && visits.length > 0 ? (
+                      <div className="space-y-3">
+                        {/* Contador principal */}
+                        <div className="bg-gradient-to-r from-blue-500 to-blue-600 rounded-lg p-3 text-white">
+                          <div className="text-2xl font-bold">{visits.length}</div>
+                          <div className="text-xs opacity-90">Visitas totales</div>
+                        </div>
+                        
+                        {/* Estadísticas detalladas */}
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="bg-green-50 border border-green-200 rounded-lg p-2">
+                            <div className="text-lg font-semibold text-green-700">
+                              {visits.filter(v => v.visit_type === 'Visita efectiva').length}
+                            </div>
+                            <div className="text-xs text-green-600">Efectivas</div>
+                          </div>
+                          <div className="bg-purple-50 border border-purple-200 rounded-lg p-2">
+                            <div className="text-lg font-semibold text-purple-700">
+                              {visits.filter(v => v.contact_type === 'Visita presencial').length}
+                            </div>
+                            <div className="text-xs text-purple-600">Presenciales</div>
+                          </div>
+                        </div>
+                        
+                        {/* Porcentaje de efectividad */}
+                        <div className="bg-gray-50 rounded-lg p-2">
+                          <div className="flex justify-between items-center mb-1">
+                            <span className="text-xs text-gray-600">Efectividad</span>
+                            <span className="text-xs font-semibold text-gray-900">
+                              {Math.round((visits.filter(v => v.visit_type === 'Visita efectiva').length / visits.length) * 100)}%
+                            </span>
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-1.5">
+                            <div 
+                              className="bg-green-500 h-1.5 rounded-full transition-all"
+                              style={{ width: `${(visits.filter(v => v.visit_type === 'Visita efectiva').length / visits.length) * 100}%` }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="py-4 text-center">
+                        <svg className="w-12 h-12 mx-auto text-gray-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                        </svg>
+                        <p className="text-xs text-gray-500">No hay visitas en el período seleccionado</p>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 

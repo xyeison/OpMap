@@ -71,27 +71,27 @@ export default function RecalculateUnified() {
   }
 
   return (
-    <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-8">      
-      <div className="space-y-6">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="text-xl font-bold text-gray-900">Recálculo de Asignaciones</h3>
-            <p className="text-sm text-gray-600 mt-1">Actualiza las asignaciones territoriales con Google Maps</p>
-          </div>
-          <div className="w-12 h-12 bg-gradient-to-br from-gray-700 to-gray-900 rounded-xl flex items-center justify-center">
+    <div className="bg-white rounded-2xl shadow-lg hover:shadow-2xl border border-gray-100 p-7 transform transition-all duration-300">      
+      <div className="mb-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-12 h-12 bg-gradient-to-br from-gray-800 to-black rounded-xl flex items-center justify-center shadow-lg">
             <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
             </svg>
+          </div>
+          <div>
+            <h2 className="text-xl font-bold text-gray-900">Recálculo de Asignaciones</h2>
+            <p className="text-sm text-gray-600">Actualiza las asignaciones territoriales con Google Maps</p>
           </div>
         </div>
         
         <button
           onClick={handleRecalculate}
           disabled={loading}
-          className={`w-full px-6 py-4 rounded-xl font-medium transition-all duration-200 ${
+          className={`w-full px-6 py-4 rounded-xl font-medium transition-all duration-200 transform flex items-center justify-center gap-3 ${
             loading 
               ? 'bg-gray-200 text-gray-400 cursor-not-allowed' 
-              : 'bg-gray-900 text-white hover:bg-black transform hover:-translate-y-0.5 shadow-lg hover:shadow-xl'
+              : 'bg-gradient-to-r from-gray-800 to-gray-900 text-white hover:from-gray-900 hover:to-black hover:scale-[1.02] hover:shadow-lg'
           }`}
         >
           {loading ? (

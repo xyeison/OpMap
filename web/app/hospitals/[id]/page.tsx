@@ -30,6 +30,7 @@ export default function HospitalDetailPage() {
   const [kamMunicipalityName, setKamMunicipalityName] = useState('')
   const [editingDoctors, setEditingDoctors] = useState(false)
   const [doctors, setDoctors] = useState('')
+  const [kamDistances, setKamDistances] = useState<any[]>([])
 
   useEffect(() => {
     loadHospitalData()
@@ -58,6 +59,13 @@ export default function HospitalDetailPage() {
         // Cargar historial si existe
         if (data.history) {
           setHistory(data.history)
+        }
+        
+        // Cargar distancias de KAMs desde hospital_kam_distances
+        const distResponse = await fetch(`/api/hospitals/${hospitalId}/kam-distances`)
+        if (distResponse.ok) {
+          const distData = await distResponse.json()
+          setKamDistances(distData.distances || [])
         }
       }
     } catch (error) {
@@ -367,6 +375,64 @@ export default function HospitalDetailPage() {
             </div>
           )}
         </div>
+
+        {/* Distancias a KAMs */}
+        {kamDistances.length > 0 && (
+          <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6 mb-8">
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Distancias desde KAMs</h2>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-2 text-gray-600 font-medium">KAM</th>
+                    <th className="text-right py-2 text-gray-600 font-medium">Tiempo de Viaje</th>
+                    <th className="text-right py-2 text-gray-600 font-medium">Distancia</th>
+                    <th className="text-center py-2 text-gray-600 font-medium">Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {kamDistances.map((dist: any, idx: number) => {
+                    const minutes = Math.round(dist.travel_time / 60)
+                    const isAssigned = kam && kam.id === dist.kam_id
+                    const isOverLimit = minutes > (dist.max_travel_time || 240)
+                    
+                    return (
+                      <tr key={idx} className="border-b hover:bg-gray-50">
+                        <td className="py-3">
+                          <span className={`font-medium ${isAssigned ? 'text-green-600' : 'text-gray-900'}`}>
+                            {dist.kam_name}
+                            {isAssigned && ' ✓'}
+                          </span>
+                        </td>
+                        <td className={`text-right py-3 ${isOverLimit ? 'text-red-600' : 'text-gray-700'}`}>
+                          {Math.floor(minutes / 60)}h {minutes % 60}m
+                        </td>
+                        <td className="text-right py-3 text-gray-700">
+                          {dist.distance ? `${dist.distance.toFixed(1)} km` : '-'}
+                        </td>
+                        <td className="text-center py-3">
+                          {isAssigned ? (
+                            <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">
+                              Asignado
+                            </span>
+                          ) : isOverLimit ? (
+                            <span className="px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs font-medium">
+                              Fuera de rango
+                            </span>
+                          ) : (
+                            <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-medium">
+                              Disponible
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         {/* Contratos y Oportunidades */}
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6 mb-8">

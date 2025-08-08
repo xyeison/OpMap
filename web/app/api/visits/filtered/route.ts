@@ -24,6 +24,9 @@ export async function GET(request: NextRequest) {
     const month = searchParams.get('month')
     const months = searchParams.get('months')?.split(',').map(Number).filter(n => !isNaN(n))
     const year = searchParams.get('year')
+    const startYear = searchParams.get('startYear')
+    const endYear = searchParams.get('endYear')
+    const allMonths = searchParams.get('allMonths') === 'true'
     const visitType = searchParams.get('visitType')
     const contactType = searchParams.get('contactType')
     const kamIds = searchParams.get('kamIds')?.split(',').filter(id => id)
@@ -32,6 +35,9 @@ export async function GET(request: NextRequest) {
       month,
       months,
       year,
+      startYear,
+      endYear,
+      allMonths,
       visitType,
       contactType,
       kamIds: kamIds?.length || 0
@@ -45,8 +51,19 @@ export async function GET(request: NextRequest) {
       .order('visit_date', { ascending: false })
     
     // Aplicar filtros de fecha
-    if (months && months.length > 0 && year) {
-      // Múltiples meses
+    if (startYear && endYear && allMonths) {
+      // Rango de años completo
+      const startDate = `${startYear}-01-01`
+      const endDate = `${Number(endYear) + 1}-01-01`
+      
+      console.log('API visits/filtered - Filtrando rango de años:', { startDate, endDate })
+      
+      query = query
+        .gte('visit_date', startDate)
+        .lt('visit_date', endDate)
+        
+    } else if (months && months.length > 0 && year) {
+      // Múltiples meses del mismo año
       const allVisits: any[] = []
       
       for (const monthNum of months) {

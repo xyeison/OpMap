@@ -62,6 +62,86 @@ export async function GET(request: NextRequest) {
     const assignedHospitalIds = new Set(assignmentsResult.data?.map(a => a.hospitals.id) || [])
     const unassignedHospitals = hospitalsResult.data?.filter(h => !assignedHospitalIds.has(h.id)) || []
 
+    // Calcular estadísticas por territorio
+    const territoryStats: Record<string, any> = {}
+    
+    // Estadísticas de hospitales asignados
+    assignmentsResult.data?.forEach(assignment => {
+      const territoryId = assignment.hospitals.locality_id || assignment.hospitals.municipality_id
+      if (!territoryId) return
+      
+      if (!territoryStats[territoryId]) {
+        territoryStats[territoryId] = {
+          totalHospitals: 0,
+          totalBeds: 0,
+          totalAmbulances: 0,
+          totalSurgeries: 0,
+          totalContracts: 0,
+          contractValue: 0,
+          providers: new Set(),
+          kamId: assignment.kams.id,
+          kamName: assignment.kams.name
+        }
+      }
+      
+      territoryStats[territoryId].totalHospitals++
+      territoryStats[territoryId].totalBeds += assignment.hospitals.beds || 0
+      territoryStats[territoryId].totalAmbulances += assignment.hospitals.ambulances || 0
+      territoryStats[territoryId].totalSurgeries += assignment.hospitals.surgeries || 0
+      
+      // Agregar información de contratos
+      if (contractValuesByHospital[assignment.hospitals.id]) {
+        territoryStats[territoryId].totalContracts++
+        territoryStats[territoryId].contractValue += contractValuesByHospital[assignment.hospitals.id]
+      }
+      if (contractProvidersByHospital[assignment.hospitals.id]) {
+        contractProvidersByHospital[assignment.hospitals.id].forEach(provider => {
+          territoryStats[territoryId].providers.add(provider)
+        })
+      }
+    })
+    
+    // Estadísticas de hospitales sin asignar
+    unassignedHospitals.forEach(hospital => {
+      const territoryId = hospital.locality_id || hospital.municipality_id
+      if (!territoryId) return
+      
+      if (!territoryStats[territoryId]) {
+        territoryStats[territoryId] = {
+          totalHospitals: 0,
+          totalBeds: 0,
+          totalAmbulances: 0,
+          totalSurgeries: 0,
+          totalContracts: 0,
+          contractValue: 0,
+          providers: new Set(),
+          kamId: null,
+          kamName: 'Sin asignar'
+        }
+      }
+      
+      territoryStats[territoryId].totalHospitals++
+      territoryStats[territoryId].totalBeds += hospital.beds || 0
+      territoryStats[territoryId].totalAmbulances += hospital.ambulances || 0
+      territoryStats[territoryId].totalSurgeries += hospital.surgeries || 0
+      
+      // Agregar información de contratos
+      if (contractValuesByHospital[hospital.id]) {
+        territoryStats[territoryId].totalContracts++
+        territoryStats[territoryId].contractValue += contractValuesByHospital[hospital.id]
+      }
+      if (contractProvidersByHospital[hospital.id]) {
+        contractProvidersByHospital[hospital.id].forEach(provider => {
+          territoryStats[territoryId].providers.add(provider)
+        })
+      }
+    })
+    
+    // Convertir Sets a arrays
+    Object.keys(territoryStats).forEach(key => {
+      territoryStats[key].providers = Array.from(territoryStats[key].providers)
+    })
+
     return NextResponse.json({
       kams: kamsResult.data || [],
       assignments: assignmentsResult.data || [],
@@ -70,7 +150,8 @@ export async function GET(request: NextRequest) {
       populationMap,
       municipalityNames,
       contractValuesByHospital,
-      contractProvidersByHospital
+      contractProvidersByHospital,
+      territoryStats
     })
   } catch (error) {
     console.error('Error in GET /api/map/data:', error)
