@@ -64,6 +64,7 @@ export async function POST(request: Request) {
     const durationMonths = Math.max(1, Math.round(monthsDiff))
 
     const contractData = {
+      // No incluir ID - dejar que Supabase lo genere automáticamente
       hospital_id: body.hospital_id,
       contract_number: body.contract_number,
       contract_type: body.contract_type || 'capita',
@@ -75,7 +76,8 @@ export async function POST(request: Request) {
       current_provider: body.provider || body.current_provider || 'Proveedor',
       provider: body.provider || null,
       description: body.description || null,
-      active: body.active !== undefined ? body.active : true
+      active: body.active !== undefined ? body.active : true,
+      created_at: new Date().toISOString()
     }
 
     console.log('Creating contract with data:', contractData)
