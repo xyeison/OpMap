@@ -201,6 +201,7 @@ export default function HospitalsPage() {
         lng: '',
         beds: '',
         service_level: '',
+        hospital_type: 'Publico',
         active: true
       })
       setMunicipalities([])
