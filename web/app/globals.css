@@ -13,6 +13,38 @@
   background-image: url(https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png);
 }
 
+/* Fix z-index for Leaflet controls to stay below navigation */
+.leaflet-control-container {
+  z-index: 900 !important;
+}
+
+.leaflet-control {
+  z-index: 900 !important;
+}
+
+.leaflet-control-zoom {
+  z-index: 900 !important;
+  position: relative !important;
+}
+
+.leaflet-control-zoom a {
+  z-index: 900 !important;
+}
+
+/* Ensure all leaflet controls stay below navigation bar */
+.leaflet-top,
+.leaflet-bottom {
+  z-index: 900 !important;
+}
+
+.leaflet-pane {
+  z-index: 400 !important;
+}
+
+.leaflet-top.leaflet-left {
+  z-index: 900 !important;
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
