@@ -38,12 +38,12 @@ export async function GET(
     }
     
     // Formatear la respuesta
-    const formattedDistances = (distances || []).map(d => ({
+    const formattedDistances = (distances || []).map((d: any) => ({
       kam_id: d.kam_id,
-      kam_name: d.kams.name,
+      kam_name: d.kams?.name || 'KAM Desconocido',
       travel_time: d.travel_time, // En segundos
       distance: d.distance,
-      max_travel_time: d.kams.max_travel_time || 240
+      max_travel_time: d.kams?.max_travel_time || 240
     }))
     
     return NextResponse.json({
