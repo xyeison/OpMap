@@ -1,6 +1,6 @@
 'use client'
 
-import { MapContainer, TileLayer, GeoJSON, CircleMarker, Marker, Tooltip } from 'react-leaflet'
+import { MapContainer, TileLayer, GeoJSON, CircleMarker, Marker, Tooltip, ZoomControl } from 'react-leaflet'
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import L from 'leaflet'
@@ -405,6 +405,7 @@ export default function MapComponent({ visits: initialVisits = [], showHeatmap: 
           attribution='&copy; <a href="https://carto.com/attributions">CARTO</a>'
           url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
         />
+        <ZoomControl position="bottomleft" />
         
         {/* Territorios con IPS - Primera capa */}
         {territoryGeoJsons.map((territory, idx) => {

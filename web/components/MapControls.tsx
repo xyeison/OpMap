@@ -296,7 +296,7 @@ export default function MapControls({
           e.stopPropagation()
           setIsOpen(!isOpen)
         }}
-        className="absolute bottom-4 right-4 z-[9996] bg-white rounded-xl shadow-lg px-5 py-3 hover:shadow-xl transform hover:-translate-y-0.5 transition-all duration-200 flex items-center gap-2 text-sm font-medium border border-gray-100"
+        className="fixed bottom-4 right-4 z-[9996] bg-white rounded-xl shadow-lg px-5 py-3 hover:shadow-xl transform hover:-translate-y-0.5 transition-all duration-200 flex items-center gap-2 text-sm font-medium border border-gray-100"
         type="button"
       >
         {isOpen ? (
@@ -313,7 +313,7 @@ export default function MapControls({
 
       {/* Panel de controles moderno */}
       {isOpen && (
-        <div className="absolute bottom-16 right-4 z-[9995] bg-white rounded-2xl shadow-2xl border border-gray-100" style={{ width: '360px', maxHeight: 'calc(100vh - 120px)', overflowY: 'auto' }}>
+        <div className="fixed bottom-16 right-4 z-[9995] bg-white rounded-2xl shadow-2xl border border-gray-100" style={{ width: '360px', maxHeight: 'calc(100vh - 120px)', overflowY: 'auto' }}>
           {/* Botón de cerrar dentro del panel */}
           <button
             onClick={() => setIsOpen(false)}
