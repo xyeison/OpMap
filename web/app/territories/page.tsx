@@ -83,7 +83,7 @@ export default function TerritoriesPage() {
         statsData.forEach(stat => {
           const territory: Territory = {
             id: stat.territory_id,
-            name: stat.territory_name,
+            name: stat.territory_name || 'Sin nombre',
             type: stat.territory_type as 'municipality' | 'locality',
             hospitalCount: stat.hospital_count || 0,
             totalBeds: stat.total_beds || 0,
@@ -133,7 +133,7 @@ export default function TerritoriesPage() {
 
   const filteredTerritories = territories
     .filter(t => {
-      const matchesSearch = t.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      const matchesSearch = (t.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
                            t.id.includes(searchTerm)
       const matchesType = filterType === 'all' || t.type === filterType
       const matchesDepartment = filterDepartment === 'all' || t.departmentName === filterDepartment
@@ -148,7 +148,7 @@ export default function TerritoriesPage() {
         case 'hospitals':
           return b.hospitalCount - a.hospitalCount
         default:
-          return a.name.localeCompare(b.name)
+          return (a.name || '').localeCompare(b.name || '')
       }
     })
 
