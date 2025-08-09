@@ -139,7 +139,7 @@ export default function NavigationWithPermissions() {
                     href={item.href}
                     className={`flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all ${
                       isActive 
-                        ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-md' 
+                        ? 'bg-gray-900 text-white shadow-md' 
                         : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900'
                     }`}
                   >
@@ -160,7 +160,7 @@ export default function NavigationWithPermissions() {
           {/* Información del usuario en móvil - Fuera del scroll */}
           <div className="border-t border-gray-100 p-6 mt-auto sm:hidden bg-gray-50">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center shadow-md">
+              <div className="w-10 h-10 bg-gray-900 rounded-full flex items-center justify-center shadow-md">
                 <span className="text-white font-semibold text-sm">
                   {user.full_name?.charAt(0).toUpperCase()}
                 </span>
