@@ -180,8 +180,8 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
     }
 
     // No permitir eliminar entradas del sistema (activaciones/desactivaciones)
-    // Solo permitir eliminar comentarios (aquellos sin action)
-    if (comment.action) {
+    // Solo permitir eliminar comentarios (aquellos con action='noted')
+    if (comment.action !== 'noted') {
       return NextResponse.json({ error: 'No se pueden eliminar entradas del sistema' }, { status: 403 })
     }
 
