@@ -257,7 +257,7 @@ export default function HospitalDetailPage() {
                 })
                 setShowEditModal(true)
               }}
-              className="group px-5 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all duration-200 font-medium flex items-center gap-2 shadow-md hover:shadow-lg transform hover:scale-[1.02]"
+              className="group px-5 py-2.5 bg-gray-900 text-white rounded-lg hover:bg-black transition-all duration-200 font-medium flex items-center gap-2 shadow-md hover:shadow-lg transform hover:scale-[1.02]"
             >
               <svg className="w-5 h-5 group-hover:rotate-12 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -336,9 +336,9 @@ export default function HospitalDetailPage() {
                 <span className="ml-2 font-medium">
                   {hospital.hospital_type ? (
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                      hospital.hospital_type === 'Publico' ? 'bg-blue-100 text-blue-700' :
-                      hospital.hospital_type === 'Privado' ? 'bg-purple-100 text-purple-700' :
-                      'bg-green-100 text-green-700'
+                      hospital.hospital_type === 'Publico' ? 'bg-gray-100 text-gray-700' :
+                      hospital.hospital_type === 'Privado' ? 'bg-gray-900 text-white' :
+                      'bg-gray-500 text-white'
                     }`}>
                       {hospital.hospital_type}
                     </span>
@@ -484,11 +484,11 @@ export default function HospitalDetailPage() {
                         </td>
                         <td className="text-center py-3">
                           {isAssigned ? (
-                            <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">
+                            <span className="px-2 py-1 bg-gray-900 text-white rounded-full text-xs font-medium">
                               Asignado
                             </span>
                           ) : isOverLimit ? (
-                            <span className="px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs font-medium">
+                            <span className="px-2 py-1 bg-gray-300 text-gray-700 rounded-full text-xs font-medium">
                               Fuera de rango
                             </span>
                           ) : (
@@ -640,7 +640,7 @@ export default function HospitalDetailPage() {
             <h2 className="text-xl font-bold text-gray-900">Actividad y Comentarios</h2>
             <button
               onClick={() => setShowCommentModal(true)}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all duration-200 font-medium flex items-center gap-2 text-sm"
+              className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-black transition-all duration-200 font-medium flex items-center gap-2 text-sm"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -651,8 +651,8 @@ export default function HospitalDetailPage() {
           {activityLog && activityLog.length > 0 ? (
             <div className="space-y-3 max-h-96 overflow-y-auto">
               {activityLog.map((entry: any, index: number) => {
-                // Los comentarios son aquellos sin action (null o undefined) y tienen un usuario
-                const isComment = !entry.action && entry.user
+                // Los comentarios son aquellos con action='noted'
+                const isComment = entry.action === 'noted'
                 
                 return (
                   <div key={entry.id || index} className="border-l-4 border-gray-200 pl-4 py-3 hover:bg-gray-50 transition-colors">
@@ -660,15 +660,15 @@ export default function HospitalDetailPage() {
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-1">
                           {entry.action === 'activated' ? (
-                            <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">
+                            <span className="px-2 py-1 bg-gray-900 text-white rounded-full text-xs font-medium">
                               ✓ Hospital Activado
                             </span>
                           ) : entry.action === 'deactivated' ? (
-                            <span className="px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs font-medium">
+                            <span className="px-2 py-1 bg-gray-500 text-white rounded-full text-xs font-medium">
                               ✗ Hospital Desactivado
                             </span>
-                          ) : isComment ? (
-                            <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
+                          ) : entry.action === 'noted' ? (
+                            <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-medium">
                               💬 Comentario
                             </span>
                           ) : null}
@@ -818,7 +818,7 @@ export default function HospitalDetailPage() {
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full">
               {/* Header */}
-              <div className="bg-gradient-to-r from-green-500 to-green-600 p-6 rounded-t-2xl">
+              <div className="bg-gray-900 p-6 rounded-t-2xl">
                 <div className="flex items-center gap-4">
                   <div className="bg-white bg-opacity-20 p-3 rounded-full">
                     <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -834,7 +834,7 @@ export default function HospitalDetailPage() {
               
               {/* Content */}
               <div className="p-6">
-                <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-4">
+                <div className="bg-gray-50 border border-gray-300 rounded-xl p-4 mb-4">
                   <p className="text-gray-700">
                     Está a punto de activar el hospital:
                   </p>
@@ -845,7 +845,7 @@ export default function HospitalDetailPage() {
                   Motivo de activación <span className="text-red-500">*</span>
                 </label>
                 <textarea
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all resize-none"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent transition-all resize-none"
                   rows={4}
                   placeholder="Ej: Reapertura tras remodelación, nuevo convenio activo..."
                   value={activateReason}
@@ -878,7 +878,7 @@ export default function HospitalDetailPage() {
                   className={`px-5 py-2.5 rounded-xl font-medium transition-all flex items-center gap-2 
                     ${!activateReason.trim() 
                       ? 'bg-gray-200 text-gray-400 cursor-not-allowed' 
-                      : 'bg-gradient-to-r from-green-500 to-green-600 text-white hover:from-green-600 hover:to-green-700 transform hover:scale-[1.02] hover:shadow-md'
+                      : 'bg-gray-900 text-white hover:bg-black transform hover:scale-[1.02] hover:shadow-md'
                     }`}
                 >
                   {isSubmitting ? (
@@ -907,7 +907,7 @@ export default function HospitalDetailPage() {
         {isRecalculating && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg p-6 max-w-sm w-full text-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto mb-4"></div>
               <h3 className="text-lg font-semibold mb-2">Actualizando Territorios</h3>
               <p className="text-gray-600">
                 Recalculando asignaciones territoriales...
@@ -921,7 +921,7 @@ export default function HospitalDetailPage() {
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fadeIn">
             <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden transform transition-all animate-slideUp">
               {/* Header con gradiente */}
-              <div className="bg-gradient-to-r from-blue-500 to-blue-600 px-6 py-5">
+              <div className="bg-gray-900 px-6 py-5">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <div className="bg-white/20 backdrop-blur-sm rounded-full p-3">
@@ -961,7 +961,7 @@ export default function HospitalDetailPage() {
                         type="text"
                         value={editForm.name || ''}
                         onChange={(e) => setEditForm({...editForm, name: e.target.value})}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent"
                         required
                       />
                     </div>
@@ -974,7 +974,7 @@ export default function HospitalDetailPage() {
                         type="text"
                         value={editForm.code || ''}
                         onChange={(e) => setEditForm({...editForm, code: e.target.value})}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent"
                         required
                       />
                     </div>
@@ -986,7 +986,7 @@ export default function HospitalDetailPage() {
                       <select
                         value={editForm.hospital_type || 'Publico'}
                         onChange={(e) => setEditForm({...editForm, hospital_type: e.target.value})}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent"
                       >
                         <option value="Publico">Público</option>
                         <option value="Privado">Privado</option>
@@ -1002,7 +1002,7 @@ export default function HospitalDetailPage() {
                         type="number"
                         value={editForm.beds || 0}
                         onChange={(e) => setEditForm({...editForm, beds: parseInt(e.target.value) || 0})}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent"
                         min="0"
                       />
                     </div>
@@ -1014,7 +1014,7 @@ export default function HospitalDetailPage() {
                       <select
                         value={editForm.service_level || 1}
                         onChange={(e) => setEditForm({...editForm, service_level: parseInt(e.target.value)})}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent"
                       >
                         <option value="1">Nivel 1</option>
                         <option value="2">Nivel 2</option>
@@ -1036,7 +1036,7 @@ export default function HospitalDetailPage() {
                         type="text"
                         value={editForm.address || ''}
                         onChange={(e) => setEditForm({...editForm, address: e.target.value})}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent"
                       />
                     </div>
                     
@@ -1048,7 +1048,7 @@ export default function HospitalDetailPage() {
                         type="tel"
                         value={editForm.phone || ''}
                         onChange={(e) => setEditForm({...editForm, phone: e.target.value})}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent"
                       />
                     </div>
                     
@@ -1060,7 +1060,7 @@ export default function HospitalDetailPage() {
                         type="email"
                         value={editForm.email || ''}
                         onChange={(e) => setEditForm({...editForm, email: e.target.value})}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent"
                       />
                     </div>
                     
@@ -1114,7 +1114,7 @@ export default function HospitalDetailPage() {
                         type="number"
                         value={editForm.surgeries || 0}
                         onChange={(e) => setEditForm({...editForm, surgeries: parseInt(e.target.value) || 0})}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent"
                         min="0"
                       />
                     </div>
@@ -1127,7 +1127,7 @@ export default function HospitalDetailPage() {
                         type="number"
                         value={editForm.ambulances || 0}
                         onChange={(e) => setEditForm({...editForm, ambulances: parseInt(e.target.value) || 0})}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent"
                         min="0"
                       />
                     </div>
@@ -1184,7 +1184,7 @@ export default function HospitalDetailPage() {
                       setIsSavingEdit(false)
                     }
                   }}
-                  className="px-5 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl hover:from-blue-600 hover:to-blue-700 transition-all font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  className="px-5 py-2.5 bg-gray-900 text-white rounded-xl hover:bg-black transition-all font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                   disabled={isSavingEdit || !editForm.name || !editForm.code}
                 >
                   {isSavingEdit ? (
@@ -1214,7 +1214,7 @@ export default function HospitalDetailPage() {
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fadeIn">
             <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden transform transition-all animate-slideUp">
               {/* Header con gradiente */}
-              <div className="bg-gradient-to-r from-blue-500 to-blue-600 px-6 py-5">
+              <div className="bg-gray-900 px-6 py-5">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <div className="bg-white/20 backdrop-blur-sm rounded-full p-3">
@@ -1251,7 +1251,7 @@ export default function HospitalDetailPage() {
                     Escriba su comentario <span className="text-red-500">*</span>
                   </label>
                   <textarea
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all resize-none"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent transition-all resize-none"
                     rows={5}
                     placeholder="Ej: Este hospital fue cerrado definitivamente hace 2 meses..."
                     value={commentForm.message}
@@ -1313,7 +1313,7 @@ export default function HospitalDetailPage() {
                       setIsSubmittingComment(false)
                     }
                   }}
-                  className="px-5 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl hover:from-blue-600 hover:to-blue-700 transition-all font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  className="px-5 py-2.5 bg-gray-900 text-white rounded-xl hover:bg-black transition-all font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                   disabled={isSubmittingComment || !commentForm.message.trim()}
                 >
                   {isSubmittingComment ? (

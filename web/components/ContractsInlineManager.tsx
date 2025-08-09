@@ -294,9 +294,13 @@ export default function ContractsInlineManager({ hospitalId, onUpdate }: Contrac
                   <div>
                     <label className="text-xs font-semibold text-gray-700">Valor *</label>
                     <input
-                      type="number"
-                      value={contract.contract_value}
-                      onChange={(e) => handleFieldChange(contract.id, 'contract_value', parseFloat(e.target.value) || 0)}
+                      type="text"
+                      value={contract.contract_value || ''}
+                      onChange={(e) => {
+                        const value = e.target.value.replace(/[^0-9]/g, '')
+                        handleFieldChange(contract.id, 'contract_value', value ? parseFloat(value) : 0)
+                      }}
+                      placeholder="0"
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700"
                     />
                   </div>

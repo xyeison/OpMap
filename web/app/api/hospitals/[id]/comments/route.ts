@@ -98,14 +98,14 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       return NextResponse.json({ error: 'Hospital no encontrado' }, { status: 404 })
     }
 
-    // Insertar el comentario sin action (solo reason)
+    // Insertar el comentario con action 'noted' (un valor que esperamos sea válido)
     const { data, error } = await supabase
       .from('hospital_history')
       .insert({
         hospital_id: hospitalId,
         user_id: user.id,
-        reason: body.message.trim()
-        // No incluir action para comentarios manuales
+        reason: body.message.trim(),
+        action: 'noted'  // Usar 'noted' como acción para comentarios
       })
       .select(`
         *,
