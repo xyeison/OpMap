@@ -179,8 +179,8 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
       return NextResponse.json({ error: 'Comentario no encontrado' }, { status: 404 })
     }
 
-    // No permitir eliminar entradas del sistema (solo permitir eliminar comentarios con action='updated' que tengan user_id)
-    if (comment.action !== 'updated' || !comment.user_id) {
+    // No permitir eliminar entradas del sistema (activaciones/desactivaciones)
+    if (comment.action === 'activated' || comment.action === 'deactivated') {
       return NextResponse.json({ error: 'No se pueden eliminar entradas del sistema' }, { status: 403 })
     }
 
