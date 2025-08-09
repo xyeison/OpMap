@@ -313,7 +313,7 @@ export default function MapControls({
 
       {/* Panel de controles moderno */}
       {isOpen && (
-        <div className="absolute bottom-20 right-4 z-[9995] bg-white rounded-2xl shadow-2xl border border-gray-100" style={{ width: '360px', maxHeight: '70vh', overflowY: 'auto' }}>
+        <div className="absolute bottom-16 right-4 z-[9995] bg-white rounded-2xl shadow-2xl border border-gray-100" style={{ width: '360px', maxHeight: 'calc(100vh - 120px)', overflowY: 'auto' }}>
           {/* Botón de cerrar dentro del panel */}
           <button
             onClick={() => setIsOpen(false)}

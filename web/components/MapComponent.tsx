@@ -555,7 +555,6 @@ export default function MapComponent({ visits: initialVisits = [], showHeatmap: 
               contractValue={mapData.contractValuesByHospital[hospital.id]}
               contractProviders={mapData.contractProvidersByHospital[hospital.id]}
               isSelected={selectedHospitalId === hospital.id}
-              showContracts={showContracts}
             />
           )
         })}

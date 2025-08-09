@@ -13,7 +13,6 @@ interface HospitalMarkerProps {
   contractValue?: number
   contractProviders?: string[]
   isSelected?: boolean
-  showContracts?: boolean
 }
 
 export default function HospitalMarker({ 
@@ -23,8 +22,7 @@ export default function HospitalMarker({
   assignment, 
   contractValue,
   contractProviders,
-  isSelected,
-  showContracts = false
+  isSelected
 }: HospitalMarkerProps) {
   const markerRef = useRef<any>(null)
   const router = useRouter()
@@ -133,12 +131,12 @@ export default function HospitalMarker({
                 </div>
               </>
             )}
-            {showContracts && contractValue && (
+            {contractValue && (
               <>
                 <strong style={{ color: '#2ECC71' }}>💰 Contratos:</strong> ${contractValue.toLocaleString('es-CO')}<br/>
               </>
             )}
-            {showContracts && contractProviders && contractProviders.length > 0 && (
+            {contractProviders && contractProviders.length > 0 && (
               <>
                 <strong>Proveedores:</strong><br/>
                 <div style={{ marginLeft: '10px', fontSize: '11px', color: '#555' }}>
