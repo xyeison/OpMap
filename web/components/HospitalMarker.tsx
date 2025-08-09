@@ -87,9 +87,16 @@ export default function HospitalMarker({
           maxWidth: '350px',
           maxHeight: '400px',
           overflowY: 'auto',
-          overflowX: 'hidden'
+          overflowX: 'hidden',
+          wordWrap: 'break-word',
+          whiteSpace: 'normal'
         }}>
-          <strong style={{ fontSize: '13px', wordBreak: 'break-word' }}>{hospital.name}</strong><br/>
+          <strong style={{ 
+            fontSize: '13px', 
+            wordBreak: 'break-word',
+            display: 'block',
+            marginBottom: '4px'
+          }}>{hospital.name}</strong>
           <div style={{ marginTop: '4px' }}>
             <strong>Código NIT:</strong> {hospital.code}<br/>
             <strong>Ubicación:</strong> {hospital.locality_id ? 

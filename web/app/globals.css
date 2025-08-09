@@ -74,6 +74,23 @@ nav {
 .leaflet-tooltip.custom-tooltip .leaflet-tooltip-content {
   max-width: 350px !important;
   overflow: visible !important;
+  word-wrap: break-word !important;
+  word-break: break-word !important;
+  white-space: normal !important;
+}
+
+/* Ensure text wraps properly in all tooltips */
+.leaflet-tooltip {
+  word-wrap: break-word !important;
+  word-break: break-word !important;
+  white-space: normal !important;
+}
+
+.leaflet-tooltip strong,
+.leaflet-tooltip span,
+.leaflet-tooltip div {
+  word-wrap: break-word !important;
+  word-break: break-word !important;
 }
 
 /* Scrollbar styles for tooltips */

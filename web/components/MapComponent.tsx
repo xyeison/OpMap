@@ -596,10 +596,17 @@ export default function MapComponent({ visits: initialVisits = [], showHeatmap: 
                   maxWidth: '350px',
                   maxHeight: '400px',
                   overflowY: 'auto',
-                  overflowX: 'hidden'
+                  overflowX: 'hidden',
+                  wordWrap: 'break-word',
+                  whiteSpace: 'normal'
                 }}>
                   <strong style={{ fontSize: '13px', color: '#FF0000' }}>⚠️ SIN COBERTURA</strong><br/>
-                  <strong style={{ fontSize: '13px', wordBreak: 'break-word' }}>{hospital.name}</strong><br/>
+                  <strong style={{ 
+                    fontSize: '13px', 
+                    wordBreak: 'break-word',
+                    display: 'block',
+                    marginBottom: '4px'
+                  }}>{hospital.name}</strong>
                   <div style={{ marginTop: '4px' }}>
                     <strong>Código NIT:</strong> {hospital.code}<br/>
                     <strong>Ubicación:</strong> {hospital.municipality_name || mapData.municipalityNames[hospital.municipality_id] || hospital.municipality_id}{hospital.department_name ? `, ${hospital.department_name}` : ''}<br/>
@@ -712,9 +719,21 @@ export default function MapComponent({ visits: initialVisits = [], showHeatmap: 
               offset={[0, -30]}
               permanent={false}
               interactive={false}
+              className="custom-tooltip"
             >
-              <div style={{ fontSize: '12px', minWidth: '200px' }}>
-                <strong style={{ fontSize: '14px', color: kamColors[kam.id] }}>{kam.name}</strong>
+              <div style={{ 
+                fontSize: '12px', 
+                minWidth: '200px',
+                maxWidth: '350px',
+                wordWrap: 'break-word',
+                whiteSpace: 'normal'
+              }}>
+                <strong style={{ 
+                  fontSize: '14px', 
+                  color: kamColors[kam.id],
+                  wordBreak: 'break-word',
+                  display: 'block'
+                }}>{kam.name}</strong>
                 <div style={{ marginTop: '4px' }}>
                   <strong>Total IPS:</strong> {kam.hospitalCount}<br/>
                   <strong>Total Camas:</strong> {kam.totalBeds.toLocaleString()}<br/>
@@ -773,9 +792,20 @@ export default function MapComponent({ visits: initialVisits = [], showHeatmap: 
                 fillOpacity: 0.8
               }}
             >
-              <Tooltip>
-                <div style={{ fontSize: '12px', minWidth: '200px' }}>
-                  <strong style={{ fontSize: '13px', color: kamColor }}>
+              <Tooltip className="custom-tooltip">
+                <div style={{ 
+                  fontSize: '12px', 
+                  minWidth: '200px',
+                  maxWidth: '350px',
+                  wordWrap: 'break-word',
+                  whiteSpace: 'normal'
+                }}>
+                  <strong style={{ 
+                    fontSize: '13px', 
+                    color: kamColor,
+                    wordBreak: 'break-word',
+                    display: 'block'
+                  }}>
                     {visit.kam_name}
                   </strong>
                   <div style={{ marginTop: '4px', borderTop: '1px solid #ddd', paddingTop: '4px' }}>
