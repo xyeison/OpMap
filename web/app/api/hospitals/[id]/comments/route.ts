@@ -98,14 +98,14 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       return NextResponse.json({ error: 'Hospital no encontrado' }, { status: 404 })
     }
 
-    // Insertar el comentario
+    // Insertar el comentario sin action (solo reason)
     const { data, error } = await supabase
       .from('hospital_history')
       .insert({
         hospital_id: hospitalId,
         user_id: user.id,
-        reason: body.message.trim(),
-        action: 'updated'  // Usar una acción genérica que probablemente exista
+        reason: body.message.trim()
+        // No incluir action para comentarios manuales
       })
       .select(`
         *,
@@ -180,7 +180,8 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
     }
 
     // No permitir eliminar entradas del sistema (activaciones/desactivaciones)
-    if (comment.action === 'activated' || comment.action === 'deactivated') {
+    // Solo permitir eliminar comentarios (aquellos sin action)
+    if (comment.action) {
       return NextResponse.json({ error: 'No se pueden eliminar entradas del sistema' }, { status: 403 })
     }
 
