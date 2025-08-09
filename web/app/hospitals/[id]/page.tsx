@@ -43,10 +43,7 @@ export default function HospitalDetailPage() {
   const [isSavingEdit, setIsSavingEdit] = useState(false)
   const [showCommentModal, setShowCommentModal] = useState(false)
   const [commentForm, setCommentForm] = useState({
-    message: '',
-    entryType: 'comment',
-    category: 'general',
-    priority: 'normal'
+    message: ''
   })
   const [isSubmittingComment, setIsSubmittingComment] = useState(false)
   const [activityLog, setActivityLog] = useState<any[]>([])
@@ -655,55 +652,21 @@ export default function HospitalDetailPage() {
             <div className="space-y-3 max-h-96 overflow-y-auto">
               {activityLog.map((entry: any, index: number) => {
                 const isComment = entry.entryType !== 'system'
-                const priorityColors: Record<string, string> = {
-                  urgent: 'border-red-500 bg-red-50',
-                  high: 'border-orange-500 bg-orange-50',
-                  normal: 'border-gray-200',
-                  low: 'border-gray-100'
-                }
-                const entryTypeIcons: Record<string, string> = {
-                  comment: '💬',
-                  note: '📝',
-                  warning: '⚠️',
-                  system: '⚙️'
-                }
                 
                 return (
-                  <div key={entry.id || index} className={`border-l-4 pl-4 py-3 ${priorityColors[entry.priority || 'normal']}`}>
+                  <div key={entry.id || index} className="border-l-4 border-gray-200 pl-4 py-3 hover:bg-gray-50 transition-colors">
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-1">
-                          <span className="text-lg">{entryTypeIcons[entry.entryType || 'system']}</span>
                           {entry.action === 'activated' ? (
                             <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">
-                              Hospital Activado
+                              ✓ Hospital Activado
                             </span>
                           ) : entry.action === 'deactivated' ? (
                             <span className="px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs font-medium">
-                              Hospital Desactivado
+                              ✗ Hospital Desactivado
                             </span>
-                          ) : entry.entryType === 'comment' ? (
-                            <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
-                              Comentario
-                            </span>
-                          ) : entry.entryType === 'note' ? (
-                            <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-medium">
-                              Nota
-                            </span>
-                          ) : entry.entryType === 'warning' ? (
-                            <span className="px-2 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-medium">
-                              Advertencia
-                            </span>
-                          ) : (
-                            <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-medium">
-                              Sistema
-                            </span>
-                          )}
-                          {entry.category && entry.category !== 'general' && (
-                            <span className="text-xs text-gray-500">
-                              [{entry.category}]
-                            </span>
-                          )}
+                          ) : null}
                           <span className="text-xs text-gray-500">
                             {new Date(entry.createdAt).toLocaleString('es-CO')}
                           </span>
@@ -711,9 +674,9 @@ export default function HospitalDetailPage() {
                         <p className="text-sm text-gray-700 mb-1">
                           {entry.message || entry.reason}
                         </p>
-                        <p className="text-xs text-gray-500">
-                          Por: {entry.user?.name || entry.user?.email || 'Sistema'}
-                          {entry.user?.role && ` (${entry.user.role})`}
+                        <p className="text-xs text-gray-600 font-medium">
+                          {entry.user?.name || entry.user?.email || 'Sistema'}
+                          {entry.user?.role && ` - ${entry.user.role === 'admin' ? 'Administrador' : entry.user.role === 'sales' ? 'KAM' : entry.user.role}`}
                         </p>
                       </div>
                       {isComment && (role === 'admin' || entry.userId === user?.id) && (
@@ -1263,10 +1226,7 @@ export default function HospitalDetailPage() {
                     onClick={() => {
                       setShowCommentModal(false)
                       setCommentForm({
-                        message: '',
-                        entryType: 'comment',
-                        category: 'general',
-                        priority: 'normal'
+                        message: ''
                       })
                     }}
                     className="text-white/80 hover:text-white transition-colors"
@@ -1281,73 +1241,21 @@ export default function HospitalDetailPage() {
               
               {/* Content */}
               <div className="p-6">
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Mensaje <span className="text-red-500">*</span>
-                    </label>
-                    <textarea
-                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all resize-none"
-                      rows={4}
-                      placeholder="Escriba su comentario o observación aquí..."
-                      value={commentForm.message}
-                      onChange={(e) => setCommentForm({...commentForm, message: e.target.value})}
-                      disabled={isSubmittingComment}
-                    />
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Tipo
-                      </label>
-                      <select
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        value={commentForm.entryType}
-                        onChange={(e) => setCommentForm({...commentForm, entryType: e.target.value})}
-                        disabled={isSubmittingComment}
-                      >
-                        <option value="comment">Comentario</option>
-                        <option value="note">Nota</option>
-                        <option value="warning">Advertencia</option>
-                      </select>
-                    </div>
-                    
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Prioridad
-                      </label>
-                      <select
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        value={commentForm.priority}
-                        onChange={(e) => setCommentForm({...commentForm, priority: e.target.value})}
-                        disabled={isSubmittingComment}
-                      >
-                        <option value="low">Baja</option>
-                        <option value="normal">Normal</option>
-                        <option value="high">Alta</option>
-                        <option value="urgent">Urgente</option>
-                      </select>
-                    </div>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Categoría
-                    </label>
-                    <select
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      value={commentForm.category}
-                      onChange={(e) => setCommentForm({...commentForm, category: e.target.value})}
-                      disabled={isSubmittingComment}
-                    >
-                      <option value="general">General</option>
-                      <option value="operational">Operacional</option>
-                      <option value="commercial">Comercial</option>
-                      <option value="maintenance">Mantenimiento</option>
-                      <option value="alert">Alerta</option>
-                    </select>
-                  </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Escriba su comentario <span className="text-red-500">*</span>
+                  </label>
+                  <textarea
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all resize-none"
+                    rows={5}
+                    placeholder="Ej: Este hospital fue cerrado definitivamente hace 2 meses..."
+                    value={commentForm.message}
+                    onChange={(e) => setCommentForm({message: e.target.value})}
+                    disabled={isSubmittingComment}
+                  />
+                  <p className="text-xs text-gray-500 mt-2">
+                    Su comentario será visible para todos los usuarios del sistema
+                  </p>
                 </div>
               </div>
               
@@ -1357,10 +1265,7 @@ export default function HospitalDetailPage() {
                   onClick={() => {
                     setShowCommentModal(false)
                     setCommentForm({
-                      message: '',
-                      entryType: 'comment',
-                      category: 'general',
-                      priority: 'normal'
+                      message: ''
                     })
                   }}
                   className="px-5 py-2.5 text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 transition-colors font-medium"
@@ -1393,10 +1298,7 @@ export default function HospitalDetailPage() {
                       await loadHospitalData()
                       setShowCommentModal(false)
                       setCommentForm({
-                        message: '',
-                        entryType: 'comment',
-                        category: 'general',
-                        priority: 'normal'
+                        message: ''
                       })
                       alert('Comentario agregado exitosamente')
                     } catch (error: any) {

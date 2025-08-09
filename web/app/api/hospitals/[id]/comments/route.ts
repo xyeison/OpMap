@@ -108,12 +108,10 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         hospital_id: hospitalId,
         user_id: user.id,
         reason: body.message.trim(),
-        entry_type: body.entryType || 'comment',
-        category: body.category || 'general',
-        priority: body.priority || 'normal',
-        action: body.entryType === 'warning' ? 'warning_added' : 
-                body.entryType === 'note' ? 'note_added' : 
-                'comment_added'
+        entry_type: 'comment',
+        category: 'general',
+        priority: 'normal',
+        action: 'comment_added'
       })
       .select(`
         *,
