@@ -70,6 +70,7 @@ export default function MapComponent({ visits: initialVisits = [], showHeatmap: 
   const [visits, setVisits] = useState(initialVisits)
   const [showHeatmap, setShowHeatmap] = useState(initialShowHeatmap)
   const [showMarkers, setShowMarkers] = useState(initialShowMarkers)
+  const [showContracts, setShowContracts] = useState(false)
   
   // Debug de visitas
   useEffect(() => {
@@ -368,6 +369,7 @@ export default function MapComponent({ visits: initialVisits = [], showHeatmap: 
         onVisitsChange={setVisits}
         onShowHeatmapChange={setShowHeatmap}
         onShowMarkersChange={setShowMarkers}
+        onShowContractsChange={setShowContracts}
         onHospitalSelect={setSelectedHospitalId}
         onMapNavigate={(lat: number, lng: number, zoom: number) => {
           setMapCenter([lat, lng])
@@ -541,6 +543,7 @@ export default function MapComponent({ visits: initialVisits = [], showHeatmap: 
               contractValue={mapData.contractValuesByHospital[hospital.id]}
               contractProviders={mapData.contractProvidersByHospital[hospital.id]}
               isSelected={selectedHospitalId === hospital.id}
+              showContracts={showContracts}
             />
           )
         })}
@@ -585,10 +588,18 @@ export default function MapComponent({ visits: initialVisits = [], showHeatmap: 
                 sticky={false} 
                 opacity={0.95}
                 permanent={selectedHospitalId === hospital.id}
+                className="custom-tooltip"
               >
-                <div style={{ fontSize: '12px', minWidth: '300px' }}>
+                <div style={{ 
+                  fontSize: '12px', 
+                  minWidth: '250px', 
+                  maxWidth: '350px',
+                  maxHeight: '400px',
+                  overflowY: 'auto',
+                  overflowX: 'hidden'
+                }}>
                   <strong style={{ fontSize: '13px', color: '#FF0000' }}>⚠️ SIN COBERTURA</strong><br/>
-                  <strong style={{ fontSize: '13px' }}>{hospital.name}</strong><br/>
+                  <strong style={{ fontSize: '13px', wordBreak: 'break-word' }}>{hospital.name}</strong><br/>
                   <div style={{ marginTop: '4px' }}>
                     <strong>Código NIT:</strong> {hospital.code}<br/>
                     <strong>Ubicación:</strong> {hospital.municipality_name || mapData.municipalityNames[hospital.municipality_id] || hospital.municipality_id}{hospital.department_name ? `, ${hospital.department_name}` : ''}<br/>
@@ -607,9 +618,9 @@ export default function MapComponent({ visits: initialVisits = [], showHeatmap: 
                         }}>{hospital.type}</span><br/>
                       </>
                     )}
-                    {mapData.contractValuesByHospital[hospital.id] && (
+                    {showContracts && mapData.contractValuesByHospital[hospital.id] && (
                       <>
-                        <strong style={{ color: '#2ECC71' }}>Contratos activos:</strong> ${mapData.contractValuesByHospital[hospital.id].toLocaleString('es-CO')}<br/>
+                        <strong style={{ color: '#2ECC71' }}>💰 Contratos:</strong> ${mapData.contractValuesByHospital[hospital.id].toLocaleString('es-CO')}<br/>
                       </>
                     )}
                     <div style={{ marginTop: '4px', paddingTop: '4px', borderTop: '1px solid #ddd' }}>

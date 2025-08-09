@@ -13,6 +13,7 @@ interface HospitalMarkerProps {
   contractValue?: number
   contractProviders?: string[]
   isSelected?: boolean
+  showContracts?: boolean
 }
 
 export default function HospitalMarker({ 
@@ -22,7 +23,8 @@ export default function HospitalMarker({
   assignment, 
   contractValue,
   contractProviders,
-  isSelected 
+  isSelected,
+  showContracts = false
 }: HospitalMarkerProps) {
   const markerRef = useRef<any>(null)
   const router = useRouter()
@@ -77,9 +79,17 @@ export default function HospitalMarker({
         permanent={isSelected || false}
         direction="top"
         offset={[0, -10]}
+        className="custom-tooltip"
       >
-        <div style={{ fontSize: '12px', minWidth: '200px' }}>
-          <strong style={{ fontSize: '13px' }}>{hospital.name}</strong><br/>
+        <div style={{ 
+          fontSize: '12px', 
+          minWidth: '200px',
+          maxWidth: '350px',
+          maxHeight: '400px',
+          overflowY: 'auto',
+          overflowX: 'hidden'
+        }}>
+          <strong style={{ fontSize: '13px', wordBreak: 'break-word' }}>{hospital.name}</strong><br/>
           <div style={{ marginTop: '4px' }}>
             <strong>Código NIT:</strong> {hospital.code}<br/>
             <strong>Ubicación:</strong> {hospital.locality_id ? 
@@ -116,12 +126,12 @@ export default function HospitalMarker({
                 </div>
               </>
             )}
-            {contractValue && (
+            {showContracts && contractValue && (
               <>
-                <strong style={{ color: '#333' }}>Contratos activos:</strong> ${contractValue.toLocaleString('es-CO')}<br/>
+                <strong style={{ color: '#2ECC71' }}>💰 Contratos:</strong> ${contractValue.toLocaleString('es-CO')}<br/>
               </>
             )}
-            {contractProviders && contractProviders.length > 0 && (
+            {showContracts && contractProviders && contractProviders.length > 0 && (
               <>
                 <strong>Proveedores:</strong><br/>
                 <div style={{ marginLeft: '10px', fontSize: '11px', color: '#555' }}>

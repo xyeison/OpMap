@@ -15,26 +15,32 @@
 
 /* Fix z-index for Leaflet controls to stay below navigation */
 .leaflet-control-container {
-  z-index: 900 !important;
-}
-
-.leaflet-control {
-  z-index: 900 !important;
-}
-
-.leaflet-control-zoom {
-  z-index: 900 !important;
+  z-index: 800 !important;
   position: relative !important;
 }
 
+.leaflet-control {
+  z-index: 800 !important;
+  position: relative !important;
+}
+
+.leaflet-control-zoom {
+  z-index: 800 !important;
+  position: relative !important;
+  pointer-events: auto !important;
+}
+
 .leaflet-control-zoom a {
-  z-index: 900 !important;
+  z-index: 800 !important;
+  position: relative !important;
+  pointer-events: auto !important;
 }
 
 /* Ensure all leaflet controls stay below navigation bar */
 .leaflet-top,
 .leaflet-bottom {
-  z-index: 900 !important;
+  z-index: 800 !important;
+  position: relative !important;
 }
 
 .leaflet-pane {
@@ -42,7 +48,52 @@
 }
 
 .leaflet-top.leaflet-left {
-  z-index: 900 !important;
+  z-index: 800 !important;
+  position: relative !important;
+}
+
+/* Fix for control containers after interaction */
+.leaflet-control-container * {
+  position: relative !important;
+  z-index: 800 !important;
+}
+
+/* Ensure navigation stays on top */
+nav {
+  z-index: 9999 !important;
+  position: fixed !important;
+}
+
+/* Custom tooltip styles for responsive behavior */
+.leaflet-tooltip.custom-tooltip {
+  max-width: 350px !important;
+  max-height: 400px !important;
+  overflow: visible !important;
+}
+
+.leaflet-tooltip.custom-tooltip .leaflet-tooltip-content {
+  max-width: 350px !important;
+  overflow: visible !important;
+}
+
+/* Scrollbar styles for tooltips */
+.leaflet-tooltip ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.leaflet-tooltip ::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.leaflet-tooltip ::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 3px;
+}
+
+.leaflet-tooltip ::-webkit-scrollbar-thumb:hover {
+  background: #555;
 }
 
 /* Custom scrollbar */
