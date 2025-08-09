@@ -8,12 +8,14 @@ import PermissionGuard from '@/components/PermissionGuard'
 import ContractsInlineManager from '@/components/ContractsInlineManager'
 import { useQueryClient } from '@tanstack/react-query'
 import { usePermissions } from '@/hooks/usePermissions'
+import { useUser } from '@/contexts/UserContext'
 
 export default function HospitalDetailPage() {
   const params = useParams()
   const router = useRouter()
   const queryClient = useQueryClient()
   const { role } = usePermissions()
+  const { user } = useUser()
   const hospitalId = params.id as string
   
   const [hospital, setHospital] = useState<any>(null)
@@ -39,6 +41,15 @@ export default function HospitalDetailPage() {
   const [editForm, setEditForm] = useState<any>({})
   const [userRole, setUserRole] = useState<string>('')
   const [isSavingEdit, setIsSavingEdit] = useState(false)
+  const [showCommentModal, setShowCommentModal] = useState(false)
+  const [commentForm, setCommentForm] = useState({
+    message: '',
+    entryType: 'comment',
+    category: 'general',
+    priority: 'normal'
+  })
+  const [isSubmittingComment, setIsSubmittingComment] = useState(false)
+  const [activityLog, setActivityLog] = useState<any[]>([])
 
   useEffect(() => {
     loadHospitalData()
@@ -86,6 +97,13 @@ export default function HospitalDetailPage() {
         // Cargar historial si existe
         if (data.history) {
           setHistory(data.history)
+        }
+        
+        // Cargar actividad completa (comentarios + sistema)
+        const commentsResponse = await fetch(`/api/hospitals/${hospitalId}/comments`)
+        if (commentsResponse.ok) {
+          const commentsData = await commentsResponse.json()
+          setActivityLog(commentsData.data || [])
         }
         
         // Cargar distancias de KAMs desde hospital_kam_distances
@@ -619,43 +637,116 @@ export default function HospitalDetailPage() {
         </div>
 
 
-        {/* Historial de cambios */}
-        {history && history.length > 0 && (
+        {/* Actividad y Comentarios */}
+        {activityLog && activityLog.length > 0 && (
           <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">Historial de Cambios</h2>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold text-gray-900">Actividad y Comentarios</h2>
+              <button
+                onClick={() => setShowCommentModal(true)}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all duration-200 font-medium flex items-center gap-2 text-sm"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Agregar Comentario
+              </button>
+            </div>
             <div className="space-y-3 max-h-96 overflow-y-auto">
-              {history.map((entry: any, index: number) => (
-                <div key={index} className="border-l-4 border-gray-200 pl-4 py-2">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        {entry.action === 'activated' ? (
-                          <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">
-                            Activado
+              {activityLog.map((entry: any, index: number) => {
+                const isComment = entry.entryType !== 'system'
+                const priorityColors = {
+                  urgent: 'border-red-500 bg-red-50',
+                  high: 'border-orange-500 bg-orange-50',
+                  normal: 'border-gray-200',
+                  low: 'border-gray-100'
+                }
+                const entryTypeIcons = {
+                  comment: '💬',
+                  note: '📝',
+                  warning: '⚠️',
+                  system: '⚙️'
+                }
+                
+                return (
+                  <div key={entry.id || index} className={`border-l-4 pl-4 py-3 ${priorityColors[entry.priority || 'normal']}`}>
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-lg">{entryTypeIcons[entry.entryType || 'system']}</span>
+                          {entry.action === 'activated' ? (
+                            <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">
+                              Hospital Activado
+                            </span>
+                          ) : entry.action === 'deactivated' ? (
+                            <span className="px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs font-medium">
+                              Hospital Desactivado
+                            </span>
+                          ) : entry.entryType === 'comment' ? (
+                            <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
+                              Comentario
+                            </span>
+                          ) : entry.entryType === 'note' ? (
+                            <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-medium">
+                              Nota
+                            </span>
+                          ) : entry.entryType === 'warning' ? (
+                            <span className="px-2 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-medium">
+                              Advertencia
+                            </span>
+                          ) : (
+                            <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-medium">
+                              Sistema
+                            </span>
+                          )}
+                          {entry.category && entry.category !== 'general' && (
+                            <span className="text-xs text-gray-500">
+                              [{entry.category}]
+                            </span>
+                          )}
+                          <span className="text-xs text-gray-500">
+                            {new Date(entry.createdAt).toLocaleString('es-CO')}
                           </span>
-                        ) : entry.action === 'deactivated' ? (
-                          <span className="px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs font-medium">
-                            Desactivado
-                          </span>
-                        ) : (
-                          <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-medium">
-                            {entry.action}
-                          </span>
-                        )}
-                        <span className="text-xs text-gray-500">
-                          {new Date(entry.created_at).toLocaleString('es-CO')}
-                        </span>
+                        </div>
+                        <p className="text-sm text-gray-700 mb-1">
+                          {entry.message || entry.reason}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          Por: {entry.user?.name || entry.user?.email || 'Sistema'}
+                          {entry.user?.role && ` (${entry.user.role})`}
+                        </p>
                       </div>
-                      <p className="text-sm text-gray-700 mb-1">
-                        <strong>Razón:</strong> {entry.reason}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        Por: {entry.users?.full_name || entry.users?.email || 'Usuario desconocido'}
-                      </p>
+                      {isComment && (role === 'admin' || entry.userId === user?.id) && (
+                        <button
+                          onClick={async () => {
+                            if (confirm('¿Está seguro de eliminar este comentario?')) {
+                              try {
+                                const response = await fetch(`/api/hospitals/${hospitalId}/comments?commentId=${entry.id}`, {
+                                  method: 'DELETE'
+                                })
+                                if (response.ok) {
+                                  await loadHospitalData()
+                                } else {
+                                  alert('Error al eliminar el comentario')
+                                }
+                              } catch (error) {
+                                console.error('Error deleting comment:', error)
+                                alert('Error al eliminar el comentario')
+                              }
+                            }
+                          }}
+                          className="text-red-500 hover:text-red-700 transition-colors"
+                          title="Eliminar comentario"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      )}
                     </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </div>
         )}
@@ -1134,6 +1225,196 @@ export default function HospitalDetailPage() {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                       </svg>
                       Guardar Cambios
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal para agregar comentario */}
+        {showCommentModal && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fadeIn">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden transform transition-all animate-slideUp">
+              {/* Header con gradiente */}
+              <div className="bg-gradient-to-r from-blue-500 to-blue-600 px-6 py-5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="bg-white/20 backdrop-blur-sm rounded-full p-3">
+                      <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-bold text-white">Agregar Comentario</h3>
+                      <p className="text-white/80 text-sm">Registrar observación o nota sobre este hospital</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setShowCommentModal(false)
+                      setCommentForm({
+                        message: '',
+                        entryType: 'comment',
+                        category: 'general',
+                        priority: 'normal'
+                      })
+                    }}
+                    className="text-white/80 hover:text-white transition-colors"
+                    disabled={isSubmittingComment}
+                  >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              
+              {/* Content */}
+              <div className="p-6">
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Mensaje <span className="text-red-500">*</span>
+                    </label>
+                    <textarea
+                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all resize-none"
+                      rows={4}
+                      placeholder="Escriba su comentario o observación aquí..."
+                      value={commentForm.message}
+                      onChange={(e) => setCommentForm({...commentForm, message: e.target.value})}
+                      disabled={isSubmittingComment}
+                    />
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Tipo
+                      </label>
+                      <select
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        value={commentForm.entryType}
+                        onChange={(e) => setCommentForm({...commentForm, entryType: e.target.value})}
+                        disabled={isSubmittingComment}
+                      >
+                        <option value="comment">Comentario</option>
+                        <option value="note">Nota</option>
+                        <option value="warning">Advertencia</option>
+                      </select>
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Prioridad
+                      </label>
+                      <select
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        value={commentForm.priority}
+                        onChange={(e) => setCommentForm({...commentForm, priority: e.target.value})}
+                        disabled={isSubmittingComment}
+                      >
+                        <option value="low">Baja</option>
+                        <option value="normal">Normal</option>
+                        <option value="high">Alta</option>
+                        <option value="urgent">Urgente</option>
+                      </select>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Categoría
+                    </label>
+                    <select
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      value={commentForm.category}
+                      onChange={(e) => setCommentForm({...commentForm, category: e.target.value})}
+                      disabled={isSubmittingComment}
+                    >
+                      <option value="general">General</option>
+                      <option value="operational">Operacional</option>
+                      <option value="commercial">Comercial</option>
+                      <option value="maintenance">Mantenimiento</option>
+                      <option value="alert">Alerta</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Footer */}
+              <div className="bg-gray-50 px-6 py-4 flex gap-3 justify-end border-t">
+                <button
+                  onClick={() => {
+                    setShowCommentModal(false)
+                    setCommentForm({
+                      message: '',
+                      entryType: 'comment',
+                      category: 'general',
+                      priority: 'normal'
+                    })
+                  }}
+                  className="px-5 py-2.5 text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 transition-colors font-medium"
+                  disabled={isSubmittingComment}
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!commentForm.message.trim()) {
+                      alert('Por favor ingrese un mensaje')
+                      return
+                    }
+                    
+                    setIsSubmittingComment(true)
+                    try {
+                      const response = await fetch(`/api/hospitals/${hospitalId}/comments`, {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(commentForm)
+                      })
+                      
+                      if (!response.ok) {
+                        const error = await response.json()
+                        throw new Error(error.error || 'Error al agregar comentario')
+                      }
+                      
+                      await loadHospitalData()
+                      setShowCommentModal(false)
+                      setCommentForm({
+                        message: '',
+                        entryType: 'comment',
+                        category: 'general',
+                        priority: 'normal'
+                      })
+                      alert('Comentario agregado exitosamente')
+                    } catch (error: any) {
+                      console.error('Error adding comment:', error)
+                      alert('Error al agregar comentario: ' + error.message)
+                    } finally {
+                      setIsSubmittingComment(false)
+                    }
+                  }}
+                  className="px-5 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl hover:from-blue-600 hover:to-blue-700 transition-all font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  disabled={isSubmittingComment || !commentForm.message.trim()}
+                >
+                  {isSubmittingComment ? (
+                    <>
+                      <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Guardando...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      Agregar Comentario
                     </>
                   )}
                 </button>
