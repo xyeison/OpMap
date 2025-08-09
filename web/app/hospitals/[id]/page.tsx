@@ -655,13 +655,13 @@ export default function HospitalDetailPage() {
             <div className="space-y-3 max-h-96 overflow-y-auto">
               {activityLog.map((entry: any, index: number) => {
                 const isComment = entry.entryType !== 'system'
-                const priorityColors = {
+                const priorityColors: Record<string, string> = {
                   urgent: 'border-red-500 bg-red-50',
                   high: 'border-orange-500 bg-orange-50',
                   normal: 'border-gray-200',
                   low: 'border-gray-100'
                 }
-                const entryTypeIcons = {
+                const entryTypeIcons: Record<string, string> = {
                   comment: '💬',
                   note: '📝',
                   warning: '⚠️',
