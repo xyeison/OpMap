@@ -19,41 +19,34 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 
     const hospitalId = params.id
     
-    // Obtener todo el historial (sistema + comentarios)
+    // Obtener actividad combinada de la vista hospital_activity
     const { data, error } = await supabase
-      .from('hospital_history')
-      .select(`
-        *,
-        users!hospital_history_user_id_fkey (
-          id,
-          full_name,
-          email,
-          role
-        )
-      `)
+      .from('hospital_activity')
+      .select('*')
       .eq('hospital_id', hospitalId)
       .order('created_at', { ascending: false })
 
     if (error) {
-      console.error('Error fetching hospital history:', error)
+      console.error('Error fetching hospital activity:', error)
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
     // Formatear los datos para el frontend
     const formattedData = data?.map(entry => ({
       id: entry.id,
+      type: entry.type,
       hospitalId: entry.hospital_id,
       userId: entry.user_id,
       action: entry.action,
-      message: entry.reason,
+      message: entry.message,
       previousState: entry.previous_state,
       newState: entry.new_state,
       createdAt: entry.created_at,
-      user: entry.users ? {
-        id: entry.users.id,
-        name: entry.users.full_name,
-        email: entry.users.email,
-        role: entry.users.role
+      user: entry.user_id ? {
+        id: entry.user_id,
+        name: entry.user_name,
+        email: entry.user_email,
+        role: entry.user_role
       } : null
     })) || []
 
@@ -98,18 +91,17 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       return NextResponse.json({ error: 'Hospital no encontrado' }, { status: 404 })
     }
 
-    // Insertar el comentario con action 'noted' (un valor que esperamos sea válido)
+    // Insertar el comentario en la nueva tabla hospital_comments
     const { data, error } = await supabase
-      .from('hospital_history')
+      .from('hospital_comments')
       .insert({
         hospital_id: hospitalId,
         user_id: user.id,
-        reason: body.message.trim(),
-        action: 'noted'  // Usar 'noted' como acción para comentarios
+        comment: body.message.trim()
       })
       .select(`
         *,
-        users!hospital_history_user_id_fkey (
+        users:user_id (
           id,
           full_name,
           email,
@@ -126,10 +118,11 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     // Formatear la respuesta
     const formattedComment = {
       id: data.id,
+      type: 'comment',
       hospitalId: data.hospital_id,
       userId: data.user_id,
-      action: data.action,
-      message: data.reason,
+      action: 'noted',
+      message: data.comment,
       createdAt: data.created_at,
       user: data.users ? {
         id: data.users.id,
@@ -170,19 +163,13 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
 
     // Obtener el comentario para verificar permisos
     const { data: comment, error: fetchError } = await supabase
-      .from('hospital_history')
-      .select('user_id, action')
+      .from('hospital_comments')
+      .select('user_id')
       .eq('id', commentId)
       .single()
 
     if (fetchError || !comment) {
       return NextResponse.json({ error: 'Comentario no encontrado' }, { status: 404 })
-    }
-
-    // No permitir eliminar entradas del sistema (activaciones/desactivaciones)
-    // Solo permitir eliminar comentarios (aquellos con action='noted')
-    if (comment.action !== 'noted') {
-      return NextResponse.json({ error: 'No se pueden eliminar entradas del sistema' }, { status: 403 })
     }
 
     // Verificar permisos: solo admin o el autor pueden eliminar
@@ -192,7 +179,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
 
     // Eliminar el comentario
     const { error } = await supabase
-      .from('hospital_history')
+      .from('hospital_comments')
       .delete()
       .eq('id', commentId)
 

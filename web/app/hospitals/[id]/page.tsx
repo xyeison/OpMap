@@ -651,8 +651,8 @@ export default function HospitalDetailPage() {
           {activityLog && activityLog.length > 0 ? (
             <div className="space-y-3 max-h-96 overflow-y-auto">
               {activityLog.map((entry: any, index: number) => {
-                // Los comentarios son aquellos con action='noted'
-                const isComment = entry.action === 'noted'
+                // Los comentarios tienen type='comment', el historial tiene type='history'
+                const isComment = entry.type === 'comment'
                 
                 return (
                   <div key={entry.id || index} className="border-l-4 border-gray-200 pl-4 py-3 hover:bg-gray-50 transition-colors">
@@ -667,7 +667,7 @@ export default function HospitalDetailPage() {
                             <span className="px-2 py-1 bg-gray-500 text-white rounded-full text-xs font-medium">
                               ✗ Hospital Desactivado
                             </span>
-                          ) : entry.action === 'noted' ? (
+                          ) : isComment ? (
                             <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-medium">
                               💬 Comentario
                             </span>
@@ -677,7 +677,7 @@ export default function HospitalDetailPage() {
                           </span>
                         </div>
                         <p className="text-sm text-gray-700 mb-1">
-                          {entry.message || entry.reason}
+                          {entry.message}
                         </p>
                         <p className="text-xs text-gray-600 font-medium">
                           {entry.user?.name || entry.user?.email || 'Sistema'}

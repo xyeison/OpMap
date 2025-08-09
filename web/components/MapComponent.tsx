@@ -588,7 +588,7 @@ export default function MapComponent({ visits: initialVisits = [], showHeatmap: 
               <Tooltip 
                 sticky={false} 
                 opacity={0.95}
-                permanent={selectedHospitalId === hospital.id}
+                permanent={selectedHospitalId === hospital.id || (showContracts && mapData.contractValuesByHospital[hospital.id])}
                 className="custom-tooltip"
               >
                 <div style={{ 

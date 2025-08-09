@@ -9,6 +9,50 @@ const supabase = createClient(
   supabaseServiceKey
 )
 
+export async function GET(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const { data: contract, error } = await supabase
+      .from('hospital_contracts')
+      .select(`
+        *,
+        hospital:hospitals(
+          id,
+          name,
+          municipality_name,
+          department_name
+        )
+      `)
+      .eq('id', params.id)
+      .single()
+
+    if (error) {
+      console.error('Error fetching contract:', error)
+      return NextResponse.json(
+        { error: 'Error al obtener contrato' },
+        { status: 500 }
+      )
+    }
+
+    if (!contract) {
+      return NextResponse.json(
+        { error: 'Contrato no encontrado' },
+        { status: 404 }
+      )
+    }
+
+    return NextResponse.json(contract)
+  } catch (error) {
+    console.error('Error in GET /api/contracts/[id]:', error)
+    return NextResponse.json(
+      { error: 'Error interno del servidor' },
+      { status: 500 }
+    )
+  }
+}
+
 export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
   try {
     // Verificar autenticación
