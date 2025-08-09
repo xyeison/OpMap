@@ -651,7 +651,8 @@ export default function HospitalDetailPage() {
           {activityLog && activityLog.length > 0 ? (
             <div className="space-y-3 max-h-96 overflow-y-auto">
               {activityLog.map((entry: any, index: number) => {
-                const isComment = entry.action === 'comment_added'
+                // Los comentarios son aquellos con action='updated' y tienen un usuario
+                const isComment = entry.action === 'updated' && entry.user
                 
                 return (
                   <div key={entry.id || index} className="border-l-4 border-gray-200 pl-4 py-3 hover:bg-gray-50 transition-colors">
@@ -665,6 +666,10 @@ export default function HospitalDetailPage() {
                           ) : entry.action === 'deactivated' ? (
                             <span className="px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs font-medium">
                               ✗ Hospital Desactivado
+                            </span>
+                          ) : isComment ? (
+                            <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
+                              💬 Comentario
                             </span>
                           ) : null}
                           <span className="text-xs text-gray-500">

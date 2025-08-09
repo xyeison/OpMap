@@ -33,7 +33,7 @@ export default function MapPage() {
           </div>
         }
       >
-        <div className="h-screen relative">
+        <div className="h-screen relative pt-16">
           <MapComponent />
         </div>
       </PermissionGuard>

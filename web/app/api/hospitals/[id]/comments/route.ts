@@ -105,7 +105,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         hospital_id: hospitalId,
         user_id: user.id,
         reason: body.message.trim(),
-        action: 'comment_added'
+        action: 'updated'  // Usar una acción genérica que probablemente exista
       })
       .select(`
         *,
