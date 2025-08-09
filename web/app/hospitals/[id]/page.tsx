@@ -651,7 +651,7 @@ export default function HospitalDetailPage() {
           {activityLog && activityLog.length > 0 ? (
             <div className="space-y-3 max-h-96 overflow-y-auto">
               {activityLog.map((entry: any, index: number) => {
-                const isComment = entry.entryType !== 'system'
+                const isComment = entry.action === 'comment_added'
                 
                 return (
                   <div key={entry.id || index} className="border-l-4 border-gray-200 pl-4 py-3 hover:bg-gray-50 transition-colors">

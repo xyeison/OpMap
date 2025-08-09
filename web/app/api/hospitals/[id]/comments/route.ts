@@ -46,9 +46,6 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       userId: entry.user_id,
       action: entry.action,
       message: entry.reason,
-      entryType: entry.entry_type || 'system',
-      category: entry.category || 'general',
-      priority: entry.priority || 'normal',
       previousState: entry.previous_state,
       newState: entry.new_state,
       createdAt: entry.created_at,
@@ -108,9 +105,6 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         hospital_id: hospitalId,
         user_id: user.id,
         reason: body.message.trim(),
-        entry_type: 'comment',
-        category: 'general',
-        priority: 'normal',
         action: 'comment_added'
       })
       .select(`
@@ -136,9 +130,6 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       userId: data.user_id,
       action: data.action,
       message: data.reason,
-      entryType: data.entry_type,
-      category: data.category,
-      priority: data.priority,
       createdAt: data.created_at,
       user: data.users ? {
         id: data.users.id,
@@ -180,7 +171,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
     // Obtener el comentario para verificar permisos
     const { data: comment, error: fetchError } = await supabase
       .from('hospital_history')
-      .select('user_id, entry_type')
+      .select('user_id, action')
       .eq('id', commentId)
       .single()
 
@@ -188,8 +179,8 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
       return NextResponse.json({ error: 'Comentario no encontrado' }, { status: 404 })
     }
 
-    // No permitir eliminar entradas del sistema
-    if (comment.entry_type === 'system') {
+    // No permitir eliminar entradas del sistema (activaciones/desactivaciones)
+    if (comment.action === 'activated' || comment.action === 'deactivated') {
       return NextResponse.json({ error: 'No se pueden eliminar entradas del sistema' }, { status: 403 })
     }
 
