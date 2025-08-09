@@ -387,6 +387,7 @@ export default function MapComponent({ visits: initialVisits = [], showHeatmap: 
         zoom={6}
         className="h-full w-full"
         preferCanvas={true}
+        zoomControl={false}
       >
         <MapController center={mapCenter} zoom={mapZoom} />
         <TileLayer

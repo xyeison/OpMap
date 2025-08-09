@@ -13,34 +13,22 @@
   background-image: url(https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png);
 }
 
-/* Fix z-index for Leaflet controls to stay below navigation but visible */
+/* Fix z-index for Leaflet controls to stay below navigation */
 .leaflet-control-container {
   z-index: 800 !important;
+  position: relative !important;
 }
 
 .leaflet-control {
   z-index: 800 !important;
-}
-
-.leaflet-control-zoom {
-  z-index: 800 !important;
-  pointer-events: auto !important;
-}
-
-.leaflet-control-zoom a,
-.leaflet-control-zoom a:hover {
-  z-index: 800 !important;
-  pointer-events: auto !important;
-  display: block !important;
+  position: relative !important;
 }
 
 /* Ensure all leaflet controls stay below navigation bar */
-.leaflet-top {
-  z-index: 800 !important;
-}
-
+.leaflet-top,
 .leaflet-bottom {
   z-index: 800 !important;
+  position: relative !important;
 }
 
 .leaflet-pane {
@@ -48,6 +36,13 @@
 }
 
 .leaflet-top.leaflet-left {
+  z-index: 800 !important;
+  position: relative !important;
+}
+
+/* Fix for control containers after interaction */
+.leaflet-control-container * {
+  position: relative !important;
   z-index: 800 !important;
 }
 
