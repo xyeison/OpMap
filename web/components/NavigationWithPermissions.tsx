@@ -100,9 +100,14 @@ export default function NavigationWithPermissions() {
       {/* Menú lateral deslizante */}
       <div 
         ref={menuRef}
-        className={`fixed top-16 left-0 h-full bg-white border-r border-gray-100 w-72 transform transition-transform duration-300 ease-in-out z-[9998] shadow-xl ${
+        className={`fixed top-16 left-0 bottom-0 bg-white border-r border-gray-100 w-72 transform transition-transform duration-300 ease-in-out z-[9998] shadow-xl overflow-hidden ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
+        style={{ 
+          height: 'calc(100vh - 4rem)',
+          visibility: isOpen ? 'visible' : 'hidden',
+          pointerEvents: isOpen ? 'auto' : 'none'
+        }}
       >
         <div className="flex flex-col h-full">
           <div className="p-6 flex-1 overflow-y-auto">
