@@ -2,8 +2,9 @@
 
 import { useParams, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import { useAuth } from '@/contexts/AuthContext'
+import { useUser } from '@/contexts/UserContext'
 import Link from 'next/link'
+import ProtectedRoute from '@/components/ProtectedRoute'
 
 interface Contract {
   id: string
@@ -31,7 +32,7 @@ interface Contract {
 export default function ContractDetailPage() {
   const params = useParams()
   const router = useRouter()
-  const { user } = useAuth()
+  const { user } = useUser()
   const [contract, setContract] = useState<Contract | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -92,30 +93,35 @@ export default function ContractDetailPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900"></div>
-      </div>
+      <ProtectedRoute>
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900"></div>
+        </div>
+      </ProtectedRoute>
     )
   }
 
   if (!contract) {
     return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900 mb-4">Contrato no encontrado</h1>
-          <button
-            onClick={() => router.back()}
-            className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
-          >
-            Volver
-          </button>
+      <ProtectedRoute>
+        <div className="container mx-auto px-4 py-8">
+          <div className="text-center">
+            <h1 className="text-2xl font-bold text-gray-900 mb-4">Contrato no encontrado</h1>
+            <button
+              onClick={() => router.back()}
+              className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
+            >
+              Volver
+            </button>
+          </div>
         </div>
-      </div>
+      </ProtectedRoute>
     )
   }
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-6xl">
+    <ProtectedRoute>
+      <div className="container mx-auto px-4 py-8 max-w-6xl">
       {/* Header */}
       <div className="mb-8">
         <div className="flex items-center justify-between mb-4">
@@ -134,7 +140,7 @@ export default function ContractDetailPage() {
           </div>
           <span className={`px-3 py-1 rounded-full text-sm font-medium ${
             contract.active 
-              ? 'bg-green-100 text-green-800' 
+              ? 'bg-gray-900 text-white' 
               : 'bg-gray-100 text-gray-800'
           }`}>
             {contract.active ? 'Activo' : 'Inactivo'}
@@ -144,11 +150,11 @@ export default function ContractDetailPage() {
 
       {/* Hospital Info */}
       {contract.hospital && (
-        <div className="bg-blue-50 border border-blue-200 rounded-xl p-6 mb-6">
-          <h2 className="text-lg font-semibold text-blue-900 mb-2">Hospital Asociado</h2>
+        <div className="bg-gray-50 border border-gray-200 rounded-xl p-6 mb-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-2">Hospital Asociado</h2>
           <Link 
             href={`/hospitals/${contract.hospital_id}`}
-            className="text-blue-600 hover:text-blue-800 font-medium text-lg"
+            className="text-gray-700 hover:text-gray-900 font-medium text-lg"
           >
             {contract.hospital.name}
           </Link>
@@ -246,5 +252,6 @@ export default function ContractDetailPage() {
         </div>
       </div>
     </div>
+    </ProtectedRoute>
   )
 }
