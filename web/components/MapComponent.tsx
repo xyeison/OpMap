@@ -350,12 +350,23 @@ export default function MapComponent({ visits: initialVisits = [], showHeatmap: 
   }
 
   const filteredAssignments = mapData.assignments.filter((a: any) => {
+    // Filtrar por contratos primero si está activo
+    if (showContracts && !mapData.contractValuesByHospital[a.hospitals.id]) {
+      return false
+    }
+    // Luego aplicar filtro de tipo
     if (hospitalTypeFilter === 'all') return true
     if (hospitalTypeFilter === 'sin_tipo') return !a.hospitals.type
     return a.hospitals.type === hospitalTypeFilter
   })
 
-  const filteredUnassignedHospitals = filterHospitalsByType(mapData.unassignedHospitals)
+  const filteredUnassignedHospitals = filterHospitalsByType(mapData.unassignedHospitals).filter((h: any) => {
+    // Si showContracts está activo, solo mostrar hospitales con contratos
+    if (showContracts && !mapData.contractValuesByHospital[h.id]) {
+      return false
+    }
+    return true
+  })
 
   return (
     <>
@@ -588,7 +599,7 @@ export default function MapComponent({ visits: initialVisits = [], showHeatmap: 
               <Tooltip 
                 sticky={false} 
                 opacity={0.95}
-                permanent={selectedHospitalId === hospital.id || (showContracts && mapData.contractValuesByHospital[hospital.id])}
+                permanent={selectedHospitalId === hospital.id}
                 className="custom-tooltip"
               >
                 <div style={{ 
@@ -626,7 +637,7 @@ export default function MapComponent({ visits: initialVisits = [], showHeatmap: 
                         }}>{hospital.type}</span><br/>
                       </>
                     )}
-                    {showContracts && mapData.contractValuesByHospital[hospital.id] && (
+                    {mapData.contractValuesByHospital[hospital.id] && (
                       <>
                         <strong style={{ color: '#2ECC71' }}>💰 Contratos:</strong> ${mapData.contractValuesByHospital[hospital.id].toLocaleString('es-CO')}<br/>
                       </>
