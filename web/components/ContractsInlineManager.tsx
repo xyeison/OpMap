@@ -14,6 +14,7 @@ interface Contract {
   end_date: string
   description?: string
   provider?: string
+  link?: string
   active: boolean
   created_at: string
   isEditing?: boolean
@@ -349,6 +350,17 @@ export default function ContractsInlineManager({ hospitalId, onUpdate }: Contrac
                   </div>
                   
                   <div className="md:col-span-2 lg:col-span-3">
+                    <label className="text-xs font-semibold text-gray-700">Enlace/Link</label>
+                    <input
+                      type="url"
+                      value={contract.link || ''}
+                      onChange={(e) => handleFieldChange(contract.id, 'link', e.target.value)}
+                      placeholder="https://ejemplo.com/documento"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700"
+                    />
+                  </div>
+                  
+                  <div className="md:col-span-2 lg:col-span-3">
                     <label className="text-xs font-semibold text-gray-700">Descripción</label>
                     <textarea
                       value={contract.description || ''}
@@ -424,6 +436,20 @@ export default function ContractsInlineManager({ hospitalId, onUpdate }: Contrac
                         <div className="mt-2 text-sm">
                           <span className="text-gray-600">Proveedor:</span>
                           <span className="ml-2 font-medium text-gray-900">{contract.provider}</span>
+                        </div>
+                      )}
+                      
+                      {contract.link && (
+                        <div className="mt-2 text-sm">
+                          <span className="text-gray-600">Enlace:</span>
+                          <a 
+                            href={contract.link} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="ml-2 text-blue-600 hover:text-blue-800 underline"
+                          >
+                            Ver documento
+                          </a>
                         </div>
                       )}
                       
