@@ -14,9 +14,8 @@ export interface Proveedor {
   pais?: string;
   direccion?: string;
   
-  // Estado y clasificación
+  // Estado
   estado: 'activo' | 'inactivo' | 'prospecto';
-  tamano_empresa?: 'micro' | 'pequena' | 'mediana' | 'grande';
   
   // Metadatos
   notas_internas?: string;

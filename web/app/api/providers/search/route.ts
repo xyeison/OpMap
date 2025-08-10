@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
     // Construir búsqueda
     let dbQuery = supabase
       .from('proveedores')
-      .select('id, nit, nombre, tipo_empresa, estado')
+      .select('id, nit, nombre, estado')
       .or(`nombre.ilike.%${query}%,nit.ilike.%${query}%`)
       .order('nombre')
       .limit(limit);
@@ -133,7 +133,6 @@ export async function POST(request: NextRequest) {
         nombre,
         nit: finalNit,
         estado: 'activo',
-        tipo_empresa: 'competidor', // Por defecto, se puede cambiar después
         notas_internas: 'Proveedor creado rápidamente desde selector. Completar información.'
       })
       .select()
