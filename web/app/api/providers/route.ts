@@ -143,8 +143,45 @@ export async function POST(request: NextRequest) {
     
     if (error) {
       console.error('Error creating provider:', error);
+      
+      // Mejorar mensajes de error según el código
+      if (error.code === '23505') {
+        // Violación de unicidad
+        if (error.message.includes('proveedores_nombre_key')) {
+          return NextResponse.json(
+            { error: 'Ya existe un proveedor con ese nombre. Por favor, use un nombre diferente o agregue información adicional (ej: "Proveedor ABC - Bogotá")' },
+            { status: 409 }
+          );
+        }
+        if (error.message.includes('proveedores_nit_key')) {
+          return NextResponse.json(
+            { error: 'Ya existe un proveedor con ese NIT' },
+            { status: 409 }
+          );
+        }
+      }
+      
+      if (error.code === '42501') {
+        return NextResponse.json(
+          { error: 'No tiene permisos para crear proveedores. Contacte al administrador.' },
+          { status: 403 }
+        );
+      }
+      
+      if (error.code === '23502') {
+        return NextResponse.json(
+          { error: 'Faltan campos requeridos. Verifique que NIT y nombre estén completos.' },
+          { status: 400 }
+        );
+      }
+      
+      // Error genérico con más detalles
       return NextResponse.json(
-        { error: 'Error al crear proveedor', details: error.message },
+        { 
+          error: 'Error al crear proveedor', 
+          details: error.message,
+          suggestion: 'Verifique que todos los campos estén correctos y que no exista un proveedor con el mismo nombre o NIT'
+        },
         { status: 500 }
       );
     }

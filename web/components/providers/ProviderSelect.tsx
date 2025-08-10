@@ -165,7 +165,10 @@ export default function ProviderSelect({
         }
       } else {
         const error = await response.json();
-        alert(`Error al crear proveedor: ${error.error}`);
+        // Mostrar mensaje de error específico o sugerencia si existe
+        const errorMessage = error.error || 'Error desconocido';
+        const suggestion = error.suggestion ? `\n\n${error.suggestion}` : '';
+        alert(`${errorMessage}${suggestion}`);
       }
     } catch (error) {
       console.error('Error creating provider:', error);

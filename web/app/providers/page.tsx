@@ -107,11 +107,10 @@ export default function ProvidersListPage() {
         router.push(`/providers/${data.data.id}`);
       } else {
         const error = await response.json();
-        if (error.details?.includes('row-level security') || error.details?.includes('does not exist')) {
-          alert('Las tablas de proveedores aún no están creadas en la base de datos. Por favor, ejecute los scripts SQL en Supabase primero.');
-        } else {
-          alert(`Error al crear proveedor: ${error.error || 'Error desconocido'}`);
-        }
+        // Mostrar mensaje de error específico o sugerencia si existe
+        const errorMessage = error.error || 'Error desconocido';
+        const suggestion = error.suggestion ? `\n\n${error.suggestion}` : '';
+        alert(`${errorMessage}${suggestion}`);
       }
     } catch (error) {
       console.error('Error creating provider:', error);
