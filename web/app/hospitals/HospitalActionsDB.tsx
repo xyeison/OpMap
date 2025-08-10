@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import ProviderSelect from '@/components/providers/ProviderSelect'
 
 interface HospitalActionsProps {
   hospital: any
@@ -23,6 +24,7 @@ export default function HospitalActions({ hospital, onUpdate, userRole = 'user' 
     start_date: '',
     duration_months: '',
     current_provider: '',
+    proveedor_id: '',
     description: ''
   })
 
@@ -81,6 +83,7 @@ export default function HospitalActions({ hospital, onUpdate, userRole = 'user' 
         start_date: contract.start_date,
         duration_months: parseInt(contract.duration_months),
         current_provider: contract.current_provider,
+        proveedor_id: contract.proveedor_id || null,
         description: contract.description || null,
         created_by: CURRENT_USER_ID
       })
@@ -94,6 +97,7 @@ export default function HospitalActions({ hospital, onUpdate, userRole = 'user' 
         start_date: '',
         duration_months: '',
         current_provider: '',
+        proveedor_id: '',
         description: ''
       })
       
@@ -219,15 +223,32 @@ export default function HospitalActions({ hospital, onUpdate, userRole = 'user' 
               
               <div>
                 <label className="block text-sm font-medium mb-1">
-                  Proveedor actual <span className="text-red-500">*</span>
+                  Proveedor <span className="text-red-500">*</span>
                 </label>
-                <input
-                  type="text"
-                  className="w-full p-2 border rounded"
-                  value={contract.current_provider}
-                  onChange={(e) => setContract({...contract, current_provider: e.target.value})}
-                  disabled={loading}
+                <ProviderSelect
+                  value={contract.proveedor_id}
+                  onChange={(providerId, provider) => {
+                    setContract({ 
+                      ...contract, 
+                      proveedor_id: providerId || '',
+                      current_provider: provider?.nombre || contract.current_provider
+                    })
+                  }}
+                  placeholder="Buscar o crear proveedor..."
+                  className="w-full"
                 />
+                {/* Campo manual temporal para corregir datos antiguos */}
+                <div className="mt-2">
+                  <label className="block mb-1 text-xs text-gray-600">Proveedor (texto manual - temporal):</label>
+                  <input
+                    type="text"
+                    className="w-full p-2 border rounded text-sm"
+                    value={contract.current_provider}
+                    onChange={(e) => setContract({...contract, current_provider: e.target.value})}
+                    disabled={loading}
+                    placeholder="Solo para corregir contratos antiguos"
+                  />
+                </div>
               </div>
               
               <div>

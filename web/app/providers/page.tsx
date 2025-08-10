@@ -217,15 +217,6 @@ export default function ProvidersListPage() {
                         Estado
                       </th>
                       <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Ingresos
-                      </th>
-                      <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Requisitos
-                      </th>
-                      <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Riesgo
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Acciones
                       </th>
                     </tr>
@@ -256,31 +247,6 @@ export default function ProvidersListPage() {
                           }`}>
                             {provider.estado}
                           </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
-                          {formatCurrency(provider.ultimos_ingresos)}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-center">
-                          {provider.cumple_todos_requisitos !== undefined ? (
-                            provider.cumple_todos_requisitos ? (
-                              <span className="text-green-600">✓</span>
-                            ) : (
-                              <span className="text-red-600">✗</span>
-                            )
-                          ) : (
-                            <span className="text-gray-400">—</span>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-center">
-                          {provider.categoria_riesgo ? (
-                            <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                              getRiskColor(provider.categoria_riesgo)
-                            }`}>
-                              {provider.categoria_riesgo.replace('_', ' ')}
-                            </span>
-                          ) : (
-                            <span className="text-gray-400">—</span>
-                          )}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                           <Link

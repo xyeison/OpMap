@@ -148,6 +148,12 @@ export function getNavigationMenu(role: Role | undefined) {
     menu.push({ name: 'Contratos', href: '/contracts', icon: 'document' })
   }
   
+  // Agregar Mi Empresa y Cumplimiento para roles que gestionan contratos
+  if (permissions.includes('contracts:edit') || role === 'admin') {
+    menu.push({ name: 'Mi Empresa', href: '/mi-empresa', icon: 'building' })
+    menu.push({ name: 'Cumplimiento', href: '/compliance', icon: 'clipboard' })
+  }
+  
   if (permissions.includes('providers:view')) {
     menu.push({ name: 'Proveedores', href: '/providers', icon: 'providers' })
   }

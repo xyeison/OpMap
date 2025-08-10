@@ -6,6 +6,7 @@ import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
 import { useRouter } from 'next/navigation'
 import ContractEditModal from '@/components/ContractEditModal'
+import RequirementsEditModal from '@/components/contracts/RequirementsEditModal'
 import { usePermissions } from '@/hooks/usePermissions'
 
 interface Contract {
@@ -20,6 +21,12 @@ interface Contract {
   provider?: string
   active: boolean
   created_at: string
+  indice_liquidez_requerido?: number
+  indice_endeudamiento_maximo?: number
+  cobertura_intereses_minimo?: number
+  patrimonio_minimo?: number
+  capital_trabajo_minimo?: number
+  cumple_requisitos?: boolean
   hospital?: {
     name: string
     code: string
@@ -51,6 +58,7 @@ export default function ContractsPage() {
     averageValue: 0
   })
   const [editingContract, setEditingContract] = useState<Contract | null>(null)
+  const [editingRequirements, setEditingRequirements] = useState<Contract | null>(null)
   const canViewKams = can('kams:view')
 
   useEffect(() => {
@@ -366,6 +374,9 @@ export default function ContractsPage() {
                       <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Estado</span>
                     </th>
                     <th className="px-6 py-5 text-center">
+                      <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Requisitos</span>
+                    </th>
+                    <th className="px-6 py-5 text-center">
                       <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Acciones</span>
                     </th>
                   </tr>
@@ -488,6 +499,33 @@ export default function ContractsPage() {
                           <span className={`w-2 h-2 rounded-full mr-2 ${contract.active ? 'bg-green-500' : 'bg-red-500'}`}></span>
                           {contract.active ? 'Activo' : 'Inactivo'}
                         </span>
+                      </td>
+                      <td className="px-6 py-5 text-center">
+                        <div className="flex items-center justify-center space-x-2">
+                          {contract.cumple_requisitos === true && (
+                            <span className="text-green-600" title="Cumple requisitos">
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              </svg>
+                            </span>
+                          )}
+                          {contract.cumple_requisitos === false && (
+                            <span className="text-red-600" title="No cumple requisitos">
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              </svg>
+                            </span>
+                          )}
+                          <button
+                            onClick={() => setEditingRequirements(contract)}
+                            className="text-gray-600 hover:text-gray-900 transition-colors"
+                            title="Editar requisitos"
+                          >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                            </svg>
+                          </button>
+                        </div>
                       </td>
                     <td className="px-6 py-5 text-center">
                       <div className="flex items-center justify-center gap-1">
@@ -641,6 +679,26 @@ export default function ContractsPage() {
               setEditingContract(null)
               loadData()
             }}
+          />
+        )}
+
+        {/* Modal de requisitos */}
+        {editingRequirements && (
+          <RequirementsEditModal
+            contractId={editingRequirements.id}
+            contractNumber={editingRequirements.contract_number}
+            initialData={{
+              indice_liquidez_requerido: editingRequirements.indice_liquidez_requerido,
+              indice_endeudamiento_maximo: editingRequirements.indice_endeudamiento_maximo,
+              cobertura_intereses_minimo: editingRequirements.cobertura_intereses_minimo,
+              patrimonio_minimo: editingRequirements.patrimonio_minimo,
+              capital_trabajo_minimo: editingRequirements.capital_trabajo_minimo
+            }}
+            onSave={() => {
+              setEditingRequirements(null)
+              loadData()
+            }}
+            onClose={() => setEditingRequirements(null)}
           />
         )}
       </div>
