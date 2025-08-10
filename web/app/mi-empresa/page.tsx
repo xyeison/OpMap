@@ -223,7 +223,7 @@ export default function MiEmpresaPage() {
                   placeholder="Ej: 3000"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
                 />
-                <p className="text-xs text-gray-500 mt-1">Deudas a corto plazo (< 1 año)</p>
+                <p className="text-xs text-gray-500 mt-1">Deudas a corto plazo (&lt; 1 año)</p>
               </div>
 
               <div>

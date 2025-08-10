@@ -272,7 +272,8 @@ export default function HospitalActions({ hospital, onUpdate, userRole = 'user' 
                     start_date: '',
                     duration_months: '',
                     current_provider: '',
-                    description: ''
+                    description: '',
+                    proveedor_id: ''
                   })
                 }}
                 className="px-4 py-2 text-gray-600 hover:text-gray-800"

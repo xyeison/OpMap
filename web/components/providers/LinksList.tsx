@@ -12,7 +12,7 @@ export default function LinksList({ proveedorId }: LinksListProps) {
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
   const [formData, setFormData] = useState({
-    tipo: 'website',
+    tipo_enlace: 'sitio_web' as any,
     titulo: '',
     url: '',
     descripcion: ''
@@ -52,7 +52,7 @@ export default function LinksList({ proveedorId }: LinksListProps) {
         const result = await response.json();
         setLinks([...links, result.data]);
         setFormData({
-          tipo: 'website',
+          tipo_enlace: 'sitio_web' as any,
           titulo: '',
           url: '',
           descripcion: ''
@@ -143,8 +143,8 @@ export default function LinksList({ proveedorId }: LinksListProps) {
                 Tipo *
               </label>
               <select
-                value={formData.tipo}
-                onChange={(e) => setFormData({ ...formData, tipo: e.target.value })}
+                value={formData.tipo_enlace}
+                onChange={(e) => setFormData({ ...formData, tipo_enlace: e.target.value as any })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
                 required
               >
@@ -204,7 +204,7 @@ export default function LinksList({ proveedorId }: LinksListProps) {
               onClick={() => {
                 setShowAddForm(false);
                 setFormData({
-                  tipo: 'website',
+                  tipo_enlace: 'sitio_web',
                   titulo: '',
                   url: '',
                   descripcion: ''
@@ -236,7 +236,7 @@ export default function LinksList({ proveedorId }: LinksListProps) {
           {links.map((link) => (
             <div key={link.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50">
               <div className="flex items-center gap-3">
-                {getTypeIcon(link.tipo)}
+                {getTypeIcon(link.tipo_enlace)}
                 <div>
                   <a
                     href={link.url}

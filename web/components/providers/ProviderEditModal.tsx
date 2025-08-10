@@ -149,7 +149,7 @@ export default function ProviderEditModal({ provider, onClose, onSave }: Provide
               </label>
               <select
                 value={formData.estado}
-                onChange={(e) => setFormData({ ...formData, estado: e.target.value })}
+                onChange={(e) => setFormData({ ...formData, estado: e.target.value as 'activo' | 'inactivo' | 'prospecto' })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
               >
                 <option value="activo">Activo</option>

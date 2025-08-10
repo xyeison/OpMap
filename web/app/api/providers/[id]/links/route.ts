@@ -44,7 +44,7 @@ export async function POST(
       .from('proveedor_enlaces')
       .insert({
         proveedor_id: params.id,
-        tipo: body.tipo,
+        tipo_enlace: body.tipo_enlace,
         titulo: body.titulo,
         url: body.url,
         descripcion: body.descripcion
