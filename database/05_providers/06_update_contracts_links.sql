@@ -31,10 +31,22 @@ DECLARE
     v_contract RECORD;
     v_proveedor_id UUID;
     v_migrated INTEGER := 0;
+    v_nit_counter INTEGER := 1;
+    v_temp_nit VARCHAR(20);
 BEGIN
     RAISE NOTICE '========================================';
     RAISE NOTICE 'MIGRANDO PROVEEDORES EXISTENTES';
     RAISE NOTICE '========================================';
+    
+    -- Obtener el siguiente número disponible para NITs migrados
+    SELECT COALESCE(MAX(
+        CASE 
+            WHEN nit LIKE 'MIG-%' 
+            THEN SUBSTRING(nit FROM 5)::INTEGER 
+            ELSE 0 
+        END
+    ), 0) + 1 INTO v_nit_counter
+    FROM proveedores;
     
     FOR v_contract IN 
         SELECT id, current_provider 
@@ -49,21 +61,31 @@ BEGIN
         WHERE LOWER(TRIM(nombre)) = LOWER(TRIM(v_contract.current_provider))
         LIMIT 1;
         
-        -- Si no existe, crear el proveedor
+        -- Si no existe, crear el proveedor con un NIT corto
         IF v_proveedor_id IS NULL THEN
+            -- Generar un NIT temporal corto
+            v_temp_nit := 'MIG-' || v_nit_counter::text;
+            
+            -- Verificar que el NIT no exista
+            WHILE EXISTS (SELECT 1 FROM proveedores WHERE nit = v_temp_nit) LOOP
+                v_nit_counter := v_nit_counter + 1;
+                v_temp_nit := 'MIG-' || v_nit_counter::text;
+            END LOOP;
+            
             INSERT INTO proveedores (
                 nit, 
                 nombre, 
                 estado,
                 notas_internas
             ) VALUES (
-                'MIGRADO-' || v_contract.id::text,
+                v_temp_nit,
                 v_contract.current_provider,
                 'activo',
-                'Proveedor migrado automáticamente desde contratos. Completar información.'
+                'Proveedor migrado automáticamente. NIT temporal, actualizar con el real.'
             ) RETURNING id INTO v_proveedor_id;
             
-            RAISE NOTICE 'Proveedor creado: %', v_contract.current_provider;
+            RAISE NOTICE 'Proveedor creado: % (NIT: %)', v_contract.current_provider, v_temp_nit;
+            v_nit_counter := v_nit_counter + 1;
         END IF;
         
         -- Actualizar el contrato con el proveedor_id
