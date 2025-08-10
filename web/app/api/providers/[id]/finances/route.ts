@@ -108,8 +108,20 @@ export async function POST(
       
       if (error) {
         console.error('Error updating financial data:', error);
+        
+        if (error.code === '42501') {
+          return NextResponse.json(
+            { error: 'No tiene permisos para actualizar datos financieros. Las políticas RLS pueden estar bloqueando el acceso.' },
+            { status: 403 }
+          );
+        }
+        
         return NextResponse.json(
-          { error: 'Error al actualizar datos financieros', details: error.message },
+          { 
+            error: 'Error al actualizar datos financieros',
+            details: error.message,
+            suggestion: 'Verifique que todos los valores numéricos sean válidos'
+          },
           { status: 500 }
         );
       }
@@ -128,8 +140,34 @@ export async function POST(
       
       if (error) {
         console.error('Error creating financial data:', error);
+        
+        if (error.code === '42501') {
+          return NextResponse.json(
+            { error: 'No tiene permisos para crear datos financieros. Las políticas RLS pueden estar bloqueando el acceso.' },
+            { status: 403 }
+          );
+        }
+        
+        if (error.code === '23502') {
+          return NextResponse.json(
+            { error: 'Faltan campos requeridos. Verifique que el año esté especificado.' },
+            { status: 400 }
+          );
+        }
+        
+        if (error.code === '23503') {
+          return NextResponse.json(
+            { error: 'El proveedor especificado no existe.' },
+            { status: 400 }
+          );
+        }
+        
         return NextResponse.json(
-          { error: 'Error al crear datos financieros', details: error.message },
+          { 
+            error: 'Error al crear datos financieros',
+            details: error.message,
+            suggestion: 'Verifique que todos los valores numéricos sean válidos y que el año esté especificado'
+          },
           { status: 500 }
         );
       }
