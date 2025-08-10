@@ -74,13 +74,13 @@ ORDER BY
 -- ==================================================================
 -- LEYENDA
 -- ==================================================================
-SELECT '' AS "";
+SELECT '---' AS "Separador";
 SELECT 'LEYENDA: Col=Columnas, RLS=Row Level Security, Pol=Políticas, Idx=Índices, FK↗/↘=Foreign Keys (salientes/entrantes), Trg=Triggers' AS "Info";
 
 -- ==================================================================
 -- RESUMEN DE POLÍTICAS RLS (solo si hay)
 -- ==================================================================
-SELECT '' AS "";
+SELECT '---' AS "Separador";
 SELECT 'POLÍTICAS RLS ACTIVAS:' AS "Info";
 SELECT 
     tablename || ': ' || 
