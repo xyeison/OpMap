@@ -1,13 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabase = createClient(supabaseUrl, supabaseKey);
+import { createServerSupabaseClient } from '@/lib/supabase-server';
 
 // GET /api/providers/search - Búsqueda rápida de proveedores
 export async function GET(request: NextRequest) {
   try {
+    const supabase = createServerSupabaseClient();
     const searchParams = request.nextUrl.searchParams;
     const query = searchParams.get('q') || '';
     const limit = parseInt(searchParams.get('limit') || '10');

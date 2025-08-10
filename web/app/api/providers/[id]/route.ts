@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 import { UpdateProveedorDTO } from '@/types/providers';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabase = createClient(supabaseUrl, supabaseKey);
+import { createServerSupabaseClient } from '@/lib/supabase-server';
 
 // GET /api/providers/[id] - Obtener un proveedor específico
 export async function GET(
@@ -12,6 +8,7 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
+    const supabase = createServerSupabaseClient();
     const { id } = params;
     
     const { data, error } = await supabase
@@ -77,6 +74,7 @@ export async function PUT(
   { params }: { params: { id: string } }
 ) {
   try {
+    const supabase = createServerSupabaseClient();
     const { id } = params;
     const body: UpdateProveedorDTO = await request.json();
     
@@ -151,6 +149,7 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
+    const supabase = createServerSupabaseClient();
     const { id } = params;
     
     // Verificar si tiene contratos asociados

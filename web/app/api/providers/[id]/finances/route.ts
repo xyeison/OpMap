@@ -1,9 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabase = createClient(supabaseUrl, supabaseKey);
+import { createServerSupabaseClient } from '@/lib/supabase-server';
 
 // GET /api/providers/[id]/finances - Obtener datos financieros del proveedor
 export async function GET(
@@ -11,6 +7,7 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
+    const supabase = createServerSupabaseClient();
     const proveedorId = params.id;
     const searchParams = request.nextUrl.searchParams;
     const anio = searchParams.get('anio');
@@ -58,6 +55,7 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
+    const supabase = createServerSupabaseClient();
     const proveedorId = params.id;
     const body = await request.json();
     
@@ -198,6 +196,7 @@ export async function PUT(
   { params }: { params: { id: string; financeId: string } }
 ) {
   try {
+    const supabase = createServerSupabaseClient();
     const body = await request.json();
     
     const { data, error } = await supabase
@@ -247,6 +246,7 @@ export async function DELETE(
   { params }: { params: { id: string; financeId: string } }
 ) {
   try {
+    const supabase = createServerSupabaseClient();
     const { error } = await supabase
       .from('proveedor_finanzas')
       .delete()

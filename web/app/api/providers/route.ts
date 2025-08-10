@@ -1,14 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 import { Proveedor, CreateProveedorDTO, ProveedorFilters } from '@/types/providers';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabase = createClient(supabaseUrl, supabaseKey);
+import { createServerSupabaseClient } from '@/lib/supabase-server';
 
 // GET /api/providers - Listar proveedores con filtros
 export async function GET(request: NextRequest) {
   try {
+    const supabase = createServerSupabaseClient();
     const searchParams = request.nextUrl.searchParams;
     
     // Extraer filtros
@@ -107,6 +104,7 @@ export async function GET(request: NextRequest) {
 // POST /api/providers - Crear nuevo proveedor
 export async function POST(request: NextRequest) {
   try {
+    const supabase = createServerSupabaseClient();
     const body: CreateProveedorDTO = await request.json();
     
     // Validar campos requeridos
