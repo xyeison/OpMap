@@ -40,13 +40,18 @@ BEGIN
     
     -- Obtener el siguiente número disponible para NITs migrados
     SELECT COALESCE(MAX(
-        CASE 
-            WHEN nit LIKE 'MIG-%' 
-            THEN SUBSTRING(nit FROM 5)::INTEGER 
-            ELSE 0 
-        END
+        CAST(
+            SUBSTRING(nit FROM 5) AS INTEGER
+        )
     ), 0) + 1 INTO v_nit_counter
-    FROM proveedores;
+    FROM proveedores
+    WHERE nit LIKE 'MIG-%'
+    AND SUBSTRING(nit FROM 5) ~ '^\d+$';  -- Solo considerar los que tienen números válidos
+    
+    -- Si no hay ninguno, empezar desde 1
+    IF v_nit_counter IS NULL THEN
+        v_nit_counter := 1;
+    END IF;
     
     FOR v_contract IN 
         SELECT id, current_provider 
