@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { 
   Proveedor, 
@@ -25,6 +25,8 @@ export default function ProviderProfilePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [editingFinancialId, setEditingFinancialId] = useState<string | null>(null);
+  const [showAddFinancial, setShowAddFinancial] = useState(false);
 
   useEffect(() => {
     fetchProvider();
@@ -72,6 +74,40 @@ export default function ProviderProfilePage() {
   const formatIndicator = (value: number | undefined, decimals: number = 2): string => {
     if (value === undefined || value === null) return '—';
     return value.toFixed(decimals);
+  };
+
+  const handleDeleteFinancial = async (financialId: string, year: number) => {
+    if (!confirm(`¿Está seguro de eliminar los datos financieros del año ${year}?`)) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/providers/${providerId}/finances?financeId=${financialId}`, {
+        method: 'DELETE'
+      });
+
+      if (response.ok) {
+        alert('Datos financieros eliminados exitosamente');
+        fetchProvider(); // Recargar datos
+      } else {
+        const error = await response.json();
+        alert(`Error al eliminar: ${error.error}`);
+      }
+    } catch (error) {
+      console.error('Error deleting financial data:', error);
+      alert('Error al eliminar datos financieros');
+    }
+  };
+
+  const handleFinancialSaved = () => {
+    setEditingFinancialId(null);
+    setShowAddFinancial(false);
+    fetchProvider(); // Recargar datos
+  };
+
+  const handleEditFinancial = (financialData: ProveedorFinanzas) => {
+    setEditingFinancialId(financialData.id);
+    setShowAddFinancial(false);
   };
 
   if (isLoading) {
@@ -386,7 +422,41 @@ export default function ProviderProfilePage() {
             {/* Tabla de histórico */}
             {provider.finanzas && provider.finanzas.length > 0 && (
               <div className="bg-white shadow rounded-lg p-6">
-                <h2 className="text-lg font-semibold mb-4">Histórico Financiero</h2>
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-lg font-semibold">Histórico Financiero</h2>
+                  <button
+                    onClick={() => setShowAddFinancial(true)}
+                    className="px-4 py-2 bg-gray-900 text-white rounded hover:bg-black transition-all flex items-center gap-2"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    </svg>
+                    Agregar Año
+                  </button>
+                </div>
+                
+                {/* Mostrar formulario de agregar si está activo */}
+                {showAddFinancial && (
+                  <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="font-medium">Agregar Datos Financieros</h3>
+                      <button
+                        onClick={() => setShowAddFinancial(false)}
+                        className="text-gray-500 hover:text-gray-700"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                    <FinancialDataForm
+                      proveedorId={providerId}
+                      onSave={handleFinancialSaved}
+                      onCancel={() => setShowAddFinancial(false)}
+                    />
+                  </div>
+                )}
+                
                 <div className="overflow-x-auto">
                   <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
@@ -403,18 +473,48 @@ export default function ProviderProfilePage() {
                     <tbody className="bg-white divide-y divide-gray-200">
                       {provider.finanzas.map((fin) => {
                         const indicators = provider.indicadores?.find(i => i.anio === fin.anio);
+                        const isEditing = editingFinancialId === fin.id;
+                        
                         return (
-                          <tr key={fin.id}>
-                            <td className="px-4 py-2 text-sm font-medium text-gray-900">{fin.anio}</td>
-                            <td className="px-4 py-2 text-sm text-right">{formatCurrency(fin.ingresos_operacionales)}</td>
-                            <td className="px-4 py-2 text-sm text-right">{formatCurrency(fin.utilidad_neta)}</td>
-                            <td className="px-4 py-2 text-sm text-right">{formatCurrency(fin.activo_total)}</td>
-                            <td className="px-4 py-2 text-sm text-right">{formatCurrency(fin.patrimonio)}</td>
-                            <td className="px-4 py-2 text-sm text-right">{formatPercentage(indicators?.roe)}</td>
-                            <td className="px-4 py-2 text-sm text-center">
-                              <button className="text-gray-700 hover:text-black font-medium">Editar</button>
-                            </td>
-                          </tr>
+                          <React.Fragment key={fin.id}>
+                            <tr>
+                              <td className="px-4 py-2 text-sm font-medium text-gray-900">{fin.anio}</td>
+                              <td className="px-4 py-2 text-sm text-right">{formatCurrency(fin.ingresos_operacionales)}</td>
+                              <td className="px-4 py-2 text-sm text-right">{formatCurrency(fin.utilidad_neta)}</td>
+                              <td className="px-4 py-2 text-sm text-right">{formatCurrency(fin.activo_total)}</td>
+                              <td className="px-4 py-2 text-sm text-right">{formatCurrency(fin.patrimonio)}</td>
+                              <td className="px-4 py-2 text-sm text-right">{formatPercentage(indicators?.roe)}</td>
+                              <td className="px-4 py-2 text-sm text-center">
+                                <div className="flex justify-center gap-2">
+                                  <button 
+                                    onClick={() => isEditing ? setEditingFinancialId(null) : handleEditFinancial(fin)}
+                                    className="text-gray-700 hover:text-black font-medium"
+                                  >
+                                    {isEditing ? 'Cancelar' : 'Editar'}
+                                  </button>
+                                  <span className="text-gray-300">|</span>
+                                  <button 
+                                    onClick={() => handleDeleteFinancial(fin.id, fin.anio)}
+                                    className="text-red-600 hover:text-red-800 font-medium"
+                                  >
+                                    Eliminar
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                            {isEditing && (
+                              <tr>
+                                <td colSpan={7} className="p-4 bg-gray-50">
+                                  <FinancialDataForm
+                                    proveedorId={providerId}
+                                    initialData={fin}
+                                    onSave={handleFinancialSaved}
+                                    onCancel={() => setEditingFinancialId(null)}
+                                  />
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
                         );
                       })}
                     </tbody>
@@ -423,7 +523,7 @@ export default function ProviderProfilePage() {
               </div>
             )}
 
-            {(!provider.finanzas || provider.finanzas.length === 0) && (
+            {(!provider.finanzas || provider.finanzas.length === 0) && !showAddFinancial && (
               <div className="bg-white shadow rounded-lg p-8 text-center">
                 <svg className="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
@@ -442,9 +542,34 @@ export default function ProviderProfilePage() {
                     <li>• Validación de requisitos para licitaciones</li>
                   </ul>
                 </div>
-                <button className="px-6 py-2 bg-gray-900 text-white rounded hover:bg-black transition-all">
+                <button 
+                  onClick={() => setShowAddFinancial(true)}
+                  className="px-6 py-2 bg-gray-900 text-white rounded hover:bg-black transition-all"
+                >
                   Agregar Información Financiera
                 </button>
+              </div>
+            )}
+            
+            {/* Formulario cuando no hay datos y se hace clic en agregar */}
+            {(!provider.finanzas || provider.finanzas.length === 0) && showAddFinancial && (
+              <div className="bg-white shadow rounded-lg p-6">
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-lg font-semibold">Agregar Datos Financieros</h2>
+                  <button
+                    onClick={() => setShowAddFinancial(false)}
+                    className="text-gray-500 hover:text-gray-700"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+                <FinancialDataForm
+                  proveedorId={providerId}
+                  onSave={handleFinancialSaved}
+                  onCancel={() => setShowAddFinancial(false)}
+                />
               </div>
             )}
           </div>

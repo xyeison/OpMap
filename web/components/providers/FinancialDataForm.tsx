@@ -1,40 +1,74 @@
 'use client';
 
-import React, { useState } from 'react';
-import { CreateProveedorFinanzasDTO } from '@/types/providers';
+import React, { useState, useEffect } from 'react';
+import { CreateProveedorFinanzasDTO, ProveedorFinanzas } from '@/types/providers';
 
 interface FinancialDataFormProps {
   proveedorId: string;
+  initialData?: ProveedorFinanzas;
   onSave?: () => void;
   onCancel?: () => void;
 }
 
-export default function FinancialDataForm({ proveedorId, onSave, onCancel }: FinancialDataFormProps) {
+export default function FinancialDataForm({ 
+  proveedorId, 
+  initialData,
+  onSave, 
+  onCancel 
+}: FinancialDataFormProps) {
   const currentYear = new Date().getFullYear();
   const [saving, setSaving] = useState(false);
+  const isEditing = !!initialData?.id;
+  
+  // Inicializar formData con initialData si está en modo edición
   const [formData, setFormData] = useState<CreateProveedorFinanzasDTO>({
     proveedor_id: proveedorId,
-    anio: currentYear,
+    anio: initialData?.anio || currentYear,
     // Balance General
-    activo_corriente: undefined,
-    activo_no_corriente: undefined,
-    pasivo_corriente: undefined,
-    pasivo_no_corriente: undefined,
+    activo_corriente: initialData?.activo_corriente || undefined,
+    activo_no_corriente: initialData?.activo_no_corriente || undefined,
+    pasivo_corriente: initialData?.pasivo_corriente || undefined,
+    pasivo_no_corriente: initialData?.pasivo_no_corriente || undefined,
     // Estado de Resultados
-    ingresos_operacionales: undefined,
-    utilidad_operacional: undefined,
-    gastos_intereses: undefined,
-    utilidad_neta: undefined,
-    inventarios: undefined,
+    ingresos_operacionales: initialData?.ingresos_operacionales || undefined,
+    utilidad_operacional: initialData?.utilidad_operacional || undefined,
+    gastos_intereses: initialData?.gastos_intereses || undefined,
+    utilidad_neta: initialData?.utilidad_neta || undefined,
+    inventarios: initialData?.inventario || undefined,
     // Valores calculados automáticamente
-    activo_total: undefined,
-    pasivo_total: undefined,
-    patrimonio: undefined,
+    activo_total: initialData?.activo_total || undefined,
+    pasivo_total: initialData?.pasivo_total || undefined,
+    patrimonio: initialData?.patrimonio || undefined,
     // Otros
-    fuente: 'manual',
-    moneda: 'COP',
-    fecha_corte: new Date().toISOString().split('T')[0]
+    fuente: initialData?.fuente || 'manual',
+    moneda: initialData?.moneda || 'COP',
+    fecha_corte: initialData?.fecha_corte || new Date().toISOString().split('T')[0]
   });
+  
+  // Actualizar formData si initialData cambia
+  useEffect(() => {
+    if (initialData) {
+      setFormData({
+        proveedor_id: proveedorId,
+        anio: initialData.anio,
+        activo_corriente: initialData.activo_corriente || undefined,
+        activo_no_corriente: initialData.activo_no_corriente || undefined,
+        pasivo_corriente: initialData.pasivo_corriente || undefined,
+        pasivo_no_corriente: initialData.pasivo_no_corriente || undefined,
+        ingresos_operacionales: initialData.ingresos_operacionales || undefined,
+        utilidad_operacional: initialData.utilidad_operacional || undefined,
+        gastos_intereses: initialData.gastos_intereses || undefined,
+        utilidad_neta: initialData.utilidad_neta || undefined,
+        inventarios: initialData.inventario || undefined,
+        activo_total: initialData.activo_total || undefined,
+        pasivo_total: initialData.pasivo_total || undefined,
+        patrimonio: initialData.patrimonio || undefined,
+        fuente: initialData.fuente || 'manual',
+        moneda: initialData.moneda || 'COP',
+        fecha_corte: initialData.fecha_corte || new Date().toISOString().split('T')[0]
+      });
+    }
+  }, [initialData, proveedorId]);
 
   // Calcular valores automáticamente
   const calculateTotals = (data: typeof formData) => {
@@ -116,7 +150,7 @@ export default function FinancialDataForm({ proveedorId, onSave, onCancel }: Fin
     <form onSubmit={handleSubmit} className="space-y-6">
       <div className="bg-white rounded-lg shadow p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">
-          Datos Financieros - Año {formData.anio}
+          {isEditing ? 'Editar' : 'Agregar'} Datos Financieros - Año {formData.anio}
         </h3>
 
         {/* Selector de año y fuente */}
@@ -422,7 +456,7 @@ export default function FinancialDataForm({ proveedorId, onSave, onCancel }: Fin
             className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-black disabled:opacity-50"
             disabled={saving}
           >
-            {saving ? 'Guardando...' : 'Guardar Datos Financieros'}
+            {saving ? 'Guardando...' : isEditing ? 'Actualizar Datos Financieros' : 'Guardar Datos Financieros'}
           </button>
         </div>
       </div>
