@@ -138,18 +138,21 @@ export interface ProveedorContacto {
   updated_at: string;
 }
 
-export interface ProveedorDocumento {
+export interface ProveedorEnlace {
   id: string;
   proveedor_id: string;
-  tipo_documento: 'estados_financieros' | 'certificacion_bancaria' | 'rut' | 
-                  'camara_comercio' | 'certificacion_experiencia' | 
-                  'referencia_comercial' | 'otro';
-  nombre_archivo: string;
-  url_archivo?: string;
-  anio?: number;
+  tipo_enlace: 'estados_financieros' | 'certificacion_bancaria' | 'rut' | 
+               'camara_comercio' | 'certificacion_experiencia' | 
+               'referencia_comercial' | 'sitio_web' | 'catalogo' | 
+               'presentacion' | 'otro';
+  titulo: string;
+  url: string;
   descripcion?: string;
-  uploaded_at: string;
-  uploaded_by?: string;
+  anio?: number;
+  activo?: boolean;
+  created_at: string;
+  updated_at: string;
+  created_by?: string;
 }
 
 // DTOs para creación y actualización

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import ProviderSelect from './providers/ProviderSelect'
 
 interface Contract {
   id: string
@@ -12,6 +13,7 @@ interface Contract {
   end_date: string
   description?: string
   provider?: string
+  proveedor_id?: string
   active: boolean
 }
 
@@ -30,6 +32,7 @@ export default function ContractEditModal({ contract, onClose, onSave }: Contrac
     end_date: contract.end_date,
     description: contract.description || '',
     provider: contract.provider || '',
+    proveedor_id: contract.proveedor_id || null,
     active: contract.active
   })
   const [saving, setSaving] = useState(false)
@@ -76,7 +79,7 @@ export default function ContractEditModal({ contract, onClose, onSave }: Contrac
               type="text"
               value={formData.contract_number}
               onChange={(e) => setFormData({ ...formData, contract_number: e.target.value })}
-              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
               required
             />
           </div>
@@ -88,7 +91,7 @@ export default function ContractEditModal({ contract, onClose, onSave }: Contrac
             <select
               value={formData.contract_type}
               onChange={(e) => setFormData({ ...formData, contract_type: e.target.value })}
-              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
               required
             >
               <option value="capita">Cápita</option>
@@ -105,7 +108,7 @@ export default function ContractEditModal({ contract, onClose, onSave }: Contrac
               type="number"
               value={formData.contract_value}
               onChange={(e) => setFormData({ ...formData, contract_value: parseFloat(e.target.value) || 0 })}
-              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
               required
             />
           </div>
@@ -118,7 +121,7 @@ export default function ContractEditModal({ contract, onClose, onSave }: Contrac
               type="date"
               value={formData.start_date}
               onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
-              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
               required
             />
           </div>
@@ -131,7 +134,7 @@ export default function ContractEditModal({ contract, onClose, onSave }: Contrac
               type="date"
               value={formData.end_date}
               onChange={(e) => setFormData({ ...formData, end_date: e.target.value })}
-              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
               required
               min={formData.start_date}
             />
@@ -144,7 +147,7 @@ export default function ContractEditModal({ contract, onClose, onSave }: Contrac
             <textarea
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500"
               rows={4}
               placeholder="Describa los detalles de la oportunidad..."
             />
@@ -152,15 +155,25 @@ export default function ContractEditModal({ contract, onClose, onSave }: Contrac
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Proveedor Actual
+              Proveedor
             </label>
-            <input
-              type="text"
-              value={formData.provider}
-              onChange={(e) => setFormData({ ...formData, provider: e.target.value })}
-              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Nombre del proveedor actual"
+            <ProviderSelect
+              value={formData.proveedor_id}
+              onChange={(providerId, provider) => {
+                setFormData({ 
+                  ...formData, 
+                  proveedor_id: providerId,
+                  provider: provider?.nombre || ''
+                })
+              }}
+              placeholder="Buscar o crear proveedor..."
+              className="w-full"
             />
+            {formData.provider && !formData.proveedor_id && (
+              <p className="text-xs text-amber-600 mt-1">
+                Proveedor anterior (texto): {formData.provider}
+              </p>
+            )}
           </div>
 
           <div className="flex items-center">
@@ -187,7 +200,7 @@ export default function ContractEditModal({ contract, onClose, onSave }: Contrac
             </button>
             <button
               type="submit"
-              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              className="flex-1 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-black"
               disabled={saving}
             >
               {saving ? 'Guardando...' : 'Guardar Cambios'}

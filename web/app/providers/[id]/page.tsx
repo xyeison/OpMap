@@ -6,10 +6,14 @@ import {
   Proveedor, 
   ProveedorFinanzas, 
   ProveedorIndicadores,
-  ProveedorContacto 
+  ProveedorContacto,
+  ProveedorEnlace
 } from '@/types/providers';
+import FinancialIndicators from '@/components/providers/FinancialIndicators';
+import ProviderContracts from '@/components/providers/ProviderContracts';
+import FinancialDataForm from '@/components/providers/FinancialDataForm';
 
-type TabType = 'general' | 'financiero' | 'contratos' | 'oportunidades' | 'archivos';
+type TabType = 'general' | 'financiero' | 'contratos' | 'enlaces';
 
 export default function ProviderProfilePage() {
   const params = useParams();
@@ -133,9 +137,8 @@ export default function ProviderProfilePage() {
             {[
               { id: 'general', label: 'General' },
               { id: 'financiero', label: 'Financiero' },
-              { id: 'contratos', label: 'Contratos' },
-              { id: 'oportunidades', label: 'Oportunidades' },
-              { id: 'archivos', label: 'Archivos' }
+              { id: 'contratos', label: 'Contratos/Oportunidades' },
+              { id: 'enlaces', label: 'Enlaces' }
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -258,8 +261,38 @@ export default function ProviderProfilePage() {
         {/* Financiero Tab */}
         {activeTab === 'financiero' && (
           <div className="space-y-6">
-            {/* Resumen Financiero */}
-            {latestFinancials && (
+            {/* Botón para agregar datos financieros */}
+            <div className="flex justify-end">
+              <button 
+                onClick={() => setIsEditing(!isEditing)}
+                className="px-4 py-2 bg-gray-900 text-white rounded hover:bg-black transition-all"
+              >
+                {isEditing ? 'Cancelar' : 'Agregar Datos Financieros'}
+              </button>
+            </div>
+
+            {/* Formulario de datos financieros */}
+            {isEditing && (
+              <FinancialDataForm
+                proveedorId={providerId}
+                onSave={() => {
+                  setIsEditing(false);
+                  fetchProvider();
+                }}
+                onCancel={() => setIsEditing(false)}
+              />
+            )}
+
+            {/* Indicadores financieros */}
+            {latestIndicators && !isEditing && (
+              <FinancialIndicators 
+                indicadores={latestIndicators}
+                anio={latestIndicators.anio}
+              />
+            )}
+
+            {/* Resumen Financiero anterior - mantenido como referencia */}
+            {latestFinancials && !isEditing && (
               <div className="bg-white shadow rounded-lg p-6">
                 <div className="flex justify-between items-center mb-4">
                   <h2 className="text-lg font-semibold">
@@ -419,70 +452,48 @@ export default function ProviderProfilePage() {
 
         {/* Contratos Tab */}
         {activeTab === 'contratos' && (
+          <ProviderContracts proveedorId={providerId} />
+        )}
+
+        {/* Enlaces Tab */}
+        {activeTab === 'enlaces' && (
           <div className="bg-white shadow rounded-lg p-6">
-            <h2 className="text-lg font-semibold mb-4">Contratos Asociados</h2>
-            {provider.contratos && provider.contratos.length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Hospital</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Municipio</th>
-                      <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Valor</th>
-                      <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">Fecha Inicio</th>
-                      <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">Fecha Fin</th>
-                      <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">Estado</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {provider.contratos.map((contrato: any) => (
-                      <tr key={contrato.id}>
-                        <td className="px-4 py-2 text-sm text-gray-900">
-                          {contrato.hospital?.name || '—'}
-                        </td>
-                        <td className="px-4 py-2 text-sm text-gray-500">
-                          {contrato.hospital?.municipality_name || '—'}
-                        </td>
-                        <td className="px-4 py-2 text-sm text-right">
-                          {formatCurrency(contrato.contract_value / 1000000)}
-                        </td>
-                        <td className="px-4 py-2 text-sm text-center">
-                          {contrato.start_date ? new Date(contrato.start_date).toLocaleDateString() : '—'}
-                        </td>
-                        <td className="px-4 py-2 text-sm text-center">
-                          {contrato.end_date ? new Date(contrato.end_date).toLocaleDateString() : '—'}
-                        </td>
-                        <td className="px-4 py-2 text-sm text-center">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            contrato.active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                          }`}>
-                            {contrato.active ? 'Activo' : 'Inactivo'}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-lg font-semibold">Enlaces y Documentos</h2>
+              <button className="px-4 py-2 bg-gray-900 text-white rounded hover:bg-black transition-all">
+                Agregar Enlace
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              <div className="bg-gray-50 rounded-lg p-4">
+                <p className="text-sm text-gray-600 mb-3">
+                  Aquí puedes gestionar los enlaces a documentos importantes del proveedor.
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-500">
+                  <div>
+                    <strong className="text-gray-700">Documentos financieros:</strong>
+                    <ul className="mt-1 space-y-1">
+                      <li>• Estados financieros</li>
+                      <li>• Certificaciones bancarias</li>
+                      <li>• RUT actualizado</li>
+                    </ul>
+                  </div>
+                  <div>
+                    <strong className="text-gray-700">Documentos comerciales:</strong>
+                    <ul className="mt-1 space-y-1">
+                      <li>• Cámara de comercio</li>
+                      <li>• Certificaciones de experiencia</li>
+                      <li>• Catálogos de productos</li>
+                    </ul>
+                  </div>
+                </div>
               </div>
-            ) : (
-              <p className="text-gray-500 text-center">No hay contratos asociados a este proveedor</p>
-            )}
-          </div>
-        )}
-
-        {/* Oportunidades Tab */}
-        {activeTab === 'oportunidades' && (
-          <div className="bg-white shadow rounded-lg p-6">
-            <h2 className="text-lg font-semibold mb-4">Oportunidades</h2>
-            <p className="text-gray-500 text-center">Próximamente: análisis de oportunidades comerciales</p>
-          </div>
-        )}
-
-        {/* Archivos Tab */}
-        {activeTab === 'archivos' && (
-          <div className="bg-white shadow rounded-lg p-6">
-            <h2 className="text-lg font-semibold mb-4">Documentos y Archivos</h2>
-            <p className="text-gray-500 text-center">Próximamente: gestión de documentos</p>
+              
+              <div className="text-center py-8 text-gray-500">
+                No hay enlaces registrados aún
+              </div>
+            </div>
           </div>
         )}
       </div>
