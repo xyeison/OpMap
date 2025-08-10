@@ -34,7 +34,7 @@ export default function FinancialDataForm({
     utilidad_operacional: initialData?.utilidad_operacional || undefined,
     gastos_intereses: initialData?.gastos_intereses || undefined,
     utilidad_neta: initialData?.utilidad_neta || undefined,
-    inventarios: initialData?.inventario || undefined,
+    inventarios: initialData?.inventarios || undefined,
     // Valores calculados automáticamente
     activo_total: initialData?.activo_total || undefined,
     pasivo_total: initialData?.pasivo_total || undefined,
@@ -59,7 +59,7 @@ export default function FinancialDataForm({
         utilidad_operacional: initialData.utilidad_operacional || undefined,
         gastos_intereses: initialData.gastos_intereses || undefined,
         utilidad_neta: initialData.utilidad_neta || undefined,
-        inventarios: initialData.inventario || undefined,
+        inventarios: initialData.inventarios || undefined,
         activo_total: initialData.activo_total || undefined,
         pasivo_total: initialData.pasivo_total || undefined,
         patrimonio: initialData.patrimonio || undefined,
