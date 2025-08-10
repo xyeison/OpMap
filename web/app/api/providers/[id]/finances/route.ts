@@ -138,10 +138,21 @@ export async function POST(
       
       if (error) {
         console.error('Error creating financial data:', error);
+        console.error('Environment check:', {
+          hasServiceKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+          nodeEnv: process.env.NODE_ENV
+        });
         
         if (error.code === '42501') {
+          // Incluir información adicional para debugging
+          const debugInfo = process.env.NODE_ENV === 'development' ? 
+            ` (Service key: ${!!process.env.SUPABASE_SERVICE_ROLE_KEY})` : '';
+          
           return NextResponse.json(
-            { error: 'No tiene permisos para crear datos financieros. Las políticas RLS pueden estar bloqueando el acceso.' },
+            { 
+              error: `No tiene permisos para crear datos financieros. Las políticas RLS pueden estar bloqueando el acceso${debugInfo}.`,
+              suggestion: 'Verifique que la service key esté configurada correctamente en las variables de entorno.'
+            },
             { status: 403 }
           );
         }
