@@ -21,8 +21,7 @@ export default function ProvidersListPage() {
     nit: '',
     email: '',
     telefono: '',
-    ciudad: '',
-    tipo_empresa: 'competidor' as 'competidor' | 'cliente_potencial' | 'proveedor_nuestro' | 'otro'
+    ciudad: ''
   });
   const [isCreating, setIsCreating] = useState(false);
   const pageSize = 20;
@@ -103,19 +102,22 @@ export default function ProvidersListPage() {
           nit: '',
           email: '',
           telefono: '',
-          ciudad: '',
-          tipo_empresa: 'competidor'
+          ciudad: ''
         });
         fetchProviders(); // Recargar lista
         // Opcionalmente ir al perfil del nuevo proveedor
         router.push(`/providers/${data.data.id}`);
       } else {
         const error = await response.json();
-        alert(`Error al crear proveedor: ${error.error}`);
+        if (error.details?.includes('row-level security') || error.details?.includes('does not exist')) {
+          alert('Las tablas de proveedores aún no están creadas en la base de datos. Por favor, ejecute los scripts SQL en Supabase primero.');
+        } else {
+          alert(`Error al crear proveedor: ${error.error || 'Error desconocido'}`);
+        }
       }
     } catch (error) {
       console.error('Error creating provider:', error);
-      alert('Error al crear proveedor');
+      alert('Error de conexión al crear proveedor');
     } finally {
       setIsCreating(false);
     }
@@ -461,7 +463,7 @@ export default function ProvidersListPage() {
                   />
                 </div>
 
-                <div>
+                <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Ciudad
                   </label>
@@ -471,22 +473,6 @@ export default function ProvidersListPage() {
                     onChange={(e) => setCreateFormData({ ...createFormData, ciudad: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-500"
                   />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Tipo de Empresa
-                  </label>
-                  <select
-                    value={createFormData.tipo_empresa}
-                    onChange={(e) => setCreateFormData({ ...createFormData, tipo_empresa: e.target.value as any })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-500"
-                  >
-                    <option value="competidor">Competidor</option>
-                    <option value="cliente_potencial">Cliente Potencial</option>
-                    <option value="proveedor_nuestro">Proveedor Nuestro</option>
-                    <option value="otro">Otro</option>
-                  </select>
                 </div>
               </div>
               

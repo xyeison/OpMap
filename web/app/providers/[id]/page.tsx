@@ -396,9 +396,25 @@ export default function ProviderProfilePage() {
             )}
 
             {(!provider.finanzas || provider.finanzas.length === 0) && (
-              <div className="bg-white shadow rounded-lg p-6 text-center">
-                <p className="text-gray-500 mb-4">No hay información financiera registrada</p>
-                <button className="px-4 py-2 bg-gray-900 text-white rounded hover:bg-black transition-all">
+              <div className="bg-white shadow rounded-lg p-8 text-center">
+                <svg className="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                </svg>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">Sin información financiera</h3>
+                <p className="text-gray-500 mb-6">
+                  Aquí podrás registrar los estados financieros de la empresa por año.<br/>
+                  Se calcularán automáticamente los indicadores requeridos para licitaciones.
+                </p>
+                <div className="bg-gray-50 rounded-lg p-4 mb-6 text-left max-w-md mx-auto">
+                  <p className="text-sm font-medium text-gray-700 mb-2">Información que podrás registrar:</p>
+                  <ul className="text-sm text-gray-600 space-y-1">
+                    <li>• Balance General (Activos, Pasivos, Patrimonio)</li>
+                    <li>• Estado de Resultados (Ingresos, Utilidades)</li>
+                    <li>• Indicadores calculados automáticamente</li>
+                    <li>• Validación de requisitos para licitaciones</li>
+                  </ul>
+                </div>
+                <button className="px-6 py-2 bg-gray-900 text-white rounded hover:bg-black transition-all">
                   Agregar Información Financiera
                 </button>
               </div>
