@@ -52,7 +52,6 @@ export async function GET(request: NextRequest) {
         id: p.id,
         nit: p.nit,
         nombre: p.nombre,
-        tipo_empresa: p.tipo_empresa,
         estado: p.estado
       }
     })) || [];
@@ -71,7 +70,6 @@ export async function GET(request: NextRequest) {
           id: 'create-new',
           nit: '',
           nombre: query,
-          tipo_empresa: null,
           estado: null
         } as any
       });

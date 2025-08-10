@@ -149,10 +149,7 @@ export default function ProviderSelect({
       const response = await fetch('/api/providers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...createFormData,
-          tipo_empresa: 'competidor' // Por defecto
-        })
+        body: JSON.stringify(createFormData)
       });
 
       if (response.ok) {
@@ -252,7 +249,6 @@ export default function ProviderSelect({
                     <div>{result.data.nombre}</div>
                     <div className="text-sm text-gray-500">
                       NIT: {result.data.nit}
-                      {result.data.tipo_empresa && ` • ${result.data.tipo_empresa}`}
                     </div>
                   </>
                 )}

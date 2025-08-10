@@ -113,11 +113,6 @@ export default function ProviderProfilePage() {
                   }`}>
                     {provider.estado}
                   </span>
-                  {provider.tipo_empresa && (
-                    <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
-                      {provider.tipo_empresa}
-                    </span>
-                  )}
                 </div>
               </div>
               <button

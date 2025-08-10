@@ -11,7 +11,6 @@ export default function ProvidersListPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterEstado, setFilterEstado] = useState<string>('');
-  const [filterTipo, setFilterTipo] = useState<string>('');
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
@@ -28,7 +27,7 @@ export default function ProvidersListPage() {
 
   useEffect(() => {
     fetchProviders();
-  }, [currentPage, searchTerm, filterEstado, filterTipo]);
+  }, [currentPage, searchTerm, filterEstado]);
 
   const fetchProviders = async () => {
     setIsLoading(true);
@@ -40,7 +39,6 @@ export default function ProvidersListPage() {
       
       if (searchTerm) params.append('search', searchTerm);
       if (filterEstado) params.append('estado', filterEstado);
-      if (filterTipo) params.append('tipo_empresa', filterTipo);
 
       const response = await fetch(`/api/providers?${params}`);
       if (!response.ok) throw new Error('Error al cargar proveedores');
@@ -178,24 +176,7 @@ export default function ProvidersListPage() {
               </select>
             </div>
             
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Tipo
-              </label>
-              <select
-                value={filterTipo}
-                onChange={(e) => setFilterTipo(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-500"
-              >
-                <option value="">Todos</option>
-                <option value="competidor">Competidor</option>
-                <option value="cliente_potencial">Cliente Potencial</option>
-                <option value="proveedor_nuestro">Proveedor Nuestro</option>
-                <option value="otro">Otro</option>
-              </select>
-            </div>
-            
-            <div className="flex items-end">
+            <div className="flex items-end md:col-span-2">
               <button
                 type="submit"
                 className="w-full px-4 py-2 bg-gray-900 text-white rounded hover:bg-black transition-all"
@@ -225,9 +206,6 @@ export default function ProvidersListPage() {
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         NIT
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Tipo
                       </th>
                       <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Estado
@@ -261,9 +239,6 @@ export default function ProvidersListPage() {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                           {provider.nit}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {provider.tipo_empresa || '—'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-center">
                           <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${

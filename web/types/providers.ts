@@ -16,7 +16,6 @@ export interface Proveedor {
   
   // Estado y clasificación
   estado: 'activo' | 'inactivo' | 'prospecto';
-  tipo_empresa?: 'competidor' | 'cliente_potencial' | 'proveedor_nuestro' | 'otro';
   tamano_empresa?: 'micro' | 'pequena' | 'mediana' | 'grande';
   
   // Metadatos
@@ -165,12 +164,10 @@ export interface CreateProveedorDTO {
   ciudad?: string;
   departamento?: string;
   direccion?: string;
-  tipo_empresa?: 'competidor' | 'cliente_potencial' | 'proveedor_nuestro' | 'otro';
 }
 
 export interface UpdateProveedorDTO extends Partial<CreateProveedorDTO> {
   estado?: 'activo' | 'inactivo' | 'prospecto';
-  tamano_empresa?: 'micro' | 'pequena' | 'mediana' | 'grande';
   notas_internas?: string;
 }
 
@@ -220,7 +217,6 @@ export interface CompetenciaHospital {
   department_name: string;
   proveedor_id?: string;
   proveedor_nombre?: string;
-  tipo_empresa?: string;
   contract_value?: number;
   start_date?: string;
   end_date?: string;
@@ -231,7 +227,6 @@ export interface CompetenciaHospital {
 export interface RankingProveedor {
   id: string;
   nombre: string;
-  tipo_empresa?: string;
   ingresos_operacionales?: number;
   activo_total?: number;
   patrimonio?: number;
@@ -259,7 +254,6 @@ export interface FinanzasFormData extends CreateProveedorFinanzasDTO {
 export interface ProveedorFilters {
   search?: string;
   estado?: 'activo' | 'inactivo' | 'prospecto';
-  tipo_empresa?: 'competidor' | 'cliente_potencial' | 'proveedor_nuestro' | 'otro';
   cumple_requisitos?: boolean;
   categoria_riesgo?: string;
   departamento?: string;
