@@ -84,7 +84,7 @@ export default function ProviderProfilePage() {
         <p className="text-red-600 mb-4">{error || 'Proveedor no encontrado'}</p>
         <button
           onClick={() => router.push('/providers')}
-          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+          className="px-4 py-2 bg-gray-900 text-white rounded hover:bg-black transition-all"
         >
           Volver a proveedores
         </button>
@@ -122,7 +122,7 @@ export default function ProviderProfilePage() {
               </div>
               <button
                 onClick={() => router.push('/providers')}
-                className="px-4 py-2 text-gray-600 hover:text-gray-900"
+                className="px-4 py-2 text-gray-600 hover:text-gray-900 transition-all"
               >
                 ← Volver
               </button>
@@ -147,7 +147,7 @@ export default function ProviderProfilePage() {
                 onClick={() => setActiveTab(tab.id as TabType)}
                 className={`py-4 px-1 border-b-2 font-medium text-sm ${
                   activeTab === tab.id
-                    ? 'border-blue-500 text-blue-600'
+                    ? 'border-gray-900 text-gray-900'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
@@ -179,7 +179,7 @@ export default function ProviderProfilePage() {
                   <dd className="mt-1 text-sm text-gray-900">
                     {provider.website_url ? (
                       <a href={provider.website_url} target="_blank" rel="noopener noreferrer" 
-                         className="text-blue-600 hover:underline">
+                         className="text-gray-700 hover:text-black underline">
                         {provider.website_url}
                       </a>
                     ) : '—'}
@@ -270,7 +270,7 @@ export default function ProviderProfilePage() {
                   <h2 className="text-lg font-semibold">
                     Estados Financieros - Año {latestFinancials.anio}
                   </h2>
-                  <button className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+                  <button className="px-4 py-2 bg-gray-900 text-white rounded hover:bg-black transition-all">
                     Agregar Año
                   </button>
                 </div>
@@ -384,7 +384,7 @@ export default function ProviderProfilePage() {
                             <td className="px-4 py-2 text-sm text-right">{formatCurrency(fin.patrimonio)}</td>
                             <td className="px-4 py-2 text-sm text-right">{formatPercentage(indicators?.roe)}</td>
                             <td className="px-4 py-2 text-sm text-center">
-                              <button className="text-blue-600 hover:text-blue-800">Editar</button>
+                              <button className="text-gray-700 hover:text-black font-medium">Editar</button>
                             </td>
                           </tr>
                         );
@@ -398,7 +398,7 @@ export default function ProviderProfilePage() {
             {(!provider.finanzas || provider.finanzas.length === 0) && (
               <div className="bg-white shadow rounded-lg p-6 text-center">
                 <p className="text-gray-500 mb-4">No hay información financiera registrada</p>
-                <button className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+                <button className="px-4 py-2 bg-gray-900 text-white rounded hover:bg-black transition-all">
                   Agregar Información Financiera
                 </button>
               </div>

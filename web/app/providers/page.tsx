@@ -76,7 +76,7 @@ export default function ProvidersListPage() {
   const getRiskColor = (categoria: string | undefined) => {
     switch (categoria) {
       case 'muy_bajo': return 'bg-green-100 text-green-800';
-      case 'bajo': return 'bg-blue-100 text-blue-800';
+      case 'bajo': return 'bg-gray-200 text-gray-800';
       case 'medio': return 'bg-yellow-100 text-yellow-800';
       case 'alto': return 'bg-orange-100 text-orange-800';
       case 'muy_alto': return 'bg-red-100 text-red-800';
@@ -131,7 +131,7 @@ export default function ProvidersListPage() {
               <h1 className="text-3xl font-bold text-gray-900">Proveedores</h1>
               <button
                 onClick={() => setShowCreateModal(true)}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-2"
+                className="px-4 py-2 bg-gray-900 text-white rounded hover:bg-black flex items-center gap-2 transition-all"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -156,7 +156,7 @@ export default function ProvidersListPage() {
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 placeholder="Nombre o NIT..."
-                className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-500"
               />
             </div>
             
@@ -167,7 +167,7 @@ export default function ProvidersListPage() {
               <select
                 value={filterEstado}
                 onChange={(e) => setFilterEstado(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-500"
               >
                 <option value="">Todos</option>
                 <option value="activo">Activo</option>
@@ -183,7 +183,7 @@ export default function ProvidersListPage() {
               <select
                 value={filterTipo}
                 onChange={(e) => setFilterTipo(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-500"
               >
                 <option value="">Todos</option>
                 <option value="competidor">Competidor</option>
@@ -196,7 +196,7 @@ export default function ProvidersListPage() {
             <div className="flex items-end">
               <button
                 type="submit"
-                className="w-full px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                className="w-full px-4 py-2 bg-gray-900 text-white rounded hover:bg-black transition-all"
               >
                 Buscar
               </button>
@@ -302,7 +302,7 @@ export default function ProvidersListPage() {
                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                           <Link
                             href={`/providers/${provider.id}`}
-                            className="text-blue-600 hover:text-blue-900"
+                            className="text-gray-700 hover:text-black font-medium"
                           >
                             Ver detalle
                           </Link>
@@ -360,7 +360,7 @@ export default function ProvidersListPage() {
                             onClick={() => setCurrentPage(pageNum)}
                             className={`relative inline-flex items-center px-4 py-2 border text-sm font-medium ${
                               pageNum === currentPage
-                                ? 'z-10 bg-blue-50 border-blue-500 text-blue-600'
+                                ? 'z-10 bg-gray-100 border-gray-900 text-gray-900'
                                 : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50'
                             }`}
                           >
@@ -419,7 +419,7 @@ export default function ProvidersListPage() {
                     value={createFormData.nombre}
                     onChange={(e) => setCreateFormData({ ...createFormData, nombre: e.target.value })}
                     required
-                    className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-500"
                   />
                 </div>
                 
@@ -433,7 +433,7 @@ export default function ProvidersListPage() {
                     onChange={(e) => setCreateFormData({ ...createFormData, nit: e.target.value })}
                     required
                     placeholder="Ej: 900123456-1"
-                    className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-500"
                   />
                 </div>
                 
@@ -445,7 +445,7 @@ export default function ProvidersListPage() {
                     type="email"
                     value={createFormData.email}
                     onChange={(e) => setCreateFormData({ ...createFormData, email: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-500"
                   />
                 </div>
                 
@@ -457,7 +457,7 @@ export default function ProvidersListPage() {
                     type="tel"
                     value={createFormData.telefono}
                     onChange={(e) => setCreateFormData({ ...createFormData, telefono: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-500"
                   />
                 </div>
 
@@ -469,7 +469,7 @@ export default function ProvidersListPage() {
                     type="text"
                     value={createFormData.ciudad}
                     onChange={(e) => setCreateFormData({ ...createFormData, ciudad: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-500"
                   />
                 </div>
 
@@ -480,7 +480,7 @@ export default function ProvidersListPage() {
                   <select
                     value={createFormData.tipo_empresa}
                     onChange={(e) => setCreateFormData({ ...createFormData, tipo_empresa: e.target.value as any })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-500"
                   >
                     <option value="competidor">Competidor</option>
                     <option value="cliente_potencial">Cliente Potencial</option>
@@ -501,7 +501,7 @@ export default function ProvidersListPage() {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                  className="px-4 py-2 bg-gray-900 text-white rounded hover:bg-black disabled:opacity-50 transition-all"
                   disabled={isCreating}
                 >
                   {isCreating ? 'Creando...' : 'Crear Proveedor'}
