@@ -21,7 +21,7 @@ export async function GET(
         finanzas:proveedor_finanzas(*),
         indicadores:proveedor_indicadores(*),
         contactos:proveedor_contactos(*),
-        documentos:proveedor_documentos(*),
+        enlaces:proveedor_enlaces(*),
         contratos:hospital_contracts(
           *,
           hospital:hospitals(
