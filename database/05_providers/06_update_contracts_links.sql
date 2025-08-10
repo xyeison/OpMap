@@ -114,11 +114,23 @@ CREATE INDEX idx_proveedor_enlaces_activo ON proveedor_enlaces(activo);
 -- Habilitar RLS
 ALTER TABLE proveedor_enlaces ENABLE ROW LEVEL SECURITY;
 
--- Política permisiva temporal
-CREATE POLICY "public_access_proveedor_enlaces" ON proveedor_enlaces
-    FOR ALL TO PUBLIC
-    USING (true)
-    WITH CHECK (true);
+-- Política permisiva temporal (solo si no existe)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies 
+        WHERE tablename = 'proveedor_enlaces' 
+        AND policyname = 'public_access_proveedor_enlaces'
+    ) THEN
+        CREATE POLICY "public_access_proveedor_enlaces" ON proveedor_enlaces
+            FOR ALL TO PUBLIC
+            USING (true)
+            WITH CHECK (true);
+        RAISE NOTICE '✅ Política RLS creada para proveedor_enlaces';
+    ELSE
+        RAISE NOTICE 'ℹ️  Política RLS ya existe para proveedor_enlaces';
+    END IF;
+END $$;
 
 COMMENT ON TABLE proveedor_enlaces IS 'Enlaces y URLs relacionados con proveedores';
 
