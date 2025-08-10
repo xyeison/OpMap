@@ -90,6 +90,7 @@ export async function GET(request: NextRequest) {
 // POST /api/providers/search/quick-create - Creación rápida desde el selector
 export async function POST(request: NextRequest) {
   try {
+    const supabase = createServerSupabaseClient();
     const body = await request.json();
     const { nombre, nit } = body;
     
