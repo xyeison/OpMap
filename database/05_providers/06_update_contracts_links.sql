@@ -180,10 +180,10 @@ SELECT
         ELSE 'vencido_antiguo'
     END AS estado_vigencia,
     CASE 
-        WHEN hc.end_date >= CURRENT_DATE THEN 
-            EXTRACT(DAY FROM hc.end_date - CURRENT_DATE)
+        WHEN hc.end_date IS NOT NULL THEN 
+            DATE_PART('day', hc.end_date::timestamp - CURRENT_DATE::timestamp)::integer
         ELSE 
-            -EXTRACT(DAY FROM CURRENT_DATE - hc.end_date)
+            NULL
     END AS dias_vigencia
 FROM hospital_contracts hc
 LEFT JOIN hospitals h ON h.id = hc.hospital_id
