@@ -136,64 +136,71 @@ export default function ProviderProfilePage() {
   const latestIndicators = getLatestIndicators();
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white shadow">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="py-6">
-            <div className="flex justify-between items-center">
-              <div>
-                <h1 className="text-3xl font-bold text-gray-900">{provider.nombre}</h1>
-                <div className="mt-1 flex items-center gap-4 text-sm text-gray-500">
-                  <span>NIT: {provider.nit}</span>
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                    provider.estado === 'activo' 
-                      ? 'bg-green-100 text-green-800' 
-                      : 'bg-gray-100 text-gray-800'
-                  }`}>
-                    {provider.estado}
-                  </span>
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+      {/* Fixed Header and Tabs Container */}
+      <div className="sticky top-0 z-40 bg-white">
+        {/* Header */}
+        <div className="border-b">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="py-4">
+              <div className="flex justify-between items-center">
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-900">{provider.nombre}</h1>
+                  <div className="mt-1 flex items-center gap-4 text-sm text-gray-500">
+                    <span>NIT: {provider.nit}</span>
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                      provider.estado === 'activo' 
+                        ? 'bg-green-100 text-green-800' 
+                        : 'bg-gray-100 text-gray-800'
+                    }`}>
+                      {provider.estado}
+                    </span>
+                  </div>
                 </div>
+                <button
+                  onClick={() => router.push('/providers')}
+                  className="px-4 py-2 text-gray-600 hover:text-gray-900 transition-all flex items-center gap-2"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                  Volver
+                </button>
               </div>
-              <button
-                onClick={() => router.push('/providers')}
-                className="px-4 py-2 text-gray-600 hover:text-gray-900 transition-all"
-              >
-                ← Volver
-              </button>
             </div>
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="border-b bg-gray-50">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <nav className="-mb-px flex space-x-8">
+              {[
+                { id: 'general', label: 'General' },
+                { id: 'financiero', label: 'Financiero' },
+                { id: 'contratos', label: 'Contratos/Oportunidades' },
+                { id: 'enlaces', label: 'Enlaces' }
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id as TabType)}
+                  className={`py-3 px-1 border-b-2 font-medium text-sm transition-all ${
+                    activeTab === tab.id
+                      ? 'border-gray-900 text-gray-900 bg-white'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </nav>
           </div>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="bg-white border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <nav className="-mb-px flex space-x-8">
-            {[
-              { id: 'general', label: 'General' },
-              { id: 'financiero', label: 'Financiero' },
-              { id: 'contratos', label: 'Contratos/Oportunidades' },
-              { id: 'enlaces', label: 'Enlaces' }
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as TabType)}
-                className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === tab.id
-                    ? 'border-gray-900 text-gray-900'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </nav>
-        </div>
-      </div>
-
-      {/* Tab Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {/* Scrollable Tab Content */}
+      <div className="flex-1 overflow-auto">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* General Tab */}
         {activeTab === 'general' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -621,6 +628,7 @@ export default function ProviderProfilePage() {
             </div>
           </div>
         )}
+        </div>
       </div>
     </div>
   );

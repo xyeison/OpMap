@@ -121,16 +121,21 @@ export default function ProvidersListPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white shadow">
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+      {/* Fixed Header */}
+      <div className="sticky top-0 z-30 bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="py-6">
+          <div className="py-4">
             <div className="flex justify-between items-center">
-              <h1 className="text-3xl font-bold text-gray-900">Proveedores</h1>
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">Proveedores</h1>
+                <p className="mt-1 text-sm text-gray-500">
+                  Gestiona tu base de proveedores y su información financiera
+                </p>
+              </div>
               <button
                 onClick={() => setShowCreateModal(true)}
-                className="px-4 py-2 bg-gray-900 text-white rounded hover:bg-black flex items-center gap-2 transition-all"
+                className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-black flex items-center gap-2 transition-all shadow-sm"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -142,8 +147,10 @@ export default function ProvidersListPage() {
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      {/* Scrollable Content */}
+      <div className="flex-1 overflow-auto">
+        {/* Filters */}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <div className="bg-white shadow rounded-lg p-6">
           <form onSubmit={handleSearch} className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
@@ -192,7 +199,7 @@ export default function ProvidersListPage() {
         <div className="bg-white shadow rounded-lg overflow-hidden">
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900"></div>
             </div>
           ) : providers.length > 0 ? (
             <>
@@ -471,6 +478,7 @@ export default function ProvidersListPage() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }
