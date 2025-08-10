@@ -32,7 +32,7 @@ export default function ContractEditModal({ contract, onClose, onSave }: Contrac
     end_date: contract.end_date,
     description: contract.description || '',
     provider: contract.provider || '',
-    proveedor_id: contract.proveedor_id || null,
+    proveedor_id: contract.proveedor_id || undefined,
     active: contract.active
   })
   const [saving, setSaving] = useState(false)
@@ -162,7 +162,7 @@ export default function ContractEditModal({ contract, onClose, onSave }: Contrac
               onChange={(providerId, provider) => {
                 setFormData({ 
                   ...formData, 
-                  proveedor_id: providerId,
+                  proveedor_id: providerId || undefined,
                   provider: provider?.nombre || ''
                 })
               }}
