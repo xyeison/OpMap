@@ -149,10 +149,7 @@ export default function ProviderSelect({
       const response = await fetch('/api/providers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...createFormData,
-          tipo_empresa: 'competidor' // Por defecto
-        })
+        body: JSON.stringify(createFormData)
       });
 
       if (response.ok) {
@@ -216,7 +213,7 @@ export default function ProviderSelect({
             placeholder={placeholder}
             required={required}
             disabled={disabled}
-            className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-500"
           />
           {isLoading && (
             <div className="absolute right-2 top-2">
@@ -241,7 +238,7 @@ export default function ProviderSelect({
             >
               <div className="font-medium">
                 {result.value === 'create-new' ? (
-                  <span className="flex items-center text-blue-600">
+                  <span className="flex items-center text-gray-700">
                     <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                     </svg>
@@ -252,7 +249,6 @@ export default function ProviderSelect({
                     <div>{result.data.nombre}</div>
                     <div className="text-sm text-gray-500">
                       NIT: {result.data.nit}
-                      {result.data.tipo_empresa && ` • ${result.data.tipo_empresa}`}
                     </div>
                   </>
                 )}
@@ -278,7 +274,7 @@ export default function ProviderSelect({
                     value={createFormData.nombre}
                     onChange={(e) => setCreateFormData({ ...createFormData, nombre: e.target.value })}
                     required
-                    className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-500"
                   />
                 </div>
                 
@@ -292,7 +288,7 @@ export default function ProviderSelect({
                     onChange={(e) => setCreateFormData({ ...createFormData, nit: e.target.value })}
                     required
                     placeholder="Ej: 900123456-1"
-                    className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-500"
                   />
                 </div>
                 
@@ -304,7 +300,7 @@ export default function ProviderSelect({
                     type="email"
                     value={createFormData.email}
                     onChange={(e) => setCreateFormData({ ...createFormData, email: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-500"
                   />
                 </div>
                 
@@ -316,7 +312,7 @@ export default function ProviderSelect({
                     type="tel"
                     value={createFormData.telefono}
                     onChange={(e) => setCreateFormData({ ...createFormData, telefono: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-gray-500"
                   />
                 </div>
               </div>
@@ -335,7 +331,7 @@ export default function ProviderSelect({
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                  className="px-4 py-2 bg-gray-900 text-white rounded hover:bg-black disabled:opacity-50 transition-all"
                   disabled={isCreating}
                 >
                   {isCreating ? 'Creando...' : 'Crear Proveedor'}

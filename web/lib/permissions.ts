@@ -12,6 +12,8 @@ export type Permission =
   | 'contracts:view'
   | 'contracts:edit'
   | 'contracts:delete'
+  | 'providers:view'
+  | 'providers:edit'
   | 'recalculate:simple'
   | 'recalculate:complete'
   | 'users:manage'
@@ -32,6 +34,8 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'contracts:view',
     'contracts:edit',
     'contracts:delete',
+    'providers:view',
+    'providers:edit',
     'recalculate:simple',
     'recalculate:complete',
     'users:manage',
@@ -53,7 +57,9 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'hospitals:edit',  // Puede editar hospitales (incluyendo doctores)
     'contracts:view',
     'contracts:edit',
-    'contracts:delete'
+    'contracts:delete',
+    'providers:view',
+    'providers:edit'  // Puede gestionar proveedores
   ],
   data_manager: [
     'map:view',
@@ -102,6 +108,7 @@ export function getAllowedRoutes(role: Role | undefined): string[] {
   if (permissions.includes('hospitals:view')) routes.push('/hospitals', '/hospitals/[id]')
   if (permissions.includes('kams:view')) routes.push('/kams')
   if (permissions.includes('contracts:view')) routes.push('/contracts')
+  if (permissions.includes('providers:view')) routes.push('/providers', '/providers/[id]')
   if (permissions.includes('users:manage')) routes.push('/users')
   if (permissions.includes('visits:view')) routes.push('/visits')
   if (permissions.includes('territories:view')) routes.push('/territories', '/territories/[id]')
@@ -139,6 +146,10 @@ export function getNavigationMenu(role: Role | undefined) {
   
   if (permissions.includes('contracts:view')) {
     menu.push({ name: 'Contratos', href: '/contracts', icon: 'document' })
+  }
+  
+  if (permissions.includes('providers:view')) {
+    menu.push({ name: 'Proveedores', href: '/providers', icon: 'providers' })
   }
   
   if (permissions.includes('users:manage')) {

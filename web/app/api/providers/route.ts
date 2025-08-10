@@ -15,7 +15,6 @@ export async function GET(request: NextRequest) {
     const filters: ProveedorFilters = {
       search: searchParams.get('search') || undefined,
       estado: searchParams.get('estado') as any || undefined,
-      tipo_empresa: searchParams.get('tipo_empresa') as any || undefined,
       cumple_requisitos: searchParams.get('cumple_requisitos') === 'true' ? true : undefined,
       categoria_riesgo: searchParams.get('categoria_riesgo') || undefined,
       departamento: searchParams.get('departamento') || undefined,
@@ -49,10 +48,6 @@ export async function GET(request: NextRequest) {
     
     if (filters.estado) {
       query = query.eq('estado', filters.estado);
-    }
-    
-    if (filters.tipo_empresa) {
-      query = query.eq('tipo_empresa', filters.tipo_empresa);
     }
     
     if (filters.departamento) {
