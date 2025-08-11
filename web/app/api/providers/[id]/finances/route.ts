@@ -81,6 +81,64 @@ export async function POST(
       );
     }
     
+    // Validar campos numéricos con precisión 10,4 (máximo 999999.9999)
+    const numericFields10_4 = [
+      'tipo_cambio', 'indice_liquidez', 'prueba_acida', 'indice_endeudamiento',
+      'apalancamiento_financiero', 'cobertura_intereses', 'margen_bruto',
+      'margen_operacional', 'margen_neto', 'margen_ebitda', 'roe', 'roa', 'roic',
+      'rotacion_activos', 'rotacion_cartera', 'rotacion_inventarios'
+    ];
+    
+    for (const field of numericFields10_4) {
+      if (body[field] !== undefined && body[field] !== null) {
+        const value = parseFloat(body[field]);
+        if (isNaN(value)) {
+          return NextResponse.json(
+            { error: `El campo ${field} debe ser un número válido` },
+            { status: 400 }
+          );
+        }
+        if (Math.abs(value) >= 1000000) {
+          return NextResponse.json(
+            { 
+              error: `El campo ${field} excede el valor máximo permitido`,
+              details: `El valor ${value} es muy grande. El máximo permitido es 999,999.9999`,
+              suggestion: 'Verifique que los valores estén en las unidades correctas (ej: porcentajes como 0.15 en lugar de 15)'
+            },
+            { status: 400 }
+          );
+        }
+        // Asegurar que el valor tiene máximo 4 decimales
+        body[field] = Math.round(value * 10000) / 10000;
+      }
+    }
+    
+    // Validar campos numéricos grandes (15,2)
+    const numericFields15_2 = [
+      'activo_corriente', 'activo_no_corriente', 'activo_total',
+      'pasivo_corriente', 'pasivo_no_corriente', 'pasivo_total',
+      'patrimonio', 'ingresos_operacionales', 'costos_ventas',
+      'utilidad_bruta', 'gastos_operacionales', 'utilidad_operacional',
+      'gastos_intereses', 'otros_ingresos', 'otros_gastos',
+      'utilidad_antes_impuestos', 'impuestos', 'utilidad_neta',
+      'inventarios', 'cuentas_por_cobrar', 'efectivo',
+      'capital_trabajo', 'ebitda', 'capital_trabajo_neto'
+    ];
+    
+    for (const field of numericFields15_2) {
+      if (body[field] !== undefined && body[field] !== null) {
+        const value = parseFloat(body[field]);
+        if (isNaN(value)) {
+          return NextResponse.json(
+            { error: `El campo ${field} debe ser un número válido` },
+            { status: 400 }
+          );
+        }
+        // Asegurar que el valor tiene máximo 2 decimales
+        body[field] = Math.round(value * 100) / 100;
+      }
+    }
+    
     // Verificar si ya existen datos para ese año
     const { data: existing } = await supabase
       .from('proveedor_finanzas')

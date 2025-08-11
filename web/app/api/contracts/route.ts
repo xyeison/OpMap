@@ -103,12 +103,26 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json()
     
+    // Clean up proveedor_id - convert empty strings to null
+    const cleanedBody = {
+      ...body,
+      proveedor_id: body.proveedor_id && body.proveedor_id !== '' ? body.proveedor_id : null,
+      created_by: user.id
+    }
+    
+    // Debug: Log what we're sending to the database
+    console.log('Creating contract with data:', {
+      requires_liquidez: cleanedBody.requires_liquidez,
+      min_liquidez: cleanedBody.min_liquidez,
+      requires_endeudamiento: cleanedBody.requires_endeudamiento,
+      max_endeudamiento: cleanedBody.max_endeudamiento,
+      requires_cobertura: cleanedBody.requires_cobertura,
+      min_cobertura: cleanedBody.min_cobertura
+    })
+    
     const { data, error } = await supabase
       .from('hospital_contracts')
-      .insert({
-        ...body,
-        created_by: user.id
-      })
+      .insert(cleanedBody)
       .select()
       .single()
 

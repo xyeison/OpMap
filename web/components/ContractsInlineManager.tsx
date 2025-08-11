@@ -25,10 +25,12 @@ interface Contract {
 
 interface ContractsInlineManagerProps {
   hospitalId: string
+  hospitalName?: string
+  municipalityName?: string
   onUpdate?: () => void
 }
 
-export default function ContractsInlineManager({ hospitalId, onUpdate }: ContractsInlineManagerProps) {
+export default function ContractsInlineManager({ hospitalId, hospitalName, municipalityName, onUpdate }: ContractsInlineManagerProps) {
   const [contracts, setContracts] = useState<Contract[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -70,23 +72,20 @@ export default function ContractsInlineManager({ hospitalId, onUpdate }: Contrac
   }
 
   const handleAddNew = () => {
-    const newContract: Contract = {
-      id: `new-${Date.now()}`,
-      hospital_id: hospitalId,
-      contract_number: '',
-      contract_type: 'capita',
-      contracting_model: 'contratacion_directa',
-      contract_value: 0,
-      start_date: new Date().toISOString().split('T')[0],
-      end_date: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      description: '',
-      provider: '',
-      active: true,
-      created_at: new Date().toISOString(),
-      isEditing: true,
-      isNew: true
+    // Redirigir a la nueva página de creación con el hospital preseleccionado
+    const params = new URLSearchParams({
+      hospital_id: hospitalId
+    });
+    
+    // Agregar nombre del hospital si está disponible
+    if (hospitalName) {
+      params.append('hospital_name', hospitalName);
     }
-    setContracts([newContract, ...contracts])
+    if (municipalityName) {
+      params.append('municipality_name', municipalityName);
+    }
+    
+    window.location.href = `/contracts/new/edit?${params.toString()}`;
   }
 
   const handleSave = async (contract: Contract) => {

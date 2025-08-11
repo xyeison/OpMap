@@ -9,6 +9,8 @@ import PermissionGuard from '@/components/PermissionGuard'
 export default function HospitalsPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('active')
+  const [contractFilter, setContractFilter] = useState<'all' | 'with_contract' | 'without_contract'>('all')
+  const [typeFilter, setTypeFilter] = useState<'all' | 'Publico' | 'Privado' | 'Mixto'>('all')
   const [hospitalsWithKam, setHospitalsWithKam] = useState<any[]>([])
   const [showAddModal, setShowAddModal] = useState(false)
   const [newHospital, setNewHospital] = useState({
@@ -45,6 +47,18 @@ export default function HospitalsPage() {
       const data = await response.json()
       console.log('Hospitals loaded:', data?.length)
       return data
+    },
+  })
+
+  // Cargar contratos para filtrar hospitales sin contratos vigentes
+  const { data: contracts } = useQuery({
+    queryKey: ['contracts'],
+    queryFn: async () => {
+      const response = await fetch('/api/contracts')
+      if (!response.ok) return []
+      const data = await response.json()
+      // Filtrar solo contratos activos
+      return data.filter((c: any) => c.active)
     },
   })
   
@@ -223,7 +237,17 @@ export default function HospitalsPage() {
       (statusFilter === 'active' && hospital.active) ||
       (statusFilter === 'inactive' && !hospital.active)
     
-    return matchesSearch && matchesStatus
+    // Filtro de contratos
+    const hospitalIdsWithContracts = contracts?.map((c: any) => c.hospital_id) || []
+    const hasContract = hospitalIdsWithContracts.includes(hospital.id)
+    const matchesContract = contractFilter === 'all' ||
+      (contractFilter === 'with_contract' && hasContract) ||
+      (contractFilter === 'without_contract' && !hasContract)
+    
+    // Filtro de tipo de hospital
+    const matchesType = typeFilter === 'all' || hospital.hospital_type === typeFilter
+    
+    return matchesSearch && matchesStatus && matchesContract && matchesType
   })
   
   console.log('Hospitals loaded:', hospitals?.length)
@@ -252,8 +276,9 @@ export default function HospitalsPage() {
       </div>
 
       <div className="mb-6 bg-white rounded-2xl shadow-lg border border-gray-100 p-6">
-        <div className="flex flex-col md:flex-row gap-4">
-          <div className="flex items-center gap-3 flex-1">
+        <div className="flex flex-col gap-4">
+          {/* Primera fila - Búsqueda */}
+          <div className="flex items-center gap-3">
             <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
             </svg>
@@ -266,17 +291,54 @@ export default function HospitalsPage() {
             />
           </div>
           
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-600">Estado:</span>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as 'all' | 'active' | 'inactive')}
-              className="px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent transition-all bg-white"
-            >
-              <option value="active">Activos</option>
-              <option value="inactive">Inactivos</option>
-              <option value="all">Todos</option>
-            </select>
+          {/* Segunda fila - Filtros */}
+          <div className="flex flex-wrap gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-600">Estado:</span>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as 'all' | 'active' | 'inactive')}
+                className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent transition-all bg-white text-sm"
+              >
+                <option value="active">Activos</option>
+                <option value="inactive">Inactivos</option>
+                <option value="all">Todos</option>
+              </select>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-600">Contratos:</span>
+              <select
+                value={contractFilter}
+                onChange={(e) => setContractFilter(e.target.value as 'all' | 'with_contract' | 'without_contract')}
+                className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent transition-all bg-white text-sm"
+              >
+                <option value="all">Todos</option>
+                <option value="without_contract">Sin contrato vigente</option>
+                <option value="with_contract">Con contrato vigente</option>
+              </select>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-600">Tipo:</span>
+              <select
+                value={typeFilter}
+                onChange={(e) => setTypeFilter(e.target.value as 'all' | 'Publico' | 'Privado' | 'Mixto')}
+                className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent transition-all bg-white text-sm"
+              >
+                <option value="all">Todos</option>
+                <option value="Publico">Público</option>
+                <option value="Privado">Privado</option>
+                <option value="Mixto">Mixto</option>
+              </select>
+            </div>
+
+            {/* Contador de resultados */}
+            <div className="ml-auto flex items-center gap-2">
+              <span className="text-sm text-gray-600">
+                {filteredHospitals?.length || 0} hospitales encontrados
+              </span>
+            </div>
           </div>
         </div>
         

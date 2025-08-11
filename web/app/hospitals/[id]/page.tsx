@@ -626,6 +626,8 @@ export default function HospitalDetailPage() {
           }>
             <ContractsInlineManager
               hospitalId={hospitalId}
+              hospitalName={hospital?.name}
+              municipalityName={municipalityName}
               onUpdate={() => {
                 loadHospitalData() // Recargar datos para actualizar estadísticas
               }}

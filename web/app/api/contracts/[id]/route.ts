@@ -103,10 +103,19 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 
     const contractId = params.id
     const body = await request.json()
+    
+    // Remove fields that don't exist in the database table
+    const { hospital, hospitals, kam, ...contractData } = body
+    
+    // Clean up proveedor_id - convert empty strings to null
+    const cleanedBody = {
+      ...contractData,
+      proveedor_id: contractData.proveedor_id && contractData.proveedor_id !== '' ? contractData.proveedor_id : null
+    }
 
     const { data, error } = await supabase
       .from('hospital_contracts')
-      .update(body)
+      .update(cleanedBody)
       .eq('id', contractId)
       .select()
       .single()
