@@ -25,7 +25,13 @@ export default function HospitalActions({ hospital, onUpdate, userRole = 'user' 
     duration_months: '',
     current_provider: '',
     proveedor_id: '',
-    description: ''
+    description: '',
+    // Requisitos financieros
+    indice_liquidez_requerido: '',
+    indice_endeudamiento_maximo: '',
+    cobertura_intereses_minimo: '',
+    experiencia_minima_anios: '',
+    capital_trabajo_minimo: ''
   })
 
   const handleToggleActive = async () => {
@@ -85,6 +91,12 @@ export default function HospitalActions({ hospital, onUpdate, userRole = 'user' 
         current_provider: contract.current_provider,
         proveedor_id: contract.proveedor_id || null,
         description: contract.description || null,
+        // Requisitos financieros
+        indice_liquidez_requerido: contract.indice_liquidez_requerido ? parseFloat(contract.indice_liquidez_requerido) : null,
+        indice_endeudamiento_maximo: contract.indice_endeudamiento_maximo ? parseFloat(contract.indice_endeudamiento_maximo) : null,
+        cobertura_intereses_minimo: contract.cobertura_intereses_minimo ? parseFloat(contract.cobertura_intereses_minimo) : null,
+        experiencia_minima_anios: contract.experiencia_minima_anios ? parseInt(contract.experiencia_minima_anios) : null,
+        capital_trabajo_minimo: contract.capital_trabajo_minimo ? parseFloat(contract.capital_trabajo_minimo) : null,
         created_by: CURRENT_USER_ID
       })
 
@@ -98,7 +110,12 @@ export default function HospitalActions({ hospital, onUpdate, userRole = 'user' 
         duration_months: '',
         current_provider: '',
         proveedor_id: '',
-        description: ''
+        description: '',
+        indice_liquidez_requerido: '',
+        indice_endeudamiento_maximo: '',
+        cobertura_intereses_minimo: '',
+        experiencia_minima_anios: '',
+        capital_trabajo_minimo: ''
       })
       
     } catch (error: any) {
@@ -261,6 +278,87 @@ export default function HospitalActions({ hospital, onUpdate, userRole = 'user' 
                   disabled={loading}
                 />
               </div>
+
+              {/* Requisitos Financieros */}
+              <div className="border-t pt-4 mt-4">
+                <h4 className="font-medium text-sm mb-3">Requisitos Financieros (Opcional)</h4>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium mb-1">
+                      Índice de Liquidez Mínimo
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      className="w-full p-2 border rounded text-sm"
+                      value={contract.indice_liquidez_requerido || ''}
+                      onChange={(e) => setContract({...contract, indice_liquidez_requerido: e.target.value})}
+                      disabled={loading}
+                      placeholder="Ej: 1.2"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-xs font-medium mb-1">
+                      Endeudamiento Máximo (%)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      className="w-full p-2 border rounded text-sm"
+                      value={contract.indice_endeudamiento_maximo ? (contract.indice_endeudamiento_maximo * 100) : ''}
+                      onChange={(e) => setContract({...contract, indice_endeudamiento_maximo: e.target.value ? (parseFloat(e.target.value) / 100).toString() : ''})}
+                      disabled={loading}
+                      placeholder="Ej: 70"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-xs font-medium mb-1">
+                      Cobertura Intereses Mínimo
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      className="w-full p-2 border rounded text-sm"
+                      value={contract.cobertura_intereses_minimo || ''}
+                      onChange={(e) => setContract({...contract, cobertura_intereses_minimo: e.target.value})}
+                      disabled={loading}
+                      placeholder="Ej: 1.5"
+                    />
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-3 mt-3">
+                  <div>
+                    <label className="block text-xs font-medium mb-1">
+                      Experiencia Mínima (años)
+                    </label>
+                    <input
+                      type="number"
+                      className="w-full p-2 border rounded text-sm"
+                      value={contract.experiencia_minima_anios || ''}
+                      onChange={(e) => setContract({...contract, experiencia_minima_anios: e.target.value})}
+                      disabled={loading}
+                      placeholder="Ej: 5"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-xs font-medium mb-1">
+                      Capital de Trabajo Mínimo
+                    </label>
+                    <input
+                      type="number"
+                      className="w-full p-2 border rounded text-sm"
+                      value={contract.capital_trabajo_minimo || ''}
+                      onChange={(e) => setContract({...contract, capital_trabajo_minimo: e.target.value})}
+                      disabled={loading}
+                      placeholder="Ej: 1000000"
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
             
             <div className="flex gap-2 justify-end mt-6">
@@ -273,7 +371,12 @@ export default function HospitalActions({ hospital, onUpdate, userRole = 'user' 
                     duration_months: '',
                     current_provider: '',
                     description: '',
-                    proveedor_id: ''
+                    proveedor_id: '',
+                    indice_liquidez_requerido: '',
+                    indice_endeudamiento_maximo: '',
+                    cobertura_intereses_minimo: '',
+                    experiencia_minima_anios: '',
+                    capital_trabajo_minimo: ''
                   })
                 }}
                 className="px-4 py-2 text-gray-600 hover:text-gray-800"

@@ -141,9 +141,9 @@ export default function ProviderProfilePage() {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       {/* Fixed Header and Tabs Container */}
-      <div className="sticky top-0 z-40 bg-white">
+      <div className="sticky top-0 z-50 bg-white shadow-sm">
         {/* Header */}
-        <div className="border-b">
+        <div className="bg-white border-b">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="py-4">
               <div className="flex justify-between items-center">
@@ -186,7 +186,7 @@ export default function ProviderProfilePage() {
         </div>
 
         {/* Tabs */}
-        <div className="border-b bg-gray-50">
+        <div className="bg-white border-b">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <nav className="-mb-px flex space-x-8">
               {[
