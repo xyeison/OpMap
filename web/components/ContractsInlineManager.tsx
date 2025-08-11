@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
+import ProviderSelect from '@/components/providers/ProviderSelect'
 
 interface Contract {
   id: string
@@ -14,6 +15,7 @@ interface Contract {
   end_date: string
   description?: string
   provider?: string
+  proveedor_id?: string
   link?: string
   active: boolean
   created_at: string
@@ -115,6 +117,7 @@ export default function ContractsInlineManager({ hospitalId, onUpdate }: Contrac
             start_date: contract.start_date,
             end_date: contract.end_date,
             provider: contract.provider,
+            proveedor_id: contract.proveedor_id || null,
             description: contract.description,
             active: contract.active
           })
@@ -146,6 +149,7 @@ export default function ContractsInlineManager({ hospitalId, onUpdate }: Contrac
             start_date: contract.start_date,
             end_date: contract.end_date,
             provider: contract.provider,
+            proveedor_id: contract.proveedor_id || null,
             description: contract.description,
             active: contract.active
           })
@@ -328,13 +332,26 @@ export default function ContractsInlineManager({ hospitalId, onUpdate }: Contrac
                   
                   <div>
                     <label className="text-xs font-semibold text-gray-700">Proveedor</label>
-                    <input
-                      type="text"
-                      value={contract.provider || ''}
-                      onChange={(e) => handleFieldChange(contract.id, 'provider', e.target.value)}
-                      placeholder="Nombre del proveedor"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700"
+                    <ProviderSelect
+                      value={contract.proveedor_id || ''}
+                      onChange={(providerId, provider) => {
+                        handleFieldChange(contract.id, 'proveedor_id', providerId || '')
+                        handleFieldChange(contract.id, 'provider', provider?.nombre || contract.provider || '')
+                      }}
+                      placeholder="Buscar o crear proveedor..."
+                      className="w-full"
                     />
+                    {/* Campo manual temporal para corregir datos antiguos */}
+                    <div className="mt-2">
+                      <label className="block mb-1 text-xs text-gray-600">Proveedor (texto manual - temporal):</label>
+                      <input
+                        type="text"
+                        value={contract.provider || ''}
+                        onChange={(e) => handleFieldChange(contract.id, 'provider', e.target.value)}
+                        placeholder="Solo para corregir contratos antiguos"
+                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-500"
+                      />
+                    </div>
                   </div>
                   
                   <div>

@@ -75,6 +75,7 @@ export async function POST(request: Request) {
       duration_months: durationMonths,
       current_provider: body.provider || body.current_provider || 'Proveedor',
       provider: body.provider || null,
+      proveedor_id: body.proveedor_id || null,
       description: body.description || null,
       active: body.active !== undefined ? body.active : true,
       created_at: new Date().toISOString()
@@ -130,6 +131,7 @@ export async function PUT(request: Request) {
       duration_months: durationMonths,
       provider: body.provider,
       current_provider: body.provider || body.current_provider || 'Proveedor',
+      proveedor_id: body.proveedor_id || null,
       description: body.description,
       active: body.active
     }
