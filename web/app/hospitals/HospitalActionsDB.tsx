@@ -306,7 +306,7 @@ export default function HospitalActions({ hospital, onUpdate, userRole = 'user' 
                       type="number"
                       step="0.01"
                       className="w-full p-2 border rounded text-sm"
-                      value={contract.indice_endeudamiento_maximo ? (contract.indice_endeudamiento_maximo * 100) : ''}
+                      value={contract.indice_endeudamiento_maximo ? (parseFloat(contract.indice_endeudamiento_maximo) * 100) : ''}
                       onChange={(e) => setContract({...contract, indice_endeudamiento_maximo: e.target.value ? (parseFloat(e.target.value) / 100).toString() : ''})}
                       disabled={loading}
                       placeholder="Ej: 70"
