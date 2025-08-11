@@ -17,13 +17,6 @@ import LinksList from '@/components/providers/LinksList';
 
 type TabType = 'general' | 'financiero' | 'contratos' | 'enlaces';
 
-const TABS = [
-  { id: 'general', label: 'General', icon: '📋' },
-  { id: 'financiero', label: 'Financiero', icon: '💰' },
-  { id: 'contratos', label: 'Contratos', icon: '📄' },
-  { id: 'enlaces', label: 'Enlaces', icon: '🔗' }
-];
-
 export default function ProviderProfilePage() {
   const params = useParams();
   const router = useRouter();
@@ -37,16 +30,6 @@ export default function ProviderProfilePage() {
   const [editingFinancialId, setEditingFinancialId] = useState<string | null>(null);
   const [showAddFinancial, setShowAddFinancial] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
-
-  useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768);
-    };
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
 
   useEffect(() => {
     fetchProvider();
@@ -162,45 +145,29 @@ export default function ProviderProfilePage() {
   const latestIndicators = getLatestIndicators();
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* Fixed Header */}
-      <div className="fixed top-0 left-0 right-0 z-40 bg-white border-b">
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <div className="bg-white border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="py-3 sm:py-4">
-            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
-              <div className="flex-1">
-                <div className="flex items-start justify-between sm:block">
-                  <div>
-                    <h1 className="text-lg sm:text-2xl font-bold text-gray-900 line-clamp-1">{provider.nombre}</h1>
-                    <div className="mt-1 flex flex-wrap items-center gap-2 sm:gap-4 text-xs sm:text-sm text-gray-500">
-                      <span>NIT: {provider.nit}</span>
-                      <span className={`px-2 py-0.5 sm:py-1 rounded-full text-xs font-medium ${
-                        provider.estado === 'activo' 
-                          ? 'bg-green-100 text-green-800' 
-                          : 'bg-gray-100 text-gray-800'
-                      }`}>
-                        {provider.estado}
-                      </span>
-                    </div>
-                  </div>
-                  {/* Mobile actions menu */}
-                  <div className="sm:hidden">
-                    <button
-                      onClick={() => router.push('/providers')}
-                      className="p-2 text-gray-600 hover:text-gray-900 transition-all"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </div>
+          <div className="py-4">
+            <div className="flex justify-between items-center">
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">{provider.nombre}</h1>
+                <div className="mt-1 flex items-center gap-4 text-sm text-gray-500">
+                  <span>NIT: {provider.nit}</span>
+                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                    provider.estado === 'activo' 
+                      ? 'bg-green-100 text-green-800' 
+                      : 'bg-gray-100 text-gray-800'
+                  }`}>
+                    {provider.estado}
+                  </span>
                 </div>
               </div>
-              {/* Desktop actions */}
-              <div className="hidden sm:flex items-center gap-2">
+              <div className="flex items-center gap-2">
                 <button
                   onClick={() => setShowEditModal(true)}
-                  className="px-3 py-2 bg-gray-900 text-white rounded-lg hover:bg-black transition-all flex items-center gap-2 text-sm"
+                  className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-black transition-all flex items-center gap-2"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -209,7 +176,7 @@ export default function ProviderProfilePage() {
                 </button>
                 <button
                   onClick={() => router.push('/providers')}
-                  className="px-3 py-2 text-gray-600 hover:text-gray-900 transition-all flex items-center gap-2 text-sm"
+                  className="px-4 py-2 text-gray-600 hover:text-gray-900 transition-all flex items-center gap-2"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -222,16 +189,20 @@ export default function ProviderProfilePage() {
         </div>
       </div>
 
-      {/* Fixed Tabs - Below Header */}
-      <div className="fixed top-[60px] sm:top-[73px] left-0 right-0 z-30 bg-white border-b">
-        <div className="max-w-7xl mx-auto">
-          {/* Desktop Tabs */}
-          <nav className="hidden sm:flex px-4 sm:px-6 lg:px-8">
-            {TABS.map((tab) => (
+      {/* Tabs */}
+      <div className="bg-white border-b">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <nav className="-mb-px flex space-x-8">
+            {[
+              { id: 'general', label: 'General' },
+              { id: 'financiero', label: 'Financiero' },
+              { id: 'contratos', label: 'Contratos' },
+              { id: 'enlaces', label: 'Enlaces' }
+            ].map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as TabType)}
-                className={`px-4 py-3 border-b-2 font-medium text-sm transition-all whitespace-nowrap ${
+                className={`py-3 px-1 border-b-2 font-medium text-sm transition-all ${
                   activeTab === tab.id
                     ? 'border-gray-900 text-gray-900'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -241,38 +212,16 @@ export default function ProviderProfilePage() {
               </button>
             ))}
           </nav>
-          
-          {/* Mobile Tabs - Horizontal Scroll */}
-          <div className="sm:hidden overflow-x-auto">
-            <nav className="flex px-4 min-w-full">
-              {TABS.map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id as TabType)}
-                  className={`px-3 py-3 border-b-2 font-medium text-xs whitespace-nowrap transition-all flex-shrink-0 ${
-                    activeTab === tab.id
-                      ? 'border-gray-900 text-gray-900'
-                      : 'border-transparent text-gray-500'
-                  }`}
-                >
-                  <span className="flex items-center gap-1">
-                    {tab.label}
-                  </span>
-                </button>
-              ))}
-            </nav>
-          </div>
         </div>
       </div>
 
-      {/* Scrollable Tab Content with padding for fixed header and tabs */}
-      <div className="flex-1 overflow-auto pt-[108px] sm:pt-[121px]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
-          {/* General Tab */}
-          {activeTab === 'general' && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
-              <div className="bg-white shadow-sm rounded-lg p-4 sm:p-6">
-                <h2 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">Información General</h2>
+      {/* Tab Content */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* General Tab */}
+        {activeTab === 'general' && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-white shadow rounded-lg p-6">
+              <h2 className="text-lg font-semibold mb-4">Información General</h2>
               <dl className="space-y-3">
                 <div>
                   <dt className="text-sm font-medium text-gray-500">Nombre</dt>
@@ -302,8 +251,8 @@ export default function ProviderProfilePage() {
               </dl>
             </div>
 
-              <div className="bg-white shadow-sm rounded-lg p-4 sm:p-6">
-                <h2 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">Contacto</h2>
+            <div className="bg-white shadow rounded-lg p-6">
+              <h2 className="text-lg font-semibold mb-4">Contacto</h2>
               <dl className="space-y-3">
                 <div>
                   <dt className="text-sm font-medium text-gray-500">Teléfono</dt>
@@ -324,62 +273,62 @@ export default function ProviderProfilePage() {
               </dl>
             </div>
 
-              {latestIndicators && (
-                <div className="bg-white shadow-sm rounded-lg p-4 sm:p-6 lg:col-span-2">
-                  <h2 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">
-                    Cumplimiento Requisitos Licitación ({latestIndicators.anio})
-                  </h2>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
-                    <div className="text-center p-3 bg-gray-50 rounded-lg">
-                      <div className={`text-xl sm:text-2xl font-bold ${
-                        latestIndicators.cumple_liquidez ? 'text-green-600' : 'text-red-600'
-                      }`}>
-                        {formatIndicator(latestIndicators.indice_liquidez)}
-                      </div>
-                      <div className="text-xs sm:text-sm text-gray-500 mt-1">Índice de Liquidez</div>
-                      <div className="text-xs text-gray-400">Mínimo: 1.2</div>
+            {latestIndicators && (
+              <div className="bg-white shadow rounded-lg p-6 lg:col-span-2">
+                <h2 className="text-lg font-semibold mb-4">
+                  Cumplimiento Requisitos Licitación ({latestIndicators.anio})
+                </h2>
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="text-center">
+                    <div className={`text-2xl font-bold ${
+                      latestIndicators.cumple_liquidez ? 'text-green-600' : 'text-red-600'
+                    }`}>
+                      {formatIndicator(latestIndicators.indice_liquidez)}
                     </div>
-                    <div className="text-center p-3 bg-gray-50 rounded-lg">
-                      <div className={`text-xl sm:text-2xl font-bold ${
-                        latestIndicators.cumple_endeudamiento ? 'text-green-600' : 'text-red-600'
-                      }`}>
-                        {formatPercentage(latestIndicators.indice_endeudamiento)}
-                      </div>
-                      <div className="text-xs sm:text-sm text-gray-500 mt-1">Endeudamiento</div>
-                      <div className="text-xs text-gray-400">Máximo: 70%</div>
+                    <div className="text-sm text-gray-500">Índice de Liquidez</div>
+                    <div className="text-xs text-gray-400">Mínimo: 1.2</div>
+                  </div>
+                  <div className="text-center">
+                    <div className={`text-2xl font-bold ${
+                      latestIndicators.cumple_endeudamiento ? 'text-green-600' : 'text-red-600'
+                    }`}>
+                      {formatPercentage(latestIndicators.indice_endeudamiento)}
                     </div>
-                    <div className="text-center p-3 bg-gray-50 rounded-lg">
-                      <div className={`text-xl sm:text-2xl font-bold ${
-                        latestIndicators.cumple_cobertura ? 'text-green-600' : 'text-red-600'
-                      }`}>
-                        {formatIndicator(latestIndicators.cobertura_intereses)}
-                      </div>
-                      <div className="text-xs sm:text-sm text-gray-500 mt-1">Cobertura Intereses</div>
-                      <div className="text-xs text-gray-400">Mínimo: 1.5</div>
+                    <div className="text-sm text-gray-500">Endeudamiento</div>
+                    <div className="text-xs text-gray-400">Máximo: 70%</div>
+                  </div>
+                  <div className="text-center">
+                    <div className={`text-2xl font-bold ${
+                      latestIndicators.cumple_cobertura ? 'text-green-600' : 'text-red-600'
+                    }`}>
+                      {formatIndicator(latestIndicators.cobertura_intereses)}
                     </div>
+                    <div className="text-sm text-gray-500">Cobertura Intereses</div>
+                    <div className="text-xs text-gray-400">Mínimo: 1.5</div>
+                  </div>
                 </div>
-                  {latestIndicators.cumple_todos_requisitos && (
-                    <div className="mt-3 sm:mt-4 p-2 sm:p-3 bg-green-50 text-green-800 rounded-lg text-center text-sm">
-                      ✓ Cumple todos los requisitos para licitación
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Financiero Tab */}
-          {activeTab === 'financiero' && (
-            <div className="space-y-4 sm:space-y-6">
-              {/* Botón para agregar datos financieros */}
-              <div className="flex justify-end">
-                <button 
-                  onClick={() => setIsEditing(!isEditing)}
-                  className="px-3 py-2 sm:px-4 bg-gray-900 text-white text-sm rounded-lg hover:bg-black transition-all"
-                >
-                  {isEditing ? 'Cancelar' : 'Agregar Datos Financieros'}
-                </button>
+                {latestIndicators.cumple_todos_requisitos && (
+                  <div className="mt-4 p-3 bg-green-50 text-green-800 rounded text-center">
+                    ✓ Cumple todos los requisitos para licitación
+                  </div>
+                )}
               </div>
+            )}
+          </div>
+        )}
+
+        {/* Financiero Tab */}
+        {activeTab === 'financiero' && (
+          <div className="space-y-6">
+            {/* Botón para agregar datos financieros */}
+            <div className="flex justify-end">
+              <button 
+                onClick={() => setIsEditing(!isEditing)}
+                className="px-4 py-2 bg-gray-900 text-white rounded hover:bg-black transition-all"
+              >
+                {isEditing ? 'Cancelar' : 'Agregar Datos Financieros'}
+              </button>
+            </div>
 
             {/* Formulario de datos financieros */}
             {isEditing && (
@@ -401,25 +350,22 @@ export default function ProviderProfilePage() {
               />
             )}
 
-              {/* Resumen Financiero anterior - mantenido como referencia */}
-              {latestFinancials && !isEditing && (
-                <div className="bg-white shadow-sm rounded-lg p-4 sm:p-6">
-                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
-                    <h2 className="text-base sm:text-lg font-semibold">
-                      Estados Financieros - Año {latestFinancials.anio}
-                    </h2>
-                    <button className="px-3 py-2 sm:px-4 bg-gray-900 text-white text-sm rounded-lg hover:bg-black transition-all">
-                      Agregar Año
-                    </button>
-                  </div>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-                    <div className="bg-gray-50 rounded-lg p-3 sm:p-4">
-                      <h3 className="font-medium text-gray-700 mb-2 text-sm sm:text-base">Balance General</h3>
-                      <dl className="space-y-2">
+            {/* Resumen Financiero */}
+            {latestFinancials && !isEditing && (
+              <div className="bg-white shadow rounded-lg p-6">
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-lg font-semibold">
+                    Estados Financieros - Año {latestFinancials.anio}
+                  </h2>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  <div>
+                    <h3 className="font-medium text-gray-700 mb-2">Balance General</h3>
+                    <dl className="space-y-2">
                       <div className="flex justify-between">
-                          <dt className="text-xs sm:text-sm text-gray-500">Activo Corriente</dt>
-                          <dd className="text-xs sm:text-sm font-medium">{formatCurrency(latestFinancials.activo_corriente)}</dd>
+                        <dt className="text-sm text-gray-500">Activo Corriente</dt>
+                        <dd className="text-sm font-medium">{formatCurrency(latestFinancials.activo_corriente)}</dd>
                       </div>
                       <div className="flex justify-between">
                         <dt className="text-sm text-gray-500">Pasivo Corriente</dt>
@@ -440,9 +386,9 @@ export default function ProviderProfilePage() {
                     </dl>
                   </div>
 
-                    <div className="bg-gray-50 rounded-lg p-3 sm:p-4">
-                      <h3 className="font-medium text-gray-700 mb-2 text-sm sm:text-base">Estado de Resultados</h3>
-                      <dl className="space-y-2">
+                  <div>
+                    <h3 className="font-medium text-gray-700 mb-2">Estado de Resultados</h3>
+                    <dl className="space-y-2">
                       <div className="flex justify-between">
                         <dt className="text-sm text-gray-500">Ingresos</dt>
                         <dd className="text-sm font-medium">{formatCurrency(latestFinancials.ingresos_operacionales)}</dd>
@@ -462,10 +408,10 @@ export default function ProviderProfilePage() {
                     </dl>
                   </div>
 
-                    {latestIndicators && (
-                      <div className="bg-gray-50 rounded-lg p-3 sm:p-4">
-                        <h3 className="font-medium text-gray-700 mb-2 text-sm sm:text-base">Indicadores Clave</h3>
-                        <dl className="space-y-2">
+                  {latestIndicators && (
+                    <div>
+                      <h3 className="font-medium text-gray-700 mb-2">Indicadores Clave</h3>
+                      <dl className="space-y-2">
                         <div className="flex justify-between">
                           <dt className="text-sm text-gray-500">ROE</dt>
                           <dd className="text-sm font-medium">{formatPercentage(latestIndicators.roe)}</dd>
@@ -486,55 +432,53 @@ export default function ProviderProfilePage() {
                           <dt className="text-sm text-gray-500 font-medium">Score Salud</dt>
                           <dd className="text-sm font-bold">{latestIndicators.score_salud_financiera}/100</dd>
                         </div>
-                        </dl>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Tabla de histórico */}
-              {provider.finanzas && provider.finanzas.length > 0 && (
-                <div className="bg-white shadow-sm rounded-lg p-4 sm:p-6">
-                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
-                    <h2 className="text-base sm:text-lg font-semibold">Histórico Financiero</h2>
-                    <button
-                      onClick={() => setShowAddFinancial(true)}
-                      className="px-3 py-2 sm:px-4 bg-gray-900 text-white text-sm rounded-lg hover:bg-black transition-all flex items-center gap-2"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                      </svg>
-                      <span className="hidden sm:inline">Agregar Año</span>
-                      <span className="sm:hidden">Agregar</span>
-                    </button>
-                  </div>
-                
-                  {/* Mostrar formulario de agregar si está activo */}
-                  {showAddFinancial && (
-                    <div className="mb-4 sm:mb-6 p-3 sm:p-4 bg-gray-50 rounded-lg">
-                      <div className="flex justify-between items-center mb-3 sm:mb-4">
-                        <h3 className="font-medium text-sm sm:text-base">Agregar Datos Financieros</h3>
-                        <button
-                          onClick={() => setShowAddFinancial(false)}
-                          className="text-gray-500 hover:text-gray-700 transition-colors"
-                        >
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        </button>
-                      </div>
-                      <FinancialDataForm
-                        proveedorId={providerId}
-                        onSave={handleFinancialSaved}
-                        onCancel={() => setShowAddFinancial(false)}
-                      />
+                      </dl>
                     </div>
                   )}
-                  
-                  {/* Desktop Table */}
-                  <div className="hidden md:block overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200">
+                </div>
+              </div>
+            )}
+
+            {/* Tabla de histórico */}
+            {provider.finanzas && provider.finanzas.length > 0 && (
+              <div className="bg-white shadow rounded-lg p-6">
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-lg font-semibold">Histórico Financiero</h2>
+                  <button
+                    onClick={() => setShowAddFinancial(true)}
+                    className="px-4 py-2 bg-gray-900 text-white rounded hover:bg-black transition-all flex items-center gap-2"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    </svg>
+                    Agregar Año
+                  </button>
+                </div>
+                
+                {/* Mostrar formulario de agregar si está activo */}
+                {showAddFinancial && (
+                  <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="font-medium">Agregar Datos Financieros</h3>
+                      <button
+                        onClick={() => setShowAddFinancial(false)}
+                        className="text-gray-500 hover:text-gray-700"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                    <FinancialDataForm
+                      proveedorId={providerId}
+                      onSave={handleFinancialSaved}
+                      onCancel={() => setShowAddFinancial(false)}
+                    />
+                  </div>
+                )}
+                
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
                       <tr>
                         <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Año</th>
@@ -594,143 +538,73 @@ export default function ProviderProfilePage() {
                         );
                       })}
                     </tbody>
-                    </table>
-                  </div>
-                  
-                  {/* Mobile Cards */}
-                  <div className="md:hidden space-y-3">
-                    {provider.finanzas.map((fin) => {
-                      const indicators = provider.indicadores?.find(i => i.anio === fin.anio);
-                      const isEditing = editingFinancialId === fin.id;
-                      
-                      return (
-                        <div key={fin.id} className="border rounded-lg p-3">
-                          {!isEditing ? (
-                            <>
-                              <div className="flex justify-between items-start mb-2">
-                                <h4 className="font-medium text-gray-900">Año {fin.anio}</h4>
-                                <div className="flex gap-2">
-                                  <button 
-                                    onClick={() => handleEditFinancial(fin)}
-                                    className="text-xs text-gray-700 hover:text-black"
-                                  >
-                                    Editar
-                                  </button>
-                                  <button 
-                                    onClick={() => handleDeleteFinancial(fin.id, fin.anio)}
-                                    className="text-xs text-red-600 hover:text-red-800"
-                                  >
-                                    Eliminar
-                                  </button>
-                                </div>
-                              </div>
-                              <div className="space-y-1 text-xs">
-                                <div className="flex justify-between">
-                                  <span className="text-gray-500">Ingresos:</span>
-                                  <span className="font-medium">{formatCurrency(fin.ingresos_operacionales)}</span>
-                                </div>
-                                <div className="flex justify-between">
-                                  <span className="text-gray-500">Utilidad:</span>
-                                  <span className="font-medium">{formatCurrency(fin.utilidad_neta)}</span>
-                                </div>
-                                <div className="flex justify-between">
-                                  <span className="text-gray-500">Activos:</span>
-                                  <span className="font-medium">{formatCurrency(fin.activo_total)}</span>
-                                </div>
-                                <div className="flex justify-between">
-                                  <span className="text-gray-500">ROE:</span>
-                                  <span className="font-medium">{formatPercentage(indicators?.roe)}</span>
-                                </div>
-                              </div>
-                            </>
-                          ) : (
-                            <FinancialDataForm
-                              proveedorId={providerId}
-                              initialData={fin}
-                              onSave={handleFinancialSaved}
-                              onCancel={() => setEditingFinancialId(null)}
-                            />
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
+                  </table>
                 </div>
-              )}
+              </div>
+            )}
 
-              {(!provider.finanzas || provider.finanzas.length === 0) && !showAddFinancial && (
-                <div className="bg-white shadow-sm rounded-lg p-6 sm:p-8 text-center">
-                  <svg className="w-12 h-12 sm:w-16 sm:h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                  </svg>
-                  <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-2">Sin información financiera</h3>
-                  <p className="text-sm sm:text-base text-gray-500 mb-4 sm:mb-6">
-                    Aquí podrás registrar los estados financieros de la empresa por año.<br className="hidden sm:block"/>
-                    Se calcularán automáticamente los indicadores requeridos para licitaciones.
-                  </p>
-                  <div className="bg-gray-50 rounded-lg p-3 sm:p-4 mb-4 sm:mb-6 text-left max-w-md mx-auto">
-                    <p className="text-xs sm:text-sm font-medium text-gray-700 mb-2">Información que podrás registrar:</p>
-                    <ul className="text-xs sm:text-sm text-gray-600 space-y-1">
+            {(!provider.finanzas || provider.finanzas.length === 0) && !showAddFinancial && (
+              <div className="bg-white shadow rounded-lg p-8 text-center">
+                <svg className="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                </svg>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">Sin información financiera</h3>
+                <p className="text-gray-500 mb-6">
+                  Aquí podrás registrar los estados financieros de la empresa por año.<br/>
+                  Se calcularán automáticamente los indicadores requeridos para licitaciones.
+                </p>
+                <div className="bg-gray-50 rounded-lg p-4 mb-6 text-left max-w-md mx-auto">
+                  <p className="text-sm font-medium text-gray-700 mb-2">Información que podrás registrar:</p>
+                  <ul className="text-sm text-gray-600 space-y-1">
                     <li>• Balance General (Activos, Pasivos, Patrimonio)</li>
                     <li>• Estado de Resultados (Ingresos, Utilidades)</li>
                     <li>• Indicadores calculados automáticamente</li>
                     <li>• Validación de requisitos para licitaciones</li>
                   </ul>
-                  </div>
-                  <button 
-                    onClick={() => setShowAddFinancial(true)}
-                    className="px-4 sm:px-6 py-2 bg-gray-900 text-white text-sm rounded-lg hover:bg-black transition-all"
+                </div>
+                <button 
+                  onClick={() => setShowAddFinancial(true)}
+                  className="px-6 py-2 bg-gray-900 text-white rounded hover:bg-black transition-all"
+                >
+                  Agregar Información Financiera
+                </button>
+              </div>
+            )}
+            
+            {/* Formulario cuando no hay datos y se hace clic en agregar */}
+            {(!provider.finanzas || provider.finanzas.length === 0) && showAddFinancial && (
+              <div className="bg-white shadow rounded-lg p-6">
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-lg font-semibold">Agregar Datos Financieros</h2>
+                  <button
+                    onClick={() => setShowAddFinancial(false)}
+                    className="text-gray-500 hover:text-gray-700"
                   >
-                    Agregar Información Financiera
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
                   </button>
                 </div>
-              )}
-              
-              {/* Formulario cuando no hay datos y se hace clic en agregar */}
-              {(!provider.finanzas || provider.finanzas.length === 0) && showAddFinancial && (
-                <div className="bg-white shadow-sm rounded-lg p-4 sm:p-6">
-                  <div className="flex justify-between items-center mb-3 sm:mb-4">
-                    <h2 className="text-base sm:text-lg font-semibold">Agregar Datos Financieros</h2>
-                    <button
-                      onClick={() => setShowAddFinancial(false)}
-                      className="text-gray-500 hover:text-gray-700 transition-colors"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </div>
-                  <FinancialDataForm
-                    proveedorId={providerId}
-                    onSave={handleFinancialSaved}
-                    onCancel={() => setShowAddFinancial(false)}
-                  />
-                </div>
-              )}
-            </div>
-          )}
+                <FinancialDataForm
+                  proveedorId={providerId}
+                  onSave={handleFinancialSaved}
+                  onCancel={() => setShowAddFinancial(false)}
+                />
+              </div>
+            )}
+          </div>
+        )}
 
-          {/* Contratos Tab */}
-          {activeTab === 'contratos' && (
-            <ProviderContracts proveedorId={providerId} />
-          )}
+        {/* Contratos Tab */}
+        {activeTab === 'contratos' && (
+          <ProviderContracts proveedorId={providerId} />
+        )}
 
-          {/* Enlaces Tab */}
-          {activeTab === 'enlaces' && (
-            <LinksList proveedorId={providerId} />
-          )}
-        </div>
+        {/* Enlaces Tab */}
+        {activeTab === 'enlaces' && (
+          <LinksList proveedorId={providerId} />
+        )}
       </div>
-
-      {/* Botón flotante de edición en móvil */}
-      <button
-        onClick={() => setShowEditModal(true)}
-        className="sm:hidden fixed bottom-6 right-6 z-30 w-14 h-14 bg-gray-900 text-white rounded-full shadow-lg hover:bg-black transition-all flex items-center justify-center"
-      >
-        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-        </svg>
-      </button>
 
       {/* Modal de edición de proveedor */}
       {showEditModal && provider && (
