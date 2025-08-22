@@ -50,19 +50,40 @@ export default function AddKamModal({ isOpen, onClose, onSuccess }: AddKamModalP
   }, [isOpen])
 
   const loadMunicipalities = async () => {
-    const { data, error } = await supabase
-      .from('municipalities')
-      .select('code, name, lat, lng, department_code')
-      .order('name')
-      .limit(2000)  // Asegurar que traiga todos los municipios
+    // Supabase tiene un límite de 1000 registros por consulta
+    // Necesitamos hacer múltiples consultas con paginación
+    let allMunicipalities: Municipality[] = []
+    let page = 0
+    const pageSize = 1000
+    let hasMore = true
     
-    if (data && !error) {
-      console.log(`Municipios cargados: ${data.length}`)
-      setMunicipalities(data)
-      setFilteredMunicipalities(data)
-    } else if (error) {
-      console.error('Error cargando municipios:', error)
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from('municipalities')
+        .select('code, name, lat, lng, department_code')
+        .order('code')  // Ordenar por código para paginación consistente
+        .range(page * pageSize, (page + 1) * pageSize - 1)
+      
+      if (error) {
+        console.error('Error cargando municipios:', error)
+        break
+      }
+      
+      if (data) {
+        allMunicipalities = [...allMunicipalities, ...data]
+        hasMore = data.length === pageSize
+        page++
+      } else {
+        hasMore = false
+      }
     }
+    
+    // Ordenar por nombre después de cargar todos
+    allMunicipalities.sort((a, b) => a.name.localeCompare(b.name))
+    
+    console.log(`Total de municipios cargados: ${allMunicipalities.length}`)
+    setMunicipalities(allMunicipalities)
+    setFilteredMunicipalities(allMunicipalities)
   }
 
   useEffect(() => {
