@@ -17,16 +17,50 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
     }
 
-    // Obtener historial de importaciones desde la vista resumen
-    const { data, error } = await supabase
+    // Primero intentar con la vista, si no existe usar la tabla directamente
+    let { data, error } = await supabase
       .from('visit_imports_summary')
       .select('*')
       .order('year', { ascending: false })
       .order('month', { ascending: false })
 
     if (error) {
-      console.error('Error loading visit imports:', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+      console.error('Vista visit_imports_summary no encontrada, intentando con tabla visit_imports:', error)
+      
+      // Fallback: Si la vista no existe, intentar con la tabla directamente
+      const fallbackResult = await supabase
+        .from('visit_imports')
+        .select(`
+          *,
+          imported_by_user:users!imported_by (
+            full_name
+          )
+        `)
+        .order('year', { ascending: false })
+        .order('month', { ascending: false })
+      
+      if (fallbackResult.error) {
+        console.error('Error loading visit imports from table:', fallbackResult.error)
+        // Si tampoco existe la tabla, devolver array vacío
+        if (fallbackResult.error.code === '42P01') {
+          console.log('Tabla visit_imports no existe aún')
+          return NextResponse.json([])
+        }
+        return NextResponse.json({ error: fallbackResult.error.message }, { status: 500 })
+      }
+      
+      // Formatear los datos del fallback para que coincidan con la estructura esperada
+      data = fallbackResult.data?.map(imp => ({
+        ...imp,
+        imported_by_name: imp.imported_by_user?.full_name || 'Usuario',
+        month_name: `${new Date(2000, imp.month - 1, 1).toLocaleString('es', { month: 'long' }).charAt(0).toUpperCase() + 
+                     new Date(2000, imp.month - 1, 1).toLocaleString('es', { month: 'long' }).slice(1)} ${imp.year}`,
+        current_visits: imp.successful_records || 0,
+        kams_count: 0,
+        original_total: imp.total_records,
+        original_successful: imp.successful_records,
+        original_failed: imp.failed_records
+      })) || []
     }
 
     return NextResponse.json(data || [])

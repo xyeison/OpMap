@@ -17,11 +17,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
     }
 
-    // Obtener estadísticas de visitas
+    // Obtener estadísticas de visitas (deleted_at ya no existe)
     const { data, error } = await supabase
       .from('visits')
       .select('visit_type, contact_type')
-      .is('deleted_at', null)
 
     if (error) {
       console.error('Error loading visit stats:', error)
