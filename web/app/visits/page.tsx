@@ -9,15 +9,18 @@ import * as XLSX from 'xlsx'
 
 interface ImportHistory {
   id: string
-  import_batch: string
   filename: string
   month: number
   year: number
-  total_records: number
-  successful_records: number
-  failed_records: number
+  month_name: string
+  original_total: number
+  original_successful: number
+  original_failed: number
+  current_visits: number
+  kams_count: number
+  imported_by: string
+  imported_by_name: string
   imported_at: string
-  deleted_at: string | null
 }
 
 export default function VisitsPage() {
@@ -312,27 +315,27 @@ export default function VisitsPage() {
     }
   }
 
-  const deleteImport = async (importBatch: string) => {
-    if (!confirm('¿Estás seguro de eliminar todas las visitas de esta importación?')) {
+  const deleteImport = async (importId: string, monthYear: string) => {
+    if (!confirm(`¿Estás seguro de eliminar todas las visitas de ${monthYear}?`)) {
       return
     }
 
     try {
-      const response = await fetch(`/api/visits/imports?batch=${importBatch}`, {
+      const response = await fetch(`/api/visits/imports?id=${importId}`, {
         method: 'DELETE'
       })
 
       if (response.ok) {
         loadImportHistory()
         loadStats()
-        alert('Importación eliminada exitosamente')
+        setImportSuccess(`✅ Importación de ${monthYear} eliminada exitosamente`)
       } else {
         const error = await response.json()
-        alert('Error al eliminar: ' + (error.error || 'Error desconocido'))
+        setImportErrors([`Error al eliminar: ${error.error || 'Error desconocido'}`])
       }
     } catch (error) {
       console.error('Error deleting import:', error)
-      alert('Error al eliminar la importación')
+      setImportErrors(['Error al eliminar la importación'])
     }
   }
 
@@ -749,25 +752,23 @@ export default function VisitsPage() {
                               {imp.filename}
                             </div>
                             <div className="text-xs text-gray-500">
-                              Batch: {imp.import_batch.substring(0, 8)}
+                              Por: {imp.imported_by_name || 'Usuario'}
                             </div>
                           </div>
                         </div>
                       </td>
                       <td className="px-6 py-4">
                         <span className="inline-flex items-center px-3 py-1 rounded-lg text-xs font-medium bg-gray-100 text-gray-800">
-                          {new Date(2000, imp.month - 1, 1).toLocaleString('es', { month: 'long' }).charAt(0).toUpperCase() + 
-                           new Date(2000, imp.month - 1, 1).toLocaleString('es', { month: 'long' }).slice(1)} {imp.year}
+                          {imp.month_name || `${new Date(2000, imp.month - 1, 1).toLocaleString('es', { month: 'long' }).charAt(0).toUpperCase() + 
+                           new Date(2000, imp.month - 1, 1).toLocaleString('es', { month: 'long' }).slice(1)} ${imp.year}`}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-center">
                         <div className="flex flex-col items-center">
-                          <span className="text-sm font-bold text-green-600">{imp.successful_records}</span>
-                          <span className="text-xs text-gray-500">exitosos</span>
-                          {imp.failed_records > 0 && (
-                            <>
-                              <span className="text-xs text-red-600 mt-1">{imp.failed_records} fallidos</span>
-                            </>
+                          <span className="text-sm font-bold text-gray-900">{imp.current_visits || 0}</span>
+                          <span className="text-xs text-gray-500">visitas activas</span>
+                          {imp.kams_count > 0 && (
+                            <span className="text-xs text-blue-600 mt-1">{imp.kams_count} KAMs</span>
                           )}
                         </div>
                       </td>
@@ -781,7 +782,7 @@ export default function VisitsPage() {
                       </td>
                       <td className="px-6 py-4 text-center">
                         <button
-                          onClick={() => deleteImport(imp.import_batch)}
+                          onClick={() => deleteImport(imp.id, imp.month_name || `${imp.month}/${imp.year}`)}
                           className="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-all group"
                           title="Eliminar importación"
                         >

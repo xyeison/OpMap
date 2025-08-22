@@ -26,6 +26,36 @@ export async function POST(request: NextRequest) {
 
     const { visits, month, year, filename } = await request.json()
 
+    // Crear registro de importación primero
+    const { data: importRecord, error: importError } = await supabase
+      .from('visit_imports')
+      .insert({
+        filename,
+        month,
+        year,
+        total_records: visits.length,
+        successful_records: 0, // Se actualizará al final
+        failed_records: 0, // Se actualizará al final
+        imported_by: user.id
+      })
+      .select()
+      .single()
+
+    if (importError) {
+      console.error('Error creando registro de importación:', importError)
+      // Si ya existe una importación para este mes/año
+      if (importError.code === '23505') {
+        return NextResponse.json(
+          { error: `Ya existe una importación para ${month}/${year}. Elimínela primero.` },
+          { status: 400 }
+        )
+      }
+      return NextResponse.json(
+        { error: 'Error al crear registro de importación' },
+        { status: 500 }
+      )
+    }
+
     if (!visits || visits.length === 0) {
       return NextResponse.json(
         { error: 'No se encontraron visitas para importar' },
@@ -80,7 +110,8 @@ export async function POST(request: NextRequest) {
             lng: visit.lng,
             visit_date: visit.visit_date,
             hospital_id: nearestHospital,
-            imported_by: user.id
+            imported_by: user.id,
+            import_id: importRecord.id
           })
 
         if (insertError) {
@@ -101,8 +132,21 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Ya no registramos en visit_imports porque la tabla fue eliminada
+    // Actualizar el registro de importación con los resultados finales
+    const { error: updateError } = await supabase
+      .from('visit_imports')
+      .update({
+        successful_records: successfulCount,
+        failed_records: failedVisits.length
+      })
+      .eq('id', importRecord.id)
+
+    if (updateError) {
+      console.error('Error actualizando registro de importación:', updateError)
+    }
+
     console.log('Importación completada:', {
+      import_id: importRecord.id,
       total: visits.length,
       exitosos: successfulCount,
       fallidos: failedVisits.length
@@ -123,7 +167,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// DELETE endpoint para eliminar visitas de un mes/año específico
+// DELETE endpoint para eliminar una importación específica
 export async function DELETE(request: NextRequest) {
   try {
     const cookieStore = cookies()
@@ -138,27 +182,37 @@ export async function DELETE(request: NextRequest) {
       )
     }
 
-    // Obtener mes y año de los parámetros
+    // Obtener el ID de importación
     const url = new URL(request.url)
-    const month = url.searchParams.get('month')
-    const year = url.searchParams.get('year')
+    const importId = url.searchParams.get('importId')
 
-    if (!month || !year) {
+    if (!importId) {
       return NextResponse.json(
-        { error: 'Mes y año son requeridos' },
+        { error: 'ID de importación requerido' },
         { status: 400 }
       )
     }
 
-    // Eliminar las visitas del mes/año especificado
-    const { error: deleteError } = await supabase
+    // Eliminar las visitas asociadas a esta importación
+    const { error: deleteVisitsError } = await supabase
       .from('visits')
       .delete()
-      .gte('visit_date', `${year}-${String(month).padStart(2, '0')}-01`)
-      .lt('visit_date', `${year}-${String(Number(month) + 1).padStart(2, '0')}-01`)
+      .eq('import_id', importId)
 
-    if (deleteError) {
-      throw deleteError
+    if (deleteVisitsError) {
+      console.error('Error eliminando visitas:', deleteVisitsError)
+      throw deleteVisitsError
+    }
+
+    // Eliminar el registro de importación
+    const { error: deleteImportError } = await supabase
+      .from('visit_imports')
+      .delete()
+      .eq('id', importId)
+
+    if (deleteImportError) {
+      console.error('Error eliminando registro de importación:', deleteImportError)
+      throw deleteImportError
     }
 
     return NextResponse.json({ success: true })

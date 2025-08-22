@@ -17,13 +17,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
     }
 
-    // Obtener historial de importaciones (solo las no eliminadas)
+    // Obtener historial de importaciones desde la vista resumen
     const { data, error } = await supabase
-      .from('visit_imports')
+      .from('visit_imports_summary')
       .select('*')
-      .is('deleted_at', null)
-      .order('imported_at', { ascending: false })
-      .limit(20)
+      .order('year', { ascending: false })
+      .order('month', { ascending: false })
 
     if (error) {
       console.error('Error loading visit imports:', error)
@@ -54,32 +53,32 @@ export async function DELETE(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url)
-    const importBatch = searchParams.get('batch')
+    const importId = searchParams.get('id')
 
-    if (!importBatch) {
-      return NextResponse.json({ error: 'Batch ID requerido' }, { status: 400 })
+    if (!importId) {
+      return NextResponse.json({ error: 'ID de importación requerido' }, { status: 400 })
     }
 
-    // Marcar la importación como eliminada
-    const { error: updateError } = await supabase
-      .from('visit_imports')
-      .update({ deleted_at: new Date().toISOString() })
-      .eq('import_batch', importBatch)
-
-    if (updateError) {
-      console.error('Error deleting import:', updateError)
-      return NextResponse.json({ error: updateError.message }, { status: 500 })
-    }
-
-    // Marcar las visitas asociadas como eliminadas
+    // Eliminar las visitas asociadas a esta importación
     const { error: visitsError } = await supabase
       .from('visits')
-      .update({ deleted_at: new Date().toISOString() })
-      .eq('import_batch', importBatch)
+      .delete()
+      .eq('import_id', importId)
 
     if (visitsError) {
       console.error('Error deleting visits:', visitsError)
       return NextResponse.json({ error: visitsError.message }, { status: 500 })
+    }
+
+    // Eliminar el registro de importación
+    const { error: importError } = await supabase
+      .from('visit_imports')
+      .delete()
+      .eq('id', importId)
+
+    if (importError) {
+      console.error('Error deleting import record:', importError)
+      return NextResponse.json({ error: importError.message }, { status: 500 })
     }
 
     return NextResponse.json({ success: true })
