@@ -107,17 +107,21 @@ export default function EditKamModal({ kam, isOpen, onClose, onUpdate }: EditKam
           enable_level2: formData.enable_level2,
           priority: formData.priority,
           participates_in_assignment: formData.participates_in_assignment,
-          color: formData.color,
-          updated_at: new Date().toISOString()
+          color: formData.color
         }
         
-        // Ahora actualizar los otros campos (si es necesario)
-        const { error: updateError } = await supabase
-          .from('kams')
-          .update(updateData)
-          .eq('id', kam.id)
+        // Usar el endpoint API que tiene Service Role Key para bypass RLS
+        const updateResponse = await fetch('/api/kams/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ kamId: kam.id, updateData })
+        })
+
+        const updateResult = await updateResponse.json()
         
-        if (updateError) throw updateError
+        if (!updateResponse.ok) {
+          throw new Error(updateResult.error || 'Error al actualizar KAM')
+        }
         
       } else {
         // Preparar datos para actualizar
@@ -127,17 +131,21 @@ export default function EditKamModal({ kam, isOpen, onClose, onUpdate }: EditKam
           enable_level2: formData.enable_level2,
           priority: formData.priority,
           participates_in_assignment: formData.participates_in_assignment,
-          color: formData.color,
-          updated_at: new Date().toISOString()
+          color: formData.color
         }
         
-        // Si NO cambió el estado, solo actualizar los campos normales
-        const { error: updateError } = await supabase
-          .from('kams')
-          .update(updateData)
-          .eq('id', kam.id)
+        // Usar el endpoint API que tiene Service Role Key para bypass RLS
+        const response = await fetch('/api/kams/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ kamId: kam.id, updateData })
+        })
 
-        if (updateError) throw updateError
+        const result = await response.json()
+        
+        if (!response.ok) {
+          throw new Error(result.error || 'Error al actualizar KAM')
+        }
       }
 
       queryClient.invalidateQueries({ queryKey: ['kams'] })

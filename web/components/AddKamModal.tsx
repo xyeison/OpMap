@@ -106,29 +106,20 @@ export default function AddKamModal({ isOpen, onClose, onSuccess }: AddKamModalP
         enable_level2: formData.enable_level2,
         priority: formData.priority,
         participates_in_assignment: formData.participates_in_assignment,
-        color: formData.color,
-        active: true,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
+        color: formData.color
       }
 
-      // Insertar el nuevo KAM
-      const { error: insertError } = await supabase
-        .from('kams')
-        .insert(kamData)
+      // Usar el endpoint API que tiene Service Role Key para bypass RLS
+      const response = await fetch('/api/kams/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(kamData)
+      })
 
-      if (insertError) throw insertError
+      const result = await response.json()
 
-      // Solo ejecutar recálculo si el KAM participa en asignación territorial
-      if (formData.participates_in_assignment) {
-        const response = await fetch('/api/recalculate-simplified', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
-        })
-
-        if (!response.ok) {
-          console.warn('Error al recalcular asignaciones:', await response.text())
-        }
+      if (!response.ok) {
+        throw new Error(result.error || 'Error al crear el KAM')
       }
 
       queryClient.invalidateQueries({ queryKey: ['kams'] })
