@@ -47,7 +47,6 @@ export async function GET(request: NextRequest) {
     let query = supabase
       .from('visits')
       .select('*')
-      .is('deleted_at', null)
       .order('visit_date', { ascending: false })
     
     // Aplicar filtros de fecha
@@ -75,7 +74,6 @@ export async function GET(request: NextRequest) {
         let monthQuery = supabase
           .from('visits')
           .select('*')
-          .is('deleted_at', null)
           .gte('visit_date', startDate)
           .lt('visit_date', endDate)
         

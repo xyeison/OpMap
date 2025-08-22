@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { visits, month, year, filename, importBatch } = await request.json()
+    const { visits, month, year, filename } = await request.json()
 
     if (!visits || visits.length === 0) {
       return NextResponse.json(
@@ -41,13 +41,12 @@ export async function POST(request: NextRequest) {
     // Eliminar visitas previas del mismo mes/año si existen
     const { error: deleteError } = await supabase
       .from('visits')
-      .update({ deleted_at: new Date().toISOString() })
+      .delete()
       .gte('visit_date', `${year}-${String(month).padStart(2, '0')}-01`)
       .lt('visit_date', `${year}-${String(month + 1).padStart(2, '0')}-01`)
-      .is('deleted_at', null)
 
     if (deleteError) {
-      console.error('Error marking old visits as deleted:', deleteError)
+      console.error('Error deleting old visits:', deleteError)
     }
 
     // Procesar cada visita
@@ -65,7 +64,13 @@ export async function POST(request: NextRequest) {
         const { error: insertError } = await supabase
           .from('visits')
           .insert({
-            ...visit,
+            kam_id: visit.kam_id,
+            kam_name: visit.kam_name,
+            visit_type: visit.visit_type,
+            contact_type: visit.contact_type,
+            lat: visit.lat,
+            lng: visit.lng,
+            visit_date: visit.visit_date,
             hospital_id: nearestHospital,
             imported_by: user.id
           })
@@ -88,33 +93,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Registrar la importación
-    try {
-      const { error: importError } = await supabase
-        .from('visit_imports')
-        .insert({
-          import_batch: importBatch,
-          filename,
-          month,
-          year,
-          total_records: visits.length,
-          successful_records: successfulCount,
-          failed_records: failedVisits.length,
-          error_details: errors.length > 0 ? { errors, failedVisits } : null,
-          imported_by: user.id
-        })
-
-      if (importError) {
-        console.error('Error registering import:', importError)
-        // Si falla por RLS, continuar de todos modos
-        if (importError.code !== '42501') {
-          throw importError
-        }
-      }
-    } catch (error) {
-      console.error('Error al registrar importación, continuando de todos modos:', error)
-      // No fallar la importación completa si solo falla el registro
-    }
+    // Ya no registramos en visit_imports porque la tabla fue eliminada
+    console.log('Importación completada:', {
+      total: visits.length,
+      exitosos: successfulCount,
+      fallidos: failedVisits.length
+    })
 
     return NextResponse.json({
       success: true,
@@ -131,7 +115,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// DELETE endpoint para eliminar importaciones
+// DELETE endpoint para eliminar visitas de un mes/año específico
 export async function DELETE(request: NextRequest) {
   try {
     const cookieStore = cookies()
@@ -146,43 +130,34 @@ export async function DELETE(request: NextRequest) {
       )
     }
 
-    // Obtener el importBatch del path
+    // Obtener mes y año de los parámetros
     const url = new URL(request.url)
-    const pathParts = url.pathname.split('/')
-    const importBatch = pathParts[pathParts.length - 1]
+    const month = url.searchParams.get('month')
+    const year = url.searchParams.get('year')
 
-    if (!importBatch) {
+    if (!month || !year) {
       return NextResponse.json(
-        { error: 'ID de importación no proporcionado' },
+        { error: 'Mes y año son requeridos' },
         { status: 400 }
       )
     }
 
-    // Marcar las visitas como eliminadas (soft delete)
-    const { error: deleteVisitsError } = await supabase
+    // Eliminar las visitas del mes/año especificado
+    const { error: deleteError } = await supabase
       .from('visits')
-      .update({ deleted_at: new Date().toISOString() })
-      .eq('import_batch', importBatch)
+      .delete()
+      .gte('visit_date', `${year}-${String(month).padStart(2, '0')}-01`)
+      .lt('visit_date', `${year}-${String(Number(month) + 1).padStart(2, '0')}-01`)
 
-    if (deleteVisitsError) {
-      throw deleteVisitsError
-    }
-
-    // Marcar la importación como eliminada
-    const { error: deleteImportError } = await supabase
-      .from('visit_imports')
-      .update({ deleted_at: new Date().toISOString() })
-      .eq('import_batch', importBatch)
-
-    if (deleteImportError) {
-      throw deleteImportError
+    if (deleteError) {
+      throw deleteError
     }
 
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('Delete error:', error)
     return NextResponse.json(
-      { error: 'Error al eliminar la importación' },
+      { error: 'Error al eliminar las visitas' },
       { status: 500 }
     )
   }

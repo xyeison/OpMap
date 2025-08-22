@@ -9,8 +9,7 @@ interface Visit {
   lat: number
   lng: number
   visit_date: string
-  hospital_name: string | null
-  observations: string | null
+  hospital_id?: string | null
 }
 
 export function useVisits(filters?: {
