@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation'
 import KamDeactivateButton from '@/components/KamDeactivateButton'
 import KamActivateButton from '@/components/KamActivateButton'
 import EditKamModal from '@/components/EditKamModal'
+import AddKamModal from '@/components/AddKamModal'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
 
@@ -520,6 +521,17 @@ export default function KamsPage() {
               onUpdate={handleUpdate}
             />
           )}
+
+          {/* Modal de agregar */}
+          <AddKamModal
+            isOpen={showForm}
+            onClose={() => setShowForm(false)}
+            onSuccess={() => {
+              setShowForm(false)
+              queryClient.invalidateQueries({ queryKey: ['kams'] })
+              loadAdditionalData()
+            }}
+          />
         </div>
       </PermissionGuard>
     </ProtectedRoute>
