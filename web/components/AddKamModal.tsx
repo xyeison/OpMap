@@ -33,7 +33,6 @@ export default function AddKamModal({ isOpen, onClose, onSuccess }: AddKamModalP
     max_travel_time: 240,
     enable_level2: true,
     priority: 2,
-    participates_in_assignment: true,
     color: DEFAULT_COLORS[Math.floor(Math.random() * DEFAULT_COLORS.length)]
   })
   const [municipalities, setMunicipalities] = useState<Municipality[]>([])
@@ -96,8 +95,8 @@ export default function AddKamModal({ isOpen, onClose, onSuccess }: AddKamModalP
         throw new Error('Debe seleccionar un municipio')
       }
 
-      // Preparar datos para insertar (omitir participates_in_assignment si causa error)
-      const kamData: any = {
+      // Preparar datos para insertar
+      const kamData = {
         name: formData.name.trim(),
         area_id: formData.area_id,
         lat: formData.lat,
@@ -111,11 +110,6 @@ export default function AddKamModal({ isOpen, onClose, onSuccess }: AddKamModalP
         updated_at: new Date().toISOString()
       }
 
-      // Solo agregar participates_in_assignment si es false (para evitar error si no existe la columna)
-      if (formData.participates_in_assignment === false) {
-        kamData.participates_in_assignment = false
-      }
-
       // Insertar el nuevo KAM
       const { error: insertError } = await supabase
         .from('kams')
@@ -123,16 +117,14 @@ export default function AddKamModal({ isOpen, onClose, onSuccess }: AddKamModalP
 
       if (insertError) throw insertError
 
-      // Si el KAM participa en asignación territorial, ejecutar recálculo
-      if (formData.participates_in_assignment) {
-        const response = await fetch('/api/recalculate-simplified', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
-        })
+      // Siempre ejecutar recálculo después de agregar un KAM
+      const response = await fetch('/api/recalculate-simplified', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      })
 
-        if (!response.ok) {
-          console.warn('Error al recalcular asignaciones:', await response.text())
-        }
+      if (!response.ok) {
+        console.warn('Error al recalcular asignaciones:', await response.text())
       }
 
       queryClient.invalidateQueries({ queryKey: ['kams'] })
@@ -154,7 +146,6 @@ export default function AddKamModal({ isOpen, onClose, onSuccess }: AddKamModalP
       max_travel_time: 240,
       enable_level2: true,
       priority: 2,
-      participates_in_assignment: true,
       color: DEFAULT_COLORS[Math.floor(Math.random() * DEFAULT_COLORS.length)]
     })
     setSearchTerm('')
@@ -292,25 +283,6 @@ export default function AddKamModal({ isOpen, onClose, onSuccess }: AddKamModalP
                   </span>
                   <p className="text-xs text-gray-500 mt-1">
                     Permite buscar en departamentos adyacentes de segundo nivel
-                  </p>
-                </div>
-              </label>
-
-              <label className="flex items-center gap-3 p-4 bg-white rounded-lg border-2 border-gray-200 hover:border-gray-300 transition-all cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={formData.participates_in_assignment}
-                  onChange={(e) => setFormData({ ...formData, participates_in_assignment: e.target.checked })}
-                  className="w-5 h-5 text-gray-700 rounded focus:ring-gray-500"
-                />
-                <div className="flex-1">
-                  <span className="text-sm font-medium text-gray-900">
-                    Participa en asignación territorial
-                  </span>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {formData.participates_in_assignment 
-                      ? "El KAM tendrá territorio asignado y aparecerá en el mapa"
-                      : "KAM administrativo sin territorio (no aparece en el mapa)"}
                   </p>
                 </div>
               </label>

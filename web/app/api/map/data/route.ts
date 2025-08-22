@@ -21,17 +21,17 @@ export async function GET(request: NextRequest) {
     const [kamsResult, assignmentsResult, municipalitiesResult, hospitalsResult, contractsResult] = await Promise.all([
       supabase.from('kams')
         .select('*')
-        .eq('active', true),  // Nota: filtraremos participates_in_assignment después si existe
+        .eq('active', true),
       supabase.from('assignments').select('*, hospitals!inner(*), kams!inner(*)'),
       supabase.from('municipalities').select('id, name, population_2025'),
       supabase.from('hospitals').select('*').eq('active', true),
       supabase.from('hospital_contracts').select('hospital_id, contract_value, provider').eq('active', true)
     ])
 
-    // Filtrar KAMs que participan en asignación territorial (si la columna existe)
-    const kamsFiltered = (kamsResult.data || []).filter(kam => 
-      kam.participates_in_assignment !== false  // Por defecto true si no existe
-    )
+    // Por ahora, mostrar todos los KAMs activos en el mapa
+    // En el futuro, cuando la columna participates_in_assignment esté disponible,
+    // podremos filtrar directamente desde la base de datos
+    const kamsFiltered = kamsResult.data || []
 
     console.log('Map data loaded:', {
       kams: kamsFiltered.length,
