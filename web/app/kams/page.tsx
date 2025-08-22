@@ -21,6 +21,7 @@ interface KamWithData {
   max_travel_time: number
   enable_level2: boolean
   priority: number
+  participates_in_assignment?: boolean
   municipalityName?: string
   hospitalCount?: number
   contractsValue?: number
@@ -283,6 +284,9 @@ export default function KamsPage() {
                     <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Configuración</span>
                   </th>
                   <th className="px-6 py-5 text-center">
+                    <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Tipo</span>
+                  </th>
+                  <th className="px-6 py-5 text-center">
                     <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Estado</span>
                   </th>
                   <th className="px-6 py-5 text-center">
@@ -357,6 +361,22 @@ export default function KamsPage() {
                           </span>
                         </div>
                       </div>
+                    </td>
+                    <td className="px-6 py-5 text-center">
+                      <span className={`inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-bold ${
+                        kam.participates_in_assignment !== false
+                          ? 'bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-700 border border-blue-200'
+                          : 'bg-gradient-to-r from-gray-50 to-slate-50 text-gray-700 border border-gray-300'
+                      }`}>
+                        <svg className={`w-4 h-4 mr-1.5 ${kam.participates_in_assignment !== false ? 'text-blue-600' : 'text-gray-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          {kam.participates_in_assignment !== false ? (
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+                          ) : (
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1" />
+                          )}
+                        </svg>
+                        {kam.participates_in_assignment !== false ? 'Territorial' : 'Administrativo'}
+                      </span>
                     </td>
                     <td className="px-6 py-5 text-center">
                       <span className={`inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-bold ${

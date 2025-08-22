@@ -23,6 +23,7 @@ interface KAM {
   max_travel_time: number  // En MINUTOS
   priority: number
   active: boolean
+  participates_in_assignment?: boolean  // Si participa en asignación territorial
 }
 
 interface Hospital {
@@ -81,14 +82,15 @@ export class SimplifiedOpMapAlgorithm {
     this.excludedDepartments = (excludedDepts || []).map(d => d.code)
     console.log(`✅ ${this.excludedDepartments.length} departamentos excluidos`)
     
-    // 2. Cargar KAMs activos
+    // 2. Cargar KAMs activos que participan en asignación territorial
     const { data: kamsData } = await supabase
       .from('kams')
       .select('*')
       .eq('active', true)
+      .eq('participates_in_assignment', true)  // Solo KAMs que participan en territorio
     
     this.kams = kamsData || []
-    console.log(`✅ ${this.kams.length} KAMs activos`)
+    console.log(`✅ ${this.kams.length} KAMs activos con territorio`)
     
     // 3. Cargar hospitales activos (NO filtrar por departamentos aquí)
     const { data: hospitalsData } = await supabase

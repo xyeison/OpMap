@@ -19,7 +19,10 @@ export async function GET(request: NextRequest) {
 
     // Cargar todos los datos necesarios para el mapa
     const [kamsResult, assignmentsResult, municipalitiesResult, hospitalsResult, contractsResult] = await Promise.all([
-      supabase.from('kams').select('*').eq('active', true),
+      supabase.from('kams')
+        .select('*')
+        .eq('active', true)
+        .eq('participates_in_assignment', true),  // Solo KAMs que participan en territorio
       supabase.from('assignments').select('*, hospitals!inner(*), kams!inner(*)'),
       supabase.from('municipalities').select('id, name, population_2025'),
       supabase.from('hospitals').select('*').eq('active', true),

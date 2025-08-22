@@ -15,6 +15,7 @@ interface KAM {
   max_travel_time: number
   enable_level2: boolean
   priority: number
+  participates_in_assignment?: boolean
 }
 
 interface EditKamModalProps {
@@ -31,7 +32,8 @@ export default function EditKamModal({ kam, isOpen, onClose, onUpdate }: EditKam
     enable_level2: true,
     priority: 2,
     active: true,
-    color: ''
+    color: '',
+    participates_in_assignment: true
   })
   const [loading, setLoading] = useState(false)
   const [recalculating, setRecalculating] = useState(false)
@@ -48,6 +50,7 @@ export default function EditKamModal({ kam, isOpen, onClose, onUpdate }: EditKam
         enable_level2: kam.enable_level2,
         priority: kam.priority,
         active: kam.active,
+        participates_in_assignment: kam.participates_in_assignment !== false,
         color: kam.color
       })
       setError('')
@@ -104,6 +107,7 @@ export default function EditKamModal({ kam, isOpen, onClose, onUpdate }: EditKam
             name: formData.name,
             max_travel_time: formData.max_travel_time,
             enable_level2: formData.enable_level2,
+            participates_in_assignment: formData.participates_in_assignment,
             priority: formData.priority,
             color: formData.color,
             updated_at: new Date().toISOString()
@@ -120,6 +124,7 @@ export default function EditKamModal({ kam, isOpen, onClose, onUpdate }: EditKam
             name: formData.name,
             max_travel_time: formData.max_travel_time,
             enable_level2: formData.enable_level2,
+            participates_in_assignment: formData.participates_in_assignment,
             priority: formData.priority,
             color: formData.color,
             updated_at: new Date().toISOString()
@@ -404,6 +409,36 @@ export default function EditKamModal({ kam, isOpen, onClose, onUpdate }: EditKam
                     {formData.enable_level2 && (
                       <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-semibold rounded-lg">
                         Activo
+                      </span>
+                    )}
+                  </label>
+                </div>
+
+                <div>
+                  <label className="flex items-center gap-3 p-4 bg-white rounded-lg border-2 border-gray-200 hover:border-gray-300 transition-all cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.participates_in_assignment}
+                      onChange={(e) => setFormData({ ...formData, participates_in_assignment: e.target.checked })}
+                      className="w-5 h-5 text-gray-700 rounded focus:ring-gray-500"
+                    />
+                    <div className="flex-1">
+                      <span className="text-sm font-medium text-gray-900">
+                        Participa en asignación territorial
+                      </span>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {formData.participates_in_assignment 
+                          ? "El KAM tiene territorio asignado y aparece en el mapa"
+                          : "KAM administrativo sin territorio (no aparece en el mapa)"}
+                      </p>
+                    </div>
+                    {formData.participates_in_assignment ? (
+                      <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-semibold rounded-lg">
+                        Territorial
+                      </span>
+                    ) : (
+                      <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs font-semibold rounded-lg">
+                        Administrativo
                       </span>
                     )}
                   </label>
