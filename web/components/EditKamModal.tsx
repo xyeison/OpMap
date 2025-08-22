@@ -101,18 +101,14 @@ export default function EditKamModal({ kam, isOpen, onClose, onUpdate }: EditKam
         }
         
         // Preparar datos para actualizar
-        const updateData: any = {
+        const updateData = {
           name: formData.name,
           max_travel_time: formData.max_travel_time,
           enable_level2: formData.enable_level2,
           priority: formData.priority,
+          participates_in_assignment: formData.participates_in_assignment,
           color: formData.color,
           updated_at: new Date().toISOString()
-        }
-        
-        // Solo incluir participates_in_assignment si es diferente del valor por defecto
-        if (formData.participates_in_assignment === false) {
-          updateData.participates_in_assignment = false
         }
         
         // Ahora actualizar los otros campos (si es necesario)
@@ -125,18 +121,14 @@ export default function EditKamModal({ kam, isOpen, onClose, onUpdate }: EditKam
         
       } else {
         // Preparar datos para actualizar
-        const updateData: any = {
+        const updateData = {
           name: formData.name,
           max_travel_time: formData.max_travel_time,
           enable_level2: formData.enable_level2,
           priority: formData.priority,
+          participates_in_assignment: formData.participates_in_assignment,
           color: formData.color,
           updated_at: new Date().toISOString()
-        }
-        
-        // Solo incluir participates_in_assignment si es diferente del valor por defecto
-        if (formData.participates_in_assignment === false) {
-          updateData.participates_in_assignment = false
         }
         
         // Si NO cambió el estado, solo actualizar los campos normales
