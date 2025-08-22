@@ -52,21 +52,31 @@ export default function AddKamModal({ isOpen, onClose, onSuccess }: AddKamModalP
   const loadMunicipalities = async () => {
     const { data, error } = await supabase
       .from('municipalities')
-      .select('*')
+      .select('code, name, lat, lng, department_code')
       .order('name')
+      .limit(2000)  // Asegurar que traiga todos los municipios
     
     if (data && !error) {
+      console.log(`Municipios cargados: ${data.length}`)
       setMunicipalities(data)
       setFilteredMunicipalities(data)
+    } else if (error) {
+      console.error('Error cargando municipios:', error)
     }
   }
 
   useEffect(() => {
     if (searchTerm) {
-      const filtered = municipalities.filter(m => 
-        m.name.toLowerCase().includes(searchTerm.toLowerCase())
-      )
+      const normalizedSearch = searchTerm.toLowerCase().trim()
+      const filtered = municipalities.filter(m => {
+        const normalizedName = m.name.toLowerCase()
+        // Buscar coincidencias parciales o exactas
+        return normalizedName.includes(normalizedSearch) ||
+               normalizedName.startsWith(normalizedSearch) ||
+               m.code.includes(searchTerm)
+      })
       setFilteredMunicipalities(filtered)
+      console.log(`Búsqueda "${searchTerm}": ${filtered.length} resultados`)
     } else {
       setFilteredMunicipalities(municipalities)
     }
@@ -201,20 +211,34 @@ export default function AddKamModal({ isOpen, onClose, onSuccess }: AddKamModalP
                 placeholder="Buscar municipio..."
                 required
               />
-              {searchTerm && filteredMunicipalities.length > 0 && (
-                <div className="mt-2 max-h-48 overflow-y-auto border border-gray-200 rounded-lg shadow-lg">
-                  {filteredMunicipalities.slice(0, 10).map((municipality) => (
-                    <button
-                      key={municipality.code}
-                      type="button"
-                      onClick={() => handleMunicipalitySelect(municipality)}
-                      className="w-full px-4 py-2 text-left hover:bg-gray-100 transition-colors"
-                    >
-                      <div className="font-medium">{municipality.name}</div>
-                      <div className="text-xs text-gray-500">Código: {municipality.code}</div>
-                    </button>
-                  ))}
-                </div>
+              {searchTerm && (
+                <>
+                  {filteredMunicipalities.length > 0 ? (
+                    <div className="mt-2">
+                      <div className="text-xs text-gray-500 px-2 py-1">
+                        {filteredMunicipalities.length} municipios encontrados
+                        {filteredMunicipalities.length > 50 && ' (mostrando primeros 50)'}
+                      </div>
+                      <div className="max-h-64 overflow-y-auto border border-gray-200 rounded-lg shadow-lg">
+                        {filteredMunicipalities.slice(0, 50).map((municipality) => (
+                          <button
+                            key={municipality.code}
+                            type="button"
+                            onClick={() => handleMunicipalitySelect(municipality)}
+                            className="w-full px-4 py-2 text-left hover:bg-gray-100 transition-colors border-b border-gray-100 last:border-b-0"
+                          >
+                            <div className="font-medium">{municipality.name}</div>
+                            <div className="text-xs text-gray-500">Código: {municipality.code}</div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-2 text-sm text-gray-500 px-2">
+                      No se encontraron municipios con "{searchTerm}"
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
