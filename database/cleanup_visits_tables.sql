@@ -123,12 +123,14 @@ COMMIT;
 DO $$
 BEGIN
     RAISE NOTICE 'Limpieza de tablas de visitas completada exitosamente';
-    RAISE NOTICE 'Se ha creado una estructura simplificada con los siguientes campos:';
+    RAISE NOTICE 'Se ha creado una estructura simplificada con los siguientes campos del Excel:';
     RAISE NOTICE '- Representante (kam_id, kam_name)';
     RAISE NOTICE '- Tipo de visitas (visit_type)';
     RAISE NOTICE '- Tipo de contacto (contact_type)';
     RAISE NOTICE '- Ubicación (lat, lng)';
-    RAISE NOTICE '- Fecha de la visita (visit_date)';
-    RAISE NOTICE '- Hospital asociado automático (hospital_id)';
+    RAISE NOTICE '';
+    RAISE NOTICE 'Campos generados automáticamente:';
+    RAISE NOTICE '- Fecha de la visita (visit_date) - del mes/año seleccionado en la UI';
+    RAISE NOTICE '- Hospital asociado (hospital_id) - calculado por proximidad';
 END;
 $$;

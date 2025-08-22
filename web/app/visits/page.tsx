@@ -125,7 +125,6 @@ export default function VisitsPage() {
       // Validar y preparar datos
       const errors: string[] = []
       const validVisits: any[] = []
-      const importBatch = crypto.randomUUID()
 
       // Obtener KAMs de la base de datos
       const { data: kams, error: kamsError } = await supabase
@@ -177,7 +176,6 @@ export default function VisitsPage() {
         const tipoContacto = row['Tipo de contacto'] || row.tipo_contacto
         const latitud = row.Latitud || row.latitud
         const longitud = row.Longitud || row.longitud
-        const fechaVisita = row['Fecha de la visita'] || row.fecha_reporte || row.fecha_visita
 
         // Validar campos requeridos
         if (!kamInput) {
@@ -248,43 +246,14 @@ export default function VisitsPage() {
           return
         }
 
-        // Validar y procesar fecha
-        let visitDate: Date
-        try {
-          // Intentar parsear diferentes formatos de fecha
-          if (fechaVisita) {
-            // Si es string con formato "23 Ene 2025 3:58:35"
-            if (typeof fechaVisita === 'string' && fechaVisita.includes(' ')) {
-              // Mapear nombres de meses en español
-              const monthMap: { [key: string]: string } = {
-                'Ene': '01', 'Feb': '02', 'Mar': '03', 'Abr': '04',
-                'May': '05', 'Jun': '06', 'Jul': '07', 'Ago': '08',
-                'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dic': '12'
-              }
-              
-              const parts = fechaVisita.split(' ')
-              if (parts.length >= 3) {
-                const day = parts[0].padStart(2, '0')
-                const month = monthMap[parts[1]] || parts[1]
-                const year = parts[2]
-                visitDate = new Date(`${year}-${month}-${day}`)
-              } else {
-                visitDate = new Date(fechaVisita)
-              }
-            } else {
-              visitDate = new Date(fechaVisita)
-            }
-            
-            if (isNaN(visitDate.getTime())) {
-              throw new Error('Fecha inválida')
-            }
-          } else {
-            throw new Error('Fecha vacía')
-          }
-        } catch {
-          errors.push(`Fila ${rowNum}: Fecha inválida '${fechaVisita}'`)
+        // Generar fecha aleatoria dentro del mes/año seleccionado
+        // Esto distribuye las visitas a lo largo del mes para mejor visualización
+        if (!selectedYear || !selectedMonth) {
+          errors.push(`Fila ${rowNum}: No se ha seleccionado mes/año para la importación`)
           return
         }
+        const randomDay = Math.floor(Math.random() * 28) + 1 // Días 1-28 para evitar problemas con febrero
+        const visitDate = new Date(selectedYear, selectedMonth - 1, randomDay)
 
         validVisits.push({
           kam_id: kamId,
@@ -293,10 +262,7 @@ export default function VisitsPage() {
           contact_type: tipoContacto,
           lat: lat,
           lng: lng,
-          visit_date: visitDate.toISOString().split('T')[0],
-          hospital_name: null,
-          observations: null,
-          import_batch: importBatch
+          visit_date: visitDate.toISOString().split('T')[0]
         })
       })
 
@@ -318,8 +284,7 @@ export default function VisitsPage() {
           visits: validVisits,
           month: selectedMonth,
           year: selectedYear,
-          filename: file.name,
-          importBatch
+          filename: file.name
         })
       })
 
@@ -378,24 +343,21 @@ export default function VisitsPage() {
         'Tipo de visitas': 'Visita efectiva',
         'Tipo de contacto': 'Visita presencial',
         'Latitud': 10.963889,
-        'Longitud': -74.796387,
-        'Fecha de la visita': '15 Ene 2024 09:00:00'
+        'Longitud': -74.796387
       },
       {
         'Representante': 'Kam Cali',
         'Tipo de visitas': 'Visita extra',
         'Tipo de contacto': 'Visita virtual',
         'Latitud': 3.451647,
-        'Longitud': -76.531985,
-        'Fecha de la visita': '16 Ene 2024 14:30:00'
+        'Longitud': -76.531985
       },
       {
         'Representante': 'Kam Medellin',
         'Tipo de visitas': 'Visita no efectiva',
         'Tipo de contacto': 'Visita presencial',
         'Latitud': 6.244203,
-        'Longitud': -75.581211,
-        'Fecha de la visita': '17 Ene 2024 11:15:00'
+        'Longitud': -75.581211
       }
     ]
 

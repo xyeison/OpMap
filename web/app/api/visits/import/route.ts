@@ -52,6 +52,14 @@ export async function POST(request: NextRequest) {
     // Procesar cada visita
     for (const visit of visits) {
       try {
+        // Validar que la visita tenga una fecha válida
+        if (!visit.visit_date) {
+          console.error('Visita sin fecha:', visit)
+          errors.push(`Error: Visita sin fecha válida para KAM ${visit.kam_name}`)
+          failedVisits.push(visit)
+          continue
+        }
+
         // Intentar encontrar el hospital más cercano
         const { data: nearestHospital } = await supabase
           .rpc('find_nearest_hospital', {
