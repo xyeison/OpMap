@@ -83,13 +83,16 @@ export class SimplifiedOpMapAlgorithm {
     console.log(`✅ ${this.excludedDepartments.length} departamentos excluidos`)
     
     // 2. Cargar KAMs activos que participan en asignación territorial
+    // Nota: Si participates_in_assignment no existe, se asume true para todos
     const { data: kamsData } = await supabase
       .from('kams')
       .select('*')
       .eq('active', true)
-      .eq('participates_in_assignment', true)  // Solo KAMs que participan en territorio
     
-    this.kams = kamsData || []
+    // Filtrar KAMs que participan en asignación (si la columna existe)
+    this.kams = (kamsData || []).filter(kam => 
+      kam.participates_in_assignment !== false  // Por defecto true si no existe
+    )
     console.log(`✅ ${this.kams.length} KAMs activos con territorio`)
     
     // 3. Cargar hospitales activos (NO filtrar por departamentos aquí)

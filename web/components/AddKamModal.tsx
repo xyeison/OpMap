@@ -96,23 +96,30 @@ export default function AddKamModal({ isOpen, onClose, onSuccess }: AddKamModalP
         throw new Error('Debe seleccionar un municipio')
       }
 
+      // Preparar datos para insertar (omitir participates_in_assignment si causa error)
+      const kamData: any = {
+        name: formData.name.trim(),
+        area_id: formData.area_id,
+        lat: formData.lat,
+        lng: formData.lng,
+        max_travel_time: formData.max_travel_time,
+        enable_level2: formData.enable_level2,
+        priority: formData.priority,
+        color: formData.color,
+        active: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }
+
+      // Solo agregar participates_in_assignment si es false (para evitar error si no existe la columna)
+      if (formData.participates_in_assignment === false) {
+        kamData.participates_in_assignment = false
+      }
+
       // Insertar el nuevo KAM
       const { error: insertError } = await supabase
         .from('kams')
-        .insert({
-          name: formData.name.trim(),
-          area_id: formData.area_id,
-          lat: formData.lat,
-          lng: formData.lng,
-          max_travel_time: formData.max_travel_time,
-          enable_level2: formData.enable_level2,
-          priority: formData.priority,
-          participates_in_assignment: formData.participates_in_assignment,
-          color: formData.color,
-          active: true,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        })
+        .insert(kamData)
 
       if (insertError) throw insertError
 

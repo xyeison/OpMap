@@ -100,35 +100,49 @@ export default function EditKamModal({ kam, isOpen, onClose, onUpdate }: EditKam
           throw new Error(result.error || 'Error al cambiar estado del KAM')
         }
         
+        // Preparar datos para actualizar
+        const updateData: any = {
+          name: formData.name,
+          max_travel_time: formData.max_travel_time,
+          enable_level2: formData.enable_level2,
+          priority: formData.priority,
+          color: formData.color,
+          updated_at: new Date().toISOString()
+        }
+        
+        // Solo incluir participates_in_assignment si es diferente del valor por defecto
+        if (formData.participates_in_assignment === false) {
+          updateData.participates_in_assignment = false
+        }
+        
         // Ahora actualizar los otros campos (si es necesario)
         const { error: updateError } = await supabase
           .from('kams')
-          .update({
-            name: formData.name,
-            max_travel_time: formData.max_travel_time,
-            enable_level2: formData.enable_level2,
-            participates_in_assignment: formData.participates_in_assignment,
-            priority: formData.priority,
-            color: formData.color,
-            updated_at: new Date().toISOString()
-          })
+          .update(updateData)
           .eq('id', kam.id)
         
         if (updateError) throw updateError
         
       } else {
+        // Preparar datos para actualizar
+        const updateData: any = {
+          name: formData.name,
+          max_travel_time: formData.max_travel_time,
+          enable_level2: formData.enable_level2,
+          priority: formData.priority,
+          color: formData.color,
+          updated_at: new Date().toISOString()
+        }
+        
+        // Solo incluir participates_in_assignment si es diferente del valor por defecto
+        if (formData.participates_in_assignment === false) {
+          updateData.participates_in_assignment = false
+        }
+        
         // Si NO cambió el estado, solo actualizar los campos normales
         const { error: updateError } = await supabase
           .from('kams')
-          .update({
-            name: formData.name,
-            max_travel_time: formData.max_travel_time,
-            enable_level2: formData.enable_level2,
-            participates_in_assignment: formData.participates_in_assignment,
-            priority: formData.priority,
-            color: formData.color,
-            updated_at: new Date().toISOString()
-          })
+          .update(updateData)
           .eq('id', kam.id)
 
         if (updateError) throw updateError
