@@ -18,6 +18,8 @@ interface MapControlsProps {
   onHospitalSelect?: (hospitalId: string | null) => void
   onMapNavigate?: (lat: number, lng: number, zoom: number) => void
   onShowContractsChange?: (show: boolean) => void
+  viewMode?: 'kams' | 'zones'
+  onViewModeChange?: (mode: 'kams' | 'zones') => void
 }
 
 export default function MapControls({
@@ -31,7 +33,9 @@ export default function MapControls({
   onShowMarkersChange,
   onHospitalSelect,
   onMapNavigate,
-  onShowContractsChange
+  onShowContractsChange,
+  viewMode = 'kams',
+  onViewModeChange
 }: MapControlsProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<'filters' | 'visits' | 'legend' | 'search'>('filters')
