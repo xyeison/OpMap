@@ -58,12 +58,23 @@ interface MapComponentProps {
   visits?: any[]
   showHeatmap?: boolean
   showMarkers?: boolean
+  viewMode?: 'kams' | 'zones'
+  selectedZoneId?: string | null
+  onViewModeChange?: (mode: 'kams' | 'zones') => void
 }
 
-export default function MapComponent({ visits: initialVisits = [], showHeatmap: initialShowHeatmap = false, showMarkers: initialShowMarkers = false }: MapComponentProps) {
+export default function MapComponent({
+  visits: initialVisits = [],
+  showHeatmap: initialShowHeatmap = false,
+  showMarkers: initialShowMarkers = false,
+  viewMode = 'kams',
+  selectedZoneId = null,
+  onViewModeChange
+}: MapComponentProps) {
   const router = useRouter()
   const [territoryGeoJsons, setTerritoryGeoJsons] = useState<any[]>([])
   const [kamColors, setKamColors] = useState<Record<string, string>>({})
+  const [zoneColors, setZoneColors] = useState<Record<string, string>>({})
   const [unassignedTravelTimes, setUnassignedTravelTimes] = useState<Record<string, any[]>>({})
   const [selectedHospitalId, setSelectedHospitalId] = useState<string | null>(null)
   const [hospitalTypeFilter, setHospitalTypeFilter] = useState<string>('all') // 'all', 'Publico', 'Privada', 'Mixta'
@@ -71,6 +82,8 @@ export default function MapComponent({ visits: initialVisits = [], showHeatmap: 
   const [showHeatmap, setShowHeatmap] = useState(initialShowHeatmap)
   const [showMarkers, setShowMarkers] = useState(initialShowMarkers)
   const [showContracts, setShowContracts] = useState(false)
+  const [zones, setZones] = useState<any[]>([])
+  const [zoneAssignments, setZoneAssignments] = useState<Record<string, string>>({})
   
   // Debug de visitas
   useEffect(() => {
@@ -105,10 +118,10 @@ export default function MapComponent({ visits: initialVisits = [], showHeatmap: 
   // Asignar colores a KAMs desde la base de datos
   useEffect(() => {
     if (!mapData) return
-    
+
     const colors: Record<string, string> = {}
     let backupIdx = 0
-    
+
     mapData.kams.forEach((kam: any) => {
       // Usar el color del KAM desde la base de datos
       if (kam.color && kam.color.startsWith('#')) {
@@ -119,9 +132,47 @@ export default function MapComponent({ visits: initialVisits = [], showHeatmap: 
         backupIdx++
       }
     })
-    
+
     setKamColors(colors)
   }, [mapData])
+
+  // Cargar datos de zonas cuando viewMode es 'zones'
+  useEffect(() => {
+    if (viewMode !== 'zones') return
+
+    const loadZonesData = async () => {
+      try {
+        // Cargar zonas
+        const zonesResponse = await fetch('/api/zones')
+        const zonesData = await zonesResponse.json()
+        setZones(zonesData)
+
+        // Asignar colores a zonas
+        const colors: Record<string, string> = {}
+        zonesData.forEach((zone: any) => {
+          if (zone.color) {
+            colors[zone.id] = zone.color
+          }
+        })
+        setZoneColors(colors)
+
+        // Cargar asignaciones territoriales por zona
+        const territoryResponse = await fetch('/api/zones/territories')
+        const territoryData = await territoryResponse.json()
+
+        // Crear un mapa de territorio a zona
+        const assignments: Record<string, string> = {}
+        territoryData.forEach((assignment: any) => {
+          assignments[assignment.territory_id] = assignment.zone_id
+        })
+        setZoneAssignments(assignments)
+      } catch (error) {
+        console.error('Error loading zones data:', error)
+      }
+    }
+
+    loadZonesData()
+  }, [viewMode])
 
   // Cargar tiempos de viaje REALES para hospitales sin asignar
   useEffect(() => {
@@ -380,6 +431,8 @@ export default function MapComponent({ visits: initialVisits = [], showHeatmap: 
         onVisitsChange={setVisits}
         onShowHeatmapChange={setShowHeatmap}
         onShowMarkersChange={setShowMarkers}
+        viewMode={viewMode}
+        onViewModeChange={onViewModeChange}
         onShowContractsChange={setShowContracts}
         onHospitalSelect={setSelectedHospitalId}
         onMapNavigate={(lat: number, lng: number, zoom: number) => {
@@ -410,7 +463,18 @@ export default function MapComponent({ visits: initialVisits = [], showHeatmap: 
         {/* Territorios con IPS - Primera capa */}
         {territoryGeoJsons.map((territory, idx) => {
           const isVacant = territory.isVacant
-          const color = isVacant ? '#808080' : (kamColors[territory.kamId] || '#cccccc')
+          // Usar colores de zona o KAM según el modo de visualización
+          let color = '#cccccc'
+          if (isVacant) {
+            color = '#808080'
+          } else if (viewMode === 'zones') {
+            // En modo zonas, usar el color de la zona asignada al territorio
+            const zoneId = zoneAssignments[territory.territoryId]
+            color = zoneId ? (zoneColors[zoneId] || '#cccccc') : '#cccccc'
+          } else {
+            // En modo KAMs, usar el color del KAM
+            color = kamColors[territory.kamId] || '#cccccc'
+          }
           const isLocality = territory.type === 'localities'
           
           // Obtener estadísticas pre-calculadas del territorio

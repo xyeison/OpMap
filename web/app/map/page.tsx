@@ -1,5 +1,7 @@
 'use client'
 
+import { useState, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
@@ -21,9 +23,28 @@ const MapComponent = dynamic(
 )
 
 export default function MapPage() {
+  const searchParams = useSearchParams()
+  const [viewMode, setViewMode] = useState<'kams' | 'zones'>('kams')
+  const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null)
+
+  useEffect(() => {
+    const mode = searchParams.get('viewMode')
+    const zoneId = searchParams.get('zoneId')
+
+    if (mode === 'zones') {
+      setViewMode('zones')
+    } else {
+      setViewMode('kams')
+    }
+
+    if (zoneId) {
+      setSelectedZoneId(zoneId)
+    }
+  }, [searchParams])
+
   return (
     <ProtectedRoute>
-      <PermissionGuard 
+      <PermissionGuard
         permission="map:view"
         fallback={
           <div className="flex items-center justify-center h-screen">
@@ -34,7 +55,11 @@ export default function MapPage() {
         }
       >
         <div className="h-screen relative">
-          <MapComponent />
+          <MapComponent
+            viewMode={viewMode}
+            selectedZoneId={selectedZoneId}
+            onViewModeChange={setViewMode}
+          />
         </div>
       </PermissionGuard>
     </ProtectedRoute>
