@@ -7,36 +7,32 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 export async function GET() {
   try {
-    // Obtener todas las zonas con sus KAMs
+    // Obtener todas las zonas
     const { data: zones, error: zonesError } = await supabase
       .from('zones')
-      .select(`
-        *,
-        zone_kams (
-          *,
-          kams (
-            id,
-            name,
-            area_id,
-            color
-          )
-        )
-      `)
+      .select('*')
       .eq('active', true)
       .order('name');
 
     if (zonesError) throw zonesError;
 
-    // Transformar los datos para una estructura más limpia
-    const formattedZones = zones?.map(zone => ({
-      ...zone,
-      kams: zone.zone_kams?.map((zk: any) => ({
-        ...zk.kams,
-        is_primary: zk.is_primary
-      }))
-    }));
+    // Para cada zona, obtener los KAMs asociados
+    const formattedZones = await Promise.all(
+      (zones || []).map(async (zone) => {
+        const { data: kams } = await supabase
+          .from('kams')
+          .select('id, name, area_id, color')
+          .eq('zone_id', zone.id)
+          .eq('active', true);
 
-    return NextResponse.json(formattedZones || []);
+        return {
+          ...zone,
+          kams: kams || []
+        };
+      })
+    );
+
+    return NextResponse.json(formattedZones);
   } catch (error) {
     console.error('Error fetching zones:', error);
     return NextResponse.json(

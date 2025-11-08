@@ -41,6 +41,7 @@ export default function KamsPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [viewMode, setViewMode] = useState<'kams' | 'zones'>('kams')
   const [zones, setZones] = useState<any[]>([])
+  const [zonesLoading, setZonesLoading] = useState(true)
   const queryClient = useQueryClient()
   const router = useRouter()
   
@@ -58,12 +59,21 @@ export default function KamsPage() {
   // Cargar zonas disponibles
   useEffect(() => {
     const loadZones = async () => {
+      setZonesLoading(true)
       try {
         const response = await fetch('/api/zones')
-        const data = await response.json()
-        setZones(data)
+        if (response.ok) {
+          const data = await response.json()
+          setZones(Array.isArray(data) ? data : [])
+        } else {
+          console.error('Failed to load zones:', response.status)
+          setZones([])
+        }
       } catch (error) {
         console.error('Error loading zones:', error)
+        setZones([])
+      } finally {
+        setZonesLoading(false)
       }
     }
     loadZones()
@@ -431,7 +441,7 @@ export default function KamsPage() {
                         disabled={!kam.active}
                       >
                         <option value="">Sin zona</option>
-                        {zones.map(zone => (
+                        {Array.isArray(zones) && zones.map(zone => (
                           <option key={zone.id} value={zone.id}>
                             {zone.name}
                           </option>
@@ -583,7 +593,7 @@ export default function KamsPage() {
                     disabled={!kam.active}
                   >
                     <option value="">Sin zona</option>
-                    {zones.map(zone => (
+                    {Array.isArray(zones) && zones.map(zone => (
                       <option key={zone.id} value={zone.id}>
                         {zone.name}
                       </option>
