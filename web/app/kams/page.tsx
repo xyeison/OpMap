@@ -175,8 +175,18 @@ export default function KamsPage() {
 
       // Actualizar datos localmente
       await loadAdditionalData()
+
+      // Recargar zonas para reflejar cambios
+      const response = await fetch('/api/zones')
+      if (response.ok) {
+        const data = await response.json()
+        setZones(Array.isArray(data) ? data : [])
+      }
+
+      alert('Zona actualizada correctamente')
     } catch (error) {
       console.error('Error updating zone:', error)
+      alert('Error al actualizar la zona')
     }
   }
 
@@ -441,7 +451,7 @@ export default function KamsPage() {
                         disabled={!kam.active}
                       >
                         <option value="">Sin zona</option>
-                        {Array.isArray(zones) && zones.map(zone => (
+                        {Array.isArray(zones) && zones.filter(z => z.active !== false).map(zone => (
                           <option key={zone.id} value={zone.id}>
                             {zone.name}
                           </option>
@@ -593,7 +603,7 @@ export default function KamsPage() {
                     disabled={!kam.active}
                   >
                     <option value="">Sin zona</option>
-                    {Array.isArray(zones) && zones.map(zone => (
+                    {Array.isArray(zones) && zones.filter(z => z.active !== false).map(zone => (
                       <option key={zone.id} value={zone.id}>
                         {zone.name}
                       </option>
