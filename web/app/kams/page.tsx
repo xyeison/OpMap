@@ -84,9 +84,19 @@ export default function KamsPage() {
         // Cargar información de zona
         const { data: kamWithZone } = await supabase
           .from('kams')
-          .select('zone_id, zones:zone_id(id, name, color)')
+          .select('zone_id')
           .eq('id', kam.id)
           .single()
+
+        let zoneInfo = null
+        if (kamWithZone?.zone_id) {
+          const { data: zone } = await supabase
+            .from('zones')
+            .select('id, name, color')
+            .eq('id', kamWithZone.zone_id)
+            .single()
+          zoneInfo = zone
+        }
 
         // Contar hospitales asignados
         const { count } = await supabase
@@ -120,8 +130,8 @@ export default function KamsPage() {
           hospitalCount: count || 0,
           contractsValue: totalValue,
           zone_id: kamWithZone?.zone_id,
-          zone_name: (kamWithZone as any)?.zones?.name,
-          zone_color: (kamWithZone as any)?.zones?.color
+          zone_name: zoneInfo?.name,
+          zone_color: zoneInfo?.color
         }
       })
     )
