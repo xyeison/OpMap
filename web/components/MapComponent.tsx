@@ -138,7 +138,7 @@ export default function MapComponent({
 
   // Cargar datos de zonas cuando viewMode es 'zones'
   useEffect(() => {
-    if (viewMode !== 'zones') return
+    if (viewMode !== 'zones' || !mapData) return
 
     const loadZonesData = async () => {
       try {
@@ -156,23 +156,42 @@ export default function MapComponent({
         })
         setZoneColors(colors)
 
-        // Cargar asignaciones territoriales por zona
-        const territoryResponse = await fetch('/api/zones/territories')
-        const territoryData = await territoryResponse.json()
+        // Crear un mapa de KAM a zona basado en los datos del mapa
+        const kamToZone: Record<string, string> = {}
 
-        // Crear un mapa de territorio a zona
-        const assignments: Record<string, string> = {}
-        territoryData.forEach((assignment: any) => {
-          assignments[assignment.territory_id] = assignment.zone_id
+        // Obtener la información de zona de cada KAM
+        for (const kam of mapData.kams) {
+          const { data } = await supabase
+            .from('kams')
+            .select('zone_id')
+            .eq('id', kam.id)
+            .single()
+
+          if (data?.zone_id) {
+            kamToZone[kam.id] = data.zone_id
+          }
+        }
+
+        // Ahora, para cada territorio asignado, buscar la zona del KAM
+        const territoryToZone: Record<string, string> = {}
+        mapData.assignments.forEach((assignment: any) => {
+          const kamId = assignment.kams.id
+          const hospital = assignment.hospitals
+          const territoryId = hospital.locality_id || hospital.municipality_id
+
+          if (territoryId && kamToZone[kamId]) {
+            territoryToZone[territoryId] = kamToZone[kamId]
+          }
         })
-        setZoneAssignments(assignments)
+
+        setZoneAssignments(territoryToZone)
       } catch (error) {
         console.error('Error loading zones data:', error)
       }
     }
 
     loadZonesData()
-  }, [viewMode])
+  }, [viewMode, mapData])
 
   // Cargar tiempos de viaje REALES para hospitales sin asignar
   useEffect(() => {

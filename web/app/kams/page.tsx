@@ -27,6 +27,9 @@ interface KamWithData {
   municipalityName?: string
   hospitalCount?: number
   contractsValue?: number
+  zone_id?: string
+  zone_name?: string
+  zone_color?: string
 }
 
 export default function KamsPage() {
@@ -37,6 +40,7 @@ export default function KamsPage() {
   const [showEditModal, setShowEditModal] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [viewMode, setViewMode] = useState<'kams' | 'zones'>('kams')
+  const [zones, setZones] = useState<any[]>([])
   const queryClient = useQueryClient()
   const router = useRouter()
   
@@ -51,6 +55,20 @@ export default function KamsPage() {
     }
   }, [kams])
 
+  // Cargar zonas disponibles
+  useEffect(() => {
+    const loadZones = async () => {
+      try {
+        const response = await fetch('/api/zones')
+        const data = await response.json()
+        setZones(data)
+      } catch (error) {
+        console.error('Error loading zones:', error)
+      }
+    }
+    loadZones()
+  }, [])
+
   const loadAdditionalData = async () => {
     if (!kams) return
 
@@ -61,6 +79,13 @@ export default function KamsPage() {
           .from('municipalities')
           .select('name')
           .eq('code', kam.area_id)
+          .single()
+
+        // Cargar información de zona
+        const { data: kamWithZone } = await supabase
+          .from('kams')
+          .select('zone_id, zones(id, name, color)')
+          .eq('id', kam.id)
           .single()
 
         // Contar hospitales asignados
@@ -83,7 +108,7 @@ export default function KamsPage() {
             .select('contract_value')
             .in('hospital_id', hospitalIds)
             .eq('active', true)
-          
+
           if (contracts) {
             totalValue = contracts.reduce((sum, c) => sum + (c.contract_value || 0), 0)
           }
@@ -93,7 +118,10 @@ export default function KamsPage() {
           ...kam,
           municipalityName: municipality?.name,
           hospitalCount: count || 0,
-          contractsValue: totalValue
+          contractsValue: totalValue,
+          zone_id: kamWithZone?.zone_id,
+          zone_name: Array.isArray(kamWithZone?.zones) ? kamWithZone?.zones[0]?.name : kamWithZone?.zones?.name,
+          zone_color: Array.isArray(kamWithZone?.zones) ? kamWithZone?.zones[0]?.color : kamWithZone?.zones?.color
         }
       })
     )
@@ -114,6 +142,22 @@ export default function KamsPage() {
   const handleEditClose = () => {
     setEditingKam(null)
     setShowEditModal(false)
+  }
+
+  const handleZoneChange = async (kamId: string, zoneId: string) => {
+    try {
+      const { error } = await supabase
+        .from('kams')
+        .update({ zone_id: zoneId || null })
+        .eq('id', kamId)
+
+      if (error) throw error
+
+      // Actualizar datos localmente
+      await loadAdditionalData()
+    } catch (error) {
+      console.error('Error updating zone:', error)
+    }
   }
 
   const formatCurrency = (value: number) => {
@@ -306,6 +350,9 @@ export default function KamsPage() {
                   <th className="px-6 py-5 text-left">
                     <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Ubicación</span>
                   </th>
+                  <th className="px-6 py-5 text-left">
+                    <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Zona</span>
+                  </th>
                   <th className="px-6 py-5 text-center">
                     <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Hospitales</span>
                   </th>
@@ -365,6 +412,30 @@ export default function KamsPage() {
                           </div>
                         </div>
                       </div>
+                    </td>
+                    <td className="px-6 py-5">
+                      <select
+                        value={kam.zone_id || ''}
+                        onChange={(e) => handleZoneChange(kam.id, e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent"
+                        disabled={!kam.active}
+                      >
+                        <option value="">Sin zona</option>
+                        {zones.map(zone => (
+                          <option key={zone.id} value={zone.id}>
+                            {zone.name}
+                          </option>
+                        ))}
+                      </select>
+                      {kam.zone_name && (
+                        <div className="mt-1 flex items-center gap-1">
+                          <div
+                            className="w-3 h-3 rounded-full"
+                            style={{ backgroundColor: kam.zone_color }}
+                          />
+                          <span className="text-xs text-gray-500">{kam.zone_name}</span>
+                        </div>
+                      )}
                     </td>
                     <td className="px-6 py-5 text-center">
                       <div className="flex flex-col items-center">
@@ -493,10 +564,27 @@ export default function KamsPage() {
                   </div>
                 </div>
 
+                <div className="mb-3">
+                  <label className="text-xs text-gray-600 font-medium mb-1 block">Zona:</label>
+                  <select
+                    value={kam.zone_id || ''}
+                    onChange={(e) => handleZoneChange(kam.id, e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent"
+                    disabled={!kam.active}
+                  >
+                    <option value="">Sin zona</option>
+                    {zones.map(zone => (
+                      <option key={zone.id} value={zone.id}>
+                        {zone.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
                 <div className="mb-4">
                   <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold ${
-                    kam.enable_level2 
-                      ? 'bg-green-50 text-green-700 border border-green-200' 
+                    kam.enable_level2
+                      ? 'bg-green-50 text-green-700 border border-green-200'
                       : 'bg-gray-100 text-gray-600 border border-gray-200'
                   }`}>
                     {kam.enable_level2 ? '✓ Nivel 2 activo' : 'Solo nivel 1'}
