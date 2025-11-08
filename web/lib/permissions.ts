@@ -2,13 +2,15 @@
 
 export type Role = 'admin' | 'sales_manager' | 'contract_manager' | 'data_manager' | 'viewer' | 'user'
 
-export type Permission = 
+export type Permission =
   | 'dashboard:view'
   | 'map:view'
   | 'hospitals:view'
   | 'hospitals:edit'
   | 'kams:view'
   | 'kams:edit'
+  | 'zones:view'
+  | 'zones:edit'
   | 'contracts:view'
   | 'contracts:edit'
   | 'contracts:delete'
@@ -31,6 +33,8 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'hospitals:edit',
     'kams:view',
     'kams:edit',
+    'zones:view',
+    'zones:edit',
     'contracts:view',
     'contracts:edit',
     'contracts:delete',
@@ -48,6 +52,8 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'dashboard:view',
     'map:view',
     'hospitals:view',  // Solo ver hospitales, NO editar
+    'kams:view',       // Puede ver KAMs
+    'zones:view',      // Puede ver zonas
     'contracts:view',  // Solo ver contratos, NO editar
     'territories:view'  // Solo ver territorios, NO gestionar
   ],
@@ -67,6 +73,8 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'hospitals:edit',
     'kams:view',
     'kams:edit',
+    'zones:view',
+    'zones:edit',      // Puede editar zonas
     'visits:view',
     'visits:manage',
     'territories:view',
@@ -107,6 +115,7 @@ export function getAllowedRoutes(role: Role | undefined): string[] {
   if (permissions.includes('map:view')) routes.push('/map')
   if (permissions.includes('hospitals:view')) routes.push('/hospitals', '/hospitals/[id]')
   if (permissions.includes('kams:view')) routes.push('/kams')
+  if (permissions.includes('zones:view')) routes.push('/zones')
   if (permissions.includes('contracts:view')) routes.push('/contracts')
   if (permissions.includes('providers:view')) routes.push('/providers', '/providers/[id]')
   if (permissions.includes('users:manage')) routes.push('/users')
@@ -143,7 +152,11 @@ export function getNavigationMenu(role: Role | undefined) {
   if (permissions.includes('kams:view')) {
     menu.push({ name: 'KAMs', href: '/kams', icon: 'users' })
   }
-  
+
+  if (permissions.includes('zones:view')) {
+    menu.push({ name: 'Zonas', href: '/zones', icon: 'location' })
+  }
+
   if (permissions.includes('contracts:view')) {
     menu.push({ name: 'Contratos', href: '/contracts', icon: 'document' })
   }
