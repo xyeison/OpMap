@@ -11,6 +11,7 @@ import AddKamModal from '@/components/AddKamModal'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
 import ZoneView from '@/components/ZoneView'
+import KamZoneModal from '@/components/KamZoneModal'
 
 interface KamWithData {
   id: string
@@ -42,6 +43,8 @@ export default function KamsPage() {
   const [viewMode, setViewMode] = useState<'kams' | 'zones'>('kams')
   const [zones, setZones] = useState<any[]>([])
   const [zonesLoading, setZonesLoading] = useState(true)
+  const [showZoneModal, setShowZoneModal] = useState(false)
+  const [selectedKamForZone, setSelectedKamForZone] = useState<any>(null)
   const queryClient = useQueryClient()
   const router = useRouter()
   
@@ -164,30 +167,26 @@ export default function KamsPage() {
     setShowEditModal(false)
   }
 
-  const handleZoneChange = async (kamId: string, zoneId: string) => {
-    try {
-      const { error } = await supabase
-        .from('kams')
-        .update({ zone_id: zoneId || null })
-        .eq('id', kamId)
+  const openZoneModal = (kam: any) => {
+    setSelectedKamForZone(kam)
+    setShowZoneModal(true)
+  }
 
-      if (error) throw error
+  const handleZoneModalSuccess = async () => {
+    setShowZoneModal(false)
+    setSelectedKamForZone(null)
 
-      // Actualizar datos localmente
-      await loadAdditionalData()
+    // Recargar datos
+    await loadAdditionalData()
 
-      // Recargar zonas para reflejar cambios
-      const response = await fetch('/api/zones')
-      if (response.ok) {
-        const data = await response.json()
-        setZones(Array.isArray(data) ? data : [])
-      }
-
-      alert('Zona actualizada correctamente')
-    } catch (error) {
-      console.error('Error updating zone:', error)
-      alert('Error al actualizar la zona')
+    // Recargar zonas
+    const response = await fetch('/api/zones')
+    if (response.ok) {
+      const data = await response.json()
+      setZones(Array.isArray(data) ? data : [])
     }
+
+    queryClient.invalidateQueries({ queryKey: ['kams'] })
   }
 
   const formatCurrency = (value: number) => {
@@ -444,28 +443,31 @@ export default function KamsPage() {
                       </div>
                     </td>
                     <td className="px-6 py-5">
-                      <select
-                        value={kam.zone_id || ''}
-                        onChange={(e) => handleZoneChange(kam.id, e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent"
+                      <button
+                        onClick={() => openZoneModal(kam)}
                         disabled={!kam.active}
+                        className="w-full text-left"
                       >
-                        <option value="">Sin zona</option>
-                        {Array.isArray(zones) && zones.filter(z => z.active !== false).map(zone => (
-                          <option key={zone.id} value={zone.id}>
-                            {zone.name}
-                          </option>
-                        ))}
-                      </select>
-                      {kam.zone_name && (
-                        <div className="mt-1 flex items-center gap-1">
-                          <div
-                            className="w-3 h-3 rounded-full"
-                            style={{ backgroundColor: kam.zone_color }}
-                          />
-                          <span className="text-xs text-gray-500">{kam.zone_name}</span>
-                        </div>
-                      )}
+                        {kam.zone_name ? (
+                          <div className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                            <div
+                              className="w-4 h-4 rounded-full border border-gray-300"
+                              style={{ backgroundColor: kam.zone_color }}
+                            />
+                            <span className="text-sm font-medium text-gray-900">{kam.zone_name}</span>
+                            <svg className="w-4 h-4 ml-auto text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                            </svg>
+                          </div>
+                        ) : (
+                          <div className="px-3 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                            <span className="text-sm text-gray-500">Sin zona asignada</span>
+                            <svg className="w-4 h-4 ml-2 inline text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                            </svg>
+                          </div>
+                        )}
+                      </button>
                     </td>
                     <td className="px-6 py-5 text-center">
                       <div className="flex flex-col items-center">
@@ -596,19 +598,31 @@ export default function KamsPage() {
 
                 <div className="mb-3">
                   <label className="text-xs text-gray-600 font-medium mb-1 block">Zona:</label>
-                  <select
-                    value={kam.zone_id || ''}
-                    onChange={(e) => handleZoneChange(kam.id, e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent"
+                  <button
+                    onClick={() => openZoneModal(kam)}
                     disabled={!kam.active}
+                    className="w-full text-left"
                   >
-                    <option value="">Sin zona</option>
-                    {Array.isArray(zones) && zones.filter(z => z.active !== false).map(zone => (
-                      <option key={zone.id} value={zone.id}>
-                        {zone.name}
-                      </option>
-                    ))}
-                  </select>
+                    {kam.zone_name ? (
+                      <div className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                        <div
+                          className="w-4 h-4 rounded-full border border-gray-300"
+                          style={{ backgroundColor: kam.zone_color }}
+                        />
+                        <span className="text-sm font-medium text-gray-900">{kam.zone_name}</span>
+                        <svg className="w-4 h-4 ml-auto text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                      </div>
+                    ) : (
+                      <div className="px-3 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                        <span className="text-sm text-gray-500">Sin zona asignada</span>
+                        <svg className="w-4 h-4 ml-2 inline text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                      </div>
+                    )}
+                  </button>
                 </div>
 
                 <div className="mb-4">
@@ -688,6 +702,20 @@ export default function KamsPage() {
               loadAdditionalData()
             }}
           />
+
+          {/* Modal de asignación de zona */}
+          {showZoneModal && selectedKamForZone && (
+            <KamZoneModal
+              kam={selectedKamForZone}
+              zones={zones}
+              isOpen={showZoneModal}
+              onClose={() => {
+                setShowZoneModal(false)
+                setSelectedKamForZone(null)
+              }}
+              onSuccess={handleZoneModalSuccess}
+            />
+          )}
         </div>
       </PermissionGuard>
     </ProtectedRoute>
