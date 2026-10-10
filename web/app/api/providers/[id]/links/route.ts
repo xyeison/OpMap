@@ -1,12 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase-server';
+import { supabaseAdmin } from '@/lib/supabase-admin';
+import { requirePermission } from '@/lib/require-role';
+import { badJson, isUuid, readJsonBody } from '../../../_lib/api-error';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const auth = await requirePermission(request, 'providers:view');
+  if (!auth.ok) return auth.response;
+
   try {
-    const supabase = createServerSupabaseClient();
+    const supabase = supabaseAdmin;
     
     const { data, error } = await supabase
       .from('proveedor_enlaces')
@@ -36,9 +41,28 @@ export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const auth = await requirePermission(request, 'providers:edit');
+  if (!auth.ok) return auth.response;
+
   try {
-    const supabase = createServerSupabaseClient();
-    const body = await request.json();
+    const supabase = supabaseAdmin;
+    if (!isUuid(params.id)) {
+      return NextResponse.json({ error: 'Proveedor no encontrado' }, { status: 404 });
+    }
+    const body = (await readJsonBody(request)) as Record<string, any> | undefined;
+    if (!body || typeof body !== 'object') return badJson();
+
+    // Solo enlaces http(s): evita javascript: u otros esquemas en href
+    let validUrl = false;
+    try {
+      const parsedUrl = new URL(String(body.url));
+      validUrl = parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:';
+    } catch {
+      validUrl = false;
+    }
+    if (!validUrl) {
+      return NextResponse.json({ error: 'URL no válida (debe empezar por http:// o https://)' }, { status: 400 });
+    }
 
     const { data, error } = await supabase
       .from('proveedor_enlaces')

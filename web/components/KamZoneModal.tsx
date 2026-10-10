@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { supabase } from '@/lib/supabase'
 
 interface KamZoneModalProps {
   kam: any
@@ -29,15 +28,16 @@ export default function KamZoneModal({ kam, zones, isOpen, onClose, onSuccess }:
     setLoading(true)
 
     try {
-      const { error } = await supabase
-        .from('kams')
-        .update({
-          zone_id: selectedZoneId || null,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', kam.id)
-
-      if (error) throw error
+      // Escritura en el servidor (service_role + permiso zones:edit)
+      const response = await fetch('/api/kams/zone', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kam_id: kam.id, zone_id: selectedZoneId || null })
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(result.error || `Error al asignar la zona (${response.status})`)
+      }
 
       onSuccess()
     } catch (err: any) {

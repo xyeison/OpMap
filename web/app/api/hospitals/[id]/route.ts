@@ -1,206 +1,179 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { getUserFromRequest } from '@/lib/auth-server'
-
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  supabaseServiceKey
-)
+import { supabaseAdmin } from '@/lib/supabase-admin'
+import { requirePermission, requireUser } from '@/lib/require-role'
+import { badJson, isUuid, readJsonBody, serverError, validationError } from '../../_lib/api-error'
+import { patchHospitalSchema, updateHospitalSchema } from '../../_lib/hospital-schemas'
 
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+  const auth = await requireUser(request)
+  if (!auth.ok) return auth.response
+
   try {
-    // Verificar autenticación
-    const user = await getUserFromRequest(request)
-    if (!user) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-    }
-
     const hospitalId = params.id
-
-    // Obtener datos del hospital
-    const { data: hospital, error: hospitalError } = await supabase
-      .from('hospitals')
-      .select('*')
-      .eq('id', hospitalId)
-      .single()
-
-    if (hospitalError || !hospital) {
+    if (!isUuid(hospitalId)) {
       return NextResponse.json({ error: 'Hospital no encontrado' }, { status: 404 })
     }
 
-    // Obtener municipio
-    const { data: municipality } = await supabase
-      .from('municipalities')
-      .select('name')
-      .eq('code', hospital.municipality_id)
-      .single()
+    const { data: hospital, error: hospitalError } = await supabaseAdmin
+      .from('hospitals')
+      .select('*')
+      .eq('id', hospitalId)
+      .maybeSingle()
 
-    // Obtener departamento
-    const { data: department } = await supabase
-      .from('departments')
-      .select('name')
-      .eq('code', hospital.department_id)
-      .single()
+    if (hospitalError) return serverError('hospitals/[id] GET', hospitalError)
+    if (!hospital) {
+      return NextResponse.json({ error: 'Hospital no encontrado' }, { status: 404 })
+    }
 
-    // Obtener asignación y KAM
-    const { data: assignment } = await supabase
-      .from('assignments')
-      .select('kam_id')
-      .eq('hospital_id', hospitalId)
-      .single()
+    const [municipalityRes, departmentRes, assignmentRes, contractsRes, historyRes] = await Promise.all([
+      supabaseAdmin.from('municipalities').select('name').eq('code', hospital.municipality_id).maybeSingle(),
+      supabaseAdmin.from('departments').select('name').eq('code', hospital.department_id).maybeSingle(),
+      supabaseAdmin.from('assignments').select('kam_id').eq('hospital_id', hospitalId).maybeSingle(),
+      supabaseAdmin
+        .from('hospital_contracts')
+        .select('contract_value')
+        .eq('hospital_id', hospitalId)
+        .eq('active', true),
+      supabaseAdmin
+        .from('hospital_history')
+        .select(`
+          *,
+          users!hospital_history_user_id_fkey (
+            full_name,
+            email
+          )
+        `)
+        .eq('hospital_id', hospitalId)
+        .order('created_at', { ascending: false }),
+    ])
+
+    for (const res of [municipalityRes, departmentRes, assignmentRes, contractsRes, historyRes]) {
+      if (res.error) console.error('hospitals/[id] GET (consulta secundaria):', res.error)
+    }
 
     let kam = null
     let kamMunicipalityName = null
 
-    if (assignment?.kam_id) {
-      const { data: kamData } = await supabase
-        .from('kams')
-        .select('*')
-        .eq('id', assignment.kam_id)
-        .single()
-
+    const kamId = assignmentRes.data?.kam_id
+    if (kamId) {
+      const { data: kamData } = await supabaseAdmin.from('kams').select('*').eq('id', kamId).maybeSingle()
       kam = kamData
 
       if (kamData) {
-        const { data: kamMunicipality } = await supabase
+        const { data: kamMunicipality } = await supabaseAdmin
           .from('municipalities')
           .select('name')
           .eq('code', kamData.area_id)
-          .single()
-
-        kamMunicipalityName = kamMunicipality?.name
+          .maybeSingle()
+        kamMunicipalityName = kamMunicipality?.name ?? null
       }
     }
 
-    // Obtener estadísticas de contratos
-    const { data: contracts } = await supabase
-      .from('hospital_contracts')
-      .select('contract_value')
-      .eq('hospital_id', hospitalId)
-      .eq('active', true)
-
+    const contracts = contractsRes.data || []
     const contractStats = {
-      activeCount: contracts?.length || 0,
-      totalValue: contracts?.reduce((sum, contract) => sum + (contract.contract_value || 0), 0) || 0
+      activeCount: contracts.length,
+      totalValue: contracts.reduce((sum, contract) => sum + (Number(contract.contract_value) || 0), 0),
     }
-
-    // Obtener historial de cambios
-    const { data: history } = await supabase
-      .from('hospital_history')
-      .select(`
-        *,
-        users!hospital_history_user_id_fkey (
-          full_name,
-          email
-        )
-      `)
-      .eq('hospital_id', hospitalId)
-      .order('created_at', { ascending: false })
 
     return NextResponse.json({
       hospital,
-      municipalityName: municipality?.name,
-      departmentName: department?.name,
+      municipalityName: municipalityRes.data?.name,
+      departmentName: departmentRes.data?.name,
       kam,
       kamMunicipalityName,
       contractStats,
-      history: history || []
+      history: historyRes.data || [],
     })
   } catch (error) {
-    console.error('Error in GET /api/hospitals/[id]:', error)
-    return NextResponse.json(
-      { error: 'Error interno del servidor' },
-      { status: 500 }
-    )
+    return serverError('hospitals/[id] GET', error)
   }
 }
 
 export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
+  const auth = await requirePermission(request, 'hospitals:edit')
+  if (!auth.ok) return auth.response
+
   try {
-    // Verificar autenticación
-    const user = await getUserFromRequest(request)
-    if (!user) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-    }
-
     const hospitalId = params.id
-    const body = await request.json()
-    
-    // Si el usuario no es admin, no puede editar coordenadas
-    if (user.role !== 'admin') {
-      delete body.lat
-      delete body.lng
-    }
-    
-    // Validar el tipo de hospital si se proporciona
-    if (body.hospital_type && !['Publico', 'Privado', 'Mixto'].includes(body.hospital_type)) {
-      return NextResponse.json({ error: 'Tipo de hospital inválido' }, { status: 400 })
+    if (!isUuid(hospitalId)) {
+      return NextResponse.json({ error: 'Hospital no encontrado' }, { status: 404 })
     }
 
-    const { data, error } = await supabase
+    const body = await readJsonBody(request)
+    if (body === undefined) return badJson()
+
+    const parsed = updateHospitalSchema.safeParse(body)
+    if (!parsed.success) return validationError(parsed.error)
+
+    const updateData: Record<string, unknown> = { ...parsed.data }
+
+    // Solo admin puede editar coordenadas
+    if (auth.user.role !== 'admin') {
+      delete updateData.lat
+      delete updateData.lng
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return NextResponse.json({ error: 'No hay campos para actualizar' }, { status: 400 })
+    }
+
+    const { data, error } = await supabaseAdmin
       .from('hospitals')
-      .update(body)
+      .update({ ...updateData, updated_at: new Date().toISOString() })
       .eq('id', hospitalId)
       .select()
-      .single()
+      .maybeSingle()
 
     if (error) {
-      console.error('Error updating hospital:', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+      if ((error as { code?: string }).code === '23505') {
+        return NextResponse.json({ error: 'Ya existe un hospital con ese código' }, { status: 409 })
+      }
+      return serverError('hospitals/[id] PUT', error, 'Error al actualizar el hospital')
+    }
+    if (!data) {
+      return NextResponse.json({ error: 'Hospital no encontrado' }, { status: 404 })
     }
 
     return NextResponse.json(data)
   } catch (error) {
-    console.error('Error in PUT /api/hospitals/[id]:', error)
-    return NextResponse.json(
-      { error: 'Error interno del servidor' },
-      { status: 500 }
-    )
+    return serverError('hospitals/[id] PUT', error)
   }
 }
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+  const auth = await requirePermission(request, 'hospitals:edit')
+  if (!auth.ok) return auth.response
+
   try {
-    // Verificar autenticación
-    const user = await getUserFromRequest(request)
-    if (!user) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-    }
-
     const hospitalId = params.id
-    const body = await request.json()
-
-    // Actualizar solo los campos proporcionados
-    const updateData: any = {}
-    
-    if (body.documents_url !== undefined) {
-      updateData.documents_url = body.documents_url
-    }
-    
-    if (body.doctors !== undefined) {
-      updateData.doctors = body.doctors
+    if (!isUuid(hospitalId)) {
+      return NextResponse.json({ error: 'Hospital no encontrado' }, { status: 404 })
     }
 
-    const { data, error } = await supabase
+    const body = await readJsonBody(request)
+    if (body === undefined) return badJson()
+
+    const parsed = patchHospitalSchema.safeParse(body)
+    if (!parsed.success) return validationError(parsed.error)
+
+    if (Object.keys(parsed.data).length === 0) {
+      return NextResponse.json({ error: 'No hay campos para actualizar' }, { status: 400 })
+    }
+
+    const { data, error } = await supabaseAdmin
       .from('hospitals')
-      .update(updateData)
+      .update({ ...parsed.data, updated_at: new Date().toISOString() })
       .eq('id', hospitalId)
       .select()
-      .single()
+      .maybeSingle()
 
-    if (error) {
-      console.error('Error updating hospital:', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+    if (error) return serverError('hospitals/[id] PATCH', error, 'Error al actualizar el hospital')
+    if (!data) {
+      return NextResponse.json({ error: 'Hospital no encontrado' }, { status: 404 })
     }
 
     return NextResponse.json(data)
   } catch (error) {
-    console.error('Error in PATCH /api/hospitals/[id]:', error)
-    return NextResponse.json(
-      { error: 'Error interno del servidor' },
-      { status: 500 }
-    )
+    return serverError('hospitals/[id] PATCH', error)
   }
 }

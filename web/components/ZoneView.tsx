@@ -23,12 +23,18 @@ export default function ZoneView({ searchTerm, onZoneClick }: ZoneViewProps) {
       // Cargar zonas
       const zonesResponse = await fetch('/api/zones')
       const zonesData = await zonesResponse.json()
-      setZones(zonesData)
+      if (!zonesResponse.ok) {
+        throw new Error(zonesData.error || `Error al cargar las zonas (${zonesResponse.status})`)
+      }
+      setZones(Array.isArray(zonesData) ? zonesData : [])
 
       // Cargar estadísticas de zonas
       const statsResponse = await fetch('/api/zones/statistics')
       const statsData = await statsResponse.json()
-      setZoneStatistics(statsData)
+      if (!statsResponse.ok) {
+        throw new Error(statsData.error || `Error al cargar las estadísticas de zonas (${statsResponse.status})`)
+      }
+      setZoneStatistics(Array.isArray(statsData) ? statsData : [])
     } catch (error) {
       console.error('Error loading zones:', error)
     } finally {

@@ -1,143 +1,117 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase-server';
+import { NextRequest, NextResponse } from 'next/server'
+import { supabaseAdmin } from '@/lib/supabase-admin'
+import { requirePermission } from '@/lib/require-role'
+import { badJson, readJsonBody, serverError } from '../_lib/api-error'
+
+// Estados financieros de la empresa: solo roles que gestionan contratos (igual que el menú
+// "Mi Empresa", que se muestra con contracts:edit). Lectura y escritura con service_role.
+
+function configFromBody(body: Record<string, any>) {
+  return {
+    nombre: body.nombre,
+    nit: body.nit,
+    anio_fiscal: body.anio_fiscal,
+    activo_corriente: body.activo_corriente,
+    activo_total: body.activo_total,
+    pasivo_corriente: body.pasivo_corriente,
+    pasivo_total: body.pasivo_total,
+    patrimonio: body.patrimonio,
+    ingresos_anuales: body.ingresos_anuales,
+    utilidad_neta: body.utilidad_neta,
+    gastos_intereses: body.gastos_intereses,
+    utilidad_operacional: body.utilidad_operacional,
+    anos_experiencia: body.anos_experiencia,
+    certificaciones: body.certificaciones,
+  }
+}
+
+async function insertConfig(body: Record<string, any>) {
+  const { data, error } = await supabaseAdmin
+    .from('mi_empresa_config')
+    .insert({
+      ...configFromBody(body),
+      anio_fiscal: body.anio_fiscal || new Date().getFullYear(),
+    })
+    .select()
+    .single()
+
+  if (error) return serverError('mi-empresa insert', error, 'Error al crear configuración')
+  return NextResponse.json({ data })
+}
 
 export async function GET(request: NextRequest) {
+  const auth = await requirePermission(request, 'contracts:edit')
+  if (!auth.ok) return auth.response
+
   try {
-    const supabase = createServerSupabaseClient();
-    
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('mi_empresa_config')
       .select('*')
       .order('anio_fiscal', { ascending: false })
       .order('updated_at', { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle()
 
-    if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found
-      console.error('Error fetching mi empresa config:', error);
-      return NextResponse.json(
-        { error: 'Error al obtener configuración' },
-        { status: 500 }
-      );
-    }
+    if (error) return serverError('mi-empresa GET', error, 'Error al obtener configuración')
 
-    return NextResponse.json({ data: data || null });
+    return NextResponse.json({ data: data || null })
   } catch (error) {
-    console.error('Error in GET mi empresa:', error);
-    return NextResponse.json(
-      { error: 'Error interno del servidor' },
-      { status: 500 }
-    );
+    return serverError('mi-empresa GET', error)
   }
 }
 
 export async function POST(request: NextRequest) {
+  const auth = await requirePermission(request, 'contracts:edit')
+  if (!auth.ok) return auth.response
+
   try {
-    const supabase = createServerSupabaseClient();
-    const body = await request.json();
-
-    const { data, error } = await supabase
-      .from('mi_empresa_config')
-      .insert({
-        nombre: body.nombre,
-        nit: body.nit,
-        anio_fiscal: body.anio_fiscal || new Date().getFullYear(),
-        activo_corriente: body.activo_corriente,
-        activo_total: body.activo_total,
-        pasivo_corriente: body.pasivo_corriente,
-        pasivo_total: body.pasivo_total,
-        patrimonio: body.patrimonio,
-        ingresos_anuales: body.ingresos_anuales,
-        utilidad_neta: body.utilidad_neta,
-        gastos_intereses: body.gastos_intereses,
-        utilidad_operacional: body.utilidad_operacional,
-        anos_experiencia: body.anos_experiencia,
-        certificaciones: body.certificaciones
-      })
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Error creating mi empresa config:', error);
-      return NextResponse.json(
-        { error: 'Error al crear configuración' },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json({ data });
+    const body = await readJsonBody(request)
+    if (!body || typeof body !== 'object') return badJson()
+    return await insertConfig(body as Record<string, any>)
   } catch (error) {
-    console.error('Error in POST mi empresa:', error);
-    return NextResponse.json(
-      { error: 'Error interno del servidor' },
-      { status: 500 }
-    );
+    return serverError('mi-empresa POST', error)
   }
 }
 
 export async function PUT(request: NextRequest) {
-  try {
-    const supabase = createServerSupabaseClient();
-    const body = await request.json();
+  const auth = await requirePermission(request, 'contracts:edit')
+  if (!auth.ok) return auth.response
 
-    // Get the latest config
-    const { data: existing, error: fetchError } = await supabase
+  try {
+    const body = (await readJsonBody(request)) as Record<string, any> | undefined
+    if (!body || typeof body !== 'object') return badJson()
+
+    // Última configuración
+    const { data: existing, error: fetchError } = await supabaseAdmin
       .from('mi_empresa_config')
       .select('id')
       .order('anio_fiscal', { ascending: false })
       .order('updated_at', { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle()
 
-    if (fetchError || !existing) {
-      // If no config exists, create one
-      return POST(request);
-    }
+    if (fetchError) return serverError('mi-empresa PUT (lectura)', fetchError)
 
-    const { data, error } = await supabase
+    // Si no existe configuración, se crea (el body ya está leído: no se vuelve a leer el stream)
+    if (!existing) return await insertConfig(body)
+
+    const { data, error } = await supabaseAdmin
       .from('mi_empresa_config')
-      .update({
-        nombre: body.nombre,
-        nit: body.nit,
-        anio_fiscal: body.anio_fiscal,
-        activo_corriente: body.activo_corriente,
-        activo_total: body.activo_total,
-        pasivo_corriente: body.pasivo_corriente,
-        pasivo_total: body.pasivo_total,
-        patrimonio: body.patrimonio,
-        ingresos_anuales: body.ingresos_anuales,
-        utilidad_neta: body.utilidad_neta,
-        gastos_intereses: body.gastos_intereses,
-        utilidad_operacional: body.utilidad_operacional,
-        anos_experiencia: body.anos_experiencia,
-        certificaciones: body.certificaciones
-      })
+      .update(configFromBody(body))
       .eq('id', existing.id)
       .select()
-      .single();
+      .single()
 
-    if (error) {
-      console.error('Error updating mi empresa config:', error);
-      return NextResponse.json(
-        { error: 'Error al actualizar configuración' },
-        { status: 500 }
-      );
-    }
+    if (error) return serverError('mi-empresa PUT', error, 'Error al actualizar configuración')
 
-    // Trigger revalidation of all contracts
-    const { error: validationError } = await supabase
-      .rpc('validar_todos_contratos');
-
+    // Revalidar el cumplimiento de todos los contratos
+    const { error: validationError } = await supabaseAdmin.rpc('validar_todos_contratos')
     if (validationError) {
-      console.error('Error revalidating contracts:', validationError);
+      console.error('Error revalidando contratos:', validationError)
     }
 
-    return NextResponse.json({ data });
+    return NextResponse.json({ data })
   } catch (error) {
-    console.error('Error in PUT mi empresa:', error);
-    return NextResponse.json(
-      { error: 'Error interno del servidor' },
-      { status: 500 }
-    );
+    return serverError('mi-empresa PUT', error)
   }
 }

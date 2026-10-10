@@ -1,31 +1,56 @@
-import { createClient } from '@supabase/supabase-js';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
+import { requirePermission } from '@/lib/require-role'
+import { supabaseAdmin } from '@/lib/supabase-admin'
+import { jsonError, readJson, uuidSchema, zodMessage } from '../_lib/kam-shared'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabase = createClient(supabaseUrl, supabaseKey);
+const kamZoneSchema = z.object({
+  kam_id: uuidSchema,
+  // null o '' quitan la zona
+  zone_id: z.union([uuidSchema, z.literal(''), z.null()]).optional(),
+})
 
-export async function PUT(request: Request) {
+// PUT /api/kams/zone — asigna (o quita) la zona de un KAM en kams.zone_id
+export async function PUT(request: NextRequest) {
+  const auth = await requirePermission(request, 'zones:edit')
+  if (!auth.ok) return auth.response
+
   try {
-    const body = await request.json();
-    const { kam_id, zone_id } = body;
+    const parsed = kamZoneSchema.safeParse(await readJson(request))
+    if (!parsed.success) {
+      return jsonError(zodMessage(parsed.error), 400)
+    }
+    const kamId = parsed.data.kam_id
+    const zoneId = parsed.data.zone_id || null
 
-    // Actualizar la zona del KAM
-    const { data, error } = await supabase
+    if (zoneId) {
+      const { data: zone, error: zoneError } = await supabaseAdmin
+        .from('zones')
+        .select('id, active')
+        .eq('id', zoneId)
+        .maybeSingle()
+      if (zoneError) throw zoneError
+      if (!zone) return jsonError('Zona no encontrada', 404)
+      if (zone.active === false) return jsonError('La zona está inactiva', 409)
+    }
+
+    const { data, error } = await supabaseAdmin
       .from('kams')
-      .update({ zone_id: zone_id || null })
-      .eq('id', kam_id)
-      .select()
-      .single();
+      .update({ zone_id: zoneId, updated_at: new Date().toISOString() })
+      .eq('id', kamId)
+      .select('id, name, zone_id')
 
-    if (error) throw error;
+    if (error) {
+      console.error('Error actualizando zona del KAM:', error)
+      return jsonError('Error al asignar la zona', 500)
+    }
+    if (!data || data.length === 0) {
+      return jsonError('KAM no encontrado', 404)
+    }
 
-    return NextResponse.json(data);
+    return NextResponse.json({ success: true, data: data[0] })
   } catch (error) {
-    console.error('Error updating KAM zone:', error);
-    return NextResponse.json(
-      { error: 'Error updating KAM zone' },
-      { status: 500 }
-    );
+    console.error('Error en PUT /api/kams/zone:', error)
+    return jsonError('Error interno del servidor', 500)
   }
 }

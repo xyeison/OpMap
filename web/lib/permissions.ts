@@ -78,7 +78,8 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'visits:view',
     'visits:manage',
     'territories:view',
-    'territories:manage'  // Puede gestionar asignaciones forzadas
+    'territories:manage',  // Puede gestionar asignaciones forzadas
+    'recalculate:complete' // Recálculo completo tras cambiar territorios/asignaciones forzadas
   ],
   viewer: [
     'map:view',

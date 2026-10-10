@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
@@ -20,6 +20,15 @@ interface UnvisitedZone {
 }
 
 export default function CoveragePage() {
+  // useSearchParams requiere un límite de Suspense para que el build de Next 14.2 no falle
+  return (
+    <Suspense fallback={<div className="container mx-auto p-6 text-center py-8">Cargando análisis...</div>}>
+      <CoveragePageContent />
+    </Suspense>
+  )
+}
+
+function CoveragePageContent() {
   const searchParams = useSearchParams()
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<any>(null)
@@ -182,7 +191,7 @@ export default function CoveragePage() {
               {/* Mensaje informativo */}
               <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
                 <p className="text-sm text-blue-800">
-                  <strong>Nota:</strong> Un hospital se considera "visitado" si existe al menos una visita 
+                  <strong>Nota:</strong> Un hospital se considera &ldquo;visitado&rdquo; si existe al menos una visita 
                   registrada en un radio de 5km durante el período seleccionado.
                 </p>
               </div>

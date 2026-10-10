@@ -1,96 +1,105 @@
-import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { SimplifiedOpMapAlgorithm } from '@/lib/opmap-algorithm-simplified'
+import { NextRequest, NextResponse } from 'next/server'
+import { requirePermission } from '@/lib/require-role'
+import { supabaseAdmin } from '@/lib/supabase-admin'
+import { kamIdSchema } from '../_lib/kam-schemas'
+import {
+  BOGOTA_AREA_MESSAGE,
+  BOGOTA_MUNICIPALITY_CODE,
+  areaConflictResponse,
+  findAreaConflict,
+  jsonError,
+  readJson,
+  runFullRecalculation,
+  zodMessage,
+} from '../_lib/kam-shared'
 
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+// La activación dispara el recálculo completo en el mismo proceso
+export const maxDuration = 60
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  supabaseServiceKey
-)
+export async function POST(request: NextRequest) {
+  const auth = await requirePermission(request, 'kams:edit')
+  if (!auth.ok) return auth.response
 
-export async function POST(request: Request) {
   try {
-    const { kamId } = await request.json()
-    
-    console.log(`✅ Activando KAM ${kamId}...`)
-    
+    const parsed = kamIdSchema.safeParse(await readJson(request))
+    if (!parsed.success) {
+      return jsonError(zodMessage(parsed.error), 400)
+    }
+    const { kamId } = parsed.data
+
     // 1. Obtener info del KAM
-    const { data: kam } = await supabase
+    const { data: kam, error: kamError } = await supabaseAdmin
       .from('kams')
       .select('*')
       .eq('id', kamId)
-      .single()
-    
-    if (!kam) {
-      return NextResponse.json({ success: false, error: 'KAM no encontrado' }, { status: 404 })
+      .maybeSingle()
+
+    if (kamError) throw kamError
+    if (!kam) return jsonError('KAM no encontrado', 404)
+    if (kam.active === true) return jsonError('El KAM ya está activo', 409)
+
+    if (kam.participates_in_assignment === true) {
+      // R2-A-01: un KAM con Bogotá entera se quedaría con toda la capital
+      if (kam.area_id === BOGOTA_MUNICIPALITY_CODE) {
+        return jsonError(`${BOGOTA_AREA_MESSAGE} antes de activar este KAM`, 400)
+      }
+      // R2-M-01: un único KAM activo y territorial por área
+      const conflict = await findAreaConflict(kam.area_id, kamId)
+      if (conflict) return areaConflictResponse(conflict)
     }
-    
-    console.log(`📍 Activando KAM ${kam.name} en ${kam.area_id}`)
-    
-    // 2. Activar el KAM
-    const { data: updatedKam, error: updateError } = await supabase
+
+    // 2. Activar el KAM (solo si seguía inactivo: 0 filas = otro proceso lo cambió)
+    const { data: updatedRows, error: updateError } = await supabaseAdmin
       .from('kams')
-      .update({ active: true })
+      .update({ active: true, updated_at: new Date().toISOString() })
       .eq('id', kamId)
-      .select()
-      .single()
-    
+      .eq('active', false)
+      .select('id, active')
+
     if (updateError) {
-      console.error('Error al actualizar KAM:', updateError)
-      throw updateError
+      console.error('Error al activar KAM:', updateError)
+      return jsonError('Error al activar KAM', 500)
     }
-    
-    // Verificar resultado directo del update
-    if (!updatedKam || !updatedKam.active) {
-      console.error('KAM no se activó correctamente:', updatedKam)
-      throw new Error('El KAM no se activó correctamente')
+    if (!updatedRows || updatedRows.length === 0 || updatedRows[0].active !== true) {
+      return jsonError('El KAM no se activó: su estado cambió mientras tanto', 409)
     }
-    
-    console.log('✅ KAM activado correctamente en la BD')
-    
-    // 3. Recalcular todas las asignaciones usando el algoritmo simplificado
-    console.log('🔄 Recalculando asignaciones con el KAM activado...')
-    
-    const algorithm = new SimplifiedOpMapAlgorithm()
-    await algorithm.loadData()
-    const assignments = await algorithm.calculateAssignments()
-    await algorithm.saveAssignments(assignments)
-    const saved = assignments.length
-    
-    console.log(`✅ Recálculo completado: ${saved} asignaciones actualizadas`)
-    
-    // 4. Obtener estadísticas del KAM recién activado
-    const { data: kamAssignments } = await supabase
+
+    // 3. Recalcular todas las asignaciones
+    let saved = 0
+    try {
+      saved = await runFullRecalculation()
+    } catch (recalcError) {
+      console.error('Error al recalcular tras activar KAM:', recalcError)
+      return jsonError(
+        `El KAM ${kam.name} quedó activo, pero el recálculo de asignaciones falló. Ejecuta el recálculo manualmente.`,
+        500
+      )
+    }
+
+    // 4. Estadísticas del KAM recién activado
+    const { count: kamAssignments } = await supabaseAdmin
       .from('assignments')
-      .select('hospital_id')
+      .select('id', { count: 'exact', head: true })
       .eq('kam_id', kamId)
-    
-    // 5. Verificar hospitales en el municipio de Cartagena
-    const { count: hospitalsInMunicipality } = await supabase
+
+    const areaField = String(kam.area_id).length === 7 ? 'locality_id' : 'municipality_id'
+    const { count: hospitalsInMunicipality } = await supabaseAdmin
       .from('hospitals')
-      .select('*', { count: 'exact', head: true })
-      .eq('municipality_id', kam.area_id)
+      .select('id', { count: 'exact', head: true })
+      .eq(areaField, kam.area_id)
       .eq('active', true)
-    
-    console.log(`🏥 Hospitales en ${kam.area_id}: ${hospitalsInMunicipality || 0}`)
-    console.log(`📊 Asignaciones para ${kam.name}: ${kamAssignments?.length || 0}`)
-    
+
     return NextResponse.json({
       success: true,
       message: `KAM ${kam.name} activado exitosamente`,
       stats: {
         totalAssignments: saved,
-        kamAssignments: kamAssignments?.length || 0,
-        hospitalsInMunicipality: hospitalsInMunicipality || 0
-      }
+        kamAssignments: kamAssignments || 0,
+        hospitalsInMunicipality: hospitalsInMunicipality || 0,
+      },
     })
-    
   } catch (error) {
     console.error('Error al activar KAM:', error)
-    return NextResponse.json(
-      { success: false, error: 'Error al activar KAM' },
-      { status: 500 }
-    )
+    return jsonError('Error al activar KAM', 500)
   }
 }

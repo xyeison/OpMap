@@ -1,25 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { supabaseAdmin } from '@/lib/supabase-admin'
+import { requireUser } from '@/lib/require-role'
+import { fetchAllRows, isUuid, readJsonBody, serverError } from '../../_lib/api-error'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-// Crear cliente de Supabase con service role key para bypass RLS
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-
-const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: {
-    persistSession: false,
-    autoRefreshToken: false
-  }
-})
-
+// Solo lectura (no llama a Google): lista los pares IPS-KAM elegibles que aún no tienen
+// fila en hospital_kam_distances. Requiere sesión.
 export async function POST(request: NextRequest) {
+  const auth = await requireUser(request)
+  if (!auth.ok) return auth.response
+
   try {
     console.log('analyze-missing-optimized: Starting with geographic optimization')
     
-    const { hospitalIds, includeAll } = await request.json()
+    const body = ((await readJsonBody(request)) || {}) as { hospitalIds?: unknown; includeAll?: unknown }
+    const includeAll = body.includeAll
+    if (body.hospitalIds != null && (!Array.isArray(body.hospitalIds) || !body.hospitalIds.every(isUuid))) {
+      return NextResponse.json({ error: 'hospitalIds debe ser una lista de UUID' }, { status: 400 })
+    }
+    const hospitalIds = (body.hospitalIds as string[] | null | undefined) || null
     console.log('analyze-missing-optimized: Request params:', { 
       hospitalIds: hospitalIds?.length || 0, 
       includeAll 
@@ -62,35 +63,33 @@ export async function POST(request: NextRequest) {
     const excludedDeptCodes = new Set((excludedDepts || []).map(d => d.code))
     console.log('analyze-missing-optimized: Departamentos excluidos:', Array.from(excludedDeptCodes))
 
-    // Obtener hospitales - SIEMPRE filtrar por activos y NO en departamentos excluidos
-    let hospitalsQuery = supabaseAdmin
-      .from('hospitals')
-      .select('*')
-      .eq('active', true) // SIEMPRE filtrar por activos
+    // Obtener hospitales - SIEMPRE filtrar por activos y NO en departamentos excluidos (paginado)
+    const buildHospitalsQuery = (from: number, to: number) => {
+      let hospitalsQuery = supabaseAdmin
+        .from('hospitals')
+        .select('*')
+        .eq('active', true) // SIEMPRE filtrar por activos
 
-    // Excluir hospitales en departamentos excluidos
-    if (excludedDeptCodes.size > 0) {
-      hospitalsQuery = hospitalsQuery.not('department_id', 'in', `(${Array.from(excludedDeptCodes).join(',')})`)
+      // Excluir hospitales en departamentos excluidos
+      if (excludedDeptCodes.size > 0) {
+        hospitalsQuery = hospitalsQuery.not('department_id', 'in', `(${Array.from(excludedDeptCodes).join(',')})`)
+      }
+
+      if (hospitalIds && hospitalIds.length > 0) {
+        hospitalsQuery = hospitalsQuery.in('id', hospitalIds)
+      }
+
+      return hospitalsQuery.order('id').range(from, to)
     }
 
-    if (hospitalIds && hospitalIds.length > 0) {
-      // Buscar específicamente estos hospitales (pero solo los activos y no excluidos)
-      console.log('analyze-missing-optimized: Searching for specific hospital IDs (active only, excluding banned departments):', hospitalIds)
-      hospitalsQuery = hospitalsQuery.in('id', hospitalIds)
-    }
-
-    const { data: hospitals, error: hospitalsError } = await hospitalsQuery
+    const { data: hospitals, error: hospitalsError } = await fetchAllRows<any>(buildHospitalsQuery)
 
     if (hospitalsError) {
-      console.error('analyze-missing-optimized: Error fetching hospitals:', hospitalsError)
-      return NextResponse.json({
-        error: `Error al obtener hospitales: ${hospitalsError.message}`,
-        details: hospitalsError
-      }, { status: 500 })
+      return serverError('analyze-missing-optimized (hospitales)', hospitalsError, 'Error al obtener hospitales')
     }
     
     console.log('analyze-missing-optimized: Hospitals fetched:', hospitals?.length || 0)
-    if (hospitals && hospitals.length < hospitalIds?.length) {
+    if (hospitalIds && hospitals.length < hospitalIds.length) {
       console.warn(`analyze-missing-optimized: Only found ${hospitals.length} of ${hospitalIds.length} requested hospitals`)
       
       // Log which ones are missing
@@ -101,18 +100,15 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Obtener KAMs activos
+    // Obtener KAMs activos que participan en la asignación (los únicos que usa el algoritmo)
     const { data: kams, error: kamsError } = await supabaseAdmin
       .from('kams')
       .select('*')
       .eq('active', true)
+      .eq('participates_in_assignment', true)
 
     if (kamsError) {
-      console.error('analyze-missing-optimized: Error fetching KAMs:', kamsError)
-      return NextResponse.json({
-        error: `Error al obtener KAMs: ${kamsError.message}`,
-        details: kamsError
-      }, { status: 500 })
+      return serverError('analyze-missing-optimized (kams)', kamsError, 'Error al obtener KAMs')
     }
 
     console.log('analyze-missing-optimized: KAMs fetched:', kams?.length || 0)
@@ -125,7 +121,7 @@ export async function POST(request: NextRequest) {
     console.log('analyze-missing-optimized: Hospitals by department:', hospitalsByDept)
 
     // Obtener rutas existentes de hospital_kam_distances - PAGINAR para obtener TODAS
-    let existingRoutesSet = new Set<string>()
+    let existingRoutesSet: Set<string>
     
     console.log('analyze-missing-optimized: Checking existing routes in hospital_kam_distances...')
     
@@ -149,11 +145,12 @@ export async function POST(request: NextRequest) {
       const { data: batch, error: routesError } = await supabaseAdmin
         .from('hospital_kam_distances')
         .select('hospital_id, kam_id')
+        .order('id')
         .range(offset, offset + pageSize - 1)
       
       if (routesError) {
-        console.error('analyze-missing-optimized: Error fetching routes batch:', routesError)
-        break
+        // Sin la lista completa de rutas existentes se propondría recalcular (y pagar) pares ya calculados
+        return serverError('analyze-missing-optimized (rutas existentes)', routesError, 'Error al leer las rutas existentes')
       }
       
       if (batch && batch.length > 0) {
@@ -382,13 +379,6 @@ export async function POST(request: NextRequest) {
     })
 
   } catch (error) {
-    console.error('analyze-missing-optimized: Fatal error:', error)
-    return NextResponse.json(
-      { 
-        error: error instanceof Error ? error.message : 'Error al analizar rutas',
-        stack: error instanceof Error ? error.stack : undefined
-      },
-      { status: 500 }
-    )
+    return serverError('analyze-missing-optimized', error, 'Error al analizar rutas')
   }
 }

@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { supabase } from '@/lib/supabase'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
 import { useRouter } from 'next/navigation'
@@ -17,23 +16,29 @@ export default function KamColorsPage() {
     loadKams()
   }, [])
 
+  const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/
+
   const loadKams = async () => {
-    const { data } = await supabase
-      .from('kams')
-      .select('*')
-      .eq('active', true)
-      .order('name')
-    
-    if (data) {
-      setKams(data)
+    try {
+      const response = await fetch('/api/kams')
+      const data = await response.json().catch(() => null)
+      if (!response.ok) {
+        throw new Error((data && data.error) || `Error al cargar los KAMs (${response.status})`)
+      }
+      const activeKams = (Array.isArray(data) ? data : []).filter((kam: any) => kam.active)
+      setKams(activeKams)
       // Inicializar colores editados
       const colors: Record<string, string> = {}
-      data.forEach(kam => {
+      activeKams.forEach((kam: any) => {
         colors[kam.id] = kam.color || '#888888'
       })
       setEditedColors(colors)
+    } catch (error: any) {
+      console.error('Error loading KAMs:', error)
+      alert(error?.message || 'Error al cargar los KAMs')
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   const handleColorChange = (kamId: string, newColor: string) => {
@@ -47,17 +52,32 @@ export default function KamColorsPage() {
     setSaving(true)
     
     try {
-      // Actualizar cada KAM con su nuevo color
-      for (const kam of kams) {
-        if (editedColors[kam.id] !== kam.color) {
-          await supabase
-            .from('kams')
-            .update({ color: editedColors[kam.id] })
-            .eq('id', kam.id)
+      // Actualizar cada KAM con su nuevo color en el servidor (service_role + permiso kams:edit)
+      const changed = kams.filter(kam => editedColors[kam.id] !== kam.color)
+      const invalid = changed.filter(kam => !HEX_COLOR_RE.test(editedColors[kam.id] || ''))
+      if (invalid.length > 0) {
+        alert(`Color no válido para: ${invalid.map(k => k.name).join(', ')}. Usa el formato #RRGGBB.`)
+        return
+      }
+
+      const failures: string[] = []
+      for (const kam of changed) {
+        const response = await fetch('/api/kams/update', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ kamId: kam.id, updateData: { color: editedColors[kam.id] } })
+        })
+        if (!response.ok) {
+          const result = await response.json().catch(() => ({}))
+          failures.push(`${kam.name}: ${result.error || `error ${response.status}`}`)
         }
       }
-      
-      alert('Colores actualizados exitosamente. El mapa se actualizará al recargar.')
+
+      if (failures.length > 0) {
+        alert(`No se pudieron actualizar algunos colores:\n${failures.join('\n')}`)
+      } else {
+        alert('Colores actualizados exitosamente. El mapa se actualizará al recargar.')
+      }
       loadKams() // Recargar para confirmar cambios
     } catch (error) {
       console.error('Error updating colors:', error)

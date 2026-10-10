@@ -1,8 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { supabase } from '@/lib/supabase'
-import { getAuthHeaders } from '@/lib/auth-helper'
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 
 interface Hospital {
@@ -47,44 +45,9 @@ export default function RouteCalculator() {
   const [calculationProgress, setCalculationProgress] = useState(0)
   const [calculationStatus, setCalculationStatus] = useState('')
   const [results, setResults] = useState<any>(null)
-  const [connectionTest, setConnectionTest] = useState<any>(null)
 
-  // Test de conexión al montar el componente
-  useEffect(() => {
-    const testConnection = async () => {
-      try {
-        const response = await fetch('/api/routes/test')
-        const data = await response.json()
-        console.log('RouteCalculator: Connection test:', data)
-        setConnectionTest(data)
-      } catch (error) {
-        console.error('RouteCalculator: Connection test failed:', error)
-      }
-    }
-    testConnection()
-  }, [])
-
-  // IDs de hospitales específicos para la prueba
-  const testHospitalIds = [
-    '0a014185-801f-40f0-9cee-8cd7706068df',
-    '18bb319b-00f7-4e4b-99a8-edacecbb8b41',
-    '1f720e20-d731-437e-897b-134de313519b',
-    '38b7b8b8-bb6d-45e5-963a-328d710c61dc',
-    '3aa8f43e-a3ed-467f-8d22-e2f721f6e598',
-    '4be1cf19-30ad-4592-bd96-ad7ec6193988',
-    '6e7ea424-3994-48a7-82b8-db873e5847e9',
-    '6faa1bb8-017c-4c8b-a422-ffe09c0109bf',
-    '73c43c4d-328b-4714-a028-b333cc957f8c',
-    '8018788c-6a13-4710-97aa-fb03e9a7c0a4',
-    '998c9305-61cb-4a43-b642-01dab3d7b42d',
-    '9ecb17a9-944b-40f0-8e83-971ca215a5a7',
-    'ad06741c-6bc2-46aa-9863-dc65e3022763',
-    'b0e473d6-93d7-458e-a2ea-74bb4058a84b',
-    'd1eb637b-2414-43c5-a796-d80e3da4f77e',
-    'd749b48d-0c77-4182-8a9e-c78afbe0237a',
-    'ea4675de-180f-4fc1-b8e3-ee2dcfa1ba55',
-    'fb53e3f3-73b7-4066-b46e-1661d02b6c65'
-  ]
+  // La sesión viaja en la cookie httpOnly, que el navegador adjunta sola (same-origin)
+  const jsonHeaders = { 'Content-Type': 'application/json' }
 
   // Analizar rutas faltantes
   const analyzeMissingRoutes = async () => {
@@ -92,13 +55,11 @@ export default function RouteCalculator() {
     setMissingRoutes([])
     
     try {
-      // Siempre usar endpoint seguro con autenticación
-      const headers = await getAuthHeaders()
       console.log('RouteCalculator: Analyzing missing routes...')
-      
+
       const response = await fetch('/api/routes/analyze-missing-optimized', {
         method: 'POST',
-        headers,
+        headers: jsonHeaders,
         body: JSON.stringify({ 
           hospitalIds: null, // null = analizar TODOS los hospitales activos
           includeAll: true   // true = incluir todos según restricciones geográficas
@@ -208,13 +169,11 @@ export default function RouteCalculator() {
         setCalculationStatus(`Procesando lote ${currentBatch} de ${totalBatches}...`)
         setCalculationProgress((batchStart / routesToCalculate.length) * 100)
         
-        // Siempre usar endpoint seguro con autenticación
-        const headers = await getAuthHeaders()
         console.log(`RouteCalculator: Calculando batch ${currentBatch}/${totalBatches}`)
-        
+
         const response = await fetch('/api/routes/calculate-batch-secure', {
           method: 'POST',
-          headers,
+          headers: jsonHeaders,
           body: JSON.stringify({ 
             routes: routesToCalculate,
             saveToDatabase: true,
@@ -286,24 +245,6 @@ export default function RouteCalculator() {
           </div>
         </div>
         
-        {/* Mostrar estado de conexión si hay problemas */}
-        {connectionTest && !connectionTest.success && (
-          <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 flex items-center gap-2">
-            <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <span>Error de conexión: {connectionTest.error}</span>
-          </div>
-        )}
-        
-        {connectionTest && connectionTest.success && !connectionTest.tests?.hasDistanceTable && (
-          <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-700 flex items-center gap-2">
-            <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
-            <span>La tabla hospital_kam_distances no existe. Ejecute el script SQL proporcionado.</span>
-          </div>
-        )}
       </div>
 
       {/* Botón de análisis */}

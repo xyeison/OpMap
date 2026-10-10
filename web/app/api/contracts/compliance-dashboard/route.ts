@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase-server';
+import { supabaseAdmin } from '@/lib/supabase-admin';
+import { requirePermission } from '@/lib/require-role';
 
 export async function GET(request: NextRequest) {
+  const auth = await requirePermission(request, 'contracts:view');
+  if (!auth.ok) return auth.response;
+
   try {
-    const supabase = createServerSupabaseClient();
+    const supabase = supabaseAdmin;
     
     // Get compliance dashboard data from the view
     const { data, error } = await supabase
@@ -57,8 +61,11 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const auth = await requirePermission(request, 'contracts:edit');
+  if (!auth.ok) return auth.response;
+
   try {
-    const supabase = createServerSupabaseClient();
+    const supabase = supabaseAdmin;
     
     // Validate all contracts
     const { data: contracts, error: fetchError } = await supabase
@@ -75,14 +82,15 @@ export async function POST(request: NextRequest) {
     }
 
     let validatedCount = 0;
-    let errors = [];
+    const errors: { contractId: string; error: string }[] = [];
 
     for (const contract of contracts || []) {
-      const { data, error } = await supabase
+      const { error } = await supabase
         .rpc('validar_cumplimiento_contrato', { p_contract_id: contract.id });
 
       if (error) {
-        errors.push({ contractId: contract.id, error: error.message });
+        console.error('Error validando contrato', contract.id, error);
+        errors.push({ contractId: contract.id, error: 'Error al validar el contrato' });
       } else {
         validatedCount++;
       }

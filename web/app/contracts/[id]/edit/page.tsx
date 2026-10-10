@@ -368,7 +368,7 @@ export default function ContractEditPage() {
                           if (filtered.length === 0) {
                             return (
                               <div className="px-4 py-2 text-gray-500">
-                                No se encontraron hospitales con "{hospitalSearch}"
+                                No se encontraron hospitales con &ldquo;{hospitalSearch}&rdquo;
                               </div>
                             );
                           }

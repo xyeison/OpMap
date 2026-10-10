@@ -1,34 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { getUserFromRequest } from '@/lib/auth-server'
-
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  supabaseServiceKey
-)
+import { supabaseAdmin } from '@/lib/supabase-admin'
+import { requirePermission } from '@/lib/require-role'
+import { badJson, isUuid, readJsonBody, serverError } from '../_lib/api-error'
+import { CONTRACT_EDITABLE_COLUMNS, pickAllowed } from '../_lib/allow-list'
 
 export async function GET(request: NextRequest) {
+  // admin, contract_manager y sales_manager (contracts:view)
+  const auth = await requirePermission(request, 'contracts:view')
+  if (!auth.ok) return auth.response
+
   try {
-    // Verificar autenticación
-    const user = await getUserFromRequest(request)
-    console.log('Contracts API - Usuario autenticado:', user)
-    
-    if (!user) {
-      console.log('Contracts API - No hay usuario autenticado')
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-    }
-
-    // Verificar permisos
-    console.log('Contracts API - Rol del usuario:', user.role)
-    if (user.role !== 'admin' && user.role !== 'contract_manager' && user.role !== 'sales_manager') {
-      console.log('Contracts API - Usuario sin permisos. Rol:', user.role)
-      return NextResponse.json({ error: 'Sin permisos para ver contratos' }, { status: 403 })
-    }
-
-    // Obtener contratos con información del hospital
-    const { data: contractsData, error } = await supabase
+    const { data: contractsData, error } = await supabaseAdmin
       .from('hospital_contracts')
       .select(`
         *,
@@ -42,101 +24,75 @@ export async function GET(request: NextRequest) {
       `)
       .order('created_at', { ascending: false })
 
-    if (error) {
-      console.error('Error loading contracts:', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+    if (error) return serverError('contracts GET', error, 'Error al cargar los contratos')
+
+    // KAM asignado a cada hospital: dos consultas en bloque en lugar de 2 por contrato
+    const hospitalIds = Array.from(
+      new Set((contractsData || []).map(c => c.hospital_id).filter(Boolean))
+    )
+
+    const kamByHospital = new Map<string, { name: string }>()
+    if (hospitalIds.length > 0) {
+      const { data: assignments, error: assignmentsError } = await supabaseAdmin
+        .from('assignments')
+        .select('hospital_id, kam_id')
+        .in('hospital_id', hospitalIds)
+      if (assignmentsError) return serverError('contracts GET (assignments)', assignmentsError)
+
+      const kamIds = Array.from(new Set((assignments || []).map(a => a.kam_id).filter(Boolean)))
+      if (kamIds.length > 0) {
+        const { data: kams, error: kamsError } = await supabaseAdmin
+          .from('kams')
+          .select('id, name')
+          .in('id', kamIds)
+        if (kamsError) return serverError('contracts GET (kams)', kamsError)
+
+        const kamNames = new Map((kams || []).map(k => [k.id, k.name as string]))
+        for (const a of assignments || []) {
+          const name = kamNames.get(a.kam_id)
+          if (name) kamByHospital.set(a.hospital_id, { name })
+        }
+      }
     }
 
-    // Obtener KAMs para cada hospital
-    const contractsWithKams = await Promise.all(
-      (contractsData || []).map(async (contract) => {
-        const { data: assignment } = await supabase
-          .from('assignments')
-          .select('kam_id')
-          .eq('hospital_id', contract.hospital_id)
-          .single()
-
-        if (assignment?.kam_id) {
-          const { data: kam } = await supabase
-            .from('kams')
-            .select('name')
-            .eq('id', assignment.kam_id)
-            .single()
-          
-          return {
-            ...contract,
-            hospital: contract.hospitals,
-            kam: kam
-          }
-        }
-
-        return {
-          ...contract,
-          hospital: contract.hospitals,
-          kam: null
-        }
-      })
-    )
+    const contractsWithKams = (contractsData || []).map(contract => ({
+      ...contract,
+      hospital: contract.hospitals,
+      kam: kamByHospital.get(contract.hospital_id) || null,
+    }))
 
     return NextResponse.json(contractsWithKams)
   } catch (error) {
-    console.error('Error in GET /api/contracts:', error)
-    return NextResponse.json(
-      { error: 'Error interno del servidor' },
-      { status: 500 }
-    )
+    return serverError('contracts GET', error)
   }
 }
 
 export async function POST(request: NextRequest) {
+  const auth = await requirePermission(request, 'contracts:edit')
+  if (!auth.ok) return auth.response
+
   try {
-    // Verificar autenticación
-    const user = await getUserFromRequest(request)
-    if (!user) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+    const body = await readJsonBody(request)
+    if (!body || typeof body !== 'object') return badJson()
+
+    // Allow-list de columnas reales de hospital_contracts
+    const contractData = pickAllowed(body as Record<string, unknown>, CONTRACT_EDITABLE_COLUMNS)
+    contractData.proveedor_id = isUuid(contractData.proveedor_id) ? contractData.proveedor_id : null
+
+    if (!isUuid(contractData.hospital_id)) {
+      return NextResponse.json({ error: 'hospital_id es requerido' }, { status: 400 })
     }
 
-    // Verificar permisos
-    if (user.role !== 'admin' && user.role !== 'contract_manager') {
-      return NextResponse.json({ error: 'Sin permisos para crear contratos' }, { status: 403 })
-    }
-
-    const body = await request.json()
-    
-    // Clean up proveedor_id - convert empty strings to null
-    const cleanedBody = {
-      ...body,
-      proveedor_id: body.proveedor_id && body.proveedor_id !== '' ? body.proveedor_id : null,
-      created_by: user.id
-    }
-    
-    // Debug: Log what we're sending to the database
-    console.log('Creating contract with data:', {
-      requires_liquidez: cleanedBody.requires_liquidez,
-      min_liquidez: cleanedBody.min_liquidez,
-      requires_endeudamiento: cleanedBody.requires_endeudamiento,
-      max_endeudamiento: cleanedBody.max_endeudamiento,
-      requires_cobertura: cleanedBody.requires_cobertura,
-      min_cobertura: cleanedBody.min_cobertura
-    })
-    
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('hospital_contracts')
-      .insert(cleanedBody)
+      .insert({ ...contractData, created_by: auth.user.id })
       .select()
       .single()
 
-    if (error) {
-      console.error('Error creating contract:', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
+    if (error) return serverError('contracts POST', error, 'Error al crear el contrato')
 
     return NextResponse.json(data)
   } catch (error) {
-    console.error('Error in POST /api/contracts:', error)
-    return NextResponse.json(
-      { error: 'Error interno del servidor' },
-      { status: 500 }
-    )
+    return serverError('contracts POST', error)
   }
 }

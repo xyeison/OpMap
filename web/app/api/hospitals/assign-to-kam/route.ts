@@ -1,174 +1,320 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { supabaseAdmin } from '@/lib/supabase-admin'
+import { requirePermission } from '@/lib/require-role'
+import { badJson, isUuid, readJsonBody, serverError } from '../../_lib/api-error'
+import {
+  distanceMatrix,
+  googleRoutesDisabled,
+  MAX_ORIGINS,
+} from '../../_lib/google-distance-matrix'
+import {
+  eligibleKamsForHospital,
+  hasValidKamArea,
+  isBaseTerritory,
+  loadAdjacency,
+  type EligibilityKam,
+} from '../../_lib/kam-eligibility'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey)
+// Asigna una IPS recién creada (o sin asignación) a su KAM siguiendo las reglas del algoritmo:
+//   0. asignación forzada del territorio, 1. territorio base, 2. competencia por tiempo real
+//   entre KAMs elegibles (mismo departamento / adyacentes N1-N2 / regla Bogotá).
+// Las coordenadas y el territorio se leen SIEMPRE de public.hospitals (se ignora lo que mande el
+// cliente). Los tiempos se leen/escriben en hospital_kam_distances en SEGUNDOS, y solo se llama a
+// Google para los pares que faltan, en una petición con hasta 25 orígenes.
+// La regla de mayoría por camas de Bogotá la aplica el siguiente recálculo completo.
 
-// Google Maps API para calcular tiempos de viaje
-async function calculateTravelTime(
-  originLat: number,
-  originLng: number,
-  destLat: number,
-  destLng: number
-): Promise<number | null> {
-  const apiKey = process.env.GOOGLE_MAPS_API_KEY
-  if (!apiKey) {
-    console.error('Google Maps API key not configured')
-    return null
-  }
-
-  try {
-    const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${originLat},${originLng}&destinations=${destLat},${destLng}&mode=driving&units=metric&key=${apiKey}`
-    const response = await fetch(url)
-    const data = await response.json()
-
-    if (data.status === 'OK' && data.rows[0]?.elements[0]?.status === 'OK') {
-      const durationInSeconds = data.rows[0].elements[0].duration.value
-      return Math.round(durationInSeconds / 60) // Convertir a minutos
-    }
-  } catch (error) {
-    console.error('Error calculating travel time:', error)
-  }
-  
-  return null
-}
+type Kam = EligibilityKam & { participates_in_assignment: boolean | null }
 
 export async function POST(request: NextRequest) {
+  const auth = await requirePermission(request, 'hospitals:edit')
+  if (!auth.ok) return auth.response
+
   try {
-    const { hospitalId, hospitalLat, hospitalLng, municipalityId } = await request.json()
+    const body = (await readJsonBody(request)) as { hospitalId?: unknown } | undefined
+    if (!body || typeof body !== 'object') return badJson()
 
-    if (!hospitalId || !hospitalLat || !hospitalLng || !municipalityId) {
-      return NextResponse.json({ error: 'Faltan parámetros requeridos' }, { status: 400 })
+    const hospitalId = body.hospitalId
+    if (!isUuid(hospitalId)) {
+      return NextResponse.json({ error: 'hospitalId es requerido' }, { status: 400 })
     }
 
-    // 1. Obtener todos los KAMs activos
-    const { data: kams, error: kamsError } = await supabase
+    // 1. Validaciones previas a cualquier llamada a Google
+    const { data: hospital, error: hospitalError } = await supabaseAdmin
+      .from('hospitals')
+      .select('id, name, lat, lng, municipality_id, department_id, locality_id, active')
+      .eq('id', hospitalId)
+      .maybeSingle()
+
+    if (hospitalError) return serverError('assign-to-kam (hospital)', hospitalError)
+    if (!hospital) {
+      return NextResponse.json({ error: 'Hospital no encontrado' }, { status: 404 })
+    }
+    if (hospital.active !== true) {
+      return NextResponse.json({ error: 'El hospital está inactivo' }, { status: 409 })
+    }
+    if (hospital.lat === null || hospital.lng === null) {
+      return NextResponse.json({ error: 'El hospital no tiene coordenadas' }, { status: 422 })
+    }
+
+    const { data: existingAssignment, error: existingError } = await supabaseAdmin
+      .from('assignments')
+      .select('id')
+      .eq('hospital_id', hospitalId)
+      .maybeSingle()
+
+    if (existingError) return serverError('assign-to-kam (asignación existente)', existingError)
+    if (existingAssignment) {
+      return NextResponse.json({ error: 'El hospital ya tiene un KAM asignado' }, { status: 409 })
+    }
+
+    // KAMs que participan en la asignación territorial (mismo criterio que el algoritmo)
+    const { data: kamsData, error: kamsError } = await supabaseAdmin
       .from('kams')
-      .select('*')
+      .select('id, name, area_id, lat, lng, enable_level2, max_travel_time, priority, participates_in_assignment')
       .eq('active', true)
+      .eq('participates_in_assignment', true)
+      .order('name')
 
-    if (kamsError || !kams || kams.length === 0) {
-      return NextResponse.json({ error: 'No hay KAMs activos disponibles' }, { status: 400 })
+    if (kamsError) return serverError('assign-to-kam (kams)', kamsError)
+    // area_id === '11001' es una configuración inválida (mismo criterio que el algoritmo)
+    const kams = ((kamsData || []) as Kam[]).filter(kam => {
+      if (hasValidKamArea(kam)) return true
+      console.warn(`assign-to-kam: KAM ${kam.id} excluido por area_id inválido (${kam.area_id})`)
+      return false
+    })
+    if (kams.length === 0) {
+      return NextResponse.json({ error: 'No hay KAMs activos disponibles' }, { status: 422 })
     }
 
-    // 2. Buscar si hay un KAM en el mismo municipio (territorio base)
-    const localKam = kams.find(kam => kam.area_id === municipalityId)
-    
-    if (localKam) {
-      // Asignar directamente al KAM local
-      const { error: assignError } = await supabase
-        .from('assignments')
-        .insert({
-          hospital_id: hospitalId,
-          kam_id: localKam.id,
-          travel_time: 0, // En territorio base
-          is_base_territory: true,
-          assigned_at: new Date().toISOString()
-        })
+    const insertAssignment = async (row: {
+      kam_id: string
+      travel_time: number
+      assignment_type: string
+      is_base_territory: boolean
+    }) => {
+      const { error } = await supabaseAdmin.from('assignments').insert({
+        hospital_id: hospitalId,
+        ...row,
+        assigned_at: new Date().toISOString(),
+      })
+      return error
+    }
 
-      if (assignError) {
-        console.error('Error assigning to local KAM:', assignError)
-        return NextResponse.json({ error: 'Error al asignar al KAM local' }, { status: 500 })
+    const respondInsertError = (error: { code?: string } | null, context: string) => {
+      if (error?.code === '23505') {
+        return NextResponse.json({ error: 'El hospital ya tiene un KAM asignado' }, { status: 409 })
       }
+      return serverError(context, error, 'Error al guardar la asignación')
+    }
+
+    // 2. Asignación forzada del territorio (localidad o municipio)
+    const territoryId = hospital.locality_id || hospital.municipality_id
+    const { data: forced, error: forcedError } = await supabaseAdmin
+      .from('forced_assignments')
+      .select('kam_id, territory_name')
+      .eq('territory_id', territoryId)
+      .eq('active', true)
+      .limit(1)
+      .maybeSingle()
+
+    if (forcedError) return serverError('assign-to-kam (forzadas)', forcedError)
+
+    const forcedKam = forced ? kams.find(k => k.id === forced.kam_id) : undefined
+    if (forcedKam) {
+      const { data: distanceRow } = await supabaseAdmin
+        .from('hospital_kam_distances')
+        .select('travel_time')
+        .eq('hospital_id', hospitalId)
+        .eq('kam_id', forcedKam.id)
+        .maybeSingle()
+      const travelTime = distanceRow?.travel_time ?? 0
+
+      const insertError = await insertAssignment({
+        kam_id: forcedKam.id,
+        travel_time: travelTime,
+        assignment_type: 'forced',
+        is_base_territory: false,
+      })
+      if (insertError) return respondInsertError(insertError, 'assign-to-kam (insert forzada)')
 
       return NextResponse.json({
         success: true,
-        kamId: localKam.id,
-        kamName: localKam.name,
-        travelTime: 0,
-        isBaseTerritory: true
+        kamId: forcedKam.id,
+        kamName: forcedKam.name,
+        travelTime,
+        travelTimeMinutes: Math.round(travelTime / 60),
+        isBaseTerritory: false,
+        assignmentType: 'forced',
+        googleElements: 0,
       })
     }
 
-    // 3. Si no hay KAM local, buscar el más cercano por tiempo de viaje
-    console.log('No hay KAM local, buscando el más cercano...')
-    
-    // Primero buscar en caché
-    const { data: cachedTimes } = await supabase
-      .from('travel_time_cache')
-      .select('*')
-      .eq('dest_lat', hospitalLat)
-      .eq('dest_lng', hospitalLng)
-      .eq('source', 'google_maps')
+    // 3. Territorio base (orden por nombre para que sea determinista)
+    const baseKam = kams.find(k => isBaseTerritory(k, hospital))
+    if (baseKam) {
+      const insertError = await insertAssignment({
+        kam_id: baseKam.id,
+        travel_time: 0,
+        assignment_type: 'base_territory',
+        is_base_territory: true,
+      })
+      if (insertError) return respondInsertError(insertError, 'assign-to-kam (insert base)')
 
-    let closestKam = null
-    let shortestTime = Infinity
+      return NextResponse.json({
+        success: true,
+        kamId: baseKam.id,
+        kamName: baseKam.name,
+        travelTime: 0,
+        travelTimeMinutes: 0,
+        isBaseTerritory: true,
+        assignmentType: 'base_territory',
+        googleElements: 0,
+      })
+    }
 
-    // Verificar cada KAM
-    for (const kam of kams) {
-      let travelTime = null
+    // 4. Departamentos excluidos: el algoritmo no les hace asignación competitiva
+    const { data: department, error: departmentError } = await supabaseAdmin
+      .from('departments')
+      .select('excluded')
+      .eq('code', hospital.department_id)
+      .maybeSingle()
+    if (departmentError) return serverError('assign-to-kam (departamento)', departmentError)
+    if (department?.excluded) {
+      return NextResponse.json(
+        { error: 'El hospital está en un departamento excluido del análisis; queda sin asignar' },
+        { status: 422 }
+      )
+    }
 
-      // Buscar en caché
-      const cached = cachedTimes?.find(
-        t => Math.abs(t.origin_lat - kam.lat) < 0.0001 && 
-             Math.abs(t.origin_lng - kam.lng) < 0.0001
+    // 5. Competencia: solo KAMs elegibles por geografía
+    const adjacency = await loadAdjacency(supabaseAdmin)
+    const candidates = eligibleKamsForHospital(kams, hospital, adjacency)
+    if (candidates.length === 0) {
+      return NextResponse.json(
+        { error: 'Ningún KAM puede competir por este hospital según la matriz de adyacencia' },
+        { status: 422 }
+      )
+    }
+
+    // Tiempos ya calculados (segundos)
+    const { data: knownRows, error: knownError } = await supabaseAdmin
+      .from('hospital_kam_distances')
+      .select('kam_id, travel_time')
+      .eq('hospital_id', hospitalId)
+      .in('kam_id', candidates.map(k => k.id))
+    if (knownError) return serverError('assign-to-kam (distancias)', knownError)
+
+    const times = new Map<string, number>()
+    for (const row of knownRows || []) {
+      if (row.travel_time !== null) times.set(row.kam_id, row.travel_time)
+    }
+
+    // Pares que faltan: una petición a Google con hasta 25 orígenes (KAMs) y 1 destino (IPS)
+    const missing = candidates.filter(k => !times.has(k.id))
+    let googleElements = 0
+
+    if (missing.length > 0) {
+      if (googleRoutesDisabled()) {
+        return NextResponse.json(
+          { error: 'El cálculo de rutas con Google está deshabilitado temporalmente' },
+          { status: 503 }
+        )
+      }
+
+      const destination = { lat: Number(hospital.lat), lng: Number(hospital.lng) }
+      const upserts: Record<string, unknown>[] = []
+
+      for (let i = 0; i < missing.length; i += MAX_ORIGINS) {
+        const chunk = missing.slice(i, i + MAX_ORIGINS)
+        const matrix = await distanceMatrix(
+          chunk.map(k => ({ lat: Number(k.lat), lng: Number(k.lng) })),
+          [destination]
+        )
+        googleElements += matrix.elementsBilled
+        if (!matrix.ok) continue
+
+        chunk.forEach((kam, index) => {
+          const element = matrix.rows[index]?.[0]
+          if (element?.ok && element.durationSeconds !== null) {
+            times.set(kam.id, element.durationSeconds)
+            const now = new Date().toISOString()
+            upserts.push({
+              hospital_id: hospitalId,
+              kam_id: kam.id,
+              travel_time: element.durationSeconds, // SEGUNDOS
+              distance: element.distanceKm,
+              source: 'google_maps',
+              calculated_at: now,
+              updated_at: now,
+            })
+          }
+        })
+      }
+
+      console.info(
+        `[google-distance-matrix] assign-to-kam hospital=${hospitalId} usuario=${auth.user.id} elementos=${googleElements}`
       )
 
-      if (cached) {
-        travelTime = cached.travel_time
-      } else {
-        // Calcular con Google Maps
-        travelTime = await calculateTravelTime(kam.lat, kam.lng, hospitalLat, hospitalLng)
-        
-        // Guardar en caché si se calculó
-        if (travelTime !== null) {
-          await supabase
-            .from('travel_time_cache')
-            .insert({
-              origin_lat: kam.lat,
-              origin_lng: kam.lng,
-              dest_lat: hospitalLat,
-              dest_lng: hospitalLng,
-              travel_time: travelTime,
-              source: 'google_maps',
-              created_at: new Date().toISOString()
-            })
+      if (upserts.length > 0) {
+        const { error: upsertError } = await supabaseAdmin
+          .from('hospital_kam_distances')
+          .upsert(upserts, { onConflict: 'hospital_id,kam_id' })
+        if (upsertError) {
+          // Se continúa con la asignación: los tiempos ya están en memoria
+          console.error('assign-to-kam: error guardando hospital_kam_distances', upsertError)
         }
       }
+    }
 
-      // Verificar si es el más cercano (máximo 4 horas)
-      if (travelTime !== null && travelTime < shortestTime && travelTime <= 240) {
-        shortestTime = travelTime
-        closestKam = kam
+    // 6. Mejor KAM: menor tiempo dentro de su max_travel_time; empate -> mayor prioridad
+    let bestKam: Kam | null = null
+    let bestTime = Infinity
+    for (const kam of candidates) {
+      const travelTime = times.get(kam.id)
+      if (travelTime === undefined) continue
+      const maxMinutes = kam.max_travel_time ?? 240
+      if (travelTime / 60 > maxMinutes) continue
+      if (
+        travelTime < bestTime ||
+        (travelTime === bestTime && (kam.priority ?? 0) > (bestKam?.priority ?? 0))
+      ) {
+        bestTime = travelTime
+        bestKam = kam
       }
     }
 
-    if (!closestKam) {
-      return NextResponse.json({ 
-        error: 'No se encontró ningún KAM dentro del rango de 4 horas' 
-      }, { status: 400 })
+    if (!bestKam) {
+      return NextResponse.json(
+        {
+          error: 'No se encontró ningún KAM dentro de su tiempo máximo de viaje',
+          googleElements,
+        },
+        { status: 422 }
+      )
     }
 
-    // 4. Asignar al KAM más cercano
-    const { error: assignError } = await supabase
-      .from('assignments')
-      .insert({
-        hospital_id: hospitalId,
-        kam_id: closestKam.id,
-        travel_time: shortestTime,
-        is_base_territory: false,
-        assigned_at: new Date().toISOString()
-      })
-
-    if (assignError) {
-      console.error('Error assigning to closest KAM:', assignError)
-      return NextResponse.json({ error: 'Error al asignar al KAM más cercano' }, { status: 500 })
-    }
+    const insertError = await insertAssignment({
+      kam_id: bestKam.id,
+      travel_time: bestTime, // SEGUNDOS
+      assignment_type: 'competitive',
+      is_base_territory: false,
+    })
+    if (insertError) return respondInsertError(insertError, 'assign-to-kam (insert competitiva)')
 
     return NextResponse.json({
       success: true,
-      kamId: closestKam.id,
-      kamName: closestKam.name,
-      travelTime: shortestTime,
-      isBaseTerritory: false
+      kamId: bestKam.id,
+      kamName: bestKam.name,
+      travelTime: bestTime,
+      travelTimeMinutes: Math.round(bestTime / 60),
+      isBaseTerritory: false,
+      assignmentType: 'competitive',
+      googleElements,
     })
-
   } catch (error) {
-    console.error('Error in assign-to-kam:', error)
-    return NextResponse.json({ 
-      error: 'Error interno del servidor' 
-    }, { status: 500 })
+    return serverError('assign-to-kam', error)
   }
 }

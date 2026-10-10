@@ -1,41 +1,29 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  supabaseServiceKey
-);
+import { NextRequest, NextResponse } from 'next/server'
+import { supabaseAdmin } from '@/lib/supabase-admin'
+import { requirePermission } from '@/lib/require-role'
+import { serverError } from '../../_lib/api-error'
 
 export async function GET(request: NextRequest) {
+  const auth = await requirePermission(request, 'contracts:view')
+  if (!auth.ok) return auth.response
+
   try {
-    // Query the contract_compliance view
-    const { data: contracts, error } = await supabase
+    // Vista contract_compliance
+    const { data: contracts, error } = await supabaseAdmin
       .from('contract_compliance')
       .select('*')
-      .order('contract_number', { ascending: true });
+      .order('contract_number', { ascending: true })
 
-    if (error) {
-      console.error('Error fetching compliance:', error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
+    if (error) return serverError('contracts/compliance GET', error, 'Error al obtener el cumplimiento')
 
-    // Transform contract_id to id for compatibility with frontend
+    // contract_id -> id para compatibilidad con el frontend (se mantiene contract_id)
     const transformedContracts = (contracts || []).map(contract => ({
       ...contract,
       id: contract.contract_id,
-      // Keep contract_id for backwards compatibility
-    }));
+    }))
 
-    return NextResponse.json({ 
-      contracts: transformedContracts,
-      success: true 
-    });
+    return NextResponse.json({ contracts: transformedContracts, success: true })
   } catch (error) {
-    console.error('Error in compliance API:', error);
-    return NextResponse.json({ 
-      error: 'Internal server error' 
-    }, { status: 500 });
+    return serverError('contracts/compliance GET', error)
   }
 }

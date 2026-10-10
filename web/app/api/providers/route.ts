@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Proveedor, CreateProveedorDTO, ProveedorFilters } from '@/types/providers';
-import { createServerSupabaseClient } from '@/lib/supabase-server';
+import { ProveedorFilters } from '@/types/providers';
+import { supabaseAdmin } from '@/lib/supabase-admin';
+import { requirePermission } from '@/lib/require-role';
+import { badJson, readJsonBody, serverError } from '../_lib/api-error';
+import { PROVIDER_CREATE_COLUMNS, pickAllowed, sanitizeSearchTerm } from '../_lib/allow-list';
 
 // GET /api/providers - Listar proveedores con filtros
 export async function GET(request: NextRequest) {
+  const auth = await requirePermission(request, 'providers:view');
+  if (!auth.ok) return auth.response;
+
   try {
-    const supabase = createServerSupabaseClient();
+    const supabase = supabaseAdmin;
     const searchParams = request.nextUrl.searchParams;
     
     // Extraer filtros
@@ -17,8 +23,8 @@ export async function GET(request: NextRequest) {
       departamento: searchParams.get('departamento') || undefined,
     };
     
-    const page = parseInt(searchParams.get('page') || '1');
-    const pageSize = parseInt(searchParams.get('pageSize') || '20');
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1') || 1);
+    const pageSize = Math.min(1000, Math.max(1, parseInt(searchParams.get('pageSize') || '20') || 20));
     const offset = (page - 1) * pageSize;
     
     // Construir query base
@@ -39,8 +45,9 @@ export async function GET(request: NextRequest) {
       `, { count: 'exact' });
     
     // Aplicar filtros
-    if (filters.search) {
-      query = query.or(`nombre.ilike.%${filters.search}%,nit.ilike.%${filters.search}%`);
+    const search = filters.search ? sanitizeSearchTerm(filters.search) : '';
+    if (search) {
+      query = query.or(`nombre.ilike.%${search}%,nit.ilike.%${search}%`);
     }
     
     if (filters.estado) {
@@ -58,13 +65,7 @@ export async function GET(request: NextRequest) {
     
     const { data, error, count } = await query;
     
-    if (error) {
-      console.error('Error fetching providers:', error);
-      return NextResponse.json(
-        { error: 'Error al obtener proveedores', details: error.message },
-        { status: 500 }
-      );
-    }
+    if (error) return serverError('providers GET', error, 'Error al obtener proveedores');
     
     // Filtrar por cumple_requisitos si es necesario (post-procesamiento)
     let filteredData = data || [];
@@ -103,12 +104,19 @@ export async function GET(request: NextRequest) {
 
 // POST /api/providers - Crear nuevo proveedor
 export async function POST(request: NextRequest) {
+  const auth = await requirePermission(request, 'providers:edit');
+  if (!auth.ok) return auth.response;
+
   try {
-    const supabase = createServerSupabaseClient();
-    const body: CreateProveedorDTO = await request.json();
+    const supabase = supabaseAdmin;
+    const rawBody = await readJsonBody(request);
+    if (!rawBody || typeof rawBody !== 'object') return badJson();
+
+    // Allow-list de columnas de proveedores (nunca el body entero)
+    const body = pickAllowed(rawBody as Record<string, unknown>, PROVIDER_CREATE_COLUMNS) as Record<string, any>;
     
     // Validar campos requeridos
-    if (!body.nit || !body.nombre) {
+    if (typeof body.nit !== 'string' || typeof body.nombre !== 'string' || !body.nit.trim() || !body.nombre.trim()) {
       return NextResponse.json(
         { error: 'NIT y nombre son requeridos' },
         { status: 400 }
@@ -120,7 +128,7 @@ export async function POST(request: NextRequest) {
       .from('proveedores')
       .select('id')
       .eq('nit', body.nit)
-      .single();
+      .maybeSingle();
     
     if (existing) {
       return NextResponse.json(
@@ -134,7 +142,8 @@ export async function POST(request: NextRequest) {
       .from('proveedores')
       .insert({
         ...body,
-        estado: 'activo'
+        estado: 'activo',
+        created_by: auth.user.id
       })
       .select()
       .single();
@@ -173,11 +182,10 @@ export async function POST(request: NextRequest) {
         );
       }
       
-      // Error genérico con más detalles
+      // Error genérico (sin detalles internos)
       return NextResponse.json(
         { 
           error: 'Error al crear proveedor', 
-          details: error.message,
           suggestion: 'Verifique que todos los campos estén correctos y que no exista un proveedor con el mismo nombre o NIT'
         },
         { status: 500 }

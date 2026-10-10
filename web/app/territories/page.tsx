@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import ForcedAssignmentModal from '@/components/ForcedAssignmentModal'
@@ -26,6 +25,7 @@ interface Territory {
 export default function TerritoriesPage() {
   const [territories, setTerritories] = useState<Territory[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
   const [filterType, setFilterType] = useState<'all' | 'municipality' | 'locality'>('all')
   const [filterDepartment, setFilterDepartment] = useState<string>('all')
@@ -42,31 +42,18 @@ export default function TerritoriesPage() {
 
   const loadData = async () => {
     setLoading(true)
+    setLoadError('')
     
     try {
-      // Cargar territorios con estadísticas
-      const { data: statsData } = await supabase
-        .from('territory_statistics')
-        .select('*')
-      
-      // Cargar asignaciones actuales para obtener KAM asignado
-      const { data: assignmentsData } = await supabase
-        .from('assignments')
-        .select(`
-          hospital_id,
-          kam_id,
-          kams!inner(id, name, color),
-          hospitals!inner(
-            municipality_id,
-            locality_id,
-            department_name
-          )
-        `)
-      
-      // Cargar datos de población de municipios
-      const { data: municipalitiesData } = await supabase
-        .from('municipalities')
-        .select('code, name, population_2025')
+      // A-10: los datos se leen en el servidor con service_role (con la anon key assignments devolvía 0 filas)
+      const response = await fetch('/api/territories')
+      const payload = await response.json().catch(() => null)
+      if (!response.ok) {
+        throw new Error((payload && payload.error) || `Error al cargar los territorios (${response.status})`)
+      }
+      const statsData: any[] = payload?.stats || []
+      const assignmentsData: any[] = payload?.assignments || []
+      const municipalitiesData: any[] = payload?.municipalities || []
       
       // Procesar datos
       if (statsData) {
@@ -124,8 +111,9 @@ export default function TerritoriesPage() {
         setTerritories(Array.from(territoryMap.values()))
         setDepartments(Array.from(departmentSet).sort())
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading territories:', error)
+      setLoadError(error?.message || 'Error al cargar los territorios')
     } finally {
       setLoading(false)
     }
@@ -162,6 +150,12 @@ export default function TerritoriesPage() {
 
   return (
     <div className="container mx-auto px-4 py-8">
+      {loadError && (
+        <div className="mb-4 p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg">
+          {loadError}
+        </div>
+      )}
+
       {/* Header */}
       <div className="mb-8">
         <div className="flex items-center gap-4 mb-4">

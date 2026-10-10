@@ -2,10 +2,9 @@
 
 import { MapContainer, TileLayer, GeoJSON, CircleMarker, Marker, Tooltip, ZoomControl } from 'react-leaflet'
 import { useQuery } from '@tanstack/react-query'
-import { supabase } from '@/lib/supabase'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { VisitsHeatmapLayer } from './VisitsHeatmapLayer'
 import { formatTravelTimeFromSeconds, formatTravelTime } from '@/lib/format-utils'
@@ -44,6 +43,33 @@ if (typeof window !== 'undefined' && !document.querySelector('#custom-kam-marker
     }
   `
   document.head.appendChild(style)
+}
+
+// Mapa base configurable. CARTO ya no sirve tiles sin API key (devuelve un PNG "API KEY REQUIRED"
+// con HTTP 200), así que por defecto se usa Esri World Light Gray Base, de estética clara similar.
+const DEFAULT_BASEMAP_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}'
+const BASEMAP_URL = process.env.NEXT_PUBLIC_BASEMAP_URL || DEFAULT_BASEMAP_URL
+const BASEMAP_ATTRIBUTION = process.env.NEXT_PUBLIC_BASEMAP_ATTRIBUTION || 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ'
+// El servicio de Esri solo tiene tiles nativos hasta z16; por encima se reescalan en vez de fallar
+const BASEMAP_MAX_NATIVE_ZOOM = BASEMAP_URL === DEFAULT_BASEMAP_URL ? 16 : undefined
+
+// Escapa cualquier valor antes de interpolarlo en HTML construido con template strings
+// (popups de Leaflet, divIcon). Evita XSS con datos editables como nombres de proveedor.
+const HTML_ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
+const escapeHtml = (v: unknown) => String(v ?? '').replace(/[&<>"']/g, c => HTML_ESCAPES[c]!)
+
+// Solo se aceptan colores hexadecimales de 6 dígitos (#RRGGBB); cualquier otro valor usa el respaldo
+const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/
+const isSafeColor = (v: unknown): v is string => typeof v === 'string' && HEX_COLOR_RE.test(v)
+const safeColor = (v: unknown, fallback = '#888888') => (isSafeColor(v) ? v : fallback)
+
+// Error HTTP de /api/map/data con el código de estado, para distinguir sesión caducada (401)
+class MapDataError extends Error {
+  status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+  }
 }
 
 // Colores de respaldo para KAMs sin color definido en la base de datos
@@ -97,12 +123,12 @@ export default function MapComponent({
   const [mapZoom, setMapZoom] = useState<number | undefined>(undefined)
   
   // Cargar datos desde el API
-  const { data: mapData, isLoading } = useQuery({
+  const { data: mapData, isLoading, isError, error: mapDataError, refetch, isFetching } = useQuery({
     queryKey: ['map-data'],
     queryFn: async () => {
       const response = await fetch('/api/map/data')
       if (!response.ok) {
-        throw new Error('Error al cargar datos del mapa')
+        throw new MapDataError('Error al cargar datos del mapa', response.status)
       }
       const data = await response.json()
       console.log('Map data received:', {
@@ -112,8 +138,30 @@ export default function MapComponent({
         unassignedHospitals: data.unassignedHospitals?.length || 0
       })
       return data
-    }
+    },
+    // Con sesión caducada no tiene sentido reintentar: se redirige a /login
+    retry: (failureCount, error) =>
+      !(error instanceof MapDataError && error.status === 401) && failureCount < 2
   })
+
+  const isUnauthorized = mapDataError instanceof MapDataError && mapDataError.status === 401
+
+  // Sesión caducada o inexistente: llevar al login
+  useEffect(() => {
+    if (isUnauthorized) {
+      router.replace('/login')
+    }
+  }, [isUnauthorized, router])
+
+  // Aviso no bloqueante si el proveedor del mapa base falla (se registra una sola vez)
+  const [basemapError, setBasemapError] = useState(false)
+  const basemapErrorLogged = useRef(false)
+  const handleTileError = () => {
+    if (basemapErrorLogged.current) return
+    basemapErrorLogged.current = true
+    console.error('No se pudo cargar el mapa base desde', BASEMAP_URL)
+    setBasemapError(true)
+  }
 
   // Asignar colores a KAMs desde la base de datos
   useEffect(() => {
@@ -123,8 +171,8 @@ export default function MapComponent({
     let backupIdx = 0
 
     mapData.kams.forEach((kam: any) => {
-      // Usar el color del KAM desde la base de datos
-      if (kam.color && kam.color.startsWith('#')) {
+      // Usar el color del KAM desde la base de datos (solo si es un #RRGGBB válido)
+      if (isSafeColor(kam.color)) {
         colors[kam.id] = kam.color
       } else {
         // Usar color de respaldo si no tiene color definido
@@ -144,31 +192,27 @@ export default function MapComponent({
       try {
         // Cargar zonas
         const zonesResponse = await fetch('/api/zones')
+        if (!zonesResponse.ok) {
+          throw new Error(`Error ${zonesResponse.status} al cargar zonas`)
+        }
         const zonesData = await zonesResponse.json()
-        setZones(zonesData)
+        const zonesList: any[] = Array.isArray(zonesData) ? zonesData : []
+        setZones(zonesList)
 
-        // Asignar colores a zonas
+        // Asignar colores a zonas (solo #RRGGBB válidos)
         const colors: Record<string, string> = {}
-        zonesData.forEach((zone: any) => {
-          if (zone.color) {
+        zonesList.forEach((zone: any) => {
+          if (isSafeColor(zone.color)) {
             colors[zone.id] = zone.color
           }
         })
         setZoneColors(colors)
 
-        // Crear un mapa de KAM a zona basado en los datos del mapa
+        // Mapa de KAM a zona: /api/map/data ya incluye zone_id de cada KAM
         const kamToZone: Record<string, string> = {}
-
-        // Obtener la información de zona de cada KAM
         for (const kam of mapData.kams) {
-          const { data } = await supabase
-            .from('kams')
-            .select('zone_id')
-            .eq('id', kam.id)
-            .single()
-
-          if (data?.zone_id) {
-            kamToZone[kam.id] = data.zone_id
+          if (kam.zone_id) {
+            kamToZone[kam.id] = kam.zone_id
           }
         }
 
@@ -341,13 +385,36 @@ export default function MapComponent({
     loadGeoJsons()
   }, [mapData])
 
+  if (isUnauthorized) {
+    return <div className="flex items-center justify-center h-full">Sesión expirada. Redirigiendo al inicio de sesión...</div>
+  }
+
+  if (isError && !mapData) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center">
+          <p className="text-gray-700 font-medium mb-3">No se pudo cargar el mapa</p>
+          <button
+            type="button"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="px-4 py-2 rounded-lg bg-gray-900 text-white text-sm hover:bg-gray-700 disabled:opacity-50"
+          >
+            {isFetching ? 'Reintentando...' : 'Reintentar'}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   if (isLoading || !mapData) {
     return <div className="flex items-center justify-center h-full">Cargando mapa...</div>
   }
 
   // Crear iconos personalizados para KAMs con el color del KAM
   const createKamIcon = (kamId: string) => {
-    const color = kamColors[kamId] || '#888888'
+    // Validado de nuevo aquí porque se interpola en HTML crudo
+    const color = safeColor(kamColors[kamId])
     return L.divIcon({
       className: 'custom-kam-marker',
       html: `
@@ -474,8 +541,10 @@ export default function MapComponent({
       >
         <MapController center={mapCenter} zoom={mapZoom} />
         <TileLayer
-          attribution='&copy; <a href="https://carto.com/attributions">CARTO</a>'
-          url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+          attribution={BASEMAP_ATTRIBUTION}
+          url={BASEMAP_URL}
+          maxNativeZoom={BASEMAP_MAX_NATIVE_ZOOM}
+          eventHandlers={{ tileerror: handleTileError }}
         />
         <ZoomControl position="bottomleft" />
         
@@ -526,11 +595,16 @@ export default function MapComponent({
                     fillOpacity: isVacant ? 0.5 : (isLocality ? 0.7 : 0.6)
                   })
                   
-                  // Crear y mostrar popup con las estadísticas
+                  // Crear y mostrar popup con las estadísticas.
+                  // TODO valor dinámico pasa por escapeHtml: este HTML se inserta crudo con bindPopup.
+                  const territoryName = mapData.municipalityNames[territory.territoryId] || `Territorio ${territory.territoryId}`
+                  const providers: string[] = Array.isArray(stats.providers) ? stats.providers : []
+                  const bedsPer1000 = population > 0 ? stats.totalBeds / population * 1000 : 0
+                  const kamLabel = stats.kamName || territory.kamId?.toUpperCase()
                   const popupContent = `
                     <div style="min-width: 300px; padding: 10px;">
                       <div style="font-size: 15px; font-weight: bold; margin-bottom: 10px; border-bottom: 2px solid #ddd; padding-bottom: 8px;">
-                        ${mapData.municipalityNames[territory.territoryId] || `Territorio ${territory.territoryId}`}
+                        ${escapeHtml(territoryName)}
                       </div>
                       
                       <!-- Estadísticas de hospitales -->
@@ -541,19 +615,19 @@ export default function MapComponent({
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px; font-size: 12px;">
                           <div style="display: flex; justify-content: space-between;">
                             <span>🏥 Hospitales:</span>
-                            <strong>${stats.totalHospitals}</strong>
+                            <strong>${escapeHtml(stats.totalHospitals)}</strong>
                           </div>
                           <div style="display: flex; justify-content: space-between;">
                             <span>🛏️ Camas:</span>
-                            <strong>${stats.totalBeds.toLocaleString()}</strong>
+                            <strong>${escapeHtml(Number(stats.totalBeds || 0).toLocaleString())}</strong>
                           </div>
                           <div style="display: flex; justify-content: space-between;">
                             <span>🚑 Ambulancias:</span>
-                            <strong>${stats.totalAmbulances}</strong>
+                            <strong>${escapeHtml(stats.totalAmbulances)}</strong>
                           </div>
                           <div style="display: flex; justify-content: space-between;">
                             <span>🏥 Cirugías:</span>
-                            <strong>${stats.totalSurgeries.toLocaleString()}</strong>
+                            <strong>${escapeHtml(Number(stats.totalSurgeries || 0).toLocaleString())}</strong>
                           </div>
                         </div>
                       </div>
@@ -567,17 +641,17 @@ export default function MapComponent({
                         <div style="font-size: 12px;">
                           <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
                             <span>Contratos:</span>
-                            <strong>${stats.totalContracts}</strong>
+                            <strong>${escapeHtml(stats.totalContracts)}</strong>
                           </div>
                           <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
                             <span>Valor total:</span>
-                            <strong style="color: #059669;">$${(stats.contractValue / 1000000).toFixed(1)}M</strong>
+                            <strong style="color: #059669;">$${escapeHtml((Number(stats.contractValue) / 1000000).toFixed(1))}M</strong>
                           </div>
-                          ${stats.providers && stats.providers.length > 0 ? `
+                          ${providers.length > 0 ? `
                           <div style="margin-top: 5px; font-size: 11px; color: #64748b;">
                             <span>Proveedores: </span>
-                            <span style="font-style: italic;">${stats.providers.slice(0, 3).join(', ')}</span>
-                            ${stats.providers.length > 3 ? `<span> (+${stats.providers.length - 3} más)</span>` : ''}
+                            <span style="font-style: italic;">${providers.slice(0, 3).map(escapeHtml).join(', ')}</span>
+                            ${providers.length > 3 ? `<span> (+${escapeHtml(providers.length - 3)} más)</span>` : ''}
                           </div>` : ''}
                         </div>
                       </div>` : ''}
@@ -587,19 +661,19 @@ export default function MapComponent({
                       <div style="margin-bottom: 10px; font-size: 12px;">
                         <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
                           <span>👥 Población 2025:</span>
-                          <strong>${population.toLocaleString()}</strong>
+                          <strong>${escapeHtml(Number(population).toLocaleString())}</strong>
                         </div>
                         <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
                           <span>📊 Camas/1000 hab:</span>
-                          <strong style="color: ${stats.totalBeds / population * 1000 < 1.5 ? '#dc2626' : stats.totalBeds / population * 1000 < 2.5 ? '#f59e0b' : '#059669'};">
-                            ${(stats.totalBeds / population * 1000).toFixed(2)}
+                          <strong style="color: ${bedsPer1000 < 1.5 ? '#dc2626' : bedsPer1000 < 2.5 ? '#f59e0b' : '#059669'};">
+                            ${escapeHtml(bedsPer1000.toFixed(2))}
                           </strong>
                         </div>
                       </div>` : ''}
                       
                       <!-- Estado del territorio -->
                       <div style="margin-top: 10px; padding: 8px; background-color: ${isVacant ? '#fef2f2' : '#1e293b'}; color: ${isVacant ? '#dc2626' : '#fff'}; text-align: center; border-radius: 6px; font-size: 13px; font-weight: bold;">
-                        ${isVacant ? '⚠️ ZONA VACANTE - SIN KAM ASIGNADO' : `✓ KAM: ${stats.kamName || territory.kamId?.toUpperCase()}`}
+                        ${isVacant ? '⚠️ ZONA VACANTE - SIN KAM ASIGNADO' : `✓ KAM: ${escapeHtml(kamLabel)}`}
                       </div>
                     </div>
                   `
@@ -950,6 +1024,16 @@ export default function MapComponent({
           )
         })}
       </MapContainer>
+
+      {/* Aviso no bloqueante: el proveedor del mapa base no responde (territorios y marcadores siguen visibles) */}
+      {basemapError && (
+        <div
+          role="status"
+          className="absolute bottom-4 left-1/2 -translate-x-1/2 z-[1000] pointer-events-none rounded-md bg-white/95 border border-amber-300 px-3 py-1.5 text-xs text-amber-800 shadow"
+        >
+          No se pudo cargar el mapa base
+        </div>
+      )}
       
       {/* Estilos CSS para el cursor */}
       <style jsx global>{`

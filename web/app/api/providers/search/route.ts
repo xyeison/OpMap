@@ -1,13 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase-server';
+import { supabaseAdmin } from '@/lib/supabase-admin';
+import { requirePermission } from '@/lib/require-role';
+import { badJson, readJsonBody, serverError } from '../../_lib/api-error';
+import { escapeLike, sanitizeSearchTerm } from '../../_lib/allow-list';
 
 // GET /api/providers/search - Búsqueda rápida de proveedores
 export async function GET(request: NextRequest) {
+  const auth = await requirePermission(request, 'providers:view');
+  if (!auth.ok) return auth.response;
+
   try {
-    const supabase = createServerSupabaseClient();
+    const supabase = supabaseAdmin;
     const searchParams = request.nextUrl.searchParams;
-    const query = searchParams.get('q') || '';
-    const limit = parseInt(searchParams.get('limit') || '10');
+    const query = sanitizeSearchTerm(searchParams.get('q') || '');
+    const limit = Math.min(50, Math.max(1, parseInt(searchParams.get('limit') || '10') || 10));
     const onlyActive = searchParams.get('active') === 'true';
     
     if (!query || query.length < 2) {
@@ -33,13 +39,7 @@ export async function GET(request: NextRequest) {
     
     const { data, error } = await dbQuery;
     
-    if (error) {
-      console.error('Error searching providers:', error);
-      return NextResponse.json(
-        { error: 'Error al buscar proveedores', details: error.message },
-        { status: 500 }
-      );
-    }
+    if (error) return serverError('providers/search GET', error, 'Error al buscar proveedores');
     
     // Formatear respuesta para uso en select/autocomplete
     const formattedData = data?.map(p => ({
@@ -89,10 +89,15 @@ export async function GET(request: NextRequest) {
 
 // POST /api/providers/search/quick-create - Creación rápida desde el selector
 export async function POST(request: NextRequest) {
+  const auth = await requirePermission(request, 'providers:edit');
+  if (!auth.ok) return auth.response;
+
   try {
-    const supabase = createServerSupabaseClient();
-    const body = await request.json();
-    const { nombre, nit } = body;
+    const supabase = supabaseAdmin;
+    const body = (await readJsonBody(request)) as { nombre?: unknown; nit?: unknown } | undefined;
+    if (!body || typeof body !== 'object') return badJson();
+    const nombre = typeof body.nombre === 'string' ? body.nombre.trim().slice(0, 300) : '';
+    const nit = typeof body.nit === 'string' ? body.nit.trim().slice(0, 50) : '';
     
     if (!nombre) {
       return NextResponse.json(
@@ -104,12 +109,14 @@ export async function POST(request: NextRequest) {
     // Generar NIT temporal si no se proporciona
     const finalNit = nit || `TEMP-${Date.now()}`;
     
-    // Verificar si ya existe
-    const { data: existing } = await supabase
-      .from('proveedores')
-      .select('id, nombre')
-      .or(`nombre.ilike.${nombre},nit.eq.${finalNit}`)
-      .single();
+    // Verificar si ya existe (dos consultas: sin interpolar texto del usuario en un filtro .or())
+    const [byName, byNit] = await Promise.all([
+      supabase.from('proveedores').select('id, nombre').ilike('nombre', escapeLike(nombre)).limit(1),
+      supabase.from('proveedores').select('id, nombre').eq('nit', finalNit).limit(1),
+    ]);
+    if (byName.error) return serverError('providers/search POST (nombre)', byName.error);
+    if (byNit.error) return serverError('providers/search POST (nit)', byNit.error);
+    const existing = byName.data?.[0] || byNit.data?.[0];
     
     if (existing) {
       return NextResponse.json(
@@ -131,18 +138,13 @@ export async function POST(request: NextRequest) {
         nombre,
         nit: finalNit,
         estado: 'activo',
+        created_by: auth.user.id,
         notas_internas: 'Proveedor creado rápidamente desde selector. Completar información.'
       })
       .select()
       .single();
     
-    if (error) {
-      console.error('Error creating provider:', error);
-      return NextResponse.json(
-        { error: 'Error al crear proveedor', details: error.message },
-        { status: 500 }
-      );
-    }
+    if (error) return serverError('providers/search POST', error, 'Error al crear proveedor');
     
     return NextResponse.json({
       data: {

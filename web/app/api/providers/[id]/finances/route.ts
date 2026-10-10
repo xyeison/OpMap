@@ -1,13 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase-server';
+import { supabaseAdmin } from '@/lib/supabase-admin';
+import { requirePermission } from '@/lib/require-role';
+import { isUuid, readJsonBody } from '../../../_lib/api-error';
+import { pickAllowed, PROVIDER_FINANCE_COLUMNS } from '../../../_lib/allow-list';
 
 // GET /api/providers/[id]/finances - Obtener datos financieros del proveedor
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const auth = await requirePermission(request, 'providers:view');
+  if (!auth.ok) return auth.response;
+  if (!isUuid(params.id)) {
+    return NextResponse.json({ error: 'Proveedor no encontrado' }, { status: 404 });
+  }
+
   try {
-    const supabase = createServerSupabaseClient();
+    const supabase = supabaseAdmin;
     const proveedorId = params.id;
     const searchParams = request.nextUrl.searchParams;
     const anio = searchParams.get('anio');
@@ -30,7 +39,7 @@ export async function GET(
     if (error) {
       console.error('Error fetching financial data:', error);
       return NextResponse.json(
-        { error: 'Error al obtener datos financieros', details: error.message },
+        { error: 'Error al obtener datos financieros' },
         { status: 500 }
       );
     }
@@ -54,17 +63,28 @@ export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const auth = await requirePermission(request, 'providers:edit');
+  if (!auth.ok) return auth.response;
+  if (!isUuid(params.id)) {
+    return NextResponse.json({ error: 'Proveedor no encontrado' }, { status: 404 });
+  }
+
   try {
-    const supabase = createServerSupabaseClient();
+    const supabase = supabaseAdmin;
     const proveedorId = params.id;
-    const body = await request.json();
+    const rawBody = await readJsonBody(request);
+    if (!rawBody || typeof rawBody !== 'object') {
+      return NextResponse.json({ error: 'El cuerpo de la petición debe ser JSON válido' }, { status: 400 });
+    }
+    // Allow-list de columnas de proveedor_finanzas (nunca el body entero)
+    const body = pickAllowed(rawBody as Record<string, unknown>, PROVIDER_FINANCE_COLUMNS) as Record<string, any>;
     
     // Validar que el proveedor existe
     const { data: provider } = await supabase
       .from('proveedores')
       .select('id')
       .eq('id', proveedorId)
-      .single();
+      .maybeSingle();
     
     if (!provider) {
       return NextResponse.json(
@@ -145,7 +165,7 @@ export async function POST(
       .select('id')
       .eq('proveedor_id', proveedorId)
       .eq('anio', body.anio)
-      .single();
+      .maybeSingle();
     
     let result;
     
@@ -175,7 +195,6 @@ export async function POST(
         return NextResponse.json(
           { 
             error: 'Error al actualizar datos financieros',
-            details: error.message,
             suggestion: 'Verifique que todos los valores numéricos sean válidos'
           },
           { status: 500 }
@@ -189,28 +208,17 @@ export async function POST(
         .from('proveedor_finanzas')
         .insert({
           ...body,
-          proveedor_id: proveedorId
+          proveedor_id: proveedorId,
+          created_by: auth.user.id
         })
         .select()
         .single();
       
       if (error) {
         console.error('Error creating financial data:', error);
-        console.error('Environment check:', {
-          hasServiceKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
-          nodeEnv: process.env.NODE_ENV
-        });
-        
         if (error.code === '42501') {
-          // Incluir información adicional para debugging
-          const debugInfo = process.env.NODE_ENV === 'development' ? 
-            ` (Service key: ${!!process.env.SUPABASE_SERVICE_ROLE_KEY})` : '';
-          
           return NextResponse.json(
-            { 
-              error: `No tiene permisos para crear datos financieros. Las políticas RLS pueden estar bloqueando el acceso${debugInfo}.`,
-              suggestion: 'Verifique que la service key esté configurada correctamente en las variables de entorno.'
-            },
+            { error: 'No tiene permisos para crear datos financieros.' },
             { status: 403 }
           );
         }
@@ -232,7 +240,6 @@ export async function POST(
         return NextResponse.json(
           { 
             error: 'Error al crear datos financieros',
-            details: error.message,
             suggestion: 'Verifique que todos los valores numéricos sean válidos y que el año esté especificado'
           },
           { status: 500 }
@@ -262,11 +269,25 @@ export async function POST(
 // PUT /api/providers/[id]/finances/[financeId] - Actualizar datos financieros específicos
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string; financeId: string } }
+  { params }: { params: { id: string } }
 ) {
+  const auth = await requirePermission(request, 'providers:edit');
+  if (!auth.ok) return auth.response;
+  if (!isUuid(params.id)) {
+    return NextResponse.json({ error: 'Proveedor no encontrado' }, { status: 404 });
+  }
+
   try {
-    const supabase = createServerSupabaseClient();
-    const body = await request.json();
+    const supabase = supabaseAdmin;
+    const financeId = request.nextUrl.searchParams.get('financeId');
+    if (!isUuid(financeId)) {
+      return NextResponse.json({ error: 'Se requiere financeId' }, { status: 400 });
+    }
+    const rawBody = await readJsonBody(request);
+    if (!rawBody || typeof rawBody !== 'object') {
+      return NextResponse.json({ error: 'El cuerpo de la petición debe ser JSON válido' }, { status: 400 });
+    }
+    const body = pickAllowed(rawBody as Record<string, unknown>, PROVIDER_FINANCE_COLUMNS);
     
     const { data, error } = await supabase
       .from('proveedor_finanzas')
@@ -274,15 +295,15 @@ export async function PUT(
         ...body,
         updated_at: new Date().toISOString()
       })
-      .eq('id', params.financeId)
+      .eq('id', financeId)
       .eq('proveedor_id', params.id)
       .select()
-      .single();
+      .maybeSingle();
     
     if (error) {
       console.error('Error updating financial data:', error);
       return NextResponse.json(
-        { error: 'Error al actualizar datos financieros', details: error.message },
+        { error: 'Error al actualizar datos financieros' },
         { status: 500 }
       );
     }
@@ -312,20 +333,30 @@ export async function PUT(
 // DELETE /api/providers/[id]/finances/[financeId] - Eliminar datos financieros
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string; financeId: string } }
+  { params }: { params: { id: string } }
 ) {
+  const auth = await requirePermission(request, 'providers:edit');
+  if (!auth.ok) return auth.response;
+  if (!isUuid(params.id)) {
+    return NextResponse.json({ error: 'Proveedor no encontrado' }, { status: 404 });
+  }
+
   try {
-    const supabase = createServerSupabaseClient();
+    const supabase = supabaseAdmin;
+    const financeId = request.nextUrl.searchParams.get('financeId');
+    if (!isUuid(financeId)) {
+      return NextResponse.json({ error: 'Se requiere financeId' }, { status: 400 });
+    }
     const { error } = await supabase
       .from('proveedor_finanzas')
       .delete()
-      .eq('id', params.financeId)
+      .eq('id', financeId)
       .eq('proveedor_id', params.id);
     
     if (error) {
       console.error('Error deleting financial data:', error);
       return NextResponse.json(
-        { error: 'Error al eliminar datos financieros', details: error.message },
+        { error: 'Error al eliminar datos financieros' },
         { status: 500 }
       );
     }

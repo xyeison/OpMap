@@ -1,17 +1,26 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { UpdateProveedorDTO } from '@/types/providers';
-import { createServerSupabaseClient } from '@/lib/supabase-server';
+import { NextRequest, NextResponse } from 'next/server'
+import { supabaseAdmin } from '@/lib/supabase-admin'
+import { requirePermission } from '@/lib/require-role'
+import { badJson, isUuid, readJsonBody, serverError } from '../../_lib/api-error'
+import {
+  escapeLike,
+  pickAllowed,
+  PROVIDER_STATES,
+  PROVIDER_UPDATE_COLUMNS,
+} from '../../_lib/allow-list'
 
 // GET /api/providers/[id] - Obtener un proveedor específico
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+  const auth = await requirePermission(request, 'providers:view')
+  if (!auth.ok) return auth.response
+
   try {
-    const supabase = createServerSupabaseClient();
-    const { id } = params;
-    
-    const { data, error } = await supabase
+    const { id } = params
+    if (!isUuid(id)) {
+      return NextResponse.json({ error: 'Proveedor no encontrado' }, { status: 404 })
+    }
+
+    const { data, error } = await supabaseAdmin
       .from('proveedores')
       .select(`
         *,
@@ -30,175 +39,147 @@ export async function GET(
         )
       `)
       .eq('id', id)
-      .single();
-    
-    if (error) {
-      if (error.code === 'PGRST116') {
-        return NextResponse.json(
-          { error: 'Proveedor no encontrado' },
-          { status: 404 }
-        );
-      }
-      console.error('Error fetching provider:', error);
-      return NextResponse.json(
-        { error: 'Error al obtener proveedor', details: error.message },
-        { status: 500 }
-      );
+      .maybeSingle()
+
+    if (error) return serverError('providers/[id] GET', error, 'Error al obtener proveedor')
+    if (!data) {
+      return NextResponse.json({ error: 'Proveedor no encontrado' }, { status: 404 })
     }
-    
+
     // Ordenar finanzas e indicadores por año
-    if (data.finanzas) {
-      data.finanzas.sort((a: any, b: any) => b.anio - a.anio);
-    }
-    if (data.indicadores) {
-      data.indicadores.sort((a: any, b: any) => b.anio - a.anio);
-    }
-    
-    return NextResponse.json({
-      data,
-      success: true
-    });
-    
+    if (data.finanzas) data.finanzas.sort((a: any, b: any) => b.anio - a.anio)
+    if (data.indicadores) data.indicadores.sort((a: any, b: any) => b.anio - a.anio)
+
+    return NextResponse.json({ data, success: true })
   } catch (error) {
-    console.error('Error in GET /api/providers/[id]:', error);
-    return NextResponse.json(
-      { error: 'Error interno del servidor' },
-      { status: 500 }
-    );
+    return serverError('providers/[id] GET', error)
   }
 }
 
 // PUT /api/providers/[id] - Actualizar un proveedor
-export async function PUT(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
+  const auth = await requirePermission(request, 'providers:edit')
+  if (!auth.ok) return auth.response
+
   try {
-    const supabase = createServerSupabaseClient();
-    const { id } = params;
-    const body: UpdateProveedorDTO = await request.json();
-    
-    // Verificar que el proveedor existe
-    const { data: existing } = await supabase
+    const { id } = params
+    if (!isUuid(id)) {
+      return NextResponse.json({ error: 'Proveedor no encontrado' }, { status: 404 })
+    }
+
+    const rawBody = await readJsonBody(request)
+    if (!rawBody || typeof rawBody !== 'object') return badJson()
+
+    // Allow-list de columnas (nunca el body entero)
+    const body = pickAllowed(rawBody as Record<string, unknown>, PROVIDER_UPDATE_COLUMNS) as Record<string, any>
+    if (body.estado !== undefined && !(PROVIDER_STATES as readonly string[]).includes(body.estado)) {
+      return NextResponse.json({ error: 'Estado no válido' }, { status: 400 })
+    }
+
+    const { data: existing, error: existingError } = await supabaseAdmin
       .from('proveedores')
       .select('id')
       .eq('id', id)
-      .single();
-    
+      .maybeSingle()
+
+    if (existingError) return serverError('providers/[id] PUT (lectura)', existingError)
     if (!existing) {
-      return NextResponse.json(
-        { error: 'Proveedor no encontrado' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Proveedor no encontrado' }, { status: 404 })
     }
-    
-    // Si se está actualizando el NIT, verificar que no exista otro con el mismo
+
+    // Si se actualiza el NIT, verificar que no exista otro con el mismo
     if (body.nit) {
-      const { data: duplicateNit } = await supabase
+      const { data: duplicateNit, error: duplicateError } = await supabaseAdmin
         .from('proveedores')
         .select('id')
         .eq('nit', body.nit)
         .neq('id', id)
-        .single();
-      
+        .limit(1)
+        .maybeSingle()
+
+      if (duplicateError) return serverError('providers/[id] PUT (nit)', duplicateError)
       if (duplicateNit) {
-        return NextResponse.json(
-          { error: 'Ya existe otro proveedor con ese NIT' },
-          { status: 409 }
-        );
+        return NextResponse.json({ error: 'Ya existe otro proveedor con ese NIT' }, { status: 409 })
       }
     }
-    
-    // Actualizar el proveedor
-    const { data, error } = await supabase
+
+    const { data, error } = await supabaseAdmin
       .from('proveedores')
-      .update({
-        ...body,
-        updated_at: new Date().toISOString()
-      })
+      .update({ ...body, updated_at: new Date().toISOString() })
       .eq('id', id)
       .select()
-      .single();
-    
-    if (error) {
-      console.error('Error updating provider:', error);
-      return NextResponse.json(
-        { error: 'Error al actualizar proveedor', details: error.message },
-        { status: 500 }
-      );
-    }
-    
-    return NextResponse.json({
-      data,
-      success: true,
-      message: 'Proveedor actualizado exitosamente'
-    });
-    
+      .single()
+
+    if (error) return serverError('providers/[id] PUT', error, 'Error al actualizar proveedor')
+
+    return NextResponse.json({ data, success: true, message: 'Proveedor actualizado exitosamente' })
   } catch (error) {
-    console.error('Error in PUT /api/providers/[id]:', error);
-    return NextResponse.json(
-      { error: 'Error interno del servidor' },
-      { status: 500 }
-    );
+    return serverError('providers/[id] PUT', error)
   }
 }
 
-// DELETE /api/providers/[id] - Eliminar un proveedor
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+// DELETE /api/providers/[id] - Baja lógica: estado = 'inactivo' (no se borra la ficha).
+// Se mantiene la guarda de contratos: por proveedor_id o por nombre en current_provider.
+export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+  const auth = await requirePermission(request, 'providers:edit')
+  if (!auth.ok) return auth.response
+
   try {
-    const supabase = createServerSupabaseClient();
-    const { id } = params;
-    
-    // Verificar si tiene contratos asociados
-    const { data: contracts } = await supabase
-      .from('hospital_contracts')
-      .select('id')
-      .eq('proveedor_id', id)
-      .limit(1);
-    
-    if (contracts && contracts.length > 0) {
+    const { id } = params
+    if (!isUuid(id)) {
+      return NextResponse.json({ error: 'Proveedor no encontrado' }, { status: 404 })
+    }
+
+    const { data: provider, error: providerError } = await supabaseAdmin
+      .from('proveedores')
+      .select('id, nombre, estado')
+      .eq('id', id)
+      .maybeSingle()
+
+    if (providerError) return serverError('providers/[id] DELETE (lectura)', providerError)
+    if (!provider) {
+      return NextResponse.json({ error: 'Proveedor no encontrado' }, { status: 404 })
+    }
+
+    // Contratos enlazados por FK o citados por nombre (44 contratos tienen proveedor_id NULL)
+    const [byId, byName] = await Promise.all([
+      supabaseAdmin.from('hospital_contracts').select('id').eq('proveedor_id', id).limit(1),
+      provider.nombre
+        ? supabaseAdmin
+            .from('hospital_contracts')
+            .select('id')
+            .ilike('current_provider', escapeLike(String(provider.nombre).trim()))
+            .limit(1)
+        : Promise.resolve({ data: [] as { id: string }[], error: null }),
+    ])
+
+    if (byId.error) return serverError('providers/[id] DELETE (contratos por id)', byId.error)
+    if (byName.error) return serverError('providers/[id] DELETE (contratos por nombre)', byName.error)
+
+    if ((byId.data && byId.data.length > 0) || (byName.data && byName.data.length > 0)) {
       return NextResponse.json(
-        { 
-          error: 'No se puede eliminar el proveedor porque tiene contratos asociados',
-          suggestion: 'Puede cambiar el estado a "inactivo" en lugar de eliminarlo'
+        {
+          error: 'No se puede dar de baja el proveedor porque tiene contratos asociados',
+          suggestion: 'Reasigne o cierre los contratos antes de darlo de baja',
         },
         { status: 409 }
-      );
+      )
     }
-    
-    // Eliminar el proveedor (esto eliminará en cascada finanzas, indicadores, etc.)
-    const { error } = await supabase
+
+    const { error: updateError } = await supabaseAdmin
       .from('proveedores')
-      .delete()
-      .eq('id', id);
-    
-    if (error) {
-      if (error.code === 'PGRST116') {
-        return NextResponse.json(
-          { error: 'Proveedor no encontrado' },
-          { status: 404 }
-        );
-      }
-      console.error('Error deleting provider:', error);
-      return NextResponse.json(
-        { error: 'Error al eliminar proveedor', details: error.message },
-        { status: 500 }
-      );
-    }
-    
+      .update({ estado: 'inactivo', updated_at: new Date().toISOString() })
+      .eq('id', id)
+
+    if (updateError) return serverError('providers/[id] DELETE (baja)', updateError, 'Error al dar de baja el proveedor')
+
+    console.info(`[providers] baja lógica proveedor=${id} usuario=${auth.user.id}`)
+
     return NextResponse.json({
       success: true,
-      message: 'Proveedor eliminado exitosamente'
-    });
-    
+      message: 'Proveedor marcado como inactivo',
+    })
   } catch (error) {
-    console.error('Error in DELETE /api/providers/[id]:', error);
-    return NextResponse.json(
-      { error: 'Error interno del servidor' },
-      { status: 500 }
-    );
+    return serverError('providers/[id] DELETE', error)
   }
 }

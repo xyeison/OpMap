@@ -1,21 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { supabaseAdmin } from '@/lib/supabase-admin'
+import { requireUser } from '@/lib/require-role'
+import { isUuid, serverError } from '../../../_lib/api-error'
 
-// Usar service role key para bypass RLS
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+  const auth = await requireUser(request)
+  if (!auth.ok) return auth.response
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
   try {
     const hospitalId = params.id
-    
-    // Obtener todas las distancias de este hospital desde hospital_kam_distances
-    const { data: distances, error } = await supabase
+    if (!isUuid(hospitalId)) {
+      return NextResponse.json({ error: 'Hospital no encontrado' }, { status: 404 })
+    }
+
+    // Distancias de este hospital a los KAMs activos (hospital_kam_distances, en segundos)
+    const { data: distances, error } = await supabaseAdmin
       .from('hospital_kam_distances')
       .select(`
         kam_id,
@@ -31,31 +30,19 @@ export async function GET(
       .eq('hospital_id', hospitalId)
       .eq('kams.active', true)
       .order('travel_time', { ascending: true })
-    
-    if (error) {
-      console.error('Error fetching KAM distances:', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-    
-    // Formatear la respuesta
+
+    if (error) return serverError('hospitals/[id]/kam-distances GET', error, 'Error al cargar las distancias')
+
     const formattedDistances = (distances || []).map((d: any) => ({
       kam_id: d.kam_id,
       kam_name: d.kams?.name || 'KAM Desconocido',
       travel_time: d.travel_time, // En segundos
       distance: d.distance,
-      max_travel_time: d.kams?.max_travel_time || 240
+      max_travel_time: d.kams?.max_travel_time || 240,
     }))
-    
-    return NextResponse.json({
-      distances: formattedDistances,
-      total: formattedDistances.length
-    })
-    
+
+    return NextResponse.json({ distances: formattedDistances, total: formattedDistances.length })
   } catch (error) {
-    console.error('Error in kam-distances endpoint:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return serverError('hospitals/[id]/kam-distances GET', error)
   }
 }

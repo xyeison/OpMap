@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { supabase } from '@/lib/supabase'
 import { Zone } from '@/lib/types/zones'
 
 interface ZoneModalProps {
@@ -65,40 +64,25 @@ export default function ZoneModal({ zone, isOpen, onClose, onSuccess }: ZoneModa
     setLoading(true)
 
     try {
-      if (zone) {
-        // Update existing zone
-        const { error } = await supabase
-          .from('zones')
-          .update({
-            code: formData.code,
-            name: formData.name,
-            description: formData.description || null,
-            coordinator_name: formData.coordinator_name || null,
-            coordinator_email: formData.coordinator_email || null,
-            coordinator_phone: formData.coordinator_phone || null,
-            color: formData.color,
-            active: formData.active,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', zone.id)
-
-        if (error) throw error
-      } else {
-        // Create new zone
-        const { error } = await supabase
-          .from('zones')
-          .insert({
-            code: formData.code,
-            name: formData.name,
-            description: formData.description || null,
-            coordinator_name: formData.coordinator_name || null,
-            coordinator_email: formData.coordinator_email || null,
-            coordinator_phone: formData.coordinator_phone || null,
-            color: formData.color,
-            active: formData.active
-          })
-
-        if (error) throw error
+      // Escritura en el servidor (service_role + permiso zones:edit)
+      const payload = {
+        code: formData.code,
+        name: formData.name,
+        description: formData.description || null,
+        coordinator_name: formData.coordinator_name || null,
+        coordinator_email: formData.coordinator_email || null,
+        coordinator_phone: formData.coordinator_phone || null,
+        color: formData.color,
+        active: formData.active
+      }
+      const response = await fetch(zone ? `/api/zones/${zone.id}` : '/api/zones', {
+        method: zone ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(result.error || `Error al guardar la zona (${response.status})`)
       }
 
       onSuccess()

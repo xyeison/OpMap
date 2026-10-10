@@ -1,66 +1,116 @@
-import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
+import { requirePermission } from '@/lib/require-role'
+import { supabaseAdmin } from '@/lib/supabase-admin'
+import { UUID_RE, jsonError, readJson, uuidSchema, zodMessage } from '@/app/api/kams/_lib/kam-shared'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabase = createClient(supabaseUrl, supabaseKey);
+// La relación zona-KAM vive en kams.zone_id (la tabla zone_kams ya no existe).
 
-export async function POST(request: Request) {
+// GET /api/zones/kams?zoneId= — KAMs de una zona (o todos los KAMs con su zone_id si no se indica)
+export async function GET(request: NextRequest) {
+  const auth = await requirePermission(request, 'zones:view')
+  if (!auth.ok) return auth.response
+
   try {
-    const body = await request.json();
-    const { zone_id, kam_id, is_primary } = body;
+    const zoneId = new URL(request.url).searchParams.get('zoneId')
+    if (zoneId && !UUID_RE.test(zoneId)) {
+      return jsonError('ID de zona no válido', 400)
+    }
 
-    // Asignar KAM a zona
-    const { data, error } = await supabase
-      .from('zone_kams')
-      .insert({
-        zone_id,
-        kam_id,
-        is_primary
-      })
-      .select()
-      .single();
+    let query = supabaseAdmin.from('kams').select('id, name, area_id, color, active, zone_id').order('name')
+    if (zoneId) {
+      query = query.eq('zone_id', zoneId)
+    }
 
-    if (error) throw error;
+    const { data, error } = await query
+    if (error) throw error
 
-    return NextResponse.json(data);
+    return NextResponse.json(data || [])
   } catch (error) {
-    console.error('Error assigning KAM to zone:', error);
-    return NextResponse.json(
-      { error: 'Error assigning KAM to zone' },
-      { status: 500 }
-    );
+    console.error('Error en GET /api/zones/kams:', error)
+    return jsonError('Error al cargar los KAMs de la zona', 500)
   }
 }
 
-export async function DELETE(request: Request) {
-  try {
-    const { searchParams } = new URL(request.url);
-    const zoneId = searchParams.get('zoneId');
-    const kamId = searchParams.get('kamId');
+const assignSchema = z.object({
+  zone_id: uuidSchema,
+  kam_id: uuidSchema,
+})
 
-    if (!zoneId || !kamId) {
-      return NextResponse.json(
-        { error: 'Zone ID and KAM ID are required' },
-        { status: 400 }
-      );
+// POST/PUT /api/zones/kams — asigna un KAM a una zona (kams.zone_id)
+async function assignKam(request: NextRequest) {
+  const auth = await requirePermission(request, 'zones:edit')
+  if (!auth.ok) return auth.response
+
+  try {
+    const parsed = assignSchema.safeParse(await readJson(request))
+    if (!parsed.success) {
+      return jsonError(zodMessage(parsed.error), 400)
+    }
+    const { zone_id, kam_id } = parsed.data
+
+    const { data: zone, error: zoneError } = await supabaseAdmin
+      .from('zones')
+      .select('id, active')
+      .eq('id', zone_id)
+      .maybeSingle()
+    if (zoneError) throw zoneError
+    if (!zone) return jsonError('Zona no encontrada', 404)
+    if (zone.active === false) return jsonError('La zona está inactiva', 409)
+
+    const { data, error } = await supabaseAdmin
+      .from('kams')
+      .update({ zone_id, updated_at: new Date().toISOString() })
+      .eq('id', kam_id)
+      .select('id, name, zone_id')
+
+    if (error) throw error
+    if (!data || data.length === 0) return jsonError('KAM no encontrado', 404)
+
+    return NextResponse.json({ success: true, data: data[0] })
+  } catch (error) {
+    console.error('Error asignando KAM a zona:', error)
+    return jsonError('Error al asignar el KAM a la zona', 500)
+  }
+}
+
+export async function POST(request: NextRequest) {
+  return assignKam(request)
+}
+
+export async function PUT(request: NextRequest) {
+  return assignKam(request)
+}
+
+// DELETE /api/zones/kams?zoneId=&kamId= — quita el KAM de la zona (solo si estaba en esa zona)
+export async function DELETE(request: NextRequest) {
+  const auth = await requirePermission(request, 'zones:edit')
+  if (!auth.ok) return auth.response
+
+  try {
+    const { searchParams } = new URL(request.url)
+    const zoneId = searchParams.get('zoneId')
+    const kamId = searchParams.get('kamId')
+
+    if (!zoneId || !kamId || !UUID_RE.test(zoneId) || !UUID_RE.test(kamId)) {
+      return jsonError('Se requieren zoneId y kamId válidos', 400)
     }
 
-    // Desasignar KAM de zona
-    const { error } = await supabase
-      .from('zone_kams')
-      .delete()
+    const { data, error } = await supabaseAdmin
+      .from('kams')
+      .update({ zone_id: null, updated_at: new Date().toISOString() })
+      .eq('id', kamId)
       .eq('zone_id', zoneId)
-      .eq('kam_id', kamId);
+      .select('id')
 
-    if (error) throw error;
+    if (error) throw error
+    if (!data || data.length === 0) {
+      return jsonError('El KAM no pertenece a esa zona', 404)
+    }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true })
   } catch (error) {
-    console.error('Error removing KAM from zone:', error);
-    return NextResponse.json(
-      { error: 'Error removing KAM from zone' },
-      { status: 500 }
-    );
+    console.error('Error quitando KAM de zona:', error)
+    return jsonError('Error al quitar el KAM de la zona', 500)
   }
 }

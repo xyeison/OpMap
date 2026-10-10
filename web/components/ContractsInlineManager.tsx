@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { supabase } from '@/lib/supabase'
 import ProviderSelect from '@/components/providers/ProviderSelect'
 
 interface Contract {
@@ -33,40 +32,38 @@ interface ContractsInlineManagerProps {
 export default function ContractsInlineManager({ hospitalId, hospitalName, municipalityName, onUpdate }: ContractsInlineManagerProps) {
   const [contracts, setContracts] = useState<Contract[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   useEffect(() => {
     loadContracts()
   }, [hospitalId])
 
   const loadContracts = async () => {
+    setLoading(true)
+    setLoadError(null)
     try {
-      // Usar el endpoint API que tiene bypass de RLS
-      const response = await fetch(`/api/contracts/manage?hospital_id=${hospitalId}`)
-      
+      // Solo vía API (service_role en el servidor): hospital_contracts no es legible con la anon key
+      const response = await fetch(`/api/contracts/manage?hospital_id=${encodeURIComponent(hospitalId)}`)
+
       if (response.ok) {
         const data = await response.json()
         setContracts(data.map((c: any) => ({ ...c, isEditing: false })))
       } else {
-        console.error('Error loading contracts from API')
-        // Fallback al cliente de supabase directo
-        const { data, error } = await supabase
-          .from('hospital_contracts')
-          .select('*')
-          .eq('hospital_id', hospitalId)
-          .order('created_at', { ascending: false })
-
-        if (error) {
-          console.error('Error loading contracts:', error)
+        let message = 'No se pudieron cargar los contratos'
+        try {
+          const body = await response.json()
+          if (body?.error) message = body.error
+        } catch {
+          // Respuesta sin JSON: mantener el mensaje genérico
         }
-
-        if (data) {
-          setContracts(data.map(c => ({ ...c, isEditing: false })))
-        }
+        console.error('Error cargando contratos desde la API:', response.status, message)
+        setLoadError(message)
       }
     } catch (err) {
       console.error('Error in loadContracts:', err)
+      setLoadError('No se pudieron cargar los contratos (error de red)')
     }
-    
+
     setLoading(false)
     onUpdate?.()
   }
@@ -233,6 +230,20 @@ export default function ContractsInlineManager({ hospitalId, hospitalName, munic
     return <div className="text-gray-500">Cargando contratos...</div>
   }
 
+  if (loadError) {
+    return (
+      <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-center justify-between gap-3">
+        <span className="text-sm text-red-700">{loadError}</span>
+        <button
+          onClick={() => loadContracts()}
+          className="px-3 py-1.5 bg-gray-900 text-white text-sm rounded-lg hover:bg-black transition-all"
+        >
+          Reintentar
+        </button>
+      </div>
+    )
+  }
+
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
@@ -251,7 +262,7 @@ export default function ContractsInlineManager({ hospitalId, hospitalName, munic
       <div className="space-y-3">
         {contracts.length === 0 ? (
           <div className="text-center py-8 text-gray-500">
-            No hay contratos registrados. Haga clic en "Agregar Contrato" para crear uno.
+            No hay contratos registrados. Haga clic en &ldquo;Agregar Contrato&rdquo; para crear uno.
           </div>
         ) : (
           contracts.map((contract) => (

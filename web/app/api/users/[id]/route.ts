@@ -1,165 +1,153 @@
-import { NextResponse } from 'next/server'
-import { cookies } from 'next/headers'
-import { createClient } from '@supabase/supabase-js'
+import { NextRequest, NextResponse } from 'next/server'
+import { getSupabaseAdmin } from '@/lib/supabase-admin'
+import { requirePermission } from '@/lib/require-role'
+import { UUID_RE, firstIssueMessage, updateUserSchema } from '@/lib/user-schemas'
 
-// IMPORTANTE: Usar service_role key para bypass RLS cuando sea necesario
-// Si no tienes SUPABASE_SERVICE_ROLE_KEY, temporalmente usa anon_key
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
+export const dynamic = 'force-dynamic'
 
-// PUT - Actualizar usuario
+const PUBLIC_USER_COLUMNS = 'id, email, full_name, role, active, created_at'
+
+async function countActiveAdmins(): Promise<number> {
+  const { count, error } = await getSupabaseAdmin()
+    .from('users')
+    .select('id', { count: 'exact', head: true })
+    .eq('role', 'admin')
+    .eq('active', true)
+
+  if (error) throw error
+  return count ?? 0
+}
+
+// PUT - Actualizar usuario (solo admin: permiso users:manage)
 export async function PUT(
-  request: Request,
+  request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const cookieStore = cookies()
-  const sessionToken = cookieStore.get('sb-access-token')
-  
-  if (!sessionToken) {
-    return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-  }
-  
+  const auth = await requirePermission(request, 'users:manage')
+  if (!auth.ok) return auth.response
+  const currentUser = auth.user
+
   try {
-    // Verificar que el usuario actual es admin
-    const decoded = Buffer.from(sessionToken.value, 'base64').toString()
-    const [userId] = decoded.split(':')
-    
-    // Usar supabaseAdmin para verificar el rol del usuario actual
-    const { data: currentUser, error: userError } = await supabaseAdmin
-      .from('users')
-      .select('role')
-      .eq('id', userId)
-      .single()
-    
-    if (userError) {
-      console.error('Error verificando usuario:', userError)
-      return NextResponse.json({ error: 'Error de autenticación' }, { status: 401 })
-    }
-    
-    if (!currentUser || currentUser.role !== 'admin') {
-      return NextResponse.json({ error: 'Acceso denegado - Se requiere rol de administrador' }, { status: 403 })
-    }
-    
-    // Obtener datos para actualizar
-    const updates = await request.json()
     const { id } = params
-    
-    // Log para debugging
-    console.log('Intentando actualizar usuario:', id, 'con datos:', updates)
-    
+    if (!UUID_RE.test(id)) {
+      return NextResponse.json({ error: 'ID de usuario no válido' }, { status: 400 })
+    }
+
+    let body: unknown
+    try {
+      body = await request.json()
+    } catch {
+      return NextResponse.json({ error: 'Cuerpo de la petición no válido' }, { status: 400 })
+    }
+
+    // Allow-list de campos: password, id, created_at, etc. nunca se escriben desde aquí
+    const parsed = updateUserSchema.safeParse(body)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Datos no válidos', details: firstIssueMessage(parsed.error) },
+        { status: 400 }
+      )
+    }
+    const updates = parsed.data
+
+    if (Object.keys(updates).length === 0) {
+      return NextResponse.json({ error: 'No hay campos para actualizar' }, { status: 400 })
+    }
+
     // No permitir que el admin se desactive a sí mismo
-    if (userId === id && updates.active === false) {
+    if (currentUser.id === id && updates.active === false) {
       return NextResponse.json({ error: 'No puedes desactivarte a ti mismo' }, { status: 400 })
     }
-    
-    // No permitir cambiar el rol del último admin
-    if (updates.role && updates.role !== 'admin') {
-      const { count } = await supabaseAdmin
+
+    const supabase = getSupabaseAdmin()
+
+    // No dejar el sistema sin administradores activos
+    const removesAdmin = (updates.role !== undefined && updates.role !== 'admin') || updates.active === false
+    if (removesAdmin) {
+      const { data: userToUpdate, error: targetError } = await supabase
         .from('users')
-        .select('*', { count: 'exact', head: true })
-        .eq('role', 'admin')
-        .eq('active', true)
-      
-      if (count === 1) {
-        const { data: userToUpdate } = await supabaseAdmin
-          .from('users')
-          .select('role')
-          .eq('id', id)
-          .single()
-        
-        if (userToUpdate?.role === 'admin') {
-          return NextResponse.json({ error: 'No puedes cambiar el rol del último administrador' }, { status: 400 })
-        }
+        .select('role, active')
+        .eq('id', id)
+        .maybeSingle()
+
+      if (targetError) throw targetError
+      if (!userToUpdate) {
+        return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 404 })
+      }
+
+      if (userToUpdate.role === 'admin' && userToUpdate.active && (await countActiveAdmins()) <= 1) {
+        return NextResponse.json(
+          { error: 'No puedes cambiar el rol ni desactivar al último administrador' },
+          { status: 400 }
+        )
       }
     }
-    
-    // Actualizar usuario usando supabaseAdmin para bypass RLS
-    const { data: updatedUser, error } = await supabaseAdmin
+
+    const { data: updatedUser, error } = await supabase
       .from('users')
       .update(updates)
       .eq('id', id)
-      .select('id, email, full_name, role, active, created_at')
-      .single()
-    
+      .select(PUBLIC_USER_COLUMNS)
+      .maybeSingle()
+
     if (error) {
-      console.error('Error de Supabase al actualizar:', error)
-      return NextResponse.json({ 
-        error: 'Error al actualizar usuario', 
-        details: error.message 
-      }, { status: 500 })
+      if (error.code === '23505') {
+        return NextResponse.json({ error: 'El email ya está registrado' }, { status: 400 })
+      }
+      console.error('Error de Supabase al actualizar usuario:', error.message)
+      return NextResponse.json({ error: 'Error al actualizar usuario' }, { status: 500 })
     }
-    
+
+    if (!updatedUser) {
+      return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 404 })
+    }
+
     return NextResponse.json({ user: updatedUser, message: 'Usuario actualizado exitosamente' })
-  } catch (error: any) {
+  } catch (error) {
     console.error('Error al actualizar usuario:', error)
-    return NextResponse.json({ 
-      error: 'Error al actualizar usuario',
-      details: error?.message || 'Error desconocido'
-    }, { status: 500 })
+    return NextResponse.json({ error: 'Error al actualizar usuario' }, { status: 500 })
   }
 }
 
-// DELETE - Eliminar usuario (desactivar)
+// DELETE - Eliminar usuario (desactivar). Solo admin: permiso users:manage
 export async function DELETE(
-  request: Request,
+  request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const cookieStore = cookies()
-  const sessionToken = cookieStore.get('sb-access-token')
-  
-  if (!sessionToken) {
-    return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-  }
-  
+  const auth = await requirePermission(request, 'users:manage')
+  if (!auth.ok) return auth.response
+  const currentUser = auth.user
+
   try {
-    // Verificar que el usuario actual es admin
-    const decoded = Buffer.from(sessionToken.value, 'base64').toString()
-    const [userId] = decoded.split(':')
-    
-    const { data: currentUser, error: userError } = await supabaseAdmin
-      .from('users')
-      .select('role')
-      .eq('id', userId)
-      .single()
-    
-    if (userError) {
-      console.error('Error verificando usuario:', userError)
-      return NextResponse.json({ error: 'Error de autenticación' }, { status: 401 })
-    }
-    
-    if (!currentUser || currentUser.role !== 'admin') {
-      return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 })
-    }
-    
     const { id } = params
-    
+    if (!UUID_RE.test(id)) {
+      return NextResponse.json({ error: 'ID de usuario no válido' }, { status: 400 })
+    }
+
     // No permitir que el admin se elimine a sí mismo
-    if (userId === id) {
+    if (currentUser.id === id) {
       return NextResponse.json({ error: 'No puedes eliminarte a ti mismo' }, { status: 400 })
     }
-    
-    // Desactivar usuario en lugar de eliminar usando supabaseAdmin
-    const { error } = await supabaseAdmin
+
+    // Desactivar usuario en lugar de eliminarlo
+    const { data, error } = await getSupabaseAdmin()
       .from('users')
       .update({ active: false })
       .eq('id', id)
-    
+      .select('id')
+
     if (error) {
-      console.error('Error de Supabase al desactivar:', error)
-      return NextResponse.json({ 
-        error: 'Error al desactivar usuario',
-        details: error.message
-      }, { status: 500 })
+      console.error('Error de Supabase al desactivar usuario:', error.message)
+      return NextResponse.json({ error: 'Error al desactivar usuario' }, { status: 500 })
     }
-    
+
+    if (!data || data.length === 0) {
+      return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 404 })
+    }
+
     return NextResponse.json({ message: 'Usuario desactivado exitosamente' })
-  } catch (error: any) {
+  } catch (error) {
     console.error('Error al eliminar usuario:', error)
-    return NextResponse.json({ 
-      error: 'Error al eliminar usuario',
-      details: error?.message || 'Error desconocido'
-    }, { status: 500 })
+    return NextResponse.json({ error: 'Error al eliminar usuario' }, { status: 500 })
   }
 }

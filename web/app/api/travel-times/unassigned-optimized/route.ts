@@ -1,24 +1,23 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin'
+import { requireUser } from '@/lib/require-role'
+import { fetchAllRows, serverError } from '../../_lib/api-error'
 
 // Forzar esta ruta como dinámica
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
-// Usar service role key para bypass RLS y leer assignments
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+// Hospitales activos sin asignación con sus tiempos (segundos) a cada KAM activo. Requiere sesión.
+export async function GET(request: Request) {
+  const auth = await requireUser(request)
+  if (!auth.ok) return auth.response
 
-export async function GET() {
-  console.log('🔍 API unassigned-optimized llamada')
   try {
-    // 1. Obtener TODOS los hospitales activos primero
-    const { data: allHospitals } = await supabase
-      .from('hospitals')
-      .select('*')
-      .eq('active', true)
+    // 1. Obtener TODOS los hospitales activos (paginado: PostgREST corta en 1.000 filas)
+    const { data: allHospitals, error: hospitalsError } = await fetchAllRows<any>((from, to) =>
+      supabase.from('hospitals').select('*').eq('active', true).order('id').range(from, to)
+    )
+    if (hospitalsError) return serverError('travel-times/unassigned-optimized (hospitales)', hospitalsError)
     
     if (!allHospitals || allHospitals.length === 0) {
       return NextResponse.json({ 
@@ -29,13 +28,18 @@ export async function GET() {
     }
     
     // 2. Obtener hospitales asignados - IMPORTANTE: usar la consulta correcta
-    const { data: assignments, error: assignmentsError } = await supabase
-      .from('assignments')
-      .select('hospital_id')
-      .not('hospital_id', 'is', null) // Asegurarse de que hospital_id no sea null
+    const { data: assignments, error: assignmentsError } = await fetchAllRows<{ hospital_id: string }>((from, to) =>
+      supabase
+        .from('assignments')
+        .select('hospital_id')
+        .not('hospital_id', 'is', null)
+        .order('id')
+        .range(from, to)
+    )
     
     if (assignmentsError) {
-      console.error('❌ Error obteniendo assignments:', assignmentsError)
+      // Sin asignaciones completas se mostrarían como vacantes IPS que sí tienen KAM
+      return serverError('travel-times/unassigned-optimized (assignments)', assignmentsError)
     }
     
     console.log(`📊 Assignments encontrados: ${assignments?.length || 0}`)
@@ -78,10 +82,16 @@ export async function GET() {
     console.log(`🔍 Primeros 3 IDs de hospitales sin asignar:`, hospitalIds.slice(0, 3))
     
     // Primero obtener las distancias
-    const { data: allDistances, error: distancesError } = await supabase
-      .from('hospital_kam_distances')
-      .select('hospital_id, kam_id, travel_time, distance')
-      .in('hospital_id', hospitalIds)
+    const { data: allDistances, error: distancesError } = hospitalIds.length === 0
+      ? { data: [] as any[], error: null }
+      : await fetchAllRows<any>((from, to) =>
+          supabase
+            .from('hospital_kam_distances')
+            .select('hospital_id, kam_id, travel_time, distance')
+            .in('hospital_id', hospitalIds)
+            .order('id')
+            .range(from, to)
+        )
     
     if (distancesError) {
       console.error('❌ Error obteniendo distancias:', distancesError)
@@ -182,10 +192,6 @@ export async function GET() {
     })
     
   } catch (error) {
-    console.error('Error fetching unassigned hospital travel times:', error)
-    return NextResponse.json({ 
-      error: 'Failed to fetch travel times',
-      details: error instanceof Error ? error.message : 'Unknown error' 
-    }, { status: 500 })
+    return serverError('travel-times/unassigned-optimized', error, 'Error al obtener los tiempos de viaje')
   }
 }

@@ -1,23 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { getUserFromRequest } from '@/lib/auth-server'
-
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  supabaseServiceKey
-)
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin'
+import { requirePermission } from '@/lib/require-role'
+import { badJson, isUuid, readJsonBody, serverError } from '../../../_lib/api-error'
+import { pickAllowed, PROVIDER_INDICATOR_COLUMNS } from '../../../_lib/allow-list'
 
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const auth = await requirePermission(request, 'providers:view')
+  if (!auth.ok) return auth.response
+  if (!isUuid(params.id)) {
+    return NextResponse.json({ error: 'Proveedor no encontrado' }, { status: 404 })
+  }
+
   try {
-    const user = await getUserFromRequest(request)
-    if (!user) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-    }
 
     const providerId = params.id
 
@@ -28,10 +25,7 @@ export async function GET(
       .eq('proveedor_id', providerId)
       .order('anio', { ascending: false })
 
-    if (error) {
-      console.error('Error loading indicators:', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
+    if (error) return serverError('providers/[id]/indicators GET', error, 'Error al cargar los indicadores')
 
     return NextResponse.json(indicators || [])
   } catch (error) {
@@ -47,14 +41,22 @@ export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const auth = await requirePermission(request, 'providers:edit')
+  if (!auth.ok) return auth.response
+  if (!isUuid(params.id)) {
+    return NextResponse.json({ error: 'Proveedor no encontrado' }, { status: 404 })
+  }
+
   try {
-    const user = await getUserFromRequest(request)
-    if (!user) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-    }
 
     const providerId = params.id
-    const body = await request.json()
+    const rawBody = await readJsonBody(request)
+    if (!rawBody || typeof rawBody !== 'object') return badJson()
+    // Allow-list de columnas de proveedor_indicadores (nunca el body entero)
+    const body = pickAllowed(rawBody as Record<string, unknown>, PROVIDER_INDICATOR_COLUMNS) as Record<string, any>
+    if (!Number.isInteger(Number(body.anio))) {
+      return NextResponse.json({ error: 'Año inválido' }, { status: 400 })
+    }
 
     // Calcular indicadores derivados
     const indicatorData = {
@@ -78,10 +80,7 @@ export async function POST(
       .select()
       .single()
 
-    if (error) {
-      console.error('Error saving indicators:', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
+    if (error) return serverError('providers/[id]/indicators POST', error, 'Error al guardar los indicadores')
 
     return NextResponse.json(data)
   } catch (error) {
@@ -97,6 +96,8 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  // Alias para POST ya que usamos upsert
+  // Alias de POST (upsert); misma autorización
+  const auth = await requirePermission(request, 'providers:edit')
+  if (!auth.ok) return auth.response
   return POST(request, { params })
 }

@@ -1,31 +1,30 @@
-import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { NextRequest, NextResponse } from 'next/server'
+import { requirePermission } from '@/lib/require-role'
+import { supabaseAdmin } from '@/lib/supabase-admin'
+import { UUID_RE } from '@/app/api/kams/_lib/kam-shared'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabase = createClient(supabaseUrl, supabaseKey);
+// GET /api/zones/territories?zoneId= — vista zone_territory_assignments leída con service_role
+export async function GET(request: NextRequest) {
+  const auth = await requirePermission(request, 'zones:view')
+  if (!auth.ok) return auth.response
 
-export async function GET(request: Request) {
   try {
-    const { searchParams } = new URL(request.url);
-    const zoneId = searchParams.get('zoneId');
-
-    let query = supabase.from('zone_territory_assignments').select('*');
-
-    if (zoneId) {
-      query = query.eq('zone_id', zoneId);
+    const zoneId = new URL(request.url).searchParams.get('zoneId')
+    if (zoneId && !UUID_RE.test(zoneId)) {
+      return NextResponse.json({ error: 'ID de zona no válido' }, { status: 400 })
     }
 
-    const { data, error } = await query.order('territory_name');
+    let query = supabaseAdmin.from('zone_territory_assignments').select('*')
+    if (zoneId) {
+      query = query.eq('zone_id', zoneId)
+    }
 
-    if (error) throw error;
+    const { data, error } = await query.order('territory_name')
+    if (error) throw error
 
-    return NextResponse.json(data || []);
+    return NextResponse.json(data || [])
   } catch (error) {
-    console.error('Error fetching zone territories:', error);
-    return NextResponse.json(
-      { error: 'Error fetching zone territories' },
-      { status: 500 }
-    );
+    console.error('Error cargando territorios de zona:', error)
+    return NextResponse.json({ error: 'Error al cargar los territorios de la zona' }, { status: 500 })
   }
 }

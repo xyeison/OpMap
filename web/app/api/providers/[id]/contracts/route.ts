@@ -1,17 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabase = createClient(supabaseUrl, supabaseKey);
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
+import { requirePermission } from '@/lib/require-role';
+import { isUuid, serverError } from '../../../_lib/api-error';
 
 // GET /api/providers/[id]/contracts - Obtener contratos del proveedor
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const auth = await requirePermission(request, 'providers:view');
+  if (!auth.ok) return auth.response;
+
   try {
     const proveedorId = params.id;
+    if (!isUuid(proveedorId)) {
+      return NextResponse.json({ error: 'Proveedor no encontrado' }, { status: 404 });
+    }
     
     // Obtener contratos del proveedor con información del hospital
     const { data: contracts, error } = await supabase
@@ -29,13 +33,7 @@ export async function GET(
       .eq('proveedor_id', proveedorId)
       .order('end_date', { ascending: false });
     
-    if (error) {
-      console.error('Error fetching provider contracts:', error);
-      return NextResponse.json(
-        { error: 'Error al obtener contratos', details: error.message },
-        { status: 500 }
-      );
-    }
+    if (error) return serverError('providers/[id]/contracts GET', error, 'Error al obtener contratos');
     
     // Formatear los contratos con información adicional
     const formattedContracts = contracts?.map(contract => ({

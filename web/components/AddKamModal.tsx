@@ -12,6 +12,17 @@ interface Municipality {
   department_code: string
 }
 
+interface BogotaLocality {
+  locality_id: string
+  locality_name: string
+  hospital_count: number
+  lat: number | null
+  lng: number | null
+}
+
+// Código DANE de Bogotá: un KAM de Bogotá debe tener una localidad (7 dígitos), nunca el municipio entero
+const BOGOTA_CODE = '11001'
+
 interface AddKamModalProps {
   isOpen: boolean
   onClose: () => void
@@ -39,6 +50,10 @@ export default function AddKamModal({ isOpen, onClose, onSuccess }: AddKamModalP
   const [municipalities, setMunicipalities] = useState<Municipality[]>([])
   const [filteredMunicipalities, setFilteredMunicipalities] = useState<Municipality[]>([])
   const [searchTerm, setSearchTerm] = useState('')
+  const [bogotaMunicipality, setBogotaMunicipality] = useState<Municipality | null>(null)
+  const [localities, setLocalities] = useState<BogotaLocality[]>([])
+  const [localitiesLoading, setLocalitiesLoading] = useState(false)
+  const [localitiesError, setLocalitiesError] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const queryClient = useQueryClient()
@@ -103,7 +118,56 @@ export default function AddKamModal({ isOpen, onClose, onSuccess }: AddKamModalP
     }
   }, [searchTerm, municipalities])
 
+  const loadLocalities = async () => {
+    setLocalitiesLoading(true)
+    setLocalitiesError('')
+    try {
+      const response = await fetch('/api/kams/localities')
+      const data = await response.json().catch(() => null)
+      if (!response.ok) {
+        throw new Error((data && data.error) || `Error al cargar las localidades (${response.status})`)
+      }
+      setLocalities(Array.isArray(data) ? data : [])
+    } catch (err: any) {
+      console.error('Error cargando localidades:', err)
+      setLocalitiesError(err.message || 'Error al cargar las localidades de Bogotá')
+      setLocalities([])
+    } finally {
+      setLocalitiesLoading(false)
+    }
+  }
+
+  const handleLocalitySelect = (localityId: string) => {
+    const locality = localities.find(l => l.locality_id === localityId)
+    if (!locality || !bogotaMunicipality) {
+      setFormData({ ...formData, area_id: '' })
+      return
+    }
+    setFormData({
+      ...formData,
+      area_id: locality.locality_id,
+      // Ubicación: centroide de las IPS de la localidad; si no hay, la de Bogotá
+      lat: locality.lat ?? bogotaMunicipality.lat,
+      lng: locality.lng ?? bogotaMunicipality.lng
+    })
+  }
+
   const handleMunicipalitySelect = (municipality: Municipality) => {
+    if (municipality.code === BOGOTA_CODE) {
+      // Bogotá: se exige elegir localidad antes de poder crear el KAM
+      setBogotaMunicipality(municipality)
+      setFormData({
+        ...formData,
+        area_id: '',
+        lat: municipality.lat,
+        lng: municipality.lng
+      })
+      setSearchTerm(municipality.name)
+      if (localities.length === 0) loadLocalities()
+      return
+    }
+
+    setBogotaMunicipality(null)
     setFormData({
       ...formData,
       area_id: municipality.code,
@@ -123,8 +187,11 @@ export default function AddKamModal({ isOpen, onClose, onSuccess }: AddKamModalP
       if (!formData.name.trim()) {
         throw new Error('El nombre es requerido')
       }
-      if (!formData.area_id) {
-        throw new Error('Debe seleccionar un municipio')
+      if (bogotaMunicipality && formData.area_id.length !== 7) {
+        throw new Error('Para Bogotá elige una localidad')
+      }
+      if (!formData.area_id || formData.area_id === BOGOTA_CODE) {
+        throw new Error(formData.area_id === BOGOTA_CODE ? 'Para Bogotá elige una localidad' : 'Debe seleccionar un municipio')
       }
 
       // Preparar datos para insertar
@@ -150,7 +217,10 @@ export default function AddKamModal({ isOpen, onClose, onSuccess }: AddKamModalP
       const result = await response.json()
 
       if (!response.ok) {
-        throw new Error(result.error || 'Error al crear el KAM')
+        throw new Error(result.error || `Error al crear el KAM (${response.status})`)
+      }
+      if (result.warning) {
+        alert(result.warning)
       }
 
       queryClient.invalidateQueries({ queryKey: ['kams'] })
@@ -176,6 +246,8 @@ export default function AddKamModal({ isOpen, onClose, onSuccess }: AddKamModalP
       color: DEFAULT_COLORS[Math.floor(Math.random() * DEFAULT_COLORS.length)]
     })
     setSearchTerm('')
+    setBogotaMunicipality(null)
+    setLocalitiesError('')
     setError('')
     onClose()
   }
@@ -227,12 +299,19 @@ export default function AddKamModal({ isOpen, onClose, onSuccess }: AddKamModalP
               <input
                 type="text"
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value)
+                  // Si se cambia la búsqueda se descarta la selección anterior
+                  if (formData.area_id || bogotaMunicipality) {
+                    setBogotaMunicipality(null)
+                    setFormData({ ...formData, area_id: '' })
+                  }
+                }}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-transparent"
                 placeholder="Buscar municipio..."
                 required
               />
-              {searchTerm && (
+              {searchTerm && !formData.area_id && !bogotaMunicipality && (
                 <>
                   {filteredMunicipalities.length > 0 ? (
                     <div className="mt-2">
@@ -256,18 +335,59 @@ export default function AddKamModal({ isOpen, onClose, onSuccess }: AddKamModalP
                     </div>
                   ) : (
                     <div className="mt-2 text-sm text-gray-500 px-2">
-                      No se encontraron municipios con "{searchTerm}"
+                      No se encontraron municipios con &ldquo;{searchTerm}&rdquo;
                     </div>
                   )}
                 </>
               )}
             </div>
 
+            {bogotaMunicipality && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Localidad de Bogotá <span className="text-red-500">*</span>
+                </label>
+                {localitiesLoading ? (
+                  <p className="text-sm text-gray-500">Cargando localidades...</p>
+                ) : localitiesError ? (
+                  <div className="text-sm text-red-700">
+                    {localitiesError}{' '}
+                    <button type="button" onClick={loadLocalities} className="underline">
+                      Reintentar
+                    </button>
+                  </div>
+                ) : (
+                  <select
+                    value={formData.area_id}
+                    onChange={(e) => handleLocalitySelect(e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-transparent"
+                    required
+                  >
+                    <option value="">Selecciona una localidad...</option>
+                    {localities.map((locality) => (
+                      <option key={locality.locality_id} value={locality.locality_id}>
+                        {locality.locality_name} ({locality.locality_id}) · {locality.hospital_count} IPS
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <p className="text-xs text-gray-500 mt-1">
+                  Un KAM de Bogotá se asigna a una localidad; nunca a toda la ciudad.
+                </p>
+              </div>
+            )}
+
             {formData.area_id && (
               <div className="bg-gray-50 p-4 rounded-lg">
                 <p className="text-sm text-gray-600">
                   <span className="font-medium">Municipio seleccionado:</span> {searchTerm}
                 </p>
+                {bogotaMunicipality && (
+                  <p className="text-sm text-gray-600 mt-1">
+                    <span className="font-medium">Localidad:</span>{' '}
+                    {localities.find(l => l.locality_id === formData.area_id)?.locality_name} ({formData.area_id})
+                  </p>
+                )}
                 <p className="text-xs text-gray-500 mt-1">
                   Coordenadas: {formData.lat.toFixed(4)}, {formData.lng.toFixed(4)}
                 </p>
@@ -376,7 +496,7 @@ export default function AddKamModal({ isOpen, onClose, onSuccess }: AddKamModalP
             </button>
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !formData.area_id || (!!bogotaMunicipality && formData.area_id.length !== 7)}
               className="px-6 py-2.5 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
               {loading ? (

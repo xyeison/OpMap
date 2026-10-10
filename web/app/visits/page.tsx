@@ -549,7 +549,7 @@ export default function VisitsPage() {
                       <li>Descarga la plantilla Excel con el formato correcto</li>
                       <li>Completa los datos de las visitas (Representante, Tipo, Coordenadas, Fecha)</li>
                       <li>Selecciona el período (mes y año) de las visitas a importar</li>
-                      <li>Sube el archivo Excel y haz clic en "Importar"</li>
+                      <li>Sube el archivo Excel y haz clic en &ldquo;Importar&rdquo;</li>
                     </ol>
                   </div>
                 </div>

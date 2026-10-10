@@ -1,24 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { getUserFromRequest } from '@/lib/auth-server'
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin'
+import { requireUser } from '@/lib/require-role'
+import { badJson, isUuid, readJsonBody, serverError } from '../../../_lib/api-error'
 
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  supabaseServiceKey
-)
+// Cualquier usuario autenticado y activo puede leer la actividad y comentar;
+// borrar un comentario: solo admin o su autor.
 
 // GET: Obtener todos los comentarios/historial del hospital
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+  const auth = await requireUser(request)
+  if (!auth.ok) return auth.response
+  const user = auth.user
+
   try {
-    const user = await getUserFromRequest(request)
-    if (!user) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-    }
 
     const hospitalId = params.id
-    
+    if (!isUuid(hospitalId)) {
+      return NextResponse.json({ error: 'Hospital no encontrado' }, { status: 404 })
+    }
+
     // Obtener actividad combinada de la vista hospital_activity
     const { data, error } = await supabase
       .from('hospital_activity')
@@ -26,10 +26,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       .eq('hospital_id', hospitalId)
       .order('created_at', { ascending: false })
 
-    if (error) {
-      console.error('Error fetching hospital activity:', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
+    if (error) return serverError('hospitals/[id]/comments GET', error, 'Error al cargar la actividad')
 
     // Formatear los datos para el frontend
     const formattedData = data?.map(entry => ({
@@ -66,18 +63,27 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 
 // POST: Agregar un nuevo comentario
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+  const auth = await requireUser(request)
+  if (!auth.ok) return auth.response
+  const user = auth.user
+
   try {
-    const user = await getUserFromRequest(request)
-    if (!user) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-    }
 
     const hospitalId = params.id
-    const body = await request.json()
-    
+    if (!isUuid(hospitalId)) {
+      return NextResponse.json({ error: 'Hospital no encontrado' }, { status: 404 })
+    }
+
+    const body = (await readJsonBody(request)) as { message?: unknown } | undefined
+    if (!body || typeof body !== 'object') return badJson()
+
     // Validación de datos
-    if (!body.message || !body.message.trim()) {
+    const message = typeof body.message === 'string' ? body.message.trim() : ''
+    if (!message) {
       return NextResponse.json({ error: 'El mensaje es requerido' }, { status: 400 })
+    }
+    if (message.length > 5000) {
+      return NextResponse.json({ error: 'El mensaje es demasiado largo' }, { status: 400 })
     }
 
     // Verificar que el hospital existe
@@ -85,9 +91,10 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       .from('hospitals')
       .select('id, name')
       .eq('id', hospitalId)
-      .single()
+      .maybeSingle()
 
-    if (hospitalError || !hospital) {
+    if (hospitalError) return serverError('hospitals/[id]/comments POST (hospital)', hospitalError)
+    if (!hospital) {
       return NextResponse.json({ error: 'Hospital no encontrado' }, { status: 404 })
     }
 
@@ -97,7 +104,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       .insert({
         hospital_id: hospitalId,
         user_id: user.id,
-        comment: body.message.trim()
+        comment: message
       })
       .select(`
         *,
@@ -110,10 +117,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       `)
       .single()
 
-    if (error) {
-      console.error('Error adding comment:', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
+    if (error) return serverError('hospitals/[id]/comments POST', error, 'Error al agregar el comentario')
 
     // Formatear la respuesta
     const formattedComment = {
@@ -148,16 +152,16 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
 // DELETE: Eliminar un comentario (solo admin o el autor)
 export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+  const auth = await requireUser(request)
+  if (!auth.ok) return auth.response
+  const user = auth.user
+
   try {
-    const user = await getUserFromRequest(request)
-    if (!user) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-    }
 
     const url = new URL(request.url)
     const commentId = url.searchParams.get('commentId')
     
-    if (!commentId) {
+    if (!isUuid(commentId)) {
       return NextResponse.json({ error: 'ID del comentario requerido' }, { status: 400 })
     }
 
@@ -166,9 +170,11 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
       .from('hospital_comments')
       .select('user_id')
       .eq('id', commentId)
-      .single()
+      .eq('hospital_id', params.id)
+      .maybeSingle()
 
-    if (fetchError || !comment) {
+    if (fetchError) return serverError('hospitals/[id]/comments DELETE (lectura)', fetchError)
+    if (!comment) {
       return NextResponse.json({ error: 'Comentario no encontrado' }, { status: 404 })
     }
 
@@ -183,10 +189,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
       .delete()
       .eq('id', commentId)
 
-    if (error) {
-      console.error('Error deleting comment:', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
+    if (error) return serverError('hospitals/[id]/comments DELETE', error, 'Error al eliminar el comentario')
 
     return NextResponse.json({ 
       success: true, 

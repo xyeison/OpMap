@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { kamService, supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import KamDeactivateButton from '@/components/KamDeactivateButton'
 import KamActivateButton from '@/components/KamActivateButton'
@@ -12,6 +11,27 @@ import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
 import ZoneView from '@/components/ZoneView'
 import KamZoneModal from '@/components/KamZoneModal'
+
+interface KamStats {
+  kam_id: string
+  hospital_count: number
+  municipality_count: number
+  contract_value_total: number
+  avg_travel_time: number | null
+  area_name: string | null
+  zone: { id: string; name: string; color: string | null } | null
+}
+
+// Lista de KAMs desde el servidor (service_role); activos primero y luego por nombre
+async function fetchKams(): Promise<KamWithData[]> {
+  const response = await fetch('/api/kams')
+  const data = await response.json().catch(() => null)
+  if (!response.ok) {
+    throw new Error((data && data.error) || `Error al cargar los KAMs (${response.status})`)
+  }
+  const list: KamWithData[] = Array.isArray(data) ? data : []
+  return list.sort((a, b) => Number(b.active) - Number(a.active) || a.name.localeCompare(b.name))
+}
 
 interface KamWithData {
   id: string
@@ -27,6 +47,8 @@ interface KamWithData {
   participates_in_assignment?: boolean
   municipalityName?: string
   hospitalCount?: number
+  municipalityCount?: number
+  avgTravelTime?: number | null
   contractsValue?: number
   zone_id?: string
   zone_name?: string
@@ -37,6 +59,7 @@ export default function KamsPage() {
   const [showForm, setShowForm] = useState(false)
   const [loading, setLoading] = useState(false)
   const [kamsWithData, setKamsWithData] = useState<KamWithData[]>([])
+  const [statsError, setStatsError] = useState('')
   const [editingKam, setEditingKam] = useState<KamWithData | null>(null)
   const [showEditModal, setShowEditModal] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
@@ -50,7 +73,7 @@ export default function KamsPage() {
   
   const { data: kams, isLoading } = useQuery({
     queryKey: ['kams'],
-    queryFn: kamService.getAll,
+    queryFn: fetchKams,
   })
 
   useEffect(() => {
@@ -85,69 +108,35 @@ export default function KamsPage() {
   const loadAdditionalData = async () => {
     if (!kams) return
 
-    const updatedKams = await Promise.all(
-      kams.map(async (kam) => {
-        // Cargar nombre del municipio
-        const { data: municipality } = await supabase
-          .from('municipalities')
-          .select('name')
-          .eq('code', kam.area_id)
-          .single()
+    // A-10: las métricas se calculan en el servidor; con la anon key RLS devolvía todo en cero
+    let statsById = new Map<string, KamStats>()
+    setStatsError('')
+    try {
+      const response = await fetch('/api/kams/stats')
+      const data = await response.json().catch(() => null)
+      if (!response.ok) {
+        throw new Error((data && data.error) || `Error al cargar las estadísticas (${response.status})`)
+      }
+      statsById = new Map((Array.isArray(data) ? data : []).map((stat: KamStats) => [stat.kam_id, stat]))
+    } catch (error: any) {
+      console.error('Error cargando estadísticas de KAMs:', error)
+      setStatsError(error?.message || 'Error al cargar las estadísticas de KAMs')
+    }
 
-        // Cargar información de zona
-        const { data: kamWithZone } = await supabase
-          .from('kams')
-          .select('zone_id')
-          .eq('id', kam.id)
-          .single()
-
-        let zoneInfo = null
-        if (kamWithZone?.zone_id) {
-          const { data: zone } = await supabase
-            .from('zones')
-            .select('id, name, color')
-            .eq('id', kamWithZone.zone_id)
-            .single()
-          zoneInfo = zone
-        }
-
-        // Contar hospitales asignados
-        const { count } = await supabase
-          .from('assignments')
-          .select('*', { count: 'exact', head: true })
-          .eq('kam_id', kam.id)
-
-        // Calcular valor total de contratos
-        const { data: assignments } = await supabase
-          .from('assignments')
-          .select('hospital_id')
-          .eq('kam_id', kam.id)
-
-        let totalValue = 0
-        if (assignments && assignments.length > 0) {
-          const hospitalIds = assignments.map(a => a.hospital_id)
-          const { data: contracts } = await supabase
-            .from('hospital_contracts')
-            .select('contract_value')
-            .in('hospital_id', hospitalIds)
-            .eq('active', true)
-
-          if (contracts) {
-            totalValue = contracts.reduce((sum, c) => sum + (c.contract_value || 0), 0)
-          }
-        }
-
-        return {
-          ...kam,
-          municipalityName: municipality?.name,
-          hospitalCount: count || 0,
-          contractsValue: totalValue,
-          zone_id: kamWithZone?.zone_id,
-          zone_name: zoneInfo?.name,
-          zone_color: zoneInfo?.color
-        }
-      })
-    )
+    const updatedKams = kams.map((kam) => {
+      const stat = statsById.get(kam.id)
+      return {
+        ...kam,
+        municipalityName: stat?.area_name || undefined,
+        hospitalCount: stat?.hospital_count || 0,
+        municipalityCount: stat?.municipality_count || 0,
+        avgTravelTime: stat?.avg_travel_time ?? null,
+        contractsValue: stat?.contract_value_total || 0,
+        zone_id: stat?.zone?.id || kam.zone_id,
+        zone_name: stat?.zone?.name,
+        zone_color: stat?.zone?.color || undefined
+      }
+    })
 
     setKamsWithData(updatedKams)
   }
@@ -294,6 +283,12 @@ export default function KamsPage() {
               </div>
             </div>
           </div>
+
+          {statsError && (
+            <div className="mb-4 p-4 bg-red-50 border border-red-200 text-red-700 rounded-xl">
+              {statsError}. Los totales de hospitales y contratos pueden no estar actualizados.
+            </div>
+          )}
 
           {/* Estadísticas */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">

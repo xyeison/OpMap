@@ -1,58 +1,65 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { getUserFromRequest } from '@/lib/auth-server'
+import { getSupabaseAdmin } from '@/lib/supabase-admin'
+import { requirePermission } from '@/lib/require-role'
+import { hashPassword } from '@/lib/passwords'
+import { SESSION_COOKIE_NAME, passwordVersion, sessionCookieOptions, signSession } from '@/lib/session'
+import { UUID_RE, changePasswordSchema, firstIssueMessage } from '@/lib/user-schemas'
 
-// Usar Service Role Key para bypasear RLS
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-if (!supabaseServiceKey) {
-  console.warn('SUPABASE_SERVICE_ROLE_KEY no configurada, usando ANON KEY')
-}
+export const dynamic = 'force-dynamic'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  supabaseServiceKey || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
-
-// PUT - Actualizar contraseña de usuario
+// PUT - Actualizar contraseña de usuario (solo admin: permiso users:manage)
 export async function PUT(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const auth = await requirePermission(request, 'users:manage')
+  if (!auth.ok) return auth.response
+
   try {
-    // Verificar autenticación y autorización
-    const user = await getUserFromRequest(request)
-    if (!user) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-    }
-    
-    // Verificar que el usuario actual es admin
-    if (user.role !== 'admin') {
-      return NextResponse.json({ error: 'Solo los administradores pueden cambiar contraseñas' }, { status: 403 })
-    }
-    
-    // Obtener la nueva contraseña
-    const { password } = await request.json()
     const { id } = params
-    
-    if (!password || password.length < 6) {
-      return NextResponse.json({ error: 'La contraseña debe tener al menos 6 caracteres' }, { status: 400 })
+    if (!UUID_RE.test(id)) {
+      return NextResponse.json({ error: 'ID de usuario no válido' }, { status: 400 })
     }
-    
-    // NOTA: El sistema actual guarda contraseñas en texto plano (no recomendado)
-    // En producción, deberías usar bcrypt o similar para hashear contraseñas
-    
-    // Actualizar la contraseña del usuario (sin hashear para mantener compatibilidad con el sistema actual)
-    const { error } = await supabase
+
+    let body: unknown
+    try {
+      body = await request.json()
+    } catch {
+      return NextResponse.json({ error: 'Cuerpo de la petición no válido' }, { status: 400 })
+    }
+
+    const parsed = changePasswordSchema.safeParse(body)
+    if (!parsed.success) {
+      return NextResponse.json({ error: firstIssueMessage(parsed.error) }, { status: 400 })
+    }
+
+    // Guardar siempre el hash bcrypt, nunca la contraseña en claro
+    const passwordHash = await hashPassword(parsed.data.password)
+
+    const { data, error } = await getSupabaseAdmin()
       .from('users')
-      .update({ password: password })
+      .update({ password: passwordHash })
       .eq('id', id)
-    
+      .select('id')
+
     if (error) throw error
-    
-    return NextResponse.json({ 
-      success: true, 
-      message: 'Contraseña actualizada exitosamente' 
+
+    if (!data || data.length === 0) {
+      return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 404 })
+    }
+
+    const response = NextResponse.json({
+      success: true,
+      message: 'Contraseña actualizada exitosamente'
     })
+
+    // Cambiar la contraseña revoca todas las sesiones del usuario (claim pv). Si el admin cambia
+    // la suya, se le emite una sesión nueva para que no quede desconectado.
+    if (id === auth.user.id) {
+      response.cookies.set(SESSION_COOKIE_NAME, signSession(id, passwordVersion(passwordHash)), sessionCookieOptions())
+    }
+
+    return response
   } catch (error) {
     console.error('Error al actualizar contraseña:', error)
     return NextResponse.json({ error: 'Error al actualizar contraseña' }, { status: 500 })

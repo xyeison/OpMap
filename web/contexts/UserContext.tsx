@@ -77,23 +77,13 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
   const login = async (email: string, password: string): Promise<boolean> => {
     try {
-      // Primero intentar con el endpoint principal (requiere Service Role Key)
-      let response = await fetch('/api/auth/login', {
+      // El servidor emite la cookie httpOnly de sesión (__Host-opmap_session en producción) si las credenciales son válidas
+      const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ email, password })
       })
-
-      // Si falla con error 500 (posiblemente falta Service Role Key), 
-      // intentar con el endpoint alternativo que usa ANON key
-      if (response.status === 500) {
-        console.log('Intentando login alternativo con ANON key...')
-        response = await fetch('/api/auth/login-alt', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password })
-        })
-      }
 
       if (response.ok) {
         const { user } = await response.json()
@@ -102,11 +92,9 @@ export function UserProvider({ children }: { children: ReactNode }) {
         return true
       }
       
-      // Si la respuesta tiene detalles del error, mostrarlos en consola
-      if (!response.ok) {
-        const errorData = await response.json()
-        console.error('Error de login:', errorData)
-      }
+      // Registrar el motivo (401 credenciales, 429 demasiados intentos, 500 configuración)
+      const errorData = await response.json().catch(() => null)
+      console.error('Error de login:', response.status, errorData?.error)
       
       return false
     } catch (error) {

@@ -1,22 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { getUserFromRequest } from '@/lib/auth-server'
-
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  supabaseServiceKey
-)
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin'
+import { requirePermission } from '@/lib/require-role'
+import { isUuid, serverError } from '../../_lib/api-error'
 
 export async function GET(request: NextRequest) {
-  try {
-    // Verificar autenticación
-    const user = await getUserFromRequest(request)
-    if (!user) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-    }
+  const auth = await requirePermission(request, 'visits:view')
+  if (!auth.ok) return auth.response
 
+  try {
     // Primero intentar con la vista, si no existe usar la tabla directamente
     let { data, error } = await supabase
       .from('visit_imports_summary')
@@ -46,7 +37,7 @@ export async function GET(request: NextRequest) {
           console.log('Tabla visit_imports no existe aún')
           return NextResponse.json([])
         }
-        return NextResponse.json({ error: fallbackResult.error.message }, { status: 500 })
+        return serverError('visits/imports GET', fallbackResult.error, 'Error al cargar las importaciones')
       }
       
       // Formatear los datos del fallback para que coincidan con la estructura esperada
@@ -74,22 +65,15 @@ export async function GET(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
+  // visits:manage = admin y data_manager (sales_manager no tiene visits:view en permissions.ts)
+  const auth = await requirePermission(request, 'visits:manage')
+  if (!auth.ok) return auth.response
+
   try {
-    // Verificar autenticación
-    const user = await getUserFromRequest(request)
-    if (!user) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-    }
-
-    // Verificar permisos - solo admin o sales_manager
-    if (user.role !== 'admin' && user.role !== 'sales_manager' && user.role !== 'data_manager') {
-      return NextResponse.json({ error: 'Sin permisos para eliminar importaciones' }, { status: 403 })
-    }
-
     const { searchParams } = new URL(request.url)
     const importId = searchParams.get('id')
 
-    if (!importId) {
+    if (!isUuid(importId)) {
       return NextResponse.json({ error: 'ID de importación requerido' }, { status: 400 })
     }
 
@@ -100,19 +84,21 @@ export async function DELETE(request: NextRequest) {
       .eq('import_id', importId)
 
     if (visitsError) {
-      console.error('Error deleting visits:', visitsError)
-      return NextResponse.json({ error: visitsError.message }, { status: 500 })
+      return serverError('visits/imports DELETE (visitas)', visitsError, 'Error al eliminar las visitas')
     }
 
     // Eliminar el registro de importación
-    const { error: importError } = await supabase
+    const { data: deletedImports, error: importError } = await supabase
       .from('visit_imports')
       .delete()
       .eq('id', importId)
+      .select('id')
 
     if (importError) {
-      console.error('Error deleting import record:', importError)
-      return NextResponse.json({ error: importError.message }, { status: 500 })
+      return serverError('visits/imports DELETE (registro)', importError, 'Error al eliminar la importación')
+    }
+    if (!deletedImports || deletedImports.length === 0) {
+      return NextResponse.json({ error: 'Importación no encontrada' }, { status: 404 })
     }
 
     return NextResponse.json({ success: true })

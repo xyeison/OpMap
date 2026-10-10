@@ -1,91 +1,119 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { getUserFromRequest } from '@/lib/auth-server'
+import { supabaseAdmin } from '@/lib/supabase-admin'
+import { requirePermission } from '@/lib/require-role'
+import { badJson, isUuid, readJsonBody, serverError, validationError } from '../../../_lib/api-error'
+import { hospitalStateChangeSchema } from '../../../_lib/hospital-schemas'
 
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  supabaseServiceKey
-)
-
+// Desactiva una IPS: active=false, borra su asignación y registra hospital_history.
+// Si el historial falla se responde 500 y se compensa (se restaura el estado y la asignación),
+// porque PostgREST no permite una transacción entre varias llamadas. Ver followup de función SQL.
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+  const auth = await requirePermission(request, 'hospitals:edit')
+  if (!auth.ok) return auth.response
+  const user = auth.user
+
   try {
-    // Verificar autenticación
-    const user = await getUserFromRequest(request)
-    if (!user) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-    }
-
     const hospitalId = params.id
-    const body = await request.json()
-    const { reason } = body
-
-    // Validar que se proporcione una razón
-    if (!reason || reason.trim() === '') {
-      return NextResponse.json({ 
-        error: 'La razón de desactivación es obligatoria' 
-      }, { status: 400 })
-    }
-
-    // Obtener el hospital actual
-    const { data: hospital, error: fetchError } = await supabase
-      .from('hospitals')
-      .select('*')
-      .eq('id', hospitalId)
-      .single()
-
-    if (fetchError || !hospital) {
+    if (!isUuid(hospitalId)) {
       return NextResponse.json({ error: 'Hospital no encontrado' }, { status: 404 })
     }
 
-    // Actualizar el estado del hospital
-    const { data: updatedHospital, error: updateError } = await supabase
+    const body = await readJsonBody(request)
+    if (body === undefined) return badJson()
+    const parsed = hospitalStateChangeSchema.safeParse(body)
+    if (!parsed.success) return validationError(parsed.error, 'La razón de desactivación es obligatoria')
+    const { reason } = parsed.data
+
+    const { data: hospital, error: fetchError } = await supabaseAdmin
       .from('hospitals')
-      .update({ active: false })
+      .select('id, active')
+      .eq('id', hospitalId)
+      .maybeSingle()
+
+    if (fetchError) return serverError('hospitals/[id]/deactivate (lectura)', fetchError)
+    if (!hospital) {
+      return NextResponse.json({ error: 'Hospital no encontrado' }, { status: 404 })
+    }
+    if (hospital.active === false) {
+      return NextResponse.json({ error: 'El hospital ya está inactivo' }, { status: 409 })
+    }
+
+    // 1. Marcar inactivo
+    const { data: updatedHospital, error: updateError } = await supabaseAdmin
+      .from('hospitals')
+      .update({ active: false, updated_at: new Date().toISOString() })
       .eq('id', hospitalId)
       .select()
       .single()
 
     if (updateError) {
-      console.error('Error updating hospital:', updateError)
-      return NextResponse.json({ error: updateError.message }, { status: 500 })
+      return serverError('hospitals/[id]/deactivate (update)', updateError, 'Error al desactivar el hospital')
     }
 
-    // Registrar en el historial
-    const historyData = {
+    // 2. Retirar su asignación (se guarda lo borrado para poder compensar)
+    const { data: removedAssignments, error: deleteError } = await supabaseAdmin
+      .from('assignments')
+      .delete()
+      .eq('hospital_id', hospitalId)
+      .select('*')
+
+    if (deleteError) {
+      await supabaseAdmin.from('hospitals').update({ active: true }).eq('id', hospitalId)
+      return serverError(
+        'hospitals/[id]/deactivate (assignments)',
+        deleteError,
+        'No se pudo retirar la asignación; la desactivación se ha revertido'
+      )
+    }
+
+    // 3. Historial obligatorio
+    const { error: historyError } = await supabaseAdmin.from('hospital_history').insert({
       hospital_id: hospitalId,
       user_id: user.id,
+      created_by: user.id,
       action: 'deactivated',
-      reason: reason || 'Desactivación del hospital',
+      reason,
       previous_state: true,
-      new_state: false
-    }
-
-    const { error: historyError } = await supabase
-      .from('hospital_history')
-      .insert(historyData)
+      new_state: false,
+      changes: { removed_assignments: (removedAssignments || []).map(a => ({ kam_id: a.kam_id, assignment_type: a.assignment_type })) },
+    })
 
     if (historyError) {
-      console.error('Error inserting history:', historyError)
-      // No fallar si el historial no se puede guardar
+      // Compensación: restaurar estado y asignación
+      const { error: revertError } = await supabaseAdmin
+        .from('hospitals')
+        .update({ active: true })
+        .eq('id', hospitalId)
+      if (revertError) console.error('hospitals/[id]/deactivate: no se pudo revertir el estado', revertError)
+
+      if (removedAssignments && removedAssignments.length > 0) {
+        const { error: restoreError } = await supabaseAdmin.from('assignments').insert(removedAssignments)
+        if (restoreError) {
+          console.error('hospitals/[id]/deactivate: no se pudo restaurar la asignación', restoreError)
+        }
+      }
+
+      return serverError(
+        'hospitals/[id]/deactivate (historial)',
+        historyError,
+        'No se pudo registrar el historial; la desactivación se ha revertido'
+      )
     }
 
     return NextResponse.json({
       success: true,
       hospital: updatedHospital,
-      message: 'Hospital desactivado exitosamente'
+      removedAssignments: removedAssignments?.length || 0,
+      message: 'Hospital desactivado exitosamente',
     })
   } catch (error) {
-    console.error('Error in POST /api/hospitals/[id]/deactivate:', error)
-    return NextResponse.json(
-      { error: 'Error interno del servidor' },
-      { status: 500 }
-    )
+    return serverError('hospitals/[id]/deactivate', error)
   }
 }
 
 export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
-  // Alias para desactivar (mismo que POST pero con método DELETE)
+  // Alias de POST (misma autorización: requirePermission dentro de POST)
+  const auth = await requirePermission(request, 'hospitals:edit')
+  if (!auth.ok) return auth.response
   return POST(request, { params })
 }

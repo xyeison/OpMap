@@ -1,33 +1,84 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { getUserFromRequest } from '@/lib/auth-server'
+import { supabaseAdmin } from '@/lib/supabase-admin'
+import { requireUser } from '@/lib/require-role'
 
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+// Columnas de hospital que realmente usa el mapa (marcadores, tooltips, filtros y búsqueda).
+// Se evita hospitals(*) para no enviar al navegador dirección, teléfono, email, servicios, etc.
+const HOSPITAL_COLUMNS =
+  'id, code, name, department_id, municipality_id, locality_id, lat, lng, beds, service_level, ' +
+  'surgeries, ambulances, municipality_name, department_name, locality_name, type, doctors'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  supabaseServiceKey
-)
+const KAM_COLUMNS = 'id, name, area_id, lat, lng, color, zone_id'
+
+// PostgREST corta en 1.000 filas por petición: se pagina con .range() hasta agotar la tabla
+// (municipalities tiene más de 1.000 filas).
+const PAGE_SIZE = 1000
+
+async function fetchAllRows<T = any>(
+  buildQuery: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: any }>
+): Promise<{ data: T[]; error: any }> {
+  const rows: T[] = []
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await buildQuery(from, from + PAGE_SIZE - 1)
+    if (error) return { data: rows, error }
+    const page = data || []
+    rows.push(...page)
+    if (page.length < PAGE_SIZE) break
+  }
+  return { data: rows, error: null }
+}
 
 export async function GET(request: NextRequest) {
   try {
-    // Verificar autenticación
-    const user = await getUserFromRequest(request)
-    if (!user) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-    }
+    // Verificar autenticación (sesión de usuario activo)
+    const auth = await requireUser(request)
+    if (!auth.ok) return auth.response
+
+    const supabase = supabaseAdmin
 
     // Cargar todos los datos necesarios para el mapa
     const [kamsResult, assignmentsResult, municipalitiesResult, hospitalsResult, contractsResult] = await Promise.all([
       supabase.from('kams')
-        .select('*')
+        .select(KAM_COLUMNS)
         .eq('active', true)
         .eq('participates_in_assignment', true),  // Solo KAMs con territorio
-      supabase.from('assignments').select('*, hospitals!inner(*), kams!inner(*)'),
-      supabase.from('municipalities').select('id, name, population_2025'),
-      supabase.from('hospitals').select('*').eq('active', true),
+      fetchAllRows<any>((from, to) =>
+        supabase.from('assignments')
+          .select(`id, kam_id, hospital_id, travel_time, assignment_type, is_base_territory, hospitals!inner(${HOSPITAL_COLUMNS}), kams!inner(id, name, color)`)
+          .order('id')
+          .range(from, to)
+      ),
+      fetchAllRows<any>((from, to) =>
+        supabase.from('municipalities')
+          .select('code, name, population_2025')
+          .order('code')
+          .range(from, to)
+      ),
+      fetchAllRows<any>((from, to) =>
+        supabase.from('hospitals')
+          .select(HOSPITAL_COLUMNS)
+          .eq('active', true)
+          .order('id')
+          .range(from, to)
+      ),
       supabase.from('hospital_contracts').select('hospital_id, contract_value, provider').eq('active', true)
     ])
+
+    // Si cualquier consulta falla, responder 500 genérico (el detalle solo va al log del servidor)
+    const failed = [
+      ['kams', kamsResult.error],
+      ['assignments', assignmentsResult.error],
+      ['municipalities', municipalitiesResult.error],
+      ['hospitals', hospitalsResult.error],
+      ['hospital_contracts', contractsResult.error],
+    ].filter(([, error]) => error)
+    if (failed.length > 0) {
+      failed.forEach(([table, error]) => console.error(`Error consultando ${table} en /api/map/data:`, error))
+      return NextResponse.json(
+        { error: 'No se pudieron cargar los datos del mapa' },
+        { status: 500 }
+      )
+    }
 
     const kamsFiltered = kamsResult.data || []
 
@@ -41,9 +92,9 @@ export async function GET(request: NextRequest) {
     // Crear mapas de población y nombres por municipio
     const populationMap: Record<string, number> = {}
     const municipalityNames: Record<string, string> = {}
-    municipalitiesResult.data?.forEach(m => {
-      populationMap[m.id] = m.population_2025 || 0
-      municipalityNames[m.id] = m.name
+    municipalitiesResult.data.forEach((m: any) => {
+      populationMap[m.code] = m.population_2025 || 0
+      municipalityNames[m.code] = m.name
     })
 
     // Crear mapa de valores de contratos activos y proveedores por hospital

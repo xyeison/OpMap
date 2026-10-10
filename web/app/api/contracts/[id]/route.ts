@@ -1,20 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { getUserFromRequest } from '@/lib/auth-server'
+import { supabaseAdmin } from '@/lib/supabase-admin'
+import { requirePermission } from '@/lib/require-role'
+import { badJson, isUuid, readJsonBody, serverError } from '../../_lib/api-error'
+import { CONTRACT_EDITABLE_COLUMNS, pickAllowed } from '../../_lib/allow-list'
 
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+  const auth = await requirePermission(request, 'contracts:view')
+  if (!auth.ok) return auth.response
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  supabaseServiceKey
-)
-
-export async function GET(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
   try {
-    const { data: contract, error } = await supabase
+    if (!isUuid(params.id)) {
+      return NextResponse.json({ error: 'Contrato no encontrado' }, { status: 404 })
+    }
+
+    const { data: contract, error } = await supabaseAdmin
       .from('hospital_contracts')
       .select(`
         *,
@@ -26,111 +25,80 @@ export async function GET(
         )
       `)
       .eq('id', params.id)
-      .single()
+      .maybeSingle()
 
-    if (error) {
-      console.error('Error fetching contract:', error)
-      return NextResponse.json(
-        { error: 'Error al obtener contrato' },
-        { status: 500 }
-      )
-    }
-
+    if (error) return serverError('contracts/[id] GET', error, 'Error al obtener contrato')
     if (!contract) {
-      return NextResponse.json(
-        { error: 'Contrato no encontrado' },
-        { status: 404 }
-      )
+      return NextResponse.json({ error: 'Contrato no encontrado' }, { status: 404 })
     }
 
     return NextResponse.json(contract)
   } catch (error) {
-    console.error('Error in GET /api/contracts/[id]:', error)
-    return NextResponse.json(
-      { error: 'Error interno del servidor' },
-      { status: 500 }
-    )
+    return serverError('contracts/[id] GET', error)
   }
 }
 
 export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+  const auth = await requirePermission(request, 'contracts:delete')
+  if (!auth.ok) return auth.response
+
   try {
-    // Verificar autenticación
-    const user = await getUserFromRequest(request)
-    if (!user) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+    if (!isUuid(params.id)) {
+      return NextResponse.json({ error: 'Contrato no encontrado' }, { status: 404 })
     }
 
-    // Verificar permisos
-    if (user.role !== 'admin' && user.role !== 'contract_manager') {
-      return NextResponse.json({ error: 'Sin permisos para eliminar contratos' }, { status: 403 })
-    }
-
-    const contractId = params.id
-
-    const { error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('hospital_contracts')
       .delete()
-      .eq('id', contractId)
+      .eq('id', params.id)
+      .select('id')
 
-    if (error) {
-      console.error('Error deleting contract:', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+    if (error) return serverError('contracts/[id] DELETE', error, 'Error al eliminar el contrato')
+    if (!data || data.length === 0) {
+      return NextResponse.json({ error: 'Contrato no encontrado' }, { status: 404 })
     }
 
     return NextResponse.json({ success: true, message: 'Contrato eliminado exitosamente' })
   } catch (error) {
-    console.error('Error in DELETE /api/contracts/[id]:', error)
-    return NextResponse.json(
-      { error: 'Error interno del servidor' },
-      { status: 500 }
-    )
+    return serverError('contracts/[id] DELETE', error)
   }
 }
 
 export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
+  const auth = await requirePermission(request, 'contracts:edit')
+  if (!auth.ok) return auth.response
+
   try {
-    // Verificar autenticación
-    const user = await getUserFromRequest(request)
-    if (!user) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+    if (!isUuid(params.id)) {
+      return NextResponse.json({ error: 'Contrato no encontrado' }, { status: 404 })
     }
 
-    // Verificar permisos
-    if (user.role !== 'admin' && user.role !== 'contract_manager') {
-      return NextResponse.json({ error: 'Sin permisos para editar contratos' }, { status: 403 })
+    const body = await readJsonBody(request)
+    if (!body || typeof body !== 'object') return badJson()
+
+    // Solo columnas reales y editables de hospital_contracts (sin id, created_by, created_at...)
+    const contractData = pickAllowed(body as Record<string, unknown>, CONTRACT_EDITABLE_COLUMNS)
+    if ('proveedor_id' in contractData) {
+      contractData.proveedor_id = isUuid(contractData.proveedor_id) ? contractData.proveedor_id : null
+    }
+    if (Object.keys(contractData).length === 0) {
+      return NextResponse.json({ error: 'No hay campos para actualizar' }, { status: 400 })
     }
 
-    const contractId = params.id
-    const body = await request.json()
-    
-    // Remove fields that don't exist in the database table
-    const { hospital, hospitals, kam, ...contractData } = body
-    
-    // Clean up proveedor_id - convert empty strings to null
-    const cleanedBody = {
-      ...contractData,
-      proveedor_id: contractData.proveedor_id && contractData.proveedor_id !== '' ? contractData.proveedor_id : null
-    }
-
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('hospital_contracts')
-      .update(cleanedBody)
-      .eq('id', contractId)
+      .update({ ...contractData, updated_at: new Date().toISOString() })
+      .eq('id', params.id)
       .select()
-      .single()
+      .maybeSingle()
 
-    if (error) {
-      console.error('Error updating contract:', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+    if (error) return serverError('contracts/[id] PUT', error, 'Error al actualizar el contrato')
+    if (!data) {
+      return NextResponse.json({ error: 'Contrato no encontrado' }, { status: 404 })
     }
 
     return NextResponse.json(data)
   } catch (error) {
-    console.error('Error in PUT /api/contracts/[id]:', error)
-    return NextResponse.json(
-      { error: 'Error interno del servidor' },
-      { status: 500 }
-    )
+    return serverError('contracts/[id] PUT', error)
   }
 }

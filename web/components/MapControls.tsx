@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { supabase } from '@/lib/supabase'
 import { useVisits } from '@/hooks/useVisits'
 
 interface MapControlsProps {
@@ -151,12 +150,24 @@ export default function MapControls({
   // Cargar KAMs disponibles
   useEffect(() => {
     const loadKams = async () => {
-      const { data: kams } = await supabase
-        .from('kams')
-        .select('id, name, color')
-        .eq('active', true)
-        .order('name')
-      
+      // Vía API con sesión (service_role en el servidor), no con la anon key del navegador.
+      // /api/kams devuelve todos los KAMs ordenados por nombre: aquí solo los activos.
+      let kams: { id: string; name: string; color: string }[] | null = null
+      try {
+        const response = await fetch('/api/kams')
+        if (!response.ok) {
+          console.error('MapControls - Error cargando KAMs:', response.status)
+          return
+        }
+        const data: Array<{ id: string; name: string; color: string; active?: boolean | null }> = await response.json()
+        kams = (Array.isArray(data) ? data : [])
+          .filter(k => k.active === true)
+          .map(k => ({ id: k.id, name: k.name, color: k.color }))
+      } catch (err) {
+        console.error('MapControls - Error cargando KAMs:', err)
+        return
+      }
+
       if (kams) {
         console.log('MapControls - KAMs cargados:', kams.length)
         setAvailableKams(kams)
@@ -618,6 +629,8 @@ export default function MapControls({
                     <div className="grid grid-cols-2 gap-1">
                       {availableKams.map(kam => {
                         const isSelected = selectedKams.includes(kam.id);
+                        // Solo colores #RRGGBB válidos (el valor viene de la BD y es editable)
+                        const kamColor = /^#[0-9a-fA-F]{6}$/.test(kam.color || '') ? kam.color : '#888888'
                         return (
                           <button
                             key={kam.id}
@@ -637,8 +650,8 @@ export default function MapControls({
                             <span 
                               className="w-3 h-3 rounded-full border-2 flex-shrink-0" 
                               style={{ 
-                                backgroundColor: isSelected ? kam.color : 'transparent',
-                                borderColor: kam.color 
+                                backgroundColor: isSelected ? kamColor : 'transparent',
+                                borderColor: kamColor
                               }}
                             />
                             <span className="truncate">{kam.name}</span>

@@ -1,61 +1,71 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { getUserFromRequest } from '@/lib/auth-server'
-
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  supabaseServiceKey
-)
+import { supabaseAdmin } from '@/lib/supabase-admin'
+import { requireUser } from '@/lib/require-role'
+import { fetchAllRows, serverError } from '../../_lib/api-error'
 
 export async function GET(request: NextRequest) {
+  const auth = await requireUser(request)
+  if (!auth.ok) return auth.response
+
   try {
-    // Verificar autenticación
-    const user = await getUserFromRequest(request)
-    if (!user) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-    }
+    // Conteos con count exacto (sin traer filas) y lecturas paginadas para no truncar a 1.000 filas
+    const [kamsResult, hospitalsResult, assignmentsResult, contractsResult, departmentsResult] =
+      await Promise.all([
+        supabaseAdmin.from('kams').select('id', { count: 'exact', head: true }).eq('active', true),
+        supabaseAdmin.from('hospitals').select('id', { count: 'exact', head: true }).eq('active', true),
+        supabaseAdmin.from('assignments').select('id', { count: 'exact', head: true }),
+        fetchAllRows<{ contract_value: number | string | null }>((from, to) =>
+          supabaseAdmin
+            .from('hospital_contracts')
+            .select('contract_value')
+            .eq('active', true)
+            .order('id')
+            .range(from, to)
+        ),
+        fetchAllRows<any>((from, to) =>
+          supabaseAdmin
+            .from('assignments')
+            .select('id, hospitals!inner(department_id)')
+            .eq('hospitals.active', true)
+            .order('id')
+            .range(from, to)
+        ),
+      ])
 
-    // Obtener todas las estadísticas en paralelo
-    const [kamsResult, hospitalsResult, assignmentsResult, contractsResult, departmentsResult] = await Promise.all([
-      supabase.from('kams').select('*').eq('active', true),
-      supabase.from('hospitals').select('*').eq('active', true),
-      supabase.from('assignments').select('*'),
-      supabase.from('hospital_contracts').select('contract_value').eq('active', true),
-      supabase.from('assignments').select('hospitals!inner(department_id)').eq('hospitals.active', true)
-    ])
+    const firstError =
+      kamsResult.error ||
+      hospitalsResult.error ||
+      assignmentsResult.error ||
+      contractsResult.error ||
+      departmentsResult.error
+    if (firstError) return serverError('dashboard/stats GET', firstError)
 
-    // Calcular departamentos únicos
     const uniqueDepartments = new Set(
-      departmentsResult.data?.map((a: any) => a.hospitals?.department_id).filter(Boolean) || []
+      departmentsResult.data.map((a: any) => a.hospitals?.department_id).filter(Boolean)
     )
 
-    // Calcular valor total de contratos
-    const totalContractValue = contractsResult.data?.reduce((sum, c) => sum + (Number(c.contract_value) || 0), 0) || 0
+    const totalContractValue = contractsResult.data.reduce(
+      (sum, c) => sum + (Number(c.contract_value) || 0),
+      0
+    )
 
     const stats = {
-      totalKams: kamsResult.data?.length || 0,
-      totalHospitals: hospitalsResult.data?.length || 0,
-      assignedHospitals: assignmentsResult.data?.length || 0,
-      totalContractValue: totalContractValue,
+      totalKams: kamsResult.count || 0,
+      totalHospitals: hospitalsResult.count || 0,
+      assignedHospitals: assignmentsResult.count || 0,
+      totalContractValue,
       activeDepartments: uniqueDepartments.size,
-      coveragePercentage: 0
+      coveragePercentage: 0,
     }
 
-    // Calcular porcentaje de cobertura
     if (stats.totalHospitals > 0) {
-      stats.coveragePercentage = Number(((stats.assignedHospitals / stats.totalHospitals) * 100).toFixed(1))
+      stats.coveragePercentage = Number(
+        ((stats.assignedHospitals / stats.totalHospitals) * 100).toFixed(1)
+      )
     }
-
-    console.log('Dashboard stats:', stats)
 
     return NextResponse.json(stats)
   } catch (error) {
-    console.error('Error in GET /api/dashboard/stats:', error)
-    return NextResponse.json(
-      { error: 'Error interno del servidor' },
-      { status: 500 }
-    )
+    return serverError('dashboard/stats GET', error)
   }
 }

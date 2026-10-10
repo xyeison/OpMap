@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
 import ContractsInlineManager from '@/components/ContractsInlineManager'
@@ -167,6 +166,27 @@ export default function HospitalDetailPage() {
           action: hospital.active ? 'deactivated' : 'activated'
         })
       })
+
+      if (recalcResponse.status === 422) {
+        // El estado del hospital ya cambió y el recálculo se ejecutó, pero el hospital quedó sin
+        // KAM (u otra condición de negocio): mostrar el motivo que devuelve la API
+        let reason = 'El hospital quedó sin KAM asignado'
+        try {
+          const body = await recalcResponse.json()
+          if (typeof body?.error === 'string' && body.error) reason = body.error
+        } catch {
+          // Sin cuerpo JSON: mantener el mensaje por defecto
+        }
+        await queryClient.invalidateQueries({ queryKey: ['map-data'] })
+        await loadHospitalData()
+        setShowDeactivateModal(false)
+        setShowActivateModal(false)
+        setDeactivateReason('')
+        setActivateReason('')
+        setIsRecalculating(false)
+        alert(`Hospital ${hospital.active ? 'desactivado' : 'activado'}, pero: ${reason}`)
+        return
+      }
 
       if (!recalcResponse.ok) {
         console.error('Error al recalcular asignaciones')

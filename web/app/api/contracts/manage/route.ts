@@ -1,26 +1,30 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { supabaseAdmin } from '@/lib/supabase-admin'
+import { requirePermission, requireUser } from '@/lib/require-role'
+import { badJson, isUuid, readJsonBody, serverError } from '../../_lib/api-error'
 
-// IMPORTANTE: Este endpoint usa service role para bypass RLS
-// Solo para resolver problemas de RLS en hospital_contracts
+// Gestión de contratos de un hospital (ContractsInlineManager).
+// Servidor siempre con service_role; la autorización se hace aquí por método.
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  {
-    auth: {
-      persistSession: false
-    }
-  }
-)
+function computeDurationMonths(start: unknown, end: unknown): number {
+  const startDate = new Date(String(start))
+  const endDate = new Date(String(end))
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return 1
+  const monthsDiff =
+    (endDate.getFullYear() - startDate.getFullYear()) * 12 + (endDate.getMonth() - startDate.getMonth())
+  return Math.max(1, Math.round(monthsDiff))
+}
 
 export async function GET(request: Request) {
+  const auth = await requireUser(request)
+  if (!auth.ok) return auth.response
+
   try {
     const { searchParams } = new URL(request.url)
     const hospitalId = searchParams.get('hospital_id')
-    
-    if (!hospitalId) {
-      return NextResponse.json({ error: 'hospital_id is required' }, { status: 400 })
+
+    if (!isUuid(hospitalId)) {
+      return NextResponse.json({ error: 'hospital_id es requerido' }, { status: 400 })
     }
 
     const { data, error } = await supabaseAdmin
@@ -29,97 +33,65 @@ export async function GET(request: Request) {
       .eq('hospital_id', hospitalId)
       .order('created_at', { ascending: false })
 
-    if (error) {
-      console.error('Error fetching contracts:', error)
-      throw error
-    }
+    if (error) return serverError('contracts/manage GET', error, 'Error al cargar los contratos')
 
     return NextResponse.json(data || [])
-  } catch (error: any) {
-    console.error('Error in GET /api/contracts/manage:', error)
-    return NextResponse.json(
-      { error: 'Failed to fetch contracts', details: error?.message },
-      { status: 500 }
-    )
+  } catch (error) {
+    return serverError('contracts/manage GET', error, 'Error al cargar los contratos')
   }
 }
 
 export async function POST(request: Request) {
+  const auth = await requirePermission(request, 'contracts:edit')
+  if (!auth.ok) return auth.response
+
   try {
-    const body = await request.json()
-    
-    // Validar campos requeridos
-    if (!body.hospital_id || !body.contract_number || !body.contract_value) {
-      return NextResponse.json(
-        { error: 'Missing required fields' },
-        { status: 400 }
-      )
+    const body = (await readJsonBody(request)) as Record<string, any> | undefined
+    if (!body || typeof body !== 'object') return badJson()
+
+    if (!isUuid(body.hospital_id) || !body.contract_number || !body.contract_value) {
+      return NextResponse.json({ error: 'Faltan campos requeridos' }, { status: 400 })
     }
 
-    // Calcular duration_months
-    const startDate = new Date(body.start_date)
-    const endDate = new Date(body.end_date)
-    const monthsDiff = (endDate.getFullYear() - startDate.getFullYear()) * 12 + 
-                      (endDate.getMonth() - startDate.getMonth())
-    const durationMonths = Math.max(1, Math.round(monthsDiff))
-
     const contractData = {
-      // No incluir ID - dejar que Supabase lo genere automáticamente
       hospital_id: body.hospital_id,
-      contract_number: body.contract_number,
+      contract_number: String(body.contract_number),
       contract_type: body.contract_type || 'capita',
       contracting_model: body.contracting_model || 'contratacion_directa',
       contract_value: body.contract_value,
       start_date: body.start_date,
       end_date: body.end_date,
-      duration_months: durationMonths,
+      duration_months: computeDurationMonths(body.start_date, body.end_date),
       current_provider: body.provider || body.current_provider || 'Proveedor',
       provider: body.provider || null,
-      proveedor_id: body.proveedor_id || null,
+      proveedor_id: isUuid(body.proveedor_id) ? body.proveedor_id : null,
       description: body.description || null,
-      active: body.active !== undefined ? body.active : true,
-      created_at: new Date().toISOString()
+      active: body.active !== undefined ? Boolean(body.active) : true,
+      created_by: auth.user.id,
+      created_at: new Date().toISOString(),
     }
 
-    console.log('Creating contract with data:', contractData)
+    const { data, error } = await supabaseAdmin.from('hospital_contracts').insert(contractData).select()
 
-    const { data, error } = await supabaseAdmin
-      .from('hospital_contracts')
-      .insert(contractData)
-      .select()
-
-    if (error) {
-      console.error('Error creating contract:', error)
-      throw error
-    }
+    if (error) return serverError('contracts/manage POST', error, 'Error al crear el contrato')
 
     return NextResponse.json(data?.[0] || {})
-  } catch (error: any) {
-    console.error('Error in POST /api/contracts/manage:', error)
-    return NextResponse.json(
-      { error: 'Failed to create contract', details: error?.message },
-      { status: 500 }
-    )
+  } catch (error) {
+    return serverError('contracts/manage POST', error, 'Error al crear el contrato')
   }
 }
 
 export async function PUT(request: Request) {
-  try {
-    const body = await request.json()
-    
-    if (!body.id) {
-      return NextResponse.json(
-        { error: 'Contract ID is required' },
-        { status: 400 }
-      )
-    }
+  const auth = await requirePermission(request, 'contracts:edit')
+  if (!auth.ok) return auth.response
 
-    // Calcular duration_months
-    const startDate = new Date(body.start_date)
-    const endDate = new Date(body.end_date)
-    const monthsDiff = (endDate.getFullYear() - startDate.getFullYear()) * 12 + 
-                      (endDate.getMonth() - startDate.getMonth())
-    const durationMonths = Math.max(1, Math.round(monthsDiff))
+  try {
+    const body = (await readJsonBody(request)) as Record<string, any> | undefined
+    if (!body || typeof body !== 'object') return badJson()
+
+    if (!isUuid(body.id)) {
+      return NextResponse.json({ error: 'El ID del contrato es requerido' }, { status: 400 })
+    }
 
     const updateData = {
       contract_number: body.contract_number,
@@ -128,15 +100,13 @@ export async function PUT(request: Request) {
       contract_value: body.contract_value,
       start_date: body.start_date,
       end_date: body.end_date,
-      duration_months: durationMonths,
+      duration_months: computeDurationMonths(body.start_date, body.end_date),
       provider: body.provider,
       current_provider: body.provider || body.current_provider || 'Proveedor',
-      proveedor_id: body.proveedor_id || null,
+      proveedor_id: isUuid(body.proveedor_id) ? body.proveedor_id : null,
       description: body.description,
-      active: body.active
+      active: body.active,
     }
-
-    console.log('Updating contract with data:', updateData)
 
     const { data, error } = await supabaseAdmin
       .from('hospital_contracts')
@@ -144,49 +114,42 @@ export async function PUT(request: Request) {
       .eq('id', body.id)
       .select()
 
-    if (error) {
-      console.error('Error updating contract:', error)
-      throw error
+    if (error) return serverError('contracts/manage PUT', error, 'Error al actualizar el contrato')
+    if (!data || data.length === 0) {
+      return NextResponse.json({ error: 'Contrato no encontrado' }, { status: 404 })
     }
 
-    return NextResponse.json(data?.[0] || {})
-  } catch (error: any) {
-    console.error('Error in PUT /api/contracts/manage:', error)
-    return NextResponse.json(
-      { error: 'Failed to update contract', details: error?.message },
-      { status: 500 }
-    )
+    return NextResponse.json(data[0])
+  } catch (error) {
+    return serverError('contracts/manage PUT', error, 'Error al actualizar el contrato')
   }
 }
 
 export async function DELETE(request: Request) {
+  const auth = await requirePermission(request, 'contracts:delete')
+  if (!auth.ok) return auth.response
+
   try {
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
-    
-    if (!id) {
-      return NextResponse.json(
-        { error: 'Contract ID is required' },
-        { status: 400 }
-      )
+
+    if (!isUuid(id)) {
+      return NextResponse.json({ error: 'El ID del contrato es requerido' }, { status: 400 })
     }
 
-    const { error } = await supabaseAdmin
+    const { data, error } = await supabaseAdmin
       .from('hospital_contracts')
       .delete()
       .eq('id', id)
+      .select('id')
 
-    if (error) {
-      console.error('Error deleting contract:', error)
-      throw error
+    if (error) return serverError('contracts/manage DELETE', error, 'Error al eliminar el contrato')
+    if (!data || data.length === 0) {
+      return NextResponse.json({ error: 'Contrato no encontrado' }, { status: 404 })
     }
 
     return NextResponse.json({ success: true })
-  } catch (error: any) {
-    console.error('Error in DELETE /api/contracts/manage:', error)
-    return NextResponse.json(
-      { error: 'Failed to delete contract', details: error?.message },
-      { status: 500 }
-    )
+  } catch (error) {
+    return serverError('contracts/manage DELETE', error, 'Error al eliminar el contrato')
   }
 }

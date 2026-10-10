@@ -1,89 +1,76 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { getUserFromRequest } from '@/lib/auth-server'
+import { requirePermission } from '@/lib/require-role'
+import { supabaseAdmin } from '@/lib/supabase-admin'
+import { createKamSchema } from '../_lib/kam-schemas'
+import {
+  areaConflictResponse,
+  findAreaConflict,
+  jsonError,
+  readJson,
+  runFullRecalculation,
+  validateAreaId,
+  zodMessage,
+} from '../_lib/kam-shared'
 
-// Usar Service Role Key para bypass RLS
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  supabaseServiceKey
-)
+// El alta dispara el recálculo completo en el mismo proceso
+export const maxDuration = 60
 
 export async function POST(request: NextRequest) {
+  const auth = await requirePermission(request, 'kams:edit')
+  if (!auth.ok) return auth.response
+
   try {
-    // Verificar autenticación
-    const user = await getUserFromRequest(request)
-    if (!user) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+    const body = await readJson(request)
+    const parsed = createKamSchema.safeParse(body)
+    if (!parsed.success) {
+      return jsonError(zodMessage(parsed.error), 400)
+    }
+    const kamData = parsed.data
+
+    // R2-A-01: nunca un KAM con Bogotá entera; el área debe existir
+    const areaError = await validateAreaId(kamData.area_id)
+    if (areaError) return areaError
+
+    // R2-M-01: un único KAM activo y territorial por área
+    if (kamData.participates_in_assignment) {
+      const conflict = await findAreaConflict(kamData.area_id)
+      if (conflict) return areaConflictResponse(conflict)
     }
 
-    // Obtener datos del KAM
-    const kamData = await request.json()
-
-    // Validaciones básicas
-    if (!kamData.name?.trim()) {
-      return NextResponse.json({ error: 'El nombre es requerido' }, { status: 400 })
-    }
-    if (!kamData.area_id) {
-      return NextResponse.json({ error: 'El área es requerida' }, { status: 400 })
-    }
-
-    // Agregar timestamps y valores por defecto
-    const kamToInsert = {
-      ...kamData,
-      active: true,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    }
-
-    // Insertar el KAM usando Service Role (bypass RLS)
-    const { data, error: insertError } = await supabase
+    const now = new Date().toISOString()
+    const { data, error: insertError } = await supabaseAdmin
       .from('kams')
-      .insert(kamToInsert)
+      .insert({ ...kamData, active: true, created_at: now, updated_at: now })
       .select()
       .single()
 
-    if (insertError) {
+    if (insertError || !data) {
       console.error('Error al insertar KAM:', insertError)
-      return NextResponse.json({ 
-        error: `Error al crear el KAM: ${insertError.message}` 
-      }, { status: 500 })
+      return jsonError('Error al crear el KAM', 500)
     }
 
-    // Si el KAM participa en asignación territorial, ejecutar recálculo
-    if (kamData.participates_in_assignment !== false) {
+    // Si el KAM participa en la asignación territorial, recalcular en el mismo proceso
+    let recalculated = false
+    let warning: string | undefined
+    if (kamData.participates_in_assignment) {
       try {
-        // Llamar al endpoint de recálculo
-        const recalcUrl = new URL('/api/recalculate-simplified', request.url)
-        const recalcResponse = await fetch(recalcUrl.toString(), {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'Cookie': request.headers.get('cookie') || ''
-          }
-        })
-
-        if (!recalcResponse.ok) {
-          console.warn('Error al recalcular asignaciones:', await recalcResponse.text())
-        }
+        await runFullRecalculation()
+        recalculated = true
       } catch (recalcError) {
-        console.error('Error al recalcular:', recalcError)
-        // No fallar la creación del KAM por error en recálculo
+        console.error('Error al recalcular tras crear KAM:', recalcError)
+        warning = 'El KAM se creó, pero el recálculo de asignaciones falló. Ejecuta el recálculo manualmente.'
       }
     }
 
-    return NextResponse.json({ 
-      success: true, 
+    return NextResponse.json({
+      success: true,
       data,
-      message: 'KAM creado exitosamente' 
+      recalculated,
+      ...(warning ? { warning } : {}),
+      message: warning ? warning : 'KAM creado exitosamente',
     })
-
   } catch (error) {
     console.error('Error en POST /api/kams/create:', error)
-    return NextResponse.json(
-      { error: 'Error interno del servidor' },
-      { status: 500 }
-    )
+    return jsonError('Error interno del servidor', 500)
   }
 }

@@ -1,31 +1,28 @@
 import { NextResponse } from 'next/server'
-import { SimplifiedOpMapAlgorithm } from '@/lib/opmap-algorithm-simplified'
+import { requirePermission } from '@/lib/require-role'
+import { runFullRecalculation } from '../_lib/full-recalculation'
+import { serverError } from '../_lib/api-error'
 
-export async function POST() {
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+export const maxDuration = 60
+
+// Recálculo completo: borra y reescribe todas las asignaciones.
+// Permiso recalculate:complete (admin y data_manager en lib/permissions.ts).
+export async function POST(request: Request) {
+  const auth = await requirePermission(request, 'recalculate:complete')
+  if (!auth.ok) return auth.response
+
   try {
-    // Inicializar algoritmo simplificado
-    const algorithm = new SimplifiedOpMapAlgorithm()
-    await algorithm.loadData()
-    
-    // Calcular asignaciones
-    const assignments = await algorithm.calculateAssignments()
-    
-    // Guardar en base de datos
-    await algorithm.saveAssignments(assignments)
-    
+    console.info(`[recalculate-simplified] iniciado por usuario=${auth.user.id} rol=${auth.user.role}`)
+    const result = await runFullRecalculation()
+
     return NextResponse.json({
       success: true,
-      message: `Se recalcularon y guardaron ${assignments.length} asignaciones`,
-      assignments: assignments.length
+      message: `Se recalcularon y guardaron ${result.totalAssignments} asignaciones`,
+      assignments: result.totalAssignments,
     })
   } catch (error) {
-    console.error('Error recalculating assignments:', error)
-    return NextResponse.json(
-      { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Error desconocido' 
-      },
-      { status: 500 }
-    )
+    return serverError('recalculate-simplified POST', error, 'Error al recalcular las asignaciones')
   }
 }

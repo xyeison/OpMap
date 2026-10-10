@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import ProtectedRoute from '@/components/ProtectedRoute'
@@ -22,7 +22,27 @@ const MapComponent = dynamic(
   }
 )
 
+// Fallback mientras se resuelven los parámetros de búsqueda (requerido por Next 14.2 para useSearchParams)
+function MapPageFallback() {
+  return (
+    <div className="flex items-center justify-center h-screen">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto mb-4"></div>
+        <p className="text-gray-600">Cargando mapa...</p>
+      </div>
+    </div>
+  )
+}
+
 export default function MapPage() {
+  return (
+    <Suspense fallback={<MapPageFallback />}>
+      <MapPageContent />
+    </Suspense>
+  )
+}
+
+function MapPageContent() {
   const searchParams = useSearchParams()
   const [viewMode, setViewMode] = useState<'kams' | 'zones'>('kams')
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null)

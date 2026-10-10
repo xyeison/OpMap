@@ -1,25 +1,20 @@
-import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { NextRequest, NextResponse } from 'next/server'
+import { requirePermission } from '@/lib/require-role'
+import { supabaseAdmin } from '@/lib/supabase-admin'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabase = createClient(supabaseUrl, supabaseKey);
+// GET /api/zones/statistics — vista zone_statistics leída con service_role
+export async function GET(request: NextRequest) {
+  const auth = await requirePermission(request, 'zones:view')
+  if (!auth.ok) return auth.response
 
-export async function GET() {
   try {
-    const { data, error } = await supabase
-      .from('zone_statistics')
-      .select('*')
-      .order('zone_name');
+    const { data, error } = await supabaseAdmin.from('zone_statistics').select('*').order('zone_name')
 
-    if (error) throw error;
+    if (error) throw error
 
-    return NextResponse.json(data || []);
+    return NextResponse.json(data || [])
   } catch (error) {
-    console.error('Error fetching zone statistics:', error);
-    return NextResponse.json(
-      { error: 'Error fetching zone statistics' },
-      { status: 500 }
-    );
+    console.error('Error cargando estadísticas de zonas:', error)
+    return NextResponse.json({ error: 'Error al cargar las estadísticas de zonas' }, { status: 500 })
   }
 }

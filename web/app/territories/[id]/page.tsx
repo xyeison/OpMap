@@ -1,7 +1,6 @@
 'use client'
 
 import { useParams } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import ProtectedRoute from '@/components/ProtectedRoute'
@@ -11,154 +10,46 @@ export default function TerritoryDetailPage() {
   const params = useParams()
   const territoryId = params.id as string
   
-  // Query para datos del territorio
-  const { data: territory, isLoading: loadingTerritory } = useQuery({
+  // A-10: todo se lee en el servidor con service_role (con la anon key contratos y asignaciones salían vacíos)
+  const { data: detail, isLoading: loadingDetail, error: detailError } = useQuery({
     queryKey: ['territory-detail', territoryId],
     queryFn: async () => {
-      // Primero intentar obtener de municipalities
-      let { data: municData, error: municError } = await supabase
-        .from('municipalities')
-        .select(`
-          *,
-          departments!inner(name)
-        `)
-        .eq('code', territoryId)
-        .single()
-      
-      if (municData && !municError) {
-        return {
-          id: municData.code,
-          name: municData.name,
-          type: 'municipality' as const,
-          department_name: municData.departments?.name,
-          population: municData.population_2025,
-          lat: municData.lat,
-          lng: municData.lng
-        }
+      const response = await fetch(`/api/territories/${encodeURIComponent(territoryId)}`)
+      const data = await response.json().catch(() => null)
+      if (!response.ok) {
+        throw new Error((data && data.error) || `Error al cargar el territorio (${response.status})`)
       }
-      
-      // Si no es municipio, buscar en localities (Bogotá)
-      const { data: localityData } = await supabase
-        .from('hospitals')
-        .select('locality_id, locality_name')
-        .eq('locality_id', territoryId)
-        .not('locality_id', 'is', null)
-        .limit(1)
-        .single()
-      
-      if (localityData) {
-        return {
-          id: localityData.locality_id,
-          name: localityData.locality_name,
-          type: 'locality' as const,
-          department_name: 'Bogotá D.C.'
-        }
+      return data as {
+        territory: {
+          id: string
+          name: string
+          type: 'municipality' | 'locality'
+          department_name?: string
+          population?: number
+          lat?: number
+          lng?: number
+        } | null
+        hospitals: any[]
+        contracts: any[]
+        assignment: {
+          kam_id: string
+          kam_name?: string
+          kam_color?: string
+          is_forced: boolean
+          forced_reason?: string | null
+        } | null
       }
-      
-      return null
     },
     enabled: !!territoryId
   })
 
-  // Query para hospitales del territorio
-  const { data: hospitals = [], isLoading: loadingHospitals } = useQuery({
-    queryKey: ['territory-hospitals', territoryId],
-    queryFn: async () => {
-      const isLocality = territoryId.length > 5
-      const field = isLocality ? 'locality_id' : 'municipality_id'
-      
-      const { data, error } = await supabase
-        .from('hospitals')
-        .select('*')
-        .eq(field, territoryId)
-        .order('beds', { ascending: false })
-      
-      if (error) throw error
-      return data || []
-    },
-    enabled: !!territoryId
-  })
-
-  // Query para contratos
-  const { data: contracts = [], isLoading: loadingContracts } = useQuery({
-    queryKey: ['territory-contracts', territoryId],
-    queryFn: async () => {
-      const hospitalIds = hospitals.map(h => h.id)
-      if (hospitalIds.length === 0) return []
-      
-      const { data, error } = await supabase
-        .from('hospital_contracts')
-        .select(`
-          *,
-          hospitals!inner(name)
-        `)
-        .in('hospital_id', hospitalIds)
-        .eq('active', true)
-        .order('contract_value', { ascending: false })
-      
-      if (error) throw error
-      return data?.map(c => ({
-        ...c,
-        hospital_name: c.hospitals?.name
-      })) || []
-    },
-    enabled: hospitals.length > 0
-  })
-
-  // Query para asignación de KAM
-  const { data: assignment } = useQuery({
-    queryKey: ['territory-assignment', territoryId],
-    queryFn: async () => {
-      // Primero verificar asignación forzada
-      const { data: forcedData } = await supabase
-        .from('forced_assignments')
-        .select(`
-          *,
-          kams!inner(name, color)
-        `)
-        .eq('territory_id', territoryId)
-        .eq('active', true)
-        .single()
-      
-      if (forcedData) {
-        return {
-          kam_id: forcedData.kam_id,
-          kam_name: forcedData.kams.name,
-          kam_color: forcedData.kams.color,
-          is_forced: true,
-          forced_reason: forcedData.reason
-        }
-      }
-      
-      // Si no hay asignación forzada, buscar en assignments
-      if (hospitals.length > 0) {
-        const { data: assignmentData } = await supabase
-          .from('assignments')
-          .select(`
-            kam_id,
-            kams!inner(name, color)
-          `)
-          .eq('hospital_id', hospitals[0].id)
-          .single()
-        
-        if (assignmentData) {
-          const kamData = Array.isArray(assignmentData.kams) 
-            ? assignmentData.kams[0] 
-            : assignmentData.kams
-          
-          return {
-            kam_id: assignmentData.kam_id,
-            kam_name: kamData?.name,
-            kam_color: kamData?.color,
-            is_forced: false
-          }
-        }
-      }
-      
-      return null
-    },
-    enabled: !!territoryId
-  })
+  const territory = detail?.territory ?? null
+  const hospitals: any[] = detail?.hospitals ?? []
+  const contracts: any[] = detail?.contracts ?? []
+  const assignment = detail?.assignment ?? null
+  const loadingTerritory = loadingDetail
+  const loadingHospitals = loadingDetail
+  const loadingContracts = loadingDetail
 
   // Calcular estadísticas
   const stats = {
@@ -191,7 +82,7 @@ export default function TerritoryDetailPage() {
         <PermissionGuard permission="territories:view">
           <div className="container mx-auto px-4 py-8">
             <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
-              Territorio no encontrado
+              {detailError instanceof Error ? detailError.message : 'Territorio no encontrado'}
             </div>
             <Link href="/territories" className="mt-4 inline-block text-blue-600 hover:text-blue-800">
               ← Volver a territorios

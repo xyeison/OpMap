@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase-server';
+import { supabaseAdmin } from '@/lib/supabase-admin';
+import { requirePermission } from '@/lib/require-role';
 
 export async function DELETE(
   request: NextRequest,
   { params }: { params: { id: string; linkId: string } }
 ) {
+  const auth = await requirePermission(request, 'providers:edit');
+  if (!auth.ok) return auth.response;
+
   try {
-    const supabase = createServerSupabaseClient();
+    const supabase = supabaseAdmin;
     
     const { error } = await supabase
       .from('proveedor_enlaces')

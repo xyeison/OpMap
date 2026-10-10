@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { supabase } from '@/lib/supabase'
 import { useQueryClient } from '@tanstack/react-query'
 
 interface KAM {
@@ -80,72 +79,66 @@ export default function EditKamModal({ kam, isOpen, onClose, onUpdate }: EditKam
 
     try {
       const statusChanged = kam.active !== formData.active
-      
-      if (statusChanged) {
-        // Si cambió el estado, usar el endpoint de activar/desactivar que hace todo
-        setRecalculating(true)
-        setError('')
-        
-        const endpoint = formData.active ? '/api/kams/activate' : '/api/kams/deactivate'
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ kamId: kam.id })
-        })
 
-        const result = await response.json()
-        setRecalculating(false)
-        
-        if (!result.success) {
-          throw new Error(result.error || 'Error al cambiar estado del KAM')
-        }
-        
-        // Preparar datos para actualizar
-        const updateData = {
-          name: formData.name,
-          max_travel_time: formData.max_travel_time,
-          enable_level2: formData.enable_level2,
-          priority: formData.priority,
-          participates_in_assignment: formData.participates_in_assignment,
-          color: formData.color
-        }
-        
-        // Usar el endpoint API que tiene Service Role Key para bypass RLS
-        const updateResponse = await fetch('/api/kams/update', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ kamId: kam.id, updateData })
-        })
+      const updateData = {
+        name: formData.name,
+        max_travel_time: formData.max_travel_time,
+        enable_level2: formData.enable_level2,
+        priority: formData.priority,
+        participates_in_assignment: formData.participates_in_assignment,
+        color: formData.color
+      }
 
-        const updateResult = await updateResponse.json()
-        
-        if (!updateResponse.ok) {
-          throw new Error(updateResult.error || 'Error al actualizar KAM')
-        }
-        
-      } else {
-        // Preparar datos para actualizar
-        const updateData = {
-          name: formData.name,
-          max_travel_time: formData.max_travel_time,
-          enable_level2: formData.enable_level2,
-          priority: formData.priority,
-          participates_in_assignment: formData.participates_in_assignment,
-          color: formData.color
-        }
-        
-        // Usar el endpoint API que tiene Service Role Key para bypass RLS
+      // Guarda la configuración (service_role en el servidor). Si el KAM está activo y cambian
+      // campos del algoritmo, el servidor recalcula.
+      const saveConfig = async () => {
         const response = await fetch('/api/kams/update', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ kamId: kam.id, updateData })
         })
-
-        const result = await response.json()
-        
+        const result = await response.json().catch(() => ({}))
         if (!response.ok) {
-          throw new Error(result.error || 'Error al actualizar KAM')
+          throw new Error(result.error || `Error al actualizar KAM (${response.status})`)
         }
+        if (result.warning) {
+          alert(result.warning)
+        }
+      }
+
+      // Activa o desactiva el KAM; el servidor recalcula todas las asignaciones
+      const changeStatus = async () => {
+        setRecalculating(true)
+        try {
+          const endpoint = formData.active ? '/api/kams/activate' : '/api/kams/deactivate'
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ kamId: kam.id })
+          })
+          const result = await response.json().catch(() => ({}))
+          if (!response.ok || !result.success) {
+            throw new Error(result.error || `Error al cambiar estado del KAM (${response.status})`)
+          }
+          if (Array.isArray(result.warnings) && result.warnings.length > 0) {
+            alert(result.warnings.join('\n'))
+          }
+        } finally {
+          setRecalculating(false)
+        }
+      }
+
+      if (statusChanged && formData.active) {
+        // Activar: primero la configuración (el KAM sigue inactivo, sin recálculo) y luego activar,
+        // para que el único recálculo use ya los valores nuevos
+        await saveConfig()
+        await changeStatus()
+      } else if (statusChanged) {
+        // Desactivar: primero desactivar (recalcula) y luego guardar la configuración (ya inactivo, sin recálculo)
+        await changeStatus()
+        await saveConfig()
+      } else {
+        await saveConfig()
       }
 
       queryClient.invalidateQueries({ queryKey: ['kams'] })

@@ -1,150 +1,73 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { supabaseAdmin } from '@/lib/supabase-admin'
+import { requireUser } from '@/lib/require-role'
+import { fetchAllRows, isUuid, serverError } from '../../_lib/api-error'
 
-// IMPORTANTE: Usar Service Role Key para bypass RLS
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+// Visitas filtradas (heatmap del mapa y página de visitas). Requiere sesión.
+// Paginación con .range() en bucle (M-01): PostgREST corta en 1.000 filas y septiembre de 2025
+// ya tiene más de 1.000 visitas.
 
-if (!supabaseServiceKey) {
-  console.error('SUPABASE_SERVICE_ROLE_KEY no está configurado - RLS bloqueará las consultas')
+function monthBounds(year: number, month: number) {
+  const startDate = `${year}-${String(month).padStart(2, '0')}-01`
+  const endDate = month === 12 ? `${year + 1}-01-01` : `${year}-${String(month + 1).padStart(2, '0')}-01`
+  return { startDate, endDate }
 }
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  supabaseServiceKey || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
-
 export async function GET(request: NextRequest) {
+  const auth = await requireUser(request)
+  if (!auth.ok) return auth.response
+
   try {
-    // Log si estamos usando Service Role Key o no
-    console.log('API visits/filtered - Usando:', supabaseServiceKey ? 'Service Role Key (bypass RLS)' : 'Anon Key (RLS activo)')
-    
     const searchParams = request.nextUrl.searchParams
-    
-    // Obtener parámetros de filtro
-    const month = searchParams.get('month')
-    const months = searchParams.get('months')?.split(',').map(Number).filter(n => !isNaN(n))
-    const year = searchParams.get('year')
-    const startYear = searchParams.get('startYear')
-    const endYear = searchParams.get('endYear')
+
+    const month = Number(searchParams.get('month'))
+    const months = searchParams
+      .get('months')
+      ?.split(',')
+      .map(Number)
+      .filter(n => Number.isInteger(n) && n >= 1 && n <= 12)
+    const year = Number(searchParams.get('year'))
+    const startYear = Number(searchParams.get('startYear'))
+    const endYear = Number(searchParams.get('endYear'))
     const allMonths = searchParams.get('allMonths') === 'true'
     const visitType = searchParams.get('visitType')
     const contactType = searchParams.get('contactType')
-    const kamIds = searchParams.get('kamIds')?.split(',').filter(id => id)
-    
-    console.log('API visits/filtered - Parámetros recibidos:', {
-      month,
-      months,
-      year,
-      startYear,
-      endYear,
-      allMonths,
-      visitType,
-      contactType,
-      kamIds: kamIds?.length || 0
-    })
-    
-    // Construir query base
-    let query = supabase
-      .from('visits')
-      .select('*')
-      .order('visit_date', { ascending: false })
-    
-    // Aplicar filtros de fecha
-    if (startYear && endYear && allMonths) {
-      // Rango de años completo
-      const startDate = `${startYear}-01-01`
-      const endDate = `${Number(endYear) + 1}-01-01`
-      
-      console.log('API visits/filtered - Filtrando rango de años:', { startDate, endDate })
-      
-      query = query
-        .gte('visit_date', startDate)
-        .lt('visit_date', endDate)
-        
-    } else if (months && months.length > 0 && year) {
-      // Múltiples meses del mismo año
-      const allVisits: any[] = []
-      
-      for (const monthNum of months) {
-        const startDate = `${year}-${String(monthNum).padStart(2, '0')}-01`
-        const endDate = monthNum === 12 
-          ? `${Number(year) + 1}-01-01`
-          : `${year}-${String(monthNum + 1).padStart(2, '0')}-01`
-        
-        let monthQuery = supabase
-          .from('visits')
-          .select('*')
-          .gte('visit_date', startDate)
-          .lt('visit_date', endDate)
-        
-        // Aplicar otros filtros
-        if (visitType && visitType !== 'all') {
-          monthQuery = monthQuery.eq('visit_type', visitType)
-        }
-        if (contactType && contactType !== 'all') {
-          monthQuery = monthQuery.eq('contact_type', contactType)
-        }
-        if (kamIds && kamIds.length > 0) {
-          monthQuery = monthQuery.in('kam_id', kamIds)
-        }
-        
-        const { data: monthData, error } = await monthQuery
-        if (error) throw error
-        if (monthData) {
-          allVisits.push(...monthData)
-        }
-      }
-      
-      // Eliminar duplicados y ordenar
-      const uniqueVisits = Array.from(new Map(allVisits.map(v => [v.id, v])).values())
-      uniqueVisits.sort((a, b) => new Date(b.visit_date).getTime() - new Date(a.visit_date).getTime())
-      
-      console.log('API visits/filtered - Total visitas múltiples meses:', uniqueVisits.length)
-      return NextResponse.json(uniqueVisits)
-      
-    } else if (month && year) {
-      // Un solo mes
-      const startDate = `${year}-${String(month).padStart(2, '0')}-01`
-      const endDate = Number(month) === 12 
-        ? `${Number(year) + 1}-01-01`
-        : `${year}-${String(Number(month) + 1).padStart(2, '0')}-01`
-      
-      console.log('API visits/filtered - Filtrando por fecha:', { startDate, endDate })
-      
-      query = query
-        .gte('visit_date', startDate)
-        .lt('visit_date', endDate)
+    const kamIds = searchParams.get('kamIds')?.split(',').filter(isUuid)
+
+    const hasYear = Number.isInteger(year) && year > 0
+
+    // Rangos de fechas a consultar
+    const ranges: { startDate: string; endDate: string }[] = []
+    if (Number.isInteger(startYear) && Number.isInteger(endYear) && startYear > 0 && endYear > 0 && allMonths) {
+      ranges.push({ startDate: `${startYear}-01-01`, endDate: `${endYear + 1}-01-01` })
+    } else if (months && months.length > 0 && hasYear) {
+      for (const m of Array.from(new Set(months))) ranges.push(monthBounds(year, m))
+    } else if (Number.isInteger(month) && month >= 1 && month <= 12 && hasYear) {
+      ranges.push(monthBounds(year, month))
+    } else {
+      ranges.push({ startDate: '', endDate: '' }) // sin filtro de fecha
     }
-    
-    // Aplicar otros filtros
-    if (visitType && visitType !== 'all') {
-      query = query.eq('visit_type', visitType)
+
+    const allVisits: any[] = []
+    for (const range of ranges) {
+      const { data, error } = await fetchAllRows<any>((from, to) => {
+        let query = supabaseAdmin.from('visits').select('*')
+        if (range.startDate) query = query.gte('visit_date', range.startDate).lt('visit_date', range.endDate)
+        if (visitType && visitType !== 'all') query = query.eq('visit_type', visitType)
+        if (contactType && contactType !== 'all') query = query.eq('contact_type', contactType)
+        if (kamIds && kamIds.length > 0) query = query.in('kam_id', kamIds)
+        return query.order('visit_date', { ascending: false }).order('id').range(from, to)
+      })
+      if (error) return serverError('visits/filtered GET', error, 'Error al cargar las visitas')
+      allVisits.push(...data)
     }
-    
-    if (contactType && contactType !== 'all') {
-      query = query.eq('contact_type', contactType)
-    }
-    
-    if (kamIds && kamIds.length > 0) {
-      console.log('API visits/filtered - Filtrando por KAMs:', kamIds)
-      query = query.in('kam_id', kamIds)
-    }
-    
-    const { data, error } = await query
-    
-    if (error) {
-      console.error('API visits/filtered - Error:', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-    
-    console.log('API visits/filtered - Devolviendo', data?.length || 0, 'visitas')
-    return NextResponse.json(data || [])
-    
+
+    // Sin duplicados y ordenadas por fecha descendente
+    const uniqueVisits = Array.from(new Map(allVisits.map(v => [v.id, v])).values())
+    uniqueVisits.sort((a, b) => new Date(b.visit_date).getTime() - new Date(a.visit_date).getTime())
+
+    return NextResponse.json(uniqueVisits)
   } catch (error) {
-    console.error('Error in GET /api/visits/filtered:', error)
-    return NextResponse.json(
-      { error: 'Error interno del servidor' },
-      { status: 500 }
-    )
+    return serverError('visits/filtered GET', error)
   }
 }

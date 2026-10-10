@@ -1,46 +1,27 @@
-import { NextResponse } from 'next/server'
-import { cookies } from 'next/headers'
-import { createClient } from '@supabase/supabase-js'
+import { NextRequest, NextResponse } from 'next/server'
+import { randomUUID } from 'crypto'
+import { getSupabaseAdmin } from '@/lib/supabase-admin'
+import { requirePermission } from '@/lib/require-role'
+import { hashPassword } from '@/lib/passwords'
+import { createUserSchema, firstIssueMessage } from '@/lib/user-schemas'
 
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+export const dynamic = 'force-dynamic'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  supabaseServiceKey
-)
+const PUBLIC_USER_COLUMNS = 'id, email, full_name, role, active, created_at'
 
-// GET - Listar todos los usuarios
-export async function GET() {
-  const cookieStore = cookies()
-  const sessionToken = cookieStore.get('sb-access-token')
-  
-  if (!sessionToken) {
-    return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-  }
-  
+// GET - Listar todos los usuarios (solo admin: permiso users:manage)
+export async function GET(request: NextRequest) {
+  const auth = await requirePermission(request, 'users:manage')
+  if (!auth.ok) return auth.response
+
   try {
-    // Verificar que el usuario actual es admin
-    const decoded = Buffer.from(sessionToken.value, 'base64').toString()
-    const [userId] = decoded.split(':')
-    
-    const { data: currentUser } = await supabase
+    const { data: users, error } = await getSupabaseAdmin()
       .from('users')
-      .select('role')
-      .eq('id', userId)
-      .single()
-    
-    if (!currentUser || currentUser.role !== 'admin') {
-      return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 })
-    }
-    
-    // Obtener todos los usuarios
-    const { data: users, error } = await supabase
-      .from('users')
-      .select('id, email, full_name, role, active, created_at')
+      .select(PUBLIC_USER_COLUMNS)
       .order('created_at', { ascending: false })
-    
+
     if (error) throw error
-    
+
     return NextResponse.json({ users })
   } catch (error) {
     console.error('Error al obtener usuarios:', error)
@@ -48,87 +29,68 @@ export async function GET() {
   }
 }
 
-// POST - Crear nuevo usuario
-export async function POST(request: Request) {
-  const cookieStore = cookies()
-  const sessionToken = cookieStore.get('sb-access-token')
-  
-  if (!sessionToken) {
-    return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-  }
-  
+// POST - Crear nuevo usuario (solo admin: permiso users:manage)
+export async function POST(request: NextRequest) {
+  const auth = await requirePermission(request, 'users:manage')
+  if (!auth.ok) return auth.response
+
   try {
-    // Verificar que el usuario actual es admin
-    const decoded = Buffer.from(sessionToken.value, 'base64').toString()
-    const [userId] = decoded.split(':')
-    
-    const { data: currentUser } = await supabase
-      .from('users')
-      .select('role')
-      .eq('id', userId)
-      .single()
-    
-    if (!currentUser || currentUser.role !== 'admin') {
-      return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 })
+    let body: unknown
+    try {
+      body = await request.json()
+    } catch {
+      return NextResponse.json({ error: 'Cuerpo de la petición no válido' }, { status: 400 })
     }
-    
-    // Obtener datos del nuevo usuario
-    const { email, password, full_name, role } = await request.json()
-    
-    // Validar datos requeridos
-    if (!email || !password || !full_name || !role) {
-      return NextResponse.json({ error: 'Todos los campos son requeridos' }, { status: 400 })
+
+    const parsed = createUserSchema.safeParse(body)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Datos no válidos', details: firstIssueMessage(parsed.error) },
+        { status: 400 }
+      )
     }
-    
+    const { email, password, full_name, role } = parsed.data
+
+    const supabase = getSupabaseAdmin()
+
     // Verificar si el email ya existe
-    const { data: existingUsers } = await supabase
+    const { data: existingUsers, error: existingError } = await supabase
       .from('users')
       .select('id')
       .eq('email', email)
-    
+      .limit(1)
+
+    if (existingError) throw existingError
     if (existingUsers && existingUsers.length > 0) {
       return NextResponse.json({ error: 'El email ya está registrado' }, { status: 400 })
     }
-    
-    // Generar UUID (usar diferentes métodos según disponibilidad)
-    let newUserId: string
-    try {
-      // Intentar usar crypto.randomUUID() primero
-      newUserId = crypto.randomUUID()
-    } catch {
-      // Fallback: generar un UUID simple
-      newUserId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-        const r = Math.random() * 16 | 0
-        const v = c == 'x' ? r : (r & 0x3 | 0x8)
-        return v.toString(16)
-      })
-    }
 
-    // Crear el nuevo usuario con UUID
+    const passwordHash = await hashPassword(password)
+
     const { data: newUser, error } = await supabase
       .from('users')
       .insert({
-        id: newUserId,
+        id: randomUUID(),
         email,
-        password, // En producción esto debería ser hasheado
+        password: passwordHash,
         full_name,
         role,
         active: true,
-        created_at: new Date().toISOString()
+        created_at: new Date().toISOString(),
       })
-      .select('id, email, full_name, role, active, created_at')
+      .select(PUBLIC_USER_COLUMNS)
       .single()
-    
-    if (error) throw error
-    
+
+    if (error) {
+      if (error.code === '23505') {
+        return NextResponse.json({ error: 'El email ya está registrado' }, { status: 400 })
+      }
+      throw error
+    }
+
     return NextResponse.json({ user: newUser, message: 'Usuario creado exitosamente' })
-  } catch (error: any) {
+  } catch (error) {
     console.error('Error al crear usuario:', error)
-    // Devolver más detalles del error para debugging
-    return NextResponse.json({ 
-      error: 'Error al crear usuario',
-      details: error?.message || 'Error desconocido',
-      code: error?.code
-    }, { status: 500 })
+    return NextResponse.json({ error: 'Error al crear usuario' }, { status: 500 })
   }
 }

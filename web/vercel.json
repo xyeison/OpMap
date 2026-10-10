@@ -1,14 +1,23 @@
 {
   "buildCommand": "npm run build",
-  "installCommand": "npm install",
+  "installCommand": "npm ci",
   "framework": "nextjs",
   "regions": ["iad1"],
   "functions": {
     "app/api/geojson/[type]/[id]/route.ts": {
       "maxDuration": 30
     },
-    "app/api/travel-times/unassigned/route.ts": {
-      "maxDuration": 30
+    "app/api/recalculate-simplified/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/kams/activate/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/kams/deactivate/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/routes/calculate-batch-secure/route.ts": {
+      "maxDuration": 60
     }
   }
 }

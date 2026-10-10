@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { supabase } from '@/lib/supabase'
 import { useQueryClient } from '@tanstack/react-query'
 
 interface Territory {
@@ -52,17 +51,17 @@ export default function ForcedAssignmentModal({
 
   const loadKams = async () => {
     try {
-      const { data, error } = await supabase
-        .from('kams')
-        .select('*')
-        .eq('active', true)
-        .order('name')
-
-      if (error) throw error
-      setKams(data || [])
-    } catch (err) {
+      const response = await fetch('/api/kams')
+      const data = await response.json().catch(() => null)
+      if (!response.ok) {
+        throw new Error((data && data.error) || `Error al cargar los KAMs (${response.status})`)
+      }
+      const list: KAM[] = Array.isArray(data) ? data : []
+      // Solo KAMs activos que participan en la asignación: el algoritmo ignora forzadas a otros
+      setKams(list.filter((k: any) => k.active && k.participates_in_assignment === true))
+    } catch (err: any) {
       console.error('Error loading KAMs:', err)
-      setError('Error al cargar los KAMs')
+      setError(err.message || 'Error al cargar los KAMs')
     }
   }
 
@@ -92,8 +91,8 @@ export default function ForcedAssignmentModal({
       })
 
       if (!response.ok) {
-        const data = await response.json()
-        throw new Error(data.error || 'Error al recalcular asignaciones')
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || `Error al asignar territorio (${response.status})`)
       }
 
       // Invalidar queries para actualizar la UI
@@ -118,16 +117,7 @@ export default function ForcedAssignmentModal({
     setError('')
 
     try {
-      // Desactivar asignación forzada
-      const { error: deactivateError } = await supabase
-        .from('forced_assignments')
-        .update({ active: false })
-        .eq('territory_id', territory.id)
-        .eq('active', true)
-
-      if (deactivateError) throw deactivateError
-
-      // Recalcular asignaciones normales
+      // El servidor desactiva la forzada en forced_assignments y después recalcula todo
       const response = await fetch('/api/territories/remove-forced-assignment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -138,8 +128,8 @@ export default function ForcedAssignmentModal({
       })
 
       if (!response.ok) {
-        const data = await response.json()
-        throw new Error(data.error || 'Error al remover asignación')
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || `Error al remover asignación (${response.status})`)
       }
 
       // Invalidar queries

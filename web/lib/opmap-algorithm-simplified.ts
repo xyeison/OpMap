@@ -1,17 +1,114 @@
 // Algoritmo OpMap Simplificado - Usa hospital_kam_distances como fuente de verdad
 // IMPORTANTE: travel_time en hospital_kam_distances está en SEGUNDOS
+// Solo servidor: usa el cliente service_role (lib/supabase-admin.ts), obtenido de forma perezosa
+// dentro de cada método para que importar este módulo no falle durante el build.
 
-import { createClient } from '@supabase/supabase-js'
+import { getSupabaseAdmin } from './supabase-admin'
 
-// Usar Service Role Key cuando esté disponible (en el servidor)
-const supabaseKey = typeof window === 'undefined' 
-  ? (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
-  : process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+// ---------------------------------------------------------------------------
+// Reglas de elegibilidad KAM -> IPS (funciones puras exportadas).
+// Fuente única: la clase SimplifiedOpMapAlgorithm y app/api/_lib/kam-eligibility.ts delegan aquí.
+// ---------------------------------------------------------------------------
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  supabaseKey
-)
+export type AdjacencyMatrix = Record<string, string[]>
+
+// Forma mínima de KAM que necesitan las reglas de elegibilidad
+export interface EligibilityKamShape {
+  area_id: string
+  enable_level2: boolean | null
+}
+
+// Forma mínima de IPS que necesitan las reglas de elegibilidad
+export interface EligibilityHospitalShape {
+  department_id: string
+  municipality_id: string
+  locality_id?: string | null
+}
+
+// Código DANE de Bogotá D.C. como municipio. Un KAM con area_id === '11001' es una
+// configuración inválida: los KAMs de Bogotá deben tener un código de localidad (11001XX).
+// Si se aceptara, se quedaría como "territorio base" con TODAS las IPS de Bogotá.
+export const BOGOTA_MUNICIPALITY_ID = '11001'
+
+/**
+ * true si el area_id del KAM es válido para la asignación territorial.
+ */
+export function hasValidKamArea(kam: { area_id: string | null | undefined }): boolean {
+  return typeof kam.area_id === 'string' && kam.area_id.length > 0 && kam.area_id !== BOGOTA_MUNICIPALITY_ID
+}
+
+export function isBogotaKam(kam: EligibilityKamShape): boolean {
+  return kam.area_id.startsWith(BOGOTA_MUNICIPALITY_ID) && kam.area_id.length > 5
+}
+
+export function isBogotaHospital(hospital: EligibilityHospitalShape): boolean {
+  return hospital.locality_id?.startsWith(BOGOTA_MUNICIPALITY_ID) || false
+}
+
+export function isBaseTerritory(kam: EligibilityKamShape, hospital: EligibilityHospitalShape): boolean {
+  // Para localidades de Bogotá
+  if (isBogotaKam(kam)) {
+    return hospital.locality_id === kam.area_id
+  }
+  // Para municipios regulares
+  return hospital.municipality_id === kam.area_id
+}
+
+export function canKamCompeteForHospital(
+  kam: EligibilityKamShape,
+  hospital: EligibilityHospitalShape,
+  adjacency: AdjacencyMatrix
+): boolean {
+  // Si es territorio base, siempre puede
+  if (isBaseTerritory(kam, hospital)) return true
+
+  const kamDept = kam.area_id.substring(0, 2)
+  const hospitalDept = hospital.department_id
+
+  // Mismo departamento
+  if (kamDept === hospitalDept) return true
+
+  // Departamento adyacente (Nivel 1)
+  if (adjacency[kamDept]?.includes(hospitalDept)) return true
+
+  // Nivel 2 (si está habilitado)
+  if (kam.enable_level2) {
+    for (const dept of adjacency[kamDept] || []) {
+      if (adjacency[dept]?.includes(hospitalDept)) return true
+    }
+  }
+
+  // Regla especial para Bogotá
+  if (isBogotaKam(kam)) {
+    // KAMs de Bogotá pueden competir en Bogotá y Cundinamarca
+    if (hospitalDept === '11' || hospitalDept === '25') return true
+    // Y departamentos adyacentes a Cundinamarca
+    if (adjacency['25']?.includes(hospitalDept)) return true
+    // Y nivel 2 desde Cundinamarca si está habilitado
+    if (kam.enable_level2) {
+      for (const dept of adjacency['25'] || []) {
+        if (adjacency[dept]?.includes(hospitalDept)) return true
+      }
+    }
+  }
+
+  return false
+}
+
+/**
+ * KAMs que pueden competir por una IPS: en Bogotá solo KAMs de localidad; fuera, cualquiera
+ * que cumpla las restricciones geográficas (mismo depto, N1, N2, regla Bogotá).
+ * Los KAMs con area_id inválido ('11001') nunca son elegibles.
+ */
+export function eligibleKamsForHospital<T extends EligibilityKamShape>(
+  kams: T[],
+  hospital: EligibilityHospitalShape,
+  adjacency: AdjacencyMatrix
+): T[] {
+  const valid = kams.filter(hasValidKamArea)
+  const pool = isBogotaHospital(hospital) ? valid.filter(isBogotaKam) : valid
+  return pool.filter(kam => canKamCompeteForHospital(kam, hospital, adjacency))
+}
 
 interface KAM {
   id: string
@@ -39,11 +136,11 @@ interface Hospital {
   active: boolean
 }
 
-interface Assignment {
+export interface Assignment {
   kam_id: string
   hospital_id: string
-  travel_time: number  // En SEGUNDOS
-  assignment_type: 'base_territory' | 'competitive' | 'majority_rule'
+  travel_time: number | null  // En SEGUNDOS (null si no hay tiempo calculado, p.ej. territorio forzado)
+  assignment_type: 'forced' | 'base_territory' | 'competitive' | 'majority_rule'
   is_base_territory: boolean
 }
 
@@ -72,74 +169,95 @@ export class SimplifiedOpMapAlgorithm {
   
   async loadData() {
     console.log('🔄 Cargando datos...')
-    
+    const supabase = getSupabaseAdmin()
+
     // 1. Cargar departamentos excluidos
-    const { data: excludedDepts } = await supabase
+    const { data: excludedDepts, error: excludedError } = await supabase
       .from('departments')
       .select('code')
       .eq('excluded', true)
-    
+    if (excludedError) {
+      throw new Error(`Error cargando departments: ${excludedError.message}`)
+    }
+
     this.excludedDepartments = (excludedDepts || []).map(d => d.code)
     console.log(`✅ ${this.excludedDepartments.length} departamentos excluidos`)
-    
-    // 2. Cargar KAMs activos que participan en asignación territorial
-    const { data: kamsData } = await supabase
+
+    // 2. Cargar KAMs activos que participan en asignación territorial (orden determinista)
+    const { data: kamsData, error: kamsError } = await supabase
       .from('kams')
       .select('*')
       .eq('active', true)
       .eq('participates_in_assignment', true)
-    
-    this.kams = kamsData || []
+      .order('name')
+    if (kamsError) {
+      throw new Error(`Error cargando kams: ${kamsError.message}`)
+    }
+
+    // area_id === '11001' (Bogotá como municipio) es una configuración inválida: se excluye
+    this.kams = ((kamsData || []) as KAM[]).filter(kam => {
+      if (hasValidKamArea(kam)) return true
+      console.warn(
+        `⚠️ KAM "${kam.name}" (${kam.id}) excluido de la asignación: area_id "${kam.area_id}" no es válido. ` +
+        `Los KAMs de Bogotá deben configurarse con un código de localidad (11001XX), no con ${BOGOTA_MUNICIPALITY_ID}.`
+      )
+      return false
+    })
     console.log(`✅ ${this.kams.length} KAMs activos con territorio`)
-    
+
     // 3. Cargar hospitales activos (NO filtrar por departamentos aquí)
-    const { data: hospitalsData } = await supabase
+    const { data: hospitalsData, error: hospitalsError } = await supabase
       .from('hospitals')
       .select('*')
       .eq('active', true)
-    
+    if (hospitalsError) {
+      throw new Error(`Error cargando hospitals: ${hospitalsError.message}`)
+    }
+
     this.hospitals = hospitalsData || []
     console.log(`✅ ${this.hospitals.length} hospitales activos`)
-    
+
     // 4. Cargar matriz de adyacencia
-    const { data: adjacencyData } = await supabase
+    const { data: adjacencyData, error: adjacencyError } = await supabase
       .from('department_adjacency')
       .select('*')
-    
-    if (adjacencyData) {
-      adjacencyData.forEach(adj => {
-        if (!this.adjacencyMatrix[adj.department_code]) {
-          this.adjacencyMatrix[adj.department_code] = []
-        }
-        this.adjacencyMatrix[adj.department_code].push(adj.adjacent_department_code)
-      })
+    if (adjacencyError) {
+      throw new Error(`Error cargando department_adjacency: ${adjacencyError.message}`)
+    }
+
+    this.adjacencyMatrix = {}
+    for (const adj of adjacencyData || []) {
+      if (!this.adjacencyMatrix[adj.department_code]) {
+        this.adjacencyMatrix[adj.department_code] = []
+      }
+      this.adjacencyMatrix[adj.department_code].push(adj.adjacent_department_code)
     }
     console.log(`✅ Matriz de adyacencia cargada`)
-    
+
     // 5. Cargar TODAS las distancias precalculadas
     console.log('📊 Cargando distancias precalculadas...')
     this.distances = []
-    
+
     // Cargar TODAS las distancias sin filtros, paginando
     let offset = 0
     const batchSize = 1000
-    
+
     while (true) {
       const { data: distBatch, error } = await supabase
         .from('hospital_kam_distances')
         .select('hospital_id, kam_id, travel_time')
         .range(offset, offset + batchSize - 1)
-      
+
+      // Un error a mitad de la paginación dejaría distancias incompletas: abortar
       if (error) {
-        console.error('Error cargando distancias:', error)
-        break
+        throw new Error(`Error cargando hospital_kam_distances: ${error.message}`)
       }
-      
+
       if (distBatch && distBatch.length > 0) {
         this.distances.push(...distBatch)
         console.log(`  Cargadas ${this.distances.length} distancias...`)
         offset += batchSize
-        
+
         if (distBatch.length < batchSize) {
           break // Última página
         }
@@ -147,104 +265,45 @@ export class SimplifiedOpMapAlgorithm {
         break
       }
     }
-    
+
     console.log(`✅ ${this.distances.length} distancias cargadas`)
-    
+
     // 6. Cargar asignaciones forzadas
     console.log('🔒 Cargando asignaciones forzadas...')
-    const { data: forcedData } = await supabase
+    const { data: forcedData, error: forcedError } = await supabase
       .from('forced_assignments')
       .select('*')
       .eq('active', true)
-    
+    if (forcedError) {
+      throw new Error(`Error cargando forced_assignments: ${forcedError.message}`)
+    }
+
     this.forcedAssignments = forcedData || []
     console.log(`✅ ${this.forcedAssignments.length} asignaciones forzadas activas`)
   }
-  
-  private canKamCompeteForHospital(kam: KAM, hospital: Hospital): boolean {
-    // Si es territorio base, siempre puede
-    if (this.isBaseTerritory(kam, hospital)) {
-      return true
-    }
-    
-    const kamDept = kam.area_id.substring(0, 2)
-    const hospitalDept = hospital.department_id
-    
-    // Mismo departamento
-    if (kamDept === hospitalDept) {
-      return true
-    }
-    
-    // Departamento adyacente (Nivel 1)
-    if (this.adjacencyMatrix[kamDept]?.includes(hospitalDept)) {
-      return true
-    }
-    
-    // Nivel 2 (si está habilitado)
-    if (kam.enable_level2) {
-      // Verificar si es adyacente de segundo nivel
-      const level1Deps = this.adjacencyMatrix[kamDept] || []
-      for (const dept of level1Deps) {
-        if (this.adjacencyMatrix[dept]?.includes(hospitalDept)) {
-          return true
-        }
-      }
-    }
-    
-    // Regla especial para Bogotá
-    if (this.isBogotaKam(kam)) {
-      // KAMs de Bogotá pueden competir en Bogotá y Cundinamarca
-      if (hospitalDept === '11' || hospitalDept === '25') {
-        return true
-      }
-      // Y departamentos adyacentes a Cundinamarca
-      if (this.adjacencyMatrix['25']?.includes(hospitalDept)) {
-        return true
-      }
-      // Y nivel 2 desde Cundinamarca si está habilitado
-      if (kam.enable_level2) {
-        const cundAdjacent = this.adjacencyMatrix['25'] || []
-        for (const dept of cundAdjacent) {
-          if (this.adjacencyMatrix[dept]?.includes(hospitalDept)) {
-            return true
-          }
-        }
-      }
-    }
-    
-    return false
+
+  // Delegan en las funciones puras exportadas (fuente única de las reglas de elegibilidad)
+  canKamCompeteForHospital(kam: KAM, hospital: Hospital): boolean {
+    return canKamCompeteForHospital(kam, hospital, this.adjacencyMatrix)
   }
-  
-  private isBaseTerritory(kam: KAM, hospital: Hospital): boolean {
-    // Para localidades de Bogotá
-    if (kam.area_id.startsWith('11001') && kam.area_id.length > 5) {
-      return hospital.locality_id === kam.area_id
-    }
-    // Para municipios regulares
-    return hospital.municipality_id === kam.area_id
+
+  isBaseTerritory(kam: KAM, hospital: Hospital): boolean {
+    return isBaseTerritory(kam, hospital)
   }
-  
-  private isBogotaKam(kam: KAM): boolean {
-    return kam.area_id.startsWith('11001') && kam.area_id.length > 5
-  }
-  
-  private isBogotaHospital(hospital: Hospital): boolean {
-    return hospital.locality_id?.startsWith('11001') || false
-  }
-  
+
   private getDistance(hospitalId: string, kamId: string): number | null {
     const distance = this.distances.find(
       d => d.hospital_id === hospitalId && d.kam_id === kamId
     )
     return distance ? distance.travel_time : null
   }
-  
+
   private isForcedTerritory(hospital: Hospital): ForcedAssignment | null {
     // Verificar si el hospital está en un territorio con asignación forzada
     const territoryId = hospital.locality_id || hospital.municipality_id
     return this.forcedAssignments.find(fa => fa.territory_id === territoryId) || null
   }
-  
+
   async calculateAssignments(): Promise<Assignment[]> {
     console.log('\n🚀 INICIANDO ALGORITMO SIMPLIFICADO')
     console.log('=' + '='.repeat(59))
@@ -257,31 +316,44 @@ export class SimplifiedOpMapAlgorithm {
     console.log('\n🔒 FASE 0: Aplicando asignaciones forzadas...')
     const forcedTerritories = new Set<string>()
     
+    const warnedForcedTerritories = new Set<string>()
+
     for (const hospital of this.hospitals) {
       const forcedAssignment = this.isForcedTerritory(hospital)
-      if (forcedAssignment) {
-        const kam = this.kams.find(k => k.id === forcedAssignment.kam_id)
-        if (kam) {
-          // Buscar tiempo de viaje si existe
-          const travelTime = this.getDistance(hospital.id, kam.id) || 0
-          
-          assignments.push({
-            kam_id: kam.id,
-            hospital_id: hospital.id,
-            travel_time: travelTime,
-            assignment_type: 'forced' as any, // Nuevo tipo de asignación
-            is_base_territory: false
-          })
-          assignedHospitals.add(hospital.id)
-          forcedTerritories.add(forcedAssignment.territory_id)
-          
-          if (!forcedTerritories.has(forcedAssignment.territory_id)) {
-            console.log(`  ✓ ${forcedAssignment.territory_name} → ${kam.name} (FORZADO: ${forcedAssignment.reason || 'Sin razón'})`)
-          }
+      if (!forcedAssignment) continue
+
+      // this.kams solo contiene KAMs activos que participan en la asignación (y con area_id válido)
+      const kam = this.kams.find(k => k.id === forcedAssignment.kam_id)
+      if (!kam) {
+        if (!warnedForcedTerritories.has(forcedAssignment.territory_id)) {
+          warnedForcedTerritories.add(forcedAssignment.territory_id)
+          console.warn(
+            `⚠️ Asignación forzada ignorada: ${forcedAssignment.territory_name} (${forcedAssignment.territory_id}) ` +
+            `apunta al KAM ${forcedAssignment.kam_id}, que está inactivo, no participa en la asignación ` +
+            `o tiene un area_id inválido. El territorio entra en la asignación normal.`
+          )
         }
+        continue
+      }
+
+      // Tiempo de viaje si existe; null si no está calculado (no inventar 0 segundos)
+      const travelTime = this.getDistance(hospital.id, kam.id) ?? null
+
+      assignments.push({
+        kam_id: kam.id,
+        hospital_id: hospital.id,
+        travel_time: travelTime,
+        assignment_type: 'forced',
+        is_base_territory: false
+      })
+      assignedHospitals.add(hospital.id)
+
+      if (!forcedTerritories.has(forcedAssignment.territory_id)) {
+        forcedTerritories.add(forcedAssignment.territory_id)
+        console.log(`  ✓ ${forcedAssignment.territory_name} → ${kam.name} (FORZADO: ${forcedAssignment.reason || 'Sin razón'})`)
       }
     }
-    
+
     console.log(`  Total territorios forzados: ${forcedTerritories.size}`)
     console.log(`  Total hospitales en territorios forzados: ${assignments.length}`)
     
@@ -331,16 +403,10 @@ export class SimplifiedOpMapAlgorithm {
       let bestTime = Infinity
       
       // Solo KAMs de Bogotá pueden competir por hospitales en Bogotá
-      const eligibleKams = this.isBogotaHospital(hospital)
-        ? this.kams.filter(k => this.isBogotaKam(k))
-        : this.kams
-      
+      // (incluye las restricciones geográficas: mismo depto, N1, N2 y regla Bogotá)
+      const eligibleKams = eligibleKamsForHospital(this.kams, hospital, this.adjacencyMatrix)
+
       for (const kam of eligibleKams) {
-        // Verificar restricciones geográficas
-        if (!this.canKamCompeteForHospital(kam, hospital)) {
-          continue
-        }
-        
         // Obtener tiempo de viaje desde la tabla
         const travelTime = this.getDistance(hospital.id, kam.id)
         
@@ -460,9 +526,16 @@ export class SimplifiedOpMapAlgorithm {
   
   async saveAssignments(assignments: Assignment[]) {
     console.log('\n💾 Guardando asignaciones...')
+    const supabase = getSupabaseAdmin()
     
     // Limpiar asignaciones anteriores
-    await supabase.from('assignments').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+    const { error: deleteError } = await supabase
+      .from('assignments')
+      .delete()
+      .neq('id', '00000000-0000-0000-0000-000000000000')
+    if (deleteError) {
+      throw new Error(`Error limpiando assignments: ${deleteError.message}`)
+    }
     
     // Insertar nuevas asignaciones en lotes
     const batchSize = 500

@@ -1,39 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { getUserFromRequest } from '@/lib/auth-server'
+import { requireUser } from '@/lib/require-role'
+import { supabaseAdmin } from '@/lib/supabase-admin'
 
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  supabaseServiceKey
-)
-
+// GET /api/kams — lista de KAMs. Cualquier usuario con sesión (la usan mapa, contratos y visitas).
 export async function GET(request: NextRequest) {
-  try {
-    // Verificar autenticación
-    const user = await getUserFromRequest(request)
-    if (!user) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-    }
+  const auth = await requireUser(request)
+  if (!auth.ok) return auth.response
 
-    // Obtener todos los KAMs
-    const { data: kams, error } = await supabase
+  try {
+    const { data: kams, error } = await supabaseAdmin
       .from('kams')
       .select('*')
       .order('name')
 
     if (error) {
-      console.error('Error loading KAMs:', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+      console.error('Error cargando KAMs:', error)
+      return NextResponse.json({ error: 'Error al cargar los KAMs' }, { status: 500 })
     }
 
     return NextResponse.json(kams || [])
   } catch (error) {
-    console.error('Error in GET /api/kams:', error)
-    return NextResponse.json(
-      { error: 'Error interno del servidor' },
-      { status: 500 }
-    )
+    console.error('Error en GET /api/kams:', error)
+    return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 })
   }
 }

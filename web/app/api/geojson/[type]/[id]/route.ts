@@ -36,10 +36,11 @@ export async function GET(
 
       const geoJson = await response.json()
       
-      // Retornar con headers de cache para el browser
+      // Retornar con headers de cache para el navegador (max-age) y el CDN (s-maxage).
+      // next.config.js excluye /api/geojson del no-store global para que esta cabecera se respete.
       return NextResponse.json(geoJson, {
         headers: {
-          'Cache-Control': 'public, s-maxage=3600, stale-while-revalidate=86400',
+          'Cache-Control': 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800',
         }
       })
     } catch (error) {

@@ -1,10 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
-const supabase = createClient(supabaseUrl, supabaseAnonKey)
+import { requireUser } from '@/lib/require-role'
 
 // Localidades de Bogotá
 const BOGOTA_LOCALITIES = [
@@ -31,6 +26,9 @@ const BOGOTA_LOCALITIES = [
 ]
 
 export async function GET(request: NextRequest) {
+  const auth = await requireUser(request)
+  if (!auth.ok) return auth.response
+
   try {
     const searchParams = request.nextUrl.searchParams
     const municipalityId = searchParams.get('municipalityId')

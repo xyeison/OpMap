@@ -1,86 +1,81 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { getUserFromRequest } from '@/lib/auth-server'
+import { supabaseAdmin } from '@/lib/supabase-admin'
+import { requirePermission } from '@/lib/require-role'
+import { badJson, isUuid, readJsonBody, serverError, validationError } from '../../../_lib/api-error'
+import { hospitalStateChangeSchema } from '../../../_lib/hospital-schemas'
 
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  supabaseServiceKey
-)
-
+// Activa una IPS y registra el cambio en hospital_history. La reasignación la hace después
+// /api/recalculate-smart-hospital (action 'activated').
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+  const auth = await requirePermission(request, 'hospitals:edit')
+  if (!auth.ok) return auth.response
+  const user = auth.user
+
   try {
-    // Verificar autenticación
-    const user = await getUserFromRequest(request)
-    if (!user) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-    }
-
     const hospitalId = params.id
-    const body = await request.json()
-    const { reason } = body
-
-    // Validar que se proporcione una razón
-    if (!reason || reason.trim() === '') {
-      return NextResponse.json({ 
-        error: 'La razón de activación es obligatoria' 
-      }, { status: 400 })
-    }
-
-    // Obtener el hospital actual
-    const { data: hospital, error: fetchError } = await supabase
-      .from('hospitals')
-      .select('*')
-      .eq('id', hospitalId)
-      .single()
-
-    if (fetchError || !hospital) {
+    if (!isUuid(hospitalId)) {
       return NextResponse.json({ error: 'Hospital no encontrado' }, { status: 404 })
     }
 
-    // Actualizar el estado del hospital
-    const { data: updatedHospital, error: updateError } = await supabase
+    const body = await readJsonBody(request)
+    if (body === undefined) return badJson()
+    const parsed = hospitalStateChangeSchema.safeParse(body)
+    if (!parsed.success) return validationError(parsed.error, 'La razón de activación es obligatoria')
+    const { reason } = parsed.data
+
+    const { data: hospital, error: fetchError } = await supabaseAdmin
       .from('hospitals')
-      .update({ active: true })
+      .select('id, active')
+      .eq('id', hospitalId)
+      .maybeSingle()
+
+    if (fetchError) return serverError('hospitals/[id]/activate (lectura)', fetchError)
+    if (!hospital) {
+      return NextResponse.json({ error: 'Hospital no encontrado' }, { status: 404 })
+    }
+    if (hospital.active === true) {
+      return NextResponse.json({ error: 'El hospital ya está activo' }, { status: 409 })
+    }
+
+    const { data: updatedHospital, error: updateError } = await supabaseAdmin
+      .from('hospitals')
+      .update({ active: true, updated_at: new Date().toISOString() })
       .eq('id', hospitalId)
       .select()
       .single()
 
-    if (updateError) {
-      console.error('Error updating hospital:', updateError)
-      return NextResponse.json({ error: updateError.message }, { status: 500 })
-    }
+    if (updateError) return serverError('hospitals/[id]/activate (update)', updateError, 'Error al activar el hospital')
 
-    // Registrar en el historial
-    const historyData = {
+    const { error: historyError } = await supabaseAdmin.from('hospital_history').insert({
       hospital_id: hospitalId,
       user_id: user.id,
+      created_by: user.id,
       action: 'activated',
-      reason: reason,
+      reason,
       previous_state: false,
-      new_state: true
-    }
-
-    const { error: historyError } = await supabase
-      .from('hospital_history')
-      .insert(historyData)
+      new_state: true,
+    })
 
     if (historyError) {
-      console.error('Error inserting history:', historyError)
-      // No fallar si el historial no se puede guardar
+      // Sin auditoría no se acepta el cambio: se revierte el estado
+      const { error: revertError } = await supabaseAdmin
+        .from('hospitals')
+        .update({ active: false })
+        .eq('id', hospitalId)
+      if (revertError) console.error('hospitals/[id]/activate: no se pudo revertir', revertError)
+      return serverError(
+        'hospitals/[id]/activate (historial)',
+        historyError,
+        'No se pudo registrar el historial; la activación se ha revertido'
+      )
     }
 
     return NextResponse.json({
       success: true,
       hospital: updatedHospital,
-      message: 'Hospital activado exitosamente'
+      message: 'Hospital activado exitosamente',
     })
   } catch (error) {
-    console.error('Error in POST /api/hospitals/[id]/activate:', error)
-    return NextResponse.json(
-      { error: 'Error interno del servidor' },
-      { status: 500 }
-    )
+    return serverError('hospitals/[id]/activate', error)
   }
 }

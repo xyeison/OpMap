@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { supabase } from '@/lib/supabase'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
 import ZoneModal from '@/components/ZoneModal'
@@ -24,10 +23,11 @@ export default function ZonesPage() {
     setLoading(true)
     try {
       const response = await fetch('/api/zones')
-      if (response.ok) {
-        const data = await response.json()
-        setZones(Array.isArray(data) ? data : [])
+      const data = await response.json().catch(() => null)
+      if (!response.ok) {
+        throw new Error((data && data.error) || `Error al cargar las zonas (${response.status})`)
       }
+      setZones(Array.isArray(data) ? data : [])
     } catch (error) {
       console.error('Error loading zones:', error)
     } finally {
@@ -51,17 +51,17 @@ export default function ZonesPage() {
     }
 
     try {
-      const { error } = await supabase
-        .from('zones')
-        .delete()
-        .eq('id', zoneId)
-
-      if (error) throw error
+      // Borrado en el servidor (service_role + permiso zones:edit); los KAMs de la zona quedan sin zona
+      const response = await fetch(`/api/zones/${zoneId}`, { method: 'DELETE' })
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}))
+        throw new Error(result.error || `Error al eliminar la zona (${response.status})`)
+      }
 
       await loadZones()
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error deleting zone:', error)
-      alert('Error al eliminar la zona')
+      alert(error?.message || 'Error al eliminar la zona')
     }
   }
 

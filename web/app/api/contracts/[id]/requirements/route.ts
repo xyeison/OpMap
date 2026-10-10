@@ -1,14 +1,18 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase-server';
+import { NextRequest, NextResponse } from 'next/server'
+import { supabaseAdmin } from '@/lib/supabase-admin'
+import { requirePermission } from '@/lib/require-role'
+import { badJson, isUuid, readJsonBody, serverError } from '../../../_lib/api-error'
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+  const auth = await requirePermission(request, 'contracts:view')
+  if (!auth.ok) return auth.response
+
   try {
-    const supabase = createServerSupabaseClient();
-    
-    const { data, error } = await supabase
+    if (!isUuid(params.id)) {
+      return NextResponse.json({ error: 'Contrato no encontrado' }, { status: 404 })
+    }
+
+    const { data, error } = await supabaseAdmin
       .from('hospital_contracts')
       .select(`
         indice_liquidez_requerido,
@@ -23,35 +27,32 @@ export async function GET(
         requisitos_financieros
       `)
       .eq('id', params.id)
-      .single();
+      .maybeSingle()
 
-    if (error) {
-      console.error('Error fetching requirements:', error);
-      return NextResponse.json(
-        { error: 'Error al obtener requisitos' },
-        { status: 500 }
-      );
+    if (error) return serverError('contracts/[id]/requirements GET', error, 'Error al obtener requisitos')
+    if (!data) {
+      return NextResponse.json({ error: 'Contrato no encontrado' }, { status: 404 })
     }
 
-    return NextResponse.json({ data });
+    return NextResponse.json({ data })
   } catch (error) {
-    console.error('Error in GET requirements:', error);
-    return NextResponse.json(
-      { error: 'Error interno del servidor' },
-      { status: 500 }
-    );
+    return serverError('contracts/[id]/requirements GET', error)
   }
 }
 
-export async function PUT(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  try {
-    const supabase = createServerSupabaseClient();
-    const body = await request.json();
+export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
+  const auth = await requirePermission(request, 'contracts:edit')
+  if (!auth.ok) return auth.response
 
-    const { data, error } = await supabase
+  try {
+    if (!isUuid(params.id)) {
+      return NextResponse.json({ error: 'Contrato no encontrado' }, { status: 404 })
+    }
+
+    const body = (await readJsonBody(request)) as Record<string, any> | undefined
+    if (!body || typeof body !== 'object') return badJson()
+
+    const { data, error } = await supabaseAdmin
       .from('hospital_contracts')
       .update({
         indice_liquidez_requerido: body.indice_liquidez_requerido,
@@ -63,38 +64,30 @@ export async function PUT(
         facturacion_anual_minima: body.facturacion_anual_minima,
         rentabilidad_minima: body.rentabilidad_minima,
         otros_requisitos: body.otros_requisitos,
-        fecha_validacion_requisitos: null, // Reset validation when requirements change
-        cumple_requisitos: null
+        fecha_validacion_requisitos: null, // Reiniciar la validación al cambiar requisitos
+        cumple_requisitos: null,
       })
       .eq('id', params.id)
       .select()
-      .single();
+      .maybeSingle()
 
-    if (error) {
-      console.error('Error updating requirements:', error);
-      return NextResponse.json(
-        { error: 'Error al actualizar requisitos' },
-        { status: 500 }
-      );
+    if (error) return serverError('contracts/[id]/requirements PUT', error, 'Error al actualizar requisitos')
+    if (!data) {
+      return NextResponse.json({ error: 'Contrato no encontrado' }, { status: 404 })
     }
 
-    // Trigger validation
-    const { data: validationResult, error: validationError } = await supabase
-      .rpc('validar_cumplimiento_contrato', { p_contract_id: params.id });
+    // Disparar la validación de cumplimiento
+    const { data: validationResult, error: validationError } = await supabaseAdmin.rpc(
+      'validar_cumplimiento_contrato',
+      { p_contract_id: params.id }
+    )
 
     if (validationError) {
-      console.error('Error validating compliance:', validationError);
+      console.error('Error validando cumplimiento:', validationError)
     }
 
-    return NextResponse.json({ 
-      data,
-      validation: validationResult 
-    });
+    return NextResponse.json({ data, validation: validationResult ?? null })
   } catch (error) {
-    console.error('Error in PUT requirements:', error);
-    return NextResponse.json(
-      { error: 'Error interno del servidor' },
-      { status: 500 }
-    );
+    return serverError('contracts/[id]/requirements PUT', error)
   }
 }

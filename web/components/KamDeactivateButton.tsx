@@ -35,6 +35,9 @@ export default function KamDeactivateButton({ kam, onUpdate, className }: KamDea
 
       if (data.success) {
         setResult(data)
+        if (Array.isArray(data.warnings) && data.warnings.length > 0) {
+          alert(data.warnings.join('\n'))
+        }
         
         // Actualizar después de 3 segundos
         setTimeout(() => {

@@ -1,23 +1,48 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { Suspense, useState, useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useUser } from '@/contexts/UserContext'
 
+// Destino tras el login (?next=...). Solo rutas internas relativas: empieza por "/", no por "//"
+// (protocol-relative), sin barras invertidas, sin caracteres de control (el navegador los
+// elimina y "/\t/evil.com" acabaría siendo "//evil.com") y nunca una ruta /api.
+const SAFE_NEXT_RE = /^\/(?!\/)[^\\]*$/
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHARS_RE = /[\u0000-\u001f\u007f]/
+
+function safeNextPath(raw: string | null): string {
+  if (!raw) return '/'
+  if (!SAFE_NEXT_RE.test(raw) || CONTROL_CHARS_RE.test(raw)) return '/'
+  if (raw.toLowerCase().startsWith('/api')) return '/'
+  return raw
+}
+
+// useSearchParams exige un límite <Suspense> en las páginas que se prerenderizan
 export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
+  )
+}
+
+function LoginForm() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const nextPath = safeNextPath(searchParams.get('next'))
   const { login, user } = useUser()
-  
+
   // Si ya está logueado, redirigir
   useEffect(() => {
     if (user) {
-      router.push('/')
+      router.push(nextPath)
     }
-  }, [user, router])
+  }, [user, router, nextPath])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -27,7 +52,7 @@ export default function LoginPage() {
     const success = await login(email, password)
     
     if (success) {
-      router.push('/')
+      router.push(nextPath)
     } else {
       setError('Email o contraseña incorrectos')
     }

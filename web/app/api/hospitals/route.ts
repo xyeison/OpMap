@@ -1,101 +1,83 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { getUserFromRequest } from '@/lib/auth-server'
-
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  supabaseServiceKey
-)
+import { supabaseAdmin } from '@/lib/supabase-admin'
+import { requirePermission, requireUser } from '@/lib/require-role'
+import { badJson, fetchAllRows, readJsonBody, serverError, validationError } from '../_lib/api-error'
+import { createHospitalSchema } from '../_lib/hospital-schemas'
 
 export async function GET(request: NextRequest) {
+  const auth = await requireUser(request)
+  if (!auth.ok) return auth.response
+
   try {
-    // Verificar autenticación
-    const user = await getUserFromRequest(request)
-    if (!user) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-    }
+    // Todos los hospitales (activos e inactivos), paginando para no truncar a 1.000 filas
+    const { data: hospitals, error: hospitalsError } = await fetchAllRows<any>((from, to) =>
+      supabaseAdmin.from('hospitals').select('*').order('name').order('id').range(from, to)
+    )
+    if (hospitalsError) return serverError('hospitals GET', hospitalsError, 'Error al cargar hospitales')
 
-    // Obtener todos los hospitales (activos e inactivos)
-    const { data: hospitals, error: hospitalsError } = await supabase
-      .from('hospitals')
-      .select('*')
-      .order('name')
-
-    if (hospitalsError) {
-      console.error('Error loading hospitals:', hospitalsError)
-      return NextResponse.json({ error: hospitalsError.message }, { status: 500 })
-    }
-
-    // Obtener asignaciones con KAMs
-    const { data: assignments, error: assignmentsError } = await supabase
-      .from('assignments')
-      .select(`
-        hospital_id,
-        kam_id,
-        kams!inner (
-          id,
-          name
-        )
-      `)
-
+    const { data: assignments, error: assignmentsError } = await fetchAllRows<any>((from, to) =>
+      supabaseAdmin
+        .from('assignments')
+        .select(`
+          hospital_id,
+          kam_id,
+          kams!inner (
+            id,
+            name
+          )
+        `)
+        .order('id')
+        .range(from, to)
+    )
     if (assignmentsError) {
-      console.error('Error loading assignments:', assignmentsError)
-      // Continuar sin asignaciones si hay error
+      // Se continúa sin nombres de KAM
+      console.error('Error cargando asignaciones:', assignmentsError)
     }
 
-    // Crear mapa de hospital_id -> kam_name
-    const kamMap = new Map()
-    assignments?.forEach((a: any) => {
+    const kamMap = new Map<string, string>()
+    assignments.forEach((a: any) => {
       if (a.kams && typeof a.kams === 'object' && 'name' in a.kams) {
         kamMap.set(a.hospital_id, a.kams.name)
       }
     })
 
-    // Combinar datos
-    const hospitalsWithKam = hospitals?.map(h => ({
+    const hospitalsWithKam = hospitals.map(h => ({
       ...h,
-      assigned_kam_name: kamMap.get(h.id) || null
+      assigned_kam_name: kamMap.get(h.id) || null,
     }))
 
-    return NextResponse.json(hospitalsWithKam || [])
+    return NextResponse.json(hospitalsWithKam)
   } catch (error) {
-    console.error('Error in GET /api/hospitals:', error)
-    return NextResponse.json(
-      { error: 'Error interno del servidor' },
-      { status: 500 }
-    )
+    return serverError('hospitals GET', error)
   }
 }
 
 export async function POST(request: NextRequest) {
-  try {
-    // Verificar autenticación
-    const user = await getUserFromRequest(request)
-    if (!user) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-    }
+  const auth = await requirePermission(request, 'hospitals:edit')
+  if (!auth.ok) return auth.response
 
-    const body = await request.json()
-    
-    const { data, error } = await supabase
+  try {
+    const body = await readJsonBody(request)
+    if (body === undefined) return badJson()
+
+    const parsed = createHospitalSchema.safeParse(body)
+    if (!parsed.success) return validationError(parsed.error)
+
+    const { data, error } = await supabaseAdmin
       .from('hospitals')
-      .insert(body)
+      .insert(parsed.data)
       .select()
       .single()
 
     if (error) {
-      console.error('Error creating hospital:', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+      if ((error as { code?: string }).code === '23505') {
+        return NextResponse.json({ error: 'Ya existe un hospital con ese código' }, { status: 409 })
+      }
+      return serverError('hospitals POST', error, 'Error al crear el hospital')
     }
 
     return NextResponse.json(data)
   } catch (error) {
-    console.error('Error in POST /api/hospitals:', error)
-    return NextResponse.json(
-      { error: 'Error interno del servidor' },
-      { status: 500 }
-    )
+    return serverError('hospitals POST', error)
   }
 }

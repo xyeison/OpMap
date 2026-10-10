@@ -1,51 +1,76 @@
-import { NextRequest } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+// Única implementación de "quién es el usuario de esta petición" en el servidor.
+// Lee la cookie de sesión firmada (SESSION_COOKIE_NAME: __Host-opmap_session en producción,
+// opmap_session en desarrollo), verifica firma y expiración, carga el usuario activo desde
+// public.users con el cliente service_role y comprueba el claim pv contra su contraseña actual
+// (si la contraseña cambió, la sesión queda revocada).
+import { getSupabaseAdmin } from './supabase-admin'
+import { SESSION_COOKIE_NAME, passwordVersion, passwordVersionMatches, verifySession } from './session'
+import type { Role } from './permissions'
 
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+export interface SessionUser {
+  id: string
+  email: string
+  full_name: string
+  role: Role
+  active: boolean
+}
 
-export async function getUserFromRequest(request: NextRequest) {
-  try {
-    // Obtener cookie del request
-    const cookieHeader = request.headers.get('cookie')
-    if (!cookieHeader) return null
-    
-    // Buscar el token personalizado
-    const cookies = cookieHeader.split('; ')
-    const tokenCookie = cookies.find(c => c.startsWith('sb-access-token='))
-    if (!tokenCookie) return null
-    
-    const token = tokenCookie.split('=')[1]
-    if (!token) return null
-    
-    // Decodificar el token
+/**
+ * Lee una cookie de la cabecera Cookie (sirve para Request y NextRequest).
+ */
+export function readCookie(request: Request, name: string): string | null {
+  const header = request.headers.get('cookie')
+  if (!header) return null
+
+  for (const part of header.split(';')) {
+    const index = part.indexOf('=')
+    if (index === -1) continue
+    if (part.slice(0, index).trim() !== name) continue
+
+    const raw = part.slice(index + 1).trim()
     try {
-      const decoded = Buffer.from(token, 'base64').toString()
-      const [userId] = decoded.split(':')
-      
-      // Crear cliente de Supabase con Service Role Key
-      const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        supabaseServiceKey
-      )
-      
-      // Buscar el usuario por ID
-      const { data: userData, error } = await supabase
-        .from('users')
-        .select('id, email, full_name, role')
-        .eq('id', userId)
-        .eq('active', true)
-        .single()
-      
-      if (!error && userData) {
-        return userData
-      }
-    } catch (e) {
-      console.log('Error decodificando token:', e)
+      return decodeURIComponent(raw)
+    } catch {
+      return raw
     }
-    
-    return null
+  }
+  return null
+}
+
+/**
+ * Devuelve el usuario autenticado y activo, o null si no hay sesión válida.
+ */
+export async function getUserFromRequest(request: Request): Promise<SessionUser | null> {
+  try {
+    const token = readCookie(request, SESSION_COOKIE_NAME)
+    if (!token) return null
+
+    const session = verifySession(token)
+    if (!session) return null
+
+    const { data, error } = await getSupabaseAdmin()
+      .from('users')
+      .select('id, email, full_name, role, active, password')
+      .eq('id', session.uid)
+      .eq('active', true)
+      .maybeSingle()
+
+    if (error) {
+      console.error('Error cargando el usuario de la sesión:', error.message)
+      return null
+    }
+    if (!data || data.active !== true) return null
+
+    // Revocación: el pv del token debe coincidir con el de la contraseña guardada ahora
+    const { password, ...user } = data
+    if (typeof password !== 'string' || !password) return null
+    if (!passwordVersionMatches(passwordVersion(password), session.pv)) return null
+
+    // Nunca devolver la contraseña
+    return user as SessionUser
   } catch (error) {
-    console.error('Error getting user from request:', error)
+    // Incluye la falta de SESSION_SECRET o de SUPABASE_SERVICE_ROLE_KEY en producción (fail closed)
+    console.error('Error obteniendo el usuario de la petición:', error)
     return null
   }
 }
