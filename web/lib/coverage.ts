@@ -1,7 +1,14 @@
 // Motor de cobertura por línea (Fase 2). SOLO SERVIDOR (usa el cliente service_role).
 //
 // Para cada línea activa L y zona activa Z decide quién responde, en este orden:
-//   1. Ajuste manual activo (coverage_overrides) → 'manual'.
+//   1. Ajuste manual activo (coverage_overrides) a X → 'manual', solo si X sigue activa/placeholder,
+//      lleva L y ADEMÁS: X vive en Z (resuelve un conflicto entre residentes o confirma a la local)
+//      O ninguna residente elegible de Z lleva L. Si Z ya tiene residente(s) con L y X es de otra
+//      zona, el ajuste queda sin efecto ("Ajuste manual sin efecto: la zona ya tiene a <nombres> con
+//      esta línea") y siguen las reglas 2-3. Lo mismo si X ya no existe, está inactiva o no lleva L.
+//      Regla del dueño (2026-10-11): alguien de otra ciudad toma una zona, por distancia (regla 3) o
+//      por fuerza (este ajuste), solo si en esa zona no hay nadie con esa línea y si la lleva.
+//      La API de ajustes (POST /api/coverage/overrides) valida lo mismo antes de guardar (409).
 //   2. Locales: ejecutivas activas/placeholder con base_kam_id = Z que llevan L.
 //      1 → 'local' (0 min); más de 1 → 'conflict' (el líder reparte).
 //   3. Si no hay locales: la más cercana que lleva L (de ciudad base a ciudad base, matriz zona→zona).
@@ -70,6 +77,31 @@ function compareNames(a: string, b: string): number {
 }
 
 const lineZoneKey = (lineId: string, kamId: string) => `${lineId}|${kamId}`
+
+/** "A", "A y B", "A, B y C". */
+export function joinNamesEs(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? ''
+  return `${names.slice(0, -1).join(', ')} y ${names[names.length - 1]}`
+}
+
+/**
+ * Regla del dueño (2026-10-11) para un ajuste manual de (línea L, zona Z) a la ejecutiva X:
+ * vale si X vive en Z (resuelve un conflicto o confirma a la local) o si ninguna residente elegible
+ * de Z lleva L. `residentsWithLine` = ejecutivas active/placeholder con base_kam_id = Z que llevan L
+ * (si trae otras, se ignoran). Devuelve las residentes que impiden el ajuste, por nombre;
+ * vacío = permitido. Pura: la usan computeCoverage() y POST /api/coverage/overrides.
+ * No revisa que X esté activa ni que lleve L (eso se valida aparte).
+ */
+export function overrideBlockingResidents<T extends { id: string; full_name: string; base_kam_id: string | null }>(
+  executive: { id: string; base_kam_id: string | null },
+  zoneId: string,
+  residentsWithLine: T[]
+): T[] {
+  if (executive.base_kam_id === zoneId) return []
+  return residentsWithLine
+    .filter(resident => resident.base_kam_id === zoneId && resident.id !== executive.id)
+    .sort((a, b) => compareNames(a.full_name, b.full_name))
+}
 
 // ---------------------------------------------------------------------------
 // Matriz zona → zona
@@ -207,17 +239,28 @@ export function computeCoverage(inputs: CoverageComputeInputs, matrix: ZoneMatri
         has_equipment: equipment.get(key) ?? true,
       }
 
+      // Locales: elegibles que viven en la zona y llevan la línea (reglas 1 y 2)
+      const locals = lineExecutives
+        .filter(executive => executive.base_kam_id === zone.id)
+        .sort((a, b) => compareNames(a.full_name, b.full_name))
+
       // 1. Ajuste manual
       const override = overrides.get(key)
       let overrideNote: string | null = null
       if (override) {
         const executive = executivesById.get(override.executive_id)
+        const blockers = executive ? overrideBlockingResidents(executive, zone.id, locals) : []
         if (!executive) {
           overrideNote = 'Ajuste manual sin efecto: el Ejecutivo Comercial ya no existe'
         } else if (!ELIGIBLE_STATUSES.has(executive.status) || !executive.base_kam_id) {
           overrideNote = `Ajuste manual sin efecto: ${executive.full_name} está inactivo o sin zona base`
         } else if (!linesByExecutive.get(executive.id)?.has(line.id)) {
           overrideNote = `Ajuste manual sin efecto: ${executive.full_name} no lleva esta línea`
+        } else if (blockers.length > 0) {
+          // Regla del dueño: no se fuerza a alguien de otra ciudad si la zona ya tiene quien lleve la línea
+          overrideNote = `Ajuste manual sin efecto: la zona ya tiene a ${joinNamesEs(
+            blockers.map(resident => resident.full_name)
+          )} con esta línea`
         } else {
           results.push({
             ...base,
@@ -238,9 +281,6 @@ export function computeCoverage(inputs: CoverageComputeInputs, matrix: ZoneMatri
         [overrideNote, note].filter((part): part is string => Boolean(part)).join(' · ') || null
 
       // 2. Locales
-      const locals = lineExecutives
-        .filter(executive => executive.base_kam_id === zone.id)
-        .sort((a, b) => compareNames(a.full_name, b.full_name))
       if (locals.length === 1) {
         results.push({
           ...base,

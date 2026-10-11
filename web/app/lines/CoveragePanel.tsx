@@ -481,6 +481,16 @@ function AdjustModal({ row, line, executives, executivesError, onClose, onDone }
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
+  // Regla del dueño: si en la zona ya vive alguien con la línea, solo se puede elegir a quien vive en ella
+  // (sirve para resolver un conflicto). La API lo vuelve a validar y responde 409 con el motivo.
+  const residentsWithLine = useMemo(
+    () =>
+      executives
+        .filter(e => e.status !== 'inactive' && e.base_kam_id === row.kam_id && e.lines.includes(line.id))
+        .sort((a, b) => a.full_name.localeCompare(b.full_name, 'es')),
+    [executives, row.kam_id, line.id]
+  )
+
   // Por defecto, solo ejecutivas vigentes que llevan la línea; opcionalmente todas las vigentes
   const options = useMemo(() => {
     return executives
@@ -539,8 +549,16 @@ function AdjustModal({ row, line, executives, executivesError, onClose, onDone }
           )}
 
           <p className="text-sm text-gray-600">
-            El ajuste manual reemplaza la regla automática para esta zona en esta línea hasta que se quite.
+            El ajuste manual reemplaza la regla automática para esta zona en esta línea hasta que se quite. Solo se
+            puede forzar a un Ejecutivo Comercial de otra ciudad cuando en la zona no hay nadie con esa línea; si en la
+            zona hay dos o más con la línea, sirve para elegir a uno de ellos.
           </p>
+          {residentsWithLine.length > 0 && (
+            <div className="bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-lg text-sm">
+              {zoneLabel(row.zone_name)} ya tiene a {residentsWithLine.map(e => e.full_name).join(', ')} con{' '}
+              {line.name}: solo puedes elegir a quien vive en la zona.
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">

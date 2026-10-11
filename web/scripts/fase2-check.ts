@@ -3,7 +3,9 @@
  *
  * 1. Pruebas puras de computeZoneMatrix() / computeCoverage() con datos de juguete, incluido el
  *    ejemplo de Barranquilla y Cartagena (una ejecutiva en Cartagena con las líneas 1 y 2, dos en
- *    Barranquilla: una con 1 y 2 y otra con 3 y 4, que llega a Cartagena por alcance).
+ *    Barranquilla: una con 1 y 2 y otra con 3 y 4, que llega a Cartagena por alcance), la regla del
+ *    dueño para ajustes manuales (2026-10-11: solo se fuerza a alguien de otra ciudad si en la zona
+ *    nadie lleva la línea) y el escenario de referencia Bucaramanga ↔ Cúcuta (Diana y Linda).
  * 2. Con los datos reales de Supabase calcula la matriz zona→zona y la cobertura EN MEMORIA y la
  *    compara con la tabla "El equipo actual sobre el mapa" del documento de la Fase 2.
  *
@@ -22,7 +24,9 @@ import {
   computeCoverage,
   computeZoneMatrix,
   formatHoursMinutes,
+  joinNamesEs,
   loadCoverageInputs,
+  overrideBlockingResidents,
   type CoverageComputeInputs,
 } from '../lib/coverage'
 import type { ComputedCoverage, CoverageExecutiveInput, CoverageZoneInput, ZoneMatrix } from '../lib/types/coverage'
@@ -114,10 +118,11 @@ const EXPECTED: Array<{ label: string; areas: string[]; cells: Record<LineCode, 
   {
     label: 'Bucaramanga',
     areas: ['68001'],
+    // 2026-10-11, el dueño: Diana Caicedo lleva PerOssal y Columna; no tiene Reemplazo ni Medicina deportiva
     cells: {
-      perossal: vacant('Linda', hm(4, 49)),
-      reemplazo: cover('Diana Caicedo'),
-      deportiva: cover('Diana Caicedo'),
+      perossal: cover('Diana Caicedo'),
+      reemplazo: vacant('Viviana', hm(6, 38)),
+      deportiva: vacant('Nueva Bogotá', hm(9, 15)),
       columna: cover('Diana Caicedo'),
     },
   },
@@ -126,8 +131,8 @@ const EXPECTED: Array<{ label: string; areas: string[]; cells: Record<LineCode, 
     areas: ['54001'],
     cells: {
       perossal: cover('Linda'),
-      reemplazo: vacant('Diana Caicedo', hm(4, 52)),
-      deportiva: vacant('Diana Caicedo', hm(4, 52)),
+      reemplazo: vacant('Leyda', hm(10, 46)),
+      deportiva: vacant('Nueva Bogotá', hm(12, 2)),
       columna: vacant('Diana Caicedo', hm(4, 52)),
     },
   },
@@ -137,7 +142,7 @@ const EXPECTED: Array<{ label: string; areas: string[]; cells: Record<LineCode, 
     cells: {
       perossal: cover('Viviana'),
       reemplazo: cover('Viviana'),
-      deportiva: vacant('Diana Caicedo', hm(6, 49)),
+      deportiva: vacant('Joana', hm(7, 23)),
       columna: vacant('Diana Caicedo', hm(6, 49)),
     },
   },
@@ -389,16 +394,190 @@ function runPureTests(): PureCase[] {
     `L3/CTG = ${tieRow?.executive_id}:${tieRow?.kind}, note=${tieRow?.note}`
   )
 
-  // Ajuste manual: A cubre Cartagena en la 1 aunque C viva allí
-  const manual = baseInputs()
-  manual.overrides.push({ id: 'O1', line_id: 'L1', kam_id: 'CTG', executive_id: 'A', reason: 'Atiende por viaje', active: true })
-  rows = computeCoverage(manual, toyMatrix)
-  const manualRow = find(rows, 'L1', 'CTG')
+  // Regla del dueño (2026-10-11) para ajustes manuales: alguien de otra ciudad toma la zona por fuerza
+  // solo si en esa zona no hay nadie con esa línea (y si la lleva).
+
+  // (i) Forzar a una de otra ciudad en una zona sin residente con la línea → manual, aunque supere el alcance
+  const forcedNoResident = baseInputs()
+  forcedNoResident.lines = forcedNoResident.lines.map(line => ({ ...line, max_reach_minutes: 120 }))
+  forcedNoResident.overrides.push({ id: 'O1', line_id: 'L3', kam_id: 'CTG', executive_id: 'B', reason: 'Viaja cada mes', active: true })
+  rows = computeCoverage(forcedNoResident, toyMatrix)
+  const forcedRow = find(rows, 'L3', 'CTG')
   check(
-    'ajuste manual gana sobre local, con minutos desde su base y motivo en la nota',
-    manualRow?.kind === 'manual' && manualRow.executive_id === 'A' && manualRow.travel_minutes === 146 &&
-      manualRow.note === 'Atiende por viaje' && manualRow.override_id === 'O1',
-    `L1/CTG = ${manualRow?.executive_id}:${manualRow?.kind} ${manualRow?.travel_minutes} "${manualRow?.note}"`
+    'ajuste a una de otra ciudad en zona sin residente con la línea → manual (minutos desde su base y motivo en la nota)',
+    forcedRow?.kind === 'manual' && forcedRow.executive_id === 'B' && forcedRow.travel_minutes === 146 &&
+      forcedRow.source_kam_id === 'BAQ' && forcedRow.note === 'Viaja cada mes' && forcedRow.override_id === 'O1',
+    `L3/CTG = ${forcedRow?.executive_id}:${forcedRow?.kind} ${forcedRow?.travel_minutes} "${forcedRow?.note}"`
+  )
+
+  // (ii) Forzar a A (Barranquilla) en Cartagena línea 1, donde vive C con la línea 1 → sin efecto, sigue local C
+  const blocked = baseInputs()
+  blocked.overrides.push({ id: 'O1', line_id: 'L1', kam_id: 'CTG', executive_id: 'A', reason: 'Atiende por viaje', active: true })
+  rows = computeCoverage(blocked, toyMatrix)
+  const blockedRow = find(rows, 'L1', 'CTG')
+  check(
+    'ajuste a una de otra ciudad en zona con residente que lleva la línea → sin efecto, queda local y la nota nombra a la residente',
+    blockedRow?.kind === 'local' && blockedRow.executive_id === 'C' && blockedRow.travel_minutes === 0 &&
+      blockedRow.note === 'Ajuste manual sin efecto: la zona ya tiene a C Cartagena con esta línea' &&
+      blockedRow.override_id === 'O1',
+    `L1/CTG = ${blockedRow?.executive_id}:${blockedRow?.kind}, note=${blockedRow?.note}`
+  )
+
+  // (ii-b) Zona en conflicto (B y D en Barranquilla con la 3): forzar a E, de Cartagena, no la resuelve
+  const blockedConflict = baseInputs()
+  blockedConflict.executives.push(
+    { id: 'D', full_name: 'D Barranquilla', status: 'active', base_kam_id: 'BAQ' },
+    { id: 'E', full_name: 'E Cartagena', status: 'active', base_kam_id: 'CTG' }
+  )
+  blockedConflict.executiveLines.push({ executive_id: 'D', line_id: 'L3' }, { executive_id: 'E', line_id: 'L3' })
+  blockedConflict.overrides.push({ id: 'O1', line_id: 'L3', kam_id: 'BAQ', executive_id: 'E', reason: 'x', active: true })
+  rows = computeCoverage(blockedConflict, toyMatrix)
+  const blockedConflictRow = find(rows, 'L3', 'BAQ')
+  check(
+    'ajuste a una de otra ciudad en zona en conflicto → sin efecto, sigue el conflicto y la nota nombra a las dos',
+    blockedConflictRow?.kind === 'conflict' && blockedConflictRow.executive_id === null &&
+      Boolean(blockedConflictRow.note?.startsWith('Ajuste manual sin efecto: la zona ya tiene a B Barranquilla y D Barranquilla con esta línea')),
+    `L3/BAQ = ${blockedConflictRow?.kind}, note=${blockedConflictRow?.note}`
+  )
+
+  // (iii) Forzar a una de las dos residentes en conflicto → manual (lo resuelve), 0 min
+  const resolve = baseInputs()
+  resolve.executives.push({ id: 'D', full_name: 'D Barranquilla', status: 'active', base_kam_id: 'BAQ' })
+  resolve.executiveLines.push({ executive_id: 'D', line_id: 'L3' })
+  resolve.overrides.push({ id: 'O1', line_id: 'L3', kam_id: 'BAQ', executive_id: 'D', reason: 'Reparto del líder', active: true })
+  rows = computeCoverage(resolve, toyMatrix)
+  const resolveRow = find(rows, 'L3', 'BAQ')
+  check(
+    'ajuste a una de dos residentes en conflicto → manual (resuelve el conflicto, 0 min)',
+    resolveRow?.kind === 'manual' && resolveRow.executive_id === 'D' && resolveRow.travel_minutes === 0 &&
+      resolveRow.source_kam_id === 'BAQ' && resolveRow.note === 'Reparto del líder',
+    `L3/BAQ = ${resolveRow?.executive_id}:${resolveRow?.kind} ${resolveRow?.travel_minutes} "${resolveRow?.note}"`
+  )
+
+  // (iii-b) Una residente inactiva no bloquea: con C inactiva, A sí puede cubrir Cartagena en la 1 por fuerza
+  const inactiveResident = baseInputs()
+  inactiveResident.executives = inactiveResident.executives.map(executive =>
+    executive.id === 'C' ? { ...executive, status: 'inactive' as const } : executive
+  )
+  inactiveResident.overrides.push({ id: 'O1', line_id: 'L1', kam_id: 'CTG', executive_id: 'A', reason: 'Mientras se contrata', active: true })
+  rows = computeCoverage(inactiveResident, toyMatrix)
+  const inactiveRow = find(rows, 'L1', 'CTG')
+  check(
+    'residente inactiva no bloquea el ajuste a una de otra ciudad',
+    inactiveRow?.kind === 'manual' && inactiveRow.executive_id === 'A' && inactiveRow.travel_minutes === 146,
+    `L1/CTG = ${inactiveRow?.executive_id}:${inactiveRow?.kind} ${inactiveRow?.travel_minutes}`
+  )
+
+  // Misma regla que usa la API (409): quién bloquea y cómo se nombran
+  const apiBlockers = overrideBlockingResidents({ id: 'X', base_kam_id: 'BAQ' }, 'CTG', [
+    { id: 'Z', full_name: 'Zoe', base_kam_id: 'CTG' },
+    { id: 'Y', full_name: 'Ana', base_kam_id: 'CTG' },
+    { id: 'W', full_name: 'Otra zona', base_kam_id: 'BAQ' },
+  ])
+  const apiResident = overrideBlockingResidents({ id: 'Y', base_kam_id: 'CTG' }, 'CTG', [
+    { id: 'Z', full_name: 'Zoe', base_kam_id: 'CTG' },
+    { id: 'Y', full_name: 'Ana', base_kam_id: 'CTG' },
+  ])
+  check(
+    'regla compartida con la API: bloquean solo las residentes de la zona; quien vive en la zona no se bloquea',
+    joinNamesEs(apiBlockers.map(item => item.full_name)) === 'Ana y Zoe' && apiResident.length === 0 &&
+      joinNamesEs(['A', 'B', 'C']) === 'A, B y C' && joinNamesEs(['A']) === 'A',
+    `bloquean=${apiBlockers.map(item => item.full_name).join('|')}, residente=${apiResident.length}`
+  )
+
+  // (iv) Escenario de referencia Bucaramanga ↔ Cúcuta: carretera 290-292 min (> 240, ninguna llega por alcance).
+  // Diana Carolina Caicedo vive en Bucaramanga con PerOssal y Columna (no lleva Reemplazo ni Medicina deportiva).
+  // Linda Valentina Barrera (por contratar) lleva PerOssal, Columna y Reemplazo: Reemplazo en Bucaramanga y toda Cúcuta.
+  const nsMatrix: ZoneMatrix = { BGA: { BGA: 0, CUC: 290 }, CUC: { CUC: 0, BGA: 292 } }
+  const nsInputs = (lindaBase: 'BGA' | 'CUC', forced: Array<[string, string, string]>): CoverageComputeInputs => ({
+    zones: [
+      { id: 'BGA', name: 'Bucaramanga', area_id: '68001', active: true },
+      { id: 'CUC', name: 'Cúcuta', area_id: '54001', active: true },
+    ],
+    lines: [
+      { id: 'PER', code: 'perossal', name: 'PerOssal', max_reach_minutes: 240, active: true },
+      { id: 'REE', code: 'reemplazo', name: 'Reemplazo articular', max_reach_minutes: 240, active: true },
+      { id: 'DEP', code: 'deportiva', name: 'Medicina deportiva', max_reach_minutes: 240, active: true },
+      { id: 'COL', code: 'columna', name: 'Columna', max_reach_minutes: 240, active: true },
+    ],
+    executives: [
+      { id: 'DIANA', full_name: 'Diana Carolina Caicedo', status: 'active', base_kam_id: 'BGA' },
+      { id: 'LINDA', full_name: 'Linda Valentina Barrera', status: 'placeholder', base_kam_id: lindaBase },
+    ],
+    executiveLines: [
+      { executive_id: 'DIANA', line_id: 'PER' },
+      { executive_id: 'DIANA', line_id: 'COL' },
+      { executive_id: 'LINDA', line_id: 'PER' },
+      { executive_id: 'LINDA', line_id: 'COL' },
+      { executive_id: 'LINDA', line_id: 'REE' },
+    ],
+    lineZones: [],
+    overrides: forced.map(([line, zone, executive], index) => ({
+      id: `N${index + 1}`,
+      line_id: line,
+      kam_id: zone,
+      executive_id: executive,
+      reason: 'Forzado por el líder',
+      active: true,
+    })),
+  })
+  const describeRows = (list: ComputedCoverage[]) =>
+    list.map(row => `${row.line_id}/${row.kam_id}=${row.executive_id ?? '-'}:${row.kind}`).join(' ')
+  const is = (list: ComputedCoverage[], line: string, zone: string, executive: string | null, kind: string, minutes?: number) => {
+    const row = find(list, line, zone)
+    return Boolean(row) && row!.executive_id === executive && row!.kind === kind && (minutes === undefined || row!.travel_minutes === minutes)
+  }
+  const noIneffective = (list: ComputedCoverage[]) => !list.some(row => row.note?.includes('sin efecto'))
+
+  // Base de Linda = Cúcuta: Cúcuta local en 3 líneas; 1 ajuste forzado Bucaramanga/Reemplazo → Linda
+  const nsA0 = computeCoverage(nsInputs('CUC', []), nsMatrix)
+  const nsA = computeCoverage(nsInputs('CUC', [['REE', 'BGA', 'LINDA']]), nsMatrix)
+  check(
+    'escenario Bucaramanga/Cúcuta, Linda en Cúcuta: sin ajuste Bucaramanga/Reemplazo queda vacante (292 min > 240); con 1 ajuste forzado → Linda (manual); Cúcuta local en 3 líneas; Diana local en PerOssal y Columna; Medicina deportiva vacante',
+    find(nsA0, 'REE', 'BGA')?.kind === 'vacant' && find(nsA0, 'REE', 'BGA')?.nearest_executive_id === 'LINDA' &&
+      find(nsA0, 'REE', 'BGA')?.nearest_minutes === 292 &&
+      is(nsA, 'REE', 'BGA', 'LINDA', 'manual', 292) && find(nsA, 'REE', 'BGA')?.override_id === 'N1' &&
+      is(nsA, 'PER', 'CUC', 'LINDA', 'local') && is(nsA, 'COL', 'CUC', 'LINDA', 'local') && is(nsA, 'REE', 'CUC', 'LINDA', 'local') &&
+      is(nsA, 'PER', 'BGA', 'DIANA', 'local') && is(nsA, 'COL', 'BGA', 'DIANA', 'local') &&
+      is(nsA, 'DEP', 'BGA', null, 'vacant') && is(nsA, 'DEP', 'CUC', null, 'vacant') &&
+      find(nsA, 'DEP', 'BGA')?.nearest_executive_id === null &&
+      nsA.length === 8 && noIneffective(nsA),
+    describeRows(nsA)
+  )
+
+  // Con la misma base, forzar a Linda en Bucaramanga/PerOssal no vale: Diana vive allí y lleva PerOssal
+  const nsABlocked = computeCoverage(nsInputs('CUC', [['PER', 'BGA', 'LINDA']]), nsMatrix)
+  check(
+    'escenario Bucaramanga/Cúcuta, Linda en Cúcuta: forzarla en Bucaramanga/PerOssal queda sin efecto (Diana vive allí con PerOssal)',
+    is(nsABlocked, 'PER', 'BGA', 'DIANA', 'local') &&
+      find(nsABlocked, 'PER', 'BGA')?.note === 'Ajuste manual sin efecto: la zona ya tiene a Diana Carolina Caicedo con esta línea',
+    `PER/BGA = ${find(nsABlocked, 'PER', 'BGA')?.executive_id}:${find(nsABlocked, 'PER', 'BGA')?.kind}, note=${find(nsABlocked, 'PER', 'BGA')?.note}`
+  )
+
+  // Base de Linda = Bucaramanga: 5 ajustes (3 forzados a Cúcuta + 2 en Bucaramanga para resolver el conflicto)
+  const nsB0 = computeCoverage(nsInputs('BGA', []), nsMatrix)
+  const nsB = computeCoverage(
+    nsInputs('BGA', [
+      ['PER', 'CUC', 'LINDA'],
+      ['COL', 'CUC', 'LINDA'],
+      ['REE', 'CUC', 'LINDA'],
+      ['PER', 'BGA', 'DIANA'],
+      ['COL', 'BGA', 'DIANA'],
+    ]),
+    nsMatrix
+  )
+  check(
+    'escenario Bucaramanga/Cúcuta, Linda en Bucaramanga: sin ajustes hay conflicto en Bucaramanga (PerOssal, Columna) y Cúcuta vacante; con 5 ajustes → Cúcuta manual Linda en 3 líneas, Bucaramanga manual Diana en PerOssal y Columna, Reemplazo local Linda',
+    find(nsB0, 'PER', 'BGA')?.kind === 'conflict' && find(nsB0, 'COL', 'BGA')?.kind === 'conflict' &&
+      is(nsB0, 'REE', 'BGA', 'LINDA', 'local') &&
+      find(nsB0, 'PER', 'CUC')?.kind === 'vacant' && find(nsB0, 'REE', 'CUC')?.kind === 'vacant' &&
+      is(nsB, 'PER', 'CUC', 'LINDA', 'manual', 290) && is(nsB, 'COL', 'CUC', 'LINDA', 'manual', 290) &&
+      is(nsB, 'REE', 'CUC', 'LINDA', 'manual', 290) &&
+      is(nsB, 'PER', 'BGA', 'DIANA', 'manual', 0) && is(nsB, 'COL', 'BGA', 'DIANA', 'manual', 0) &&
+      is(nsB, 'REE', 'BGA', 'LINDA', 'local') &&
+      is(nsB, 'DEP', 'BGA', null, 'vacant') && is(nsB, 'DEP', 'CUC', null, 'vacant') &&
+      nsB.filter(row => row.kind === 'manual').length === 5 && noIneffective(nsB),
+    describeRows(nsB)
   )
 
   // Ajuste a quien no lleva la línea: sin efecto, queda el cálculo con aviso
@@ -566,7 +745,7 @@ async function main() {
   md.push('')
   md.push('## Resumen')
   md.push('')
-  md.push(`- Pruebas puras (ejemplo Barranquilla/Cartagena, conflicto, empate, ajuste manual, tope, equipos): **${pureOk}/${pure.length}** correctas.`)
+  md.push(`- Pruebas puras (ejemplo Barranquilla/Cartagena, conflicto, empate, ajustes manuales con la regla del dueño, escenario Bucaramanga/Cúcuta, tope, equipos): **${pureOk}/${pure.length}** correctas.`)
   md.push(`- Tabla "El equipo actual sobre el mapa": **${okCells}/${cells.length}** celdas coinciden (4 líneas × ${cells.length / 4} zonas; Bogotá cuenta como sus 4 zonas).`)
   md.push(
     `- Datos leídos: ${inputs.zones.length} zonas (${activeZones.length} activas), ${inputs.hospitals.length} IPS activas, ` +
