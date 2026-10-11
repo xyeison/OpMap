@@ -146,7 +146,7 @@ export default function HospitalGirosCard({ hospitalId }: { hospitalId: string }
                 {summary.topEps.map(eps => (
                   <li key={eps.codigo}>
                     <div className="flex items-baseline justify-between gap-3 text-sm">
-                      <span className="text-gray-800 truncate" title={`${eps.nombre} (${eps.codigo})`}>
+                      <span className="text-gray-800 truncate min-w-0" title={`${eps.nombre} (${eps.codigo})`}>
                         {eps.nombre} <span className="text-gray-400 text-xs">{eps.codigo.startsWith('nombre:') ? '' : identifica ? `NIT ${eps.codigo}` : eps.codigo}</span>
                       </span>
                       <span className="tabular-nums text-gray-900 whitespace-nowrap">
