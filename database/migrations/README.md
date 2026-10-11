@@ -77,3 +77,128 @@ recalcular enseguida.
 - **B** — re-desactiva Cartagena e Ibagué; luego **recalcular desde la app**. Las zonas MD
   borradas no se reactivan con un UPDATE (ya no existen); al final de B va comentado el INSERT
   con sus valores exactos por si hicieran falta.
+
+---
+
+# Migraciones — Fase 2: cobertura por línea
+
+> **ESTADO: NADA DE ESTO SE HA EJECUTADO.** Generado el 2026-10-11 a partir del estado vivo de
+> `norvxqgohddgsdkggqzq`, consultado solo con `SELECT`. Requiere la Fase 1 aplicada.
+
+## Qué cambia
+
+| Tabla | Cambio |
+|---|---|
+| `users` | `users_role_check` admite 8 roles: los 6 de antes + `line_leader` (líder de línea) y `commercial_director` (dirección comercial). |
+| `users` | 2 usuarios nuevos `line_leader`: Stefania Andrea Gonzalez Torres (`s.gonzalez@`, Medicina deportiva) y Yineth Paola Jiménez Escobar (`y.jimenez@`, Trauma). Contraseña aleatoria en bcrypt (pgcrypto `crypt(gen_random_uuid()::text, gen_salt('bf', 12))`): **nadie la conoce; el admin la cambia desde /users** antes de entregar el acceso. |
+| `users` | `m.cobo@`, `sramirez@`, `mn@` → `line_leader`; `laurab@` → `commercial_director` (los 4 eran `sales_manager`). |
+| `business_lines` | Líder de `deportiva` → `s.gonzalez@`; de `trauma` → `y.jimenez@` (solo si estaba vacío). Las 5 líneas quedan con líder. |
+| `executives` | `y.jimenez@` queda ligada a su usuario nuevo. Nueva columna `color` (`#RRGGBB`, CHECK de formato, NULL permitido) con un color por ejecutiva. |
+| `kams` | Nueva columna `base_city` y renombre de las 17 zonas por `area_id` (tabla abajo). |
+| `coverage` | `kind` admite `conflict`; columnas nuevas `nearest_executive_id` (FK a `executives`, `ON DELETE SET NULL`), `nearest_minutes`, `has_equipment` (NOT NULL, default true) y `note`. |
+
+### Zonas: nombre nuevo y ciudad base
+
+| area_id | Nombre hoy | Nombre nuevo (`kams.name`) | `base_city` |
+|---|---|---|---|
+| 08001 | Barranquilla | Atlántico y Magdalena | Barranquilla |
+| 13001 | Cartagena | Bolívar | Cartagena de Indias |
+| 23001 | Montería | Córdoba y Sucre | Montería |
+| 20001 | Valledupar | Cesar y La Guajira | Valledupar |
+| 68001 | Bucaramanga | Santander | Bucaramanga |
+| 54001 | Cúcuta | Norte de Santander | San José de Cúcuta |
+| 05001 | Medellín | Antioquia | Medellín |
+| 66001 | Pereira | Eje Cafetero | Pereira |
+| 73001 | Ibagué | Tolima | Ibagué |
+| 76001 | Cali | Valle y Cauca | Cali |
+| 52001 | Pasto | Nariño | Pasto |
+| 41001 | Neiva | Huila y Caquetá | Neiva |
+| 1100102 | Chapinero | Bogotá – Chapinero | Chapinero |
+| 1100110 | Engativá | Bogotá – Engativá | Engativá |
+| 1100108 | Kennedy | Bogotá – Kennedy | Kennedy |
+| 1100104 | San Cristóbal | Bogotá – San Cristóbal | San Cristóbal |
+| 70001 | Sincelejo (inactiva) | Sucre (Sincelejo) | Sincelejo |
+
+`base_city` sale de `municipalities.name` (area_id de 5 dígitos) o del `locality_name` más
+frecuente de las IPS con ese `locality_id` (7 dígitos; en 1100108 hay 7 IPS "Kennedy" y 1
+"Rafael Uribe Uribe", dato sucio). **Ojo con el importador de visitas:** los nombres DANE de
+13001 y 54001 son "Cartagena de Indias" y "San José de Cúcuta". Un Excel que traiga "Cartagena"
+o "Cúcuta" no casa ni con el nombre nuevo de la zona ni con `base_city` exacto; el importador debe
+aceptar también esos nombres cortos (o comparar por prefijo / sin "de Indias", "San José de").
+
+### Colores de ejecutiva
+
+Paleta categórica de 13 colores, sin gris (`#9ca3af` = Vacante en el mapa) ni ámbar
+(`#f59e0b` = Conflicto). Vecinas en el mapa que comparten línea quedan en familias distintas.
+
+| Ejecutiva | Zona base | Color |
+|---|---|---|
+| Carmen Barrios | Barranquilla | `#1f77b4` azul |
+| Alexa Ocampo | Cartagena | `#ad494a` ladrillo |
+| Mileydis Buelvas | Montería | `#2ca02c` verde |
+| Leyda Santiago | Valledupar | `#9467bd` violeta |
+| Diana Caicedo | Bucaramanga | `#d95f02` naranja oscuro |
+| Linda Barrera | Cúcuta | `#17becf` cian |
+| Viviana Delgado | Medellín | `#e377c2` rosa |
+| María Isabel Díaz | Pereira | `#8c564b` marrón |
+| Joana Gálvez | Cali | `#393b79` azul marino |
+| Diana Guerrero | Pasto | `#bcbd22` oliva |
+| Yineth Paola Jiménez | Bogotá (Chapinero) | `#d62728` rojo |
+| Nueva Barranquilla (placeholder) | Barranquilla | `#7b4173` ciruela |
+| Nueva Bogotá (placeholder) | Bogotá (Chapinero) | `#637939` musgo |
+
+Las ejecutivas que se creen desde la app nacen con `color = NULL`: la app debe usar un color por
+defecto y permitir elegirlo en /executives.
+
+## Orden y despliegue
+
+| # | Archivo | Qué hace | Destructivo |
+|---|---|---|---|
+| 4 | `2026-10-11_0400_fase2_cobertura.sql` | Todo lo de arriba, con comprobaciones finales | No (cambia nombres de zona y roles; reversible con 9910) |
+| — | `2026-10-11_9910_fase2_rollback.sql` | Deshace 0400 | Sí (borra `coverage`, colores, `base_city`; borra o desactiva los 2 usuarios nuevos) |
+
+**0400 y el código de Fase 2 van en la misma ventana.** Con la base migrada y el código viejo,
+`line_leader` y `commercial_director` no existen en `lib/permissions.ts` y `hasPermission()` les
+niega todo: las 3 líderes actuales y Laura se quedan sin acceso hasta desplegar. Con el código
+nuevo y la base sin migrar fallan las consultas a `kams.base_city`, `executives.color` y las
+columnas nuevas de `coverage`. Lo más limpio: ejecutar 0400 e inmediatamente desplegar.
+
+Después de desplegar:
+
+1. **Recalcular la cobertura**: /lines → "Recalcular cobertura" (`POST /api/coverage/recalculate`).
+   Hasta entonces `coverage` está vacía y el mapa por línea no tiene qué pintar.
+2. **Cambiar la contraseña** de `s.gonzalez@` y `y.jimenez@` desde /users y entregársela.
+
+Mensaje esperado (`NOTICE`): `Fase 2 OK: 8 roles, 2 usuarios nuevos, 5 líneas con líder, 17 zonas
+con base_city y nombre nuevo, 13 colores, coverage ampliada. …`. Si aparece un `WARNING` de
+colores repetidos, no aborta: revisar en /executives.
+
+Re-ejecutable: usuarios nuevos `ON CONFLICT DO NOTHING`; líderes, `executives.user_id`,
+`base_city` y `color` solo se rellenan si están vacíos. **Los roles y los nombres de zona se
+re-aplican siempre**: si ya se editaron desde la app, re-ejecutar 0400 los devuelve a estos valores.
+
+## Datos comprobados con SELECT (2026-10-10/11)
+
+- `users_role_check` = admin, user, viewer, sales_manager, contract_manager, data_manager.
+- `m.cobo@`, `sramirez@`, `mn@`, `laurab@` existen, activos, `sales_manager`. `s.gonzalez@` y
+  `y.jimenez@` no existen.
+- pgcrypto 1.3 en el esquema `extensions` (el script llama `extensions.crypt` /
+  `extensions.gen_salt`). Probado con SELECT: produce `$2a$12$…` de 60 caracteres, que
+  `lib/passwords.ts` reconoce como bcrypt (bcryptjs verifica `$2a$`).
+- `business_lines`: perossal → m.cobo@, reemplazo → sramirez@, columna → mn@, deportiva y
+  trauma sin líder; las 5 con `max_reach_minutes = 240`.
+- `executives`: 11 con correo + 2 placeholders; y.jimenez@ con `user_id` NULL.
+- `kams`: 17 filas, un `area_id` por fila; los 12 de 5 dígitos existen en `municipalities.code`
+  y los 4 de 7 dígitos tienen IPS con ese `locality_id`.
+- `coverage` y `coverage_overrides`: 0 filas. `coverage_kind_check` sin `conflict`.
+- El rol se lee de `users` en cada petición (`lib/auth-server.ts`), así que el cambio de rol
+  aplica sin cerrar sesión.
+
+## Cómo volver atrás
+
+Primero volver a desplegar el código anterior a la Fase 2; luego ejecutar
+`2026-10-11_9910_fase2_rollback.sql` (una transacción): vacía `coverage` y quita sus 4 columnas
+y `conflict`; quita `executives.color`; devuelve los nombres de zona del 2026-10-10 y quita
+`base_city`; deja deportiva y trauma sin líder; pasa a `sales_manager` a todo usuario
+`line_leader`/`commercial_director`; borra `s.gonzalez@` y `y.jimenez@` (o, si ya tienen datos
+ligados, los desactiva como `viewer`); y restaura el CHECK de 6 roles.

@@ -4,12 +4,13 @@ import { useState, useEffect } from 'react'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
 import { useUser } from '@/contexts/UserContext'
+import type { Role } from '@/lib/permissions'
 
 interface User {
   id: string
   email: string
   full_name: string
-  role: 'admin' | 'sales_manager' | 'contract_manager' | 'data_manager' | 'viewer' | 'user'
+  role: Role
   active: boolean
   created_at: string
 }
@@ -175,28 +176,32 @@ export default function UsersPage() {
     }
   }
 
-  const roleLabels = {
+  const roleLabels: Record<Role, string> = {
     admin: 'Administrador',
     sales_manager: 'Ventas',
     contract_manager: 'Contratos',
     data_manager: 'Datos',
     viewer: 'Visualizador',
-    user: 'Usuario'
+    user: 'Usuario',
+    line_leader: 'Líder de línea',
+    commercial_director: 'Dirección comercial'
   }
 
-  const roleColors = {
+  const roleColors: Record<Role, string> = {
     admin: 'from-purple-600 to-purple-700',
     sales_manager: 'from-blue-600 to-blue-700',
     contract_manager: 'from-green-600 to-green-700',
     data_manager: 'from-yellow-600 to-yellow-700',
     viewer: 'from-gray-500 to-gray-600',
-    user: 'from-gray-400 to-gray-500'
+    user: 'from-gray-400 to-gray-500',
+    line_leader: 'from-teal-600 to-teal-700',
+    commercial_director: 'from-indigo-600 to-indigo-700'
   }
 
   const filteredUsers = users.filter(user => 
     user.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    roleLabels[user.role].toLowerCase().includes(searchTerm.toLowerCase())
+    (roleLabels[user.role] || user.role || '').toLowerCase().includes(searchTerm.toLowerCase())
   )
 
   const activeUsers = filteredUsers.filter(u => u.active).length
@@ -425,6 +430,8 @@ export default function UsersPage() {
                           <option value="data_manager">Gestor de Datos</option>
                           <option value="contract_manager">Gestor de Contratos</option>
                           <option value="sales_manager">Gestor de Ventas</option>
+                          <option value="line_leader">Líder de línea</option>
+                          <option value="commercial_director">Dirección comercial</option>
                           <option value="admin">Administrador</option>
                         </select>
                       </div>
@@ -675,6 +682,8 @@ export default function UsersPage() {
                               <option value="data_manager">Gestor de Datos</option>
                               <option value="contract_manager">Gestor de Contratos</option>
                               <option value="sales_manager">Gestor de Ventas</option>
+                          <option value="line_leader">Líder de línea</option>
+                          <option value="commercial_director">Dirección comercial</option>
                               <option value="admin">Administrador</option>
                             </select>
                           )}
@@ -785,6 +794,8 @@ export default function UsersPage() {
                             <option value="data_manager">Datos</option>
                             <option value="contract_manager">Contratos</option>
                             <option value="sales_manager">Ventas</option>
+                            <option value="line_leader">Líder de línea</option>
+                            <option value="commercial_director">Dir. comercial</option>
                             <option value="admin">Admin</option>
                           </select>
                         )}

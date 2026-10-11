@@ -6,7 +6,7 @@ import PermissionGuard from '@/components/PermissionGuard'
 import { usePermissions } from '@/hooks/usePermissions'
 import type { BusinessLine, Executive, ExecutiveStatus } from '@/lib/types/lines'
 import ExecutiveModal from './ExecutiveModal'
-import { readError, STATUS_BADGE, STATUS_LABELS, zoneLabel, type ZoneOption } from './shared'
+import { executiveColor, readError, STATUS_BADGE, STATUS_LABELS, zoneLabel, type ZoneOption } from './shared'
 
 type StatusFilter = 'current' | ExecutiveStatus | 'all'
 
@@ -182,7 +182,7 @@ function ExecutivesContent() {
         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
           <div>
             <h1 className="text-3xl lg:text-4xl font-bold text-white">Ejecutivos Comerciales</h1>
-            <p className="text-gray-300 mt-2">Equipo comercial: zona base, líneas que lleva y estado</p>
+            <p className="text-gray-300 mt-2">Equipo comercial: zona base, líneas que lleva, color en el mapa y estado</p>
           </div>
           {canEdit && !loadError && !linesError && (
             <button
@@ -284,7 +284,12 @@ function ExecutivesContent() {
                   return (
                     <tr key={executive.id} className="hover:bg-gray-50 transition-colors align-top">
                       <td className="px-6 py-4">
-                        <div className={`text-sm font-semibold ${executive.status === 'inactive' ? 'text-gray-400' : 'text-gray-900'}`}>
+                        <div className={`flex items-center gap-2 text-sm font-semibold ${executive.status === 'inactive' ? 'text-gray-400' : 'text-gray-900'}`}>
+                          <span
+                            className={`w-3.5 h-3.5 rounded-full shrink-0 border ${executiveColor(executive) ? 'border-gray-300' : 'border-dashed border-gray-400'}`}
+                            style={{ backgroundColor: executiveColor(executive) ?? 'transparent' }}
+                            title={executiveColor(executive) ? `Color en el mapa: ${executiveColor(executive)}` : 'Sin color asignado'}
+                          />
                           {executive.full_name}
                         </div>
                         {executive.notes && (

@@ -5,11 +5,15 @@ import { jsonError, readJson, zodMessage } from '@/app/api/kams/_lib/kam-shared'
 import { UUID_RE, businessLineUpdateSchema } from '@/lib/fase1-schemas'
 import type { BusinessLineResponse } from '@/lib/types/lines'
 import { loadBusinessLines } from '../_lib/line-shared'
+import { hasPermission } from '@/lib/permissions'
+import { isLineLeader } from '@/lib/coverage'
 
 type Params = { params: { id: string } }
 
 // PATCH /api/business-lines/[id] — cambia nombre, líder, alcance máximo o estado de una línea.
 // code y sort_order no se editan desde la API.
+// Fase 2: line_leader (lines:edit sin map:all-lines) solo edita la línea que lidera, y no puede
+// cambiar su líder ni su estado (eso queda para admin y dirección comercial).
 export async function PATCH(request: NextRequest, { params }: Params) {
   const auth = await requirePermission(request, 'lines:edit')
   if (!auth.ok) return auth.response
@@ -23,6 +27,15 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       return jsonError(zodMessage(parsed.error), 400)
     }
     const changes = parsed.data
+
+    if (!hasPermission(auth.user.role, 'map:all-lines')) {
+      if (!(await isLineLeader(auth.user, lineId))) {
+        return jsonError('Solo puedes editar la línea que lideras', 403)
+      }
+      if (changes.leader_user_id !== undefined || changes.active !== undefined) {
+        return jsonError('Solo un administrador o la dirección comercial puede cambiar el líder o el estado de la línea', 403)
+      }
+    }
 
     // El líder debe ser un usuario activo de OpMap
     if (changes.leader_user_id) {

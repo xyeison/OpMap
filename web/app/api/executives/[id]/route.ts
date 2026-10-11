@@ -57,6 +57,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     if (input.base_kam_id !== undefined) update.base_kam_id = input.base_kam_id
     if (input.odoo_employee_id !== undefined) update.odoo_employee_id = input.odoo_employee_id
     if (input.notes !== undefined) update.notes = input.notes
+    if (input.color !== undefined) update.color = input.color
     if (input.email !== undefined && input.email !== current.email) {
       update.email = input.email
       update.user_id = await resolveUserIdByEmail(input.email, executiveId)

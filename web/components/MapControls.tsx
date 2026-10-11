@@ -5,6 +5,19 @@ import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { useVisits } from '@/hooks/useVisits'
 import { zoneDisplayName } from '@/lib/zone-names'
+import type { MapLine, MapMode } from './MapComponent'
+
+// Leyenda del modo por línea (colores ya validados en MapComponent)
+export interface LineLegend {
+  lineName: string
+  executives: { id: string; name: string; color: string; zones: number }[]
+  vacantColor: string
+  conflictColor: string
+  vacant: number
+  conflict: number
+  noEquipment: number
+  totalZones: number
+}
 
 interface MapControlsProps {
   mapData: any
@@ -20,6 +33,25 @@ interface MapControlsProps {
   onShowContractsChange?: (show: boolean) => void
   viewMode?: 'kams' | 'zones'
   onViewModeChange?: (mode: 'kams' | 'zones') => void
+  // Mapa por línea
+  lines?: MapLine[]
+  selectedLineCode?: string | null
+  onLineChange?: (code: string) => void
+  canSeeAllLines?: boolean
+  mapMode?: MapMode
+  onMapModeChange?: (mode: MapMode) => void
+  lineLegend?: LineLegend | null
+}
+
+// Muestra rayada de "sin equipo" para la leyenda (mismo patrón que los territorios)
+const NO_EQUIPMENT_SWATCH: React.CSSProperties = {
+  display: 'inline-block',
+  width: '30px',
+  height: '12px',
+  border: '1px dashed #333',
+  backgroundColor: 'rgba(107, 114, 128, 0.15)',
+  backgroundImage: 'repeating-linear-gradient(45deg, rgba(107, 114, 128, 0.75) 0 3px, transparent 3px 8px)',
+  flexShrink: 0
 }
 
 export default function MapControls({
@@ -35,8 +67,16 @@ export default function MapControls({
   onMapNavigate,
   onShowContractsChange,
   viewMode = 'kams',
-  onViewModeChange
+  onViewModeChange,
+  lines = [],
+  selectedLineCode = null,
+  onLineChange,
+  canSeeAllLines = false,
+  mapMode = 'line',
+  onMapModeChange,
+  lineLegend = null
 }: MapControlsProps) {
+  const selectedLine = lines.find(l => l.code === selectedLineCode) ?? null
   const [isOpen, setIsOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<'filters' | 'visits' | 'legend' | 'search'>('filters')
   const [searchTerm, setSearchTerm] = useState('')
@@ -324,12 +364,17 @@ export default function MapControls({
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"></path>
           </svg>
         )}
+        {selectedLine && !isOpen && (
+          <span className="max-w-[9rem] truncate text-gray-900">
+            {mapMode === 'zones' ? 'Vista por zonas' : selectedLine.name}
+          </span>
+        )}
         <span className="hidden sm:inline">{isOpen ? 'Cerrar' : 'Controles'}</span>
       </button>
 
       {/* Panel de controles moderno */}
       {isOpen && (
-        <div className="fixed bottom-16 right-4 z-[9995] bg-white rounded-2xl shadow-2xl border border-gray-100" style={{ width: '360px', maxHeight: 'calc(100vh - 120px)', overflowY: 'auto' }}>
+        <div className="fixed bottom-16 right-4 z-[9995] bg-white rounded-2xl shadow-2xl border border-gray-100" style={{ width: 'min(360px, calc(100vw - 2rem))', maxHeight: 'calc(100vh - 120px)', overflowY: 'auto' }}>
           {/* Botón de cerrar dentro del panel */}
           <button
             onClick={() => setIsOpen(false)}
@@ -341,8 +386,52 @@ export default function MapControls({
             </svg>
           </button>
           
+          {/* Línea de negocio y vista (por línea / por zonas) */}
+          {lines.length > 0 && (
+            <div className="px-4 pt-4 pb-3 pr-12 border-b border-gray-100">
+              <label htmlFor="map-line-select" className="text-xs font-semibold text-gray-700 block mb-1.5">
+                Línea de negocio
+              </label>
+              <select
+                id="map-line-select"
+                value={selectedLineCode ?? ''}
+                onChange={(e) => onLineChange?.(e.target.value)}
+                disabled={lines.length < 2}
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent bg-white disabled:bg-gray-50 disabled:text-gray-700"
+              >
+                {lines.map(line => (
+                  <option key={line.id} value={line.code}>{line.name}</option>
+                ))}
+              </select>
+              {canSeeAllLines && onMapModeChange && (
+                <div className="mt-2 grid grid-cols-2 gap-1 p-1 bg-gray-100 rounded-lg" role="group" aria-label="Vista del mapa">
+                  <button
+                    type="button"
+                    onClick={() => onMapModeChange('line')}
+                    aria-pressed={mapMode === 'line'}
+                    className={`px-2 py-1.5 text-xs font-medium rounded-md transition-all ${
+                      mapMode === 'line' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    Por línea
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onMapModeChange('zones')}
+                    aria-pressed={mapMode === 'zones'}
+                    className={`px-2 py-1.5 text-xs font-medium rounded-md transition-all ${
+                      mapMode === 'zones' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    Zonas
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Tabs modernos */}
-          <div className="flex p-2 bg-gray-50 rounded-t-2xl">
+          <div className={`flex p-2 bg-gray-50 ${lines.length > 0 ? "" : "rounded-t-2xl"}`}>
             <button
               onClick={() => setActiveTab('filters')}
               className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
@@ -751,6 +840,57 @@ export default function MapControls({
             {/* Tab de Leyenda */}
             {activeTab === 'legend' && (
               <div>
+                {lineLegend && (
+                  <div className="mb-4 pb-3 border-b">
+                    <h3 className="text-sm font-semibold mb-1">Cobertura · {lineLegend.lineName}</h3>
+                    <p className="text-xs text-gray-500 mb-3">
+                      Cada territorio toma el color del Ejecutivo Comercial que cubre su zona en esta línea.
+                    </p>
+                    <div className="space-y-1.5 text-sm">
+                      {lineLegend.executives.length === 0 && (
+                        <p className="text-xs text-gray-500">Nadie lleva esta línea todavía.</p>
+                      )}
+                      {lineLegend.executives.map(e => (
+                        <div key={e.id} className="flex items-center gap-2">
+                          <span
+                            className="inline-block rounded-sm flex-shrink-0"
+                            style={{ width: '14px', height: '14px', backgroundColor: e.color, border: '1px solid #333' }}
+                          />
+                          <span className="flex-1 min-w-0 truncate">{e.name}</span>
+                          <span className="text-xs text-gray-500 flex-shrink-0">
+                            {e.zones} {e.zones === 1 ? 'zona' : 'zonas'}
+                          </span>
+                        </div>
+                      ))}
+                      <div className="flex items-center gap-2 pt-1">
+                        <span
+                          className="inline-block rounded-sm flex-shrink-0"
+                          style={{ width: '14px', height: '14px', backgroundColor: lineLegend.vacantColor, border: '1px solid #333' }}
+                        />
+                        <span className="flex-1">Vacante</span>
+                        <span className="text-xs text-gray-500">{lineLegend.vacant}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="inline-block rounded-sm flex-shrink-0"
+                          style={{ width: '14px', height: '14px', backgroundColor: lineLegend.conflictColor, border: '1px solid #333' }}
+                        />
+                        <span className="flex-1">Conflicto (dos locales con la línea)</span>
+                        <span className="text-xs text-gray-500">{lineLegend.conflict}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span style={NO_EQUIPMENT_SWATCH} />
+                        <span className="flex-1">Sin equipo (rayado)</span>
+                        <span className="text-xs text-gray-500">{lineLegend.noEquipment}</span>
+                      </div>
+                    </div>
+                    {lineLegend.totalZones === 0 && (
+                      <p className="mt-3 text-xs text-amber-700">
+                        No hay cobertura calculada para esta línea. Recalcúlala desde Líneas.
+                      </p>
+                    )}
+                  </div>
+                )}
                 <h3 className="text-sm font-semibold mb-3">Convenciones</h3>
                 <div className="space-y-2 text-sm">
                   <div className="flex items-center gap-2">
@@ -780,7 +920,9 @@ export default function MapControls({
                     <span>Territorio asignado</span>
                   </div>
                   <div className="mt-3 pt-3 border-t text-xs text-gray-600">
-                    <i className="fa fa-info-circle"></i> Los colores identifican cada zona y su territorio de cobertura asignado
+                    <i className="fa fa-info-circle"></i> {lineLegend
+                      ? 'Los pines conservan el color de su zona; territorios y puntos usan el color del Ejecutivo Comercial de la línea'
+                      : 'Los colores identifican cada zona y su territorio de cobertura asignado'}
                   </div>
                 </div>
 

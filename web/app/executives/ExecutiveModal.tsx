@@ -2,7 +2,15 @@
 
 import { useState } from 'react'
 import type { BusinessLine, Executive, ExecutiveStatus } from '@/lib/types/lines'
-import { readError, STATUS_LABELS, zoneLabel, type ZoneOption } from './shared'
+import {
+  EXECUTIVE_PALETTE,
+  executiveColor,
+  HEX_COLOR_RE,
+  readError,
+  STATUS_LABELS,
+  zoneLabel,
+  type ZoneOption,
+} from './shared'
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -24,6 +32,9 @@ export default function ExecutiveModal({ executive, zones, lines, onClose, onSav
   const [selectedLines, setSelectedLines] = useState<string[]>(executive?.lines ?? [])
   const [odooId, setOdooId] = useState(executive?.odoo_employee_id != null ? String(executive.odoo_employee_id) : '')
   const [notes, setNotes] = useState(executive?.notes ?? '')
+  // Fase 2: color en el mapa por línea (la API lo devuelve como `color`)
+  const initialColor = executive ? executiveColor(executive) : null
+  const [color, setColor] = useState(initialColor ?? '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -54,6 +65,11 @@ export default function ExecutiveModal({ executive, zones, lines, onClose, onSav
     if (!trimmedCompany) return setError('La empresa es requerida')
     if (!baseKamId) return setError('Selecciona la zona base')
 
+    const trimmedColor = color.trim()
+    if (trimmedColor && !HEX_COLOR_RE.test(trimmedColor)) {
+      return setError('El color debe tener el formato #RRGGBB')
+    }
+
     let odooEmployeeId: number | null = null
     if (trimmedOdoo) {
       const parsed = Number(trimmedOdoo)
@@ -63,7 +79,7 @@ export default function ExecutiveModal({ executive, zones, lines, onClose, onSav
       odooEmployeeId = parsed
     }
 
-    const body = {
+    const body: Record<string, unknown> = {
       full_name: trimmedName,
       email: trimmedEmail || null,
       company: trimmedCompany,
@@ -72,6 +88,11 @@ export default function ExecutiveModal({ executive, zones, lines, onClose, onSav
       lines: selectedLines,
       odoo_employee_id: odooEmployeeId,
       notes: notes.trim() || null,
+    }
+    // El color solo se envía si se eligió uno (al crear) o si cambió (al editar)
+    const normalizedColor = trimmedColor.toLowerCase()
+    if (normalizedColor && normalizedColor !== (initialColor ?? '').toLowerCase()) {
+      body.color = normalizedColor
     }
 
     setSaving(true)
@@ -224,6 +245,45 @@ export default function ExecutiveModal({ executive, zones, lines, onClose, onSav
                 ))}
               </div>
             )}
+          </div>
+
+          <div>
+            <span className="block text-sm font-medium text-gray-700 mb-2">Color en el mapa</span>
+            <div className="flex flex-wrap items-center gap-3">
+              <input
+                type="color"
+                value={HEX_COLOR_RE.test(color) ? color : '#9ca3af'}
+                onChange={e => setColor(e.target.value)}
+                className="h-10 w-14 cursor-pointer rounded border border-gray-300 bg-white p-1"
+                aria-label="Elegir color"
+              />
+              <input
+                type="text"
+                value={color}
+                onChange={e => setColor(e.target.value)}
+                placeholder="#RRGGBB"
+                maxLength={7}
+                className="w-28 px-3 py-2 border border-gray-300 rounded-lg font-mono text-sm focus:outline-none focus:ring-2 focus:ring-gray-700"
+              />
+              <div className="flex flex-wrap gap-1.5">
+                {EXECUTIVE_PALETTE.map(swatch => (
+                  <button
+                    key={swatch}
+                    type="button"
+                    onClick={() => setColor(swatch)}
+                    className={`w-6 h-6 rounded-full border-2 ${
+                      color.toLowerCase() === swatch ? 'border-gray-900' : 'border-white shadow'
+                    }`}
+                    style={{ backgroundColor: swatch }}
+                    title={swatch}
+                    aria-label={`Usar color ${swatch}`}
+                  />
+                ))}
+              </div>
+            </div>
+            <p className="text-xs text-gray-500 mt-1">
+              Colorea en el mapa por línea las zonas que cubre. Usa un color distinto al de las demás.
+            </p>
           </div>
 
           <div>

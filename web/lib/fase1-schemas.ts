@@ -101,6 +101,13 @@ const baseKamIdSchema = z
   .regex(UUID_RE, 'Zona base no válida')
   .transform(id => id.toLowerCase())
 
+// Color del Ejecutivo Comercial en el mapa por línea (Fase 2): #RRGGBB; '' o null → null (sin color).
+const executiveColorSchema = z
+  .union([z.string().trim().regex(/^#[0-9a-fA-F]{6}$/, 'El color debe tener el formato #RRGGBB'), z.literal(''), z.null()], {
+    errorMap: () => ({ message: 'El color debe tener el formato #RRGGBB' }),
+  })
+  .transform(value => (value ? value.toUpperCase() : null))
+
 const linesSchema = z
   .array(uuidSchema, {
     required_error: 'Falta la lista de líneas',
@@ -119,6 +126,7 @@ export const executiveCreateSchema = z.object({
   lines: linesSchema,
   odoo_employee_id: odooEmployeeIdSchema.optional(),
   notes: optionalText(2000),
+  color: executiveColorSchema.optional(),
 })
 
 export type ExecutiveCreate = z.infer<typeof executiveCreateSchema>
@@ -143,6 +151,7 @@ export const executiveUpdateSchema = z
     lines: linesSchema.optional(),
     odoo_employee_id: odooEmployeeIdSchema.optional(),
     notes: patchNotesSchema,
+    color: executiveColorSchema.optional(),
   })
   .refine(data => Object.values(data).some(value => value !== undefined), {
     message: 'No hay campos para actualizar',

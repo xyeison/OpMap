@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { requireUser } from '@/lib/require-role'
+import { hasPermission } from '@/lib/permissions'
+import { LINE_CODE_RE, findAccessibleLine, loadCoverageResponse } from '@/lib/coverage'
+import type { CoverageExecutiveRef, CoverageLineInfo } from '@/lib/types/coverage'
 
 // Columnas de hospital que realmente usa el mapa (marcadores, tooltips, filtros y búsqueda).
 // Se evita hospitals(*) para no enviar al navegador dirección, teléfono, email, servicios, etc.
@@ -9,6 +12,8 @@ const HOSPITAL_COLUMNS =
   'surgeries, ambulances, municipality_name, department_name, locality_name, type, doctors'
 
 const KAM_COLUMNS = 'id, name, area_id, lat, lng, color, zone_id'
+// base_city llega con la migración de la Fase 2; mientras no exista se usa KAM_COLUMNS
+const KAM_COLUMNS_WITH_CITY = `${KAM_COLUMNS}, base_city`
 
 // Ejecutivo Comercial que vive en una zona (base_kam_id). Solo activos o por contratar.
 interface MapZoneExecutive {
@@ -35,6 +40,58 @@ async function fetchAllRows<T = any>(
   return { data: rows, error: null }
 }
 
+// Columna inexistente (migración aún no aplicada): PostgreSQL 42703. Se reintenta con columnas antiguas.
+const isUndefinedColumn = (error: any) => error?.code === '42703' || /does not exist/i.test(error?.message || '')
+
+async function selectWithFallback<T>(
+  run: (columns: string) => PromiseLike<{ data: T | null; error: any }>,
+  columns: string,
+  legacyColumns: string
+): Promise<{ data: T | null; error: any }> {
+  const result = await run(columns)
+  if (result.error && isUndefinedColumn(result.error)) return run(legacyColumns)
+  return result
+}
+
+/**
+ * Cobertura de la línea elegida, con la MISMA forma que GET /api/coverage (lib/coverage.ts:
+ * filas guardadas o, si la línea aún no se ha recalculado nunca, calculadas en memoria), más los
+ * Ejecutivos Comerciales de la línea (activos o por contratar) con su color, para la leyenda.
+ */
+async function loadLineCoverage(line: CoverageLineInfo) {
+  const [coverage, linksResult] = await Promise.all([
+    loadCoverageResponse(line),
+    supabaseAdmin.from('executive_lines').select('executive_id').eq('line_id', line.id),
+  ])
+  if (linksResult.error) throw linksResult.error
+
+  // Leyenda: quienes llevan la línea y quien cubra alguna zona (p. ej. por ajuste manual)
+  const legendIds = new Set<string>((linksResult.data || []).map((l: any) => l.executive_id as string))
+  coverage.rows.forEach(r => {
+    if (r.executive) legendIds.add(r.executive.id)
+  })
+
+  let executives: CoverageExecutiveRef[] = []
+  if (legendIds.size > 0) {
+    const { data, error } = await supabaseAdmin
+      .from('executives')
+      .select('id, full_name, status, color')
+      .in('id', Array.from(legendIds))
+      .in('status', ['active', 'placeholder'])
+    if (error) throw error
+    executives = ((data || []) as any[])
+      .map(e => ({
+        id: e.id as string,
+        full_name: e.full_name as string,
+        status: e.status as CoverageExecutiveRef['status'],
+        color: typeof e.color === 'string' ? e.color : null,
+      }))
+      .sort((a, b) => a.full_name.localeCompare(b.full_name, 'es'))
+  }
+
+  return { coverage: { line: coverage.line, rows: coverage.rows }, executives }
+}
+
 export async function GET(request: NextRequest) {
   try {
     // Verificar autenticación (sesión de usuario activo)
@@ -43,12 +100,34 @@ export async function GET(request: NextRequest) {
 
     const supabase = supabaseAdmin
 
+    // Acceso por línea: con ?line=<code> la línea debe estar entre las del usuario;
+    // sin ?line (vista por zonas) solo quien ve todas las líneas.
+    // Misma regla que GET /api/me/lines (lib/coverage.ts: resolveUserLines / findAccessibleLine).
+    const lineCode = (request.nextUrl.searchParams.get('line') || '').trim().toLowerCase()
+    let selectedLine: CoverageLineInfo | null = null
+    if (lineCode) {
+      if (!LINE_CODE_RE.test(lineCode)) {
+        return NextResponse.json({ error: 'Código de línea no válido' }, { status: 400 })
+      }
+      const access = await findAccessibleLine(auth.user, lineCode)
+      if (!access) {
+        return NextResponse.json({ error: 'No tienes acceso a esta línea' }, { status: 403 })
+      }
+      selectedLine = access.line
+    } else if (!hasPermission(auth.user.role, 'map:all-lines')) {
+      return NextResponse.json({ error: 'Debes elegir una línea de negocio' }, { status: 403 })
+    }
+
     // Cargar todos los datos necesarios para el mapa
     const [kamsResult, assignmentsResult, municipalitiesResult, hospitalsResult, contractsResult, executivesResult] = await Promise.all([
-      supabase.from('kams')
-        .select(KAM_COLUMNS)
-        .eq('active', true)
-        .eq('participates_in_assignment', true),  // Solo zonas con territorio
+      selectWithFallback<any[]>(
+        cols => supabase.from('kams')
+          .select(cols)
+          .eq('active', true)
+          .eq('participates_in_assignment', true),  // Solo zonas con territorio
+        KAM_COLUMNS_WITH_CITY,
+        KAM_COLUMNS
+      ),
       fetchAllRows<any>((from, to) =>
         supabase.from('assignments')
           .select(`id, kam_id, hospital_id, travel_time, assignment_type, is_base_territory, hospitals!inner(${HOSPITAL_COLUMNS}), kams!inner(id, name, color)`)
@@ -226,7 +305,11 @@ export async function GET(request: NextRequest) {
       territoryStats[key].providers = Array.from(territoryStats[key].providers)
     })
 
+    // Cobertura de la línea elegida (filas ya guardadas por el motor)
+    const lineData = selectedLine ? await loadLineCoverage(selectedLine) : null
+
     return NextResponse.json({
+      ...(lineData ? { coverage: lineData.coverage, executives: lineData.executives } : {}),
       kams: kamsFiltered,
       assignments: assignmentsResult.data || [],
       hospitals: hospitalsResult.data || [],

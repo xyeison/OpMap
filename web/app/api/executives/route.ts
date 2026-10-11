@@ -64,6 +64,7 @@ export async function POST(request: NextRequest) {
         user_id: userId,
         odoo_employee_id: input.odoo_employee_id ?? null,
         notes: input.notes,
+        ...(input.color !== undefined ? { color: input.color } : {}),
         left_at: status === 'inactive' ? todayInBogota() : null,
       })
       .select('id')

@@ -34,3 +34,18 @@ export async function readError(response: Response, fallback: string): Promise<s
   if (data && typeof data.error === 'string' && data.error) return data.error
   return `${fallback} (${response.status})`
 }
+
+// Fase 2: color de la ejecutiva en el mapa por línea (executives.color, hex #RRGGBB).
+export const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/
+
+/** Paleta categórica sugerida (colores bien separados entre sí). */
+export const EXECUTIVE_PALETTE = [
+  '#e6194b', '#3cb44b', '#4363d8', '#f58231', '#911eb4', '#42d4f4', '#f032e6',
+  '#9a6324', '#469990', '#800000', '#808000', '#000075', '#bfef45',
+]
+
+/** Color de la ejecutiva si la API lo envía y es válido; null si no. */
+export function executiveColor(executive: object): string | null {
+  const color = (executive as { color?: unknown }).color
+  return typeof color === 'string' && HEX_COLOR_RE.test(color) ? color : null
+}

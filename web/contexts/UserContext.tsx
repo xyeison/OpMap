@@ -1,12 +1,13 @@
 'use client'
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
+import type { Role } from '@/lib/permissions'
 
 interface User {
   id: string
   email: string
   full_name: string
-  role: 'admin' | 'sales_manager' | 'contract_manager' | 'data_manager' | 'viewer' | 'user'
+  role: Role
 }
 
 interface UserContextType {

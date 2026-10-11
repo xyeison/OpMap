@@ -31,6 +31,12 @@ interface HospitalMarkerProps {
   contractProviders?: string[]
   isSelected?: boolean
   executives?: ZoneExecutive[]
+  // Mapa por línea: quién cubre la zona de esta IPS en la línea elegida (texto plano)
+  lineInfo?: {
+    lineName: string
+    coverageText: string
+    hasEquipment: boolean
+  }
 }
 
 export default function HospitalMarker({ 
@@ -41,7 +47,8 @@ export default function HospitalMarker({
   contractValue,
   contractProviders,
   isSelected,
-  executives
+  executives,
+  lineInfo
 }: HospitalMarkerProps) {
   const markerRef = useRef<any>(null)
   const router = useRouter()
@@ -135,7 +142,21 @@ export default function HospitalMarker({
               </>
             )}
             <strong>Zona:</strong> {zoneDisplayName(kam.name)}<br/>
-            <strong>Ejecutivo Comercial:</strong> {formatZoneExecutives(executives)}<br/>
+            {lineInfo ? (
+              <>
+                <strong>Línea:</strong> {lineInfo.lineName}<br/>
+                <strong>Ejecutivo Comercial:</strong> {lineInfo.coverageText}<br/>
+                {!lineInfo.hasEquipment && (
+                  <>
+                    <span style={{ color: '#92400e' }}>Sin equipo de la línea en esta zona</span><br/>
+                  </>
+                )}
+              </>
+            ) : (
+              <>
+                <strong>Ejecutivo Comercial:</strong> {formatZoneExecutives(executives)}<br/>
+              </>
+            )}
             {hospital.doctors && (
               <>
                 <strong>Doctores:</strong><br/>

@@ -8,6 +8,7 @@ interface KAM {
   id: string
   name: string
   area_id: string
+  base_city?: string | null // Fase 2: ciudad/localidad base (solo lectura aquí)
   lat: number
   lng: number
   color: string
@@ -173,7 +174,10 @@ export default function EditKamModal({ kam, isOpen, onClose, onUpdate }: EditKam
                 </div>
                 <div>
                   <h3 className="text-2xl font-bold">Editar Zona</h3>
-                  <p className="text-gray-300 text-sm">Configuración de {zoneDisplayName(kam.name)}</p>
+                  <p className="text-gray-300 text-sm">
+                    Configuración de {zoneDisplayName(kam.name)}
+                    {kam.base_city ? ` · Ciudad base: ${kam.base_city}` : ''}
+                  </p>
                 </div>
               </div>
               <button
@@ -230,8 +234,14 @@ export default function EditKamModal({ kam, isOpen, onClose, onUpdate }: EditKam
                       value={formData.name}
                       onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                       className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent transition-all"
+                      placeholder="Ej: Atlántico y Magdalena"
+                      maxLength={120}
                       required
                     />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Nombre del territorio que cubre la zona. La ciudad base
+                      {kam.base_city ? ` (${kam.base_city})` : ''} se muestra aparte.
+                    </p>
                   </div>
 
                   <div>
@@ -295,6 +305,18 @@ export default function EditKamModal({ kam, isOpen, onClose, onUpdate }: EditKam
                 </h4>
                 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="md:col-span-3">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Ciudad base
+                    </label>
+                    <input
+                      type="text"
+                      value={kam.base_city || '—'}
+                      className="w-full px-4 py-2.5 bg-gray-100 border border-gray-200 rounded-lg text-gray-600"
+                      readOnly
+                      disabled
+                    />
+                  </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Código de Área

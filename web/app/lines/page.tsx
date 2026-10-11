@@ -6,6 +6,8 @@ import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
 import { usePermissions } from '@/hooks/usePermissions'
 import type { BusinessLine, LineZone } from '@/lib/types/lines'
+import CoveragePanel from './CoveragePanel'
+import { parseMyLines, type MyLine } from './coverage-shared'
 
 // Zona = fila de kams (ciudad base = area_id). Solo se usan los campos que necesita esta página.
 interface ZoneOption {
@@ -14,6 +16,7 @@ interface ZoneOption {
   area_id: string
   color: string | null
   active: boolean
+  base_city?: string | null
 }
 
 // Matriz en edición: lineId → (kamId → tiene equipo)
@@ -71,6 +74,7 @@ export default function LinesPage() {
 function LinesContent() {
   const { can } = usePermissions()
   const canEdit = can('lines:edit')
+  const hasCoverageEdit = can('coverage:edit')
 
   const [lines, setLines] = useState<BusinessLine[]>([])
   const [zones, setZones] = useState<ZoneOption[]>([])
@@ -81,14 +85,21 @@ function LinesContent() {
   const [saveError, setSaveError] = useState('')
   const [saveNotice, setSaveNotice] = useState('')
   const [editingLine, setEditingLine] = useState<BusinessLine | null>(null)
+  // Líneas del usuario (GET /api/me/lines). null = no se pudieron cargar (se muestra todo, la API valida)
+  const [myLines, setMyLines] = useState<MyLine[] | null>(null)
+  const [canSeeAll, setCanSeeAll] = useState(false)
+  const [myLinesError, setMyLinesError] = useState('')
+  const [zoneNameById, setZoneNameById] = useState<Map<string, string>>(new Map())
 
   const load = useCallback(async () => {
     setLoading(true)
     setLoadError('')
     try {
-      const [linesResponse, zonesResponse] = await Promise.all([
+      setMyLinesError('')
+      const [linesResponse, zonesResponse, myLinesResponse] = await Promise.all([
         fetch('/api/business-lines'),
         fetch('/api/kams'),
+        fetch('/api/me/lines').catch(() => null),
       ])
       if (!linesResponse.ok) throw new Error(await readError(linesResponse, 'Error al cargar las líneas'))
       if (!zonesResponse.ok) throw new Error(await readError(zonesResponse, 'Error al cargar las zonas'))
@@ -98,6 +109,22 @@ function LinesContent() {
       const loadedLines: BusinessLine[] = Array.isArray(linesData?.lines) ? linesData.lines : []
       const loadedZones: ZoneOption[] = Array.isArray(zonesData) ? zonesData : []
 
+      // Las líneas del usuario no bloquean la página: si fallan, se avisa y la API sigue validando
+      if (myLinesResponse && myLinesResponse.ok) {
+        const parsed = parseMyLines(await myLinesResponse.json().catch(() => null))
+        setMyLines(parsed.lines)
+        setCanSeeAll(parsed.canSeeAll)
+      } else {
+        setMyLines(null)
+        setCanSeeAll(false)
+        setMyLinesError(
+          myLinesResponse
+            ? await readError(myLinesResponse, 'No se pudieron cargar tus líneas')
+            : 'No se pudieron cargar tus líneas (error de conexión)'
+        )
+      }
+
+      setZoneNameById(new Map(loadedZones.map(zone => [zone.id, zoneLabel(zone.name)])))
       setLines(loadedLines)
       setDraft(buildDraft(loadedLines))
       setZones(
@@ -117,6 +144,39 @@ function LinesContent() {
     load()
   }, [load])
 
+  // Rol del usuario en cada línea (leader | executive | all)
+  const myRoleByLineId = useMemo(
+    () => new Map((myLines ?? []).map(line => [line.id, line.role])),
+    [myLines]
+  )
+
+  // Quien no ve todas las líneas (líder de línea, ejecutivo) solo ve las suyas
+  const visibleLines = useMemo(() => {
+    if (myLines === null || canSeeAll) return lines
+    return lines.filter(line => myRoleByLineId.has(line.id))
+  }, [lines, myLines, canSeeAll, myRoleByLineId])
+
+  // Editar una línea: permiso lines:edit y, si no ve todas, ser su líder (la API vuelve a validarlo)
+  const canEditLine = useCallback(
+    (lineId: string): boolean => {
+      if (!canEdit) return false
+      if (myLines === null || canSeeAll) return true
+      const role = myRoleByLineId.get(lineId)
+      return role === 'leader' || role === 'all'
+    },
+    [canEdit, myLines, canSeeAll, myRoleByLineId]
+  )
+  const canEditAnyLine = visibleLines.some(line => canEditLine(line.id))
+
+  // Líneas para la cobertura: las de /api/me/lines, en el orden de business_lines
+  const coverageLines = useMemo<MyLine[]>(() => {
+    if (myLines === null) return []
+    const order = new Map(lines.map((line, index) => [line.id, index]))
+    return [...myLines].sort(
+      (a, b) => (order.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (order.get(b.id) ?? Number.MAX_SAFE_INTEGER)
+    )
+  }, [myLines, lines])
+
   // Valor guardado de una celda (zonas sin fila en line_zones = sin equipo)
   const savedValue = useCallback(
     (line: BusinessLine, kamId: string): boolean =>
@@ -128,13 +188,13 @@ function LinesContent() {
 
   // Líneas con cambios sin guardar (solo cuentan las zonas activas que se muestran)
   const dirtyLineIds = useMemo(() => {
-    return lines
+    return visibleLines
       .filter(line => zones.some(zone => (draft[line.id]?.[zone.id] ?? false) !== savedValue(line, zone.id)))
       .map(line => line.id)
-  }, [lines, zones, draft, savedValue])
+  }, [visibleLines, zones, draft, savedValue])
 
   const toggleCell = (lineId: string, kamId: string) => {
-    if (!canEdit || saving) return
+    if (!canEditLine(lineId) || saving) return
     setSaveNotice('')
     setDraft(prev => ({
       ...prev,
@@ -143,7 +203,7 @@ function LinesContent() {
   }
 
   const setWholeLine = (lineId: string, value: boolean) => {
-    if (!canEdit || saving) return
+    if (!canEditLine(lineId) || saving) return
     setSaveNotice('')
     setDraft(prev => {
       const next = { ...prev[lineId] }
@@ -161,7 +221,7 @@ function LinesContent() {
   // Guarda cada línea modificada con PUT /api/business-lines/[id]/zones (reemplaza su matriz).
   // Las filas de zonas inactivas que ya existían se reenvían sin cambios para no borrarlas.
   const saveChanges = async () => {
-    if (!canEdit || dirtyLineIds.length === 0) return
+    if (!canEditAnyLine || dirtyLineIds.length === 0) return
     setSaving(true)
     setSaveError('')
     setSaveNotice('')
@@ -172,7 +232,7 @@ function LinesContent() {
 
     for (const lineId of dirtyLineIds) {
       const line = lines.find(l => l.id === lineId)
-      if (!line) continue
+      if (!line || !canEditLine(lineId)) continue
       const payload: LineZone[] = [
         ...line.zones.filter(zone => !activeIds.has(zone.kam_id)),
         ...zones.map(zone => ({ kam_id: zone.id, has_equipment: draft[lineId]?.[zone.id] ?? false })),
@@ -246,7 +306,7 @@ function LinesContent() {
       <div className="bg-gradient-to-r from-gray-900 to-gray-700 rounded-2xl shadow-xl p-6 mb-8">
         <h1 className="text-3xl lg:text-4xl font-bold text-white">Líneas de negocio</h1>
         <p className="text-gray-300 mt-2">
-          Líderes, alcance máximo de cobertura y zonas donde cada línea tiene equipos
+          Cobertura por zona, líderes, alcance máximo y zonas donde cada línea tiene equipos
         </p>
       </div>
 
@@ -261,6 +321,15 @@ function LinesContent() {
 
       {!loadError && (
         <>
+          {myLinesError && (
+            <div className="mb-6 p-4 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl text-sm">
+              {myLinesError}. La cobertura por línea no se puede mostrar por ahora.
+            </div>
+          )}
+          {myLines !== null && (
+            <CoveragePanel myLines={coverageLines} hasCoverageEdit={hasCoverageEdit} zoneNameById={zoneNameById} />
+          )}
+
           {/* Tabla de líneas */}
           <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-x-auto mb-8">
             <table className="min-w-full">
@@ -271,13 +340,13 @@ function LinesContent() {
                   <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Alcance máximo</th>
                   <th className="px-6 py-4 text-center text-xs font-bold text-gray-700 uppercase tracking-wider">Zonas con equipo</th>
                   <th className="px-6 py-4 text-center text-xs font-bold text-gray-700 uppercase tracking-wider">Estado</th>
-                  {canEdit && (
+                  {canEditAnyLine && (
                     <th className="px-6 py-4 text-center text-xs font-bold text-gray-700 uppercase tracking-wider">Acciones</th>
                   )}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {lines.map(line => {
+                {visibleLines.map(line => {
                   const withEquipment = zones.filter(zone => savedValue(line, zone.id)).length
                   return (
                     <tr key={line.id} className="hover:bg-gray-50 transition-colors">
@@ -306,14 +375,16 @@ function LinesContent() {
                           {line.active ? 'Activa' : 'Inactiva'}
                         </span>
                       </td>
-                      {canEdit && (
+                      {canEditAnyLine && (
                         <td className="px-6 py-4 text-center">
+                          {canEditLine(line.id) && (
                           <button
                             onClick={() => setEditingLine(line)}
                             className="px-3 py-1.5 text-sm text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-lg font-medium"
                           >
                             Editar
                           </button>
+                          )}
                         </td>
                       )}
                     </tr>
@@ -321,8 +392,10 @@ function LinesContent() {
                 })}
               </tbody>
             </table>
-            {lines.length === 0 && (
-              <div className="text-center py-10 text-sm text-gray-500">No hay líneas de negocio configuradas.</div>
+            {visibleLines.length === 0 && (
+              <div className="text-center py-10 text-sm text-gray-500">
+                {lines.length === 0 ? 'No hay líneas de negocio configuradas.' : 'No tienes líneas asignadas.'}
+              </div>
             )}
           </div>
 
@@ -336,7 +409,7 @@ function LinesContent() {
                   &ldquo;sin equipo&rdquo; aunque alguien cubra la zona.
                 </p>
               </div>
-              {canEdit && (
+              {canEditAnyLine && (
                 <div className="flex gap-2 shrink-0">
                   <button
                     onClick={discardChanges}
@@ -356,7 +429,7 @@ function LinesContent() {
               )}
             </div>
 
-            {canEdit && dirtyLineIds.length > 0 && !saving && (
+            {canEditAnyLine && dirtyLineIds.length > 0 && !saving && (
               <div className="mb-4 p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg text-sm">
                 Cambios sin guardar en:{' '}
                 {lines.filter(line => dirtyLineIds.includes(line.id)).map(line => line.name).join(', ')}
@@ -368,11 +441,11 @@ function LinesContent() {
             {saveNotice && (
               <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded-lg text-sm">{saveNotice}</div>
             )}
-            {!canEdit && (
+            {!canEditAnyLine && (
               <p className="mb-4 text-xs text-gray-500">Vista de solo lectura: no tienes permiso para editar líneas.</p>
             )}
 
-            {zones.length === 0 || lines.length === 0 ? (
+            {zones.length === 0 || visibleLines.length === 0 ? (
               <div className="text-center py-10 text-sm text-gray-500">
                 {zones.length === 0 ? 'No hay zonas activas.' : 'No hay líneas de negocio configuradas.'}
               </div>
@@ -384,13 +457,13 @@ function LinesContent() {
                       <th className="sticky left-0 bg-gray-50 px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
                         Zona
                       </th>
-                      {lines.map(line => (
+                      {visibleLines.map(line => (
                         <th key={line.id} className="px-3 py-3 text-center align-top min-w-[8rem]">
                           <div className={`text-xs font-bold uppercase tracking-wider ${line.active ? 'text-gray-700' : 'text-gray-400'}`}>
                             {line.name}
                           </div>
                           {!line.active && <div className="text-[10px] text-gray-400">Inactiva</div>}
-                          {canEdit && (
+                          {canEditLine(line.id) && (
                             <div className="mt-1 flex justify-center gap-2 text-[11px] font-medium">
                               <button
                                 type="button"
@@ -426,7 +499,7 @@ function LinesContent() {
                             <span className="font-medium text-gray-900">{zoneLabel(zone.name)}</span>
                           </div>
                         </td>
-                        {lines.map(line => {
+                        {visibleLines.map(line => {
                           const checked = cellValue(line.id, zone.id)
                           const changed = checked !== savedValue(line, zone.id)
                           return (
@@ -435,7 +508,7 @@ function LinesContent() {
                                 type="checkbox"
                                 checked={checked}
                                 onChange={() => toggleCell(line.id, zone.id)}
-                                disabled={!canEdit || saving}
+                                disabled={!canEditLine(line.id) || saving}
                                 aria-label={`${line.name} en ${zoneLabel(zone.name)}: tiene equipo`}
                                 className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-700 disabled:cursor-not-allowed"
                               />

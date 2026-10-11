@@ -3,11 +3,11 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import type { Executive, ExecutiveLineRow, ExecutiveRow } from '@/lib/types/lines'
 
 const EXECUTIVE_COLUMNS =
-  'id, full_name, email, company, status, base_kam_id, user_id, odoo_employee_id, notes'
+  'id, full_name, email, company, status, base_kam_id, user_id, odoo_employee_id, notes, color'
 
 type ExecutiveSelectRow = Pick<
   ExecutiveRow,
-  'id' | 'full_name' | 'email' | 'company' | 'status' | 'base_kam_id' | 'user_id' | 'odoo_employee_id' | 'notes'
+  'id' | 'full_name' | 'email' | 'company' | 'status' | 'base_kam_id' | 'user_id' | 'odoo_employee_id' | 'notes' | 'color'
 >
 
 /**
@@ -70,6 +70,7 @@ export async function loadExecutives(onlyId?: string): Promise<Executive[]> {
     odoo_employee_id: executive.odoo_employee_id,
     lines: linesByExecutive.get(executive.id) || [],
     notes: executive.notes,
+    color: executive.color ?? null,
   }))
 }
 

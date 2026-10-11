@@ -1,6 +1,14 @@
 // Sistema de permisos para OpMap
 
-export type Role = 'admin' | 'sales_manager' | 'contract_manager' | 'data_manager' | 'viewer' | 'user'
+export type Role =
+  | 'admin'
+  | 'sales_manager'
+  | 'contract_manager'
+  | 'data_manager'
+  | 'viewer'
+  | 'user'
+  | 'line_leader'          // Fase 2: líder de una línea de negocio (ajusta la cobertura de SU línea)
+  | 'commercial_director'  // Fase 2: dirección comercial (ve y ajusta todas las líneas)
 
 export type Permission =
   | 'dashboard:view'
@@ -27,6 +35,9 @@ export type Permission =
   | 'lines:edit'
   | 'executives:view'  // Fase 1: ejecutivas comerciales (personas)
   | 'executives:edit'
+  | 'coverage:view'    // Fase 2: cobertura por línea (la API limita a las líneas del usuario)
+  | 'coverage:edit'    // Fase 2: recalcular y ajustes manuales (line_leader solo en SU línea)
+  | 'map:all-lines'    // Fase 2: ver el mapa de cualquier línea y la vista "Zonas"
 
 // Definición de permisos por rol
 export const rolePermissions: Record<Role, Permission[]> = {
@@ -54,7 +65,10 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'lines:view',
     'lines:edit',
     'executives:view',
-    'executives:edit'
+    'executives:edit',
+    'coverage:view',
+    'coverage:edit',
+    'map:all-lines'
   ],
   sales_manager: [
     'dashboard:view',
@@ -64,8 +78,46 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'zones:view',      // Puede ver zonas
     'contracts:view',  // Solo ver contratos, NO editar
     'territories:view',  // Solo ver territorios, NO gestionar
-    'lines:view',        // lines:edit para líderes de línea: pendiente de modelar
-    'executives:view'
+    'lines:view',        // lines:edit es del rol line_leader (restringido a su línea)
+    'executives:view',
+    'coverage:view'      // Solo las líneas que lleva como ejecutiva (GET /api/me/lines)
+  ],
+  // Líder de línea: lo de sales_manager + editar su línea y su cobertura.
+  // Las rutas /api/business-lines/** y /api/coverage/** restringen la edición a las líneas
+  // donde business_lines.leader_user_id = el usuario.
+  line_leader: [
+    'dashboard:view',
+    'map:view',
+    'hospitals:view',
+    'kams:view',
+    'zones:view',
+    'contracts:view',
+    'territories:view',
+    'lines:view',
+    'lines:edit',
+    'executives:view',
+    'coverage:view',
+    'coverage:edit'
+  ],
+  // Dirección comercial: todo lo de ver + gestionar líneas, equipo y cobertura de todas las líneas.
+  // Sin users:manage ni recalculate:complete.
+  commercial_director: [
+    'dashboard:view',
+    'map:view',
+    'hospitals:view',
+    'kams:view',
+    'zones:view',
+    'contracts:view',
+    'providers:view',
+    'visits:view',
+    'territories:view',
+    'lines:view',
+    'lines:edit',
+    'executives:view',
+    'executives:edit',
+    'coverage:view',
+    'coverage:edit',
+    'map:all-lines'
   ],
   contract_manager: [
     'map:view',
@@ -94,13 +146,17 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'recalculate:complete', // Recálculo completo tras cambiar territorios/asignaciones forzadas
     'lines:view',
     'executives:view',
-    'executives:edit'       // Gestiona el equipo comercial (ejecutivas y sus líneas)
+    'executives:edit',      // Gestiona el equipo comercial (ejecutivas y sus líneas)
+    'coverage:view',
+    'map:all-lines'
   ],
   viewer: [
     'map:view',
     'hospitals:view',
     'lines:view',
-    'executives:view'
+    'executives:view',
+    'coverage:view',
+    'map:all-lines'
   ],
   user: [
     'map:view',
@@ -212,7 +268,9 @@ export function getRoleTitle(role: Role): string {
     contract_manager: 'Contratos',
     data_manager: 'Datos',
     viewer: 'Visualizador',
-    user: 'Usuario'
+    user: 'Usuario',
+    line_leader: 'Líder de línea',
+    commercial_director: 'Dirección comercial'
   }
   
   return titles[role] || 'Usuario'

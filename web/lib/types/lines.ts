@@ -6,7 +6,8 @@ export type ExecutiveStatus = 'active' | 'placeholder' | 'inactive'
 
 export const EXECUTIVE_STATUSES: readonly ExecutiveStatus[] = ['active', 'placeholder', 'inactive'] as const
 
-export type CoverageKind = 'local' | 'reach' | 'manual' | 'vacant'
+// Fase 2: la fuente única de los tipos de cobertura es lib/types/coverage.ts
+export type { CoverageKind, CoverageRow, CoverageOverrideRow } from './coverage'
 
 // ---------------------------------------------------------------------------
 // Filas de la base de datos (schema public)
@@ -36,6 +37,7 @@ export interface ExecutiveRow {
   started_at: string | null
   left_at: string | null
   notes: string | null
+  color: string | null // Fase 2: #RRGGBB para el mapa por línea
   created_at: string | null
   updated_at: string | null
 }
@@ -49,29 +51,6 @@ export interface LineZoneRow {
   line_id: string
   kam_id: string
   has_equipment: boolean
-}
-
-// Se crean en Fase 1, se llenan en Fase 2.
-export interface CoverageRow {
-  id: string
-  line_id: string
-  kam_id: string
-  executive_id: string | null
-  kind: CoverageKind
-  travel_minutes: number | null
-  source_kam_id: string | null
-  computed_at: string
-}
-
-export interface CoverageOverrideRow {
-  id: string
-  line_id: string
-  kam_id: string
-  executive_id: string
-  reason: string
-  created_by: string | null
-  active: boolean
-  created_at: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -123,6 +102,7 @@ export interface Executive {
   odoo_employee_id: number | null
   lines: string[] // ids de business_lines
   notes: string | null
+  color: string | null // Fase 2: #RRGGBB (null = sin color asignado)
 }
 
 export interface ExecutivesResponse {
@@ -158,6 +138,7 @@ export interface ExecutiveCreateInput {
   lines: string[]
   odoo_employee_id?: number | null
   notes?: string | null
+  color?: string | null
 }
 
 export type ExecutiveUpdateInput = Partial<ExecutiveCreateInput>

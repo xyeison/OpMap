@@ -10,7 +10,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "fase1:simulate": "tsx scripts/fase1-simulate.ts"
+    "fase1:simulate": "tsx scripts/fase1-simulate.ts",
+    "fase2:check": "tsx scripts/fase2-check.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.53.0",

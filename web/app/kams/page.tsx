@@ -38,6 +38,7 @@ interface KamWithData {
   id: string
   name: string
   area_id: string
+  base_city?: string | null // Fase 2: ciudad/localidad base ("Barranquilla", "Chapinero"...)
   lat: number
   lng: number
   color: string
@@ -190,6 +191,7 @@ export default function KamsPage() {
 
   const filteredKams = kamsWithData.filter(kam => 
     kam.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (kam.base_city?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
     (kam.municipalityName?.toLowerCase() || '').includes(searchTerm.toLowerCase())
   )
 
@@ -353,7 +355,7 @@ export default function KamsPage() {
               </svg>
               <input
                 type="text"
-                placeholder="Buscar por nombre o municipio..."
+                placeholder="Buscar por zona, ciudad base o municipio..."
                 className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent transition-all"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -415,6 +417,9 @@ export default function KamsPage() {
                         <div className="ml-4">
                           <div className={`text-sm font-semibold ${kam.active ? 'text-gray-900' : 'text-gray-400'}`}>
                             {zoneDisplayName(kam.name)}
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            Ciudad base: {kam.base_city || '—'}
                           </div>
                           {!kam.active && (
                             <span className="text-xs text-gray-500">Inactiva</span>
@@ -569,7 +574,8 @@ export default function KamsPage() {
                       <h3 className={`text-lg font-semibold ${kam.active ? 'text-gray-900' : 'text-gray-400'}`}>
                         {zoneDisplayName(kam.name)}
                       </h3>
-                      <p className="text-sm text-gray-500">{kam.municipalityName || kam.area_id}</p>
+                      <p className="text-sm text-gray-500">Ciudad base: {kam.base_city || '—'}</p>
+                      <p className="text-xs text-gray-400">{kam.municipalityName || kam.area_id}</p>
                     </div>
                   </div>
                   <span className={`inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold ${

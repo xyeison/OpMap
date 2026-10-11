@@ -5,6 +5,8 @@ import { jsonError, readJson, zodMessage } from '@/app/api/kams/_lib/kam-shared'
 import { UUID_RE, lineZonesSchema } from '@/lib/fase1-schemas'
 import type { LineZone, LineZoneRow, LineZonesResponse } from '@/lib/types/lines'
 import { lineExists } from '../../_lib/line-shared'
+import { hasPermission } from '@/lib/permissions'
+import { isLineLeader } from '@/lib/coverage'
 
 type Params = { params: { id: string } }
 
@@ -12,6 +14,7 @@ type Params = { params: { id: string } }
 // Cada zona del cuerpo queda con su has_equipment; las zonas que no vengan se quitan de la línea.
 // Orden: primero upsert y luego borrado de las sobrantes, para que la línea nunca quede vacía
 // a mitad de la operación si algo falla.
+// Fase 2: line_leader (lines:edit sin map:all-lines) solo edita la matriz de la línea que lidera.
 export async function PUT(request: NextRequest, { params }: Params) {
   const auth = await requirePermission(request, 'lines:edit')
   if (!auth.ok) return auth.response
@@ -28,6 +31,10 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
     if (!(await lineExists(lineId))) {
       return jsonError('Línea no encontrada', 404)
+    }
+
+    if (!hasPermission(auth.user.role, 'map:all-lines') && !(await isLineLeader(auth.user, lineId))) {
+      return jsonError('Solo puedes editar la línea que lideras', 403)
     }
 
     const kamIds = zones.map(zone => zone.kam_id)

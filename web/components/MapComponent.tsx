@@ -1,10 +1,10 @@
 'use client'
 
 import { MapContainer, TileLayer, GeoJSON, CircleMarker, Marker, Tooltip, ZoomControl } from 'react-leaflet'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { VisitsHeatmapLayer } from './VisitsHeatmapLayer'
 import { formatTravelTimeFromSeconds, formatTravelTime } from '@/lib/format-utils'
@@ -81,6 +81,96 @@ const BACKUP_COLORS = [
   '#2ECC71', '#E74C3C', '#3498DB', '#F39C12', '#9B59B6'
 ]
 
+// ---------- Mapa por línea de negocio (Fase 2) ----------
+
+// Línea que el usuario puede ver (forma de /api/me/lines)
+export interface MapLine {
+  id: string
+  code: string
+  name: string
+  role: 'leader' | 'executive' | 'all'
+}
+
+// 'line': territorios coloreados por el Ejecutivo Comercial que cubre la zona en la línea elegida.
+// 'zones': vista anterior, colores por zona (solo quien ve todas las líneas).
+export type MapMode = 'line' | 'zones'
+
+export type CoverageKind = 'local' | 'reach' | 'manual' | 'vacant' | 'conflict'
+
+export interface CoverageExecutive {
+  id: string
+  full_name: string
+  status: string
+  color: string | null
+}
+
+// Fila de cobertura (misma forma que GET /api/coverage, más override_reason)
+export interface CoverageRow {
+  kam_id: string
+  zone_name: string
+  base_city: string | null
+  kind: CoverageKind
+  executive: CoverageExecutive | null
+  travel_minutes: number | null
+  source_kam_id: string | null
+  nearest: { executive_id: string; full_name: string; minutes: number | null } | null
+  has_equipment: boolean
+  note: string | null
+  override_reason?: string | null
+}
+
+// Colores fijos del modo por línea
+export const VACANT_COLOR = '#9ca3af'
+export const CONFLICT_COLOR = '#f59e0b'
+const NO_COVERAGE_DATA_COLOR = '#cccccc'
+
+// Respaldo si un Ejecutivo Comercial aún no tiene color guardado (executives.color)
+const EXECUTIVE_FALLBACK_COLORS = [
+  '#2563eb', '#dc2626', '#16a34a', '#9333ea', '#0891b2', '#db2777', '#65a30d',
+  '#7c3aed', '#1e3a8a', '#0d9488', '#be123c', '#4f46e5', '#a16207'
+]
+
+// Patrón rayado de "sin equipo": un <pattern> SVG por color (id derivado del hex ya validado)
+const noEquipmentPatternId = (hex: string) => `opmap-sin-equipo-${hex.slice(1).toLowerCase()}`
+
+// 135 → "2 h 15"; 45 → "45 min"
+export const formatMinutes = (minutes: number | null | undefined): string => {
+  if (minutes === null || minutes === undefined || !Number.isFinite(minutes)) return 'tiempo sin calcular'
+  const m = Math.round(minutes)
+  if (m < 60) return `${m} min`
+  return `${Math.floor(m / 60)} h ${m % 60}`
+}
+
+const executiveName = (e: { full_name: string; status?: string } | null | undefined) =>
+  e ? (e.status === 'placeholder' ? `${e.full_name} (por contratar)` : e.full_name) : ''
+
+/**
+ * Texto plano de quién cubre la zona en la línea. Quien lo inserte en HTML crudo debe escaparlo.
+ * "<nombre> — local" | "— por alcance desde <zona>, 2 h 26" | "— ajuste manual: <motivo>" |
+ * "Vacante (más cercana: <nombre> a 4 h 39)" | "Conflicto: <nombres>"
+ */
+export const describeCoverage = (row: CoverageRow | undefined, zoneNameById: Record<string, string>): string => {
+  if (!row) return 'sin datos de cobertura (recalcular cobertura)'
+  switch (row.kind) {
+    case 'local':
+      return `${executiveName(row.executive)} — local`
+    case 'reach': {
+      const from = zoneDisplayName(row.source_kam_id ? zoneNameById[row.source_kam_id] : '') || 'otra zona'
+      return `${executiveName(row.executive)} — por alcance desde ${from}, ${formatMinutes(row.travel_minutes)}`
+    }
+    case 'manual':
+      return `${executiveName(row.executive)} — ajuste manual: ${row.override_reason || row.note || 'sin motivo registrado'}`
+    case 'vacant':
+      return row.nearest
+        ? `Vacante (más cercana: ${row.nearest.full_name} a ${formatMinutes(row.nearest.minutes)})`
+        : 'Vacante (nadie lleva esta línea)'
+    case 'conflict':
+      return `Conflicto: ${row.note || 'varios Ejecutivos Comerciales locales'}`
+    default:
+      return 'sin datos de cobertura'
+  }
+}
+
 interface MapComponentProps {
   visits?: any[]
   showHeatmap?: boolean
@@ -88,6 +178,13 @@ interface MapComponentProps {
   viewMode?: 'kams' | 'zones'
   selectedZoneId?: string | null
   onViewModeChange?: (mode: 'kams' | 'zones') => void
+  // Mapa por línea
+  lines?: MapLine[]
+  selectedLineCode?: string | null
+  onLineChange?: (code: string) => void
+  canSeeAllLines?: boolean
+  mapMode?: MapMode
+  onMapModeChange?: (mode: MapMode) => void
 }
 
 export default function MapComponent({
@@ -96,7 +193,13 @@ export default function MapComponent({
   showMarkers: initialShowMarkers = false,
   viewMode = 'kams',
   selectedZoneId = null,
-  onViewModeChange
+  onViewModeChange,
+  lines = [],
+  selectedLineCode = null,
+  onLineChange,
+  canSeeAllLines = false,
+  mapMode = 'line',
+  onMapModeChange
 }: MapComponentProps) {
   const router = useRouter()
   const [territoryGeoJsons, setTerritoryGeoJsons] = useState<any[]>([])
@@ -125,9 +228,13 @@ export default function MapComponent({
   
   // Cargar datos desde el API
   const { data: mapData, isLoading, isError, error: mapDataError, refetch, isFetching } = useQuery({
-    queryKey: ['map-data'],
+    queryKey: ['map-data', selectedLineCode],
     queryFn: async () => {
-      const response = await fetch('/api/map/data')
+      // Con línea elegida la respuesta incluye la cobertura de esa línea (coverage + executives)
+      const url = selectedLineCode
+        ? `/api/map/data?line=${encodeURIComponent(selectedLineCode)}`
+        : '/api/map/data'
+      const response = await fetch(url)
       if (!response.ok) {
         throw new MapDataError('Error al cargar datos del mapa', response.status)
       }
@@ -140,9 +247,11 @@ export default function MapComponent({
       })
       return data
     },
-    // Con sesión caducada no tiene sentido reintentar: se redirige a /login
+    // Al cambiar de línea se conserva el mapa anterior mientras llega la nueva cobertura
+    placeholderData: keepPreviousData,
+    // Con sesión caducada (401) o sin acceso a la línea (403) no tiene sentido reintentar
     retry: (failureCount, error) =>
-      !(error instanceof MapDataError && error.status === 401) && failureCount < 2
+      !(error instanceof MapDataError && (error.status === 401 || error.status === 403)) && failureCount < 2
   })
 
   const isUnauthorized = mapDataError instanceof MapDataError && mapDataError.status === 401
@@ -238,9 +347,12 @@ export default function MapComponent({
     loadZonesData()
   }, [viewMode, mapData])
 
-  // Cargar tiempos de viaje REALES para hospitales sin asignar
+  // Cargar tiempos de viaje REALES para hospitales sin asignar (una sola vez: no dependen de la línea)
+  const unassignedTimesRequested = useRef(false)
   useEffect(() => {
     if (!mapData || mapData.unassignedHospitals.length === 0) return
+    if (unassignedTimesRequested.current) return
+    unassignedTimesRequested.current = true
 
     const fetchUnassignedTravelTimes = async () => {
       try {
@@ -281,7 +393,9 @@ export default function MapComponent({
     fetchUnassignedTravelTimes()
   }, [mapData])
 
-  // Cargar GeoJSON de territorios con IPS
+  // Cargar GeoJSON de territorios con IPS. Los polígonos se guardan en caché por territorio para no
+  // volver a descargarlos al cambiar de línea (cada cambio de línea trae un mapData nuevo).
+  const geoJsonCache = useRef<Map<string, any>>(new Map())
   useEffect(() => {
     if (!mapData) return
 
@@ -355,9 +469,19 @@ export default function MapComponent({
       const geoJsonPromises = Array.from(allTerritories).map(async (territoryId) => {
         const type = territoryId.length === 7 ? 'localities' : 'municipalities'
         try {
-          const response = await fetch(`/api/geojson/${type}/${territoryId}`)
-          if (response.ok) {
-            const geoJson = await response.json()
+          let geoJson = geoJsonCache.current.get(territoryId)
+          let ok = !!geoJson
+          if (!geoJson) {
+            const response = await fetch(`/api/geojson/${type}/${territoryId}`)
+            ok = response.ok
+            if (response.ok) {
+              geoJson = await response.json()
+              geoJsonCache.current.set(territoryId, geoJson)
+            } else {
+              console.warn(`Failed to load GeoJSON for ${territoryId}: ${response.status}`)
+            }
+          }
+          if (ok) {
             const kamId = territoryWinners[territoryId]
             const isVacant = vacantTerritories.has(territoryId)
             return {
@@ -367,8 +491,6 @@ export default function MapComponent({
               type,
               isVacant
             }
-          } else {
-            console.warn(`Failed to load GeoJSON for ${territoryId}: ${response.status}`)
           }
         } catch (error) {
           console.error(`Error loading GeoJSON for ${territoryId}:`, error)
@@ -385,6 +507,77 @@ export default function MapComponent({
 
     loadGeoJsons()
   }, [mapData])
+
+  // ---------- Datos derivados del modo por línea ----------
+  // Renderizador SVG solo para territorios "sin equipo": el patrón rayado (fill url(#...)) no existe en canvas
+  const svgRenderer = useMemo(() => L.svg({ padding: 0.5 }), [])
+
+  const lineView = useMemo(() => {
+    const coverage = mapData?.coverage
+    if (!coverage || !Array.isArray(coverage.rows)) return null
+    const rows: CoverageRow[] = coverage.rows
+    const executives: CoverageExecutive[] = Array.isArray(mapData?.executives) ? mapData.executives : []
+
+    // Color por Ejecutivo Comercial: el guardado si es #RRGGBB válido; si no, uno de respaldo estable
+    const executiveColors: Record<string, string> = {}
+    let fallbackIdx = 0
+    const assignColor = (e: CoverageExecutive | null | undefined) => {
+      if (!e || executiveColors[e.id]) return
+      if (isSafeColor(e.color)) {
+        executiveColors[e.id] = e.color
+      } else {
+        executiveColors[e.id] = EXECUTIVE_FALLBACK_COLORS[fallbackIdx % EXECUTIVE_FALLBACK_COLORS.length]
+        fallbackIdx++
+      }
+    }
+    executives.forEach(assignColor)
+    rows.forEach(r => assignColor(r.executive))
+
+    const byKam: Record<string, CoverageRow> = {}
+    const zoneNameById: Record<string, string> = {}
+    rows.forEach(r => {
+      byKam[r.kam_id] = r
+      if (r.zone_name) zoneNameById[r.kam_id] = r.zone_name
+    })
+    ;(mapData?.kams || []).forEach((k: any) => {
+      if (!zoneNameById[k.id]) zoneNameById[k.id] = k.name
+    })
+
+    // Conteos para la leyenda
+    const zonesByExecutive: Record<string, number> = {}
+    let vacant = 0
+    let conflict = 0
+    let noEquipment = 0
+    rows.forEach(r => {
+      if (r.kind === 'vacant') vacant++
+      else if (r.kind === 'conflict') conflict++
+      else if (r.executive) zonesByExecutive[r.executive.id] = (zonesByExecutive[r.executive.id] || 0) + 1
+      if (!r.has_equipment) noEquipment++
+    })
+
+    return {
+      line: coverage.line as { id: string; code: string; name: string; max_reach_minutes: number },
+      rows,
+      executives,
+      executiveColors,
+      byKam,
+      zoneNameById,
+      counts: { zonesByExecutive, vacant, conflict, noEquipment }
+    }
+  }, [mapData])
+
+  // Modo por línea activo: hay cobertura cargada y no se eligió la vista "Zonas"
+  const isLineMode = mapMode === 'line' && !!lineView
+
+  // Color de la zona en la línea: Ejecutivo Comercial que la cubre, vacante (gris) o conflicto (ámbar)
+  const zoneLineColor = (kamId: string | undefined): string => {
+    if (!lineView || !kamId) return NO_COVERAGE_DATA_COLOR
+    const row = lineView.byKam[kamId]
+    if (!row) return NO_COVERAGE_DATA_COLOR
+    if (row.kind === 'vacant') return VACANT_COLOR
+    if (row.kind === 'conflict') return CONFLICT_COLOR
+    return row.executive ? safeColor(lineView.executiveColors[row.executive.id]) : VACANT_COLOR
+  }
 
   if (isUnauthorized) {
     return <div className="flex items-center justify-center h-full">Sesión expirada. Redirigiendo al inicio de sesión...</div>
@@ -526,6 +719,27 @@ export default function MapComponent({
         onShowMarkersChange={setShowMarkers}
         viewMode={viewMode}
         onViewModeChange={onViewModeChange}
+        lines={lines}
+        selectedLineCode={selectedLineCode}
+        onLineChange={onLineChange}
+        canSeeAllLines={canSeeAllLines}
+        mapMode={mapMode}
+        onMapModeChange={onMapModeChange}
+        lineLegend={isLineMode && lineView ? {
+          lineName: lineView.line.name,
+          executives: lineView.executives.map(e => ({
+            id: e.id,
+            name: executiveName(e),
+            color: safeColor(lineView.executiveColors[e.id]),
+            zones: lineView.counts.zonesByExecutive[e.id] || 0
+          })),
+          vacantColor: VACANT_COLOR,
+          conflictColor: CONFLICT_COLOR,
+          vacant: lineView.counts.vacant,
+          conflict: lineView.counts.conflict,
+          noEquipment: lineView.counts.noEquipment,
+          totalZones: lineView.rows.length
+        } : null}
         onShowContractsChange={setShowContracts}
         onHospitalSelect={setSelectedHospitalId}
         onMapNavigate={(lat: number, lng: number, zoom: number) => {
@@ -538,6 +752,32 @@ export default function MapComponent({
           }, 100)
         }}
       />
+
+      {/* Patrones rayados de "sin equipo" (uno por color usado en la línea), referenciados con fill url(#id) */}
+      {isLineMode && lineView && (
+        <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden="true" focusable="false">
+          <defs>
+            {Array.from(new Set([
+              ...Object.values(lineView.executiveColors).map(c => safeColor(c)),
+              VACANT_COLOR,
+              CONFLICT_COLOR,
+              NO_COVERAGE_DATA_COLOR
+            ])).map(hex => (
+              <pattern
+                key={hex}
+                id={noEquipmentPatternId(hex)}
+                patternUnits="userSpaceOnUse"
+                width="8"
+                height="8"
+                patternTransform="rotate(45)"
+              >
+                <rect width="8" height="8" fill={hex} fillOpacity="0.15" />
+                <line x1="0" y1="0" x2="0" y2="8" stroke={hex} strokeWidth="3" strokeOpacity="0.75" />
+              </pattern>
+            ))}
+          </defs>
+        </svg>
+      )}
 
       <MapContainer
         center={[4.5709, -74.2973]}
@@ -558,9 +798,17 @@ export default function MapComponent({
         {/* Territorios con IPS - Primera capa */}
         {territoryGeoJsons.map((territory, idx) => {
           const isVacant = territory.isVacant
+          // Modo por línea: un territorio con zona se pinta con la cobertura de esa zona en la línea.
+          // Los territorios sin zona (solo IPS sin asignar) conservan el estilo de vacante de siempre.
+          const useLineStyle = isLineMode && !!territory.kamId
+          const lineRow: CoverageRow | undefined = useLineStyle ? lineView!.byKam[territory.kamId] : undefined
+          const noEquipment = useLineStyle && !!lineRow && lineRow.has_equipment === false
+          const vacantStyle = isVacant && !useLineStyle
           // Usar colores de zona o KAM según el modo de visualización
           let color = '#cccccc'
-          if (isVacant) {
+          if (useLineStyle) {
+            color = zoneLineColor(territory.kamId)
+          } else if (isVacant) {
             color = '#808080'
           } else if (viewMode === 'zones') {
             // En modo zonas, usar el color de la zona asignada al territorio
@@ -584,23 +832,37 @@ export default function MapComponent({
           }
           
           const population = mapData.populationMap[territory.territoryId] || 0
+
+          // Estilo en reposo y al pasar el cursor. "Sin equipo": relleno rayado del color, opacidad baja y borde punteado.
+          const restStyle = noEquipment
+            ? {
+                fillColor: `url(#${noEquipmentPatternId(color)})`,
+                color: isLocality ? '#000000' : '#333333',
+                weight: isLocality ? 1.5 : 0.8,
+                dashArray: '4 3',
+                fillOpacity: 0.85
+              }
+            : {
+                fillColor: color,
+                color: vacantStyle ? '#FF0000' : (isLocality ? '#000000' : '#333333'),
+                weight: vacantStyle ? 1 : (isLocality ? 1.5 : 0.8),
+                fillOpacity: vacantStyle ? 0.3 : (isLocality ? 0.5 : 0.4)
+              }
+          const hoverStyle = {
+            weight: vacantStyle ? 2 : (isLocality ? 2.5 : 1.5),
+            fillOpacity: noEquipment ? 1 : (vacantStyle ? 0.5 : (isLocality ? 0.7 : 0.6))
+          }
           
           return (
             <GeoJSON
-              key={`${territory.territoryId}-${idx}`}
+              key={`${territory.territoryId}-${idx}-${isLineMode ? lineView!.line.code : 'zonas'}-${noEquipment ? 'rayado' : 'liso'}`}
               data={territory.geoJson}
-              style={{
-                fillColor: color,
-                color: isVacant ? '#FF0000' : (isLocality ? '#000000' : '#333333'),
-                weight: isVacant ? 1 : (isLocality ? 1.5 : 0.8),
-                fillOpacity: isVacant ? 0.3 : (isLocality ? 0.5 : 0.4)
-              }}
+              // El patrón rayado solo funciona con el renderizador SVG (el resto sigue en canvas)
+              {...(noEquipment ? ({ renderer: svgRenderer } as any) : {})}
+              style={restStyle}
               eventHandlers={{
                 mouseover: (e: any) => {
-                  e.target.setStyle({
-                    weight: isVacant ? 2 : (isLocality ? 2.5 : 1.5),
-                    fillOpacity: isVacant ? 0.5 : (isLocality ? 0.7 : 0.6)
-                  })
+                  e.target.setStyle(hoverStyle)
                   
                   // Crear y mostrar popup con las estadísticas.
                   // TODO valor dinámico pasa por escapeHtml: este HTML se inserta crudo con bindPopup.
@@ -610,6 +872,24 @@ export default function MapComponent({
                   const territoryZone = mapData.kams.find((k: any) => k.id === territory.kamId)
                   const zoneLabel = zoneDisplayName(territoryZone?.name || stats.kamName) || territory.kamId?.toUpperCase()
                   const executivesLabel = formatZoneExecutives(territoryZone?.executives)
+                  // Recuadro de cobertura de la línea: zona, ciudad base, línea y quién la cubre
+                  let lineStatusHtml = ''
+                  if (useLineStyle && lineView) {
+                    const kind = lineRow?.kind
+                    const boxBg = kind === 'vacant' ? '#fef2f2' : kind === 'conflict' ? '#fffbeb' : '#1e293b'
+                    const boxFg = kind === 'vacant' ? '#991b1b' : kind === 'conflict' ? '#92400e' : '#ffffff'
+                    const lineZoneName = zoneDisplayName(lineRow?.zone_name || territoryZone?.name || '') || zoneLabel
+                    const baseCity = lineRow?.base_city || territoryZone?.base_city || ''
+                    lineStatusHtml = `
+                      <div style="margin-top: 10px; padding: 8px; background-color: ${boxBg}; color: ${boxFg}; border-radius: 6px; font-size: 12px; line-height: 1.45;">
+                        <div style="font-size: 13px; font-weight: bold;">
+                          Zona: ${escapeHtml(lineZoneName)}${baseCity ? ` <span style="font-weight: normal;">(ciudad base ${escapeHtml(baseCity)})</span>` : ''}
+                        </div>
+                        <div>Línea: ${escapeHtml(lineView.line.name)}</div>
+                        <div>Ejecutivo Comercial: ${escapeHtml(describeCoverage(lineRow, lineView.zoneNameById))}</div>
+                        ${noEquipment ? '<div style="margin-top: 4px; font-weight: bold;">Sin equipo: la línea no opera en esta zona</div>' : ''}
+                      </div>`
+                  }
                   const popupContent = `
                     <div style="min-width: 300px; padding: 10px;">
                       <div style="font-size: 15px; font-weight: bold; margin-bottom: 10px; border-bottom: 2px solid #ddd; padding-bottom: 8px;">
@@ -681,10 +961,10 @@ export default function MapComponent({
                       </div>` : ''}
                       
                       <!-- Estado del territorio -->
-                      <div style="margin-top: 10px; padding: 8px; background-color: ${isVacant ? '#fef2f2' : '#1e293b'}; color: ${isVacant ? '#dc2626' : '#fff'}; text-align: center; border-radius: 6px; font-size: 13px; font-weight: bold;">
+                      ${useLineStyle ? lineStatusHtml : `<div style="margin-top: 10px; padding: 8px; background-color: ${isVacant ? '#fef2f2' : '#1e293b'}; color: ${isVacant ? '#dc2626' : '#fff'}; text-align: center; border-radius: 6px; font-size: 13px; font-weight: bold;">
                         ${isVacant ? '⚠️ ZONA VACANTE - SIN EJECUTIVO COMERCIAL' : `✓ Zona: ${escapeHtml(zoneLabel)}
                         <div style="margin-top: 4px; font-size: 12px; font-weight: normal;">Ejecutivo Comercial: ${escapeHtml(executivesLabel)}</div>`}
-                      </div>
+                      </div>`}
                     </div>
                   `
                   
@@ -696,10 +976,7 @@ export default function MapComponent({
                   }).openPopup()
                 },
                 mouseout: (e: any) => {
-                  e.target.setStyle({
-                    weight: isVacant ? 1 : (isLocality ? 1.5 : 0.8),
-                    fillOpacity: isVacant ? 0.3 : (isLocality ? 0.5 : 0.4)
-                  })
+                  e.target.setStyle(restStyle)
                   e.target.closePopup()
                 }
               }}
@@ -712,14 +989,21 @@ export default function MapComponent({
         {filteredAssignments.map((assignment: any) => {
           const hospital = assignment.hospitals
           const kam = assignment.kams
+          // Modo por línea: el punto toma el color del Ejecutivo Comercial que cubre su zona en la línea
+          const lineRow = isLineMode ? lineView!.byKam[kam.id] : undefined
           
           return (
             <HospitalMarker
               key={hospital.id}
               hospital={hospital}
               kam={kam}
-              kamColor={kamColors[kam.id]}
+              kamColor={isLineMode ? zoneLineColor(kam.id) : kamColors[kam.id]}
               executives={kamExecutives[kam.id]}
+              lineInfo={isLineMode ? {
+                lineName: lineView!.line.name,
+                coverageText: describeCoverage(lineRow, lineView!.zoneNameById),
+                hasEquipment: lineRow ? lineRow.has_equipment !== false : true
+              } : undefined}
               assignment={assignment}
               contractValue={mapData.contractValuesByHospital[hospital.id]}
               contractProviders={mapData.contractProvidersByHospital[hospital.id]}
@@ -914,9 +1198,20 @@ export default function MapComponent({
                   wordBreak: 'break-word',
                   display: 'block'
                 }}>Zona: {zoneDisplayName(kam.name)}</strong>
+                {kam.base_city && (
+                  <div style={{ marginTop: '2px' }}>
+                    <strong>Ciudad base:</strong> {kam.base_city}
+                  </div>
+                )}
                 <div style={{ marginTop: '2px' }}>
                   <strong>Ejecutivo Comercial:</strong> {formatZoneExecutives(kam.executives)}
                 </div>
+                {isLineMode && (
+                  <div style={{ marginTop: '2px' }}>
+                    <strong>Línea {lineView!.line.name}:</strong> {describeCoverage(lineView!.byKam[kam.id], lineView!.zoneNameById)}
+                    {lineView!.byKam[kam.id]?.has_equipment === false && ' · sin equipo'}
+                  </div>
+                )}
                 <div style={{ marginTop: '4px' }}>
                   <strong>Total IPS:</strong> {kam.hospitalCount}<br/>
                   <strong>Total Camas:</strong> {kam.totalBeds.toLocaleString()}<br/>

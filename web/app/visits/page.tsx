@@ -129,11 +129,13 @@ export default function VisitsPage() {
       const errors: string[] = []
       const validVisits: any[] = []
 
-      // Obtener KAMs de la base de datos
-      const { data: kams, error: kamsError } = await supabase
+      // Obtener las zonas (kams) de la base de datos. select('*') para incluir base_city
+      // ("Barranquilla") sin romper la importación si la columna todavía no existe.
+      const { data: kamsData, error: kamsError } = await supabase
         .from('kams')
-        .select('id, name')
+        .select('*')
         .eq('active', true)
+      const kams = (kamsData || []) as Array<{ id: string; name: string; base_city?: string | null }>
       
       if (kamsError) {
         console.error('Error obteniendo KAMs:', kamsError)
@@ -149,25 +151,37 @@ export default function VisitsPage() {
 
       // Crear múltiples mapas para búsqueda flexible
       const kamLookupMap = new Map<string, string>()
-      
-      if (kams) {
-        for (const kam of kams) {
-          // Agregar por ID exacto
-          kamLookupMap.set(kam.id.toLowerCase(), kam.id)
-          
-          // Agregar por nombre completo
-          kamLookupMap.set(kam.name.toLowerCase(), kam.id)
-          
-          // Agregar por nombre sin acentos
-          kamLookupMap.set(normalizeAccents(kam.name.toLowerCase()), kam.id)
-          
-          // Si el nombre empieza con "KAM ", agregar también sin el prefijo
-          if (kam.name.toLowerCase().startsWith('kam ')) {
-            const withoutPrefix = kam.name.toLowerCase().substring(4)
-            kamLookupMap.set(withoutPrefix, kam.id)
-            kamLookupMap.set(normalizeAccents(withoutPrefix), kam.id)
-          }
+
+      // Registra un texto (nombre de zona o ciudad base) en minúsculas, sin acentos y sin prefijo "kam ".
+      // overwrite=false: no pisa una clave ya registrada (el nombre de zona gana sobre la ciudad base).
+      const addLookupKeys = (text: string | null | undefined, kamId: string, overwrite: boolean) => {
+        const lower = (text || '').trim().toLowerCase()
+        if (!lower) return
+        const keys = [lower, normalizeAccents(lower)]
+        if (lower.startsWith('kam ')) {
+          const withoutPrefix = lower.substring(4).trim()
+          keys.push(withoutPrefix, normalizeAccents(withoutPrefix))
         }
+        for (const key of keys) {
+          if (key && (overwrite || !kamLookupMap.has(key))) kamLookupMap.set(key, kamId)
+        }
+      }
+
+      // 1) ID exacto y nombre de la zona ("Atlántico y Magdalena", "KAM Barranquilla" heredado)
+      for (const kam of kams) {
+        kamLookupMap.set(kam.id.toLowerCase(), kam.id)
+        addLookupKeys(kam.name, kam.id, true)
+      }
+      // 2) Ciudad base ("Barranquilla", "Chapinero"): los Excel traen la ciudad del Ejecutivo Comercial
+      for (const kam of kams) {
+        addLookupKeys(kam.base_city, kam.id, false)
+      }
+      // 3) Forma corta de los nombres oficiales DANE: "Cartagena de Indias" → "Cartagena",
+      //    "San José de Cúcuta" → "Cúcuta" (los Excel históricos usan la forma corta)
+      for (const kam of kams) {
+        const city = (kam.base_city || '').trim()
+        const short = city.replace(/\s+de\s+indias$/i, '').replace(/^san\s+jos[eé]\s+de\s+/i, '').trim()
+        if (short && short.toLowerCase() !== city.toLowerCase()) addLookupKeys(short, kam.id, false)
       }
 
       jsonData.forEach((row: any, index: number) => {
@@ -182,7 +196,7 @@ export default function VisitsPage() {
 
         // Validar campos requeridos
         if (!kamInput) {
-          errors.push(`Fila ${rowNum}: Falta el Ejecutivo Comercial (use el nombre de la zona: 'Barranquilla', 'Cali', etc.)`)
+          errors.push(`Fila ${rowNum}: Falta el Ejecutivo Comercial (use el nombre de la zona o su ciudad base: 'Barranquilla', 'Cali', etc.)`)
           return
         }
 
@@ -216,10 +230,10 @@ export default function VisitsPage() {
         
         if (kamId) {
           // Si se encontró el KAM, obtener su nombre real
-          const kamData = kams?.find(k => k.id === kamId)
+          const kamData = kams.find(k => k.id === kamId)
           kamName = kamData?.name || kamInput
         } else {
-          errors.push(`Fila ${rowNum}: Ejecutivo Comercial '${kamInput}' no encontrado (use el nombre de la zona: 'Barranquilla' o 'Cali')`)
+          errors.push(`Fila ${rowNum}: Ejecutivo Comercial '${kamInput}' no encontrado (use el nombre de la zona o su ciudad base: 'Barranquilla' o 'Cali')`)
           return
         }
 
