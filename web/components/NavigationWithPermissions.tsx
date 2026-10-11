@@ -7,9 +7,22 @@ import { useUser } from '@/contexts/UserContext'
 import { usePermissions } from '@/hooks/usePermissions'
 import { getRoleTitle } from '@/lib/permissions'
 
+interface MenuItem {
+  name: string
+  href: string
+  icon: string
+}
+
+// Fase 1: en la UI, cada fila de kams es una "Zona" y la tabla zones es una "Región".
+// Las rutas (/kams, /zones) no cambian; solo el texto visible del menú.
+const MENU_LABELS: Record<string, string> = {
+  '/kams': 'Zonas',
+  '/zones': 'Regiones',
+}
+
 export default function NavigationWithPermissions() {
   const { user, logout } = useUser()
-  const { role, navigationMenu, loading } = usePermissions()
+  const { role, navigationMenu, loading, can } = usePermissions()
   const [isOpen, setIsOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const pathname = usePathname()
@@ -33,6 +46,26 @@ export default function NavigationWithPermissions() {
     setIsOpen(false)
   }, [pathname])
   
+  // Menú visible: renombra Zonas/Regiones y agrega Líneas y Ejecutivas (cada una con su permiso)
+  // justo después de Regiones (o de Zonas, o al final si no hay ninguna de las dos).
+  const menuItems: MenuItem[] = navigationMenu.map(item => ({
+    ...item,
+    name: MENU_LABELS[item.href] ?? item.name,
+  }))
+  const extraItems: MenuItem[] = []
+  if (can('lines:view') && !menuItems.some(item => item.href === '/lines')) {
+    extraItems.push({ name: 'Líneas', href: '/lines', icon: 'lines' })
+  }
+  if (can('executives:view') && !menuItems.some(item => item.href === '/executives')) {
+    extraItems.push({ name: 'Ejecutivas', href: '/executives', icon: 'executives' })
+  }
+  if (extraItems.length > 0) {
+    let anchor = menuItems.findIndex(item => item.href === '/zones')
+    if (anchor === -1) anchor = menuItems.findIndex(item => item.href === '/kams')
+    const insertAt = anchor === -1 ? menuItems.length : anchor + 1
+    menuItems.splice(insertAt, 0, ...extraItems)
+  }
+
   if (!user) return null
   
   return (
@@ -115,7 +148,7 @@ export default function NavigationWithPermissions() {
             <div className="mb-6 pb-4 border-b border-gray-100">
               <h3 className="text-base font-semibold text-gray-900 mb-1">Navegación</h3>
               <p className="text-xs text-gray-500">
-                {loading ? 'Cargando menú...' : `${navigationMenu.length} opciones disponibles`}
+                {loading ? 'Cargando menú...' : `${menuItems.length} opciones disponibles`}
               </p>
             </div>
 
@@ -129,7 +162,7 @@ export default function NavigationWithPermissions() {
             </div>
           ) : (
             <nav className="space-y-1">
-              {navigationMenu.map((item) => {
+              {menuItems.map((item) => {
                 const isActive = pathname === item.href
                 const Icon = getIconForRoute(item.href)
                 
@@ -197,6 +230,8 @@ function getIconForRoute(href: string) {
     '/hospitals': HospitalIcon,
     '/kams': UsersIcon,
     '/zones': ZonesIcon,
+    '/lines': LinesIcon,
+    '/executives': ExecutivesIcon,
     '/contracts': DocumentIcon,
     '/providers': ProvidersIcon,
     '/visits': CalendarIcon,
@@ -273,6 +308,18 @@ const ComplianceIcon: React.FC<{ className?: string }> = ({ className }) => (
 const ProvidersIcon: React.FC<{ className?: string }> = ({ className }) => (
   <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+  </svg>
+)
+
+const LinesIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+  </svg>
+)
+
+const ExecutivesIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2" />
   </svg>
 )
 

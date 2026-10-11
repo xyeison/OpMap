@@ -159,6 +159,17 @@ interface ForcedAssignment {
   active: boolean
 }
 
+/**
+ * Ajustes en memoria para simular escenarios SIN tocar la BD (p. ej. scripts/fase1-simulate.ts).
+ * - kamActive: fuerza el estado activo por area_id ('13001' => true activa Cartagena en la simulación).
+ *   Solo afecta a KAMs con participates_in_assignment = true.
+ * - excludeKamNames: nombres de KAM que se quitan del cálculo (como si se hubieran borrado).
+ */
+export interface AlgorithmOverrides {
+  kamActive?: Record<string, boolean>
+  excludeKamNames?: string[]
+}
+
 export class SimplifiedOpMapAlgorithm {
   private kams: KAM[] = []
   private hospitals: Hospital[] = []
@@ -167,7 +178,7 @@ export class SimplifiedOpMapAlgorithm {
   private adjacencyMatrix: Record<string, string[]> = {}
   private forcedAssignments: ForcedAssignment[] = []
   
-  async loadData() {
+  async loadData(overrides?: AlgorithmOverrides) {
     console.log('🔄 Cargando datos...')
     const supabase = getSupabaseAdmin()
 
@@ -183,19 +194,39 @@ export class SimplifiedOpMapAlgorithm {
     this.excludedDepartments = (excludedDepts || []).map(d => d.code)
     console.log(`✅ ${this.excludedDepartments.length} departamentos excluidos`)
 
-    // 2. Cargar KAMs activos que participan en asignación territorial (orden determinista)
-    const { data: kamsData, error: kamsError } = await supabase
+    // 2. Cargar KAMs activos que participan en asignación territorial (orden determinista).
+    // Con overrides.kamActive se cargan también los inactivos para poder activarlos en memoria.
+    const kamActiveOverrides = overrides?.kamActive ?? {}
+    const hasActiveOverrides = Object.keys(kamActiveOverrides).length > 0
+    let kamsQuery = supabase
       .from('kams')
       .select('*')
-      .eq('active', true)
       .eq('participates_in_assignment', true)
-      .order('name')
+    if (!hasActiveOverrides) {
+      kamsQuery = kamsQuery.eq('active', true)
+    }
+    const { data: kamsData, error: kamsError } = await kamsQuery.order('name')
     if (kamsError) {
       throw new Error(`Error cargando kams: ${kamsError.message}`)
     }
 
+    let loadedKams = (kamsData || []) as KAM[]
+    if (hasActiveOverrides) {
+      loadedKams = loadedKams
+        .map(kam =>
+          Object.prototype.hasOwnProperty.call(kamActiveOverrides, kam.area_id)
+            ? { ...kam, active: kamActiveOverrides[kam.area_id] }
+            : kam
+        )
+        .filter(kam => kam.active)
+    }
+    const excludedNames = new Set(overrides?.excludeKamNames ?? [])
+    if (excludedNames.size > 0) {
+      loadedKams = loadedKams.filter(kam => !excludedNames.has(kam.name))
+    }
+
     // area_id === '11001' (Bogotá como municipio) es una configuración inválida: se excluye
-    this.kams = ((kamsData || []) as KAM[]).filter(kam => {
+    this.kams = loadedKams.filter(kam => {
       if (hasValidKamArea(kam)) return true
       console.warn(
         `⚠️ KAM "${kam.name}" (${kam.id}) excluido de la asignación: area_id "${kam.area_id}" no es válido. ` +

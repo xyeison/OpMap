@@ -23,6 +23,10 @@ export type Permission =
   | 'visits:manage'
   | 'territories:view'
   | 'territories:manage'
+  | 'lines:view'       // Fase 1: líneas de negocio (PerOssal, Reemplazo articular...)
+  | 'lines:edit'
+  | 'executives:view'  // Fase 1: ejecutivas comerciales (personas)
+  | 'executives:edit'
 
 // Definición de permisos por rol
 export const rolePermissions: Record<Role, Permission[]> = {
@@ -46,7 +50,11 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'visits:view',
     'visits:manage',
     'territories:view',
-    'territories:manage'
+    'territories:manage',
+    'lines:view',
+    'lines:edit',
+    'executives:view',
+    'executives:edit'
   ],
   sales_manager: [
     'dashboard:view',
@@ -55,7 +63,9 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'kams:view',       // Puede ver KAMs
     'zones:view',      // Puede ver zonas
     'contracts:view',  // Solo ver contratos, NO editar
-    'territories:view'  // Solo ver territorios, NO gestionar
+    'territories:view',  // Solo ver territorios, NO gestionar
+    'lines:view',        // lines:edit para líderes de línea: pendiente de modelar
+    'executives:view'
   ],
   contract_manager: [
     'map:view',
@@ -65,7 +75,9 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'contracts:edit',
     'contracts:delete',
     'providers:view',
-    'providers:edit'  // Puede gestionar proveedores
+    'providers:edit',  // Puede gestionar proveedores
+    'lines:view',
+    'executives:view'
   ],
   data_manager: [
     'map:view',
@@ -79,15 +91,22 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'visits:manage',
     'territories:view',
     'territories:manage',  // Puede gestionar asignaciones forzadas
-    'recalculate:complete' // Recálculo completo tras cambiar territorios/asignaciones forzadas
+    'recalculate:complete', // Recálculo completo tras cambiar territorios/asignaciones forzadas
+    'lines:view',
+    'executives:view',
+    'executives:edit'       // Gestiona el equipo comercial (ejecutivas y sus líneas)
   ],
   viewer: [
     'map:view',
-    'hospitals:view'
+    'hospitals:view',
+    'lines:view',
+    'executives:view'
   ],
   user: [
     'map:view',
-    'hospitals:view'
+    'hospitals:view',
+    'lines:view',
+    'executives:view'
   ]
 }
 
@@ -122,6 +141,8 @@ export function getAllowedRoutes(role: Role | undefined): string[] {
   if (permissions.includes('users:manage')) routes.push('/users')
   if (permissions.includes('visits:view')) routes.push('/visits')
   if (permissions.includes('territories:view')) routes.push('/territories', '/territories/[id]')
+  if (permissions.includes('lines:view')) routes.push('/lines')            // Fase 1
+  if (permissions.includes('executives:view')) routes.push('/executives')  // Fase 1
   
   return routes
 }

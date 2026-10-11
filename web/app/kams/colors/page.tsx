@@ -23,7 +23,7 @@ export default function KamColorsPage() {
       const response = await fetch('/api/kams')
       const data = await response.json().catch(() => null)
       if (!response.ok) {
-        throw new Error((data && data.error) || `Error al cargar los KAMs (${response.status})`)
+        throw new Error((data && data.error) || `Error al cargar las zonas (${response.status})`)
       }
       const activeKams = (Array.isArray(data) ? data : []).filter((kam: any) => kam.active)
       setKams(activeKams)
@@ -35,7 +35,7 @@ export default function KamColorsPage() {
       setEditedColors(colors)
     } catch (error: any) {
       console.error('Error loading KAMs:', error)
-      alert(error?.message || 'Error al cargar los KAMs')
+      alert(error?.message || 'Error al cargar las zonas')
     } finally {
       setLoading(false)
     }
@@ -126,10 +126,10 @@ export default function KamColorsPage() {
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path>
                 </svg>
-                Volver a KAMs
+                Volver a Zonas
               </button>
               <h1 className="text-4xl font-bold text-gray-900">Colores de Territorios</h1>
-              <p className="text-gray-600 mt-2">Personaliza los colores de cada territorio KAM en el mapa</p>
+              <p className="text-gray-600 mt-2">Personaliza los colores de cada zona en el mapa</p>
             </div>
             <div className="flex gap-3">
               <button
@@ -214,7 +214,7 @@ export default function KamColorsPage() {
           <div className="mt-8 p-4 bg-gray-100 rounded-lg">
             <p className="text-sm text-gray-700">
               <strong>Nota:</strong> Los cambios en los colores se reflejarán inmediatamente en el mapa después de guardar.
-              Los colores afectan tanto a los territorios como a los marcadores de hospitales asignados a cada KAM.
+              Los colores afectan tanto a los territorios como a los marcadores de hospitales asignados a cada zona.
             </p>
           </div>
         </div>

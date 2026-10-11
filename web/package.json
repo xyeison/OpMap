@@ -9,7 +9,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "fase1:simulate": "tsx scripts/fase1-simulate.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.53.0",
@@ -38,6 +39,7 @@
     "@types/react-dom": "^18.0.0",
     "eslint": "^8.0.0",
     "eslint-config-next": "14.2.35",
+    "tsx": "^4.23.15",
     "typescript": "^5.0.0"
   }
 }

@@ -36,13 +36,13 @@ export default function KamZoneModal({ kam, zones, isOpen, onClose, onSuccess }:
       })
       const result = await response.json().catch(() => ({}))
       if (!response.ok) {
-        throw new Error(result.error || `Error al asignar la zona (${response.status})`)
+        throw new Error(result.error || `Error al asignar la región (${response.status})`)
       }
 
       onSuccess()
     } catch (err: any) {
       console.error('Error updating KAM zone:', err)
-      setError(err.message || 'Error al asignar la zona')
+      setError(err.message || 'Error al asignar la región')
     } finally {
       setLoading(false)
     }
@@ -63,10 +63,10 @@ export default function KamZoneModal({ kam, zones, isOpen, onClose, onSuccess }:
           <div className="flex justify-between items-center">
             <div>
               <h2 className="text-xl font-bold text-white">
-                Asignar Zona
+                Asignar Región
               </h2>
               <p className="text-sm text-gray-300 mt-1">
-                KAM: {kam?.name}
+                Zona: {kam?.name}
               </p>
             </div>
             <button
@@ -90,7 +90,7 @@ export default function KamZoneModal({ kam, zones, isOpen, onClose, onSuccess }:
           {/* Información actual */}
           {currentZone && (
             <div className="bg-gray-50 rounded-lg p-4 mb-4">
-              <div className="text-sm text-gray-600 mb-1">Zona actual:</div>
+              <div className="text-sm text-gray-600 mb-1">Región actual:</div>
               <div className="flex items-center gap-2">
                 <div
                   className="w-4 h-4 rounded-full border border-gray-300"
@@ -109,7 +109,7 @@ export default function KamZoneModal({ kam, zones, isOpen, onClose, onSuccess }:
           {/* Selector de zona */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Seleccionar Zona
+              Seleccionar Región
             </label>
             <div className="space-y-2 max-h-64 overflow-y-auto">
               {/* Opción para quitar zona */}
@@ -130,8 +130,8 @@ export default function KamZoneModal({ kam, zones, isOpen, onClose, onSuccess }:
                   )}
                 </div>
                 <div className="flex-1">
-                  <div className="font-medium text-gray-700">Sin zona asignada</div>
-                  <div className="text-xs text-gray-500">Remover asignación de zona actual</div>
+                  <div className="font-medium text-gray-700">Sin región asignada</div>
+                  <div className="text-xs text-gray-500">Quitar la región actual</div>
                 </div>
               </label>
 
@@ -175,7 +175,7 @@ export default function KamZoneModal({ kam, zones, isOpen, onClose, onSuccess }:
                   </div>
                   {zone.kams && zone.kams.length > 0 && (
                     <div className="text-xs bg-gray-100 px-2 py-1 rounded-full">
-                      {zone.kams.length} KAMs
+                      {zone.kams.length} zonas
                     </div>
                   )}
                 </label>

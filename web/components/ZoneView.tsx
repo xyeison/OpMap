@@ -24,7 +24,7 @@ export default function ZoneView({ searchTerm, onZoneClick }: ZoneViewProps) {
       const zonesResponse = await fetch('/api/zones')
       const zonesData = await zonesResponse.json()
       if (!zonesResponse.ok) {
-        throw new Error(zonesData.error || `Error al cargar las zonas (${zonesResponse.status})`)
+        throw new Error(zonesData.error || `Error al cargar las regiones (${zonesResponse.status})`)
       }
       setZones(Array.isArray(zonesData) ? zonesData : [])
 
@@ -32,7 +32,7 @@ export default function ZoneView({ searchTerm, onZoneClick }: ZoneViewProps) {
       const statsResponse = await fetch('/api/zones/statistics')
       const statsData = await statsResponse.json()
       if (!statsResponse.ok) {
-        throw new Error(statsData.error || `Error al cargar las estadísticas de zonas (${statsResponse.status})`)
+        throw new Error(statsData.error || `Error al cargar las estadísticas de regiones (${statsResponse.status})`)
       }
       setZoneStatistics(Array.isArray(statsData) ? statsData : [])
     } catch (error) {
@@ -69,7 +69,7 @@ export default function ZoneView({ searchTerm, onZoneClick }: ZoneViewProps) {
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
           </svg>
-          <p className="text-gray-600">Cargando zonas...</p>
+          <p className="text-gray-600">Cargando regiones...</p>
         </div>
       </div>
     )
@@ -83,13 +83,13 @@ export default function ZoneView({ searchTerm, onZoneClick }: ZoneViewProps) {
           <thead>
             <tr className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
               <th className="px-6 py-5 text-left">
-                <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Zona</span>
+                <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Región</span>
               </th>
               <th className="px-6 py-5 text-left">
                 <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Coordinador</span>
               </th>
               <th className="px-6 py-5 text-center">
-                <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">KAMs</span>
+                <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Zonas</span>
               </th>
               <th className="px-6 py-5 text-center">
                 <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Hospitales</span>
@@ -151,7 +151,7 @@ export default function ZoneView({ searchTerm, onZoneClick }: ZoneViewProps) {
                       <span className="text-2xl font-bold text-gray-900">
                         {stats?.total_kams || 0}
                       </span>
-                      <span className="text-xs text-gray-500">KAMs</span>
+                      <span className="text-xs text-gray-500">zonas</span>
                     </div>
                   </td>
                   <td className="px-6 py-5 text-center">
@@ -230,7 +230,7 @@ export default function ZoneView({ searchTerm, onZoneClick }: ZoneViewProps) {
                   <p className="text-lg font-bold text-gray-900">
                     {stats?.total_kams || 0}
                   </p>
-                  <p className="text-xs text-gray-500">KAMs</p>
+                  <p className="text-xs text-gray-500">Zonas</p>
                 </div>
                 <div className="text-center p-2 bg-gray-50 rounded-lg">
                   <p className="text-lg font-bold text-gray-900">
@@ -269,9 +269,9 @@ export default function ZoneView({ searchTerm, onZoneClick }: ZoneViewProps) {
           <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" />
           </svg>
-          <h3 className="mt-2 text-sm font-medium text-gray-900">No se encontraron zonas</h3>
+          <h3 className="mt-2 text-sm font-medium text-gray-900">No se encontraron regiones</h3>
           <p className="mt-1 text-sm text-gray-500">
-            {searchTerm ? 'Intenta con otros términos de búsqueda' : 'No hay zonas configuradas'}
+            {searchTerm ? 'Intenta con otros términos de búsqueda' : 'No hay regiones configuradas'}
           </p>
         </div>
       )}

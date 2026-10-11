@@ -27,7 +27,7 @@ async function fetchKams(): Promise<KamWithData[]> {
   const response = await fetch('/api/kams')
   const data = await response.json().catch(() => null)
   if (!response.ok) {
-    throw new Error((data && data.error) || `Error al cargar los KAMs (${response.status})`)
+    throw new Error((data && data.error) || `Error al cargar las zonas (${response.status})`)
   }
   const list: KamWithData[] = Array.isArray(data) ? data : []
   return list.sort((a, b) => Number(b.active) - Number(a.active) || a.name.localeCompare(b.name))
@@ -120,7 +120,7 @@ export default function KamsPage() {
       statsById = new Map((Array.isArray(data) ? data : []).map((stat: KamStats) => [stat.kam_id, stat]))
     } catch (error: any) {
       console.error('Error cargando estadísticas de KAMs:', error)
-      setStatsError(error?.message || 'Error al cargar las estadísticas de KAMs')
+      setStatsError(error?.message || 'Error al cargar las estadísticas de zonas')
     }
 
     const updatedKams = kams.map((kam) => {
@@ -204,7 +204,7 @@ export default function KamsPage() {
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
           </svg>
-          <p className="text-gray-600">Cargando KAMs...</p>
+          <p className="text-gray-600">Cargando zonas...</p>
         </div>
       </div>
     )
@@ -223,7 +223,7 @@ export default function KamsPage() {
                 </svg>
                 <div>
                   <strong className="font-semibold">Acceso denegado</strong>
-                  <p className="text-sm mt-1">No tienes permisos para ver los KAMs.</p>
+                  <p className="text-sm mt-1">No tienes permisos para ver las zonas.</p>
                 </div>
               </div>
             </div>
@@ -235,8 +235,8 @@ export default function KamsPage() {
           <div className="bg-gradient-to-r from-gray-900 to-gray-700 rounded-2xl shadow-xl p-6 mb-8">
             <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
               <div>
-                <h1 className="text-3xl lg:text-4xl font-bold text-white">Key Account Managers</h1>
-                <p className="text-gray-300 mt-2">Gestión de vendedores y territorios comerciales</p>
+                <h1 className="text-3xl lg:text-4xl font-bold text-white">Zonas</h1>
+                <p className="text-gray-300 mt-2">Zonas geográficas con su ciudad base y tiempo máximo de viaje</p>
               </div>
               <div className="flex flex-wrap gap-3">
                 {/* Toggle para cambiar entre vistas */}
@@ -249,7 +249,7 @@ export default function KamsPage() {
                         : 'text-white hover:bg-white/10'
                     }`}
                   >
-                    Por KAMs
+                    Por Zonas
                   </button>
                   <button
                     onClick={() => setViewMode('zones')}
@@ -259,7 +259,7 @@ export default function KamsPage() {
                         : 'text-white hover:bg-white/10'
                     }`}
                   >
-                    Por Zonas
+                    Por Regiones
                   </button>
                 </div>
                 <button
@@ -278,7 +278,7 @@ export default function KamsPage() {
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
                   </svg>
-                  Agregar KAM
+                  Agregar Zona
                 </button>
               </div>
             </div>
@@ -300,7 +300,7 @@ export default function KamsPage() {
                   </svg>
                 </div>
               </div>
-              <p className="text-sm font-medium text-gray-600">Total KAMs</p>
+              <p className="text-sm font-medium text-gray-600">Total Zonas</p>
               <p className="text-2xl font-bold text-gray-900">{filteredKams.length}</p>
             </div>
 
@@ -315,7 +315,7 @@ export default function KamsPage() {
                   {filteredKams.length > 0 ? Math.round((activeKams / filteredKams.length) * 100) : 0}%
                 </span>
               </div>
-              <p className="text-sm font-medium text-gray-600">KAMs Activos</p>
+              <p className="text-sm font-medium text-gray-600">Zonas Activas</p>
               <p className="text-2xl font-bold text-gray-900">{activeKams}</p>
             </div>
 
@@ -369,13 +369,13 @@ export default function KamsPage() {
               <thead>
                 <tr className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
                   <th className="px-6 py-5 text-left">
-                    <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">KAM</span>
+                    <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Zona</span>
                   </th>
                   <th className="px-6 py-5 text-left">
                     <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Ubicación</span>
                   </th>
                   <th className="px-6 py-5 text-left">
-                    <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Zona</span>
+                    <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Región</span>
                   </th>
                   <th className="px-6 py-5 text-center">
                     <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Hospitales</span>
@@ -416,7 +416,7 @@ export default function KamsPage() {
                             {kam.name}
                           </div>
                           {!kam.active && (
-                            <span className="text-xs text-gray-500">Inactivo</span>
+                            <span className="text-xs text-gray-500">Inactiva</span>
                           )}
                         </div>
                       </div>
@@ -456,7 +456,7 @@ export default function KamsPage() {
                           </div>
                         ) : (
                           <div className="px-3 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-                            <span className="text-sm text-gray-500">Sin zona asignada</span>
+                            <span className="text-sm text-gray-500">Sin región asignada</span>
                             <svg className="w-4 h-4 ml-2 inline text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                             </svg>
@@ -512,7 +512,7 @@ export default function KamsPage() {
                           : 'bg-gradient-to-r from-red-50 to-pink-50 text-red-700 border border-red-200'
                       }`}>
                         <span className={`w-2 h-2 rounded-full mr-2 ${kam.active ? 'bg-green-500' : 'bg-red-500'}`}></span>
-                        {kam.active ? 'Activo' : 'Inactivo'}
+                        {kam.active ? 'Activa' : 'Inactiva'}
                       </span>
                     </td>
                     <td className="px-6 py-5">
@@ -520,7 +520,7 @@ export default function KamsPage() {
                         <button 
                           onClick={() => handleEditClick(kam)}
                           className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-all group"
-                          title="Editar KAM"
+                          title="Editar zona"
                         >
                           <svg className="w-4 h-4 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
@@ -576,7 +576,7 @@ export default function KamsPage() {
                       ? 'bg-green-100 text-green-700' 
                       : 'bg-red-100 text-red-700'
                   }`}>
-                    {kam.active ? 'Activo' : 'Inactivo'}
+                    {kam.active ? 'Activa' : 'Inactiva'}
                   </span>
                 </div>
 
@@ -592,7 +592,7 @@ export default function KamsPage() {
                 </div>
 
                 <div className="mb-3">
-                  <label className="text-xs text-gray-600 font-medium mb-1 block">Zona:</label>
+                  <label className="text-xs text-gray-600 font-medium mb-1 block">Región:</label>
                   <button
                     onClick={() => openZoneModal(kam)}
                     disabled={!kam.active}
@@ -611,7 +611,7 @@ export default function KamsPage() {
                       </div>
                     ) : (
                       <div className="px-3 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-                        <span className="text-sm text-gray-500">Sin zona asignada</span>
+                        <span className="text-sm text-gray-500">Sin región asignada</span>
                         <svg className="w-4 h-4 ml-2 inline text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                         </svg>
@@ -660,9 +660,9 @@ export default function KamsPage() {
                   <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
                   </svg>
-                  <h3 className="mt-2 text-sm font-medium text-gray-900">No se encontraron KAMs</h3>
+                  <h3 className="mt-2 text-sm font-medium text-gray-900">No se encontraron zonas</h3>
                   <p className="mt-1 text-sm text-gray-500">
-                    {searchTerm ? 'Intenta con otros términos de búsqueda' : 'Agrega el primer KAM para comenzar'}
+                    {searchTerm ? 'Intenta con otros términos de búsqueda' : 'Agrega la primera zona para comenzar'}
                   </p>
                 </div>
               )}

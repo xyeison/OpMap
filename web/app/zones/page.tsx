@@ -25,7 +25,7 @@ export default function ZonesPage() {
       const response = await fetch('/api/zones')
       const data = await response.json().catch(() => null)
       if (!response.ok) {
-        throw new Error((data && data.error) || `Error al cargar las zonas (${response.status})`)
+        throw new Error((data && data.error) || `Error al cargar las regiones (${response.status})`)
       }
       setZones(Array.isArray(data) ? data : [])
     } catch (error) {
@@ -46,7 +46,7 @@ export default function ZonesPage() {
   }
 
   const handleDeleteZone = async (zoneId: string) => {
-    if (!confirm('¿Estás seguro de que deseas eliminar esta zona?')) {
+    if (!confirm('¿Estás seguro de que deseas eliminar esta región?')) {
       return
     }
 
@@ -55,13 +55,13 @@ export default function ZonesPage() {
       const response = await fetch(`/api/zones/${zoneId}`, { method: 'DELETE' })
       if (!response.ok) {
         const result = await response.json().catch(() => ({}))
-        throw new Error(result.error || `Error al eliminar la zona (${response.status})`)
+        throw new Error(result.error || `Error al eliminar la región (${response.status})`)
       }
 
       await loadZones()
     } catch (error: any) {
       console.error('Error deleting zone:', error)
-      alert(error?.message || 'Error al eliminar la zona')
+      alert(error?.message || 'Error al eliminar la región')
     }
   }
 
@@ -95,7 +95,7 @@ export default function ZonesPage() {
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
           </svg>
-          <p className="text-gray-600">Cargando zonas...</p>
+          <p className="text-gray-600">Cargando regiones...</p>
         </div>
       </div>
     )
@@ -114,7 +114,7 @@ export default function ZonesPage() {
                 </svg>
                 <div>
                   <strong className="font-semibold">Acceso denegado</strong>
-                  <p className="text-sm mt-1">No tienes permisos para ver las zonas.</p>
+                  <p className="text-sm mt-1">No tienes permisos para ver las regiones.</p>
                 </div>
               </div>
             </div>
@@ -126,8 +126,8 @@ export default function ZonesPage() {
           <div className="bg-gradient-to-r from-gray-900 to-gray-700 rounded-2xl shadow-xl p-6 mb-8">
             <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
               <div>
-                <h1 className="text-3xl lg:text-4xl font-bold text-white">Zonas Comerciales</h1>
-                <p className="text-gray-300 mt-2">Gestión de zonas y coordinadores regionales</p>
+                <h1 className="text-3xl lg:text-4xl font-bold text-white">Regiones</h1>
+                <p className="text-gray-300 mt-2">Agrupación de zonas por región y sus coordinadores</p>
               </div>
               <button
                 onClick={handleCreateZone}
@@ -136,7 +136,7 @@ export default function ZonesPage() {
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
                 </svg>
-                Agregar Zona
+                Agregar Región
               </button>
             </div>
           </div>
@@ -151,7 +151,7 @@ export default function ZonesPage() {
                   </svg>
                 </div>
               </div>
-              <p className="text-sm font-medium text-gray-600">Total Zonas</p>
+              <p className="text-sm font-medium text-gray-600">Total Regiones</p>
               <p className="text-2xl font-bold text-gray-900">{zones.length}</p>
             </div>
 
@@ -163,7 +163,7 @@ export default function ZonesPage() {
                   </svg>
                 </div>
               </div>
-              <p className="text-sm font-medium text-gray-600">Zonas Activas</p>
+              <p className="text-sm font-medium text-gray-600">Regiones Activas</p>
               <p className="text-2xl font-bold text-gray-900">
                 {zones.filter(z => z.active).length}
               </p>
@@ -206,7 +206,7 @@ export default function ZonesPage() {
               <thead>
                 <tr className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
                   <th className="px-6 py-5 text-left">
-                    <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Zona</span>
+                    <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Región</span>
                   </th>
                   <th className="px-6 py-5 text-left">
                     <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Código</span>
@@ -293,7 +293,7 @@ export default function ZonesPage() {
                         <button
                           onClick={() => handleEditZone(zone)}
                           className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-all group"
-                          title="Editar zona"
+                          title="Editar región"
                         >
                           <svg className="w-4 h-4 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
@@ -302,7 +302,7 @@ export default function ZonesPage() {
                         <button
                           onClick={() => handleDeleteZone(zone.id)}
                           className="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-all group"
-                          title="Eliminar zona"
+                          title="Eliminar región"
                         >
                           <svg className="w-4 h-4 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
@@ -320,9 +320,9 @@ export default function ZonesPage() {
                 <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9"></path>
                 </svg>
-                <h3 className="mt-2 text-sm font-medium text-gray-900">No se encontraron zonas</h3>
+                <h3 className="mt-2 text-sm font-medium text-gray-900">No se encontraron regiones</h3>
                 <p className="mt-1 text-sm text-gray-500">
-                  {searchTerm ? 'Intenta con otros términos de búsqueda' : 'Agrega la primera zona para comenzar'}
+                  {searchTerm ? 'Intenta con otros términos de búsqueda' : 'Agrega la primera región para comenzar'}
                 </p>
               </div>
             )}

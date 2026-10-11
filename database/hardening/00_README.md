@@ -25,6 +25,15 @@ es la ubicación base que el mapa ya dibuja), así que no se crea `kams_public`.
 El servidor no se ve afectado mientras use `service_role` (bypass de RLS y con todos los
 privilegios). Por eso no se crea ninguna política nueva.
 
+### Tablas nuevas de la Fase 1 (zonas y equipo)
+
+Las 6 tablas que crea `database/migrations/2026-10-10_0100_fase1_schema.sql` (`business_lines`,
+`executives`, `executive_lines`, `line_zones`, `coverage`, `coverage_overrides`) nacen ya con este
+mismo criterio: **RLS activado, sin políticas y `REVOKE ALL … FROM anon, authenticated`** dentro
+del propio script (el REVOKE es necesario mientras no se ejecute `03`, porque los privilegios por
+defecto de `postgres` en `public` siguen concediendo todo a `anon`/`authenticated`). Solo las usa
+el servidor con `service_role`. No hace falta añadirlas a `02`/`03`, y `99_rollback.sql` no las toca.
+
 ## Prerrequisitos (en este orden)
 
 1. **Respaldo del Paso 0 a salvo.** Está en

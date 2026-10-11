@@ -99,7 +99,7 @@ export default function EditKamModal({ kam, isOpen, onClose, onUpdate }: EditKam
         })
         const result = await response.json().catch(() => ({}))
         if (!response.ok) {
-          throw new Error(result.error || `Error al actualizar KAM (${response.status})`)
+          throw new Error(result.error || `Error al actualizar la zona (${response.status})`)
         }
         if (result.warning) {
           alert(result.warning)
@@ -118,7 +118,7 @@ export default function EditKamModal({ kam, isOpen, onClose, onUpdate }: EditKam
           })
           const result = await response.json().catch(() => ({}))
           if (!response.ok || !result.success) {
-            throw new Error(result.error || `Error al cambiar estado del KAM (${response.status})`)
+            throw new Error(result.error || `Error al cambiar el estado de la zona (${response.status})`)
           }
           if (Array.isArray(result.warnings) && result.warnings.length > 0) {
             alert(result.warnings.join('\n'))
@@ -147,7 +147,7 @@ export default function EditKamModal({ kam, isOpen, onClose, onUpdate }: EditKam
       onUpdate()
       onClose()
     } catch (err: any) {
-      setError(err.message || 'Error al actualizar KAM')
+      setError(err.message || 'Error al actualizar la zona')
     } finally {
       setLoading(false)
       setPendingAction(null)
@@ -171,7 +171,7 @@ export default function EditKamModal({ kam, isOpen, onClose, onUpdate }: EditKam
                   {kam.name.substring(0, 2).toUpperCase()}
                 </div>
                 <div>
-                  <h3 className="text-2xl font-bold">Editar KAM</h3>
+                  <h3 className="text-2xl font-bold">Editar Zona</h3>
                   <p className="text-gray-300 text-sm">Configuración de {kam.name}</p>
                 </div>
               </div>
@@ -222,7 +222,7 @@ export default function EditKamModal({ kam, isOpen, onClose, onUpdate }: EditKam
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Nombre del KAM
+                      Nombre de la zona
                     </label>
                     <input
                       type="text"
@@ -251,7 +251,7 @@ export default function EditKamModal({ kam, isOpen, onClose, onUpdate }: EditKam
                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                           </svg>
-                          Activo
+                          Activa
                         </span>
                       </button>
                       <button
@@ -267,7 +267,7 @@ export default function EditKamModal({ kam, isOpen, onClose, onUpdate }: EditKam
                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
                           </svg>
-                          Inactivo
+                          Inactiva
                         </span>
                       </button>
                     </div>
@@ -435,8 +435,8 @@ export default function EditKamModal({ kam, isOpen, onClose, onUpdate }: EditKam
                       </span>
                       <p className="text-xs text-gray-500 mt-1">
                         {formData.participates_in_assignment 
-                          ? "El KAM tiene territorio asignado y aparece en el mapa"
-                          : "KAM administrativo sin territorio (no aparece en el mapa)"}
+                          ? "La zona tiene territorio asignado y aparece en el mapa"
+                          : "Zona administrativa sin territorio (no aparece en el mapa)"}
                       </p>
                     </div>
                     {formData.participates_in_assignment ? (
@@ -544,13 +544,13 @@ export default function EditKamModal({ kam, isOpen, onClose, onUpdate }: EditKam
             </div>
             
             <h3 className="text-2xl font-bold text-gray-900 text-center mb-4">
-              {pendingAction === 'activate' ? 'Activar KAM' : 'Desactivar KAM'}
+              {pendingAction === 'activate' ? 'Activar zona' : 'Desactivar zona'}
             </h3>
             
             <p className="text-center text-gray-600 mb-6">
               {pendingAction === 'activate' 
-                ? `¿Estás seguro de activar a ${kam.name}?`
-                : `¿Estás seguro de desactivar a ${kam.name}?`
+                ? `¿Estás seguro de activar la zona ${kam.name}?`
+                : `¿Estás seguro de desactivar la zona ${kam.name}?`
               }
             </p>
             
@@ -559,7 +559,7 @@ export default function EditKamModal({ kam, isOpen, onClose, onUpdate }: EditKam
                 <strong>{pendingAction === 'activate' ? '✅' : '⚠️'} Importante:</strong> Se recalcularán TODAS las asignaciones del sistema.
                 {pendingAction === 'activate' 
                   ? ' El algoritmo OpMap asignará hospitales según proximidad.'
-                  : ' Los hospitales de este KAM serán reasignados automáticamente.'
+                  : ' Los hospitales de esta zona serán reasignados automáticamente.'
                 }
               </p>
             </div>

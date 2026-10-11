@@ -217,7 +217,7 @@ export default function AddKamModal({ isOpen, onClose, onSuccess }: AddKamModalP
       const result = await response.json()
 
       if (!response.ok) {
-        throw new Error(result.error || `Error al crear el KAM (${response.status})`)
+        throw new Error(result.error || `Error al crear la zona (${response.status})`)
       }
       if (result.warning) {
         alert(result.warning)
@@ -227,7 +227,7 @@ export default function AddKamModal({ isOpen, onClose, onSuccess }: AddKamModalP
       onSuccess()
       handleClose()
     } catch (err: any) {
-      setError(err.message || 'Error al crear el KAM')
+      setError(err.message || 'Error al crear la zona')
     } finally {
       setLoading(false)
     }
@@ -258,7 +258,7 @@ export default function AddKamModal({ isOpen, onClose, onSuccess }: AddKamModalP
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
         <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center">
-          <h2 className="text-2xl font-bold text-gray-900">Agregar Nuevo KAM</h2>
+          <h2 className="text-2xl font-bold text-gray-900">Agregar Nueva Zona</h2>
           <button
             onClick={handleClose}
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
@@ -280,14 +280,14 @@ export default function AddKamModal({ isOpen, onClose, onSuccess }: AddKamModalP
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Nombre del KAM
+                Nombre de la zona
               </label>
               <input
                 type="text"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-transparent"
-                placeholder="Ej: KAM Bogotá Norte"
+                placeholder="Ej: Bogotá Norte"
                 required
               />
             </div>
@@ -372,7 +372,7 @@ export default function AddKamModal({ isOpen, onClose, onSuccess }: AddKamModalP
                   </select>
                 )}
                 <p className="text-xs text-gray-500 mt-1">
-                  Un KAM de Bogotá se asigna a una localidad; nunca a toda la ciudad.
+                  Una zona de Bogotá se asigna a una localidad; nunca a toda la ciudad.
                 </p>
               </div>
             )}
@@ -461,8 +461,8 @@ export default function AddKamModal({ isOpen, onClose, onSuccess }: AddKamModalP
                   </span>
                   <p className="text-xs text-gray-500 mt-1">
                     {formData.participates_in_assignment 
-                      ? "El KAM tendrá territorio asignado y aparecerá en el mapa"
-                      : "KAM administrativo sin territorio (no aparece en el mapa)"}
+                      ? "La zona tendrá territorio asignado y aparecerá en el mapa"
+                      : "Zona administrativa sin territorio (no aparece en el mapa)"}
                   </p>
                 </div>
               </label>
@@ -472,7 +472,7 @@ export default function AddKamModal({ isOpen, onClose, onSuccess }: AddKamModalP
           {/* Color */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Color del KAM
+              Color de la zona
             </label>
             <div className="flex items-center gap-4">
               <input
@@ -508,7 +508,7 @@ export default function AddKamModal({ isOpen, onClose, onSuccess }: AddKamModalP
                   Creando...
                 </>
               ) : (
-                'Crear KAM'
+                'Crear Zona'
               )}
             </button>
           </div>

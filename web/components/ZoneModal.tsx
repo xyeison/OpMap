@@ -82,13 +82,13 @@ export default function ZoneModal({ zone, isOpen, onClose, onSuccess }: ZoneModa
       })
       const result = await response.json().catch(() => ({}))
       if (!response.ok) {
-        throw new Error(result.error || `Error al guardar la zona (${response.status})`)
+        throw new Error(result.error || `Error al guardar la región (${response.status})`)
       }
 
       onSuccess()
     } catch (err: any) {
       console.error('Error saving zone:', err)
-      setError(err.message || 'Error al guardar la zona')
+      setError(err.message || 'Error al guardar la región')
     } finally {
       setLoading(false)
     }
@@ -102,7 +102,7 @@ export default function ZoneModal({ zone, isOpen, onClose, onSuccess }: ZoneModa
         <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 rounded-t-2xl">
           <div className="flex justify-between items-center">
             <h2 className="text-xl font-bold text-gray-900">
-              {zone ? 'Editar Zona' : 'Crear Nueva Zona'}
+              {zone ? 'Editar Región' : 'Crear Nueva Región'}
             </h2>
             <button
               onClick={onClose}
@@ -133,7 +133,7 @@ export default function ZoneModal({ zone, isOpen, onClose, onSuccess }: ZoneModa
                 value={formData.code}
                 onChange={(e) => setFormData({ ...formData, code: e.target.value.toUpperCase() })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent"
-                placeholder="ej. ZONA_NORTE"
+                placeholder="ej. REGION_NORTE"
                 required
               />
             </div>
@@ -147,7 +147,7 @@ export default function ZoneModal({ zone, isOpen, onClose, onSuccess }: ZoneModa
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent"
-                placeholder="ej. Zona Norte"
+                placeholder="ej. Región Norte"
                 required
               />
             </div>
@@ -217,7 +217,7 @@ export default function ZoneModal({ zone, isOpen, onClose, onSuccess }: ZoneModa
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-3">
-                  Color de la Zona
+                  Color de la Región
                 </label>
                 <div className="flex items-center gap-3">
                   <div

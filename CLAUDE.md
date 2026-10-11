@@ -22,10 +22,10 @@ La aplicación web está desplegada en Vercel y permite visualizar las asignacio
    - Vista de hospitales sin asignar con tiempos reales de Google Maps desde Supabase
 
 3. **Integración con Supabase**:
-   - Tabla `travel_time_cache`: 10,330+ rutas calculadas con Google Maps
+   - Tabla `hospital_kam_distances`: tiempos hospital→KAM calculados con Google Maps (9,859 filas a 2026-10-10; `travel_time` en SEGUNDOS). La antigua `travel_time_cache` ya no existe
    - Tabla `assignments`: Asignaciones actuales KAM-Hospital
    - Tabla `hospitals`: Base de datos de IPS activas
-   - Tabla `kams`: Configuración de vendedores
+   - Tabla `kams`: Zonas (desde la Fase 1 cada fila es una zona, no una persona). 19 filas, 14 activas a 2026-10-10
    - Precisión de coordenadas: 6 decimales para matching exacto
 
 ### Scripts Python (Procesamiento Backend)
@@ -416,7 +416,7 @@ Estos departamentos no tienen IPS asignables o están demasiado remotos (más de
 ## RESULTADOS ACTUALES CON GOOGLE MAPS
 
 ### Estadísticas del Caché (Actualizado)
-- **Rutas calculadas**: 10,330+ tiempos de viaje reales en Supabase
+- **Rutas calculadas**: 10,330+ tiempos de viaje reales en Supabase (cifra histórica; hoy viven en `hospital_kam_distances`, 9,859 filas a 2026-10-10)
 - **Tiempo mínimo**: 4.2 minutos
 - **Tiempo máximo**: 789.5 minutos (13.1 horas)
 - **Tiempo promedio**: 290.1 minutos (4.8 horas)
@@ -479,7 +479,7 @@ Estos departamentos no tienen IPS asignables o están demasiado remotos (más de
 - **`data/json/adjacency_matrix.json`**: Matriz de departamentos limítrofes
 
 ### Caché y Resultados
-- **Supabase `travel_time_cache`**: 10,330+ tiempos de viaje calculados (producción)
+- **Supabase `hospital_kam_distances`**: tiempos de viaje hospital→KAM en segundos (producción; `travel_time_cache` ya no existe)
 - **`data/cache/google_distance_matrix_cache.json`**: Caché local (desarrollo)
 - **`output/`**: Carpeta con resultados JSON y mapas HTML generados
 - **`.env`**: Variables de entorno:
@@ -557,22 +557,22 @@ Asignaciones de hospitales a KAMs.
 - id: uuid (PK)
 - kam_id: uuid (FK → kams)
 - hospital_id: uuid (FK → hospitals)
-- travel_time: integer (tiempo de viaje en minutos)
+- travel_time: integer (tiempo de viaje en SEGUNDOS; dividir entre 60 para minutos)
 - assignment_type: varchar (tipo de asignación)
 - assigned_at: timestamp
 - is_base_territory: boolean (si es territorio base del KAM)
 ```
 
-#### 4. `travel_time_cache`
-Caché de tiempos de viaje calculados.
+#### 4. `hospital_kam_distances`
+Tiempos de viaje hospital→KAM calculados (reemplaza a la antigua `travel_time_cache`, que ya no existe).
 ```sql
 - id: uuid (PK)
-- origin_lat, origin_lng: numeric (coordenadas origen)
-- dest_lat, dest_lng: numeric (coordenadas destino)
-- travel_time: integer (tiempo en minutos)
-- distance: numeric (distancia en km, opcional)
+- hospital_id: uuid (FK → hospitals)
+- kam_id: uuid (FK → kams, ON DELETE CASCADE)
+- travel_time: integer (tiempo en SEGUNDOS)
+- distance: numeric (distancia, opcional)
 - source: varchar (fuente del cálculo)
-- calculated_at: timestamp
+- calculated_at, updated_at: timestamp
 ```
 
 #### 5. `hospital_contracts`
@@ -615,7 +615,7 @@ Usuarios del sistema.
 - email: text (único)
 - password: text (hash)
 - full_name: text
-- role: text ('admin', 'sales', 'viewer')
+- role: text (CHECK: 'admin', 'sales_manager', 'contract_manager', 'data_manager', 'viewer', 'user'; permisos por rol en web/lib/permissions.ts)
 - active: boolean
 - created_at: timestamp
 ```
@@ -694,7 +694,6 @@ Vista que muestra asignaciones por territorio.
 1. **Unicidad**:
    - `hospitals.code` debe ser único
    - `users.email` debe ser único
-   - `(origin_lat, origin_lng, dest_lat, dest_lng)` en `travel_time_cache`
 
 2. **Claves Foráneas**:
    - Todas las referencias a `users`, `hospitals`, `kams` están protegidas
@@ -707,10 +706,11 @@ Vista que muestra asignaciones por territorio.
 
 ### Políticas RLS (Row Level Security)
 
-Las tablas tienen políticas RLS habilitadas para controlar el acceso:
-- `admin`: Acceso completo a todas las tablas
-- `sales`: Acceso de lectura/escritura limitado a sus territorios
-- `viewer`: Solo lectura en tablas permitidas
+Tras el endurecimiento (database/hardening/) el acceso a datos se hace desde el servidor con
+`service_role` (lib/supabase-admin.ts); las tablas sensibles tienen RLS sin políticas para
+anon/authenticated. Los roles de la app (`admin`, `sales_manager`, `contract_manager`,
+`data_manager`, `viewer`, `user`) se controlan en cada ruta API con requirePermission
+(web/lib/require-role.ts + web/lib/permissions.ts), no con políticas RLS por rol.
 
 ## ESTRUCTURA DE ARCHIVOS DEL PROYECTO
 
@@ -808,3 +808,31 @@ src/
     ├── distance_calculator.py
     └── google_maps_client.py
 ```
+
+## Fase 1 (2026-10-10): zonas, líneas y ejecutivas
+
+Rama `fase1/zonas-y-equipo`. Migraciones en `database/migrations/2026-10-10_*` (0100 esquema,
+0200 seed, 0300 zonas, 9900 rollback; ver su README). **Escritas, no aplicadas** a Supabase.
+
+- **Modelo**: ZONA (geografía + ciudad base) ≠ PERSONA (ejecutiva) ≠ LÍNEA de negocio.
+  - La tabla `kams` NO se renombra: **cada fila de `kams` es una ZONA** (ciudad base = `area_id`).
+    En la UI "KAM" se muestra como "Zona" y la tabla `zones` como "Región"; en código siguen
+    `kam_id`/`kams`, rutas `/kams` y `/zones` sin cambios.
+  - `business_lines`: PerOssal, Reemplazo articular, Medicina deportiva, Columna, Trauma
+    (líder opcional, `max_reach_minutes` = 240 por defecto).
+  - `executives`: personas (status `active` | `placeholder` = vacante por contratar | `inactive`;
+    nunca se borran, la baja pone `left_at`). `base_kam_id` = zona donde vive; `odoo_employee_id`.
+  - `executive_lines` (N:M ejecutiva↔línea) y `line_zones` (en qué zonas hay equipo de cada línea).
+  - `coverage` y `coverage_overrides`: **creadas en Fase 1, vacías; se llenan en Fase 2**
+    (cálculo de quién cubre cada zona por línea + ajustes manuales del líder).
+- **Seguridad**: las 6 tablas con RLS activado, sin políticas y REVOKE a anon/authenticated;
+  solo el servidor (service_role) las usa.
+- **API**: `GET /api/business-lines`, `PATCH /api/business-lines/[id]`,
+  `PUT /api/business-lines/[id]/zones`, `GET|POST /api/executives`,
+  `PATCH|DELETE /api/executives/[id]` (DELETE = baja lógica). Permisos `lines:view|edit`,
+  `executives:view|edit` en `web/lib/permissions.ts`.
+- **UI**: páginas `/lines` (matriz línea × zona) y `/executives`.
+- **Zonas (0300)**: activa Cartagena (13001) e Ibagué (73001) y borra las filas "MD" vacías.
+  Simulación de solo lectura (`npm run fase1:simulate`): 71 IPS cambian (37 a Cartagena, 34 a
+  Ibagué), ninguna se mueve entre otras zonas. Tras aplicar 0300 hay que recalcular desde la app.
+- **No cambia** el algoritmo de asignación de IPS ni la estética del mapa (colores, marcadores).
