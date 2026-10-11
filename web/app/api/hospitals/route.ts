@@ -3,6 +3,10 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { requirePermission, requireUser } from '@/lib/require-role'
 import { badJson, fetchAllRows, readJsonBody, serverError, validationError } from '../_lib/api-error'
 import { createHospitalSchema } from '../_lib/hospital-schemas'
+import { refreshHospitalZone, zoneRefreshResponse } from '../_lib/hospital-routes'
+
+// POST calcula los tiempos de viaje que falten (Google) y recalcula zonas: ver app/api/_lib/hospital-routes.ts
+export const maxDuration = 60
 
 export async function GET(request: NextRequest) {
   const auth = await requireUser(request)
@@ -76,7 +80,11 @@ export async function POST(request: NextRequest) {
       return serverError('hospitals POST', error, 'Error al crear el hospital')
     }
 
-    return NextResponse.json(data)
+    // La IPS ya está guardada. Si está activa: tiempos que falten → recálculo completo → municipios.
+    // refreshHospitalZone no lanza: cualquier fallo vuelve como aviso en `warnings`.
+    const zone = data.active === true ? await refreshHospitalZone(data.id, { actorId: auth.user.id }) : null
+
+    return NextResponse.json({ ...data, warnings: zone?.warnings ?? [], zone: zoneRefreshResponse(zone) })
   } catch (error) {
     return serverError('hospitals POST', error)
   }

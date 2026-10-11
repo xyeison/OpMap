@@ -42,6 +42,20 @@ interface MyLinesResponse {
   canSeeAll: boolean
 }
 
+// Filtro del mapa en la URL: ?exec=<id1,id2> (Ejecutivos Comerciales, vista por línea) o
+// ?zones=<id1,id2> (zonas, vista de zonas). Sin parámetro = sin filtro; vacío (?exec=) = ninguno marcado.
+const FILTER_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const MAX_FILTER_IDS = 100
+
+function parseFilterIds(raw: string | null): string[] | null {
+  if (raw === null) return null
+  const trimmed = raw.trim()
+  if (trimmed === '') return []
+  const ids = Array.from(new Set(trimmed.split(',').map(id => id.trim().toLowerCase()).filter(id => FILTER_ID_RE.test(id))))
+  // Un valor sin ningún id válido se ignora (sin filtro) en vez de dejar el mapa vacío
+  return ids.length > 0 ? ids.slice(0, MAX_FILTER_IDS) : null
+}
+
 // Error HTTP de /api/me/lines con el código de estado (401 → login)
 class MyLinesError extends Error {
   status: number
@@ -120,19 +134,40 @@ function MapPageContent() {
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
   }, [searchParams, router, pathname])
 
-  // Elegir una línea en el selector del mapa vuelve a la vista por línea (quita ?mode=zones)
-  const selectLine = useCallback((code: string) => updateParams({ line: code, mode: null }), [updateParams])
+  // Elegir una línea en el selector del mapa vuelve a la vista por línea (quita ?mode=zones). Los
+  // Ejecutivos Comerciales cambian de una línea a otra: el filtro se quita.
+  const selectLine = useCallback(
+    (code: string) => updateParams({ line: code, mode: null, exec: null, zones: null }),
+    [updateParams]
+  )
   const changeMapMode = useCallback(
-    (mode: MapMode) => updateParams({ mode: mode === 'zones' ? 'zones' : null }),
+    (mode: MapMode) => updateParams({ mode: mode === 'zones' ? 'zones' : null, exec: null, zones: null }),
     [updateParams]
   )
 
-  // Una sola línea: se selecciona sola
+  // Una sola línea: se selecciona sola (conserva el filtro de un enlace compartido)
   useEffect(() => {
     if (lines.length === 1 && !selectedLine) {
-      selectLine(lines[0].code)
+      updateParams({ line: lines[0].code })
     }
-  }, [lines, selectedLine, selectLine])
+  }, [lines, selectedLine, updateParams])
+
+  // Filtro del mapa: por Ejecutivo Comercial en la vista por línea, por zona en la vista de zonas
+  const filterParam = mapMode === 'zones' ? 'zones' : 'exec'
+  const rawFilter = searchParams.get(filterParam)
+  const filterIds = useMemo(() => parseFilterIds(rawFilter), [rawFilter])
+  // history.replaceState (Next 14 lo sincroniza con useSearchParams): sin ir al servidor en cada
+  // casilla. Los ids son UUID validados, la coma se deja sin codificar (?exec=<id1,id2>).
+  const changeFilterIds = useCallback((ids: string[] | null) => {
+    const params = new URLSearchParams(window.location.search)
+    params.delete(filterParam)
+    let query = params.toString()
+    if (ids !== null) {
+      const safeIds = ids.filter(id => FILTER_ID_RE.test(id)).slice(0, MAX_FILTER_IDS)
+      query = `${query ? `${query}&` : ''}${filterParam}=${safeIds.join(',')}`
+    }
+    window.history.replaceState(null, '', query ? `${pathname}?${query}` : pathname)
+  }, [filterParam, pathname])
 
   // Cabecera compacta en móvil: "OpMap · <línea>"
   const headerTitle = mapMode === 'zones' ? 'Vista de zonas' : selectedLine?.name ?? null
@@ -197,6 +232,8 @@ function MapPageContent() {
         canSeeAllLines={canSeeAll}
         mapMode={mapMode}
         onMapModeChange={changeMapMode}
+        filterIds={filterIds}
+        onFilterIdsChange={changeFilterIds}
       />
     )
   }

@@ -3,9 +3,13 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { requirePermission } from '@/lib/require-role'
 import { badJson, isUuid, readJsonBody, serverError, validationError } from '../../../_lib/api-error'
 import { hospitalStateChangeSchema } from '../../../_lib/hospital-schemas'
+import { refreshHospitalZone, zoneRefreshResponse } from '../../../_lib/hospital-routes'
 
-// Activa una IPS y registra el cambio en hospital_history. La reasignación la hace después
-// /api/recalculate-smart-hospital (action 'activated').
+export const maxDuration = 60
+
+// Activa una IPS, registra el cambio en hospital_history y la reasigna en la misma petición:
+// tiempos de viaje que falten (Google) → recálculo completo → municipality_zone
+// (app/api/_lib/hospital-routes.ts). La ficha ya no llama a /api/recalculate-smart-hospital al activar.
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   const auth = await requirePermission(request, 'hospitals:edit')
   if (!auth.ok) return auth.response
@@ -70,10 +74,15 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       )
     }
 
+    // refreshHospitalZone no lanza: los fallos vuelven como avisos y la activación se mantiene
+    const zone = await refreshHospitalZone(hospitalId, { actorId: user.id })
+
     return NextResponse.json({
       success: true,
       hospital: updatedHospital,
       message: 'Hospital activado exitosamente',
+      warnings: zone.warnings,
+      zone: zoneRefreshResponse(zone),
     })
   } catch (error) {
     return serverError('hospitals/[id]/activate', error)

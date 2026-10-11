@@ -1,28 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/require-role'
 
-// Localidades de Bogotá
+// Localidades de Bogotá. Código de 7 dígitos (11001 + 2), el mismo de hospitals.locality_id,
+// kams.area_id (1100102 = Chapinero) y public/geo/localidades.json. Antes se devolvían 8 dígitos
+// ('11001002'), que nunca coincidían con ninguna zona: la IPS quedaba fuera de su territorio base y de
+// la regla de mayoría de su localidad.
 const BOGOTA_LOCALITIES = [
-  { id: '11001001', name: 'Usaquén' },
-  { id: '11001002', name: 'Chapinero' },
-  { id: '11001003', name: 'Santa Fe' },
-  { id: '11001004', name: 'San Cristóbal' },
-  { id: '11001005', name: 'Usme' },
-  { id: '11001006', name: 'Tunjuelito' },
-  { id: '11001007', name: 'Bosa' },
-  { id: '11001008', name: 'Kennedy' },
-  { id: '11001009', name: 'Fontibón' },
-  { id: '11001010', name: 'Engativá' },
-  { id: '11001011', name: 'Suba' },
-  { id: '11001012', name: 'Barrios Unidos' },
-  { id: '11001013', name: 'Teusaquillo' },
-  { id: '11001014', name: 'Los Mártires' },
-  { id: '11001015', name: 'Antonio Nariño' },
-  { id: '11001016', name: 'Puente Aranda' },
-  { id: '11001017', name: 'La Candelaria' },
-  { id: '11001018', name: 'Rafael Uribe Uribe' },
-  { id: '11001019', name: 'Ciudad Bolívar' },
-  { id: '11001020', name: 'Sumapaz' }
+  { id: '1100101', name: 'Usaquén' },
+  { id: '1100102', name: 'Chapinero' },
+  { id: '1100103', name: 'Santa Fe' },
+  { id: '1100104', name: 'San Cristóbal' },
+  { id: '1100105', name: 'Usme' },
+  { id: '1100106', name: 'Tunjuelito' },
+  { id: '1100107', name: 'Bosa' },
+  { id: '1100108', name: 'Kennedy' },
+  { id: '1100109', name: 'Fontibón' },
+  { id: '1100110', name: 'Engativá' },
+  { id: '1100111', name: 'Suba' },
+  { id: '1100112', name: 'Barrios Unidos' },
+  { id: '1100113', name: 'Teusaquillo' },
+  { id: '1100114', name: 'Los Mártires' },
+  { id: '1100115', name: 'Antonio Nariño' },
+  { id: '1100116', name: 'Puente Aranda' },
+  { id: '1100117', name: 'La Candelaria' },
+  { id: '1100118', name: 'Rafael Uribe Uribe' },
+  { id: '1100119', name: 'Ciudad Bolívar' },
+  { id: '1100120', name: 'Sumapaz' }
 ]
 
 export async function GET(request: NextRequest) {

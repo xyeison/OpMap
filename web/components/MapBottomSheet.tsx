@@ -34,6 +34,10 @@ interface MapBottomSheetProps {
   children: ReactNode
   // Filtros de visitas y búsqueda (altura completa); se mantiene montado para no perder su estado
   secondary?: ReactNode
+  // Filtro activo ("1 ejecutiva"): el botón "Filtros" de la barra pasa a ser este chip
+  filterChip?: string | null
+  // Al tocar "Filtros" (o el chip): abre la pestaña de filtros
+  onOpenFilters?: () => void
 }
 
 interface DragState {
@@ -44,7 +48,7 @@ interface DragState {
   moved: boolean
 }
 
-export default function MapBottomSheet({ snap, onSnapChange, title, subtitle, children, secondary }: MapBottomSheetProps) {
+export default function MapBottomSheet({ snap, onSnapChange, title, subtitle, children, secondary, filterChip = null, onOpenFilters }: MapBottomSheetProps) {
   const [vh, setVh] = useState(viewportHeight)
   const [drag, setDrag] = useState<DragState | null>(null)
   const contentRef = useRef<HTMLDivElement>(null)
@@ -134,12 +138,21 @@ export default function MapBottomSheet({ snap, onSnapChange, title, subtitle, ch
                 type="button"
                 onClick={() => {
                   scrollToSecondary.current = true
+                  onOpenFilters?.()
                   onSnapChange('full')
                 }}
                 aria-controls="opmap-sheet-content"
-                className="min-h-[44px] flex-shrink-0 rounded-full border border-gray-300 bg-white px-3.5 text-sm font-medium text-gray-900 active:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2"
+                aria-label={filterChip ? `Filtros: ${filterChip}` : undefined}
+                className={`min-h-[44px] flex-shrink-0 inline-flex items-center gap-1.5 rounded-full border px-3.5 text-sm font-medium text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2 ${
+                  filterChip ? 'border-gray-900 bg-gray-100 active:bg-gray-200' : 'border-gray-300 bg-white active:bg-gray-50'
+                }`}
               >
-                Filtros
+                {filterChip && (
+                  <svg className="h-4 w-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                  </svg>
+                )}
+                <span className="whitespace-nowrap">{filterChip || 'Filtros'}</span>
               </button>
             )}
             <button

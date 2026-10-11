@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { requireUser } from '@/lib/require-role'
 import { fetchAllRows, isUuid, readJsonBody, serverError } from '../../_lib/api-error'
+import { routeCandidateKams } from '../../_lib/kam-eligibility'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -181,66 +182,11 @@ export async function POST(request: NextRequest) {
       console.log('analyze-missing-optimized: ⚠️ No existing routes found in database - table appears to be empty')
     }
 
-    // Función helper para verificar si un KAM puede competir por un hospital
-    const canKamCompeteForHospital = (kam: any, hospital: any): boolean => {
-      const hospitalDept = hospital.department_id
-      const kamDept = kam.area_id.substring(0, 2)
-      
-      // 0. NUEVO: Rechazar si el hospital está en departamento excluido
-      if (excludedDeptCodes.has(hospitalDept)) {
-        return false
-      }
-      
-      // 0.5 NUEVO: Rechazar si el KAM está en departamento excluido
-      if (excludedDeptCodes.has(kamDept)) {
-        return false
-      }
-      
-      // 1. KAM puede competir en su propio departamento
-      if (hospitalDept === kamDept) {
-        return true
-      }
-      
-      // 2. KAMs de Bogotá (11001xxxxx) tienen reglas especiales
-      if (kam.area_id.startsWith('11001') && kam.area_id.length > 5) {
-        // Solo pueden competir en localidades de Bogotá
-        if (hospital.locality_id?.startsWith('11001')) {
-          return true
-        }
-        // También pueden competir en Cundinamarca (25)
-        if (hospitalDept === '25' && !excludedDeptCodes.has('25')) {
-          return true
-        }
-        // Y en departamentos vecinos de Cundinamarca si tienen level2
-        if (kam.enable_level2) {
-          const cundAdjacent = adjacencyMatrix['25'] || []
-          // Filtrar departamentos excluidos de los vecinos
-          const validAdjacent = cundAdjacent.filter(dept => !excludedDeptCodes.has(dept))
-          if (validAdjacent.includes(hospitalDept)) {
-            return true
-          }
-        }
-      }
-      
-      // 3. Para KAMs regulares: verificar vecindad
-      // Nivel 1: Departamentos fronterizos directos (excluyendo los excluidos)
-      const kamAdjacent = (adjacencyMatrix[kamDept] || []).filter(dept => !excludedDeptCodes.has(dept))
-      if (kamAdjacent.includes(hospitalDept)) {
-        return true
-      }
-      
-      // Nivel 2: Departamentos fronterizos de fronterizos (si está habilitado)
-      if (kam.enable_level2) {
-        for (const adjDept of kamAdjacent) {
-          const secondLevelAdjacent = (adjacencyMatrix[adjDept] || []).filter(dept => !excludedDeptCodes.has(dept))
-          if (secondLevelAdjacent.includes(hospitalDept)) {
-            return true
-          }
-        }
-      }
-      
-      return false
-    }
+    // Criterio de candidatas: routeCandidateKams (lib/opmap-algorithm-simplified.ts), el MISMO que
+    // usan el algoritmo de asignación y app/api/_lib/hospital-routes.ts (IPS nuevas o editadas).
+    // Antes había aquí una copia propia de la regla que además proponía pares Neiva/Ibagué -> IPS de
+    // Bogotá que el algoritmo nunca usa (en Bogotá solo compiten zonas de Bogotá).
+    const kamsWithCoordinates = (kams || []).filter(kam => kam.lat && kam.lng)
 
     // Analizar rutas faltantes respetando la lógica de expansión territorial
     const missingRoutes = []
@@ -266,23 +212,10 @@ export async function POST(request: NextRequest) {
         continue
       }
 
-      // Para cada hospital, determinar qué KAMs pueden competir por él
-      const eligibleKams = []
-      
-      for (const kam of kams || []) {
-        if (!kam.lat || !kam.lng) {
-          console.warn(`KAM ${kam.id} (${kam.name}) sin coordenadas`)
-          continue
-        }
-
-        // Verificar si el KAM puede competir por este hospital según la geografía
-        if (canKamCompeteForHospital(kam, hospital)) {
-          eligibleKams.push(kam)
-          totalPossibleRoutes++
-        } else {
-          skippedByGeography++
-        }
-      }
+      // Zonas que pueden competir por este hospital según la geografía (criterio único)
+      const eligibleKams = routeCandidateKams(kamsWithCoordinates, hospital, adjacencyMatrix, excludedDeptCodes)
+      totalPossibleRoutes += eligibleKams.length
+      skippedByGeography += kamsWithCoordinates.length - eligibleKams.length
 
       // Ahora verificar cuáles de estas rutas posibles ya existen
       for (const kam of eligibleKams) {

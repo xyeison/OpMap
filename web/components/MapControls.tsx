@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { useVisits } from '@/hooks/useVisits'
-import { zoneDisplayName } from '@/lib/zone-names'
+import MapGroupFilter, { type GroupFilterConfig } from './MapGroupFilter'
 
 // Referencia estable para "sin visitas": un [] nuevo en cada render dispararía el efecto que avisa
 // al padre (setVisits) en bucle mientras las visitas están apagadas
@@ -29,6 +29,14 @@ interface MapControlsProps {
   onVisitsEnabledChange?: (enabled: boolean) => void
   // Tras elegir un resultado de búsqueda (en móvil, la hoja se recoge)
   onSearchSelect?: () => void
+  // Filtro principal: Ejecutivos Comerciales (vista por línea) o zonas (vista de zonas)
+  groupFilter?: GroupFilterConfig | null
+  // Zonas (kam_id) cuyas visitas se muestran según el filtro; null = todas
+  visitKamIds?: string[] | null
+  // "1 ejecutiva" en el botón flotante cuando hay filtro activo
+  filterChipLabel?: string | null
+  // Cada cambio abre la pestaña "Filtros" (botón "Filtros" de la hoja inferior)
+  filtersTabRequest?: number
 }
 
 export default function MapControls({
@@ -46,11 +54,15 @@ export default function MapControls({
   variant = 'floating',
   visitsEnabled = false,
   onVisitsEnabledChange,
-  onSearchSelect
+  onSearchSelect,
+  groupFilter = null,
+  visitKamIds = null,
+  filterChipLabel = null,
+  filtersTabRequest = 0
 }: MapControlsProps) {
   const embedded = variant === 'embedded'
   const [isOpen, setIsOpen] = useState(false)
-  const [activeTab, setActiveTab] = useState<'filters' | 'visits' | 'search'>(embedded ? 'visits' : 'filters')
+  const [activeTab, setActiveTab] = useState<'filters' | 'visits' | 'search'>('filters')
   const [searchTerm, setSearchTerm] = useState('')
   const [searchResults, setSearchResults] = useState<any[]>([])
   const [showContracts, setShowContracts] = useState(false)
@@ -65,11 +77,13 @@ export default function MapControls({
   // Filtros de contenido
   const [visitTypeFilter, setVisitTypeFilter] = useState('all')
   const [contactTypeFilter, setContactTypeFilter] = useState('all')
-  const [selectedKams, setSelectedKams] = useState<string[]>([]) // Vacío = todos los KAMs
-  const [availableKams, setAvailableKams] = useState<{id: string, name: string, color: string}[]>([])
-  
+
+  // Las zonas de las visitas salen del filtro principal (Ejecutivos Comerciales o zonas): null = todas
+  const noGroupSelected = visitKamIds !== null && visitKamIds.length === 0
+  const visitKamIdsKey = visitKamIds === null ? null : visitKamIds.join(',')
+
   // Las visualizaciones solo se muestran con las visitas activadas y filtros válidos
-  const hasValidFilters = selectedMonths.length > 0 && selectedKams.length > 0;
+  const hasValidFilters = selectedMonths.length > 0 && !noGroupSelected;
   const showHeatmap = visitsEnabled && hasValidFilters && (visualizationType === 'heatmap' || visualizationType === 'both');
   const showMarkers = visitsEnabled && hasValidFilters && (visualizationType === 'markers' || visualizationType === 'both');
 
@@ -81,9 +95,9 @@ export default function MapControls({
     // Verificar que haya meses seleccionados
     if (selectedMonths.length === 0) return null
 
-    // Verificar que haya KAMs seleccionados
-    if (selectedKams.length === 0) return null
-    
+    // Filtro sin ningún Ejecutivo Comercial (o zona) marcado: no hay visitas que consultar
+    if (visitKamIdsKey === '') return null
+
     // Construir parámetros
     const params: any = {
       months: selectedMonths.sort((a, b) => a - b),
@@ -94,15 +108,13 @@ export default function MapControls({
     params.visitType = visitTypeFilter === 'all' ? undefined : visitTypeFilter
     params.contactType = contactTypeFilter === 'all' ? undefined : contactTypeFilter
     
-    // Agregar KAMs seleccionados
-    if (selectedKams.length < availableKams.length) {
-      // Solo enviar el filtro si no están todos seleccionados
-      params.kamIds = selectedKams
+    // Zonas del filtro principal; sin filtro no se envía (todas las visitas)
+    if (visitKamIdsKey !== null) {
+      params.kamIds = visitKamIdsKey.split(',')
     }
-    // Si todos los KAMs están seleccionados, no enviar el filtro (mostrar todos)
 
     return params
-  }, [visitsEnabled, selectedMonths, selectedYear, visitTypeFilter, contactTypeFilter, selectedKams, availableKams.length])
+  }, [visitsEnabled, selectedMonths, selectedYear, visitTypeFilter, contactTypeFilter, visitKamIdsKey])
   
   // Hacer la query solo si hay parámetros válidos
   const { data: visitsData, isLoading, error } = useVisits(queryParams)
@@ -110,36 +122,10 @@ export default function MapControls({
   // Las visitas son simplemente lo que retorna la query, pero SOLO si hay parámetros válidos
   const visits = queryParams && Array.isArray(visitsData) ? visitsData : NO_VISITS
 
-  // Cargar KAMs disponibles
+  // El botón "Filtros" de la hoja inferior abre esta pestaña
   useEffect(() => {
-    const loadKams = async () => {
-      // Vía API con sesión (service_role en el servidor), no con la anon key del navegador.
-      // /api/kams devuelve todos los KAMs ordenados por nombre: aquí solo los activos.
-      let kams: { id: string; name: string; color: string }[] | null = null
-      try {
-        const response = await fetch('/api/kams')
-        if (!response.ok) {
-          console.error('MapControls - Error cargando KAMs:', response.status)
-          return
-        }
-        const data: Array<{ id: string; name: string; color: string; active?: boolean | null }> = await response.json()
-        kams = (Array.isArray(data) ? data : [])
-          .filter(k => k.active === true)
-          .map(k => ({ id: k.id, name: k.name, color: k.color }))
-      } catch (err) {
-        console.error('MapControls - Error cargando KAMs:', err)
-        return
-      }
-
-      if (kams) {
-        setAvailableKams(kams)
-
-        // Seleccionar TODOS los KAMs por defecto
-        setSelectedKams(kams.map(k => k.id))
-      }
-    }
-    loadKams()
-  }, [])
+    if (filtersTabRequest > 0) setActiveTab('filters')
+  }, [filtersTabRequest])
 
   // Notificar cambios de visitas al componente padre
   useEffect(() => {
@@ -256,6 +242,20 @@ export default function MapControls({
   }, [showContracts, onShowContractsChange])
 
 
+  // Texto del filtro principal en la pestaña de visitas
+  const groupNoun = groupFilter?.kind === 'zone' ? 'una zona' : 'un Ejecutivo Comercial'
+  let groupSummary = ''
+  if (groupFilter) {
+    const total = groupFilter.options.length
+    const marked = groupFilter.selected === null
+      ? total
+      : groupFilter.options.filter(o => groupFilter.selected!.has(o.id)).length
+    const noun = groupFilter.kind === 'zone' ? 'zonas' : 'Ejecutivos Comerciales'
+    groupSummary = groupFilter.selected === null
+      ? `Sin filtro: ${total} ${noun}`
+      : `Filtro: ${marked} de ${total} ${noun}`
+  }
+
   const tabs: { id: 'filters' | 'visits' | 'search'; label: string; icon: string }[] = [
     { id: 'filters', label: 'Filtros', icon: 'M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z' },
     { id: 'visits', label: 'Visitas', icon: 'M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0zM15 11a3 3 0 11-6 0 3 3 0 016 0z' },
@@ -290,7 +290,14 @@ export default function MapControls({
       {activeTab === 'filters' && (
         <div>
           <h3 className="text-sm font-semibold mb-3">Filtros del Mapa</h3>
-          
+
+          {/* Filtro principal: Ejecutivos Comerciales (vista por línea) o zonas (vista de zonas) */}
+          {groupFilter && (
+            <div className="mb-4 pb-3 border-b">
+              <MapGroupFilter config={groupFilter} touch={embedded} />
+            </div>
+          )}
+
           {/* Filtro de tipo de hospital */}
           <div className="mb-3">
             <label className="text-xs font-semibold text-gray-700 block mb-2">Tipo de Hospital</label>
@@ -447,11 +454,11 @@ export default function MapControls({
                 <div className="text-xs">
                   <p className="font-semibold text-amber-800 mb-1">Seleccione filtros para visualizar</p>
                   <p className="text-amber-700">
-                    {selectedMonths.length === 0 && selectedKams.length === 0
-                      ? 'Debe seleccionar al menos un mes y un Ejecutivo Comercial'
+                    {selectedMonths.length === 0 && noGroupSelected
+                      ? `Debe seleccionar al menos un mes y ${groupNoun}`
                       : selectedMonths.length === 0
                       ? 'Debe seleccionar al menos un mes'
-                      : 'Debe seleccionar al menos un Ejecutivo Comercial'
+                      : `Debe marcar al menos ${groupNoun} en la pestaña Filtros`
                     }
                   </p>
                 </div>
@@ -519,76 +526,27 @@ export default function MapControls({
             )}
           </div>
 
-          {/* Filtro de Ejecutivos Comerciales (por zona) */}
-          <div className="mb-4 border-t pt-4">
-            <div className="flex items-center justify-between mb-3">
-              <label className="text-xs font-semibold text-gray-700">Ejecutivos Comerciales</label>
-              <button
-                onClick={() => {
-                  if (selectedKams.length === availableKams.length) {
-                    setSelectedKams([])
-                  } else {
-                    setSelectedKams(availableKams.map(k => k.id))
-                  }
-                }}
-                className="text-xs font-medium text-blue-600 hover:text-blue-800 transition-colors"
-              >
-                {selectedKams.length === availableKams.length ? 'Quitar todos' : 'Seleccionar todos'}
-              </button>
-            </div>
-            
-            <div className={`${embedded ? 'max-h-56' : 'max-h-32'} overflow-y-auto border border-gray-200 rounded-lg p-2`}>
-              <div className="grid grid-cols-2 gap-1">
-                {availableKams.map(kam => {
-                  const isSelected = selectedKams.includes(kam.id);
-                  // Solo colores #RRGGBB válidos (el valor viene de la BD y es editable)
-                  const kamColor = /^#[0-9a-fA-F]{6}$/.test(kam.color || '') ? kam.color : '#888888'
-                  return (
-                    <button
-                      key={kam.id}
-                      onClick={() => {
-                        if (isSelected) {
-                          setSelectedKams(selectedKams.filter(k => k !== kam.id))
-                        } else {
-                          setSelectedKams([...selectedKams, kam.id])
-                        }
-                      }}
-                      className={`flex items-center gap-1.5 px-2 text-xs rounded-md transition-all ${embedded ? 'min-h-[44px]' : 'py-1.5'} ${
-                        isSelected
-                          ? 'bg-blue-50 text-blue-700 font-medium'
-                          : 'hover:bg-gray-50 text-gray-600'
-                      }`}
-                    >
-                      <span 
-                        className="w-3 h-3 rounded-full border-2 flex-shrink-0" 
-                        style={{ 
-                          backgroundColor: isSelected ? kamColor : 'transparent',
-                          borderColor: kamColor
-                        }}
-                      />
-                      <span className="truncate">{zoneDisplayName(kam.name)}</span>
-                    </button>
-                  )
-                })}
+          {/* Las visitas siguen el filtro principal de la pestaña Filtros */}
+          {groupFilter && (
+            <div className="mb-4 border-t pt-4">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-xs font-semibold text-gray-700">{groupFilter.title}</div>
+                  <div className="text-xs text-gray-500">{groupSummary}</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('filters')}
+                  className={`flex-shrink-0 rounded-md px-2 text-xs font-medium text-gray-700 underline underline-offset-2 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 ${embedded ? 'min-h-[44px]' : 'min-h-[28px]'}`}
+                >
+                  Cambiar filtro
+                </button>
               </div>
+              <p className="mt-1 text-xs text-gray-500">
+                Las visitas se muestran solo de las zonas que quedan en el mapa con el filtro.
+              </p>
             </div>
-            
-            {selectedKams.length > 0 && (
-              <div className="mt-2 flex items-center justify-between text-xs">
-                <span className="text-gray-600">
-                  {selectedKams.length} de {availableKams.length} Ejecutivos Comerciales
-                </span>
-                {selectedKams.length !== availableKams.length && (
-                  <button
-                    onClick={() => setSelectedKams([])}
-                    className="text-gray-500 hover:text-red-600 transition-colors"
-                  >
-                    Limpiar selección
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
+          )}
 
           {/* Estadísticas de visitas (solo con las visitas activadas) */}
           {visitsEnabled && hasValidFilters && (
@@ -793,6 +751,9 @@ export default function MapControls({
           </svg>
         )}
         <span>{isOpen ? 'Cerrar' : 'Filtros y visitas'}</span>
+        {filterChipLabel && (
+          <span className="rounded-full bg-gray-900 px-2 py-0.5 text-xs font-medium text-white">{filterChipLabel}</span>
+        )}
       </button>
 
       {/* Panel de controles */}

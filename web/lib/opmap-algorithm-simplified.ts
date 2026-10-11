@@ -110,6 +110,38 @@ export function eligibleKamsForHospital<T extends EligibilityKamShape>(
   return pool.filter(kam => canKamCompeteForHospital(kam, hospital, adjacency))
 }
 
+type MaybeCoordinate = number | string | null | undefined
+
+function hasCoordinates(point: { lat?: MaybeCoordinate; lng?: MaybeCoordinate }): boolean {
+  if (point.lat === null || point.lat === undefined || point.lat === '') return false
+  if (point.lng === null || point.lng === undefined || point.lng === '') return false
+  return Number.isFinite(Number(point.lat)) && Number.isFinite(Number(point.lng))
+}
+
+/**
+ * Zonas cuyo tiempo de viaje zona→IPS (hospital_kam_distances) hace falta tener calculado.
+ * Criterio ÚNICO de "qué rutas calcular": lo usan /api/routes/analyze-missing-optimized y
+ * app/api/_lib/hospital-routes.ts (IPS nuevas o editadas, botón "Calcular rutas y asignar").
+ *
+ * Es exactamente el conjunto de zonas que el algoritmo deja competir por la IPS
+ * (eligibleKamsForHospital: mismo departamento, limítrofes N1/N2, reglas de Bogotá), quitando:
+ *  - todo si la IPS no tiene coordenadas o está en un departamento excluido (el algoritmo no les
+ *    hace asignación competitiva),
+ *  - las zonas sin coordenadas (no hay origen para Google).
+ * Un par fuera de este conjunto sería gasto en Google que el algoritmo nunca usa.
+ */
+export function routeCandidateKams<T extends EligibilityKamShape & { lat?: MaybeCoordinate; lng?: MaybeCoordinate }>(
+  kams: T[],
+  hospital: EligibilityHospitalShape & { lat?: MaybeCoordinate; lng?: MaybeCoordinate },
+  adjacency: AdjacencyMatrix,
+  excludedDepartments: Iterable<string>
+): T[] {
+  if (!hasCoordinates(hospital)) return []
+  const excluded = new Set(excludedDepartments)
+  if (excluded.has(hospital.department_id)) return []
+  return eligibleKamsForHospital(kams.filter(hasCoordinates), hospital, adjacency)
+}
+
 interface KAM {
   id: string
   name: string

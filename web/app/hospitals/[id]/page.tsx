@@ -10,6 +10,22 @@ import { useQueryClient } from '@tanstack/react-query'
 import { usePermissions } from '@/hooks/usePermissions'
 import { useUser } from '@/contexts/UserContext'
 
+function routeStatusMessage(status: { candidates: number; missing: number; reason: string | null }): string {
+  if (status.reason === 'excluded_department') return 'Sin zona: la IPS está en un departamento excluido del análisis'
+  if (status.reason === 'no_candidates') {
+    return 'Sin zona: ninguna zona puede competir por esta IPS según los departamentos limítrofes'
+  }
+  if (status.missing === 1) return 'Sin zona: falta 1 tiempo de viaje'
+  if (status.missing > 1) return `Sin zona: faltan ${status.missing} tiempos de viaje`
+  return 'Sin zona: ninguna zona elegible llega a esta IPS dentro de su tiempo máximo de viaje'
+}
+
+function zoneResultMessage(prefix: string, zoneName: string | null | undefined, warnings: unknown): string {
+  const list = Array.isArray(warnings) ? warnings.filter((warning): warning is string => typeof warning === 'string') : []
+  const head = zoneName ? `${prefix}. Zona: ${zoneDisplayName(zoneName)}` : `${prefix}. La IPS quedó sin zona`
+  return list.length > 0 ? `${head}\n\nAvisos:\n- ${list.join('\n- ')}` : head
+}
+
 export default function HospitalDetailPage() {
   const params = useParams()
   const router = useRouter()
@@ -17,6 +33,10 @@ export default function HospitalDetailPage() {
   const { role } = usePermissions()
   const { user } = useUser()
   const hospitalId = params.id as string
+
+  // Estado de rutas de una IPS activa sin zona (GET /api/hospitals/[id] → routeStatus)
+  const [routeStatus, setRouteStatus] = useState<{ candidates: number; missing: number; reason: string | null } | null>(null)
+  const [isEnsuringRoutes, setIsEnsuringRoutes] = useState(false)
   
   const [hospital, setHospital] = useState<any>(null)
   const [kam, setKam] = useState<any>(null)
@@ -70,6 +90,7 @@ export default function HospitalDetailPage() {
         setMunicipalityName(data.municipalityName || '')
         setDepartmentName(data.departmentName || '')
         setKam(data.kam)
+        setRouteStatus(data.routeStatus ?? null)
         setKamMunicipalityName(data.kamMunicipalityName || '')
         setContractStats(data.contractStats)
         setUserRole(role || '')
@@ -154,6 +175,17 @@ export default function HospitalDetailPage() {
 
       // El historial ya se registra en el API endpoint
 
+      // Activar: el servidor ya calculó los tiempos de viaje que faltaban y recalculó las zonas
+      // (app/api/_lib/hospital-routes.ts); no hace falta llamar a /api/recalculate-smart-hospital
+      if (!hospital.active && result.zone !== undefined) {
+        await queryClient.invalidateQueries({ queryKey: ['map-data'] })
+        await loadHospitalData()
+        setShowActivateModal(false)
+        setActivateReason('')
+        alert(zoneResultMessage('Hospital activado', result.zone?.assignment?.kam_name, result.warnings))
+        return
+      }
+
       // Recalcular asignaciones para actualizar territorios
       setIsRecalculating(true)
       console.log('Recalculando asignaciones después de cambiar estado del hospital...')
@@ -215,6 +247,30 @@ export default function HospitalDetailPage() {
       setIsRecalculating(false)
     } finally {
       setIsSubmitting(false)
+    }
+  }
+
+  // "Calcular rutas y asignar": tiempos que faltan (Google) + recálculo completo de zonas
+  const ensureRoutes = async () => {
+    if (isEnsuringRoutes) return
+    setIsEnsuringRoutes(true)
+    try {
+      const response = await fetch(`/api/hospitals/${hospitalId}/ensure-routes`, { method: 'POST' })
+      const body = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(body.error || 'Error al calcular rutas')
+      }
+      await queryClient.invalidateQueries({ queryKey: ['map-data'] })
+      await loadHospitalData()
+      const routes = body.routes
+      const detail = routes && routes.googleElements > 0
+        ? ` (${routes.calculated} tiempo(s) nuevo(s), coste estimado ${routes.costEstimate})`
+        : ''
+      alert(zoneResultMessage(`Rutas revisadas${detail}`, body.assignment?.kam_name, body.warnings))
+    } catch (error: any) {
+      alert(`No se pudo calcular rutas y asignar: ${error.message || 'Error desconocido'}`)
+    } finally {
+      setIsEnsuringRoutes(false)
     }
   }
 
@@ -393,7 +449,32 @@ export default function HospitalDetailPage() {
                 </div>
               </div>
             ) : (
-              <p className="text-gray-500">No hay Ejecutivo Comercial asignado</p>
+              <div className="space-y-3">
+                <p className="text-gray-500">No hay Ejecutivo Comercial asignado</p>
+                {routeStatus && (
+                  <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg text-sm space-y-3">
+                    <p className="font-medium">{routeStatusMessage(routeStatus)}</p>
+                    {routeStatus.missing > 0 && (
+                      <p>Hasta calcularlos, el algoritmo no puede asignar esta IPS a ninguna zona.</p>
+                    )}
+                    {routeStatus.candidates > 0 && (
+                      <PermissionGuard permission="recalculate:complete">
+                        <button
+                          onClick={ensureRoutes}
+                          disabled={isEnsuringRoutes}
+                          className="px-4 py-2 text-sm bg-gray-900 text-white rounded-lg hover:bg-black transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {isEnsuringRoutes
+                            ? 'Calculando rutas y asignando...'
+                            : routeStatus.missing > 0
+                              ? 'Calcular rutas y asignar'
+                              : 'Recalcular asignación'}
+                        </button>
+                      </PermissionGuard>
+                    )}
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -1194,12 +1275,22 @@ export default function HospitalDetailPage() {
                       
                       if (!response.ok) {
                         const error = await response.json()
-                        throw new Error(error.error || 'Error al actualizar hospital')
+                        const issues = Array.isArray(error.issues) ? error.issues.map((issue: any) => issue.message).join('. ') : ''
+                        throw new Error(issues || error.error || 'Error al actualizar hospital')
                       }
-                      
+
+                      // Si cambiaron las coordenadas, el servidor recalculó la zona (warnings/zone)
+                      const updated = await response.json()
+                      if (updated?.zone?.recalculated) {
+                        await queryClient.invalidateQueries({ queryKey: ['map-data'] })
+                      }
                       await loadHospitalData()
                       setShowEditModal(false)
-                      alert('Hospital actualizado exitosamente')
+                      alert(
+                        updated?.zone
+                          ? zoneResultMessage('Hospital actualizado', updated.zone.assignment?.kam_name, updated.warnings)
+                          : 'Hospital actualizado exitosamente'
+                      )
                     } catch (error: any) {
                       console.error('Error updating hospital:', error)
                       alert('Error al actualizar hospital: ' + error.message)

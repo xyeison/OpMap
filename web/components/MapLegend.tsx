@@ -67,6 +67,13 @@ export interface LegendToggles {
   onVisitsEnabled: (value: boolean) => void
 }
 
+// Filtro activo por Ejecutivo Comercial (o por zona): la lista muestra solo los filtrados
+export interface LegendFilter {
+  // "1 de 11" (marcados de la lista)
+  text: string
+  onClear: () => void
+}
+
 export interface MapLegendProps {
   // Nombre de la vista cuando no hay selector (una sola línea)
   viewLabel: string
@@ -83,6 +90,8 @@ export interface MapLegendProps {
   markers: LegendMarkers
   notes: LegendNote[]
   toggles: LegendToggles
+  // Filtro activo (null sin filtro): la lista de entradas ya viene filtrada
+  filter?: LegendFilter | null
   // Táctil: filas de al menos 44 px
   touch?: boolean
   footer?: ReactNode
@@ -130,6 +139,7 @@ export default function MapLegend({
   markers,
   notes,
   toggles,
+  filter = null,
   touch = false,
   footer
 }: MapLegendProps) {
@@ -172,6 +182,19 @@ export default function MapLegend({
             </button>
           )}
         </div>
+        {filter && (
+          // Filtro activo: aviso con la cuenta y "Quitar filtro" (el resaltado sigue funcionando)
+          <div className="mb-1.5 flex items-center justify-between gap-2 rounded-lg bg-gray-100 pl-2.5 pr-1">
+            <span className="min-w-0 truncate text-xs text-gray-700">Filtro: {filter.text}</span>
+            <button
+              type="button"
+              onClick={filter.onClear}
+              className={`flex-shrink-0 rounded-md px-2 text-xs font-medium text-gray-900 underline underline-offset-2 hover:bg-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 ${touch ? 'min-h-[44px]' : 'min-h-[28px]'}`}
+            >
+              Quitar filtro
+            </button>
+          </div>
+        )}
         {entries.length === 0 ? (
           <p className="text-xs text-gray-500">{emptyEntriesText}</p>
         ) : (
