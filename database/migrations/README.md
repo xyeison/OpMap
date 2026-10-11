@@ -375,3 +375,68 @@ tablas tienen FKs hacia `business_lines`, `executives` y `users`.
   banderas e historial → todo correcto, segunda aplicación bloqueada (OPM11); 30.000 servicios en
   729 ms. Después de deshacer: 0 filas en las tablas nuevas y 0 IPS tocadas.
 - Rollback independiente de 9930_reps y 9930_adres (las tablas no tienen FKs hacia `reps_sedes`).
+
+---
+
+# Migraciones — Fase 4: población (BDUA, cifras de MinSalud, proyecciones DANE)
+
+> **ESTADO: APLICADA** el 2026-10-11 en `norvxqgohddgsdkggqzq` (aditiva: 4 tablas nuevas; no toca
+> tablas existentes). Detalle de las fuentes, el modelo, los alias, los scripts y las cifras cargadas en
+> `docs/fases/fase4-poblacion.md`.
+
+| # | Archivo | Qué hace | Destructivo |
+|---|---|---|---|
+| 10 | `2026-10-11_0640_poblacion.sql` | Crea `municipio_alias` (PK fuente+departamento+nombre normalizado, FK a `municipalities`, semilla de 55 alias de la BDUA verificados), `bdua_afiliados` (UNIQUE corte+régimen+nombres de la fuente+EPS+estado+zona; código DANE derivado, NULL = sin cruce), `afiliacion_cifras` (UNIQUE corte+municipio; corte = último día del mes, CHECK) y `dane_proyecciones` (PK municipio+año, CHECK cabecera+resto=total). RLS sin políticas, sin privilegios para anon/authenticated/PUBLIC, GRANT a `service_role` | No |
+| — | `2026-10-11_9930_poblacion_rollback.sql` | Borra las 4 tablas | Sí (datos públicos descargados y los alias; se recuperan re-aplicando 0640 y corriendo los 3 scripts) |
+
+- Aplicada con el MCP de Supabase sin el `BEGIN/COMMIT` del archivo; el bloque final de comprobaciones
+  pasó (RLS en las 4, 0 políticas, 0 privilegios para anon/authenticated, `service_role` con
+  SELECT/INSERT/UPDATE/DELETE, 43 columnas, 55 alias `bdua`).
+- Después de aplicar (desde `web/`): `npx tsx scripts/dane-proyecciones-load.ts --file <xlsx 2020-2035>`,
+  `npx tsx scripts/minsalud-cifras-load.ts --dir <carpeta de ZIP>` y `npx tsx scripts/bdua-load.ts`.
+  Cargados el 2026-10-11: 7.854 / 15.792 / 53.634 filas.
+- Sin FOREIGN KEY en los códigos de las 3 tablas de datos (las fuentes usan 00000, "-SM", 27086, 27493,
+  94663, que no están en `municipalities`). `municipio_alias` sí tiene FK.
+- Rollback independiente de los demás. Si una migración posterior crea funciones sobre estas tablas
+  (p. ej. 0660 de la API de población), su rollback va antes.
+
+# Migraciones — Fase 4: funciones de lectura de la API de población
+
+| # | Archivo | Qué hace | Destructivo |
+|---|---|---|---|
+| 11 | `2026-10-11_0660_poblacion_api.sql` | Crea `poblacion_cortes()` (cortes de `afiliacion_cifras` y `bdua_afiliados`, años de `dane_proyecciones`) y `poblacion_bdua_resumen(p_corte, p_top_eps = 12)` (afiliados activos por municipio y régimen, las N EPS más grandes por municipio y sus nombres), en un jsonb cada una. SECURITY INVOKER, `search_path` fijo, EXECUTE solo `service_role`. No toca tablas ni datos | No |
+| — | `2026-10-11_9930_poblacion_api_rollback.sql` | Borra las 2 funciones | No (no hay datos) |
+
+- Aplicada el 2026-10-11 con el MCP de Supabase sin el `BEGIN/COMMIT` del archivo; el bloque final pasó
+  (sin EXECUTE para anon/authenticated, `service_role` sí; formas `{cifras, bdua, dane}` y
+  `{municipios, eps, nombres}`).
+- Por qué: `bdua_afiliados` tiene 53.634 filas en el corte del 2026-10-02 (PostgREST pagina de a 1.000)
+  y PostgREST no tiene DISTINCT para listar los cortes. La usan `GET /api/intelligence/poblacion` y la
+  tarjeta "Entorno del municipio" (ver `docs/fases/fase4-poblacion.md`, "API y vista").
+- Comprobado con SELECT tras aplicar: 1.121 municipios, 10.232 filas de EPS, 61 eps_id; contributivo
+  22.925.548 + subsidiado 27.009.982 = activos 49.942.999 − 7.469 sin municipio cruzado.
+- Rollback: antes del de 0640. Sin estas funciones la API sigue respondiendo, pero sin BDUA (sin EPS
+  dominantes) y con solo el corte más reciente.
+
+---
+
+# Migraciones — Giros ADRES "Identifica tu Giro" (detalle por giro)
+
+> **ESTADO: APLICADA** el 2026-10-11 en `norvxqgohddgsdkggqzq` (aditiva: 1 tabla, 1 vista y 1 función
+> nuevas; no toca `adres_giros` ni `adres_giros_resumen()`). Fuente, regla de régimen, script, API y UI en
+> `docs/fases/fase3-adres.md` (sección "Identifica tu Giro").
+
+| # | Archivo | Qué hace | Destructivo |
+|---|---|---|---|
+| 9 | `2026-10-11_0630_adres_detalle.sql` | Crea `adres_giros_detalle` (una fila por giro; UNIQUE `huella` sha256; CHECKs de NIT, régimen contributivo/subsidiado/otro, ocurrencia y huella; índices por nit+fecha y por fecha), la vista `adres_giros_mensual` (`security_invoker`) y la función `adres_giros_intel(fuente, desde, hasta, regimen)` → jsonb por NIT para las dos fuentes (SECURITY INVOKER, EXECUTE solo `service_role`). RLS sin políticas, sin privilegios para anon/authenticated/PUBLIC | No |
+| — | `2026-10-11_9930_adres_detalle_rollback.sql` | Borra la función, la vista y la tabla, y las filas de `adres_fetch_log` con `fuente = 'adres_identifica_giro'` | Sí (solo datos públicos de la ADRES; se recargan con el script) |
+
+- Aplicada con el MCP de Supabase sin el `BEGIN/COMMIT` del archivo; el bloque final pasó (RLS, 0
+  políticas, 0 privilegios para anon/authenticated en tabla y vista, vista `security_invoker`, función
+  solo `service_role`, 14 columnas, la función responde con la forma esperada en las dos fuentes).
+- Comprobado con SELECT: `adres_giros_intel('reporte29', 2024-07-01, 2025-06-30)` suma lo mismo que
+  `adres_giros_resumen()` ($ 15.967.511.745.238).
+- Después de aplicar: `cd web && node scripts/adres-identifica-giro.mjs --desde 2025-04` (todos los NIT
+  de IPS activas; reanudable). El 2026-10-11 solo se cargaron los 3 NIT de prueba (987 filas).
+- Rollback: va **antes** de `2026-10-11_9930_adres_rollback.sql` si se deshacen los dos
+  (`adres_giros_intel()` lee `adres_giros`). Volver a desplegar antes el código anterior.

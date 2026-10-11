@@ -1,9 +1,16 @@
 // Fase 3 · Lecturas de Supabase para la inteligencia de giros ADRES (solo servidor; "_lib" no es ruta).
-// Tablas: adres_giros, adres_fetch_log (migración 2026-10-11_0610_fase3_adres.sql) y la función
-// adres_giros_resumen(). Todo con service_role (lib/supabase-admin.ts).
+// Tablas: adres_giros, adres_fetch_log (migración 2026-10-11_0610_fase3_adres.sql), adres_giros_detalle,
+// la vista adres_giros_mensual y la función adres_giros_intel() (2026-10-11_0630_adres_detalle.sql).
+// Todo con service_role (lib/supabase-admin.ts).
 import { supabaseAdmin, type SupabaseAdminClient } from '@/lib/supabase-admin'
 import { zoneDisplayName } from '@/lib/zone-names'
-import type { IntelHospital } from '@/lib/adres-intelligence'
+import type { GirosFuente, GirosRegimen, IntelHospital } from '@/lib/adres-intelligence'
+
+/** Valor de adres_fetch_log.fuente de cada fuente. */
+export const FETCH_FUENTE: Record<GirosFuente, string> = {
+  reporte29: 'adres_reporte_29',
+  identifica: 'adres_identifica_giro',
+}
 
 const PAGE_SIZE = 1000
 
@@ -31,7 +38,7 @@ export function isMissingRelationError(error: unknown): boolean {
 }
 
 export const MISSING_MIGRATION_MESSAGE =
-  'Faltan las tablas de giros ADRES: aplicar database/migrations/2026-10-11_0610_fase3_adres.sql'
+  'Faltan las tablas de giros ADRES: aplicar database/migrations/2026-10-11_0610_fase3_adres.sql y 2026-10-11_0630_adres_detalle.sql'
 
 /** Primer y último mes con giros cargados ('YYYY-MM'), o null si no hay ninguno. */
 export async function loadGirosPeriodBounds(db: SupabaseAdminClient = supabaseAdmin): Promise<{ min: string; max: string } | null> {
@@ -47,6 +54,29 @@ export async function loadGirosPeriodBounds(db: SupabaseAdminClient = supabaseAd
   return { min: String(min).slice(0, 7), max: String(max).slice(0, 7) }
 }
 
+/**
+ * Primer y último giro de Identifica tu Giro (adres_giros_detalle): meses 'YYYY-MM' y fechas exactas.
+ * null si no hay giros o si la migración 0630 no está aplicada (la página sigue con el Reporte 29).
+ */
+export async function loadIdentificaBounds(
+  db: SupabaseAdminClient = supabaseAdmin
+): Promise<{ min: string; max: string; primeraFecha: string; ultimaFecha: string } | null> {
+  const [first, last] = await Promise.all([
+    db.from('adres_giros_detalle').select('fecha_giro').order('fecha_giro', { ascending: true }).limit(1),
+    db.from('adres_giros_detalle').select('fecha_giro').order('fecha_giro', { ascending: false }).limit(1),
+  ])
+  for (const result of [first, last]) {
+    if (result.error) {
+      if (isMissingRelationError(result.error)) return null
+      throw Object.assign(new Error(`Error leyendo adres_giros_detalle: ${result.error.message}`), { dbError: result.error })
+    }
+  }
+  const min = (first.data?.[0] as { fecha_giro?: string } | undefined)?.fecha_giro
+  const max = (last.data?.[0] as { fecha_giro?: string } | undefined)?.fecha_giro
+  if (!min || !max) return null
+  return { min: String(min).slice(0, 7), max: String(max).slice(0, 7), primeraFecha: String(min).slice(0, 10), ultimaFecha: String(max).slice(0, 10) }
+}
+
 export interface GirosFetchStats {
   nitsConsultados: number
   conDatos: number
@@ -55,34 +85,78 @@ export interface GirosFetchStats {
   ultimaConsulta: string | null
 }
 
-/** Estado de la última consulta a la ADRES de cada NIT (bitácora adres_fetch_log). */
-export async function loadFetchStats(db: SupabaseAdminClient = supabaseAdmin): Promise<GirosFetchStats> {
+/**
+ * Estado de la última consulta a la ADRES de cada NIT en una fuente (bitácora adres_fetch_log).
+ * okNits = NIT cuya última consulta fue ok o sin registros (para decidir la fuente automática).
+ */
+export async function loadFetchLog(
+  fuente: GirosFuente,
+  db: SupabaseAdminClient = supabaseAdmin
+): Promise<{ stats: GirosFetchStats; okNits: Set<string> }> {
   const rows = await fetchAll<{ nit: string; estado: string; fetched_at: string }>('adres_fetch_log', (from, to) =>
-    db.from('adres_fetch_log').select('nit, estado, fetched_at').order('fetched_at', { ascending: false }).range(from, to)
+    db
+      .from('adres_fetch_log')
+      .select('nit, estado, fetched_at')
+      .eq('fuente', FETCH_FUENTE[fuente])
+      .order('fetched_at', { ascending: false })
+      .order('id')
+      .range(from, to)
   )
   const last = new Map<string, string>()
   for (const row of rows) if (!last.has(row.nit)) last.set(row.nit, row.estado)
   let conDatos = 0
   let sinRegistros = 0
   let errores = 0
-  last.forEach(estado => {
+  const okNits = new Set<string>()
+  last.forEach((estado, nit) => {
     if (estado === 'ok') conDatos++
     else if (estado === 'sin_registros') sinRegistros++
     else errores++
+    if (estado === 'ok' || estado === 'sin_registros') okNits.add(nit)
   })
-  return { nitsConsultados: last.size, conDatos, sinRegistros, errores, ultimaConsulta: rows[0]?.fetched_at ?? null }
+  return { stats: { nitsConsultados: last.size, conDatos, sinRegistros, errores, ultimaConsulta: rows[0]?.fetched_at ?? null }, okNits }
 }
 
-/** adres_giros_resumen(desde, hasta): agregado por NIT y mes en un solo jsonb. */
+/** Estado de la bitácora del Reporte 29 (compatibilidad con llamadores anteriores). */
+export async function loadFetchStats(db: SupabaseAdminClient = supabaseAdmin): Promise<GirosFetchStats> {
+  return (await loadFetchLog('reporte29', db)).stats
+}
+
+/** adres_giros_resumen(desde, hasta): agregado por NIT y mes del Reporte 29 en un solo jsonb. */
 export async function loadGirosResumen(desdeMonth: string, hastaMonth: string, db: SupabaseAdminClient = supabaseAdmin): Promise<unknown> {
-  const [y, m] = hastaMonth.split('-').map(Number)
-  const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate()
   const { data, error } = await db.rpc('adres_giros_resumen', {
     p_desde: `${desdeMonth}-01`,
-    p_hasta: `${hastaMonth}-${String(lastDay).padStart(2, '0')}`,
+    p_hasta: monthEnd(hastaMonth),
     p_regimen: 'subsidiado',
   })
   if (error) throw Object.assign(new Error(`Error en adres_giros_resumen: ${error.message}`), { dbError: error })
+  return data
+}
+
+/** Último día del mes 'YYYY-MM' → 'YYYY-MM-DD'. */
+export function monthEnd(month: string): string {
+  const [y, m] = month.split('-').map(Number)
+  return `${month}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, '0')}`
+}
+
+/**
+ * adres_giros_intel(fuente, desde, hasta, regimen): agregado por NIT (totales, régimen, tipo, meses,
+ * entidades ordenadoras, último giro) en un solo jsonb. regimen 'todos' = sin filtro.
+ */
+export async function loadGirosIntel(
+  fuente: GirosFuente,
+  desdeMonth: string,
+  hastaMonth: string,
+  regimen: GirosRegimen,
+  db: SupabaseAdminClient = supabaseAdmin
+): Promise<unknown> {
+  const { data, error } = await db.rpc('adres_giros_intel', {
+    p_fuente: fuente,
+    p_desde: `${desdeMonth}-01`,
+    p_hasta: monthEnd(hastaMonth),
+    p_regimen: regimen === 'todos' ? null : regimen,
+  })
+  if (error) throw Object.assign(new Error(`Error en adres_giros_intel: ${error.message}`), { dbError: error })
   return data
 }
 
