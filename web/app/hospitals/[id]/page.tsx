@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Fragment } from 'react'
 import { zoneDisplayName } from '@/lib/zone-names'
 import { useParams, useRouter } from 'next/navigation'
 import ProtectedRoute from '@/components/ProtectedRoute'
@@ -13,6 +13,8 @@ import { useUser } from '@/contexts/UserContext'
 import HospitalGirosCard from '@/components/HospitalGirosCard'
 import HospitalEntornoCard from '@/components/HospitalEntornoCard'
 import HospitalRepsPanel from '@/components/HospitalRepsPanel'
+import { bogotaAssignmentLabel } from '@/lib/bogota-admin'
+import { formatTravelTimeFromSeconds } from '@/lib/format-utils'
 
 // GET /api/hospitals/[id] → routeStatus (app/api/_lib/pending-assignment.ts, getHospitalPendingStatus)
 interface RouteStatus {
@@ -82,6 +84,19 @@ export default function HospitalDetailPage() {
   const [editingDoctors, setEditingDoctors] = useState(false)
   const [doctors, setDoctors] = useState('')
   const [kamDistances, setKamDistances] = useState<any[]>([])
+  // Bogotá hacia afuera (PR 3): fila agregada "Bogotá" (mejor tiempo entre sus celdas y tope único)
+  const [bogotaDistance, setBogotaDistance] = useState<{
+    min_seconds: number
+    celda_min: string
+    max_travel_minutes: number
+    over_limit: boolean
+  } | null>(null)
+  // Tipo, tiempo (SEGUNDOS) y detalle de la asignación (GET /api/hospitals/[id] → assignment)
+  const [assignment, setAssignment] = useState<{
+    assignment_type: string | null
+    travel_time: number | null
+    detail: { corredor?: string | null } | null
+  } | null>(null)
   const [editingDocumentsUrl, setEditingDocumentsUrl] = useState(false)
   const [documentsUrl, setDocumentsUrl] = useState('')
   const [showEditModal, setShowEditModal] = useState(false)
@@ -117,6 +132,7 @@ export default function HospitalDetailPage() {
         setMunicipalityName(data.municipalityName || '')
         setDepartmentName(data.departmentName || '')
         setKam(data.kam)
+        setAssignment(data.assignment ?? null)
         setRouteStatus(data.routeStatus ?? null)
         setKamMunicipalityName(data.kamMunicipalityName || '')
         setContractStats(data.contractStats)
@@ -156,6 +172,7 @@ export default function HospitalDetailPage() {
         if (distResponse.ok) {
           const distData = await distResponse.json()
           setKamDistances(distData.distances || [])
+          setBogotaDistance(distData.bogota ?? null)
         }
       }
     } catch (error) {
@@ -470,9 +487,22 @@ export default function HospitalDetailPage() {
                   <span className="text-gray-600">Zona:</span>
                   <span className="ml-2 font-medium">{zoneDisplayName(kam.name)}</span>
                 </div>
+                {assignment?.assignment_type === 'bogota_corredor' && (
+                  <div>
+                    <span className="text-gray-600">Asignación:</span>
+                    <span className="ml-2 font-medium">
+                      {bogotaAssignmentLabel(assignment.detail?.corredor, kam.base_city || zoneDisplayName(kam.name))}
+                    </span>
+                    {assignment.travel_time !== null && (
+                      <span className="ml-2 text-sm text-gray-500">
+                        ({formatTravelTimeFromSeconds(assignment.travel_time)} por carretera desde {kam.base_city || zoneDisplayName(kam.name)})
+                      </span>
+                    )}
+                  </div>
+                )}
                 <div>
                   <span className="text-gray-600">Municipio base:</span>
-                  <span className="ml-2 font-medium">{kamMunicipalityName || kam.area_id}</span>
+                  <span className="ml-2 font-medium">{kamMunicipalityName || kam.base_city || kam.area_id}</span>
                 </div>
                 <div>
                   <span className="text-gray-600">Teléfono:</span>
@@ -613,14 +643,58 @@ export default function HospitalDetailPage() {
                     const minutes = Math.round(dist.travel_time / 60)
                     const isAssigned = kam && kam.id === dist.kam_id
                     const isOverLimit = minutes > (dist.max_travel_time || 240)
+                    // Fila agregada "Bogotá" justo antes de la primera celda (las filas vienen por tiempo)
+                    const isFirstBogotaCell =
+                      Boolean(bogotaDistance) &&
+                      dist.is_bogota_cell &&
+                      kamDistances.findIndex((row: any) => row.is_bogota_cell) === idx
+                    const bogotaMinutes = bogotaDistance ? Math.round(bogotaDistance.min_seconds / 60) : 0
+                    const bogotaWon = Boolean(
+                      bogotaDistance && kam && kamDistances.some((row: any) => row.is_bogota_cell && row.kam_id === kam.id)
+                    )
                     
                     return (
-                      <tr key={idx} className="border-b hover:bg-gray-50">
-                        <td className="py-3">
+                      <Fragment key={idx}>
+                      {isFirstBogotaCell && bogotaDistance && (
+                        <tr className="border-b bg-gray-50">
+                          <td className="py-3">
+                            <span className={`font-semibold ${bogotaWon ? 'text-green-600' : 'text-gray-900'}`}>
+                              Bogotá{bogotaWon && ' ✓'}
+                            </span>
+                            <span className="block text-xs text-gray-500">
+                              Compite como una ciudad: mejor tiempo entre sus zonas · tope único {Math.floor(bogotaDistance.max_travel_minutes / 60)}h {bogotaDistance.max_travel_minutes % 60}m
+                            </span>
+                          </td>
+                          <td className={`text-right py-3 ${bogotaDistance.over_limit ? 'text-red-600' : 'text-gray-700'}`}>
+                            {Math.floor(bogotaMinutes / 60)}h {bogotaMinutes % 60}m
+                          </td>
+                          <td className="text-right py-3 text-gray-700">-</td>
+                          <td className="text-center py-3">
+                            {bogotaWon ? (
+                              <span className="px-2 py-1 bg-gray-900 text-white rounded-full text-xs font-medium">
+                                Asignado
+                              </span>
+                            ) : bogotaDistance.over_limit ? (
+                              <span className="px-2 py-1 bg-gray-300 text-gray-700 rounded-full text-xs font-medium">
+                                Fuera de rango
+                              </span>
+                            ) : (
+                              <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-medium">
+                                Disponible
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                      <tr className="border-b hover:bg-gray-50">
+                        <td className={`py-3 ${bogotaDistance && dist.is_bogota_cell ? 'pl-4' : ''}`}>
                           <span className={`font-medium ${isAssigned ? 'text-green-600' : 'text-gray-900'}`}>
                             {zoneDisplayName(dist.kam_name)}
                             {isAssigned && ' ✓'}
                           </span>
+                          {bogotaDistance && dist.is_bogota_cell && (
+                            <span className="block text-xs text-gray-500">Zona de Bogotá</span>
+                          )}
                         </td>
                         <td className={`text-right py-3 ${isOverLimit ? 'text-red-600' : 'text-gray-700'}`}>
                           {Math.floor(minutes / 60)}h {minutes % 60}m
@@ -633,6 +707,10 @@ export default function HospitalDetailPage() {
                             <span className="px-2 py-1 bg-gray-900 text-white rounded-full text-xs font-medium">
                               Asignado
                             </span>
+                          ) : bogotaDistance && dist.is_bogota_cell ? (
+                            <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-medium">
+                              Por corredor
+                            </span>
                           ) : isOverLimit ? (
                             <span className="px-2 py-1 bg-gray-300 text-gray-700 rounded-full text-xs font-medium">
                               Fuera de rango
@@ -644,11 +722,22 @@ export default function HospitalDetailPage() {
                           )}
                         </td>
                       </tr>
+                      </Fragment>
                     )
                   })}
                 </tbody>
               </table>
             </div>
+            {bogotaDistance &&
+              kam &&
+              assignment?.assignment_type === 'competitive' &&
+              kamDistances.some((row: any) => row.is_bogota_cell && row.kam_id === kam.id) && (
+                <p className="mt-3 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                  La asignación guardada es anterior a la regla &quot;Bogotá compite como una ciudad&quot; (cada zona de
+                  Bogotá competía con su propio tope). Con el próximo recálculo la zona la decide el corredor de salida y
+                  el tope único de {bogotaDistance.max_travel_minutes} min.
+                </p>
+              )}
           </div>
         )}
 

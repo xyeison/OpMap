@@ -79,7 +79,11 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     const [municipalityRes, departmentRes, assignmentRes, contractsRes, historyRes] = await Promise.all([
       supabaseAdmin.from('municipalities').select('name').eq('code', hospital.municipality_id).maybeSingle(),
       supabaseAdmin.from('departments').select('name').eq('code', hospital.department_id).maybeSingle(),
-      supabaseAdmin.from('assignments').select('kam_id').eq('hospital_id', hospitalId).maybeSingle(),
+      supabaseAdmin
+        .from('assignments')
+        .select('kam_id, travel_time, assignment_type, detail')
+        .eq('hospital_id', hospitalId)
+        .maybeSingle(),
       supabaseAdmin
         .from('hospital_contracts')
         .select('contract_value')
@@ -143,6 +147,14 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       departmentName: departmentRes.data?.name,
       kam,
       kamMunicipalityName,
+      // Tipo y tiempo (SEGUNDOS) de la asignación; detail = corredor de Bogotá en 'bogota_corredor' (PR 3)
+      assignment: assignmentRes.data
+        ? {
+            assignment_type: assignmentRes.data.assignment_type ?? null,
+            travel_time: assignmentRes.data.travel_time ?? null,
+            detail: assignmentRes.data.detail ?? null,
+          }
+        : null,
       contractStats,
       history: historyRes.data || [],
       routeStatus,

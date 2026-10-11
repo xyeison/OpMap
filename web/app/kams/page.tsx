@@ -12,6 +12,7 @@ import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
 import ZoneView from '@/components/ZoneView'
 import KamZoneModal from '@/components/KamZoneModal'
+import BogotaConfigCard from '@/components/BogotaConfigCard'
 
 interface KamStats {
   kam_id: string
@@ -346,6 +347,11 @@ export default function KamsPage() {
               <p className="text-lg font-bold text-gray-900">{formatCurrency(totalValue)}</p>
             </div>
           </div>
+
+          {/* Bogotá hacia afuera: k zonas, corredores y tope único (solo admin) */}
+          <PermissionGuard permission="kams:bogota-config">
+            <BogotaConfigCard />
+          </PermissionGuard>
 
           {/* Barra de búsqueda */}
           <div className="bg-white rounded-xl shadow-md border border-gray-100 p-4 mb-6">

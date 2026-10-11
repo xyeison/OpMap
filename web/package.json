@@ -11,7 +11,7 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "tsx scripts/ips-routes-check.ts && tsx scripts/reps-check.ts && tsx scripts/reps-import-check.ts && tsx scripts/adres-check.ts && tsx scripts/poblacion-api-check.ts && tsx scripts/poblacion-check.ts",
+    "test": "tsx scripts/ips-routes-check.ts && tsx scripts/reps-check.ts && tsx scripts/reps-import-check.ts && tsx scripts/adres-check.ts && tsx scripts/poblacion-api-check.ts && tsx scripts/poblacion-check.ts && tsx scripts/bogota-check.ts && tsx scripts/corredores-config-check.ts",
     "check": "npm run typecheck && npm run lint && npm run test",
     "fase1:simulate": "tsx scripts/fase1-simulate.ts",
     "fase2:check": "tsx scripts/fase2-check.ts",
@@ -20,7 +20,10 @@
     "reps-import:check": "tsx scripts/reps-import-check.ts",
     "adres:check": "tsx scripts/adres-check.ts",
     "poblacion-api:check": "tsx scripts/poblacion-api-check.ts",
-    "poblacion:check": "tsx scripts/poblacion-check.ts"
+    "poblacion:check": "tsx scripts/poblacion-check.ts",
+    "bogota:check": "tsx scripts/bogota-check.ts",
+    "bogota:simulate": "tsx scripts/bogota-simulate.ts",
+    "corredores-config:check": "tsx scripts/corredores-config-check.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.53.0",

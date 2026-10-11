@@ -14,13 +14,15 @@ import {
   loadAdjacency,
   type EligibilityKam,
 } from '../../_lib/kam-eligibility'
+import { competeForHospital, loadBogotaRule, type BogotaAssignmentDetail } from '@/lib/opmap-algorithm-simplified'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 // Asigna una IPS recién creada (o sin asignación) a su KAM siguiendo las reglas del algoritmo:
 //   0. asignación forzada del territorio, 1. territorio base, 2. competencia por tiempo real
-//   entre KAMs elegibles (mismo departamento / adyacentes N1-N2 / regla Bogotá).
+//   entre KAMs elegibles (mismo departamento / adyacentes N1-N2 / regla Bogotá), con la misma función
+//   que el recálculo completo (competeForHospital, incluida "Bogotá como una ciudad" por corredores).
 // Las coordenadas y el territorio se leen SIEMPRE de public.hospitals (se ignora lo que mande el
 // cliente). Los tiempos se leen/escriben en hospital_kam_distances en SEGUNDOS, y solo se llama a
 // Google para los pares que faltan, en una petición con hasta 25 orígenes.
@@ -94,6 +96,7 @@ export async function POST(request: NextRequest) {
       travel_time: number
       assignment_type: string
       is_base_territory: boolean
+      detail?: BogotaAssignmentDetail
     }) => {
       const { error } = await supabaseAdmin.from('assignments').insert({
         hospital_id: hospitalId,
@@ -269,24 +272,20 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 6. Mejor KAM: menor tiempo dentro de su max_travel_time; empate -> mayor prioridad
-    let bestKam: Kam | null = null
-    let bestTime = Infinity
-    for (const kam of candidates) {
-      const travelTime = times.get(kam.id)
-      if (travelTime === undefined) continue
-      const maxMinutes = kam.max_travel_time ?? 240
-      if (travelTime / 60 > maxMinutes) continue
-      if (
-        travelTime < bestTime ||
-        (travelTime === bestTime && (kam.priority ?? 0) > (bestKam?.priority ?? 0))
-      ) {
-        bestTime = travelTime
-        bestKam = kam
-      }
-    }
+    // 6. Mejor zona con la MISMA regla que el recálculo completo (competeForHospital): menor tiempo
+    // dentro del tope; empate -> mayor prioridad; Bogotá compite como una ciudad hacia afuera y la
+    // celda la decide el corredor cuando hay configuración (bogota_config + bogota_corredores).
+    const { rule: bogotaRule } = await loadBogotaRule()
+    const outcome = competeForHospital(
+      hospital,
+      kams.map(kam => ({ ...kam, max_travel_time: kam.max_travel_time ?? 240, priority: kam.priority ?? 0 })),
+      adjacency,
+      kamId => times.get(kamId) ?? null,
+      bogotaRule
+    )
+    const bestKam = outcome ? kams.find(k => k.id === outcome.kam_id) ?? null : null
 
-    if (!bestKam) {
+    if (!outcome || !bestKam) {
       return NextResponse.json(
         {
           error: 'No se encontró ninguna zona dentro de su tiempo máximo de viaje',
@@ -295,12 +294,14 @@ export async function POST(request: NextRequest) {
         { status: 422 }
       )
     }
+    const bestTime = outcome.travel_time // SEGUNDOS
 
     const insertError = await insertAssignment({
       kam_id: bestKam.id,
       travel_time: bestTime, // SEGUNDOS
-      assignment_type: 'competitive',
+      assignment_type: outcome.assignment_type,
       is_base_territory: false,
+      ...(outcome.detail ? { detail: outcome.detail } : {}),
     })
     if (insertError) return respondInsertError(insertError, 'assign-to-kam (insert competitiva)')
 
@@ -311,7 +312,7 @@ export async function POST(request: NextRequest) {
       travelTime: bestTime,
       travelTimeMinutes: Math.round(bestTime / 60),
       isBaseTerritory: false,
-      assignmentType: 'competitive',
+      assignmentType: outcome.assignment_type,
       googleElements,
     })
   } catch (error) {

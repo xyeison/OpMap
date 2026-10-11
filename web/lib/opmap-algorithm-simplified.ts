@@ -2,8 +2,20 @@
 // IMPORTANTE: travel_time en hospital_kam_distances está en SEGUNDOS
 // Solo servidor: usa el cliente service_role (lib/supabase-admin.ts), obtenido de forma perezosa
 // dentro de cada método para que importar este módulo no falle durante el build.
+// Bogotá como UNA ciudad hacia afuera (2026-10-11): ver competeForHospital y loadBogotaRule más abajo;
+// el reparto por corredor vive en lib/bogota-corredores.ts. Pruebas: scripts/bogota-check.ts.
 
 import { getSupabaseAdmin } from './supabase-admin'
+import {
+  celdaParaCorredor,
+  parseBogotaConfig,
+  parseCorredorRows,
+  resolveCorredor,
+  validarGrupos,
+  type BogotaConfig,
+  type Corredor,
+  type CorredorRow,
+} from './bogota-corredores'
 
 // ---------------------------------------------------------------------------
 // Reglas de elegibilidad KAM -> IPS (funciones puras exportadas).
@@ -142,7 +154,262 @@ export function routeCandidateKams<T extends EligibilityKamShape & { lat?: Maybe
   return eligibleKamsForHospital(kams.filter(hasCoordinates), hospital, adjacency)
 }
 
-interface KAM {
+// ---------------------------------------------------------------------------
+// Bogotá como UNA ciudad hacia afuera, con reparto por corredor (spec
+// docs/specs/2026-10-11-bogota-corredores.md). Funciones puras exportadas.
+//
+// Para una IPS FUERA de Bogotá (department_id distinto de '11'), si alguna celda de Bogotá es elegible
+// (canKamCompeteForHospital), las celdas NO compiten por separado: compite un candidato virtual
+// "Bogotá" con tiempo = mínimo de los tiempos reales de las celdas elegibles con distancia conocida y
+// tope = bogota_config.max_travel_minutes (se ignora kams.max_travel_time de las celdas). Si "Bogotá"
+// gana (menor tiempo; empate exacto -> prioridad, como siempre), la celda la decide el corredor del
+// municipio (bogota_corredores + bogota_config.grupos), no los minutos.
+// Dentro de Bogotá (localidades), territorio base y asignaciones forzadas: sin cambios.
+// Sin regla (rule = null) el comportamiento es el anterior: cada celda compite sola con su tope.
+// ---------------------------------------------------------------------------
+
+/** Lo que el motor necesita para aplicar la regla. null = comportamiento anterior. */
+export interface BogotaRuleInput {
+  config: BogotaConfig
+  corredores: readonly CorredorRow[]
+}
+
+/** assignments.detail de las asignaciones 'bogota_corredor'. */
+export interface BogotaAssignmentDetail {
+  /** null = municipio sin corredor configurado (se usó la celda de menor tiempo) */
+  corredor: Corredor | null
+  /** mejor tiempo real (SEGUNDOS) entre las celdas elegibles: el tiempo con el que compitió "Bogotá" */
+  bogota_min_segundos: number
+  /** kam_id de la celda con ese mejor tiempo */
+  celda_min: string
+}
+
+/** Identificador interno del candidato virtual (nunca se guarda: se sustituye por la celda elegida). */
+export const BOGOTA_VIRTUAL_ID = '__bogota__'
+
+export interface BogotaCellTime {
+  kam_id: string
+  priority: number
+  seconds: number | null // SEGUNDOS; null = sin distancia calculada
+}
+
+export interface BogotaVirtualCandidate {
+  min_seconds: number
+  celda_min: string
+  /** prioridad de la celda con el mejor tiempo (desempate frente a otras zonas) */
+  priority: number
+  max_minutes: number
+  within_reach: boolean
+}
+
+/**
+ * Candidato virtual "Bogotá" a partir de las celdas ELEGIBLES para la IPS. null si ninguna tiene
+ * distancia conocida. Empate entre celdas: mayor prioridad y, si sigue, la primera de la lista.
+ * within_reach = mejor tiempo dentro del tope único de Bogotá.
+ */
+export function bogotaVirtualCandidate(cells: readonly BogotaCellTime[], maxMinutes: number): BogotaVirtualCandidate | null {
+  let best: { kam_id: string; priority: number; seconds: number } | null = null
+  for (const cell of cells) {
+    if (cell.seconds === null || !Number.isFinite(cell.seconds)) continue
+    if (!best || cell.seconds < best.seconds || (cell.seconds === best.seconds && cell.priority > best.priority)) {
+      best = { kam_id: cell.kam_id, priority: cell.priority, seconds: cell.seconds }
+    }
+  }
+  if (!best) return null
+  return {
+    min_seconds: best.seconds,
+    celda_min: best.kam_id,
+    priority: best.priority,
+    max_minutes: maxMinutes,
+    within_reach: best.seconds / 60 <= maxMinutes,
+  }
+}
+
+export interface CompetitionCandidate {
+  kam_id: string
+  seconds: number | null // SEGUNDOS
+  max_minutes: number // MINUTOS
+  priority: number
+}
+
+/**
+ * Regla de competencia de siempre: menor tiempo dentro del tope de cada candidato; empate exacto ->
+ * mayor prioridad; si sigue el empate, el primero de la lista (las zonas vienen ordenadas por nombre).
+ */
+export function pickCompetitiveWinner(candidates: readonly CompetitionCandidate[]): { kam_id: string; seconds: number } | null {
+  let best: CompetitionCandidate | null = null
+  let bestTime = Infinity
+  for (const candidate of candidates) {
+    if (candidate.seconds === null) continue
+    if (candidate.seconds / 60 > candidate.max_minutes) continue
+    if (candidate.seconds < bestTime || (candidate.seconds === bestTime && candidate.priority > (best?.priority || 0))) {
+      bestTime = candidate.seconds
+      best = candidate
+    }
+  }
+  return best && bestTime < Infinity ? { kam_id: best.kam_id, seconds: bestTime } : null
+}
+
+/** corredor: la celda del corredor; sin_corredor / celda_no_activa: la celda de menor tiempo. */
+export type BogotaCellReason = 'corredor' | 'sin_corredor' | 'celda_no_activa'
+
+export interface BogotaCellChoice {
+  kam_id: string
+  travel_time: number // SEGUNDOS: tiempo real de la celda elegida si existe; si no, el mínimo de Bogotá
+  corredor: Corredor | null
+  motivo: BogotaCellReason
+  detail: BogotaAssignmentDetail
+}
+
+/**
+ * Celda que recibe una IPS que ganó "Bogotá": la del corredor de su municipio según
+ * bogota_config.grupos. Si el municipio no tiene corredor, o la celda configurada no está entre las
+ * celdas activas, se usa la celda de menor tiempo (celda_min).
+ */
+export function chooseBogotaCell(
+  hospital: Pick<EligibilityHospitalShape, 'municipality_id' | 'department_id'>,
+  virtual: BogotaVirtualCandidate,
+  rule: BogotaRuleInput,
+  activeCellIds: ReadonlySet<string>,
+  cellSeconds: (kamId: string) => number | null
+): BogotaCellChoice {
+  const corredor = resolveCorredor(hospital.municipality_id, hospital.department_id, rule.corredores)
+  let kamId = virtual.celda_min
+  let motivo: BogotaCellReason = 'sin_corredor'
+  if (corredor) {
+    const celda = celdaParaCorredor(corredor, rule.config)
+    if (celda && activeCellIds.has(celda)) {
+      kamId = celda
+      motivo = 'corredor'
+    } else {
+      motivo = 'celda_no_activa'
+    }
+  }
+  return {
+    kam_id: kamId,
+    travel_time: cellSeconds(kamId) ?? virtual.min_seconds,
+    corredor,
+    motivo,
+    detail: { corredor, bogota_min_segundos: virtual.min_seconds, celda_min: virtual.celda_min },
+  }
+}
+
+/** Forma mínima de zona para la asignación competitiva. */
+export interface CompetitionKam extends EligibilityKamShape {
+  id: string
+  max_travel_time: number // MINUTOS
+  priority: number
+}
+
+export interface CompetitionOutcome {
+  kam_id: string
+  travel_time: number // SEGUNDOS
+  assignment_type: 'competitive' | 'bogota_corredor'
+  detail: BogotaAssignmentDetail | null
+  /** solo en 'bogota_corredor' */
+  motivo: BogotaCellReason | null
+}
+
+/**
+ * Asignación competitiva de UNA IPS (fase 2 del algoritmo), pura. seconds(kamId) devuelve el tiempo
+ * zona -> IPS en SEGUNDOS o null. Con rule = null, o para IPS de Bogotá (department_id '11'), es la
+ * regla de siempre. Devuelve null si ninguna zona llega dentro de su tope.
+ */
+export function competeForHospital<T extends CompetitionKam>(
+  hospital: EligibilityHospitalShape,
+  kams: readonly T[],
+  adjacency: AdjacencyMatrix,
+  seconds: (kamId: string) => number | null,
+  rule: BogotaRuleInput | null
+): CompetitionOutcome | null {
+  const eligible = eligibleKamsForHospital([...kams], hospital, adjacency)
+  const asCandidate = (kam: T): CompetitionCandidate => ({
+    kam_id: kam.id,
+    seconds: seconds(kam.id),
+    max_minutes: kam.max_travel_time,
+    priority: kam.priority,
+  })
+
+  if (!rule || hospital.department_id === '11') {
+    const winner = pickCompetitiveWinner(eligible.map(asCandidate))
+    return winner
+      ? { kam_id: winner.kam_id, travel_time: winner.seconds, assignment_type: 'competitive', detail: null, motivo: null }
+      : null
+  }
+
+  const virtual = bogotaVirtualCandidate(
+    eligible.filter(isBogotaKam).map(kam => ({ kam_id: kam.id, priority: kam.priority, seconds: seconds(kam.id) })),
+    rule.config.max_travel_minutes
+  )
+  // Las celdas se sustituyen por UN candidato "Bogotá" en la posición de la primera celda elegible
+  const candidates: CompetitionCandidate[] = []
+  let virtualAdded = false
+  for (const kam of eligible) {
+    if (!isBogotaKam(kam)) {
+      candidates.push(asCandidate(kam))
+    } else if (virtual && !virtualAdded) {
+      candidates.push({ kam_id: BOGOTA_VIRTUAL_ID, seconds: virtual.min_seconds, max_minutes: virtual.max_minutes, priority: virtual.priority })
+      virtualAdded = true
+    }
+  }
+
+  const winner = pickCompetitiveWinner(candidates)
+  if (!winner) return null
+  if (winner.kam_id !== BOGOTA_VIRTUAL_ID || !virtual) {
+    return { kam_id: winner.kam_id, travel_time: winner.seconds, assignment_type: 'competitive', detail: null, motivo: null }
+  }
+
+  const activeCells = new Set(kams.filter(kam => hasValidKamArea(kam) && isBogotaKam(kam)).map(kam => kam.id))
+  const choice = chooseBogotaCell(hospital, virtual, rule, activeCells, seconds)
+  return {
+    kam_id: choice.kam_id,
+    travel_time: choice.travel_time,
+    assignment_type: 'bogota_corredor',
+    detail: choice.detail,
+    motivo: choice.motivo,
+  }
+}
+
+/** PostgREST: relación inexistente (42P01) o fuera de la caché de esquema (PGRST205). */
+function isMissingTableError(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false
+  if (error.code === '42P01' || error.code === 'PGRST205') return true
+  return /does not exist|could not find the table|schema cache/i.test(error.message || '')
+}
+
+export type BogotaRuleStatus = 'activa' | 'sin_tablas' | 'sin_config' | 'config_invalida' | 'sin_corredores'
+
+/**
+ * Lee bogota_config (id = 1) y bogota_corredores (solo SELECT). La regla queda ACTIVA solo si hay
+ * fila de configuración válida Y al menos una fila de corredores; en cualquier otro caso (tablas sin
+ * crear, sin filas o configuración inválida) devuelve rule = null y el motor se comporta como antes:
+ * cada celda de Bogotá compite sola con su kams.max_travel_time.
+ */
+export async function loadBogotaRule(): Promise<{ rule: BogotaRuleInput | null; status: BogotaRuleStatus; warnings: string[] }> {
+  const supabase = getSupabaseAdmin()
+  const { data: configRow, error: configError } = await supabase.from('bogota_config').select('*').eq('id', 1).maybeSingle()
+  if (configError) {
+    if (isMissingTableError(configError)) return { rule: null, status: 'sin_tablas', warnings: [] }
+    throw new Error(`Error cargando bogota_config: ${configError.message}`)
+  }
+  if (!configRow) return { rule: null, status: 'sin_config', warnings: [] }
+  const config = parseBogotaConfig(configRow)
+  if (!config) return { rule: null, status: 'config_invalida', warnings: ['bogota_config tiene k o max_travel_minutes inválidos.'] }
+
+  const { data: corredorRows, error: corredoresError } = await supabase
+    .from('bogota_corredores')
+    .select('department_code, municipality_code, corredor, nota')
+    .range(0, 4999)
+  if (corredoresError) {
+    if (isMissingTableError(corredoresError)) return { rule: null, status: 'sin_tablas', warnings: [] }
+    throw new Error(`Error cargando bogota_corredores: ${corredoresError.message}`)
+  }
+  const corredores = parseCorredorRows(corredorRows)
+  if (corredores.length === 0) return { rule: null, status: 'sin_corredores', warnings: [] }
+  return { rule: { config, corredores }, status: 'activa', warnings: validarGrupos(config.k, config.grupos) }
+}
+
+export interface AlgorithmKam {
   id: string
   name: string
   area_id: string
@@ -155,7 +422,7 @@ interface KAM {
   participates_in_assignment?: boolean  // Si participa en asignación territorial
 }
 
-interface Hospital {
+export interface AlgorithmHospital {
   id: string
   code: string
   name: string
@@ -168,21 +435,27 @@ interface Hospital {
   active: boolean
 }
 
+// Alias internos de la clase (nombres históricos)
+type KAM = AlgorithmKam
+type Hospital = AlgorithmHospital
+
 export interface Assignment {
   kam_id: string
   hospital_id: string
   travel_time: number | null  // En SEGUNDOS (null si no hay tiempo calculado, p.ej. territorio forzado)
-  assignment_type: 'forced' | 'base_territory' | 'competitive' | 'majority_rule'
+  assignment_type: 'forced' | 'base_territory' | 'competitive' | 'majority_rule' | 'bogota_corredor'
   is_base_territory: boolean
+  /** Solo en 'bogota_corredor' (columna assignments.detail jsonb). Las demás filas no llevan la clave. */
+  detail?: BogotaAssignmentDetail
 }
 
-interface DistanceRecord {
+export interface DistanceRecord {
   hospital_id: string
   kam_id: string
   travel_time: number  // En SEGUNDOS
 }
 
-interface ForcedAssignment {
+export interface ForcedAssignment {
   territory_id: string
   territory_type: 'municipality' | 'locality'
   territory_name: string
@@ -200,6 +473,22 @@ interface ForcedAssignment {
 export interface AlgorithmOverrides {
   kamActive?: Record<string, boolean>
   excludeKamNames?: string[]
+  /**
+   * Regla "Bogotá como una ciudad" en memoria (scripts/bogota-simulate.ts). Si la clave está presente
+   * se usa tal cual (null = comportamiento anterior) y NO se leen bogota_config / bogota_corredores.
+   */
+  bogota?: BogotaRuleInput | null
+}
+
+/** Datos ya leídos para ejecutar el algoritmo en memoria (pruebas puras y simulaciones). */
+export interface AlgorithmData {
+  kams: AlgorithmKam[]
+  hospitals: AlgorithmHospital[]
+  excludedDepartments: string[]
+  distances: DistanceRecord[]
+  adjacency: AdjacencyMatrix
+  forcedAssignments: ForcedAssignment[]
+  bogota: BogotaRuleInput | null
 }
 
 export class SimplifiedOpMapAlgorithm {
@@ -209,7 +498,37 @@ export class SimplifiedOpMapAlgorithm {
   private distances: DistanceRecord[] = []
   private adjacencyMatrix: Record<string, string[]> = {}
   private forcedAssignments: ForcedAssignment[] = []
-  
+  private bogotaRule: BogotaRuleInput | null = null
+  private bogotaRuleStatus: BogotaRuleStatus | 'en_memoria' = 'sin_config'
+  // Índice hospital|kam -> SEGUNDOS (primera fila por par, como el antiguo find)
+  private distanceIndex = new Map<string, number>()
+
+  /** Carga datos ya leídos, sin tocar la base (pruebas puras y simulaciones). */
+  loadFromData(data: AlgorithmData) {
+    this.kams = data.kams.filter(hasValidKamArea)
+    this.hospitals = data.hospitals
+    this.excludedDepartments = data.excludedDepartments
+    this.distances = data.distances
+    this.adjacencyMatrix = data.adjacency
+    this.forcedAssignments = data.forcedAssignments
+    this.bogotaRule = data.bogota
+    this.bogotaRuleStatus = 'en_memoria'
+    this.buildDistanceIndex()
+  }
+
+  /** Regla de Bogotá con la que se calcula (null = cada celda compite sola) y de dónde salió. */
+  getBogotaRule(): { rule: BogotaRuleInput | null; status: BogotaRuleStatus | 'en_memoria' } {
+    return { rule: this.bogotaRule, status: this.bogotaRuleStatus }
+  }
+
+  private buildDistanceIndex() {
+    this.distanceIndex = new Map()
+    for (const d of this.distances) {
+      const key = `${d.hospital_id}|${d.kam_id}`
+      if (!this.distanceIndex.has(key)) this.distanceIndex.set(key, d.travel_time)
+    }
+  }
+
   async loadData(overrides?: AlgorithmOverrides) {
     console.log('🔄 Cargando datos...')
     const supabase = getSupabaseAdmin()
@@ -343,6 +662,24 @@ export class SimplifiedOpMapAlgorithm {
 
     this.forcedAssignments = forcedData || []
     console.log(`✅ ${this.forcedAssignments.length} asignaciones forzadas activas`)
+
+    // 7. Bogotá como una ciudad hacia afuera (bogota_config + bogota_corredores; solo SELECT)
+    if (overrides && Object.prototype.hasOwnProperty.call(overrides, 'bogota')) {
+      this.bogotaRule = overrides.bogota ?? null
+      this.bogotaRuleStatus = 'en_memoria'
+    } else {
+      const loaded = await loadBogotaRule()
+      this.bogotaRule = loaded.rule
+      this.bogotaRuleStatus = loaded.status
+      for (const warning of loaded.warnings) console.warn(`Configuración de Bogotá: ${warning}`)
+    }
+    console.log(
+      this.bogotaRule
+        ? `Bogotá como una ciudad: activa (k = ${this.bogotaRule.config.k}, tope ${this.bogotaRule.config.max_travel_minutes} min, ${this.bogotaRule.corredores.length} filas de corredores)`
+        : `Bogotá como una ciudad: inactiva (${this.bogotaRuleStatus}); cada celda compite sola`
+    )
+
+    this.buildDistanceIndex()
   }
 
   // Delegan en las funciones puras exportadas (fuente única de las reglas de elegibilidad)
@@ -355,10 +692,7 @@ export class SimplifiedOpMapAlgorithm {
   }
 
   private getDistance(hospitalId: string, kamId: string): number | null {
-    const distance = this.distances.find(
-      d => d.hospital_id === hospitalId && d.kam_id === kamId
-    )
-    return distance ? distance.travel_time : null
+    return this.distanceIndex.get(`${hospitalId}|${kamId}`) ?? null
   }
 
   private isForcedTerritory(hospital: Hospital): ForcedAssignment | null {
@@ -462,44 +796,31 @@ export class SimplifiedOpMapAlgorithm {
       if (processedCount % 50 === 0) {
         console.log(`  Procesados ${processedCount}/${unassignedHospitals.length} hospitales...`)
       }
-      let bestKam: KAM | null = null
-      let bestTime = Infinity
-      
-      // Solo KAMs de Bogotá pueden competir por hospitales en Bogotá
-      // (incluye las restricciones geográficas: mismo depto, N1, N2 y regla Bogotá)
-      const eligibleKams = eligibleKamsForHospital(this.kams, hospital, this.adjacencyMatrix)
+      // Regla de siempre (menor tiempo dentro del tope; empate -> prioridad) con "Bogotá como una
+      // ciudad" hacia afuera cuando hay configuración (competeForHospital, función pura)
+      const outcome = competeForHospital(
+        hospital,
+        this.kams,
+        this.adjacencyMatrix,
+        kamId => this.getDistance(hospital.id, kamId),
+        this.bogotaRule
+      )
 
-      for (const kam of eligibleKams) {
-        // Obtener tiempo de viaje desde la tabla
-        const travelTime = this.getDistance(hospital.id, kam.id)
-        
-        if (travelTime !== null) {
-          const timeInMinutes = travelTime / 60
-          
-          // Verificar límite de tiempo del KAM
-          if (timeInMinutes <= kam.max_travel_time) {
-            // En caso de empate, usar prioridad
-            if (travelTime < bestTime || 
-                (travelTime === bestTime && kam.priority > (bestKam?.priority || 0))) {
-              bestTime = travelTime
-              bestKam = kam
-            }
-          }
-        }
-      }
-      
-      if (bestKam && bestTime < Infinity) {
-        assignments.push({
-          kam_id: bestKam.id,
+      if (outcome) {
+        const assignment: Assignment = {
+          kam_id: outcome.kam_id,
           hospital_id: hospital.id,
-          travel_time: bestTime,  // En SEGUNDOS
-          assignment_type: 'competitive',
+          travel_time: outcome.travel_time,  // En SEGUNDOS
+          assignment_type: outcome.assignment_type,
           is_base_territory: false
-        })
+        }
+        if (outcome.detail) assignment.detail = outcome.detail
+        assignments.push(assignment)
         assignedHospitals.add(hospital.id)
         // Solo mostrar log para algunos hospitales para no saturar
         if (processedCount <= 5 || processedCount % 50 === 0) {
-          console.log(`  ✓ ${hospital.name} → ${bestKam.name} (${Math.round(bestTime/60)} min)`)
+          const kamName = this.kams.find(k => k.id === outcome.kam_id)?.name ?? outcome.kam_id
+          console.log(`  ✓ ${hospital.name} → ${kamName} (${Math.round(outcome.travel_time/60)} min)`)
         }
       } else {
         console.log(`  ❌ ${hospital.name} - Sin KAM disponible`)
