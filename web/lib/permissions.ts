@@ -42,6 +42,7 @@ export type Permission =
   | 'territory:snapshot'       // Fase 2b: guardar versiones inmutables del anexo (line_leader solo SU línea)
   | 'municipalities:recompute' // Fase 2b: recalcular municipality_zone con la caché (sin Google)
   | 'intelligence:view'        // Fase 3: inteligencia de giros ADRES (/inteligencia, GET /api/intelligence/giros)
+  | 'kams:bogota-config'       // PR 3: Bogotá hacia afuera (k celdas, corredores, tope único). Solo admin
 
 // Definición de permisos por rol
 export const rolePermissions: Record<Role, Permission[]> = {
@@ -76,7 +77,8 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'territory:view',
     'territory:snapshot',
     'municipalities:recompute',
-    'intelligence:view'
+    'intelligence:view',
+    'kams:bogota-config'
   ],
   sales_manager: [
     'dashboard:view',

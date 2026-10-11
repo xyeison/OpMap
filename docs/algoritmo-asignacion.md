@@ -30,6 +30,8 @@ Los KAMs ubicados en localidades de Bogotá tienen reglas especiales:
 - Pueden expandirse a Cundinamarca y sus departamentos vecinos
 - Las localidades compartidas se asignan por mayoría de IPS ganadas
 - Esto evita que KAMs externos "invadan" la capital
+- Hacia afuera (IPS fuera de Bogotá) sus celdas compiten como UNA ciudad con tope único y reparto por
+  corredor de salida: ver "Bogotá hacia afuera: una ciudad, cuatro corredores" (desde 2026-10-11)
 
 ### Algoritmo de Asignación: Flujo de Ejecución
 
@@ -277,6 +279,137 @@ La configuración individual permite estrategias diferenciadas como:
 - KAM nuevos con territorios limitados para facilitar su gestión
 - Zonas estratégicas con prioridad alta para ganar en casos de empate
 - Control selectivo de expansión según potencial de mercado
+
+## Bogotá hacia afuera: una ciudad, cuatro corredores
+
+_Desde el 2026-10-11. Spec: `docs/specs/2026-10-11-bogota-corredores.md`. Decisión del dueño:
+`docs/decisiones/2026-10-11-bogota-corredores.md`._
+
+### Por qué
+
+Hasta el 2026-10-11 cada celda de Bogotá (zona con `area_id` de localidad: Chapinero 1100102, Engativá
+1100110, Kennedy 1100108, San Cristóbal 1100104) competía sola por las IPS de fuera de Bogotá, cada una con
+su `kams.max_travel_time` (Chapinero 360, las otras 240). Resultado que vio el dueño: Miraflores (Boyacá),
+a 5 h 11 de Engativá y 5 h 13 de Chapinero, quedaba en Chapinero "porque alcanza" y Engativá "fuera de
+rango". Pedido: que Bogotá (o cualquier ciudad grande partida en celdas) tenga una subconfiguración.
+
+### La regla
+
+1. **Dentro de Bogotá nada cambia**: por las IPS con `locality_id` 11001xx solo compiten celdas de Bogotá,
+   territorio base y regla de mayoría por camas en cada localidad, igual que antes.
+2. **Territorio base y asignaciones forzadas**: sin cambios (las forzadas mandan sobre todo).
+3. **IPS fuera de Bogotá** (`department_id` distinto de '11'): si alguna celda es elegible para la IPS
+   (`canKamCompeteForHospital`: Cundinamarca, sus limítrofes y nivel 2), las celdas **no compiten por
+   separado**. Compite un candidato virtual **"Bogotá"** con:
+   - tiempo = el **mejor tiempo real** (`hospital_kam_distances`, SEGUNDOS) entre las celdas elegibles que
+     tienen distancia;
+   - tope = **`bogota_config.max_travel_minutes`** (240 por defecto), el mismo para toda Bogotá. Se ignora el
+     `kams.max_travel_time` de cada celda; las demás zonas conservan el suyo;
+   - empate exacto con otra zona: gana la de mayor prioridad (la de la celda con el mejor tiempo), como siempre.
+4. **Si gana "Bogotá", la celda la decide el corredor de salida del municipio, no los minutos**:
+   `bogota_corredores` (primero la fila del municipio de la IPS; si no, la del departamento) da el corredor
+   (norte, occidente, sur u oriente) y `bogota_config.grupos[corredor]` da la celda. Si el municipio no tiene
+   corredor, o la celda configurada no está activa, va a la celda con menor tiempo (y la simulación lo lista).
+5. Se guarda `assignment_type = 'bogota_corredor'`, `travel_time` = tiempo real de la celda elegida (si no
+   tiene distancia, el mínimo de Bogotá) y `assignments.detail` =
+   `{"corredor":"norte","bogota_min_segundos":9581,"celda_min":"<kam_id>"}`.
+6. Si `bogota_config` o `bogota_corredores` no existen o están vacías, el motor se comporta como antes
+   (cada celda sola con su tope). Código: `competeForHospital`, `bogotaVirtualCandidate` y
+   `chooseBogotaCell` en `web/lib/opmap-algorithm-simplified.ts`; reglas puras de corredores en
+   `web/lib/bogota-corredores.ts`.
+7. La misma función (`competeForHospital` + `loadBogotaRule`) la usa la asignación individual de una IPS
+   sin zona (`POST /api/hospitals/assign-to-kam`), para que no se aparte del recálculo completo.
+
+### k: en cuántas celdas se reparte el cupo de Bogotá
+
+| k | Grupos de corredores (una celda por grupo) | Celdas por defecto |
+| --- | --- | --- |
+| 4 | Norte · Occidente · Sur · Oriente | Chapinero · Engativá · Kennedy · San Cristóbal |
+| 3 | Norte · Occidente · Sur + Oriente | Chapinero · Engativá · Kennedy |
+| 2 | Norte + Oriente · Occidente + Sur | Chapinero · Engativá |
+| 1 | Los cuatro corredores | Chapinero (o la que se elija) |
+
+Los grupos son fijos (`AGRUPACIONES_POR_K`); el administrador elige qué celda recibe cada grupo y cada grupo
+va a una celda distinta. `bogota_config.grupos` guarda siempre los cuatro corredores (con k = 2, Norte y
+Oriente apuntan a la misma celda). Una celda que no recibe ningún corredor solo conserva lo de dentro de
+Bogotá (su localidad, las que gane por mayoría) y sus forzadas.
+
+### Corredores sembrados (`bogota_corredores`, 145 filas: 29 departamentos + 116 municipios)
+
+Por departamento:
+
+- **Norte**: 15 Boyacá, 68 Santander, 54 Norte de Santander, 20 Cesar, 44 La Guajira, 47 Magdalena,
+  08 Atlántico, 13 Bolívar, 70 Sucre, 23 Córdoba.
+- **Occidente**: 73 Tolima, 17 Caldas, 66 Risaralda, 63 Quindío, 05 Antioquia, 76 Valle del Cauca, 19 Cauca,
+  52 Nariño.
+- **Sur**: 41 Huila, 18 Caquetá, 86 Putumayo.
+- **Oriente**: 50 Meta, 85 Casanare (el dueño puede pasarlo a Norte; Yopal hoy es asignación forzada),
+  81 Arauca, 95 Guaviare, 99 Vichada, 97 Vaupés, 94 Guainía, 91 Amazonas (los cinco últimos están excluidos
+  del análisis; la fila queda por si se incluyen).
+- Sin fila: 11 Bogotá (dentro manda la mayoría por localidad), 27 Chocó y 88 San Andrés (excluidos y fuera
+  del alcance de las celdas).
+
+Cundinamarca (25) por municipio, según su provincia:
+
+- **Norte (31)**: Sabana Centro (Cajicá, Chía, Cogua, Cota, Gachancipá, Nemocón, Sopó, Tabio, Tenjo,
+  Tocancipá, Zipaquirá); Ubaté (Carmen de Carupa, Cucunubá, Fúquene, Guachetá, Lenguazaque, Simijaca, Susa,
+  Sutatausa, Tausa, Ubaté); Almeidas (Chocontá, Machetá, Manta, Sesquilé, Suesca, Tibirita, Villapinzón);
+  Guavio norte (Guasca, Guatavita) y **La Calera**.
+- **Occidente (38)**: Sabana Occidente (Bojacá, El Rosal, Facatativá, Funza, Madrid, Mosquera, Subachoque,
+  Zipacón); Gualivá (Albán, La Peña, La Vega, Nimaima, Nocaima, Quebradanegra, San Francisco, Sasaima,
+  Supatá, Útica, Vergara, Villeta); Rionegro (El Peñón, La Palma, Pacho, Paime, San Cayetano, Topaipí,
+  Villagómez, Yacopí); Magdalena Centro (Beltrán, Bituima, Chaguaní, Guayabal de Síquima, Pulí, San Juan de
+  Rioseco, Vianí); Bajo Magdalena (Caparrapí, Guaduas, Puerto Salgar).
+- **Sur (30)**: Soacha (Sibaté, Soacha); Sumapaz (Arbeláez, Cabrera, Fusagasugá, Granada, Pandi, Pasca,
+  San Bernardo, Silvania, Tibacuy, Venecia); Alto Magdalena (Agua de Dios, Girardot, Guataquí, Jerusalén,
+  Nariño, Nilo, Ricaurte, Tocaima); Tequendama (Anapoima, Anolaima, Apulo, Cachipay, El Colegio, La Mesa,
+  Quipile, San Antonio del Tequendama, Tena, Viotá).
+- **Oriente (17)**: Oriente (Cáqueza, Chipaque, Choachí, Fómeque, Fosca, Guayabetal, Gutiérrez, Quetame,
+  Ubaque, Une); Medina (Medina, Paratebueno); Guavio sur (Gachalá, Gachetá, Gama, Junín, Ubalá).
+
+**La Calera → Norte** por criterio documentado: aunque es de la provincia del Guavio, se sale por la vía a
+La Calera desde Chapinero (la celda del corredor Norte) y es la puerta de Guasca y Guatavita, que también
+son Norte. Cada fila lleva su provincia en `bogota_corredores.nota`. Las excepciones por municipio se editan
+hoy con SQL (no hay pantalla); la fila del municipio gana sobre la del departamento.
+
+### Dónde se configura y cómo se simula
+
+- `/kams` → tarjeta **"Bogotá: cómo compite hacia afuera"** (solo admin, permiso `kams:bogota-config`):
+  k (1–4), celda de cada grupo de corredores y tope único (60–600 min).
+- **Simular** → `GET /api/kams/bogota-config/simulate?k&max&norte&occidente&sur&oriente` (permiso
+  `recalculate:complete`): corre el algoritmo completo **en memoria** con la configuración propuesta (sin
+  guardar, sin Google) y la compara con las asignaciones guardadas: por celda antes/después, IPS que
+  cambian, IPS que quedan fuera de alcance, IPS sin corredor y asignaciones forzadas a celdas de Bogotá
+  frente a lo que daría su corredor. Por consola: `cd web && npm run bogota:simulate`.
+- **Guardar** → `PUT /api/kams/bogota-config` (valida k, tope y que cada corredor apunte a una celda activa
+  de Bogotá con la agrupación de k). **No recalcula**: los cambios aplican al próximo "Recalcular
+  asignaciones" de la página principal.
+- `kams.max_travel_time` de las celdas no se toca: hacia afuera deja de usarse y lo decide el dueño.
+
+### Ficha de la IPS
+
+- "Ejecutivo Comercial Asignado": con `bogota_corredor` muestra **"Asignación: Bogotá (corredor Norte) →
+  Chapinero"** y el tiempo real por carretera de esa celda.
+- "Distancias desde cada zona" (IPS fuera de Bogotá y con configuración): fila agregada **"Bogotá"** con el
+  mejor tiempo entre sus celdas y el tope único; las celdas aparecen debajo como "Zona de Bogotá" con el
+  estado "Por corredor" (o "Asignado") y se comparan con el tope único, no con su 360/240. Si la asignación
+  guardada es anterior a la regla, un aviso lo dice.
+
+### Simulación del 2026-10-11 (k = 4, tope 240; solo lectura, nada recalculado)
+
+- Celdas (asignaciones guardadas → con la regla): Chapinero 42 → 62, Engativá 85 → 59, Kennedy 24 → 24,
+  San Cristóbal 31 → 32. Asignadas en total: 766 → 762.
+- Cupo de Bogotá afuera: 43 IPS (Norte 26, Occidente 8, Sur 7, Oriente 2); ninguna sin corredor.
+- 28 IPS cambian (27 entre celdas, sobre todo Boyacá y Sabana Centro de Engativá a Chapinero por el
+  corredor Norte; 1 sale de Bogotá: Hospital Regional de Vélez, Santander, de Chapinero a 4 h 33 a
+  Bucaramanga a 5 h 32, que tiene tope 360) y **4 quedan fuera de alcance**: Miraflores, Soatá y dos de
+  Sogamoso (Boyacá), hoy en Chapinero gracias a su tope de 360 (mejor tiempo de Bogotá entre 4 h 23 y
+  5 h 43).
+- Forzadas (se conservan): Villavicencio 50001 (14 IPS) y Granada 50313 (1 IPS) → San Cristóbal coinciden
+  con el corredor Oriente; Yopal 85001 (7 IPS) → Kennedy **no** coincide (Casanare → Oriente → San
+  Cristóbal) hasta que el dueño decida.
+- Con k = 2 (Norte + Oriente → Chapinero, Occidente + Sur → Engativá): Chapinero 64, Engativá 66, Kennedy 17,
+  San Cristóbal 30; 35 IPS cambian y las mismas 4 quedan fuera de alcance.
 
 ## DEPARTAMENTOS EXCLUIDOS
 

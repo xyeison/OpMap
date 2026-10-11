@@ -440,3 +440,29 @@ tablas tienen FKs hacia `business_lines`, `executives` y `users`.
   de IPS activas; reanudable). El 2026-10-11 solo se cargaron los 3 NIT de prueba (987 filas).
 - Rollback: va **antes** de `2026-10-11_9930_adres_rollback.sql` si se deshacen los dos
   (`adres_giros_intel()` lee `adres_giros`). Volver a desplegar antes el código anterior.
+
+---
+
+# Migraciones — Bogotá hacia afuera: una ciudad, cuatro corredores (PR 3)
+
+> **ESTADO: APLICADA** el 2026-10-11 en `norvxqgohddgsdkggqzq` (aditiva: 2 tablas nuevas y 1 columna NULL en
+> `assignments`; no cambia ninguna asignación ni `kams.max_travel_time`). Regla, semilla completa y
+> simulación en `docs/algoritmo-asignacion.md` ("Bogotá hacia afuera: una ciudad, cuatro corredores");
+> decisión en `docs/decisiones/2026-10-11-bogota-corredores.md`.
+
+| # | Archivo | Qué hace | Destructivo |
+|---|---|---|---|
+| 12 | `2026-10-11_0700_bogota_corredores.sql` | Crea `bogota_config` (una fila, `id = 1`: `k` 1–4, `max_travel_minutes` 60–600, `grupos` jsonb corredor → kam_id, `updated_at` con trigger, `updated_by` → users `ON DELETE SET NULL`) sembrada con k = 4, 240 min y las 4 celdas leídas de `kams` por `area_id`; crea `bogota_corredores` (`UNIQUE NULLS NOT DISTINCT (department_code, municipality_code)`, CHECK de corredor y formatos) con 29 departamentos y los 116 municipios de Cundinamarca por provincia; añade `assignments.detail` jsonb NULL (CHECK objeto). `assignment_type` no tiene CHECK hoy: si alguien lo hubiera creado, lo amplía con `bogota_corredor` conservando sus valores. RLS sin políticas, sin privilegios para anon/authenticated/PUBLIC, GRANT a `service_role` | No |
+| — | `2026-10-11_9930_bogota_rollback.sql` | Pasa las asignaciones `bogota_corredor` a `competitive`, quita `assignments.detail` y borra las 2 tablas | Sí (la configuración de Bogotá y las excepciones por municipio editadas a mano) |
+
+- Aplicada con el MCP de Supabase sin el `BEGIN/COMMIT` del archivo; el bloque final pasó (RLS, 0 políticas,
+  0 privilegios para anon/authenticated, `service_role` con SELECT/INSERT/UPDATE/DELETE, 10 columnas, los 4
+  corredores apuntan a celdas activas de Bogotá, 29 departamentos, 116 municipios de Cundinamarca, ninguno
+  inexistente ni faltante). Comprobado después con SELECT: `assignments` sigue con 766 filas (forced 22,
+  competitive 389, base_territory 351, majority_rule 4) y 0 `detail` no nulos.
+- Re-ejecutable (`IF NOT EXISTS`, `ON CONFLICT DO NOTHING`): no pisa lo editado desde `/kams` ni las
+  excepciones por municipio.
+- Sin las tablas el motor se comporta como antes (cada celda compite sola); la ficha y `/kams` necesitan
+  `assignments.detail` y `bogota_config`, así que con el código nuevo el rollback va después de volver a
+  desplegar el código anterior.
+- Rollback independiente de los demás (nada tiene FKs hacia estas tablas).

@@ -177,7 +177,10 @@ export default function HomePage() {
                 
                 {/* Botones de administración */}
                 <div className="space-y-4">
-                  <RecalculateUnified />
+                  {/* Ancla del aviso "aplica al próximo recálculo" de /kams (Bogotá hacia afuera) */}
+                  <div id="recalcular" className="scroll-mt-24">
+                    <RecalculateUnified />
+                  </div>
                   
                   {/* Cálculo de Rutas con Google Maps - Solo Administradores */}
                   {can('recalculate:complete') && (
