@@ -7,12 +7,24 @@ import { readableTextColor } from './ZoneBadgeIcon'
 // los territorios y capas visibles. La misma pieza va en la tarjeta de escritorio y en la hoja
 // inferior de móvil.
 
+// Zona de un Ejecutivo Comercial con varias zonas: mini-muestra con su tono en el mapa
+export interface LegendZone {
+  key: string
+  color: string
+  // Iniciales de la ciudad base ("Ch"), las mismas de la insignia en el mapa
+  text: string
+  // Nombre corto de la ciudad base ("Chapinero")
+  title: string
+}
+
 export interface LegendEntry {
   key: string
   label: string
   detail: string
   color: string
   initials: string
+  // Solo si el Ejecutivo Comercial cubre más de una zona en la línea
+  zones?: LegendZone[]
 }
 
 export interface LegendState {
@@ -63,7 +75,10 @@ export interface MapLegendProps {
   entries: LegendEntry[]
   emptyEntriesText: string
   highlightKey: string | null
+  // Zona resaltada sola dentro del grupo highlightKey (mini-muestra); null si se resalta el grupo entero
+  highlightZoneKey?: string | null
   onHighlight: (key: string | null) => void
+  onHighlightZone?: (entryKey: string, zoneKey: string | null) => void
   states: LegendState[]
   markers: LegendMarkers
   notes: LegendNote[]
@@ -108,7 +123,9 @@ export default function MapLegend({
   entries,
   emptyEntriesText,
   highlightKey,
+  highlightZoneKey = null,
   onHighlight,
+  onHighlightZone,
   states,
   markers,
   notes,
@@ -162,12 +179,15 @@ export default function MapLegend({
             {entries.map(entry => {
               const active = highlightKey === entry.key
               const faded = !!highlightKey && !active
+              // Fila resaltada entera (no solo una de sus zonas)
+              const wholeActive = active && !highlightZoneKey
               return (
                 <li key={entry.key}>
                   <button
                     type="button"
-                    aria-pressed={active}
-                    onClick={() => onHighlight(active ? null : entry.key)}
+                    aria-pressed={wholeActive}
+                    // Toque en la fila: resalta todas sus zonas; si ya estaban todas, quita el resaltado
+                    onClick={() => onHighlight(wholeActive ? null : entry.key)}
                     className={`w-full flex items-center gap-2.5 rounded-lg px-1.5 -mx-1.5 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 ${rowHeight} ${active ? 'bg-gray-100' : 'hover:bg-gray-50'} ${faded ? 'opacity-50' : ''}`}
                   >
                     <span
@@ -182,6 +202,28 @@ export default function MapLegend({
                       <span className="block truncate text-xs text-gray-500">{entry.detail}</span>
                     </span>
                   </button>
+                  {entry.zones && entry.zones.length > 1 && onHighlightZone && (
+                    // Una mini-muestra por zona con su tono; tocarla resalta solo esa zona
+                    <div className={`flex flex-wrap gap-1 pl-[34px] ${touch ? 'pb-1' : 'pb-1.5 -mt-0.5'} ${faded ? 'opacity-50' : ''}`}>
+                      {entry.zones.map(zone => {
+                        const zoneActive = active && highlightZoneKey === zone.key
+                        return (
+                          <button
+                            key={zone.key}
+                            type="button"
+                            title={zone.title}
+                            aria-label={`Resaltar solo la zona ${zone.title}`}
+                            aria-pressed={zoneActive}
+                            onClick={() => onHighlightZone(entry.key, zoneActive ? null : zone.key)}
+                            className={`inline-flex items-center gap-1 rounded-full pl-1 pr-1.5 text-[11px] font-medium text-gray-700 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 ${touch ? 'min-h-[44px]' : 'min-h-[24px]'} ${zoneActive ? 'bg-gray-200 text-gray-900' : 'hover:bg-gray-100'}`}
+                          >
+                            <span aria-hidden="true" className="opmap-legend-dot opmap-legend-dot--zone" style={{ backgroundColor: zone.color }} />
+                            <span aria-hidden="true">{zone.text}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
                 </li>
               )
             })}

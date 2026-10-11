@@ -4,7 +4,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Marker, Tooltip, useMap, useMapEvents } from 'react-leaflet'
 import L from 'leaflet'
 import { zoneBadgeIcon, zoneClusterIcon, ZONE_BADGE_TAIL_PX } from './ZoneBadgeIcon'
-import { CLUSTER_NEUTRAL_COLOR, VACANT_STATE_COLOR } from './mapStyles'
+import { CLUSTER_NEUTRAL_COLOR, VACANT_BADGE_COLOR } from './mapStyles'
 
 // Insignias de zona con agrupación por colisión: a cada zoom se proyectan las zonas a píxeles y las
 // que se tocan (distancia entre centros < diámetro + 6 px; en vertical se suma la punta) se dibujan
@@ -16,8 +16,11 @@ export interface ZoneBadgeItem {
   id: string
   lat: number
   lng: number
-  // Color de la vista (colorForZone) y texto de la insignia (iniciales de la ciudad base)
+  // Color de la vista (colorForZone; en la línea, el tono de la zona) y texto de la insignia (iniciales
+  // de la ciudad base)
   color: string
+  // Color del grupo sin tono (Ejecutivo Comercial en la línea): lo usa el racimo de un solo grupo
+  groupColor: string
   text: string
   hollow: boolean
   // Nombre corto para la lista del racimo ("Chapinero")
@@ -142,12 +145,12 @@ const ClusterBadge = memo(function ClusterBadge({ members, size, textSize, showT
     members.reduce((s, m) => s + m.lat, 0) / members.length,
     members.reduce((s, m) => s + m.lng, 0) / members.length
   ], [members])
-  // Todas vacantes en la línea: racimo hueco gris (como sus insignias). Si no, el color de sus zonas
-  // cuando todas son del mismo grupo (Ejecutivo Comercial); si no, neutro.
+  // Todas vacantes en la línea: racimo hueco pizarra (como sus insignias). Si no, el color BASE del
+  // grupo (Ejecutivo Comercial, sin el tono de cada zona) cuando todas son suyas; si no, neutro.
   const allHollow = members.every(m => m.hollow)
   const firstKey = members[0]?.groupKey ?? null
   const sameGroup = firstKey !== null && members.every(m => m.groupKey === firstKey && !m.hollow)
-  const color = allHollow ? VACANT_STATE_COLOR : sameGroup ? members[0].color : CLUSTER_NEUTRAL_COLOR
+  const color = allHollow ? VACANT_BADGE_COLOR : sameGroup ? (members[0].groupColor || members[0].color) : CLUSTER_NEUTRAL_COLOR
   const names = useMemo(() => members.map(m => m.shortName).sort((a, b) => a.localeCompare(b, 'es')), [members])
   const label = `${members.length} zonas: ${names.join(', ')}`
   const icon = zoneClusterIcon({ color, size, count: members.length, textSize: textSize + 1, hollow: allHollow, label })

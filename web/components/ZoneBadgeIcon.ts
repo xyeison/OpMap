@@ -20,7 +20,8 @@ export interface ZoneBadgeOptions {
   text?: string
   // Tamaño de letra en px (12 en escritorio, 11 en móvil)
   textSize?: number
-  // Zona vacante en la línea: insignia hueca (borde y texto del color, fondo blanco)
+  // Zona vacante en la línea: insignia hueca (anillo de 2,5 px y "—" del color, fondo blanco; ver
+  // .opmap-zone-badge--hollow en globals.css)
   hollow?: boolean
   // Nombre accesible del pin (lectores de pantalla); el icono de Leaflet es un botón sin texto
   label?: string
@@ -181,12 +182,19 @@ function relativeLuminance(hex: string): number {
 
 const DARK_TEXT_LUMINANCE = relativeLuminance(DARK_TEXT_COLOR)
 
+// Contraste mínimo WCAG AA para texto normal (las iniciales son de 11-12 px)
+const MIN_TEXT_CONTRAST = 4.5
+
 // Color de texto legible sobre un fondo #RRGGBB: el que dé MÁS contraste WCAG (blanco u oscuro). Con
 // texto de 11-12 px los colores medios (verde, cian, coral) necesitan texto oscuro para pasar de 4,5:1.
+// En la franja de luminancia media (algunos tonos de zona, p. ej. un azul lavanda) ni el blanco ni el
+// oscuro llegan a 4,5:1; ahí se usa negro puro, que siempre llega (blanco o negro dan al menos 4,58:1).
 export function readableTextColor(hex: string): string {
   if (!HEX_COLOR_RE.test(hex)) return '#ffffff'
   const l = relativeLuminance(hex)
   const contrastWithDark = (l + 0.05) / (DARK_TEXT_LUMINANCE + 0.05)
   const contrastWithWhite = 1.05 / (l + 0.05)
+  // En esa franja el blanco ya no llega (l > 0,18), así que el negro siempre da más contraste
+  if (Math.max(contrastWithDark, contrastWithWhite) < MIN_TEXT_CONTRAST) return '#000000'
   return contrastWithDark > contrastWithWhite ? DARK_TEXT_COLOR : '#ffffff'
 }

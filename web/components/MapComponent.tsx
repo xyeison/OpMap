@@ -27,7 +27,7 @@ import {
   type PopupAction,
   type TerritoryInfo
 } from './MapPopups'
-import { zoneBadgeHeight, initialsOf, uniqueCityInitials, shortCityName, readableTextColor } from './ZoneBadgeIcon'
+import { zoneBadgeHeight, initialsOf, cityInitials, uniqueCityInitials, shortCityName, readableTextColor } from './ZoneBadgeIcon'
 import ZoneBadgeLayer, { type ZoneBadgeItem } from './ZoneBadgeLayer'
 import MapLabelsLayer from './MapLabelsLayer'
 import {
@@ -42,6 +42,11 @@ import {
   DIMMED_FILL_OPACITY,
   VACANT_FILL_COLOR,
   VACANT_FILL_OPACITY,
+  VACANT_REACH_FILL_OPACITY,
+  VACANT_BORDER_COLOR,
+  VACANT_BORDER_WEIGHT,
+  VACANT_BORDER_OPACITY,
+  VACANT_BADGE_COLOR,
   CONFLICT_FILL_COLOR,
   CONFLICT_FILL_OPACITY,
   OUT_OF_REACH_FILL_COLOR,
@@ -58,7 +63,8 @@ import {
   PENDING_BORDER_COLOR,
   IPS_UNZONED_COLOR,
   CLUSTER_NEUTRAL_COLOR,
-  VACANT_STATE_COLOR
+  VACANT_STATE_COLOR,
+  zoneTint
 } from './mapStyles'
 import { useMediaQuery, matchesMediaQuery, MOBILE_QUERY, HOVER_QUERY } from './useMediaQuery'
 import { usePermissions } from '@/hooks/usePermissions'
@@ -165,7 +171,8 @@ export interface CoverageRow {
   override_reason?: string | null
 }
 
-// Colores fijos del modo por línea (vacante: misma constante que la insignia hueca y la leyenda)
+// Colores fijos del modo por línea. Vacante: color de las IPS (y de lo que se pinta con el color de la
+// zona) cuando nadie cubre la zona en la línea; la insignia hueca usa VACANT_BADGE_COLOR.
 export const VACANT_COLOR = VACANT_STATE_COLOR
 export const CONFLICT_COLOR = '#f59e0b'
 const NO_COVERAGE_DATA_COLOR = '#cccccc'
@@ -410,7 +417,10 @@ export default function MapComponent({
   const [showIps, setShowIps] = useState(true)
   const [showReach, setShowReach] = useState(true)
   const [visitsEnabled, setVisitsEnabled] = useState(false)
-  const [highlightKey, setHighlightKey] = useState<string | null>(null)
+  // Resaltado desde la leyenda: un grupo (Ejecutivo Comercial, zona o región) o, dentro de un Ejecutivo
+  // Comercial con varias zonas, solo algunas de ellas (zoneIds = kam_ids)
+  const [highlight, setHighlight] = useState<{ key: string; zoneIds: ReadonlySet<string> | null } | null>(null)
+  const highlightKey = highlight?.key ?? null
   const [sheetSnap, setSheetSnap] = useState<SheetSnap>('peek')
   const [activePopup, setActivePopup] = useState<ActivePopup | null>(null)
   const popupNonceRef = useRef(0)
@@ -709,6 +719,27 @@ export default function MapComponent({
       if (!zoneNameById[k.id]) zoneNameById[k.id] = k.name
     })
 
+    // Tono por zona: si un Ejecutivo Comercial cubre varias zonas en la línea, cada una lleva un tono de
+    // su color (zoneTint), en orden alfabético de ciudad base. La primera conserva el color base.
+    const kamById: Record<string, any> = {}
+    ;(mapData?.kams || []).forEach((k: any) => { kamById[k.id] = k })
+    const baseCityOf = (kamId: string): string => {
+      const row = byKam[kamId]
+      return row?.base_city || kamById[kamId]?.base_city || zoneDisplayName(row?.zone_name || kamById[kamId]?.name) || ''
+    }
+    const zonesOfExecutive: Record<string, string[]> = {}
+    rows.forEach(r => {
+      if (r.kind !== 'vacant' && r.kind !== 'conflict' && r.executive) (zonesOfExecutive[r.executive.id] ||= []).push(r.kam_id)
+    })
+    const zoneTone: Record<string, { color: string; index: number; total: number }> = {}
+    Object.entries(zonesOfExecutive).forEach(([executiveId, kamIds]) => {
+      kamIds.sort((a, b) => baseCityOf(a).localeCompare(baseCityOf(b), 'es') || a.localeCompare(b))
+      const base = safeColor(executiveColors[executiveId])
+      kamIds.forEach((kamId, index) => {
+        zoneTone[kamId] = { color: zoneTint(base, index, kamIds.length), index, total: kamIds.length }
+      })
+    })
+
     // Conteos para la leyenda
     const zonesByExecutive: Record<string, number> = {}
     let vacant = 0
@@ -728,6 +759,9 @@ export default function MapComponent({
       executiveColors,
       byKam,
       zoneNameById,
+      zonesOfExecutive,
+      zoneTone,
+      baseCityOf,
       counts: { zonesByExecutive, vacant, conflict, noEquipment }
     }
   }, [mapData])
@@ -735,18 +769,30 @@ export default function MapComponent({
   // Modo por línea activo: hay cobertura cargada y no se eligió la vista "Zonas"
   const isLineMode = mapMode === 'line' && !!lineView
 
-  // Color de la zona en la línea: Ejecutivo Comercial que la cubre, vacante (gris) o conflicto (ámbar)
+  // Color de la zona en la línea: Ejecutivo Comercial que la cubre (con el tono de la zona si cubre
+  // varias), vacante (pizarra) o conflicto (ámbar)
   const zoneLineColor = useCallback((kamId: string | undefined): string => {
     if (!lineView || !kamId) return NO_COVERAGE_DATA_COLOR
     const row = lineView.byKam[kamId]
     if (!row) return NO_COVERAGE_DATA_COLOR
     if (row.kind === 'vacant') return VACANT_COLOR
     if (row.kind === 'conflict') return CONFLICT_COLOR
-    return row.executive ? safeColor(lineView.executiveColors[row.executive.id]) : VACANT_COLOR
+    if (!row.executive) return VACANT_COLOR
+    return lineView.zoneTone[kamId]?.color ?? safeColor(lineView.executiveColors[row.executive.id])
+  }, [lineView])
+
+  // Color BASE del Ejecutivo Comercial que cubre la zona en la línea (sin tono): racimos de un solo
+  // Ejecutivo Comercial, chips de la leyenda. null si la zona está vacante, en conflicto o sin datos.
+  const executiveBaseColor = useCallback((kamId: string | null | undefined): string | null => {
+    if (!lineView || !kamId) return null
+    const row = lineView.byKam[kamId]
+    if (!row || row.kind === 'vacant' || row.kind === 'conflict' || !row.executive) return null
+    return safeColor(lineView.executiveColors[row.executive.id])
   }, [lineView])
 
   // ---------- Color: una sola fuente de verdad por vista ----------
-  // Vista por línea: Ejecutivo Comercial que cubre la zona. Vista de zonas: color de la zona.
+  // Vista por línea: Ejecutivo Comercial que cubre la zona (un tono por zona si cubre varias). Vista de
+  // zonas: color de la zona.
   // Vista de regiones (?viewMode=zones): color de la región de la zona. Lo usan polígonos, puntos y pines.
   const colorForZone = useCallback((kamId: string | null | undefined): string => {
     if (!kamId) return NO_COVERAGE_DATA_COLOR
@@ -772,13 +818,16 @@ export default function MapComponent({
     return kamId
   }, [isLineMode, lineView, viewMode, kamIndex])
 
-  const isDimmedZone = useCallback((kamId: string | null | undefined): boolean =>
-    !!highlightKey && groupKeyForZone(kamId) !== highlightKey
-  , [highlightKey, groupKeyForZone])
+  // Atenuada: se resalta otro grupo o, dentro del mismo Ejecutivo Comercial, otra de sus zonas
+  const isDimmedZone = useCallback((kamId: string | null | undefined): boolean => {
+    if (!highlight) return false
+    if (highlight.zoneIds) return !kamId || !highlight.zoneIds.has(kamId)
+    return groupKeyForZone(kamId) !== highlight.key
+  }, [highlight, groupKeyForZone])
 
   // Al cambiar de línea o de vista se quita el resaltado
   useEffect(() => {
-    setHighlightKey(null)
+    setHighlight(null)
   }, [isLineMode, selectedLineCode, viewMode])
 
   // ---------- Estilo de la capa completa de municipios y localidades ----------
@@ -790,8 +839,9 @@ export default function MapComponent({
   , [isLineMode, lineView])
 
   // Relleno del polígono según la vista: color de la zona (misma fuente que puntos e insignias) o el
-  // color fijo de vacante / conflicto. Alcance = mismo color con menos opacidad.
-  const territoryFill = useCallback((t: ResolvedTerritory): { color: string; opacity: number } => {
+  // color fijo de vacante / conflicto. Alcance = mismo color con menos opacidad. `vacant`: el polígono
+  // lleva además el borde pizarra de vacante.
+  const territoryFill = useCallback((t: ResolvedTerritory): { color: string; opacity: number; vacant: boolean } => {
     const isReach = t.kind === 'reach'
     let state: 'zone' | 'vacant' | 'conflict' = 'zone'
     if (t.kind === 'vacant') {
@@ -804,21 +854,21 @@ export default function MapComponent({
       // Vista de zonas: territorio que además tiene IPS sin zona (regla de siempre: se marca vacante)
       state = 'vacant'
     }
-    if (state === 'vacant') return { color: VACANT_FILL_COLOR, opacity: VACANT_FILL_OPACITY * (isReach ? REACH_OPACITY_RATIO : 1) }
-    if (state === 'conflict') return { color: CONFLICT_FILL_COLOR, opacity: CONFLICT_FILL_OPACITY * (isReach ? REACH_OPACITY_RATIO : 1) }
-    return { color: t.kamId ? colorForZone(t.kamId) : NO_COVERAGE_DATA_COLOR, opacity: isReach ? REACH_FILL_OPACITY : IPS_FILL_OPACITY }
+    if (state === 'vacant') return { color: VACANT_FILL_COLOR, opacity: isReach ? VACANT_REACH_FILL_OPACITY : VACANT_FILL_OPACITY, vacant: true }
+    if (state === 'conflict') return { color: CONFLICT_FILL_COLOR, opacity: CONFLICT_FILL_OPACITY * (isReach ? REACH_OPACITY_RATIO : 1), vacant: false }
+    return { color: t.kamId ? colorForZone(t.kamId) : NO_COVERAGE_DATA_COLOR, opacity: isReach ? REACH_FILL_OPACITY : IPS_FILL_OPACITY, vacant: false }
   }, [isLineMode, lineView, colorForZone])
 
   // Atenuado: se resalta otro grupo en la leyenda (solo polígonos con zona o vacantes)
   const isDimmedTerritory = useCallback((t: ResolvedTerritory): boolean => {
-    if (!highlightKey) return false
+    if (!highlight) return false
     if (t.kind !== 'ips' && t.kind !== 'reach' && t.kind !== 'vacant') return false
-    return (t.kamId ? groupKeyForZone(t.kamId) : null) !== highlightKey
-  }, [highlightKey, groupKeyForZone])
+    return isDimmedZone(t.kamId)
+  }, [highlight, isDimmedZone])
 
-  // Estilo autorizado 2026-10-11: borde blanco fino en todos los polígonos con zona, vacantes y
-  // pendientes; relleno 0.55 con IPS / 0.22 de alcance. Todas las variantes fijan dashArray para que
-  // setStyle no arrastre el anterior.
+  // Estilo autorizado 2026-10-11: borde blanco fino en los polígonos con zona y pendientes (vacantes:
+  // borde pizarra fino); relleno 0.55 con IPS / 0.22 de alcance (vacante 0.5 / 0.3). Todas las
+  // variantes fijan dashArray para que setStyle no arrastre el anterior.
   const baseTerritoryStyle = useCallback((t: ResolvedTerritory): L.PathOptions => {
     const border = { color: TERRITORY_BORDER_COLOR, weight: TERRITORY_BORDER_WEIGHT, opacity: TERRITORY_BORDER_OPACITY, dashArray: undefined }
     switch (t.kind) {
@@ -826,8 +876,11 @@ export default function MapComponent({
       case 'vacant':
       case 'reach': {
         const fill = territoryFill(t)
+        const edge = fill.vacant
+          ? { color: VACANT_BORDER_COLOR, weight: VACANT_BORDER_WEIGHT, opacity: VACANT_BORDER_OPACITY, dashArray: undefined }
+          : border
         // Sin equipo: el rayado lo pinta la capa SVG de debajo; aquí solo el borde
-        return { ...border, fillColor: fill.color, fillOpacity: isNoEquipment(t) ? 0 : fill.opacity }
+        return { ...edge, fillColor: fill.color, fillOpacity: isNoEquipment(t) ? 0 : fill.opacity }
       }
       case 'out_of_reach':
         return {
@@ -1145,11 +1198,11 @@ export default function MapComponent({
         lat={Number(hospital.lat)}
         lng={Number(hospital.lng)}
         name={hospital.name}
-        dimmed={!!highlightKey}
+        dimmed={!!highlight}
         showTooltip={canHover}
         onSelect={selectUnassigned}
       />
-    )), [filteredUnassignedHospitals, highlightKey, canHover, selectUnassigned])
+    )), [filteredUnassignedHospitals, highlight, canHover, selectUnassigned])
 
   // Insignias de zona: una por zona en su ciudad base, con las iniciales de la ciudad base sobre el
   // color de la vista (colorForZone). Las que se tocan en pantalla se agrupan en racimos (ZoneBadgeLayer).
@@ -1176,11 +1229,14 @@ export default function MapComponent({
       } else {
         tooltipMeta = formatZoneExecutives(kam.executives)
       }
+      const color = hollow ? VACANT_BADGE_COLOR : colorForZone(kam.id)
       return {
         id: kam.id,
         lat: Number(kam.lat),
         lng: Number(kam.lng),
-        color: hollow ? VACANT_COLOR : colorForZone(kam.id),
+        color,
+        // Racimo de un solo Ejecutivo Comercial: su color base, sin el tono de cada zona
+        groupColor: (isLineMode ? executiveBaseColor(kam.id) : null) ?? color,
         text: zoneInitials[kam.id] || initialsOf(kam.base_city || name),
         hollow,
         shortName: shortCityName(kam.base_city) || name,
@@ -1190,7 +1246,7 @@ export default function MapComponent({
         tooltipTitle: `Zona ${name}`,
         tooltipMeta
       }
-    }), [kamStats, isLineMode, lineView, colorForZone, zoneInitials, groupKeyForZone, isDimmedZone])
+    }), [kamStats, isLineMode, lineView, colorForZone, executiveBaseColor, zoneInitials, groupKeyForZone, isDimmedZone])
 
   const selectZone = useCallback((id: string, position: L.LatLngTuple) => {
     openPopup({ kind: 'zone', id, position })
@@ -1526,6 +1582,8 @@ export default function MapComponent({
     if (!kam) return null
     const row = isLineMode && lineView ? lineView.byKam[kamId] : undefined
     const hollow = isLineMode && row?.kind === 'vacant'
+    // Ejecutivo Comercial con varias zonas en la línea: "zona 2 de 4" junto a su nombre
+    const tone = row && row.executive && row.kind !== 'vacant' && row.kind !== 'conflict' ? lineView?.zoneTone[kamId] : undefined
     const counts = territorySummary.byZone[kamId] || { ips: 0, reach: 0 }
     const actions: PopupAction[] = []
     // /kams es la lista general (no tiene vista por zona)
@@ -1536,12 +1594,14 @@ export default function MapComponent({
     return {
       name: zoneDisplayName(kam.name) || kam.name,
       baseCity: kam.base_city || null,
-      color: hollow ? VACANT_COLOR : colorForZone(kamId),
+      color: hollow ? VACANT_BADGE_COLOR : colorForZone(kamId),
       hollow,
       executiveLabel: lineExecutiveLabel,
       executiveText: isLineMode && lineView
         ? `${describeCoverage(row, lineView.zoneNameById)}`
         : formatZoneExecutives(kam.executives),
+      executivePerson: tone && row?.executive ? executiveName(row.executive) : null,
+      executiveOrdinal: tone && tone.total > 1 ? `zona ${tone.index + 1} de ${tone.total}` : null,
       noEquipment: isLineMode && row?.has_equipment === false,
       ipsCount: kam.hospitalCount,
       beds: kam.totalBeds,
@@ -1652,12 +1712,26 @@ export default function MapComponent({
     legendEntries = lineView.executives.map(e => {
       const zoneCount = lineView.counts.zonesByExecutive[e.id] || 0
       const ipsCount = ipsByExecutive[e.id] || 0
+      // Varias zonas: una mini-muestra por zona con su tono (mismo orden y tono que en el mapa)
+      const kamIds = lineView.zonesOfExecutive[e.id] || []
       return {
         key: e.id,
         label: executiveName(e),
+        // Chip e iniciales del Ejecutivo Comercial: color base
         color: safeColor(lineView.executiveColors[e.id]),
         initials: initialsOf(e.full_name),
-        detail: `${zoneCount} ${zoneCount === 1 ? 'zona' : 'zonas'} · ${ipsCount} IPS`
+        detail: `${zoneCount} ${zoneCount === 1 ? 'zona' : 'zonas'} · ${ipsCount} IPS`,
+        zones: kamIds.length > 1
+          ? kamIds.map(kamId => {
+              const city = shortCityName(lineView.baseCityOf(kamId)) || zoneLabelOf(kamId)
+              return {
+                key: kamId,
+                color: lineView.zoneTone[kamId]?.color ?? safeColor(lineView.executiveColors[e.id]),
+                text: zoneInitials[kamId] || cityInitials(city),
+                title: city
+              }
+            })
+          : undefined
       }
     })
   } else if (viewMode === 'zones') {
@@ -1690,8 +1764,8 @@ export default function MapComponent({
     { key: 'ips', label: 'Con IPS objetivo (visitar)', swatch: swatch(LEGEND_NEUTRAL_FILL, IPS_FILL_OPACITY), count: territoryLegend.ips },
     { key: 'reach', label: 'De alcance (sin IPS hoy)', swatch: swatch(LEGEND_NEUTRAL_FILL, REACH_FILL_OPACITY), count: territoryLegend.reach },
     isLineMode && lineView
-      ? { key: 'vacant', label: 'Zonas vacantes en la línea', swatch: swatch(VACANT_FILL_COLOR, VACANT_FILL_OPACITY), count: lineView.counts.vacant }
-      : { key: 'vacant', label: 'Vacante (IPS sin zona)', swatch: swatch(VACANT_FILL_COLOR, VACANT_FILL_OPACITY) }
+      ? { key: 'vacant', label: 'Vacante en esta línea (sin Ejecutivo Comercial)', swatch: swatch(VACANT_FILL_COLOR, VACANT_FILL_OPACITY, VACANT_BORDER_COLOR), count: lineView.counts.vacant }
+      : { key: 'vacant', label: 'Vacante (IPS sin zona)', swatch: swatch(VACANT_FILL_COLOR, VACANT_FILL_OPACITY, VACANT_BORDER_COLOR) }
   ]
   if (isLineMode && lineView && lineView.counts.conflict > 0) {
     legendStates.push({ key: 'conflict', label: 'Zonas en conflicto', swatch: swatch(CONFLICT_FILL_COLOR, CONFLICT_FILL_OPACITY), count: lineView.counts.conflict })
@@ -1720,7 +1794,7 @@ export default function MapComponent({
     zoneText: sampleZone?.text ?? 'Ba',
     clusterColor: CLUSTER_NEUTRAL_COLOR,
     clusterTextColor: readableTextColor(CLUSTER_NEUTRAL_COLOR),
-    // Vista por línea con zonas vacantes: sus IPS van en el mismo gris, a tamaño normal
+    // Vista por línea con zonas vacantes: sus IPS van en pizarra (VACANT_STATE_COLOR), a tamaño normal
     vacantIpsColor: isLineMode && lineView && lineView.counts.vacant > 0 ? VACANT_COLOR : null
   }
 
@@ -1744,7 +1818,10 @@ export default function MapComponent({
     entries: legendEntries,
     emptyEntriesText: isLineMode ? 'Nadie lleva esta línea todavía.' : 'Sin datos.',
     highlightKey,
-    onHighlight: setHighlightKey,
+    highlightZoneKey: highlight?.zoneIds && highlight.zoneIds.size === 1 ? Array.from(highlight.zoneIds)[0] : null,
+    onHighlight: (key: string | null) => setHighlight(key ? { key, zoneIds: null } : null),
+    onHighlightZone: (entryKey: string, zoneKey: string | null) =>
+      setHighlight(zoneKey ? { key: entryKey, zoneIds: new Set([zoneKey]) } : null),
     states: legendStates,
     markers: legendMarkers,
     notes: legendNotes,
@@ -1788,6 +1865,7 @@ export default function MapComponent({
           </pattern>
           {isLineMode && lineView && Array.from(new Set([
               ...Object.values(lineView.executiveColors).map(c => safeColor(c)),
+              ...Object.values(lineView.zoneTone).map(t => safeColor(t.color)),
               VACANT_COLOR,
               VACANT_FILL_COLOR,
               CONFLICT_COLOR,

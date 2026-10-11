@@ -283,10 +283,16 @@ main:has(.opmap-map-page) {
   border-top: 7px solid var(--badge-color);
 }
 
+/* Zona vacante en la línea (y racimo todo vacante): anillo pizarra de 2,5 px, fondo blanco y "—" en 700 */
 .opmap-zone-badge--hollow .opmap-zone-badge__circle {
-  background: #ffffff;
+  border-width: 2.5px;
+  background: rgba(255, 255, 255, 0.95);
   border-color: var(--badge-color);
   color: var(--badge-color);
+}
+
+.opmap-zone-badge--hollow .opmap-zone-badge__text {
+  font-weight: 700;
 }
 
 /* Racimo: halo del color del racimo detrás del círculo */
@@ -337,6 +343,12 @@ main:has(.opmap-map-page) {
   width: 8px;
   height: 8px;
   border-width: 1px;
+}
+
+/* Mini-muestra de una zona (tono) bajo un Ejecutivo Comercial con varias zonas */
+.opmap-legend-dot--zone {
+  width: 12px;
+  height: 12px;
 }
 
 .opmap-legend-badge {
@@ -408,6 +420,11 @@ main:has(.opmap-map-page) {
   border: 2px solid #ffffff;
   border-radius: 9999px;
   box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.2);
+}
+
+.opmap-popup__secondary {
+  font-weight: 400;
+  color: #6b7280;
 }
 
 .opmap-popup__subtitle {

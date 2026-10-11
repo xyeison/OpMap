@@ -194,6 +194,10 @@ export interface ZonePopupData {
   hollow: boolean
   executiveLabel: string
   executiveText: string
+  // Ejecutivo Comercial con varias zonas en la línea: su nombre (tal como empieza executiveText) y
+  // "zona 2 de 4", que se muestra junto al nombre en texto secundario
+  executivePerson?: string | null
+  executiveOrdinal?: string | null
   noEquipment: boolean
   ipsCount: number
   beds: number
@@ -201,6 +205,16 @@ export interface ZonePopupData {
   municipalitiesReach: number
   population: number
   actions: PopupAction[]
+}
+
+// "Nombre (zona 2 de 4) — local": el ordinal va justo después del nombre si el texto empieza por él
+function ExecutiveWithOrdinal({ text, person, ordinal }: { text: string; person?: string | null; ordinal?: string | null }) {
+  if (!ordinal) return <>{text}</>
+  const ordinalText = <span className="opmap-popup__secondary"> ({ordinal})</span>
+  if (person && text.startsWith(person)) {
+    return <>{person}{ordinalText}{text.slice(person.length)}</>
+  }
+  return <>{text}{ordinalText}</>
 }
 
 export function ZonePopupCard({ data }: { data: ZonePopupData }) {
@@ -212,7 +226,9 @@ export function ZonePopupCard({ data }: { data: ZonePopupData }) {
       </div>
       {data.baseCity && <div className="opmap-popup__subtitle">Ciudad base: {data.baseCity}</div>}
       <dl className="opmap-popup__rows">
-        <PopupRow label={data.executiveLabel} stacked>{data.executiveText}</PopupRow>
+        <PopupRow label={data.executiveLabel} stacked>
+          <ExecutiveWithOrdinal text={data.executiveText} person={data.executivePerson} ordinal={data.executiveOrdinal} />
+        </PopupRow>
         <PopupRow label="IPS">{formatInt(data.ipsCount)}</PopupRow>
         <PopupRow label="Camas">{formatInt(data.beds)}</PopupRow>
         <PopupRow label="Municipios">
