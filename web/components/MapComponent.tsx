@@ -9,7 +9,7 @@ import { useRouter } from 'next/navigation'
 import { VisitsHeatmapLayer } from './VisitsHeatmapLayer'
 import { formatTravelTimeFromSeconds } from '@/lib/format-utils'
 import MapControls from './MapControls'
-import { EMPTY_IPS_FILTER, matchesIpsFilter, type IpsServiceFilter } from '@/lib/hospital-service-filters'
+import { EMPTY_IPS_FILTER, isIpsFilterActive, matchesIpsFilter, type IpsServiceFilter } from '@/lib/hospital-service-filters'
 import MapController, { ZoomGate } from './MapController'
 import HospitalMarker, { UnassignedHospitalMarker, IpsZoomLayer, formatZoneExecutives, ipsRadius, IPS_FULL_SIZE_ZOOM, type HospitalSelectHandler } from './HospitalMarker'
 import MapLegend, { MapLegendCard, type LegendEntry, type LegendNote, type LegendState, type LegendViewSelect } from './MapLegend'
@@ -1836,7 +1836,10 @@ export default function MapComponent({
   }
   // Marcados que existen en la vista (un enlace puede traer ids de otra línea)
   const filteredOptionIds = groupFilter && activeFilter ? selectedOptionIds(groupFilter) : null
-  const filterChipLabel = groupFilter && filteredOptionIds ? groupFilterChipLabel(groupFilter.kind, filteredOptionIds.length) : null
+  const groupChipLabel = groupFilter && filteredOptionIds ? groupFilterChipLabel(groupFilter.kind, filteredOptionIds.length) : null
+  // El filtro "IPS" (servicios/camas) oculta puntos: el botón de filtros lo indica para que el mapa sin puntos se entienda
+  const ipsChipLabel = isIpsFilterActive(ipsServiceFilter) ? 'IPS filtradas' : null
+  const filterChipLabel = groupChipLabel && ipsChipLabel ? `${groupChipLabel} · ${ipsChipLabel}` : groupChipLabel ?? ipsChipLabel
 
   let viewSubtitle = isLineMode && lineView
     ? `${lineView.executives.length} ${lineView.executives.length === 1 ? 'Ejecutivo Comercial' : 'Ejecutivos Comerciales'} · ${lineView.rows.length} zonas`

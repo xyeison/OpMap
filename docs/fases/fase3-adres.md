@@ -104,6 +104,8 @@ node scripts/adres-giros.mjs --help
 
 ## Pendiente
 
-- Correr la carga completa (≈700 NIT, unos 10–15 min con `--parallel 2`).
+- ~~Correr la carga completa~~ Hecha el 2026-10-11: 701 NIT, 553 con datos, 148 sin registros, 0
+  errores, 62.480 filas, $ 26,96 billones COP (jul-2023 a jun-2025). La tabla tiene además los 3 NIT de
+  la prueba previa (512 filas).
 - Contributivo cuando servicios.adres.gov.co responda.
 - Revisar si la ADRES publica los giros posteriores a junio-2025 en otro reporte.

@@ -7,6 +7,9 @@
  *     ninguna sede con ese NIT → unmatched.
  *   - Una sede solo puede ir a una IPS. Las IPS que ya tienen reps_code (vínculos previos o hechos a
  *     mano en la ficha) NO se tocan.
+ *   - Las IPS DESVINCULADAS A MANO (su último hospital_history.changes.reps_link tiene
+ *     after.reps_code = null y hoy no tienen reps_code) tampoco: no entran al cruce, no reservan sede
+ *     y --apply no las vuelve a vincular ni les cambia el estado. Se listan aparte en el informe.
  *
  * Uso (desde web/):
  *   npx tsx scripts/reps-match.ts           → informe (SOLO LECTURA): REPS_OUTPUT_DIR/reps-match-report.md
@@ -24,12 +27,14 @@ import dotenv from 'dotenv'
 import {
   checkDigitFromCode,
   groupSedesByNit,
+  manualUnlinksFromHistory,
   matchHospitalsToRepsStable,
   nameSimilarity,
   nitCheckDigit,
   nitFromCode,
   REPS_STATUS_LABELS,
   summarizeMatches,
+  type RepsLinkHistoryRow,
   type RepsMatchResult,
   type RepsSedeLite,
 } from '../lib/reps-match'
@@ -95,6 +100,27 @@ async function runPool<T>(items: T[], worker: (item: T) => Promise<void>, concur
   await Promise.all(runners)
 }
 
+/**
+ * IPS cuya última acción sobre el vínculo REPS (hospital_history.changes.reps_link, escrita por
+ * PATCH /api/hospitals/[id]/reps-link y por PUT /api/hospitals/[id]) fue desvincular a mano.
+ */
+async function loadManualUnlinks(db: Db): Promise<Map<string, string>> {
+  const rows: RepsLinkHistoryRow[] = []
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db
+      .from('hospital_history')
+      .select('hospital_id, created_at, reason, changes')
+      // Todas las filas con changes.reps_link son action 'edited'; el filtro fino lo hace la regla pura
+      .eq('action', 'edited')
+      .order('id')
+      .range(from, from + 999)
+    if (error) throw new Error(`hospital_history: ${error.message}`)
+    rows.push(...((data ?? []) as RepsLinkHistoryRow[]))
+    if (!data || data.length < 1000) break
+  }
+  return manualUnlinksFromHistory(rows)
+}
+
 async function main() {
   const apply = process.argv.includes('--apply')
   const unknown = process.argv.slice(2).filter(arg => arg !== '--apply')
@@ -119,8 +145,12 @@ async function main() {
 
   const sedeByCode = new Map(sedes.map(sede => [sede.codigo_habilitacion, sede]))
   const sedesByNit = groupSedesByNit(sedes)
+  // Desvinculadas a mano: se respetan (no entran al cruce ni a --apply)
+  const manualUnlinks = await loadManualUnlinks(db)
+  const manualUnlinked = hospitals.filter(h => !h.reps_code && manualUnlinks.has(h.id))
+  const manualUnlinkedIds = new Set(manualUnlinked.map(h => h.id))
   // Varias vueltas: lo que se vincula en una vuelta deja de competir en la siguiente (ver lib)
-  const results = matchHospitalsToRepsStable(hospitals, sedesByNit)
+  const results = matchHospitalsToRepsStable(hospitals.filter(h => !manualUnlinkedIds.has(h.id)), sedesByNit)
   const rounds = Math.max(...results.map(result => result.round))
   const summary = summarizeMatches(results)
   const hospitalById = new Map(hospitals.map(hospital => [hospital.id, hospital]))
@@ -179,6 +209,7 @@ async function main() {
     out.push(`| ${REPS_STATUS_LABELS[status]} (\`${status}\`) | ${summary[status]} |`)
   }
   out.push(`| **Total** | **${summary.total}** |`, '')
+  out.push(`Desvinculadas a mano (fuera del cruce; --apply no las toca): ${manualUnlinked.length}.`, '')
   out.push('| Cómo se vinculó | IPS |', '|---|---:|')
   for (const [method, count] of Object.entries(summary.byMethod).sort((a, b) => b[1] - a[1])) {
     out.push(`| ${METHOD_LABELS[method] ?? method} (\`${method}\`) | ${count} |`)
@@ -264,6 +295,15 @@ async function main() {
     out.push('')
   }
 
+  if (manualUnlinked.length > 0) {
+    out.push(`## Desvinculadas a mano (${manualUnlinked.length})`, '', 'No entran al cruce automático ni a --apply. Para volver a vincularlas, hacerlo desde la ficha.', '')
+    out.push('| IPS | Municipio | Última acción |', '|---|---|---|')
+    for (const h of [...manualUnlinked].sort((a, b) => a.name.localeCompare(b.name, 'es'))) {
+      out.push(`| ${label(h)} | ${place(h)} | ${md(manualUnlinks.get(h.id))} |`)
+    }
+    out.push('')
+  }
+
   if (orphans.length > 0) {
     out.push('## Vínculos huérfanos', '', '| IPS | reps_code |', '|---|---|')
     for (const h of orphans) out.push(`| ${label(h)} | ${h.reps_code} |`)
@@ -336,7 +376,7 @@ async function main() {
   fs.writeFileSync(OUTPUT_MD, out.join('\n'))
 
   console.log(`Sedes REPS: ${sedes.length} · IPS: ${hospitals.length}`)
-  console.log(`matched ${summary.matched} · ambiguous ${summary.ambiguous} · unmatched ${summary.unmatched}`)
+  console.log(`matched ${summary.matched} · ambiguous ${summary.ambiguous} · unmatched ${summary.unmatched} · desvinculadas a mano (no se tocan) ${manualUnlinked.length}`)
   console.log(`por método: ${Object.entries(summary.byMethod).map(([m, n]) => `${m} ${n}`).join(' · ')} · vueltas: ${rounds}`)
   console.log(`ambiguas con sugerencia: ${suggested} · sede en otro municipio: ${summary.municipalityMismatch} · huérfanas: ${orphans.length} · sufijo de code distinto del DV DIAN: ${dvMismatch.length}`)
   if (apply) {

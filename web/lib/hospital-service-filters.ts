@@ -67,8 +67,34 @@ export function hospitalBedsForFilter(hospital: HospitalServiceFields): number |
 
 /** true si la IPS ya tiene algún dato importado del REPS (servicios o capacidad). */
 export function hasRepsData(hospital: HospitalServiceFields): boolean {
-  return Boolean(hospital.reps_updated_at) || typeof hospital.quirofanos === 'number' || Object.keys(flagsOf(hospital)).length > 0
+  return (
+    Boolean(hospital.reps_updated_at) ||
+    typeof hospital.quirofanos === 'number' ||
+    typeof hospital.reps_beds === 'number' ||
+    Object.keys(flagsOf(hospital)).length > 0
+  )
 }
+
+export type IpsServiceCheck = 'quirofano' | 'ortopedia' | 'neurocirugia' | 'columna'
+
+/**
+ * ¿Qué casillas de servicio tienen sentido hoy? Mientras ninguna IPS tenga datos importados del REPS,
+ * marcar una casilla dejaría la lista y el mapa en 0: la UI las desactiva y explica por qué.
+ * quirofano depende de la capacidad instalada (quirofanos); el resto, de los servicios (service_flags).
+ */
+export function ipsServiceAvailability(hospitals: HospitalServiceFields[] | null | undefined): Record<IpsServiceCheck, boolean> & { any: boolean } {
+  let services = false
+  let quirofano = false
+  for (const hospital of hospitals || []) {
+    if (!services && Object.keys(flagsOf(hospital)).length > 0) services = true
+    if (!quirofano && typeof hospital.quirofanos === 'number') quirofano = true
+    if (services && quirofano) break
+  }
+  return { quirofano, ortopedia: services, neurocirugia: services, columna: services, any: services || quirofano }
+}
+
+export const IPS_SERVICE_UNAVAILABLE_HINT =
+  'Aún no hay datos del REPS importados: se activa tras la primera importación de servicios habilitados (o de capacidad instalada, para quirófanos).'
 
 export function isIpsFilterActive(filter: IpsServiceFilter): boolean {
   return (

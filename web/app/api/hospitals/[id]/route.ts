@@ -4,7 +4,7 @@ import { requirePermission, requireUser } from '@/lib/require-role'
 import { badJson, isUuid, readJsonBody, serverError, validationError } from '../../_lib/api-error'
 import { patchHospitalSchema, updateHospitalSchema } from '../../_lib/hospital-schemas'
 import { touchesZoneFields, type ZoneFieldValues } from '../../_lib/hospital-routes'
-import { isRepsCodeConflict, resolveRepsLink } from '../../_lib/reps'
+import { afterRepsLinkChange, isRepsCodeConflict, resolveRepsLink, type RepsLinkFields } from '../../_lib/reps'
 import { nitFromCode } from '@/lib/reps-match'
 import {
   getHospitalPendingStatus,
@@ -178,10 +178,16 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 
     // Fase 3: reps_code (vínculo con la sede del REPS). Mismas validaciones que PATCH .../reps-link.
     let repsWarnings: string[] = []
+    let repsChange: {
+      before: { reps_code: string | null; reps_match_status: string | null }
+      after: RepsLinkFields
+      sedeName: string | null
+      active: boolean
+    } | null = null
     if (updateData.reps_code !== undefined) {
       const { data: current, error: currentError } = await supabaseAdmin
         .from('hospitals')
-        .select('code, municipality_id, reps_code')
+        .select('code, municipality_id, reps_code, reps_match_status, active')
         .eq('id', hospitalId)
         .maybeSingle()
       if (currentError) return serverError('hospitals/[id] PUT (reps)', currentError)
@@ -199,6 +205,12 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
         if (!resolution.ok) return NextResponse.json({ error: resolution.error }, { status: resolution.status })
         Object.assign(updateData, resolution.fields)
         repsWarnings = resolution.warnings
+        repsChange = {
+          before: { reps_code: current.reps_code ?? null, reps_match_status: current.reps_match_status ?? null },
+          after: resolution.fields,
+          sedeName: resolution.sede?.nombre_sede ?? null,
+          active: current.active === true,
+        }
       }
     }
 
@@ -233,6 +245,22 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     const marked = zoneTouched
       ? await markLocationChange(hospitalId, before, data, auth.user.id, 'hospitals/[id] PUT')
       : { pending: false, warnings: [] }
+
+    // Mismo efecto que PATCH .../reps-link: datos del REPS de la sede nueva e historial (changes.reps_link)
+    if (repsChange) {
+      repsWarnings = [
+        ...repsWarnings,
+        ...(await afterRepsLinkChange({
+          route: 'hospitals/[id] PUT',
+          hospitalId,
+          userId: auth.user.id,
+          active: data.active === true,
+          before: repsChange.before,
+          after: repsChange.after,
+          sedeName: repsChange.sedeName,
+        })),
+      ]
+    }
 
     return NextResponse.json({ ...data, pending: marked.pending, warnings: [...marked.warnings, ...repsWarnings] })
   } catch (error) {

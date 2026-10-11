@@ -398,7 +398,51 @@ function InteligenciaContent() {
             {rows.length === 0 ? (
               <p className="text-sm text-gray-500 py-6 text-center">{loading ? 'Cargando…' : 'No hay giros para estos filtros.'}</p>
             ) : (
-              <div className={`overflow-x-auto ${loading ? 'opacity-60' : ''}`}>
+              <div className={loading ? 'opacity-60' : ''}>
+                {/* Celular: tarjetas con el giro junto al nombre (la tabla ancha escondía la columna Giro) */}
+                <ol className="sm:hidden divide-y divide-gray-100 border-t border-gray-100">
+                  {rows.slice(0, visible).map((row, index) => {
+                    const detail =
+                      group === 'ips'
+                        ? [row.municipio, row.zona || 'Sin zona asignada', withExecutive ? row.ejecutivo : null]
+                        : group === 'municipio'
+                          ? [row.departamento]
+                          : group === 'ejecutivo'
+                            ? [(row.zonas || []).join(', ')]
+                            : []
+                    return (
+                      <li key={row.key} className="py-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-gray-900 break-words">
+                              <span className="text-gray-400 tabular-nums mr-1.5">{index + 1}</span>
+                              {group === 'ips' ? (
+                                <Link href={`/hospitals/${row.hospital_id}`} className="hover:underline">
+                                  {row.label}
+                                </Link>
+                              ) : (
+                                row.label
+                              )}
+                            </p>
+                            {detail.filter(Boolean).length > 0 && (
+                              <p className="text-xs text-gray-500 mt-0.5 break-words">{detail.filter(Boolean).join(' · ')}</p>
+                            )}
+                          </div>
+                          <div className="text-right shrink-0">
+                            <p className="text-sm font-semibold text-gray-900 tabular-nums whitespace-nowrap">{formatCopCompact(row.giro)}</p>
+                            <p className="text-xs text-gray-500 tabular-nums whitespace-nowrap">{formatPct(row.pct)}</p>
+                          </div>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1 tabular-nums">
+                          Capitación {formatCopCompact(row.capitacion)} · Evento {formatCopCompact(row.evento)}
+                          {group !== 'ips' ? ` · IPS con giro ${row.ipsConGiro} / ${row.ips}` : ''}
+                          {group === 'ips' && row.sedes_nit && row.sedes_nit > 1 ? ` · NIT compartido (${row.sedes_nit} sedes)` : ''}
+                        </p>
+                      </li>
+                    )
+                  })}
+                </ol>
+                <div className="hidden sm:block overflow-x-auto">
                 <table className="min-w-full text-sm">
                   <thead>
                     <tr className="text-left text-xs text-gray-500 border-b border-gray-200">
@@ -493,14 +537,14 @@ function InteligenciaContent() {
                         )}
                         {group !== 'ips' && (
                           <>
-                            <td className="py-2 pr-3 text-right tabular-nums text-gray-700">
+                            <td className="py-2 pr-3 text-right tabular-nums text-gray-700 whitespace-nowrap">
                               {row.ipsConGiro} <span className="text-gray-400">/ {row.ips}</span>
                             </td>
                             <td className="py-2 pr-3 text-right tabular-nums text-gray-700">{row.camas ? row.camas.toLocaleString('es-CO') : '—'}</td>
                           </>
                         )}
                         <td className="py-2 pr-3 text-right tabular-nums font-semibold text-gray-900 whitespace-nowrap">{formatCop(row.giro)}</td>
-                        <td className="py-2 pr-3 text-right tabular-nums text-gray-700">{formatPct(row.pct)}</td>
+                        <td className="py-2 pr-3 text-right tabular-nums text-gray-700 whitespace-nowrap">{formatPct(row.pct)}</td>
                         <td className="py-2 pr-3 text-right tabular-nums text-gray-600 whitespace-nowrap">{formatCopCompact(row.capitacion)}</td>
                         <td className="py-2 pr-3 text-right tabular-nums text-gray-600 whitespace-nowrap">{formatCopCompact(row.evento)}</td>
                         {group !== 'ips' && group !== 'ejecutivo' && <td className="py-2 pr-3 text-gray-600 text-xs">{row.top_ips || '—'}</td>}
@@ -508,6 +552,7 @@ function InteligenciaContent() {
                     ))}
                   </tbody>
                 </table>
+                </div>
                 {rows.length > visible && (
                   <div className="text-center mt-4">
                     <button type="button" onClick={() => setVisible(v => v + PAGE)} className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50">

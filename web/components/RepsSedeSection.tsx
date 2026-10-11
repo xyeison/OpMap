@@ -346,9 +346,13 @@ export default function RepsSedeSection({ hospitalId, onChange }: { hospitalId: 
           {freeCandidates.length > 0 && (
             <div className="mb-5">
               <h3 className="mb-2 text-sm font-semibold text-gray-900">
-                Sedes del REPS con el NIT {data.hospital.nit ?? ''} ({freeCandidates.length})
+                Todas las sedes del REPS con el NIT {data.hospital.nit ?? ''} ({freeCandidates.length})
               </h3>
-              <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
+              {freeCandidates.length > 6 && (
+                <p className="mb-2 text-xs text-gray-500">Desliza dentro de la lista para ver las {freeCandidates.length}.</p>
+              )}
+              {/* Hasta 6 sedes se ven todas; con más, lista con alto fijo y desplazamiento interno */}
+              <div className={`space-y-2 pr-1 ${freeCandidates.length > 6 ? 'max-h-96 overflow-y-auto border-b border-gray-200 pb-2' : ''}`}>
                 {freeCandidates.map(candidate => (
                   <CandidateRow
                     key={candidate.codigo_habilitacion}

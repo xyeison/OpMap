@@ -548,6 +548,15 @@ export async function runApply(user: SessionUser, token: string): Promise<RepsAp
   const previous = ((job.summary as Record<string, unknown> | null)?.preview ?? {}) as Record<string, unknown>
   const current = planStats(plan)
   const changedSincePreview = (Object.keys(current) as (keyof typeof current)[]).some(key => previous[key] !== current[key])
+  // Nunca se retiran más servicios o capacidades de los que el usuario confirmó en la simulación
+  const confirmedDeletes = (key: 'servicesToDelete' | 'capacityToDelete') =>
+    typeof previous[key] === 'number' ? (previous[key] as number) : 0
+  if (current.servicesToDelete > confirmedDeletes('servicesToDelete') || current.capacityToDelete > confirmedDeletes('capacityToDelete')) {
+    throw new RepsApplyError(
+      'Los datos cambiaron desde la simulación y ahora se retirarían más servicios o capacidades de los confirmados: vuelve a simular',
+      409
+    )
+  }
 
   const { data: counts, error: rpcError } = await supabaseAdmin.rpc('reps_import_apply', {
     p_job_id: job.id,

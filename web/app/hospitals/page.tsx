@@ -12,7 +12,9 @@ import {
   EMPTY_IPS_FILTER,
   IPS_FILTER_HINTS,
   IPS_FILTER_LABELS,
+  ipsServiceAvailability,
   isIpsFilterActive,
+  IPS_SERVICE_UNAVAILABLE_HINT,
   matchesIpsFilter,
   parseBedsInput,
   type IpsServiceFilter,
@@ -255,21 +257,24 @@ export default function HospitalsPage() {
   
   console.log('Hospitals loaded:', hospitals?.length)
 
+  // Fase 3: sin datos del REPS importados, las casillas de servicio dejarían la lista en 0 → desactivadas
+  const ipsServiceAvailable = ipsServiceAvailability(hospitals)
+
   if (isLoading) return <div className="p-6">Cargando...</div>
 
   return (
     <ProtectedRoute>
       <div className="container mx-auto p-6">
-      <div className="flex justify-between items-center mb-8">
+      <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-center mb-8">
         <div>
-          <h1 className="text-4xl font-bold text-gray-900">Hospitales / IPS</h1>
+          <h1 className="text-3xl sm:text-4xl font-bold text-gray-900">Hospitales / IPS</h1>
           <p className="text-gray-600 mt-2">Gestión de instituciones prestadoras de salud</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
         {/* Fase 3: cruce de las IPS con sus sedes del REPS (código de habilitación) */}
         <Link
           href="/hospitals/reps"
-          className="px-5 py-3 bg-white text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all duration-200 font-medium"
+          className="px-5 py-3 bg-white text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all duration-200 font-medium whitespace-nowrap"
         >
           Cruce REPS
         </Link>
@@ -277,7 +282,7 @@ export default function HospitalsPage() {
         {canImportReps && (
           <Link
             href="/hospitals/import"
-            className="px-5 py-3 bg-white text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all duration-200 font-medium"
+            className="px-5 py-3 bg-white text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all duration-200 font-medium whitespace-nowrap"
           >
             Importar del REPS
           </Link>
@@ -285,7 +290,7 @@ export default function HospitalsPage() {
         <PermissionGuard permission="hospitals:edit">
           <button 
             onClick={() => setShowAddModal(true)}
-            className="px-6 py-3 bg-gray-900 text-white rounded-lg hover:bg-black transform hover:-translate-y-0.5 transition-all duration-200 shadow-md hover:shadow-lg font-medium flex items-center gap-2"
+            className="px-6 py-3 bg-gray-900 text-white rounded-lg hover:bg-black transform hover:-translate-y-0.5 transition-all duration-200 shadow-md hover:shadow-lg font-medium flex items-center gap-2 whitespace-nowrap"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
@@ -359,18 +364,28 @@ export default function HospitalsPage() {
             {/* Fase 3: servicios y capacidad del REPS */}
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2 w-full">
               <span className="text-sm text-gray-600">Servicios (REPS):</span>
-              {(['quirofano', 'ortopedia', 'neurocirugia', 'columna'] as const).map(key => (
-                <label key={key} title={IPS_FILTER_HINTS[key]} className="flex items-center gap-1.5 text-sm text-gray-700 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={ipsFilter[key]}
-                    onChange={e => setIpsFilter({ ...ipsFilter, [key]: e.target.checked })}
-                    className="h-4 w-4 rounded border-gray-300"
-                  />
-                  {IPS_FILTER_LABELS[key]}
-                </label>
-              ))}
-              <span className="text-sm text-gray-600 ml-2">Camas:</span>
+              {(['quirofano', 'ortopedia', 'neurocirugia', 'columna'] as const).map(key => {
+                // Se puede desmarcar siempre; marcar solo si hay datos del REPS para esa casilla
+                const unavailable = !ipsServiceAvailable[key] && !ipsFilter[key]
+                return (
+                  <label
+                    key={key}
+                    title={unavailable ? IPS_SERVICE_UNAVAILABLE_HINT : IPS_FILTER_HINTS[key]}
+                    className={`flex items-center gap-1.5 text-sm ${unavailable ? 'text-gray-400 cursor-not-allowed' : 'text-gray-700 cursor-pointer'}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={ipsFilter[key]}
+                      disabled={unavailable}
+                      onChange={e => setIpsFilter({ ...ipsFilter, [key]: e.target.checked })}
+                      className="h-4 w-4 rounded border-gray-300"
+                    />
+                    {IPS_FILTER_LABELS[key]}
+                  </label>
+                )
+              })}
+              <span className="flex items-center gap-2 whitespace-nowrap">
+              <span className="text-sm text-gray-600 sm:ml-2">Camas:</span>
               <input
                 type="number"
                 min={0}
@@ -398,6 +413,7 @@ export default function HospitalsPage() {
                 }}
                 className="w-20 px-2 py-1.5 border border-gray-300 rounded-lg bg-white text-sm"
               />
+              </span>
               {isIpsFilterActive(ipsFilter) && (
                 <button
                   type="button"
@@ -410,6 +426,21 @@ export default function HospitalsPage() {
                 >
                   Limpiar
                 </button>
+              )}
+              {!ipsServiceAvailable.any && (
+                <p className="w-full text-xs text-gray-500">
+                  Los filtros por servicio se activan cuando se importen los servicios habilitados del REPS
+                  {canImportReps ? (
+                    <>
+                      {' '}(
+                      <Link href="/hospitals/import" className="underline hover:text-gray-900">
+                        Importar del REPS
+                      </Link>
+                      )
+                    </>
+                  ) : null}
+                  . Mientras tanto se puede filtrar por camas (las de la ficha).
+                </p>
               )}
             </div>
 

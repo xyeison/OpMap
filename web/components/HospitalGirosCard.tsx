@@ -58,7 +58,7 @@ export default function HospitalGirosCard({ hospitalId }: { hospitalId: string }
   const rangeLabel = data?.range ? `${monthLabel(data.range.desde)} a ${monthLabel(data.range.hasta)}` : null
 
   return (
-    <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6 mt-8">
+    <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6 mb-8">
       <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
         <div>
           <h2 className="text-xl font-bold text-gray-900">Giros ADRES (últimos 12 meses)</h2>
@@ -90,9 +90,14 @@ export default function HospitalGirosCard({ hospitalId }: { hospitalId: string }
         </div>
       ) : (
         <div className="space-y-6">
+          {data.sedesNit > 1 && (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              NIT con {data.sedesNit} sedes activas en OpMap: estas cifras son del prestador completo, no solo de esta sede.
+            </p>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="p-4 bg-gray-50 rounded-xl">
-              <p className="text-xs text-gray-500">Total girado</p>
+              <p className="text-xs text-gray-500">{data.sedesNit > 1 ? 'Total girado al prestador (NIT)' : 'Total girado'}</p>
               <p className="text-2xl font-bold text-gray-900 tabular-nums mt-1">{formatCop(summary.total)}</p>
             </div>
             <div className="p-4 bg-gray-50 rounded-xl">
@@ -138,7 +143,6 @@ export default function HospitalGirosCard({ hospitalId }: { hospitalId: string }
 
           <p className="text-xs text-gray-500">
             Fuente: ADRES, Reporte 29 &quot;Giro a IPS&quot;, por mes de proceso. {fetchNote(data)}
-            {data.sedesNit > 1 && ` El NIT ${data.nit} tiene ${data.sedesNit} sedes activas en OpMap: el giro es del prestador, no solo de esta sede.`}
           </p>
         </div>
       )}

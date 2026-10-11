@@ -44,7 +44,8 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 
     const [bounds, sedesResult, fetchResult] = await Promise.all([
       loadGirosPeriodBounds(),
-      supabaseAdmin.from('hospitals').select('code').eq('active', true).range(0, 9999),
+      // hospitals.nit es columna generada con la misma regla que nitFromHospitalCode (count sin traer filas)
+      supabaseAdmin.from('hospitals').select('id', { count: 'exact', head: true }).eq('nit', nit).eq('active', true),
       supabaseAdmin
         .from('adres_fetch_log')
         .select('estado, fetched_at, nombre_prestador')
@@ -55,7 +56,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     if (sedesResult.error) throw new Error(`Error leyendo hospitals: ${sedesResult.error.message}`)
     if (fetchResult.error) throw Object.assign(new Error(`Error leyendo adres_fetch_log: ${fetchResult.error.message}`), { dbError: fetchResult.error })
 
-    const sedesNit = ((sedesResult.data || []) as Array<{ code: string | null }>).filter(row => nitFromHospitalCode(row.code) === nit).length
+    const sedesNit = sedesResult.count ?? 0
     const lastFetch = (fetchResult.data?.[0] as HospitalGirosResponse['lastFetch'] | undefined) ?? null
 
     let range: HospitalGirosResponse['range'] = null

@@ -61,6 +61,8 @@ export default function HospitalDetailPage() {
   // Estado de rutas y de la cola de pendientes de una IPS activa (GET /api/hospitals/[id] → routeStatus)
   const [routeStatus, setRouteStatus] = useState<RouteStatus | null>(null)
   const [isEnsuringRoutes, setIsEnsuringRoutes] = useState(false)
+  // Fase 3: al cambiar de sede REPS se recargan los servicios y la capacidad (pasan a ser los de la sede nueva)
+  const [repsVersion, setRepsVersion] = useState(0)
   
   const [hospital, setHospital] = useState<any>(null)
   const [kam, setKam] = useState<any>(null)
@@ -514,8 +516,10 @@ export default function HospitalDetailPage() {
         </div>
 
         {/* Sede REPS (Fase 3): código de habilitación de la sede que ES esta IPS */}
-        <RepsSedeSection hospitalId={hospitalId} />
-        <HospitalRepsPanel hospitalId={hospitalId} />
+        <RepsSedeSection hospitalId={hospitalId} onChange={() => setRepsVersion(version => version + 1)} />
+        <HospitalRepsPanel key={`reps-${repsVersion}`} hospitalId={hospitalId} />
+        {/* Giros ADRES del NIT (Fase 3), junto a la sede y los datos del REPS */}
+        <HospitalGirosCard hospitalId={hospitalId} />
 
         {/* Doctores */}
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6 mb-8">
@@ -868,8 +872,6 @@ export default function HospitalDetailPage() {
             </div>
           )}
         </div>
-
-        <HospitalGirosCard hospitalId={hospitalId} />
 
         {/* Modal de confirmación para desactivar */}
         {showDeactivateModal && (

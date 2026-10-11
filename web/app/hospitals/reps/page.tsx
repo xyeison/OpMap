@@ -106,7 +106,7 @@ export default function RepsCrossPage() {
         permission="hospitals:view"
         fallback={<div className="container mx-auto p-6 text-gray-600">No tienes permiso para ver las IPS.</div>}
       >
-        <div className="container mx-auto p-6">
+        <div className="container mx-auto p-4 sm:p-6">
           <div className="mb-8">
             <Link href="/hospitals" className="mb-4 inline-flex items-center gap-2 font-medium text-gray-700 hover:text-gray-900">
               <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -114,7 +114,7 @@ export default function RepsCrossPage() {
               </svg>
               Volver a hospitales
             </Link>
-            <h1 className="text-4xl font-bold text-gray-900">Cruce REPS</h1>
+            <h1 className="text-3xl sm:text-4xl font-bold text-gray-900">Cruce REPS</h1>
             <p className="mt-2 max-w-3xl text-gray-600">
               Cada IPS se identifica por el código de habilitación de su sede en el REPS (un NIT puede tener varias sedes).
               Las ambiguas y las sin cruce se vinculan a mano desde su ficha, en la sección &quot;Sede REPS&quot;.
@@ -133,7 +133,7 @@ export default function RepsCrossPage() {
           {data && (
             <>
               <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
-                <StatCard label="Vinculadas a su sede" value={data.counts.matched} hint={`${percent}% de ${total} IPS`} />
+                <StatCard label="Vinculadas a su sede" value={data.counts.matched} hint={`${percent.toLocaleString('es-CO', { maximumFractionDigits: 1 })}\u00a0% de ${total.toLocaleString('es-CO')} IPS`} />
                 <StatCard
                   label="Ambiguas"
                   value={data.counts.ambiguous}
@@ -204,7 +204,7 @@ export default function RepsCrossPage() {
                             </td>
                             <td className="py-3 pr-4">
                               <span
-                                className={`rounded-full px-2 py-1 text-xs font-medium ${
+                                className={`whitespace-nowrap rounded-full px-2 py-1 text-xs font-medium ${
                                   row.status === 'ambiguous' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-700'
                                 }`}
                               >

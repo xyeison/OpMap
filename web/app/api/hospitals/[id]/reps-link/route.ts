@@ -5,6 +5,7 @@ import { nitFromCode } from '@/lib/reps-match'
 import { badJson, isUuid, readJsonBody, serverError, validationError } from '../../../_lib/api-error'
 import { repsLinkSchema } from '../../../_lib/hospital-schemas'
 import {
+  afterRepsLinkChange,
   evaluateHospitals,
   HOSPITAL_REPS_SELECT,
   isPrincipalSede,
@@ -19,7 +20,8 @@ import {
 // GET  (hospitals:view): sede vinculada + candidatas del mismo NIT ordenadas y evaluación en vivo
 //      (lib/reps-match.ts), con la sugerida si la IPS es ambigua.
 // PATCH (hospitals:edit): { reps_code } vincula (valida que la sede exista y esté libre);
-//      { reps_code: null } desvincula. Registra el cambio en hospital_history (action 'edited').
+//      { reps_code: null } desvincula. Registra el cambio en hospital_history (action 'edited') y deja
+//      los servicios y la capacidad del REPS de la IPS con los de la sede nueva (o sin dato).
 // Ninguna de las dos llama a Google ni recalcula asignaciones.
 
 async function loadHospital(hospitalId: string): Promise<HospitalRepsRow | null> {
@@ -123,30 +125,18 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     }
     if (!data) return NextResponse.json({ error: 'Hospital no encontrado' }, { status: 404 })
 
-    const reason =
-      repsCode === null
-        ? `Desvinculada de la sede REPS ${hospital.reps_code ?? ''}`.trim()
-        : `Vinculada a la sede REPS ${repsCode}${resolution.sede ? ` (${resolution.sede.nombre_sede})` : ''}`
-    const { error: historyError } = await supabaseAdmin.from('hospital_history').insert({
-      hospital_id: hospital.id,
-      user_id: auth.user.id,
-      created_by: auth.user.id,
-      action: 'edited',
-      reason,
-      previous_state: hospital.active === true,
-      new_state: hospital.active === true,
-      changes: {
-        reps_link: {
-          before: { reps_code: hospital.reps_code, reps_match_status: hospital.reps_match_status },
-          after: { reps_code: resolution.fields.reps_code, reps_match_status: resolution.fields.reps_match_status },
-        },
-      },
-    })
-    const warnings = [...resolution.warnings]
-    if (historyError) {
-      console.error('hospitals/[id]/reps-link PATCH: no se pudo registrar el historial', historyError)
-      warnings.push('El vínculo se guardó, pero no se pudo registrar en la actividad de la IPS')
-    }
+    const warnings = [
+      ...resolution.warnings,
+      ...(await afterRepsLinkChange({
+        route: 'hospitals/[id]/reps-link PATCH',
+        hospitalId: hospital.id,
+        userId: auth.user.id,
+        active: hospital.active === true,
+        before: { reps_code: hospital.reps_code, reps_match_status: hospital.reps_match_status },
+        after: resolution.fields,
+        sedeName: resolution.sede?.nombre_sede ?? null,
+      })),
+    ]
 
     return NextResponse.json({ hospital: data, sede: resolution.sede, warnings })
   } catch (error) {

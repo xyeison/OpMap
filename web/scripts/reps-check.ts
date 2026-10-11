@@ -8,6 +8,7 @@ import {
   checkDigitFromCode,
   groupSedesByNit,
   isLoadedRepsClass,
+  manualUnlinksFromHistory,
   matchHospitalsToReps,
   matchHospitalsToRepsStable,
   nameSimilarity,
@@ -234,6 +235,21 @@ eq(
 )
 const stableMain = matchHospitalsToRepsStable(HOSPITALS, groupSedesByNit(SEDES))
 check('varias vueltas sobre el juego principal: sin códigos repetidos', new Set(stableMain.filter(x => x.reps_code).map(x => x.reps_code)).size === stableMain.filter(x => x.reps_code).length)
+
+// Desvinculaciones manuales (hospital_history.changes.reps_link): el cruce automático las respeta
+const link = (before: string | null, after: string | null) => ({ reps_link: { before: { reps_code: before }, after: { reps_code: after } } })
+const manual = manualUnlinksFromHistory([
+  { hospital_id: 'u1', created_at: '2026-10-11T10:00:00Z', reason: 'Vinculada', changes: link(null, '110010000001') },
+  { hospital_id: 'u1', created_at: '2026-10-11T11:00:00Z', reason: 'Desvinculada de la sede REPS 110010000001', changes: link('110010000001', null) },
+  { hospital_id: 'u2', created_at: '2026-10-11T10:00:00Z', changes: link('110010000002', null) },
+  { hospital_id: 'u2', created_at: '2026-10-11T12:00:00Z', changes: link(null, '110010000003') },
+  { hospital_id: 'u3', created_at: '2026-10-11T09:00:00Z', changes: { zone_fields: {} } },
+  { hospital_id: 'u4', created_at: '2026-10-11T09:00:00Z', changes: null },
+  { hospital_id: null, created_at: '2026-10-11T09:00:00Z', changes: link('110010000004', null) },
+])
+eq('desvinculación manual: cuenta solo la última acción con reps_link', Array.from(manual.keys()), ['u1'])
+check('desvinculación manual: guarda fecha y motivo', manual.get('u1') === '2026-10-11 Desvinculada de la sede REPS 110010000001', manual.get('u1'))
+check('desvinculación manual: sin historial no hay nada', manualUnlinksFromHistory([]).size === 0)
 
 console.log(`\n${passed} correctas, ${failed} fallidas`)
 if (failed > 0) process.exit(1)

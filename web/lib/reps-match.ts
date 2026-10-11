@@ -695,3 +695,35 @@ export function isLoadedRepsClass(clase: string | null | undefined): boolean {
   const value = (clase ?? '').trim()
   return REPS_LOADED_CLASS_PREFIXES.some(prefix => value.startsWith(prefix))
 }
+
+/** Fila de hospital_history tal como la lee el cruce (solo lo necesario). */
+export interface RepsLinkHistoryRow {
+  hospital_id: string | null
+  created_at: string | null
+  reason?: string | null
+  changes: unknown
+}
+
+/**
+ * IPS cuya ÚLTIMA acción sobre el vínculo REPS (changes.reps_link, escrita por PATCH .../reps-link y por
+ * PUT /api/hospitals/[id]) fue desvincular a mano (after.reps_code = null). Devuelve hospital_id →
+ * "AAAA-MM-DD motivo". El cruce automático (scripts/reps-match.ts) no vuelve a vincular estas IPS.
+ * Filas sin changes.reps_link (u otras acciones) se ignoran.
+ */
+export function manualUnlinksFromHistory(rows: RepsLinkHistoryRow[]): Map<string, string> {
+  const latest = new Map<string, { at: string; repsCode: string | null; reason: string }>()
+  for (const row of rows) {
+    const link = (row.changes as { reps_link?: { after?: { reps_code?: string | null } } } | null)?.reps_link
+    if (!row.hospital_id || !link || !link.after || typeof link.after !== 'object' || !('reps_code' in link.after)) continue
+    const at = row.created_at ?? ''
+    const previous = latest.get(row.hospital_id)
+    if (!previous || at >= previous.at) {
+      latest.set(row.hospital_id, { at, repsCode: link.after.reps_code ?? null, reason: row.reason ?? '' })
+    }
+  }
+  const manual = new Map<string, string>()
+  latest.forEach((entry, hospitalId) => {
+    if (entry.repsCode === null) manual.set(hospitalId, `${entry.at.slice(0, 10)} ${entry.reason}`.trim())
+  })
+  return manual
+}

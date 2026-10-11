@@ -152,10 +152,15 @@ export default function RepsImportPage() {
 
   return (
     <ProtectedRoute>
-      <div className="container mx-auto p-4 sm:p-6 max-w-6xl">
-        <div className="mb-6">
-          <Link href="/hospitals" className="text-sm text-gray-600 hover:text-gray-900">← Hospitales</Link>
-          <h1 className="text-3xl sm:text-4xl font-bold text-gray-900 mt-2">Importar del REPS</h1>
+      <div className="container mx-auto p-4 sm:p-6">
+        <div className="mb-8">
+          <Link href="/hospitals" className="mb-4 inline-flex items-center gap-2 font-medium text-gray-700 hover:text-gray-900">
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
+            </svg>
+            Volver a hospitales
+          </Link>
+          <h1 className="text-3xl sm:text-4xl font-bold text-gray-900">Importar del REPS</h1>
           <p className="text-gray-600 mt-2">
             Servicios habilitados y capacidad instalada por sede (código de habilitación). Primero se simula; nada cambia hasta
             pulsar &quot;Aplicar&quot;. Importar no recalcula la asignación de IPS.
@@ -210,7 +215,7 @@ export default function RepsImportPage() {
                     }}
                     className="block w-full text-sm text-gray-700 file:mr-3 file:rounded-lg file:border-0 file:bg-gray-900 file:px-4 file:py-2 file:text-white"
                   />
-                  <p className="text-xs text-gray-500 mt-1">Excel (.xlsx, .xls), CSV/TXT con ; o , o PDF con texto. Máximo 4 MB.</p>
+                  <p className="text-xs text-gray-500 mt-1">Excel (.xlsx o .xls), CSV o TXT separado por punto y coma o coma, o PDF con texto (sin escanear). Máximo 4 MB.</p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="reps-kind">Tipo</label>
@@ -444,7 +449,7 @@ export default function RepsImportPage() {
                 {/* Barra de aplicar */}
                 {!preview.needsMapping && (
                   <div className="fixed bottom-0 inset-x-0 z-40 bg-white border-t border-gray-200 shadow-lg">
-                    <div className="container mx-auto max-w-6xl px-4 py-2 sm:py-3 flex items-center justify-between gap-3">
+                    <div className="container mx-auto px-4 sm:px-6 py-2 sm:py-3 flex items-center justify-between gap-3">
                       <p className="text-xs sm:text-sm text-gray-700">
                         {preview.stats.matched} IPS con cruce · {preview.stats.hospitalsWithChanges} con cambios
                         <span className="hidden sm:inline"> · la simulación caduca a los 30 min</span>

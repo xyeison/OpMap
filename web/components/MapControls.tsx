@@ -10,6 +10,8 @@ import {
   IPS_FILTER_HINTS,
   IPS_FILTER_LABELS,
   hasRepsData,
+  ipsServiceAvailability,
+  IPS_SERVICE_UNAVAILABLE_HINT,
   isIpsFilterActive,
   parseBedsInput,
   type IpsServiceFilter,
@@ -89,6 +91,8 @@ export default function MapControls({
     () => (mapData?.hospitals || []).filter((h: any) => !hasRepsData(h)).length,
     [mapData]
   )
+  // Sin ningún dato del REPS importado, marcar un servicio dejaría el mapa sin puntos: se desactiva
+  const ipsServiceAvailable = useMemo(() => ipsServiceAvailability(mapData?.hospitals), [mapData])
   
   // Estados para visitas - Tipo de visualización
   const [visualizationType, setVisualizationType] = useState<'heatmap' | 'markers' | 'both'>('heatmap')
@@ -363,21 +367,26 @@ export default function MapControls({
                 )}
               </div>
               <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-                {IPS_FILTER_CHECKS.map(key => (
-                  <label
-                    key={key}
-                    title={IPS_FILTER_HINTS[key]}
-                    className={`flex items-center gap-2 text-sm text-gray-700 cursor-pointer ${embedded ? 'min-h-[44px]' : 'py-0.5'}`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={ipsServiceFilter[key]}
-                      onChange={e => onIpsServiceFilterChange({ ...ipsServiceFilter, [key]: e.target.checked })}
-                      className="h-4 w-4 rounded border-gray-300"
-                    />
-                    {IPS_FILTER_LABELS[key]}
-                  </label>
-                ))}
+                {IPS_FILTER_CHECKS.map(key => {
+                  // Se puede desmarcar siempre; marcar solo si hay datos del REPS para esa casilla
+                  const unavailable = !ipsServiceAvailable[key] && !ipsServiceFilter[key]
+                  return (
+                    <label
+                      key={key}
+                      title={unavailable ? IPS_SERVICE_UNAVAILABLE_HINT : IPS_FILTER_HINTS[key]}
+                      className={`flex items-center gap-2 text-sm ${unavailable ? 'text-gray-400 cursor-not-allowed' : 'text-gray-700 cursor-pointer'} ${embedded ? 'min-h-[44px]' : 'py-0.5'}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={ipsServiceFilter[key]}
+                        disabled={unavailable}
+                        onChange={e => onIpsServiceFilterChange({ ...ipsServiceFilter, [key]: e.target.checked })}
+                        className="h-4 w-4 rounded border-gray-300"
+                      />
+                      {IPS_FILTER_LABELS[key]}
+                    </label>
+                  )
+                })}
               </div>
               <div className="mt-2 flex items-center gap-2">
                 <span className="text-xs text-gray-600 shrink-0">Camas</span>
@@ -409,10 +418,17 @@ export default function MapControls({
                   className={`w-full min-w-0 px-2 text-sm border border-gray-300 rounded-lg bg-white ${embedded ? 'h-11' : 'py-1'}`}
                 />
               </div>
-              <p className="mt-1 text-xs text-gray-500">
-                Datos del REPS (camas del REPS o, si no hay, las de la ficha).
-                {ipsWithoutReps > 0 ? ` ${ipsWithoutReps} IPS aún sin datos del REPS quedan ocultas al filtrar por servicio.` : ''}
-              </p>
+              {ipsServiceAvailable.any ? (
+                <p className="mt-1 text-xs text-gray-500">
+                  Datos del REPS (camas del REPS o, si no hay, las de la ficha).
+                  {ipsWithoutReps > 0 ? ` ${ipsWithoutReps} IPS aún sin datos del REPS quedan ocultas al filtrar por servicio.` : ''}
+                </p>
+              ) : (
+                <p className="mt-1 text-xs text-gray-500">
+                  Los servicios se activan cuando se importen del REPS (Hospitales, &quot;Importar del REPS&quot;). Mientras tanto
+                  se puede filtrar por camas (las de la ficha).
+                </p>
+              )}
             </div>
           )}
 

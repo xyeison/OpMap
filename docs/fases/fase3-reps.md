@@ -29,7 +29,9 @@ columnas nuevas, índices y restricciones; no toca datos existentes ni `updated_
   - `reps_matched_at` timestamptz, `reps_match_status` ∈ `matched` | `ambiguous` | `unmatched`
     (NULL = sin evaluar). CHECK: `matched` ⇔ `reps_code` no nulo.
 - Ojo: el número tras el guion de `hospitals.code` **no es el DV de la DIAN** (698 de 787 terminan en
-  `-1`; 647 no cuadran con el módulo 11): es un consecutivo de sede. El cruce usa solo los 9 dígitos.
+  `-1`; 647 no cuadran con el módulo 11) **ni el número de sede** (de las 79 IPS vinculadas con sufijo
+  distinto de 1, solo 9 coinciden con el número de sede de su código de habilitación). El cruce usa
+  solo los 9 dígitos del NIT.
 
 ## Reglas del cruce (`web/lib/reps-match.ts`, funciones puras)
 
@@ -61,7 +63,10 @@ de competir en la siguiente).
   (conteos, método, ambiguas con sugerida, sin cruce con pista de sede parecida de otro NIT, sede en
   otro municipio, huérfanas, simulación desde cero y vínculos que difieren de ella). `--apply` escribe
   `reps_code`/`reps_match_status`/`reps_matched_at` en las vinculadas y solo el estado en ambiguas y sin
-  cruce; nunca pisa un `reps_code` existente y no reescribe estados que no cambian.
+  cruce; nunca pisa un `reps_code` existente y no reescribe estados que no cambian. Las IPS
+  **desvinculadas a mano** (su último `hospital_history.changes.reps_link` tiene `after.reps_code = null`)
+  quedan fuera del cruce y de `--apply`: el mantenimiento mensual no deshace esa corrección. El informe
+  las lista aparte. Para volver a vincularlas, hacerlo desde la ficha.
 - `npm run reps:check` (= `npx tsx scripts/reps-check.ts`): pruebas puras (normalización, NIT, CSV,
   casos del cruce, vueltas, idempotencia).
 
@@ -79,7 +84,11 @@ San Vicente de Paul Rionegro registrada en Medellín).
 - `PATCH /api/hospitals/[id]/reps-link` (`hospitals:edit`) `{ reps_code }` vincula (la sede debe
   existir en `reps_sedes` y estar libre: 400/409; avisa si el NIT o el municipio no coinciden);
   `{ reps_code: null }` desvincula (queda `ambiguous` si su NIT tiene sedes, si no `unmatched`).
-  Registra el cambio en `hospital_history` (action `edited`, `changes.reps_link`).
+  Registra el cambio en `hospital_history` (action `edited`, `changes.reps_link`). Además deja los
+  datos del REPS coherentes con la sede: las filas de `hospital_services`/`hospital_capacity` de la sede
+  anterior quedan con `hospital_id = NULL`, las ya importadas de la sede nueva pasan a la IPS y se
+  recalculan `service_flags`, `reps_services_count`, `quirofanos`, `reps_beds` y `reps_updated_at`
+  (`afterRepsLinkChange` en `app/api/_lib/reps.ts`). Si falla, avisa de que hay que reimportar.
 - `GET /api/hospitals/reps/summary` (`hospitals:view`): conteos, corte, pendientes con motivo y
   sugerida, vinculadas con sede en otro municipio y huérfanas.
 - `GET /api/hospitals/reps/sedes?q=&municipio=&limit=` (`hospitals:view`): buscador por código de
@@ -87,7 +96,8 @@ San Vicente de Paul Rionegro registrada en Medellín).
 - `GET /api/hospitals` y `GET /api/hospitals/[id]` devuelven además `nit`, `reps_code`,
   `reps_match_status` y `reps_matched_at` (`select('*')`). `POST /api/hospitals` y
   `PUT /api/hospitals/[id]` aceptan `reps_code` opcional (12 dígitos; mismas validaciones, queda
-  `matched`; en PUT `null` desvincula).
+  `matched`; en PUT `null` desvincula). PUT hace lo mismo que PATCH `/reps-link` al cambiar el
+  vínculo: historial y datos del REPS de la sede.
 
 ## UI
 
