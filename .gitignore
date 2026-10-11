@@ -64,3 +64,9 @@ backups/
 *.backup
 .env.local
 .env.production
+
+# Artefactos locales
+web/dev-server.log
+*.tsbuildinfo
+*.zip
+.claude/settings.local.json
