@@ -150,6 +150,26 @@ Estilo autorizado por el dueño el 2026-10-11 (rama `ui/mapa-estetica`; constant
   sus insignias se tocan de verdad; el mapa de escritorio abre en zoom 6, donde sale "4".
 - **Tarjetas al tocar**: IPS, IPS sin zona, zona y territorio abren una tarjeta (`MapPopups.tsx`); con
   cursor hay además un tooltip corto.
+- **Filtro por Ejecutivo Comercial** (pedido del dueño 2026-10-11: "los filtros no son por zona, sino por
+  ejecutivo comercial"): primera sección de la pestaña "Filtros" (panel "Filtros y visitas" en
+  escritorio; en celular, hoja inferior → "Filtros", filas de 44 px), componente
+  `web/components/MapGroupFilter.tsx`. Vista por línea: lista de los Ejecutivos Comerciales de la línea
+  (chip de color, iniciales, nombre, "n zonas · m IPS"), casillas múltiples, "Todos" / "Ninguno" y
+  "Solo" por fila. A diferencia del resaltado de la leyenda (que atenúa), el filtro OCULTA: los
+  polígonos de los demás quedan como contexto gris #f1f5f9 a 0.5 con el borde blanco de siempre
+  (`FILTERED_OUT_*` en `mapStyles.ts`, sin tooltip ni tarjeta), y sus IPS e insignias no se dibujan
+  (los racimos se recalculan solo con las insignias visibles). Fuera de alcance, sin acceso terrestre y
+  pendientes no cambian. "Mostrar vacantes" (zonas vacantes en la línea e IPS sin zona): por defecto sí
+  sin filtro y no con filtro; las zonas en conflicto solo se ven sin filtro. Las visitas (mapa de calor y
+  marcadores) se piden y se filtran por las zonas que quedan visibles (ejecutiva → kam_id vía
+  `coverage.rows`). Estado en la URL: `/map?line=<código>&exec=<id1,id2>` (UUID de `executives`,
+  coma sin codificar; `exec=` vacío = ninguno marcado; sin `exec` = sin filtro); se escribe con
+  `history.replaceState` (sin ir al servidor) y sobrevive a recargar y a compartir el enlace. Cambiar de
+  línea o de vista quita el filtro. Con filtro, la leyenda muestra solo los filtrados, "Filtro: n de m"
+  y "Quitar filtro"; el resaltado sigue funcionando dentro del filtro. En celular la barra de la hoja
+  cambia el botón "Filtros" por el chip "n ejecutivas" (en escritorio el botón "Filtros y visitas" lleva
+  el mismo chip). Vista de zonas (`&mode=zones`): misma lista y
+  mismo comportamiento, pero por zona, en `&zones=<id1,id2>` (kam_id). Las tarjetas no cambian.
 - **Capa de nombres**: Esri World Light Gray Reference (o `NEXT_PUBLIC_BASEMAP_LABELS_URL`) en un panel
   propio (z 450) encima de los polígonos y debajo de los puntos de IPS y de las insignias, sin recibir
   toques; se oculta con un fundido mientras dura el zoom. Usa partes internas de Leaflet
@@ -1026,3 +1046,41 @@ scripts/fase2b-municipios.ts` (dry-run, sin Google) → el dueño autoriza el ga
   (incluye los municipios donde tiene IPS del Anexo A aunque otra zona gane la mayoría) y "Alcance"
   (con minutos por carretera). Fuera de alcance y sin acceso terrestre no entran en ningún anexo.
   Exportar CSV, imprimir (con hash) y "Guardar versión" (inmutable) con "Comparar con vigente".
+
+## IPS nuevas o editadas (2026-10-11): nunca sin zona por falta de tiempos de viaje
+
+Antecedente: UPRES SANTANDER, UPRES ANTIOQUIA y HOCEN se crearon por la app en agosto de 2025 y pasaron
+meses "Sin zona asignada" porque `hospital_kam_distances` no tenía sus pares y el algoritmo solo asigna
+con tiempos reales. Ahora es automático (`web/app/api/_lib/hospital-routes.ts`, `refreshHospitalZone`),
+dentro de la misma petición, tras **crear** (`POST /api/hospitals`), **editar coordenadas, territorio o
+estado** (`PUT`/`PATCH /api/hospitals/[id]`; hoy el formulario solo deja cambiar lat/lng, y solo a admin)
+y **activar** (`POST /api/hospitals/[id]/activate`), si la IPS queda activa:
+1. `ensureHospitalDistances`: pide a Google SOLO los pares zona→IPS que faltan. Candidatas =
+   `routeCandidateKams` (`web/lib/opmap-algorithm-simplified.ts`), criterio ÚNICO que comparten el
+   algoritmo, `/api/routes/analyze-missing-optimized` y este flujo (= `eligibleKamsForHospital` sin IPS de
+   departamentos excluidos ni zonas sin coordenadas). Una IPS = un destino y hasta 25 zonas como orígenes
+   por llamada; guarda con `upsertHospitalDistances` (igual que calculate-batch-secure: SEGUNDOS, source
+   `google_maps`, sin sobrescribir). Sin ruta por carretera no se guarda. Con `GOOGLE_ROUTES_DISABLED=true`
+   no llama a Google.
+2. `runFullRecalculation` (el mismo recálculo completo de `/api/recalculate-simplified`, regla de mayoría
+   incluida). 3. `recomputeAndSaveMunicipalityZones` (municipality_zone, sin Google).
+Nunca rompe la petición: la IPS se guarda y la respuesta trae `warnings` (p. ej. "Sin tiempos de viaje: la
+IPS quedará sin zona hasta calcular rutas") y `zone` (zona asignada, tiempos calculados, coste estimado).
+Tiempo: `maxDuration = 60`; medido en solo lectura (783 IPS) el algoritmo carga en ~3 s y calcula en
+~0,1 s y municipios en ~2,7 s, así que cabe el recálculo completo. Topes: 15 s por llamada a Google; el
+recálculo se omite (con aviso) si ya pasaron 30 s y municipios si pasaron 45 s.
+- **Ficha de la IPS**: si está activa, con coordenadas y sin zona, `GET /api/hospitals/[id]` devuelve
+  `routeStatus {candidates, missing, reason}` y la ficha muestra "Sin zona: faltan N tiempos de viaje" (o el
+  motivo: departamento excluido, ninguna zona limítrofe, ninguna dentro de su tiempo máximo) con el botón
+  **"Calcular rutas y asignar"** (permiso `recalculate:complete`) → `POST /api/hospitals/[id]/ensure-routes`
+  (mismo flujo).
+- **Validación** (`createHospitalSchema`): lat/lng obligatorias y dentro de Colombia (lat -4,3..13,5; lng
+  -82..-66,8; también en PUT), el municipio pertenece al departamento, en Bogotá (11001) localidad
+  obligatoria de 7 dígitos `11001xx` ("Las IPS de Bogotá necesitan localidad") y fuera de Bogotá sin
+  localidad. `/api/locations/localities` devuelve ya códigos de 7 dígitos (antes 8, que no casaban con
+  ninguna zona).
+- La ficha ya no llama a `/api/recalculate-smart-hospital` al activar (lo hace activate) y el alta ya no
+  llama a `/api/hospitals/assign-to-kam` (sigue existiendo, sin uso desde la UI).
+  `analyze-missing-optimized` dejó de proponer pares Neiva/Ibagué → IPS de Bogotá (el algoritmo nunca los
+  usa; los 224 existentes ya estaban calculados).
+- Pruebas puras (sin red): `cd web && npm run ips:check`.

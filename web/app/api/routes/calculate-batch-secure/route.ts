@@ -7,6 +7,7 @@ import {
   googleRoutesDisabled,
   MAX_DESTINATIONS,
 } from '../../_lib/google-distance-matrix'
+import { formatCostEstimate, upsertHospitalDistances, type DistanceUpsertRow } from '../../_lib/hospital-routes'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -221,30 +222,20 @@ export async function POST(request: NextRequest) {
     let saveFailed = false
     if (saveToDatabase && successfulResults.length > 0) {
       const now = new Date().toISOString()
-      const rows = successfulResults.map(r => ({
+      const rows: DistanceUpsertRow[] = successfulResults.map(r => ({
         hospital_id: r.hospital_id,
         kam_id: r.kam_id,
         travel_time: r.travel_time,
         distance: r.distance,
-        source: 'google_maps',
+        source: 'google_maps' as const,
         calculated_at: now,
         updated_at: now,
       }))
 
-      for (let i = 0; i < rows.length; i += 100) {
-        const chunk = rows.slice(i, i + 100)
-        const { data: saved, error: saveError } = await supabaseAdmin
-          .from('hospital_kam_distances')
-          .upsert(chunk, { onConflict: 'hospital_id,kam_id', ignoreDuplicates: !overwrite })
-          .select('id')
-
-        if (saveError) {
-          saveFailed = true
-          console.error('calculate-batch-secure: error guardando lote', saveError)
-        } else {
-          savedCount += saved?.length || 0
-        }
-      }
+      // Mismo guardado que las IPS nuevas o editadas (app/api/_lib/hospital-routes.ts)
+      const saveResult = await upsertHospitalDistances(rows, { overwrite, context: 'calculate-batch-secure' })
+      savedCount = saveResult.saved
+      saveFailed = saveResult.failedChunks > 0
     }
 
     const totalTime = (Date.now() - startTime) / 1000
@@ -269,7 +260,7 @@ export async function POST(request: NextRequest) {
       googleCalls,
       googleElements,
       totalTime: totalTime.toFixed(2),
-      costEstimate: `$${(googleElements * 0.005).toFixed(2)} USD`,
+      costEstimate: formatCostEstimate(googleElements),
     })
   } catch (error) {
     return serverError('calculate-batch-secure', error, 'Error al calcular rutas')

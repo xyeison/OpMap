@@ -3,6 +3,44 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { requirePermission, requireUser } from '@/lib/require-role'
 import { badJson, isUuid, readJsonBody, serverError, validationError } from '../../_lib/api-error'
 import { patchHospitalSchema, updateHospitalSchema } from '../../_lib/hospital-schemas'
+import {
+  getHospitalRouteStatus,
+  refreshHospitalZone,
+  touchesZoneFields,
+  zoneFieldsChanged,
+  zoneRefreshResponse,
+  type ZoneFieldValues,
+} from '../../_lib/hospital-routes'
+
+// PUT/PATCH pueden calcular tiempos de viaje (Google) y recalcular zonas: ver app/api/_lib/hospital-routes.ts
+export const maxDuration = 60
+
+const ZONE_SELECT = 'lat, lng, department_id, municipality_id, locality_id, active'
+
+/**
+ * Tras guardar una edición: si cambió algún campo que decide la zona (coordenadas, territorio o estado)
+ * y la IPS está activa, calcula los tiempos que falten y recalcula zonas. `before` = null cuando no se
+ * pudo leer el estado anterior (se recalcula por si acaso).
+ */
+async function refreshZoneAfterEdit(
+  hospitalId: string,
+  before: ZoneFieldValues | null,
+  after: ZoneFieldValues & { active?: boolean | null },
+  actorId: string
+) {
+  if (after.active !== true) return null
+  if (before && !zoneFieldsChanged(before, after)) return null
+  return refreshHospitalZone(hospitalId, { actorId })
+}
+
+async function readZoneFields(hospitalId: string, context: string): Promise<ZoneFieldValues | null> {
+  const { data, error } = await supabaseAdmin.from('hospitals').select(ZONE_SELECT).eq('id', hospitalId).maybeSingle()
+  if (error) {
+    console.error(`${context}: no se pudo leer el estado anterior de la IPS`, error)
+    return null
+  }
+  return data
+}
 
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   const auth = await requireUser(request)
@@ -69,6 +107,17 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       }
     }
 
+    // IPS activa, con coordenadas y sin zona: cuántas zonas candidatas hay y cuántos tiempos faltan
+    // (la ficha muestra "Sin zona: faltan N tiempos de viaje" y el botón "Calcular rutas y asignar").
+    let routeStatus = null
+    if (hospital.active === true && !kamId && hospital.lat !== null && hospital.lng !== null) {
+      try {
+        routeStatus = await getHospitalRouteStatus(hospitalId)
+      } catch (error) {
+        console.error('hospitals/[id] GET (estado de rutas):', error)
+      }
+    }
+
     const contracts = contractsRes.data || []
     const contractStats = {
       activeCount: contracts.length,
@@ -83,6 +132,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       kamMunicipalityName,
       contractStats,
       history: historyRes.data || [],
+      routeStatus,
     })
   } catch (error) {
     return serverError('hospitals/[id] GET', error)
@@ -117,6 +167,10 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       return NextResponse.json({ error: 'No hay campos para actualizar' }, { status: 400 })
     }
 
+    // Estado anterior solo si la edición toca campos que deciden la zona (el formulario manda lat/lng siempre)
+    const zoneTouched = touchesZoneFields(updateData)
+    const before = zoneTouched ? await readZoneFields(hospitalId, 'hospitals/[id] PUT') : null
+
     const { data, error } = await supabaseAdmin
       .from('hospitals')
       .update({ ...updateData, updated_at: new Date().toISOString() })
@@ -134,7 +188,9 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       return NextResponse.json({ error: 'Hospital no encontrado' }, { status: 404 })
     }
 
-    return NextResponse.json(data)
+    const zone = zoneTouched ? await refreshZoneAfterEdit(hospitalId, before, data, auth.user.id) : null
+
+    return NextResponse.json({ ...data, warnings: zone?.warnings ?? [], zone: zoneRefreshResponse(zone) })
   } catch (error) {
     return serverError('hospitals/[id] PUT', error)
   }
@@ -160,6 +216,10 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       return NextResponse.json({ error: 'No hay campos para actualizar' }, { status: 400 })
     }
 
+    // Hoy patchHospitalSchema no admite campos de zona; si se añaden, el recálculo ya queda enganchado
+    const zoneTouched = touchesZoneFields(parsed.data)
+    const before = zoneTouched ? await readZoneFields(hospitalId, 'hospitals/[id] PATCH') : null
+
     const { data, error } = await supabaseAdmin
       .from('hospitals')
       .update({ ...parsed.data, updated_at: new Date().toISOString() })
@@ -172,7 +232,9 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       return NextResponse.json({ error: 'Hospital no encontrado' }, { status: 404 })
     }
 
-    return NextResponse.json(data)
+    const zone = zoneTouched ? await refreshZoneAfterEdit(hospitalId, before, data, auth.user.id) : null
+
+    return NextResponse.json({ ...data, warnings: zone?.warnings ?? [], zone: zoneRefreshResponse(zone) })
   } catch (error) {
     return serverError('hospitals/[id] PATCH', error)
   }

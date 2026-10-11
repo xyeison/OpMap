@@ -12,6 +12,7 @@ export {
   isBaseTerritory,
   isBogotaHospital,
   isBogotaKam,
+  routeCandidateKams,
 } from '@/lib/opmap-algorithm-simplified'
 export type { AdjacencyMatrix } from '@/lib/opmap-algorithm-simplified'
 

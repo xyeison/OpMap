@@ -143,6 +143,10 @@ export default function HospitalsPage() {
       alert('Por favor complete todos los campos obligatorios')
       return
     }
+    if (newHospital.municipality_id === '11001' && !newHospital.locality_id) {
+      alert('Las IPS de Bogotá necesitan localidad')
+      return
+    }
 
     setIsSubmitting(true)
     try {
@@ -160,6 +164,8 @@ export default function HospitalsPage() {
         active: newHospital.active
       }
 
+      // El servidor guarda la IPS y, si está activa, calcula los tiempos de viaje que falten y
+      // recalcula las zonas en la misma petición (app/api/_lib/hospital-routes.ts)
       const response = await fetch('/api/hospitals', {
         method: 'POST',
         headers: {
@@ -170,40 +176,28 @@ export default function HospitalsPage() {
 
       if (!response.ok) {
         const error = await response.json()
-        throw new Error(error.error || 'Error al crear hospital')
+        const issues = Array.isArray(error.issues) ? error.issues.map((issue: any) => issue.message).join('. ') : ''
+        throw new Error(issues || error.error || 'Error al crear hospital')
       }
 
       const data = await response.json()
+      const warnings: string[] = Array.isArray(data.warnings) ? data.warnings : []
+      const assignedZone = data.zone?.assignment?.kam_name
 
-      // Asignar el hospital al KAM más cercano
-      if (data) {
-        try {
-          const assignResponse = await fetch('/api/hospitals/assign-to-kam', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              hospitalId: data.id,
-              hospitalLat: data.lat,
-              hospitalLng: data.lng,
-              municipalityId: data.municipality_id
-            })
-          })
-
-          const assignResult = await assignResponse.json()
-          
-          if (!assignResponse.ok) {
-            console.error('Error asignando hospital:', assignResult.error)
-            alert(`Hospital agregado pero no se pudo asignar a un Ejecutivo Comercial: ${assignResult.error}`)
-          } else {
-            alert(`Hospital agregado y asignado exitosamente a ${zoneDisplayName(assignResult.kamName)}`)
-          }
-        } catch (assignError) {
-          console.error('Error en asignación:', assignError)
-          alert('Hospital agregado pero hubo un error al asignarlo a un Ejecutivo Comercial')
-        }
+      if (!data.active) {
+        alert('Hospital agregado (inactivo: no se asigna a ninguna zona hasta activarlo)')
+      } else if (assignedZone) {
+        alert(
+          `Hospital agregado y asignado a ${zoneDisplayName(assignedZone)}` +
+            (warnings.length > 0 ? `\n\nAvisos:\n- ${warnings.join('\n- ')}` : '')
+        )
+      } else {
+        alert(
+          'Hospital agregado, pero quedó sin zona' +
+            (warnings.length > 0 ? `:\n- ${warnings.join('\n- ')}` : '')
+        )
       }
+      queryClient.invalidateQueries({ queryKey: ['map-data'] })
 
       setShowAddModal(false)
       setNewHospital({
@@ -595,14 +589,14 @@ export default function HospitalsPage() {
               {localities.length > 0 && (
                 <div className="col-span-2">
                   <label className="block text-sm font-medium mb-1">
-                    Localidad (Solo para Bogotá)
+                    Localidad * (obligatoria en Bogotá)
                   </label>
                   <select
                     className="w-full p-2 border rounded"
                     value={newHospital.locality_id}
                     onChange={(e) => setNewHospital({...newHospital, locality_id: e.target.value})}
                   >
-                    <option value="">Seleccione una localidad (opcional)</option>
+                    <option value="">Seleccione una localidad</option>
                     {localities.map(loc => (
                       <option key={loc.id} value={loc.id}>
                         {loc.name}
@@ -725,7 +719,7 @@ export default function HospitalsPage() {
                 className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
                 disabled={isSubmitting}
               >
-                {isSubmitting ? 'Agregando...' : 'Agregar Hospital'}
+                {isSubmitting ? 'Agregando y asignando zona...' : 'Agregar Hospital'}
               </button>
             </div>
           </div>
