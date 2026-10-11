@@ -99,6 +99,11 @@ nada llama a Google.
   `docs/ips-pendientes.md` – cola de pendientes y acción masiva.
 - `docs/fases/fase4-poblacion.md` – población: afiliados BDUA, cifras mensuales de MinSalud y proyecciones
   DANE (estructura real de las fuentes, tablas 0640, alias de municipio, scripts de carga y cifras).
+- `docs/fases/fase5-secop.md` – compras públicas (SECOP): reglas de suma (sin clasificar, fuera de escala,
+  reparto de SECOP I), privacidad de médicos (sin cédula), API `/api/secop/*` y `/api/fuentes/*`, ficha,
+  /inteligencia ("Compras públicas", "Fuentes de datos") y lista vigilada.
+- `docs/fases/fase5-fuentes-automaticas.md` – carga de SECOP (0710, clasificación, privacidad, cursor) y cargas
+  automáticas: `/api/cron/<fuente>` (CRON_SECRET), `.github/workflows/datos.yml`, `fuentes_estado`.
 - `docs/arquitectura-y-scripts.md` – scripts Python, estructura de carpetas, archivos clave.
 - `docs/historico-resultados.md` – cifras de 2025 y colores originales (histórico, no vigente).
 - `docs/FLUJO_DE_TRABAJO_IA.md` – cómo trabajamos con Claude Code en este repo y por qué.

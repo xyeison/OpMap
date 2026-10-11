@@ -28,25 +28,11 @@ import path from 'path'
 import fs from 'fs'
 import dotenv from 'dotenv'
 import { ALIAS_FUENTE_BDUA, createMunicipioResolver } from '../lib/municipio-alias'
-import {
-  aggregateBduaRows,
-  BDUA_DATASETS,
-  buildBduaSoqlUrl,
-  buildBduaTotalUrl,
-  corteFromRowsUpdatedAt,
-  toCount,
-  type BduaAggregate,
-  type BduaDatasetId,
-  type BduaSoqlRow,
-} from '../lib/poblacion-parse'
-import { fmt, loadGeo, pct, upsertBatches } from './_poblacion-db'
+import { BDUA_DATASETS, type BduaDatasetId } from '../lib/poblacion-parse'
+import { cargarDatasetBdua, type BduaDatasetResult } from '../lib/bdua-sync'
+import { fmt, loadGeo, pct } from './_poblacion-db'
 
 dotenv.config({ path: path.resolve(__dirname, '..', '.env.local') })
-
-const BASE = 'https://www.datos.gov.co'
-const USER_AGENT = 'OpMap-BDUA/1.0 (carga de afiliados BDUA por municipio; datos abiertos)'
-const TIMEOUT_MS = 180_000
-const RETRIES = 3
 
 interface Args {
   datasets: BduaDatasetId[]
@@ -81,40 +67,8 @@ function parseArgs(argv: string[]): Args {
   return args
 }
 
-async function getJson<T>(url: string): Promise<T> {
-  let lastError: unknown = null
-  for (let attempt = 1; attempt <= RETRIES; attempt++) {
-    try {
-      const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' }, signal: AbortSignal.timeout(TIMEOUT_MS) })
-      if (!res.ok) {
-        const body = (await res.text()).slice(0, 300)
-        // 4xx (consulta mal formada, bloqueo) no se reintenta
-        if (res.status >= 400 && res.status < 500 && res.status !== 429) throw Object.assign(new Error(`HTTP ${res.status}: ${body}`), { fatal: true })
-        throw new Error(`HTTP ${res.status}: ${body}`)
-      }
-      return (await res.json()) as T
-    } catch (error) {
-      lastError = error
-      if ((error as { fatal?: boolean }).fatal) break
-      if (attempt < RETRIES) await new Promise(resolve => setTimeout(resolve, 2000 * attempt))
-    }
-  }
-  throw lastError instanceof Error ? lastError : new Error(String(lastError))
-}
-
-interface DatasetResult {
-  dataset: BduaDatasetId
-  corte: string
-  rowsUpdatedAt: string
-  datasetTotal: number
-  datasetFilas: number
-  pages: number
-  grupos: number
-  agg: BduaAggregate
-  written: number
-  failedBatches: number
-  pruned: number
-}
+// Consulta, agregación, cuadre, upsert y poda de cada dataset: lib/bdua-sync.ts (compartido con el cron, PR 7).
+type DatasetResult = BduaDatasetResult
 
 async function main() {
   const args = parseArgs(process.argv.slice(2))
@@ -129,56 +83,20 @@ async function main() {
 
   const results: DatasetResult[] = []
   for (const dataset of args.datasets) {
-    const meta = await getJson<{ name?: string; rowsUpdatedAt?: number }>(`${BASE}/api/views/${dataset}.json`)
-    if (!meta.rowsUpdatedAt) throw new Error(`${dataset}: la metadata no trae rowsUpdatedAt`)
-    const corte = args.corte ?? corteFromRowsUpdatedAt(meta.rowsUpdatedAt)
-    const totalRow = (await getJson<{ afiliados?: string; filas?: string }[]>(buildBduaTotalUrl(dataset, BASE)))[0] ?? {}
-    const datasetTotal = toCount(totalRow.afiliados) ?? NaN
-    const datasetFilas = toCount(totalRow.filas) ?? NaN
-    console.log(`\n${dataset} · ${meta.name ?? ''}`)
-    console.log(`  rowsUpdatedAt ${new Date(meta.rowsUpdatedAt * 1000).toISOString()} → corte ${corte}${args.corte ? ' (por --corte)' : ''}`)
-    console.log(`  total del dataset: ${fmt(datasetTotal)} afiliados en ${fmt(datasetFilas)} filas`)
-
-    const rows: BduaSoqlRow[] = []
-    let pages = 0
-    for (let offset = 0; ; offset += args.limit) {
-      const page = await getJson<BduaSoqlRow[]>(buildBduaSoqlUrl(dataset, { limit: args.limit, offset }, BASE))
-      pages++
-      rows.push(...page)
-      if (args.saveDir) fs.writeFileSync(path.join(args.saveDir, `${dataset}-${corte}-p${pages}.json`), JSON.stringify(page))
-      process.stdout.write(`\r  página ${pages}: ${fmt(rows.length)} grupos`)
-      if (page.length < args.limit) break
-      if (pages > 100) throw new Error('Más de 100 páginas: algo no cuadra')
-    }
-    process.stdout.write('\n')
-
-    const agg = aggregateBduaRows({ rows, corte, fuente: dataset, resolver })
-    const expected = BDUA_DATASETS[dataset].regimen
-    const otherRegimen = Object.keys(agg.byRegimen).filter(r => r !== expected)
-    const sumOk = agg.total === datasetTotal
-    console.log(`  suma de las páginas: ${fmt(agg.total)} (${sumOk ? 'cuadra con el total del dataset' : 'NO cuadra con el total del dataset'})`)
-    console.log(`  filas a guardar: ${fmt(agg.rows.length)} · errores: ${agg.errors.length}${otherRegimen.length ? ` · régimen inesperado: ${otherRegimen.join(', ')}` : ''}`)
-    agg.errors.slice(0, 10).forEach(e => console.log(`    - ${e}`))
-
-    let written = 0
-    let failedBatches = 0
-    let pruned = 0
-    const blocking = !sumOk || agg.errors.length > 0 || otherRegimen.length > 0
-    if (blocking) {
-      console.log('  Problemas bloqueantes: no se escribe este dataset.')
-      process.exitCode = 1
-    } else if (!args.dryRun) {
-      const toWrite = agg.rows.map(r => ({ ...r, loaded_at: loadedAt }))
-      const res = await upsertBatches(db, 'bdua_afiliados', toWrite, 'corte,regimen,departamento_bdua,municipio_bdua,eps_id,estado,zona', 1000, `  bdua_afiliados ${dataset}`)
-      written = res.written
-      failedBatches = res.failedBatches
-      if (failedBatches === 0) {
-        const { count, error } = await db.from('bdua_afiliados').delete({ count: 'exact' }).eq('corte', corte).eq('fuente', dataset).lt('loaded_at', loadedAt)
-        if (error) throw new Error(`poda ${dataset} ${corte}: ${error.message}`)
-        pruned = count ?? 0
-      } else process.exitCode = 1
-    }
-    results.push({ dataset, corte, rowsUpdatedAt: new Date(meta.rowsUpdatedAt * 1000).toISOString(), datasetTotal, datasetFilas, pages, grupos: rows.length, agg, written, failedBatches, pruned })
+    const r = await cargarDatasetBdua({
+      db,
+      dataset,
+      resolver,
+      corte: args.corte,
+      limit: args.limit,
+      loadedAt,
+      dryRun: args.dryRun,
+      log: line => console.log(line),
+      progress: text => process.stdout.write(text),
+      onPage: args.saveDir ? (page, n, corte) => fs.writeFileSync(path.join(args.saveDir as string, `${dataset}-${corte}-p${n}.json`), JSON.stringify(page)) : undefined,
+    })
+    if (r.blocking || r.failedBatches > 0) process.exitCode = 1
+    results.push(r)
   }
 
   // Informe conjunto

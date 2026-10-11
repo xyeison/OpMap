@@ -9,6 +9,8 @@ import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
 import GirosMonthlyChart, { SEGMENTS_REGIMEN, SEGMENTS_TIPO } from '@/components/GirosMonthlyChart'
 import IntelligencePoblacion from '@/components/IntelligencePoblacion'
+import IntelligenceSecop from '@/components/IntelligenceSecop'
+import FuentesDatosPanel from '@/components/FuentesDatosPanel'
 import { usePermissions } from '@/hooks/usePermissions'
 import { formatCop, formatCopCompact, formatFechaGiro, formatPct, monthLabel, GIROS_COLORS } from '@/lib/giros-format'
 
@@ -204,10 +206,89 @@ export default function InteligenciaPage() {
           </div>
         }
       >
-        <InteligenciaContent />
-        <IntelligencePoblacion />
+        <InteligenciaTabs />
       </PermissionGuard>
     </ProtectedRoute>
+  )
+}
+
+type Tab = 'giros' | 'secop' | 'fuentes'
+
+// Pestañas de /inteligencia (?tab=secop | fuentes). La URL se lee al montar y se actualiza con
+// replaceState (sin useSearchParams, que exige Suspense en el build).
+function InteligenciaTabs() {
+  const { can } = usePermissions()
+  const [tab, setTab] = useState<Tab>('giros')
+  const canFuentes = can('fuentes:manage')
+
+  useEffect(() => {
+    try {
+      const value = new URLSearchParams(window.location.search).get('tab')
+      if (value === 'secop' || value === 'fuentes') setTab(value)
+    } catch {
+      // sin URL: pestaña por defecto
+    }
+  }, [])
+
+  const tabs: Array<{ value: Tab; label: string }> = [
+    { value: 'giros', label: 'Giros y población' },
+    { value: 'secop', label: 'Compras públicas' },
+    ...(canFuentes ? [{ value: 'fuentes' as Tab, label: 'Fuentes de datos' }] : []),
+  ]
+  const current: Tab = tab === 'fuentes' && !canFuentes ? 'giros' : tab
+
+  // En celular las pestañas no caben: la activa se desplaza a la vista (si no, "Fuentes de datos" queda cortada)
+  useEffect(() => {
+    try {
+      document.getElementById(`intel-tab-${current}`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    } catch {
+      // navegador sin scrollIntoView con opciones
+    }
+  }, [current])
+
+  const select = (value: Tab) => {
+    setTab(value)
+    try {
+      const url = new URL(window.location.href)
+      if (value === 'giros') url.searchParams.delete('tab')
+      else url.searchParams.set('tab', value)
+      if (value !== 'secop') url.searchParams.delete('proveedor')
+      window.history.replaceState(null, '', url.toString())
+    } catch {
+      // sin historial: solo cambia la pestaña
+    }
+  }
+
+  return (
+    <>
+      <div className="container mx-auto px-4 sm:px-6 pt-4 sm:pt-6">
+        <div className="flex gap-1 overflow-x-auto border-b border-gray-200" role="tablist" aria-label="Secciones de inteligencia">
+          {tabs.map(item => (
+            <button
+              key={item.value}
+              id={`intel-tab-${item.value}`}
+              type="button"
+              role="tab"
+              aria-selected={current === item.value}
+              onClick={() => select(item.value)}
+              className={`min-h-[44px] px-3 sm:px-4 text-sm font-medium whitespace-nowrap border-b-2 -mb-px ${
+                current === item.value ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {current === 'giros' && (
+        <>
+          <InteligenciaContent />
+          <IntelligencePoblacion />
+        </>
+      )}
+      {current === 'secop' && <IntelligenceSecop />}
+      {current === 'fuentes' && canFuentes && <FuentesDatosPanel />}
+    </>
   )
 }
 

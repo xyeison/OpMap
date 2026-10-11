@@ -11,6 +11,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { usePermissions } from '@/hooks/usePermissions'
 import { useUser } from '@/contexts/UserContext'
 import HospitalGirosCard from '@/components/HospitalGirosCard'
+import HospitalSecopCard from '@/components/HospitalSecopCard'
 import HospitalEntornoCard from '@/components/HospitalEntornoCard'
 import HospitalRepsPanel from '@/components/HospitalRepsPanel'
 import { bogotaAssignmentLabel } from '@/lib/bogota-admin'
@@ -551,6 +552,7 @@ export default function HospitalDetailPage() {
         <HospitalRepsPanel key={`reps-${repsVersion}`} hospitalId={hospitalId} />
         {/* Giros ADRES del NIT (Fase 3), junto a la sede y los datos del REPS */}
         <HospitalGirosCard hospitalId={hospitalId} />
+        <HospitalSecopCard hospitalId={hospitalId} />
         <HospitalEntornoCard hospitalId={hospitalId} />
 
         {/* Doctores */}

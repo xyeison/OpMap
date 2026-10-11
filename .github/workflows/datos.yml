@@ -1,0 +1,80 @@
+name: Datos ADRES (mensual)
+
+# Carga pesada de "Identifica tu Giro" de la ADRES (≈ 700 NIT, 20–40 min): no cabe en una función de
+# Vercel (60 s), por eso corre aquí. Día 3 de cada mes a las 07:00 UTC (02:00 en Bogotá), con el mes
+# anterior completo. También se puede lanzar a mano (Actions → "Datos ADRES (mensual)" → Run workflow).
+#
+# Secretos que el dueño debe crear en GitHub (Settings → Secrets and variables → Actions → New repository
+# secret): NEXT_PUBLIC_SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY. Paso a paso en
+# docs/fases/fase5-fuentes-automaticas.md. El resultado queda en fuentes_estado (panel "Fuentes de datos").
+
+on:
+  schedule:
+    - cron: '0 7 3 * *'
+  workflow_dispatch:
+    inputs:
+      desde:
+        description: 'Mes inicial YYYY-MM (vacío = el mes anterior)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: datos-adres
+  cancel-in-progress: false
+
+jobs:
+  adres-identifica:
+    name: ADRES · Identifica tu Giro
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    defaults:
+      run:
+        working-directory: web
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      GOOGLE_ROUTES_DISABLED: 'true'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - name: Comprobar secretos
+        run: |
+          if [ -z "$NEXT_PUBLIC_SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "::error::Faltan los secretos NEXT_PUBLIC_SUPABASE_URL y/o SUPABASE_SERVICE_ROLE_KEY (ver docs/fases/fase5-fuentes-automaticas.md)"
+            exit 1
+          fi
+      - name: Mes a cargar
+        id: mes
+        env:
+          DESDE_MANUAL: ${{ github.event.inputs.desde }}
+        run: |
+          if [ -n "$DESDE_MANUAL" ]; then
+            if ! echo "$DESDE_MANUAL" | grep -Eq '^[0-9]{4}-(0[1-9]|1[0-2])$'; then echo "::error::desde debe ser YYYY-MM"; exit 1; fi
+            DESDE="$DESDE_MANUAL"
+          else
+            DESDE=$(date -u -d "$(date -u +%Y-%m-15) -1 month" +%Y-%m)
+          fi
+          echo "desde=$DESDE" >> "$GITHUB_OUTPUT"
+          echo "Carga desde $DESDE hasta fin del mes pasado"
+      - name: Marcar inicio en fuentes_estado
+        run: npx tsx scripts/fuente-estado.ts --fuente adres_identifica --inicio
+      - name: Carga ADRES Identifica tu Giro
+        id: carga
+        continue-on-error: true
+        run: node scripts/adres-identifica-giro.mjs --desde "${{ steps.mes.outputs.desde }}"
+      - name: Marcar fin en fuentes_estado
+        if: always()
+        run: npx tsx scripts/fuente-estado.ts --fuente adres_identifica --fin --resultado "${{ steps.carga.outcome }}"
+      - name: Resultado
+        if: steps.carga.outcome != 'success'
+        run: |
+          echo "::error::La carga de la ADRES terminó con '${{ steps.carga.outcome }}' (detalle en el paso anterior y en el panel Fuentes de datos)"
+          exit 1

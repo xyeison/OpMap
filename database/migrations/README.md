@@ -466,3 +466,45 @@ tablas tienen FKs hacia `business_lines`, `executives` y `users`.
   `assignments.detail` y `bogota_config`, así que con el código nuevo el rollback va después de volver a
   desplegar el código anterior.
 - Rollback independiente de los demás (nada tiene FKs hacia estas tablas).
+
+---
+
+# Migraciones — Compras públicas (SECOP) y fuentes de datos automáticas (PR 7)
+
+> **ESTADO: APLICADA** el 2026-10-11 en `norvxqgohddgsdkggqzq` (aditiva: 4 tablas, 1 vista y 2 funciones
+> nuevas; no toca tablas existentes). Fuentes, reglas, carga, cron y lo que debe configurar el dueño en
+> `docs/fases/fase5-fuentes-automaticas.md`; API y UI en `docs/fases/fase5-secop.md`.
+
+| # | Archivo | Qué hace | Destructivo |
+|---|---|---|---|
+| 13 | `2026-10-11_0710_secop.sql` | Crea `secop_proveedores_vigilados` (PK NIT de 9 dígitos; semilla: 76 proveedores de Odoo, es_empresa y no intercompañía), `secop_contratos` (UNIQUE fuente+id_contrato; NIT a 9 dígitos; FK suave a `hospitals` y a la lista vigilada con `ON DELETE SET NULL`; CHECK de línea, especialidad, fuente/origen y **persona natural sin documento en claro**), `secop_ajustes` (una fila con la sal aleatoria del hash de documentos, solo SELECT/INSERT para `service_role`) y `fuentes_estado` (estado de cada carga automática: último OK, intento, estado ok/error/corriendo, filas, mensaje, cursor jsonb, siguiente programado, bloqueo); vista `secop_contratos_unicos` (`security_invoker`; quita del Integrado lo que ya vino de SECOP II); funciones `secop_nits_ips()` y `secop_marcar_atipicos()` (SECURITY INVOKER, `search_path` fijo, EXECUTE solo `service_role`). Siembra las 6 fuentes y el último OK de las cargas manuales previas (REPS, BDUA, MinSalud, ADRES). RLS sin políticas, sin privilegios para anon/authenticated/PUBLIC | No |
+| — | `2026-10-11_9930_secop_rollback.sql` | Borra la vista, las 2 funciones y las 4 tablas | Sí (contratos descargados —se recargan con `scripts/secop-load.ts`—, la lista vigilada manual, las notas y el historial de `fuentes_estado`; no toca las tablas que cargan esas fuentes) |
+
+- Aplicada con el MCP de Supabase sin el `BEGIN/COMMIT` del archivo; el bloque final pasó (RLS en las 4,
+  0 políticas, 0 privilegios para anon/authenticated, `service_role` puede leer, funciones solo
+  `service_role`, 76 proveedores, 1 sal, 6 fuentes). Tras aplicarla hubo que recargar la caché de esquema
+  de PostgREST (`NOTIFY pgrst, 'reload schema'`).
+- Después de aplicar: `cd web && npx tsx scripts/secop-load.ts --inicial` (carga inicial de SECOP II y del
+  Integrado; ≈ 15–25 min). Después el cron mantiene todo al día.
+- Re-ejecutable (`IF NOT EXISTS`, `ON CONFLICT DO NOTHING`, `CREATE OR REPLACE`): no pisa la lista vigilada
+  editada ni la sal (cambiar la sal rompería la deduplicación de médicos).
+- Rollback independiente de los demás. Antes, quitar los `crons` de `web/vercel.json` y volver a desplegar
+  el código anterior (si no, `/api/cron/*`, `/api/secop/*` y `/api/fuentes/*` responden 503).
+
+### 0720 — Lectura agregada para la API de compras públicas
+
+> **ESTADO: APLICADA** el 2026-10-11 en `norvxqgohddgsdkggqzq` (aditiva: 1 función de solo lectura; depende
+> de la vista de 0710). Uso en `docs/fases/fase5-secop.md` ("Migración 0720").
+
+| # | Archivo | Qué hace | Destructivo |
+|---|---|---|---|
+| 14 | `2026-10-11_0720_secop_api.sql` | Crea `secop_hechos(p_desde, p_hasta, p_nits, p_proveedores)` → jsonb con los contratos de `secop_contratos_unicos` agregados por entidad, proveedor, persona, especialidad, línea, atípico, fuera de escala (> 50.000 M) y año de firma (PostgREST corta en 1.000 filas). SECURITY INVOKER, `search_path` fijo, EXECUTE solo `service_role` | No |
+| — | `2026-10-11_9929_secop_api_rollback.sql` | Borra la función | No (sin datos; la API vuelve a leer contrato por contrato) |
+
+- Aplicada con el MCP de Supabase sin el `BEGIN/COMMIT` del archivo; el bloque final pasó (anon y
+  authenticated sin EXECUTE, `service_role` sí, rango vacío → `[]`). Se volvió a aplicar dos veces el mismo
+  día (CREATE OR REPLACE) para agrupar también por "fuera de escala" y repartir el valor de los procesos de
+  SECOP I repetido en cada contratista. Comprobado con SELECT tras la carga inicial: 45.563 contratos → 9.087
+  grupos, misma suma de contratos que la vista y de valor que la vista con el reparto ($ 3,82 billones; sin
+  reparto $ 5,09 billones), 3 fuera de escala.
+- Rollback: **antes** de `2026-10-11_9930_secop_rollback.sql` si se deshacen los dos.

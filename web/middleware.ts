@@ -12,8 +12,10 @@ import { verifySessionEdge } from '@/lib/session-edge'
 // Rutas API accesibles sin sesión (coincidencia exacta)
 const PUBLIC_API_ROUTES = new Set(['/api/auth/login', '/api/auth/logout'])
 
-// Prefijos API públicos: polígonos GeoJSON (datos públicos)
-const PUBLIC_API_PREFIXES = ['/api/geojson/']
+// Prefijos API públicos: polígonos GeoJSON (datos públicos) y cargas automáticas de Vercel Cron.
+// /api/cron/* NO es público de verdad: Vercel Cron no manda cookie de sesión, así que la ruta
+// (app/api/cron/[fuente]/route.ts) exige "Authorization: Bearer <CRON_SECRET>" y sin esa variable no hace nada.
+const PUBLIC_API_PREFIXES = ['/api/geojson/', '/api/cron/']
 
 function isApiPath(pathname: string): boolean {
   const lower = pathname.toLowerCase()
