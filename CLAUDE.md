@@ -40,6 +40,8 @@ nada llama a Google.
    `https://op-map-git-<rama-con-guiones>-xyeisons-projects.vercel.app` (pide login de Vercel).
 5. Commits en español, prefijo convencional (`feat(ips): …`, `fix(mapa): …`), cuerpo con el porqué.
 6. Decisiones del dueño que cambian reglas de negocio: anotar en `docs/decisiones/` (plantilla ahí).
+7. Antes de `/entregar` un cambio mediano o grande: subagente `revisor` (`.claude/agents/revisor.md`) sobre
+   el diff y la spec; corregir solo lo que afecte corrección o reglas.
 
 ## Reglas que no se deducen del código (IMPORTANTE)
 

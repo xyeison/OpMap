@@ -78,6 +78,16 @@ recomendación es **no adoptarlo todavía**:
   (`@claude` en un PR o issue). Si se quiere Linear por la gestión de proyecto, úsese como tablero y
   conéctese después un runner (Cyrus es open source y corre en máquina propia).
 
+## Recursos de la reunión (2026-10-11): qué aplica y qué no
+
+| Recurso | Qué es | Veredicto para OpMap |
+| --- | --- | --- |
+| **ejemplo-harness-subagentes** (betta-tech) | Ejemplo chico: `leader` no edita, `implementer` implementa, `reviewer` revisa sin editar; estado en disco (`progress/`, `feature_list.json`), `CHECKPOINTS.md`, `init.sh` corre las pruebas reales | **Adoptado en parte.** El `revisor` ya existe (`.claude/agents/revisor.md`); la verificación ejecutable es `npm run check` + hooks; el estado en disco son las specs y `docs/decisiones/`. El `leader` que no edita se reserva para fases grandes (varias specs en paralelo); para cambios normales es sobrecarga. |
+| **ECC** (affaan-m) | Harness enorme: 71 agentes, 311 skills, 97 comandos, hooks en Node, "memoria" con instintos, AgentShield | **No instalar como plugin.** Las descripciones de 311 skills se cargan en cada sesión y contradicen la regla de contexto corto; mezcla adaptadores para Codex/Cursor que no usamos; `/astra-review` manda diffs a OpenAI; el propio README avisa de re-subidas con malware. Tomar ideas sueltas: hook de typecheck tras editar (ya hecho), agente `security-reviewer` (candidato), guardar estado antes de compactar (cubierto con la sección "Al compactar" de CLAUDE.md). |
+| **Guía de orquestación (hub-and-spoke)** | Un coordinador reparte a subagentes aislados que no comparten nada; todo pasa por el coordinador | **Es lo que ya hace la herramienta `Agent` de Claude Code.** Regla práctica: el subagente solo sabe lo que va en su prompt; si falla, revisar qué le pasaste. Y cuidado con el costo: la auditoría de octubre corrió 332 agentes y agotó la cuota; asignar modelo por etapa y batchear. |
+| **Orca** (onorca.dev) | IDE libre (MIT) para correr varios agentes CLI en paralelo, cada uno en su worktree, con browser y diff integrados | **No hace falta hoy.** El app de escritorio de Claude ya corre sesiones en paralelo con worktree aislado. Tiene sentido si se mezclan Codex/Gemini o se quiere seguimiento desde el celular. |
+| **Linear AI** (linear.app/ai) | Triaje automático de issues, Loops programados, sesiones de código, MCP para agentes externos | **Mismo veredicto que Linear for Agents:** herramienta de equipo. Con una persona, GitHub Issues + `gh` cubre el issue-como-spec. Reconsiderar con 2+ personas; su MCP permite asignar issues a agentes externos. |
+
 ## Pendientes (en orden)
 
 1. **Rotar la clave de Google Maps** y restringirla por API y cuota (solo el dueño). Está en el
