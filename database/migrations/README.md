@@ -306,3 +306,72 @@ tablas tienen FKs hacia `business_lines`, `executives` y `users`.
 - Si `territory_snapshots` tiene versiones (documentos contractuales), el script **se niega**
   salvo que antes, en la misma sesión, se ejecute `SET opmap.rollback_drop_snapshots = 'on';` (en el SQL Editor: esa línea encima
   del script, ejecutando todo junto). Exportarlas primero.
+
+---
+
+# Migraciones — Fase 3: sedes del REPS (IPS por código de habilitación)
+
+> **ESTADO: APLICADA** el 2026-10-11 en `norvxqgohddgsdkggqzq` (autorizado: es aditiva). Detalle del
+> modelo, reglas del cruce, scripts y UI en `docs/fases/fase3-reps.md`.
+
+| # | Archivo | Qué hace | Destructivo |
+|---|---|---|---|
+| 6 | `2026-10-11_0600_fase3_reps.sql` | Crea `reps_sedes` (PK código de habilitación, 24 columnas, RLS sin políticas, solo `service_role`); añade a `hospitals` `reps_code` (UNIQUE, 12 dígitos), `nit` (GENERADA desde `code`), `reps_matched_at`, `reps_match_status` (CHECK y coherencia `matched` ⇔ `reps_code`), índice por `nit` | No |
+| — | `2026-10-11_9930_reps_rollback.sql` | Quita las 4 columnas de `hospitals` (se pierden los vínculos, también los manuales) y borra `reps_sedes` | Sí |
+
+- `reps_code` no tiene FOREIGN KEY a `reps_sedes` a propósito ("FK suave"): la tabla se recarga con
+  cada corte mensual del REPS y una sede puede desaparecer; la app valida al vincular.
+- `nit` es columna generada (STORED): añadirla reescribe la tabla sin disparar triggers de fila
+  (`updated_at` no cambia). No se puede escribir: un INSERT/UPDATE que la incluya falla.
+- Después de aplicar: `scripts/reps-load-sedes.ts --file <csv>` y `scripts/reps-match.ts` (informe) →
+  `--apply`. Las escrituras de `--apply` sí mueven `updated_at` (disparador
+  `update_hospitals_updated_at`); la cola de pendientes no lo usa.
+- Rollback: si otra migración de la Fase 3 creó FOREIGN KEY hacia `reps_sedes` o `hospitals.reps_code`,
+  su rollback va antes. Exportar antes los vínculos si importan.
+
+---
+
+# Migraciones — Fase 3: giros directos de la ADRES
+
+> **ESTADO: APLICADA** el 2026-10-11 en `norvxqgohddgsdkggqzq` (aditiva: 2 tablas y 1 función nuevas;
+> no toca tablas existentes). Detalle de la fuente, limitaciones, script de carga, API y UI en
+> `docs/fases/fase3-adres.md`.
+
+| # | Archivo | Qué hace | Destructivo |
+|---|---|---|---|
+| 7 | `2026-10-11_0610_fase3_adres.sql` | Crea `adres_giros` (UNIQUE nit+periodo+regimen+tipo+EPS, CHECKs de formato, índice por periodo) y `adres_fetch_log` (bitácora ok / sin_registros / error); función `adres_giros_resumen(desde, hasta, regimen)` → jsonb por NIT y mes (SECURITY INVOKER, EXECUTE solo `service_role`). RLS sin políticas, sin privilegios para anon/authenticated/PUBLIC | No |
+| — | `2026-10-11_9930_adres_rollback.sql` | Borra la función y las 2 tablas | Sí (solo datos públicos descargados de la ADRES; se recargan con el script) |
+
+- Aplicada con el MCP de Supabase sin el `BEGIN/COMMIT` del archivo (la herramienta ya envuelve en una
+  transacción); el bloque final de comprobaciones pasó (RLS, 0 políticas, 0 privilegios para
+  anon/authenticated, `service_role` con SELECT/INSERT/UPDATE/DELETE, función solo `service_role`,
+  22 columnas).
+- Después de aplicar: `cd web && node scripts/adres-giros.mjs --desde 2023-07` (todos los NIT de IPS
+  activas; reanudable). El 2026-10-11 se probó con 3 NIT (512 filas) y después se lanzó la carga completa (701 NIT,
+  `--desde 2023-07`); el estado real está en `adres_fetch_log`.
+- Rollback independiente: las tablas no tienen FKs hacia ni desde otras tablas.
+
+---
+
+# Migraciones — Fase 3: servicios habilitados y capacidad instalada del REPS
+
+> **ESTADO: APLICADA** el 2026-10-11 en `norvxqgohddgsdkggqzq` (aditiva: 3 tablas, 5 columnas en
+> `hospitals`, 1 función; el CHECK de `hospital_history.action` solo se amplía con `'import'`). Detalle
+> del procedimiento, reglas, API y UI en `docs/fases/fase3-servicios-capacidad-reps.md`.
+
+| # | Archivo | Qué hace | Destructivo |
+|---|---|---|---|
+| 8 | `2026-10-11_0620_fase3_servicios.sql` | Crea `hospital_services` (UNIQUE reps_code+service_code+modality), `hospital_capacity` (UNIQUE reps_code+group_name+concept; grupo camas/salas/ambulancias/otros) y `hospital_import_jobs` (token de la simulación, caduca a los 30 min); añade a `hospitals` `quirofanos`, `reps_beds`, `service_flags` (jsonb NOT NULL default `{}`), `reps_services_count`, `reps_updated_at`; amplía `hospital_history_action_check` con `import` conservando los valores que ya admita; función `reps_import_apply(uuid, jsonb)` (una transacción, `FOR UPDATE` del job, EXECUTE solo `service_role`). RLS sin políticas, sin privilegios para anon/authenticated/PUBLIC | No |
+| — | `2026-10-11_9930_servicios_rollback.sql` | Borra la función, las 3 tablas y las 5 columnas; las filas de `hospital_history` con `import` pasan a `edited` con `changes.original_action = 'import'` (la cola de pendientes las ignora: no tienen `zone_fields`) y se quita `import` del CHECK | Sí (lo importado del REPS; se reimporta desde los archivos) |
+
+- Aplicada con el MCP de Supabase sin el `BEGIN/COMMIT` del archivo; el bloque final de comprobaciones
+  pasó (5 columnas, RLS en las 3 tablas, 0 políticas, 0 privilegios para anon/authenticated, función
+  solo `service_role`, CHECK de `hospital_history` = activated, deactivated, edited, import).
+- `service_flags NOT NULL DEFAULT '{}'` no reescribe la tabla (default constante, PostgreSQL ≥ 11). Las
+  escrituras del importador sí mueven `hospitals.updated_at` (disparador); la cola de pendientes no lo usa.
+- Si otra migración redefine `hospital_history_action_check`, debe conservar `'import'` (si no,
+  `reps_import_apply` falla y no se aplica nada: es una sola transacción).
+- Prueba de la función en una transacción deshecha (2026-10-11): 1 IPS real con servicios, capacidad,
+  banderas e historial → todo correcto, segunda aplicación bloqueada (OPM11); 30.000 servicios en
+  729 ms. Después de deshacer: 0 filas en las tablas nuevas y 0 IPS tocadas.
+- Rollback independiente de 9930_reps y 9930_adres (las tablas no tienen FKs hacia `reps_sedes`).

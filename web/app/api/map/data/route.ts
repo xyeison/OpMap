@@ -12,6 +12,9 @@ import { zoneDisplayName } from '@/lib/zone-names'
 const HOSPITAL_COLUMNS =
   'id, code, name, department_id, municipality_id, locality_id, lat, lng, beds, service_level, ' +
   'surgeries, ambulances, municipality_name, department_name, locality_name, type, doctors'
+// Fase 3: servicios y capacidad del REPS para el bloque "IPS" de "Filtros y visitas"
+// (lib/hospital-service-filters.ts). Sin la migración 0620 se usa HOSPITAL_COLUMNS.
+const HOSPITAL_COLUMNS_WITH_REPS = `${HOSPITAL_COLUMNS}, service_flags, quirofanos, reps_beds`
 
 const KAM_COLUMNS = 'id, name, area_id, lat, lng, color, zone_id'
 // base_city llega con la migración de la Fase 2; mientras no exista se usa KAM_COLUMNS
@@ -130,11 +133,15 @@ export async function GET(request: NextRequest) {
         KAM_COLUMNS_WITH_CITY,
         KAM_COLUMNS
       ),
-      fetchAllRows<any>((from, to) =>
-        supabase.from('assignments')
-          .select(`id, kam_id, hospital_id, travel_time, assignment_type, is_base_territory, hospitals!inner(${HOSPITAL_COLUMNS}), kams!inner(id, name, color)`)
-          .order('id')
-          .range(from, to)
+      selectWithFallback<any[]>(
+        cols => fetchAllRows<any>((from, to) =>
+          supabase.from('assignments')
+            .select(`id, kam_id, hospital_id, travel_time, assignment_type, is_base_territory, hospitals!inner(${cols}), kams!inner(id, name, color)`)
+            .order('id')
+            .range(from, to)
+        ),
+        HOSPITAL_COLUMNS_WITH_REPS,
+        HOSPITAL_COLUMNS
       ),
       fetchAllRows<any>((from, to) =>
         supabase.from('municipalities')
@@ -142,12 +149,16 @@ export async function GET(request: NextRequest) {
           .order('code')
           .range(from, to)
       ),
-      fetchAllRows<any>((from, to) =>
-        supabase.from('hospitals')
-          .select(HOSPITAL_COLUMNS)
-          .eq('active', true)
-          .order('id')
-          .range(from, to)
+      selectWithFallback<any[]>(
+        cols => fetchAllRows<any>((from, to) =>
+          supabase.from('hospitals')
+            .select(cols)
+            .eq('active', true)
+            .order('id')
+            .range(from, to)
+        ),
+        HOSPITAL_COLUMNS_WITH_REPS,
+        HOSPITAL_COLUMNS
       ),
       supabase.from('hospital_contracts').select('hospital_id, contract_value, provider').eq('active', true),
       // Una sola consulta de ejecutivos; se agrupan por zona en memoria (sin N+1)

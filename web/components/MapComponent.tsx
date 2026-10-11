@@ -9,6 +9,7 @@ import { useRouter } from 'next/navigation'
 import { VisitsHeatmapLayer } from './VisitsHeatmapLayer'
 import { formatTravelTimeFromSeconds } from '@/lib/format-utils'
 import MapControls from './MapControls'
+import { EMPTY_IPS_FILTER, matchesIpsFilter, type IpsServiceFilter } from '@/lib/hospital-service-filters'
 import MapController, { ZoomGate } from './MapController'
 import HospitalMarker, { UnassignedHospitalMarker, IpsZoomLayer, formatZoneExecutives, ipsRadius, IPS_FULL_SIZE_ZOOM, type HospitalSelectHandler } from './HospitalMarker'
 import MapLegend, { MapLegendCard, type LegendEntry, type LegendNote, type LegendState, type LegendViewSelect } from './MapLegend'
@@ -428,6 +429,8 @@ export default function MapComponent({
   const [showHeatmap, setShowHeatmap] = useState(initialShowHeatmap)
   const [showMarkers, setShowMarkers] = useState(initialShowMarkers)
   const [showContracts, setShowContracts] = useState(false)
+  // Fase 3: bloque "IPS" de Filtros (quirófano, ortopedia, neurocirugía, columna, camas); solo oculta puntos
+  const [ipsServiceFilter, setIpsServiceFilter] = useState<IpsServiceFilter>(EMPTY_IPS_FILTER)
   const [zones, setZones] = useState<any[]>([])
   const [mapCenter, setMapCenter] = useState<[number, number] | undefined>(undefined)
   const [mapZoom, setMapZoom] = useState<number | undefined>(undefined)
@@ -1097,12 +1100,13 @@ export default function MapComponent({
     return mapData.assignments.filter((a: any) => {
       // Filtrar por contratos primero si está activo
       if (showContracts && !mapData.contractValuesByHospital[a.hospitals.id]) return false
+      if (!matchesIpsFilter(a.hospitals, ipsServiceFilter)) return false
       // Luego aplicar filtro de tipo
       if (hospitalTypeFilter === 'all') return true
       if (hospitalTypeFilter === 'sin_tipo') return !a.hospitals.type
       return a.hospitals.type === hospitalTypeFilter
     }) as any[]
-  }, [mapData, showContracts, hospitalTypeFilter])
+  }, [mapData, showContracts, hospitalTypeFilter, ipsServiceFilter])
 
   const filteredUnassignedHospitals = useMemo(() => {
     if (!mapData) return [] as any[]
@@ -1113,9 +1117,9 @@ export default function MapComponent({
       }
       // Si showContracts está activo, solo mostrar hospitales con contratos
       if (showContracts && !mapData.contractValuesByHospital[h.id]) return false
-      return true
+      return matchesIpsFilter(h, ipsServiceFilter)
     }) as any[]
-  }, [mapData, showContracts, hospitalTypeFilter])
+  }, [mapData, showContracts, hospitalTypeFilter, ipsServiceFilter])
 
   const assignmentByHospital = useMemo(() => {
     const byId: Record<string, any> = {}
@@ -2010,6 +2014,8 @@ export default function MapComponent({
     onShowHeatmapChange: setShowHeatmap,
     onShowMarkersChange: setShowMarkers,
     onShowContractsChange: setShowContracts,
+    ipsServiceFilter,
+    onIpsServiceFilterChange: setIpsServiceFilter,
     onHospitalSelect: openHospitalPopup,
     onMapNavigate: navigateTo,
     visitsEnabled,

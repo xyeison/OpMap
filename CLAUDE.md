@@ -9,9 +9,12 @@ Python de la raíz son el motor original; hoy la fuente de verdad es `web/`. Idi
 npm run dev          # servidor local (o preview "opmap-web" en .claude/launch.json)
 npm run check        # typecheck + lint + pruebas sin red  ← correr SIEMPRE antes de dar algo por terminado
 npm run typecheck    # tsc --noEmit (≈3 s)
-npm run test         # scripts/ips-routes-check.ts: Supabase falso en memoria, sin Google (109 pruebas)
+npm run test         # ips-routes-check (109, Supabase falso, sin Google) + reps-check (55) + reps-import-check (90) + adres-check (112)
 npm run fase2:check  # reglas de cobertura vs documento de producto (NECESITA Supabase real, solo lectura)
 npm run fase1:simulate   # simulación de zonas, solo lectura
+npm run reps:check   # cruce IPS ↔ sedes del REPS: pruebas puras sin red
+npm run adres:check  # giros ADRES: lectura del reporte y agregación, pruebas puras sin red
+npm run reps-import:check  # importador de servicios/capacidad del REPS (Excel, CSV, PDF): puras sin red
 ```
 
 Variables en `web/.env.local` (ver `web/VERCEL_ENV_VARS.md`): `NEXT_PUBLIC_SUPABASE_URL`,
@@ -65,10 +68,53 @@ nada llama a Google.
   solo con autorización del dueño y en la misma ventana que el despliegue del código. Acceso a datos
   desde el servidor con `service_role` (`lib/supabase-admin.ts`); permisos por rol con `requirePermission`
   (`lib/require-role.ts` + `lib/permissions.ts`), no con políticas RLS por rol.
+- **Caché de Next.js**: el cliente de `lib/supabase-admin.ts` hace todas sus consultas con
+  `cache: 'no-store'`. No quitarlo: en Next 14 las rutas GET con `dynamic = 'force-dynamic'` guardaban
+  el fetch de supabase-js para siempre en la Data Cache (datos y sesión de usuario viejos).
 - **Territorio y contratos**: el anexo de territorio (Anexo A IPS, Anexo B municipios) va al contrato de
   cada Ejecutivo Comercial; las versiones (`territory_snapshots`) son inmutables.
 - Nunca leer ni editar `.env*`; nunca imprimir claves. `.env.example` de la raíz tuvo una clave real de
   Google expuesta: hay que rotarla (tarea del dueño).
+
+## Fase 3: sedes del REPS
+
+- La IPS es la **sede** del REPS (código de habilitación, 12 dígitos), no el NIT: `hospitals.reps_code`
+  (UNIQUE, FK suave a `reps_sedes`) y `reps_match_status` (`matched` | `ambiguous` | `unmatched`).
+  `hospitals.nit` es columna GENERADA desde `code`: no se escribe. El sufijo de `code` no es el DV DIAN.
+- Carga mensual: `scripts/reps-load-sedes.ts --file <csv>` (solo IPS, objeto social diferente y
+  transporte; nunca profesionales independientes). Cruce: `scripts/reps-match.ts` (informe) y `--apply`
+  (no pisa vínculos existentes). Reglas puras en `lib/reps-match.ts`, pruebas `npm run reps:check`.
+- UI: sección "Sede REPS" de la ficha (vincular a mano) y `/hospitals/reps` (Cruce REPS). Detalle:
+  `docs/fases/fase3-reps.md`.
+
+## Fase 3: giros ADRES
+
+- Fuente: ADRES, Reporte 29 "Giro a IPS" (`SII_LMA_WEB/LMA/frmReportes.aspx?Reporte=29`), público. Solo
+  **régimen subsidiado** (el contributivo, servicios.adres.gov.co, daba error el 2026-10-11). Por mes de
+  proceso, tipo (Capitación/Evento) y EPS. A 2026-10-11 publica hasta **junio-2025**.
+- **El giro es por NIT del prestador, no por sede**: si un NIT tiene varias sedes en OpMap, para agregar
+  por municipio/zona/ejecutivo se reparte por camas (nunca se suma dos veces). NIT de la IPS = misma regla
+  que `hospitals.nit` (`nitFromHospitalCode()` en `web/lib/adres-parse.mjs`).
+- Tablas `adres_giros` / `adres_fetch_log` + función `adres_giros_resumen()` (migración 0610, aplicada).
+  Carga: `cd web && node scripts/adres-giros.mjs` (HTTP con User-Agent propio que se identifica; el
+  firewall de la ADRES bloquea Chrome headless y no se evade; reanudable). Pruebas `npm run adres:check`.
+- UI: `/inteligencia` (permiso `intelligence:view`) y tarjeta "Giros ADRES" en la ficha de IPS. Detalle:
+  `docs/fases/fase3-adres.md`.
+
+## Fase 3: servicios y capacidad del REPS
+
+- Procedimiento humano: portal del REPS (perfil invitado, requiere login) → consultas **Servicios** y
+  **Capacidades instaladas** por departamento/municipio, exportar a Excel o texto `;` (máx. 4 MB) →
+  Hospitales → "Importar del REPS" (solo `admin`/`data_manager`) → simulación → "Aplicar". PDF: solo
+  **con texto**; uno escaneado responde "requiere OCR" (no hay OCR).
+- Importar NO recalcula asignaciones ni llama a Google. Solo se guardan las sedes con cruce (por
+  `hospitals.reps_code`, importación previa o NIT inequívoco); las ambiguas se vinculan en la ficha y
+  se reimporta. "Reemplazar" retira solo dentro de los grupos que trae el archivo.
+- Tablas `hospital_services`, `hospital_capacity`, `hospital_import_jobs` (token, 30 min) y en
+  `hospitals`: `quirofanos`, `reps_beds` (≠ `beds` manual), `service_flags`, `reps_services_count`,
+  `reps_updated_at` (migración 0620, aplicada). Lógica pura `web/lib/reps-import.ts`; filtro único
+  lista/mapa `web/lib/hospital-service-filters.ts` ("Columna" = columna o neurocirugía). Detalle:
+  `docs/fases/fase3-servicios-capacidad-reps.md`.
 
 ## Dónde está el detalle (leer solo cuando toque)
 

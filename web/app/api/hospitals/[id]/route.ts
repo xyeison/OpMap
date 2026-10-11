@@ -4,6 +4,8 @@ import { requirePermission, requireUser } from '@/lib/require-role'
 import { badJson, isUuid, readJsonBody, serverError, validationError } from '../../_lib/api-error'
 import { patchHospitalSchema, updateHospitalSchema } from '../../_lib/hospital-schemas'
 import { touchesZoneFields, type ZoneFieldValues } from '../../_lib/hospital-routes'
+import { isRepsCodeConflict, resolveRepsLink } from '../../_lib/reps'
+import { nitFromCode } from '@/lib/reps-match'
 import {
   getHospitalPendingStatus,
   locationChangeHistoryRow,
@@ -174,6 +176,32 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       delete updateData.lng
     }
 
+    // Fase 3: reps_code (vínculo con la sede del REPS). Mismas validaciones que PATCH .../reps-link.
+    let repsWarnings: string[] = []
+    if (updateData.reps_code !== undefined) {
+      const { data: current, error: currentError } = await supabaseAdmin
+        .from('hospitals')
+        .select('code, municipality_id, reps_code')
+        .eq('id', hospitalId)
+        .maybeSingle()
+      if (currentError) return serverError('hospitals/[id] PUT (reps)', currentError)
+      if (!current) return NextResponse.json({ error: 'Hospital no encontrado' }, { status: 404 })
+      const repsCode = (updateData.reps_code as string | null) ?? null
+      if (repsCode === current.reps_code) {
+        delete updateData.reps_code
+      } else {
+        const resolution = await resolveRepsLink({
+          repsCode,
+          hospitalId,
+          nit: nitFromCode((updateData.code as string | undefined) ?? current.code),
+          municipalityId: current.municipality_id,
+        })
+        if (!resolution.ok) return NextResponse.json({ error: resolution.error }, { status: resolution.status })
+        Object.assign(updateData, resolution.fields)
+        repsWarnings = resolution.warnings
+      }
+    }
+
     if (Object.keys(updateData).length === 0) {
       return NextResponse.json({ error: 'No hay campos para actualizar' }, { status: 400 })
     }
@@ -190,6 +218,9 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       .maybeSingle()
 
     if (error) {
+      if (isRepsCodeConflict(error)) {
+        return NextResponse.json({ error: 'Esa sede del REPS ya está vinculada a otra IPS' }, { status: 409 })
+      }
       if ((error as { code?: string }).code === '23505') {
         return NextResponse.json({ error: 'Ya existe un hospital con ese código' }, { status: 409 })
       }
@@ -203,7 +234,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       ? await markLocationChange(hospitalId, before, data, auth.user.id, 'hospitals/[id] PUT')
       : { pending: false, warnings: [] }
 
-    return NextResponse.json({ ...data, pending: marked.pending, warnings: marked.warnings })
+    return NextResponse.json({ ...data, pending: marked.pending, warnings: [...marked.warnings, ...repsWarnings] })
   } catch (error) {
     return serverError('hospitals/[id] PUT', error)
   }

@@ -6,9 +6,12 @@ import { useParams, useRouter } from 'next/navigation'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
 import ContractsInlineManager from '@/components/ContractsInlineManager'
+import RepsSedeSection from '@/components/RepsSedeSection'
 import { useQueryClient } from '@tanstack/react-query'
 import { usePermissions } from '@/hooks/usePermissions'
 import { useUser } from '@/contexts/UserContext'
+import HospitalGirosCard from '@/components/HospitalGirosCard'
+import HospitalRepsPanel from '@/components/HospitalRepsPanel'
 
 // GET /api/hospitals/[id] → routeStatus (app/api/_lib/pending-assignment.ts, getHospitalPendingStatus)
 interface RouteStatus {
@@ -510,6 +513,10 @@ export default function HospitalDetailPage() {
           </div>
         </div>
 
+        {/* Sede REPS (Fase 3): código de habilitación de la sede que ES esta IPS */}
+        <RepsSedeSection hospitalId={hospitalId} />
+        <HospitalRepsPanel hospitalId={hospitalId} />
+
         {/* Doctores */}
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6 mb-8">
           <div className="flex justify-between items-center mb-4">
@@ -861,6 +868,8 @@ export default function HospitalDetailPage() {
             </div>
           )}
         </div>
+
+        <HospitalGirosCard hospitalId={hospitalId} />
 
         {/* Modal de confirmación para desactivar */}
         {showDeactivateModal && (

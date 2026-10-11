@@ -7,6 +7,7 @@
 | `mapa-estetica.md` | Estilo autorizado del mapa (colores, insignias, filtros, móvil) | Al tocar `MapComponent.tsx`, `mapStyles.ts`, `MapPopups.tsx` |
 | `base-de-datos.md` | Tablas, vistas, RLS, índices | Al escribir migraciones o consultas |
 | `fases/fase1-…`, `fase2-…`, `fase2b-…` | Modelo zonas/líneas/ejecutivas, cobertura por línea, municipios y anexos | Al tocar `coverage.ts`, `municipality-coverage.ts`, `territory.ts` |
+| `fases/fase3-servicios-capacidad-reps.md` | Importador del REPS (servicios, capacidad, PDF), filtros de IPS | Al tocar `reps-import*.ts`, `/hospitals/import`, filtros IPS |
 | `ips-pendientes.md` | Cola de IPS pendientes y acción masiva | Al tocar `api/hospitals/*`, `pending-assignment.ts` |
 | `arquitectura-y-scripts.md` | Scripts Python, estructura de carpetas, archivos clave | Al usar los scripts Python o buscar un archivo |
 | `historico-resultados.md` | Cifras de 2025 y colores originales | Solo como referencia histórica |

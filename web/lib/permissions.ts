@@ -41,6 +41,7 @@ export type Permission =
   | 'territory:view'           // Fase 2b: anexo de territorio por ejecutivo comercial (la API limita por línea/ejecutivo)
   | 'territory:snapshot'       // Fase 2b: guardar versiones inmutables del anexo (line_leader solo SU línea)
   | 'municipalities:recompute' // Fase 2b: recalcular municipality_zone con la caché (sin Google)
+  | 'intelligence:view'        // Fase 3: inteligencia de giros ADRES (/inteligencia, GET /api/intelligence/giros)
 
 // Definición de permisos por rol
 export const rolePermissions: Record<Role, Permission[]> = {
@@ -74,7 +75,8 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'map:all-lines',
     'territory:view',
     'territory:snapshot',
-    'municipalities:recompute'
+    'municipalities:recompute',
+    'intelligence:view'
   ],
   sales_manager: [
     'dashboard:view',
@@ -106,7 +108,8 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'coverage:view',
     'coverage:edit',
     'territory:view',
-    'territory:snapshot'
+    'territory:snapshot',
+    'intelligence:view'
   ],
   // Dirección comercial: todo lo de ver + gestionar líneas, equipo y cobertura de todas las líneas.
   // Sin users:manage ni recalculate:complete.
@@ -128,7 +131,8 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'coverage:edit',
     'map:all-lines',
     'territory:view',
-    'territory:snapshot'
+    'territory:snapshot',
+    'intelligence:view'
   ],
   contract_manager: [
     'map:view',
@@ -160,7 +164,8 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'executives:edit',      // Gestiona el equipo comercial (ejecutivas y sus líneas)
     'coverage:view',
     'map:all-lines',
-    'territory:view'
+    'territory:view',
+    'intelligence:view'
   ],
   viewer: [
     'map:view',
@@ -169,7 +174,8 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'executives:view',
     'coverage:view',
     'map:all-lines',
-    'territory:view'
+    'territory:view',
+    'intelligence:view'
   ],
   user: [
     'map:view',
@@ -212,6 +218,7 @@ export function getAllowedRoutes(role: Role | undefined): string[] {
   if (permissions.includes('territories:view')) routes.push('/territories', '/territories/[id]')
   if (permissions.includes('lines:view')) routes.push('/lines')            // Fase 1
   if (permissions.includes('executives:view')) routes.push('/executives')  // Fase 1
+  if (permissions.includes('intelligence:view')) routes.push('/inteligencia') // Fase 3: giros ADRES
   
   return routes
 }
