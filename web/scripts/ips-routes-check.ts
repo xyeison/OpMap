@@ -12,9 +12,21 @@
  *  3. refreshHospitalZone con el recálculo simulado: avisos (incluido "Sin tiempos de viaje: la IPS
  *     quedará sin zona hasta calcular rutas"), plazos y tabla de municipios ausente.
  *  4. Validación zod de hospitales (Bogotá necesita localidad de 7 dígitos, coordenadas en Colombia).
+ *  5. Cola de pendientes (app/api/_lib/pending-assignment.ts): clasificación sin asignación (a), pares
+ *     que faltan o desactualizados (b), cambio de ubicación después de la asignación (c) y tiempos
+ *     nuevos sin usar; fechas sin zona; resumen y orden por cursor.
+ *  6. Acción masiva (process-pending): la fase A agrupa por lotes (pares y presupuesto de tiempo) y
+ *     avanza con cursor; la fase B (recálculo completo) solo cuando en la pasada no quedan IPS con pares
+ *     por calcular; GOOGLE_ROUTES_DISABLED salta la fase A.
+ *  7. Rutas reales (POST /api/hospitals, PUT /api/hospitals/[id], POST activate, GET pending-assignment,
+ *     POST process-pending) contra un Supabase FALSO en memoria: crear, editar o activar NO llama a
+ *     Google ni al recálculo (no toca assignments, hospital_kam_distances ni kams) y responde
+ *     pending/warnings.
  *
  * Garantía de "sin red": se borran del entorno las claves de Google y Supabase, se fuerza
- * GOOGLE_ROUTES_DISABLED=true y fetch se reemplaza por uno que falla; toda la E/S se inyecta con dobles.
+ * GOOGLE_ROUTES_DISABLED=true y fetch se reemplaza por un despachador que falla salvo en la sección 7,
+ * donde solo responde a http://supabase.test (un PostgREST falso en memoria) y registra cualquier otro
+ * destino como intento de red; el resto de la E/S se inyecta con dobles.
  *
  * Uso (desde web/): npm run ips:check   (= npx tsx scripts/ips-routes-check.ts)
  * Código de salida 1 si alguna prueba falla.
@@ -46,6 +58,29 @@ import {
 } from '../app/api/_lib/hospital-schemas'
 import { eligibleKamsForHospital, isBogotaKam, routeCandidateKams } from '../lib/opmap-algorithm-simplified'
 import { MunicipalityTableMissingError } from '../lib/municipality-coverage'
+import {
+  classifyPendingHospitals,
+  ensurePendingHospitalDistances,
+  locationChangeHistoryRow,
+  PENDING_ASSIGNMENT_WARNING,
+  pendingStatusFromSnapshot,
+  pendingSummaryResponse,
+  processPendingStep,
+  routesQueue,
+  runPendingRoutesStep,
+  timestampMs,
+  type PendingAssignDeps,
+  type PendingRoutesDeps,
+  type PendingSnapshot,
+  type PendingSourceHospital,
+} from '../app/api/_lib/pending-assignment'
+import { NextRequest } from 'next/server'
+import { POST as createHospitalRoute } from '../app/api/hospitals/route'
+import { PUT as updateHospitalRoute } from '../app/api/hospitals/[id]/route'
+import { POST as activateHospitalRoute } from '../app/api/hospitals/[id]/activate/route'
+import { GET as pendingAssignmentRoute } from '../app/api/hospitals/pending-assignment/route'
+import { POST as processPendingRoute } from '../app/api/hospitals/process-pending/route'
+import { passwordVersion, SESSION_COOKIE_NAME, signSession } from '../lib/session'
 
 for (const key of [
   'GOOGLE_MAPS_API_KEY',
@@ -53,12 +88,18 @@ for (const key of [
   'SUPABASE_SERVICE_ROLE_KEY',
   'NEXT_PUBLIC_SUPABASE_URL',
   'SUPABASE_URL',
+  'SESSION_SECRET',
 ]) {
   delete process.env[key]
 }
 process.env.GOOGLE_ROUTES_DISABLED = 'true'
-globalThis.fetch = (async () => {
-  throw new Error('ips-routes-check: la red está prohibida en estas pruebas')
+// Despachador único: sin manejador (todas las secciones salvo la 7) cualquier fetch falla. El cliente de
+// Supabase captura `fetch` al crearse, por eso se instala una sola vez y se cambia el manejador.
+type FetchHandler = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+let fetchHandler: FetchHandler | null = null
+globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  if (!fetchHandler) throw new Error('ips-routes-check: la red está prohibida en estas pruebas')
+  return fetchHandler(input, init)
 }) as typeof fetch
 
 // Los console.error / console.info del módulo (fallos simulados y traza de gasto en Google) se
@@ -303,6 +344,161 @@ function refreshDeps(overrides: Partial<RefreshDeps> & { assignment?: { kam_id: 
   }
   return { deps, calls }
 }
+
+// ---------------------------------------------------------------------------
+// Cola de pendientes: datos de prueba
+// ---------------------------------------------------------------------------
+
+const LAST_RECALC = '2026-10-11T13:05:52.221625+00:00' // min(assignments.assigned_at)
+const BEFORE_RECALC = '2026-10-01T10:00:00' // hospital_kam_distances.calculated_at (timestamp SIN zona, UTC)
+const AFTER_RECALC_NO_TZ = '2026-10-11T14:00:00' // calculado después del último recálculo
+const LONG_AGO = '2025-07-22T16:49:12.403608+00:00'
+const AFTER_RECALC = '2026-10-11T15:00:00+00:00'
+
+const pendingHospital = (
+  overrides: Partial<PendingSourceHospital> & Pick<PendingSourceHospital, 'id'>
+): PendingSourceHospital => ({
+  ...hospital(overrides),
+  created_at: LONG_AGO,
+  municipality_name: 'Floridablanca',
+  ...overrides,
+})
+
+function pairsFor(h: RouteHospital, calculatedAt: string, except: string[] = []) {
+  return routeCandidateKams(ZONES, h, ADJACENCY, EXCLUDED)
+    .filter(kam => !except.includes(kam.name))
+    .map(kam => ({ hospital_id: h.id, kam_id: kam.id, calculated_at: calculatedAt, updated_at: calculatedAt }))
+}
+
+function snapshotOf(parts: Partial<PendingSnapshot>): PendingSnapshot {
+  return {
+    hospitals: [],
+    kams: ZONES,
+    adjacency: ADJACENCY,
+    excludedDepartments: EXCLUDED,
+    distances: [],
+    assignments: [],
+    history: [],
+    lastRecalculationAt: LAST_RECALC,
+    ...parts,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Supabase FALSO (PostgREST mínimo en memoria) para probar las rutas reales sin red
+// ---------------------------------------------------------------------------
+
+interface FakeRequest {
+  method: string
+  table: string
+  params: URLSearchParams
+  body: unknown
+}
+
+const FAKE_SUPABASE_URL = 'http://supabase.test'
+const POSTGREST_CONTROL_PARAMS = new Set(['select', 'order', 'limit', 'offset', 'on_conflict', 'columns'])
+
+function matchesFilters(row: Record<string, unknown>, params: URLSearchParams): boolean {
+  for (const [key, raw] of Array.from(params.entries())) {
+    if (POSTGREST_CONTROL_PARAMS.has(key)) continue
+    const value = row[key] === null || row[key] === undefined ? 'null' : String(row[key])
+    if (raw.startsWith('eq.')) {
+      if (value !== raw.slice(3)) return false
+    } else if (raw.startsWith('in.(') && raw.endsWith(')')) {
+      const options = raw.slice(4, -1).split(',').map(option => option.replace(/^"|"$/g, ''))
+      if (!options.includes(value)) return false
+    } else if (raw.startsWith('neq.')) {
+      if (value === raw.slice(4)) return false
+    } else {
+      throw new Error(`Supabase falso: filtro no soportado ${key}=${raw}`)
+    }
+  }
+  return true
+}
+
+function fakeSupabase(tables: Record<string, Array<Record<string, unknown>>>) {
+  const requests: FakeRequest[] = []
+  const external: string[] = []
+  let sequence = 0
+  const json = (payload: unknown, status = 200) =>
+    new Response(JSON.stringify(payload), { status, headers: { 'content-type': 'application/json' } })
+
+  const handler: FetchHandler = async (input, init) => {
+    const href = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+    const url = new URL(href)
+    if (url.origin !== FAKE_SUPABASE_URL) {
+      external.push(url.origin)
+      throw new Error(`ips-routes-check: intento de red a ${url.origin}`)
+    }
+    const method = (init?.method || 'GET').toUpperCase()
+    const table = url.pathname.replace('/rest/v1/', '')
+    const body = init?.body ? JSON.parse(String(init.body)) : undefined
+    requests.push({ method, table, params: url.searchParams, body })
+    const wantsObject = (new Headers(init?.headers).get('accept') || '').includes('vnd.pgrst.object')
+    const store = (tables[table] = tables[table] ?? [])
+
+    let rows: Array<Record<string, unknown>>
+    if (method === 'GET') {
+      rows = store.filter(row => matchesFilters(row, url.searchParams))
+      const order = url.searchParams.get('order')
+      if (order) {
+        const [column, direction] = order.split(',')[0].split('.')
+        rows = [...rows].sort((a, b) => {
+          const x = String(a[column] ?? '')
+          const y = String(b[column] ?? '')
+          return (x < y ? -1 : x > y ? 1 : 0) * (direction === 'desc' ? -1 : 1)
+        })
+      }
+      const offset = Number(url.searchParams.get('offset') ?? 0)
+      const limit = url.searchParams.get('limit')
+      rows = rows.slice(offset, limit === null ? undefined : offset + Number(limit))
+    } else if (method === 'POST') {
+      rows = (Array.isArray(body) ? body : [body]).map(row => ({
+        id: `fake-${table}-${++sequence}`,
+        created_at: new Date().toISOString(),
+        ...row,
+      }))
+      store.push(...rows)
+    } else if (method === 'PATCH') {
+      rows = store.filter(row => matchesFilters(row, url.searchParams))
+      rows.forEach(row => Object.assign(row, body))
+    } else {
+      throw new Error(`Supabase falso: método no soportado ${method}`)
+    }
+
+    if (wantsObject) {
+      if (rows.length !== 1) {
+        return json({ code: 'PGRST116', details: `The result contains ${rows.length} rows`, hint: null, message: 'JSON object requested, multiple (or no) rows returned' }, 406)
+      }
+      return json(rows[0], method === 'POST' ? 201 : 200)
+    }
+    return json(rows, method === 'POST' ? 201 : 200)
+  }
+
+  const touched = () => Array.from(new Set(requests.map(request => request.table)))
+  const writes = () => requests.filter(request => request.method !== 'GET')
+  return { handler, requests, external, touched, writes }
+}
+
+// Usuarios de la sesión simulada (la contraseña guardada solo sirve para el claim pv)
+const ADMIN_ID = '11111111-1111-4111-8111-111111111111'
+const VIEWER_ID = '22222222-2222-4222-8222-222222222222'
+const fakeUsers = () => [
+  { id: ADMIN_ID, email: 'admin@test.local', full_name: 'Admin', role: 'admin', active: true, password: 'hash-admin' },
+  { id: VIEWER_ID, email: 'viewer@test.local', full_name: 'Viewer', role: 'viewer', active: true, password: 'hash-viewer' },
+]
+
+function apiRequest(path: string, options: { method?: string; body?: unknown; userId?: string; password?: string } = {}) {
+  const token = signSession(options.userId ?? ADMIN_ID, passwordVersion(options.password ?? 'hash-admin'))
+  return new NextRequest(`http://localhost:3000${path}`, {
+    method: options.method ?? 'GET',
+    headers: { cookie: `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}`, 'content-type': 'application/json' },
+    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+  })
+}
+
+// Tablas que tocaría el recálculo completo, la capa de municipios o el cálculo de rutas
+const RECALCULATION_TABLES = ['assignments', 'hospital_kam_distances', 'kams', 'department_adjacency', 'departments', 'municipality_zone', 'municipality_travel_times']
 
 // ---------------------------------------------------------------------------
 // Pruebas
@@ -554,7 +750,7 @@ async function main() {
     const result = await refreshHospitalZone(HOCEN.id, { deps })
     check(
       'Falla el recálculo: aviso y no toca municipios',
-      !result.recalculated && calls.municipalities === 0 && result.warnings.some(w => w.includes('no se pudo recalcular'))
+      !result.recalculated && calls.municipalities === 0 && result.warnings.some(w => /no se pudo recalcular/i.test(w))
     )
   }
   {
@@ -678,6 +874,457 @@ async function main() {
   check('locality_id null frente a vacío: sin cambio', !zoneFieldsChanged(stored, { ...stored, locality_id: '' }))
   check('Cambio de municipio: cambio', zoneFieldsChanged(stored, { ...stored, municipality_id: '68001' }))
   check('Cambio de estado: cambio', zoneFieldsChanged(stored, { ...stored, active: false }))
+
+  print('\n7. Cola de pendientes (classifyPendingHospitals, sin red)')
+  check(
+    'Fechas: timestamp sin zona se lee como UTC; "+00" y "+00:00" también',
+    timestampMs('2025-08-07T01:06:11.362298') === Date.UTC(2025, 7, 7, 1, 6, 11, 362) &&
+      timestampMs('2026-10-11 13:05:52.434876+00') === Date.UTC(2026, 9, 11, 13, 5, 52, 434) &&
+      timestampMs('2026-10-11T13:05:52.434876+00:00') === Date.UTC(2026, 9, 11, 13, 5, 52, 434) &&
+      timestampMs(null) === null
+  )
+  const NEW_IPS = pendingHospital({ id: 'p-01-nueva', name: 'A Nueva (sin rutas)', created_at: AFTER_RECALC })
+  const OK_IPS = pendingHospital({ id: 'p-02-ok', name: 'B Asignada completa' })
+  const MISSING_IPS = pendingHospital({ id: 'p-03-faltan', name: 'C Asignada con 2 faltantes' })
+  const MOVED_IPS = pendingHospital({ id: 'p-04-movida', name: 'D Movida' })
+  const LOCALITY_IPS = pendingHospital({ id: 'p-05-territorio', name: 'E Cambio sin coordenadas' })
+  const FAR_IPS = pendingHospital({ id: 'p-06-lejana', name: 'F Fuera de alcance', department_id: '81', municipality_id: '81001', lat: 7.0847, lng: -70.7591 })
+  const REACTIVATED_IPS = pendingHospital({ id: 'p-07-reactivada', name: 'G Reactivada' })
+  const NEW_ROUTES_IPS = pendingHospital({ id: 'p-08-rutas-nuevas', name: 'H Con rutas nuevas' })
+  const BEDS_IPS = pendingHospital({ id: 'p-09-camas', name: 'I Solo cambió camas' })
+  const CHOCO_PENDING = pendingHospital({ ...CHOCO, id: 'p-10-choco', name: 'J Chocó' })
+  const NO_COORDS_PENDING = pendingHospital({ id: 'p-11-sin-coords', name: 'K Sin coordenadas', lat: null, lng: null })
+  const INACTIVE_PENDING = pendingHospital({ id: 'p-12-inactiva', name: 'L Inactiva', active: false, created_at: AFTER_RECALC })
+  const assignedAt = LAST_RECALC
+  const classificationSnapshot = snapshotOf({
+    hospitals: [NEW_IPS, OK_IPS, MISSING_IPS, MOVED_IPS, LOCALITY_IPS, FAR_IPS, REACTIVATED_IPS, NEW_ROUTES_IPS, BEDS_IPS, CHOCO_PENDING, NO_COORDS_PENDING, INACTIVE_PENDING],
+    distances: [
+      ...pairsFor(OK_IPS, BEFORE_RECALC),
+      ...pairsFor(MISSING_IPS, BEFORE_RECALC, ['Cúcuta', 'Medellín']),
+      ...pairsFor(MOVED_IPS, BEFORE_RECALC),
+      ...pairsFor(LOCALITY_IPS, BEFORE_RECALC),
+      ...pairsFor(FAR_IPS, BEFORE_RECALC),
+      ...pairsFor(REACTIVATED_IPS, BEFORE_RECALC),
+      ...pairsFor(NEW_ROUTES_IPS, BEFORE_RECALC, ['Cúcuta']),
+      ...pairsFor(NEW_ROUTES_IPS, AFTER_RECALC_NO_TZ).filter(row => row.kam_id === zoneByName.get('Cúcuta')!.id),
+      ...pairsFor(BEDS_IPS, BEFORE_RECALC),
+    ],
+    assignments: [OK_IPS, MISSING_IPS, MOVED_IPS, LOCALITY_IPS, NEW_ROUTES_IPS, BEDS_IPS].map(h => ({ hospital_id: h.id, assigned_at: assignedAt })),
+    history: [
+      { hospital_id: MOVED_IPS.id, action: 'edited', created_at: AFTER_RECALC, changes: { zone_fields: { before: {}, after: {} }, coordinates_changed: true } },
+      { hospital_id: LOCALITY_IPS.id, action: 'edited', created_at: AFTER_RECALC, changes: { zone_fields: { before: {}, after: {} }, coordinates_changed: false } },
+      { hospital_id: REACTIVATED_IPS.id, action: 'activated', created_at: AFTER_RECALC, changes: null },
+      { hospital_id: BEDS_IPS.id, action: 'edited', created_at: AFTER_RECALC, changes: { otra_cosa: true } },
+      { hospital_id: OK_IPS.id, action: 'activated', created_at: LONG_AGO, changes: null },
+    ],
+  })
+  const classification = classifyPendingHospitals(classificationSnapshot)
+  const byId = new Map(classification.items.map(item => [item.id, item]))
+  const santanderCandidates = candidateNames(UPRES_SANTANDER).length
+  print(`        Pendientes: ${classification.items.map(item => `${item.name} [${item.reasons.join(', ')}]`).join(' | ')}`)
+  check(
+    '(a)+(b) IPS nueva sin asignación ni rutas: unassigned + missing_routes, faltan todas sus candidatas',
+    sameSet(byId.get(NEW_IPS.id)?.reasons ?? [], ['unassigned', 'missing_routes']) &&
+      byId.get(NEW_IPS.id)?.missingPairs === santanderCandidates &&
+      byId.get(NEW_IPS.id)?.reason.includes(`Faltan ${santanderCandidates} tiempos de viaje`) === true,
+    JSON.stringify(byId.get(NEW_IPS.id))
+  )
+  check('IPS asignada con todos sus tiempos: no está pendiente', !byId.has(OK_IPS.id))
+  check(
+    '(b) asignada con 2 pares faltantes (Cúcuta, Medellín): solo missing_routes, 2 pares',
+    sameSet(byId.get(MISSING_IPS.id)?.reasons ?? [], ['missing_routes']) && byId.get(MISSING_IPS.id)?.missingPairs === 2
+  )
+  check(
+    '(c) movida después de su asignación: location_changed + tiempos desactualizados (todos)',
+    sameSet(byId.get(MOVED_IPS.id)?.reasons ?? [], ['missing_routes', 'location_changed']) &&
+      byId.get(MOVED_IPS.id)?.stalePairs === santanderCandidates &&
+      byId.get(MOVED_IPS.id)?.missingPairs === santanderCandidates &&
+      /desactualizados por cambio de coordenadas/.test(byId.get(MOVED_IPS.id)?.reason ?? ''),
+    JSON.stringify(byId.get(MOVED_IPS.id))
+  )
+  check(
+    '(c) cambio de territorio sin mover coordenadas: location_changed sin pares que pedir',
+    sameSet(byId.get(LOCALITY_IPS.id)?.reasons ?? [], ['location_changed']) && byId.get(LOCALITY_IPS.id)?.missingPairs === 0
+  )
+  check('Sin zona, con todos sus tiempos y ya recalculada (fuera de alcance): no pendiente', !byId.has(FAR_IPS.id))
+  check('(a) reactivada después del último recálculo: unassigned', sameSet(byId.get(REACTIVATED_IPS.id)?.reasons ?? [], ['unassigned']))
+  check('Tiempo calculado después del último recálculo: new_routes', sameSet(byId.get(NEW_ROUTES_IPS.id)?.reasons ?? [], ['new_routes']))
+  check(
+    'Editar otros campos (camas) no la deja pendiente (no se usa hospitals.updated_at)',
+    !byId.has(BEDS_IPS.id)
+  )
+  check('Chocó (excluido), sin coordenadas e inactiva: fuera de la cola', !byId.has(CHOCO_PENDING.id) && !byId.has(NO_COORDS_PENDING.id) && !byId.has(INACTIVE_PENDING.id))
+  check(
+    'Contadores: withoutZone = 2 (fuera de alcance + Chocó), withoutCoordinates = 1',
+    classification.withoutZone === 2 && classification.withoutCoordinates === 1,
+    `withoutZone=${classification.withoutZone} withoutCoordinates=${classification.withoutCoordinates}`
+  )
+  check(
+    'pairsMissing = suma de pares por pedir',
+    classification.pairsMissing === santanderCandidates + 2 + santanderCandidates
+  )
+  {
+    const summary = pendingSummaryResponse(classification, 2)
+    check(
+      'Resumen: count total, coste = pares × 0,005 USD, máx. N items y truncated',
+      summary.count === classification.items.length &&
+        summary.items.length === 2 &&
+        summary.truncated &&
+        summary.costEstimateUsd === Math.round(classification.pairsMissing * 0.005 * 100) / 100 &&
+        summary.items[0].name === 'A Nueva (sin rutas)'
+    )
+  }
+  check(
+    'Cola de la fase A: solo IPS con pares por pedir, ordenadas por id',
+    routesQueue(classification).map(item => item.id).join(',') === [NEW_IPS.id, MISSING_IPS.id, MOVED_IPS.id].join(',')
+  )
+  check(
+    'Sin ninguna asignación (lastRecalculationAt = null): toda IPS sin zona con candidatas es (a)',
+    classifyPendingHospitals(snapshotOf({ hospitals: [FAR_IPS], distances: pairsFor(FAR_IPS, BEFORE_RECALC), lastRecalculationAt: null })).items[0]?.reasons.join() === 'unassigned'
+  )
+  {
+    const status = pendingStatusFromSnapshot(classificationSnapshot, MOVED_IPS.id)
+    check(
+      'Estado para la ficha: pendiente, motivo legible y pares desactualizados',
+      status?.pending === true && status.stale === santanderCandidates && status.missing === santanderCandidates && status.pendingReason !== null
+    )
+  }
+  {
+    const before = { lat: 7.07, lng: -73.1, department_id: '68', municipality_id: '68276', locality_id: null, active: true }
+    const row = locationChangeHistoryRow({ hospitalId: 'h', userId: 'u', before, after: { ...before, lat: 7.2 } })
+    check(
+      'Fila de historial al mover coordenadas: action edited, zone_fields y coordinates_changed',
+      row?.action === 'edited' && row.changes.coordinates_changed === true && row.changes.zone_fields.before?.lat === 7.07
+    )
+    check('Sin cambio de ubicación: no hay fila de historial', locationChangeHistoryRow({ hospitalId: 'h', userId: 'u', before, after: { ...before } }) === null)
+  }
+
+  print('\n8. Rutas de una IPS pendiente (ensurePendingHospitalDistances)')
+  {
+    const matrix = fakeMatrix()
+    const saves: Array<{ rows: number; overwrite: boolean }> = []
+    const result = await ensurePendingHospitalDistances(MOVED_IPS.id, classificationSnapshot, {
+      deps: { distanceMatrix: matrix.fn, routesDisabled: () => false, now: () => Date.UTC(2026, 9, 11, 16), callTimeoutMs: 1000, budgetMs: 25_000 },
+      save: async (rows, overwrite) => {
+        saves.push({ rows: rows.length, overwrite })
+      },
+    })
+    check(
+      'IPS movida: vuelve a pedir TODOS sus tiempos desactualizados y guarda sobrescribiendo',
+      matrix.calls.length === 1 && matrix.calls[0].origins.length === santanderCandidates && saves[0]?.overwrite === true && result.calculated === santanderCandidates,
+      JSON.stringify(saves)
+    )
+  }
+  {
+    const matrix = fakeMatrix()
+    const saves: Array<{ rows: number; overwrite: boolean }> = []
+    await ensurePendingHospitalDistances(MISSING_IPS.id, classificationSnapshot, {
+      deps: { distanceMatrix: matrix.fn, routesDisabled: () => false, now: () => Date.UTC(2026, 9, 11, 16), callTimeoutMs: 1000, budgetMs: 25_000 },
+      save: async (rows, overwrite) => {
+        saves.push({ rows: rows.length, overwrite })
+      },
+    })
+    check(
+      'IPS con 2 faltantes: pide solo esos 2 y guarda SIN sobrescribir',
+      matrix.calls[0]?.origins.length === 2 && saves[0]?.rows === 2 && saves[0]?.overwrite === false
+    )
+  }
+
+  print('\n9. Acción masiva process-pending (fase A por lotes, fase B al final)')
+  // 5 IPS nuevas de Bogotá (4 zonas candidatas cada una = 20 pares) + 1 sin ruta por carretera
+  const bogotaIps = (index: number) =>
+    pendingHospital({
+      id: `b-${String(index).padStart(2, '0')}`,
+      name: `IPS Bogotá ${index}`,
+      department_id: '11',
+      municipality_id: '11001',
+      locality_id: '1100113',
+      lat: 4.64 + index / 1000,
+      lng: -74.09,
+      created_at: AFTER_RECALC,
+    })
+  function processHarness(options: { noRouteIds?: string[]; maxPairs?: number; budgetMs?: number; disabled?: boolean; tickMs?: number } = {}) {
+    const snapshot = snapshotOf({ hospitals: [1, 2, 3, 4, 5].map(bogotaIps) })
+    const ensured: string[] = []
+    const calls = { loadSnapshot: 0, recalculate: 0, municipalities: 0 }
+    let clock = 0
+    const routes: PendingRoutesDeps = {
+      loadSnapshot: async () => {
+        calls.loadSnapshot++
+        return snapshot
+      },
+      ensure: async (hospitalId, current) => {
+        ensured.push(hospitalId)
+        clock += options.tickMs ?? 0
+        const built = classifyPendingHospitals(current).items.find(item => item.id === hospitalId)!
+        if (options.noRouteIds?.includes(hospitalId)) {
+          return ensureResult({ disabled: false, candidates: 4, missing: 4, pending: 4, noRoute: 4, googleCalls: 1, googleElements: 4 })
+        }
+        // Simula el guardado: la siguiente petición ya ve estos pares
+        for (const kam of ZONES.filter(zone => isBogotaKam(zone))) {
+          snapshot.distances.push({ hospital_id: hospitalId, kam_id: kam.id, calculated_at: '2026-10-11T16:00:00', updated_at: null })
+        }
+        return ensureResult({ disabled: false, candidates: 4, missing: built.missingPairs, calculated: built.missingPairs, pending: 0, googleCalls: 1, googleElements: built.missingPairs })
+      },
+      routesDisabled: () => options.disabled === true,
+      now: () => clock,
+      budgetMs: options.budgetMs ?? 35_000,
+      maxPairs: options.maxPairs ?? 200,
+    }
+    const assign: PendingAssignDeps = {
+      recalculate: async () => {
+        calls.recalculate++
+        return { totalAssignments: 772, assignmentFor: () => undefined }
+      },
+      recomputeMunicipalities: async () => {
+        calls.municipalities++
+        return { counts: { ips: 136, reach: 975 } }
+      },
+    }
+    return { snapshot, ensured, calls, deps: { routes, assign } }
+  }
+  {
+    const harness = processHarness({ maxPairs: 10 })
+    const steps: Array<Awaited<ReturnType<typeof processPendingStep>>> = []
+    let cursor: string | null = null
+    for (let index = 0; index < 10; index++) {
+      const step = await processPendingStep({ cursor }, harness.deps)
+      steps.push(step)
+      if (step.phase !== 'routes') break
+      cursor = step.nextCursor
+    }
+    const routeSteps = steps.filter((step): step is Extract<typeof step, { phase: 'routes' }> => step.phase === 'routes')
+    print(`        Pasos: ${steps.map(step => (step.phase === 'routes' ? `rutas(${step.done} IPS, ${step.pairsDone} pares, hasMore=${step.hasMore})` : 'asignación')).join(' → ')}`)
+    check(
+      'Fase A en lotes de ≤ maxPairs (10): 2 + 2 + 1 IPS (8 + 8 + 4 pares)',
+      routeSteps.map(step => step.done).join(',') === '2,2,1' && routeSteps.every(step => step.pairsDone <= 10),
+      routeSteps.map(step => `${step.done}/${step.pairsDone}`).join(' ')
+    )
+    check(
+      'Cada IPS se procesa una vez y en orden de id; hasMore solo en los lotes intermedios',
+      harness.ensured.join(',') === 'b-01,b-02,b-03,b-04,b-05' && routeSteps.map(step => step.hasMore).join(',') === 'true,true,false'
+    )
+    check(
+      'Fase B UNA vez y solo cuando no quedan IPS con pares por calcular',
+      steps.length === 4 && steps[3].phase === 'assigned' && harness.calls.recalculate === 1 && harness.calls.municipalities === 1 &&
+        routeSteps.length === 3 && harness.calls.recalculate === 1
+    )
+    const last = steps[3]
+    check(
+      'Fase B: asignaciones, municipios y sin pares pendientes',
+      last.phase === 'assigned' && last.assignments === 772 && last.municipalities.recomputed && last.pairsMissing === 0 && last.routesDisabled === false
+    )
+    check(
+      'Costo acumulado de la fase A = pares × 0,005',
+      routeSteps.reduce((sum, step) => sum + step.costUsd, 0).toFixed(2) === (20 * 0.005).toFixed(2)
+    )
+  }
+  {
+    const harness = processHarness({ noRouteIds: ['b-02'] })
+    const first = await processPendingStep({ cursor: null }, harness.deps)
+    const second = first.phase === 'routes' ? await processPendingStep({ cursor: first.nextCursor }, harness.deps) : first
+    check(
+      'Pares sin ruta por carretera no bloquean: la pasada sigue con el cursor y la fase B informa los que faltan',
+      first.phase === 'routes' && first.done === 5 && first.noRoute === 4 &&
+        second.phase === 'assigned' && second.pairsMissing === 4 && harness.ensured.filter(id => id === 'b-02').length === 1,
+      JSON.stringify(second)
+    )
+    const third = await processPendingStep({ cursor: null }, harness.deps)
+    check(
+      'Una nueva pasada (cursor vacío) vuelve a intentar solo la IPS sin ruta',
+      third.phase === 'routes' && third.done === 1 && harness.ensured.slice(-1)[0] === 'b-02'
+    )
+  }
+  {
+    const harness = processHarness({ tickMs: 20_000, budgetMs: 35_000 })
+    const step = await runPendingRoutesStep({ cursor: null }, harness.deps.routes)
+    check(
+      'Presupuesto de tiempo: con 20 s por IPS y 35 s de presupuesto, 2 IPS por petición',
+      step.done === 2 && step.hasMore && step.remaining === 3
+    )
+  }
+  {
+    const harness = processHarness({ disabled: true })
+    const auto = await processPendingStep({ cursor: null }, harness.deps)
+    check(
+      'GOOGLE_ROUTES_DISABLED: salta la fase A (sin Google) y hace la fase B con routesDisabled',
+      auto.phase === 'assigned' && auto.routesDisabled && auto.pairsMissing === 20 && harness.ensured.length === 0 && harness.calls.recalculate === 1 &&
+        auto.warnings.some(warning => warning.includes('GOOGLE_ROUTES_DISABLED'))
+    )
+    const routesOnly = await processPendingStep({ cursor: null, phase: 'routes' }, harness.deps)
+    check(
+      "phase 'routes' con Google deshabilitado: disabled = true, sin lotes y sin fase B",
+      routesOnly.phase === 'routes' && routesOnly.disabled && routesOnly.done === 0 && !routesOnly.hasMore && harness.calls.recalculate === 1
+    )
+  }
+  {
+    const harness = processHarness()
+    const assignOnly = await processPendingStep({ cursor: null, phase: 'assign' }, harness.deps)
+    check(
+      "phase 'assign': solo fase B (no lee la cola ni llama a Google)",
+      assignOnly.phase === 'assigned' && harness.calls.loadSnapshot === 0 && harness.ensured.length === 0 && harness.calls.recalculate === 1
+    )
+  }
+  {
+    const harness = processHarness()
+    harness.deps.assign.recomputeMunicipalities = async () => {
+      throw new MunicipalityTableMissingError('municipality_zone')
+    }
+    const withoutTable = await processPendingStep({ cursor: null, phase: 'assign' }, harness.deps)
+    harness.deps.assign.recomputeMunicipalities = async () => {
+      throw new Error('municipios simulado fallido')
+    }
+    const failing = await processPendingStep({ cursor: null, phase: 'assign' }, harness.deps)
+    check(
+      'Fase B: sin tabla de municipios no avisa; otro fallo de municipios avisa',
+      withoutTable.phase === 'assigned' && !withoutTable.municipalities.recomputed && withoutTable.warnings.length === 0 &&
+        failing.phase === 'assigned' && failing.warnings.some(warning => warning.includes('mapa de municipios'))
+    )
+    harness.deps.assign.recalculate = async () => {
+      throw new Error('recálculo simulado fallido')
+    }
+    let rejected = false
+    try {
+      await processPendingStep({ cursor: null, phase: 'assign' }, harness.deps)
+    } catch {
+      rejected = true
+    }
+    check('Fase B: si el recálculo falla, lanza (la ruta responde con un error JSON claro)', rejected)
+  }
+
+  print('\n10. Rutas reales contra un Supabase falso (crear, editar y activar no recalculan)')
+  process.env.NEXT_PUBLIC_SUPABASE_URL = FAKE_SUPABASE_URL
+  process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-de-prueba'
+  process.env.SESSION_SECRET = 'secreto-de-prueba-ips-routes-check-0123456789abcdefghijklmnopqrstuvwxyz'
+  const HOSPITAL_ID = '33333333-3333-4333-8333-333333333333'
+  const INACTIVE_ID = '44444444-4444-4444-8444-444444444444'
+  const fakeTables = () => ({
+    users: fakeUsers(),
+    hospitals: [
+      { id: HOSPITAL_ID, name: 'IPS existente', code: 'EX-1', department_id: '68', municipality_id: '68276', locality_id: null, lat: 7.07, lng: -73.1, active: true, beds: 10, created_at: LONG_AGO },
+      { id: INACTIVE_ID, name: 'IPS inactiva', code: 'EX-2', department_id: '68', municipality_id: '68276', locality_id: null, lat: 7.08, lng: -73.11, active: false, beds: 5, created_at: LONG_AGO },
+    ] as Array<Record<string, unknown>>,
+  })
+  const noRecalculation = (fake: ReturnType<typeof fakeSupabase>) =>
+    fake.external.length === 0 && !fake.touched().some(table => RECALCULATION_TABLES.includes(table))
+  try {
+    {
+      const fake = fakeSupabase(fakeTables())
+      fetchHandler = fake.handler
+      const response = await createHospitalRoute(
+        apiRequest('/api/hospitals', {
+          method: 'POST',
+          body: { name: 'IPS nueva de prueba', code: 'NUEVA-1', department_id: '68', municipality_id: '68276', locality_id: null, lat: 7.07, lng: -73.1, active: true },
+        })
+      )
+      const body = await response.json()
+      check(
+        'Crear IPS activa: 200, pending = true y el aviso de pendientes',
+        response.status === 200 && body.pending === true && body.warnings?.[0] === PENDING_ASSIGNMENT_WARNING && body.zone === undefined,
+        `${response.status} ${JSON.stringify(body)}`
+      )
+      check(
+        'Crear IPS: no llama a Google ni al recálculo (solo users y el INSERT en hospitals)',
+        noRecalculation(fake) && sameSet(fake.touched(), ['users', 'hospitals']) && fake.writes().length === 1 && fake.writes()[0].table === 'hospitals',
+        `tablas=${fake.touched().join(',')} externos=${fake.external.join(',')}`
+      )
+    }
+    {
+      const fake = fakeSupabase(fakeTables())
+      fetchHandler = fake.handler
+      const response = await createHospitalRoute(
+        apiRequest('/api/hospitals', {
+          method: 'POST',
+          body: { name: 'IPS inactiva nueva', code: 'NUEVA-2', department_id: '68', municipality_id: '68276', locality_id: null, lat: 7.07, lng: -73.1, active: false },
+        })
+      )
+      const body = await response.json()
+      check('Crear IPS inactiva: pending = false, sin avisos', response.status === 200 && body.pending === false && body.warnings.length === 0 && noRecalculation(fake))
+    }
+    {
+      const fake = fakeSupabase(fakeTables())
+      fetchHandler = fake.handler
+      const response = await updateHospitalRoute(
+        apiRequest(`/api/hospitals/${HOSPITAL_ID}`, { method: 'PUT', body: { name: 'IPS existente', lat: 7.2, lng: -73.1 } }),
+        { params: { id: HOSPITAL_ID } }
+      )
+      const body = await response.json()
+      const history = fake.writes().find(write => write.table === 'hospital_history')?.body as Record<string, any> | undefined
+      check(
+        'Editar coordenadas: pending = true, aviso y fila edited con coordinates_changed en hospital_history',
+        response.status === 200 && body.pending === true && body.warnings?.[0] === PENDING_ASSIGNMENT_WARNING &&
+          history?.action === 'edited' && history?.changes?.coordinates_changed === true && history?.user_id === ADMIN_ID,
+        `${response.status} ${JSON.stringify(body)} ${JSON.stringify(history)}`
+      )
+      check('Editar coordenadas: no llama a Google ni al recálculo', noRecalculation(fake), fake.touched().join(','))
+    }
+    {
+      const fake = fakeSupabase(fakeTables())
+      fetchHandler = fake.handler
+      const response = await updateHospitalRoute(
+        apiRequest(`/api/hospitals/${HOSPITAL_ID}`, { method: 'PUT', body: { name: 'Otro nombre', beds: 40, lat: 7.07, lng: -73.1 } }),
+        { params: { id: HOSPITAL_ID } }
+      )
+      const body = await response.json()
+      check(
+        'Editar camas y nombre (mismas coordenadas): pending = false y sin fila de historial',
+        response.status === 200 && body.pending === false && body.warnings.length === 0 && !fake.touched().includes('hospital_history') && noRecalculation(fake)
+      )
+    }
+    {
+      const fake = fakeSupabase(fakeTables())
+      fetchHandler = fake.handler
+      const response = await activateHospitalRoute(
+        apiRequest(`/api/hospitals/${INACTIVE_ID}/activate`, { method: 'POST', body: { reason: 'Reapertura' } }),
+        { params: { id: INACTIVE_ID } }
+      )
+      const body = await response.json()
+      check(
+        'Activar: pending = true, aviso, historial activated y sin Google ni recálculo',
+        response.status === 200 && body.pending === true && body.warnings?.[0] === PENDING_ASSIGNMENT_WARNING && body.zone === undefined &&
+          fake.writes().some(write => write.table === 'hospital_history' && (write.body as { action?: string }).action === 'activated') &&
+          noRecalculation(fake),
+        `${response.status} ${JSON.stringify(body)} tablas=${fake.touched().join(',')}`
+      )
+    }
+    {
+      const assignedHospital = { ...fakeTables().hospitals[0] }
+      const fake = fakeSupabase({
+        users: fakeUsers(),
+        hospitals: [
+          assignedHospital,
+          { id: '55555555-5555-4555-8555-555555555555', name: 'IPS recién creada', code: 'N-3', department_id: '68', municipality_id: '68276', locality_id: null, lat: 7.05, lng: -73.09, active: true, created_at: AFTER_RECALC, municipality_name: 'Floridablanca' },
+        ],
+        kams: ZONES.map(kam => ({ ...kam, active: true, participates_in_assignment: true })),
+        department_adjacency: Object.entries(ADJACENCY).flatMap(([code, list]) => list.map(adjacent => ({ department_code: code, adjacent_department_code: adjacent }))),
+        departments: EXCLUDED.map(code => ({ code, excluded: true })),
+        hospital_kam_distances: pairsFor({ ...UPRES_SANTANDER, id: HOSPITAL_ID }, BEFORE_RECALC).map((row, index) => ({ id: `d-${String(index).padStart(3, '0')}`, ...row })),
+        assignments: [{ id: 'a-1', hospital_id: HOSPITAL_ID, kam_id: 'kam-68001', assigned_at: LAST_RECALC }],
+        hospital_history: [],
+      })
+      fetchHandler = fake.handler
+      const response = await pendingAssignmentRoute(apiRequest('/api/hospitals/pending-assignment'))
+      const body = await response.json()
+      check(
+        'GET pending-assignment: 1 pendiente (la recién creada), sus pares y el coste; solo lecturas',
+        response.status === 200 && body.count === 1 && body.items[0]?.name === 'IPS recién creada' &&
+          body.pairsMissing === santanderCandidates && body.costEstimateUsd === Math.round(santanderCandidates * 0.005 * 100) / 100 &&
+          body.lastRecalculationAt === LAST_RECALC && fake.writes().length === 0 && fake.external.length === 0,
+        `${response.status} ${JSON.stringify(body).slice(0, 400)}`
+      )
+    }
+    {
+      const fake = fakeSupabase({ users: fakeUsers() })
+      fetchHandler = fake.handler
+      const response = await processPendingRoute(apiRequest('/api/hospitals/process-pending', { method: 'POST', body: {}, userId: VIEWER_ID, password: 'hash-viewer' }))
+      check('process-pending sin recalculate:complete (viewer): 403 sin tocar nada más', response.status === 403 && sameSet(fake.touched(), ['users']))
+      const invalid = await processPendingRoute(apiRequest('/api/hospitals/process-pending', { method: 'POST', body: { cursor: 'no-es-uuid' } }))
+      const invalidBody = await invalid.json()
+      check('process-pending con cursor inválido: 400 con error JSON', invalid.status === 400 && typeof invalidBody.error === 'string' && sameSet(fake.touched(), ['users']))
+    }
+  } finally {
+    fetchHandler = null
+  }
 
   print('')
   print(`Mensajes del módulo recogidos (fallos simulados y trazas): ${moduleLogs.length}`)

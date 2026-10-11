@@ -3,34 +3,45 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { requirePermission, requireUser } from '@/lib/require-role'
 import { badJson, isUuid, readJsonBody, serverError, validationError } from '../../_lib/api-error'
 import { patchHospitalSchema, updateHospitalSchema } from '../../_lib/hospital-schemas'
+import { touchesZoneFields, type ZoneFieldValues } from '../../_lib/hospital-routes'
 import {
-  getHospitalRouteStatus,
-  refreshHospitalZone,
-  touchesZoneFields,
-  zoneFieldsChanged,
-  zoneRefreshResponse,
-  type ZoneFieldValues,
-} from '../../_lib/hospital-routes'
+  getHospitalPendingStatus,
+  locationChangeHistoryRow,
+  PENDING_ASSIGNMENT_WARNING,
+} from '../../_lib/pending-assignment'
 
-// PUT/PATCH pueden calcular tiempos de viaje (Google) y recalcular zonas: ver app/api/_lib/hospital-routes.ts
-export const maxDuration = 60
+// PUT/PATCH solo guardan: NO llaman a Google ni recalculan el territorio. Si cambia la ubicación de una IPS
+// activa, queda pendiente (app/api/_lib/pending-assignment.ts) hasta "Calcular rutas y asignar pendientes".
 
 const ZONE_SELECT = 'lat, lng, department_id, municipality_id, locality_id, active'
 
 /**
- * Tras guardar una edición: si cambió algún campo que decide la zona (coordenadas, territorio o estado)
- * y la IPS está activa, calcula los tiempos que falten y recalcula zonas. `before` = null cuando no se
- * pudo leer el estado anterior (se recalcula por si acaso).
+ * Tras guardar una edición: si cambió algún campo que decide la zona (coordenadas o territorio), lo
+ * registra en hospital_history (action 'edited', changes.zone_fields) para que la cola de pendientes lo
+ * detecte; hospitals.updated_at no sirve porque cambia con cualquier edición. `before` = null cuando no se
+ * pudo leer el estado anterior (se registra igual). Nunca lanza: devuelve { pending, warnings }.
  */
-async function refreshZoneAfterEdit(
+async function markLocationChange(
   hospitalId: string,
   before: ZoneFieldValues | null,
   after: ZoneFieldValues & { active?: boolean | null },
-  actorId: string
-) {
-  if (after.active !== true) return null
-  if (before && !zoneFieldsChanged(before, after)) return null
-  return refreshHospitalZone(hospitalId, { actorId })
+  userId: string,
+  context: string
+): Promise<{ pending: boolean; warnings: string[] }> {
+  const row = locationChangeHistoryRow({ hospitalId, userId, before, after })
+  if (!row) return { pending: false, warnings: [] }
+
+  const { error } = await supabaseAdmin.from('hospital_history').insert(row)
+  if (error) console.error(`${context}: no se pudo registrar el cambio de ubicación`, error)
+
+  if (after.active !== true) return { pending: false, warnings: [] }
+  const warnings = [PENDING_ASSIGNMENT_WARNING]
+  if (error) {
+    warnings.push(
+      "No se pudo registrar el cambio de ubicación: si la IPS no aparece en pendientes, usa 'Calcular rutas y recalcular territorio' en su ficha"
+    )
+  }
+  return { pending: true, warnings }
 }
 
 async function readZoneFields(hospitalId: string, context: string): Promise<ZoneFieldValues | null> {
@@ -107,12 +118,12 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       }
     }
 
-    // IPS activa, con coordenadas y sin zona: cuántas zonas candidatas hay y cuántos tiempos faltan
-    // (la ficha muestra "Sin zona: faltan N tiempos de viaje" y el botón "Calcular rutas y asignar").
+    // IPS activa con coordenadas: zonas candidatas, tiempos que faltan y si está pendiente de rutas y
+    // asignación (la ficha muestra el motivo y el botón "Calcular rutas y recalcular territorio").
     let routeStatus = null
-    if (hospital.active === true && !kamId && hospital.lat !== null && hospital.lng !== null) {
+    if (hospital.active === true && hospital.lat !== null && hospital.lng !== null) {
       try {
-        routeStatus = await getHospitalRouteStatus(hospitalId)
+        routeStatus = await getHospitalPendingStatus(hospitalId)
       } catch (error) {
         console.error('hospitals/[id] GET (estado de rutas):', error)
       }
@@ -188,9 +199,11 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       return NextResponse.json({ error: 'Hospital no encontrado' }, { status: 404 })
     }
 
-    const zone = zoneTouched ? await refreshZoneAfterEdit(hospitalId, before, data, auth.user.id) : null
+    const marked = zoneTouched
+      ? await markLocationChange(hospitalId, before, data, auth.user.id, 'hospitals/[id] PUT')
+      : { pending: false, warnings: [] }
 
-    return NextResponse.json({ ...data, warnings: zone?.warnings ?? [], zone: zoneRefreshResponse(zone) })
+    return NextResponse.json({ ...data, pending: marked.pending, warnings: marked.warnings })
   } catch (error) {
     return serverError('hospitals/[id] PUT', error)
   }
@@ -216,7 +229,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       return NextResponse.json({ error: 'No hay campos para actualizar' }, { status: 400 })
     }
 
-    // Hoy patchHospitalSchema no admite campos de zona; si se añaden, el recálculo ya queda enganchado
+    // Hoy patchHospitalSchema no admite campos de zona; si se añaden, el registro del cambio ya queda enganchado
     const zoneTouched = touchesZoneFields(parsed.data)
     const before = zoneTouched ? await readZoneFields(hospitalId, 'hospitals/[id] PATCH') : null
 
@@ -232,9 +245,11 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       return NextResponse.json({ error: 'Hospital no encontrado' }, { status: 404 })
     }
 
-    const zone = zoneTouched ? await refreshZoneAfterEdit(hospitalId, before, data, auth.user.id) : null
+    const marked = zoneTouched
+      ? await markLocationChange(hospitalId, before, data, auth.user.id, 'hospitals/[id] PATCH')
+      : { pending: false, warnings: [] }
 
-    return NextResponse.json({ ...data, warnings: zone?.warnings ?? [], zone: zoneRefreshResponse(zone) })
+    return NextResponse.json({ ...data, pending: marked.pending, warnings: marked.warnings })
   } catch (error) {
     return serverError('hospitals/[id] PATCH', error)
   }

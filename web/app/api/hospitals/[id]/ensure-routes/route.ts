@@ -3,14 +3,17 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { requirePermission } from '@/lib/require-role'
 import { isUuid, serverError } from '../../../_lib/api-error'
 import { refreshHospitalZone, zoneRefreshResponse } from '../../../_lib/hospital-routes'
+import { ensurePendingHospitalDistances, loadPendingSnapshot } from '../../../_lib/pending-assignment'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
-// POST /api/hospitals/[id]/ensure-routes — botón "Calcular rutas y asignar" de la ficha de la IPS.
-// Calcula con Google SOLO los tiempos zona→IPS que faltan, recalcula todas las asignaciones con el
-// algoritmo y actualiza municipality_zone (app/api/_lib/hospital-routes.ts).
+// POST /api/hospitals/[id]/ensure-routes — botón "Calcular rutas y recalcular territorio" de la ficha.
+// Para una IPS suelta (la carga masiva usa POST /api/hospitals/process-pending): calcula con Google SOLO los
+// tiempos zona→IPS que faltan o quedaron desactualizados por un cambio de coordenadas, recalcula TODAS las
+// asignaciones con el algoritmo (territorio completo) y actualiza municipality_zone
+// (app/api/_lib/hospital-routes.ts + app/api/_lib/pending-assignment.ts).
 // Permiso recalculate:complete (admin, data_manager): genera gasto en Google y reescribe asignaciones.
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   const auth = await requirePermission(request, 'recalculate:complete')
@@ -39,7 +42,12 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       return NextResponse.json({ error: 'La IPS no tiene coordenadas' }, { status: 422 })
     }
 
-    const zone = await refreshHospitalZone(hospitalId, { actorId: auth.user.id })
+    const actorId = auth.user.id
+    const snapshot = await loadPendingSnapshot({ hospitalId })
+    const zone = await refreshHospitalZone(hospitalId, {
+      actorId,
+      deps: { ensure: id => ensurePendingHospitalDistances(id, snapshot, { actorId }) },
+    })
 
     return NextResponse.json({
       success: zone.assignment !== null,

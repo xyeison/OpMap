@@ -1,13 +1,13 @@
-// IPS nuevas o editadas: que nunca queden "Sin zona asignada" por falta de tiempos de viaje.
+// Rutas zona→IPS de UNA IPS y recálculo de su zona.
 //
 // Antecedente (2026-10-11): UPRES SANTANDER, UPRES ANTIOQUIA y HOCEN se crearon por la app en agosto
 // de 2025 y pasaron meses sin zona porque hospital_kam_distances no tenía sus pares y el algoritmo
 // (lib/opmap-algorithm-simplified.ts) solo asigna con tiempos reales.
 //
-// Flujo único (refreshHospitalZone). Se ejecuta tras crear una IPS (POST /api/hospitals), al cambiar
-// sus coordenadas, territorio o estado (PUT/PATCH /api/hospitals/[id]), al activarla
-// (POST /api/hospitals/[id]/activate) y desde el botón "Calcular rutas y asignar" de la ficha
-// (POST /api/hospitals/[id]/ensure-routes):
+// Desde el 2026-10-11 (pedido del dueño) crear, editar o activar una IPS NO ejecuta este flujo: la IPS
+// queda pendiente y se procesa en bloque con la cola de app/api/_lib/pending-assignment.ts
+// (POST /api/hospitals/process-pending reutiliza ensureHospitalDistances). refreshHospitalZone queda solo
+// para el botón "Calcular rutas y recalcular territorio" de la ficha (POST /api/hospitals/[id]/ensure-routes):
 //   1. ensureHospitalDistances: pide a Google Distance Matrix SOLO los pares zona→IPS que faltan en
 //      hospital_kam_distances. Candidatas = routeCandidateKams (lib/opmap-algorithm-simplified.ts), el
 //      mismo criterio que /api/routes/analyze-missing-optimized. Guarda igual que
@@ -18,7 +18,7 @@
 //      entre con las mismas reglas que todas las demás.
 //   3. recomputeAndSaveMunicipalityZones: el mismo recálculo de municipality_zone que
 //      POST /api/municipality-coverage/recompute (SIN Google).
-// Nada de esto lanza: cada fallo se convierte en un aviso (warnings) y la IPS queda guardada igual.
+// Nada de esto lanza: cada fallo se convierte en un aviso (warnings).
 //
 // Tiempo (decisión documentada): en Vercel la función tiene maxDuration = 60 s y en serverless no se
 // puede seguir trabajando después de responder, así que todo ocurre dentro de la petición. Medido en
@@ -576,8 +576,8 @@ export async function ensureHospitalDistances(
 }
 
 /**
- * Flujo completo tras crear/editar/activar una IPS: tiempos que faltan → recálculo completo de
- * asignaciones → municipality_zone. Nunca lanza; devuelve la zona resultante y los avisos.
+ * Flujo de UNA IPS (botón de la ficha): tiempos que faltan → recálculo completo de asignaciones →
+ * municipality_zone. Nunca lanza; devuelve la zona resultante y los avisos.
  */
 export async function refreshHospitalZone(
   hospitalId: string,
@@ -595,7 +595,7 @@ export async function refreshHospitalZone(
       assignment: null,
       municipalitiesRecomputed: false,
       warnings: [
-        'La IPS se guardó, pero no se pudo actualizar su zona; vuelve a intentarlo con "Calcular rutas y asignar"',
+        'No se pudo actualizar la zona de la IPS; vuelve a intentarlo con "Calcular rutas y recalcular territorio"',
       ],
       timeMs: 0,
     }
@@ -643,7 +643,7 @@ async function runHospitalZoneRefresh(
   }
 
   if (deps.now() - started > deps.recalculateDeadlineMs) {
-    extraWarnings.push('No dio tiempo a recalcular las zonas; usa "Calcular rutas y asignar" en la ficha de la IPS')
+    extraWarnings.push('No dio tiempo a recalcular las zonas; vuelve a usar "Calcular rutas y recalcular territorio"')
   } else {
     try {
       const recalculation = await deps.recalculate()
@@ -667,7 +667,7 @@ async function runHospitalZoneRefresh(
     } catch (error) {
       console.error('[hospital-routes] recálculo completo falló', error)
       extraWarnings.push(
-        'La IPS se guardó, pero no se pudo recalcular la asignación de zonas; vuelve a intentarlo con "Calcular rutas y asignar"'
+        'No se pudo recalcular la asignación de zonas; vuelve a intentarlo con "Calcular rutas y recalcular territorio"'
       )
     }
   }
