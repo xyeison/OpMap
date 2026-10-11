@@ -34,48 +34,15 @@
 import path from 'path'
 import fs from 'fs'
 import dotenv from 'dotenv'
-import { isLoadedRepsClass, normalizeName, parseCsv, parseRepsCutDate, REPS_CODE_RE } from '../lib/reps-match'
+import { isLoadedRepsClass, parseCsv } from '../lib/reps-match'
+import { mapRepsSedeRow as mapRow, REPS_SEDES_COLUMNS as REQUIRED_COLUMNS, type RepsSedeColumn as CsvColumn, type RepsSedeRow } from '../lib/reps-sedes-sync'
 
 dotenv.config({ path: path.resolve(__dirname, '..', '.env.local') })
 
 const BATCH_SIZE = 1000
 
-const REQUIRED_COLUMNS = [
-  'codigoprestador', 'nombreprestador', 'codigohabilitacionsede', 'nombresede', 'tipoid',
-  'numeroidentificacion', 'naturalezajuridica', 'ese', 'municipio_prestador', 'departamentoprestadordesc',
-  'municipioprestadordesc', 'direccionprestador', 'email_prestador', 'telefonoprestador', 'municipiosede',
-  'departamentodededesc', 'municipiosededesc', 'direcci_nsede', 'email_sede', 't_lefonosede',
-  'claseprestador', 'fecha_corte_reps',
-] as const
-
-type CsvColumn = (typeof REQUIRED_COLUMNS)[number]
-
-export interface RepsSedeRow {
-  codigo_habilitacion: string
-  codigo_prestador: string
-  nombre_prestador: string
-  nombre_sede: string
-  tipo_id: string | null
-  nit: string
-  naturaleza: string | null
-  ese: boolean
-  municipio_prestador: string | null
-  departamento_prestador: string | null
-  municipio_prestador_nombre: string | null
-  direccion_prestador: string | null
-  email_prestador: string | null
-  telefono_prestador: string | null
-  municipio_sede: string
-  departamento_sede: string | null
-  municipio_sede_nombre: string | null
-  direccion_sede: string | null
-  email_sede: string | null
-  telefono_sede: string | null
-  clase_prestador: string
-  fecha_corte: string | null
-  imported_at: string
-  nombre_busqueda: string
-}
+// Columnas, fila y mapeo: lib/reps-sedes-sync.ts (compartidos con la carga automática del cron, PR 7).
+export type { RepsSedeRow }
 
 interface Args {
   file: string | null
@@ -96,51 +63,6 @@ function parseArgs(argv: string[]): Args {
   if (!args.file) throw new Error('Falta --file /ruta/al/csv de sedes del REPS')
   if (args.dryRun && args.prune) throw new Error('--prune no se combina con --dry-run')
   return args
-}
-
-const text = (value: string | undefined): string | null => {
-  const trimmed = (value ?? '').trim()
-  return trimmed === '' ? null : trimmed
-}
-
-function mapRow(get: (column: CsvColumn) => string, importedAt: string): { row?: RepsSedeRow; error?: string } {
-  const codigo = get('codigohabilitacionsede').trim()
-  const prestador = get('codigoprestador').trim()
-  const municipio = get('municipiosede').trim()
-  const nit = get('numeroidentificacion').trim()
-  if (!REPS_CODE_RE.test(codigo)) return { error: `código de habilitación inválido "${codigo}"` }
-  if (!/^\d{10}$/.test(prestador)) return { error: `código de prestador inválido "${prestador}" (${codigo})` }
-  if (!/^\d{5}$/.test(municipio)) return { error: `municipio de sede inválido "${municipio}" (${codigo})` }
-  if (!nit) return { error: `sin número de identificación (${codigo})` }
-  return {
-    row: {
-      codigo_habilitacion: codigo,
-      codigo_prestador: prestador,
-      nombre_prestador: get('nombreprestador').trim(),
-      nombre_sede: get('nombresede').trim() || get('nombreprestador').trim(),
-      tipo_id: text(get('tipoid')),
-      nit,
-      naturaleza: text(get('naturalezajuridica')),
-      ese: get('ese').trim().toUpperCase() === 'SI',
-      municipio_prestador: text(get('municipio_prestador')),
-      departamento_prestador: text(get('departamentoprestadordesc')),
-      municipio_prestador_nombre: text(get('municipioprestadordesc')),
-      direccion_prestador: text(get('direccionprestador')),
-      email_prestador: text(get('email_prestador')),
-      telefono_prestador: text(get('telefonoprestador')),
-      municipio_sede: municipio,
-      departamento_sede: text(get('departamentodededesc')),
-      municipio_sede_nombre: text(get('municipiosededesc')),
-      direccion_sede: text(get('direcci_nsede')),
-      email_sede: text(get('email_sede')),
-      telefono_sede: text(get('t_lefonosede')),
-      clase_prestador: get('claseprestador').trim(),
-      fecha_corte: parseRepsCutDate(get('fecha_corte_reps')),
-      imported_at: importedAt,
-      // Para el buscador de la ficha: sede + prestador sin tildes ni signos
-      nombre_busqueda: normalizeName(`${get('nombresede')} ${get('nombreprestador')}`),
-    },
-  }
 }
 
 async function main() {

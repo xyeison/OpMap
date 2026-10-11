@@ -1,0 +1,214 @@
+# Fase 5 (2026-10-11): fuentes de datos que se actualizan solas y carga de SECOP
+
+Rama `feat/secop-compras-publicas` (PR 7). Pregunta del dueño: "¿estamos haciendo algo que consulte estas
+fuentes y esté actualizado?". Respuesta: hasta el 2026-10-11 **no** (todas las cargas se corrían a mano).
+Desde este PR las cargas ligeras corren solas en Vercel Cron, la pesada (ADRES) en GitHub Actions, y cada
+corrida deja su estado en la tabla `fuentes_estado`, que el panel "Fuentes de datos" de `/inteligencia`
+muestra (solo admin) con el botón "Actualizar ahora".
+
+Este documento cubre la **carga** (tablas, reglas, cron, Actions, qué configurar). La API y la UI de
+compras públicas están en `docs/fases/fase5-secop.md`. Nada de esto recalcula asignaciones ni llama a Google.
+
+## Qué se actualiza, cuándo y cómo
+
+Horas en UTC (Bogotá = UTC − 5). En el plan Hobby de Vercel un cron corre como mucho una vez al día y puede
+dispararse en cualquier minuto de la hora indicada; todos los de OpMap son diarios o menos frecuentes.
+
+| Fuente (`fuentes_estado.fuente`) | Qué carga | Cuándo | Quién | Cómo sabe que hay datos nuevos |
+| --- | --- | --- | --- | --- |
+| `secop_ii` | SECOP II Contratos (`jbjy-vk9h`) → `secop_contratos` | Diario 06:00 | Vercel Cron `/api/cron/secop_ii` | `ultima_actualizacion ≥ última vista − 3 días` |
+| `secop_integrado` | SECOP Integrado (`rpmr-utcd`, SECOP I + II) → `secop_contratos` | Lunes 07:00 | Vercel Cron `/api/cron/secop_integrado` | `fecha_de_firma ≥ última vista − 30 días` |
+| `reps_sedes` | Sedes del REPS (`c36g-9fc2`) → `reps_sedes` | Día 2, 08:00 | Vercel Cron `/api/cron/reps_sedes` | `rowsUpdatedAt` del dataset más nuevo que la última carga |
+| `bdua` | BDUA contributivo y subsidiado → `bdua_afiliados` | Día 4, 08:00 | Vercel Cron `/api/cron/bdua` | El corte de `rowsUpdatedAt` no está en `bdua_afiliados` |
+| `minsalud_cifras` | Cifras de afiliación de MinSalud → `afiliacion_cifras` | Día 5, 08:00 | Vercel Cron `/api/cron/minsalud_cifras` | La página de MinSalud enlaza un ZIP de un mes posterior al último corte cargado |
+| `adres_identifica` | ADRES "Identifica tu Giro" → `adres_giros_detalle` | Día 3, 07:00 | GitHub Actions `.github/workflows/datos.yml` | Carga el mes anterior completo (reanudable) |
+| (todas) | Sigue las pasadas que quedaron a medias | Diario 09:30 | Vercel Cron `/api/cron/continuar` | `fuentes_estado.estado = 'corriendo'` |
+
+### Cómo funciona una invocación
+
+- **Un solo ejecutor** (`web/lib/fuentes-runner.ts → ejecutarFuente`) para el cron, el botón "Actualizar
+  ahora" (`POST /api/fuentes/[fuente]/actualizar`) y el script de carga inicial. Mismo código siempre.
+- **Bloqueo**: antes de empezar toma `fuentes_estado.bloqueo_hasta` con un UPDATE condicional; si otra
+  invocación lo tiene, responde "ocupada" y no hace nada. Caduca solo (75 s en Vercel; 30 min en el script).
+- **Presupuesto**: cada invocación trabaja como máximo 50 s (Vercel corta a los 60 s; `maxDuration = 60`).
+  Si no termina, deja el avance en `fuentes_estado.cursor`, cierra con estado `corriendo` y la siguiente
+  invocación (o el cron diario `continuar`, o el siguiente clic) sigue desde ahí.
+- **Cierre**: `ok` (terminó; actualiza `ultimo_ok`), `corriendo` (pasada a medias) o `error` (con el mensaje;
+  el cursor se conserva para reintentar). Siempre fija `siguiente_programado` con la expresión cron.
+- **Seguridad**: el middleware deja pasar `/api/cron/*` sin sesión porque Vercel Cron no manda cookie; la ruta
+  exige `Authorization: Bearer <CRON_SECRET>` (comparación en tiempo constante). Sin `CRON_SECRET` responde
+  503 y no carga nada. El botón del panel exige sesión con el permiso `fuentes:manage` (solo admin).
+
+## Lo que tiene que hacer el dueño (una sola vez)
+
+### 1. Vercel: `CRON_SECRET` (enciende las cargas automáticas)
+1. Generar un valor aleatorio largo, por ejemplo en una terminal: `openssl rand -hex 32`.
+2. Vercel → proyecto de OpMap → **Settings → Environment Variables → Add New**.
+   Nombre `CRON_SECRET`, valor el del paso 1, entorno **Production**. Guardar.
+3. **Deployments** → el último despliegue de producción → **Redeploy** (las variables nuevas solo se leen al
+   desplegar). Vercel enviará `Authorization: Bearer <CRON_SECRET>` en cada llamada del cron.
+4. Comprobar: en Vercel → Settings → **Cron Jobs** aparecen los 6 trabajos de `web/vercel.json`; ahí mismo
+   "Run" lanza uno a mano. En `/inteligencia` → pestaña "Fuentes de datos" desaparece el aviso de
+   `CRON_SECRET` y, al día siguiente, `SECOP II` muestra "Último OK" de esa madrugada.
+5. Opcional: `SOCRATA_APP_TOKEN` (token de aplicación gratuito de datos.gov.co) sube el límite de peticiones;
+   la carga lo usa si existe. Sin él funciona igual.
+
+### 2. GitHub: secretos para la carga de la ADRES
+1. GitHub → repositorio `OpMap` → **Settings → Secrets and variables → Actions → New repository secret**.
+2. `NEXT_PUBLIC_SUPABASE_URL` = la URL del proyecto de Supabase (la misma que está en Vercel).
+3. `SUPABASE_SERVICE_ROLE_KEY` = Supabase → Project Settings → API → `service_role` (secreta: solo en GitHub
+   Secrets, nunca en el código, un issue o un chat).
+4. Probar: pestaña **Actions** → "Datos ADRES (mensual)" → **Run workflow** (campo "desde" vacío = mes anterior).
+   El job marca `adres_identifica` como "corriendo" al empezar y "ok" o "error" al terminar, con el enlace a la
+   corrida, en el panel "Fuentes de datos".
+5. Riesgo conocido: si el firewall de la ADRES bloquea las IP de GitHub, el job termina en error (el script
+   se detiene, no lo evade) y el panel lo dice. Entonces se corre desde un equipo propio:
+   `cd web && node scripts/adres-identifica-giro.mjs --desde <AAAA-MM>`.
+
+## SECOP: modelo (migración 0710, aplicada el 2026-10-11)
+
+| Tabla / objeto | Qué guarda |
+| --- | --- |
+| `secop_proveedores_vigilados` | NIT (9 dígitos) de los proveedores de material que se vigilan. Semilla: 76 de Odoo (`es_empresa` y no intercompañía, con `compras_gcp_cop`); `origen` odoo_gcp / manual, `activo`, `nota` |
+| `secop_contratos` | Un contrato por fila. `fuente` secop2 / integrado, `origen` SECOPI / SECOPII, `id_contrato` (único por fuente), entidad (NIT a 9 dígitos, nombre, departamento, municipio, nivel), `hospital_id` (IPS principal de ese NIT), proveedor (`documento_proveedor` a 9 dígitos si es empresa; `proveedor_hash` si es persona), `proveedor_vigilado_id`, `es_persona`, tipo, modalidad, UNSPSC, objeto, descripción, `linea` + `lineas`, `especialidad_medico`, valores, fechas, estado, URL, `ultima_actualizacion`, `atipico` |
+| `secop_contratos_unicos` (vista) | Para sumar sin doble conteo: el Integrado repite los contratos de SECOP II (mismo `CO1.PCCNTR…`); la vista se queda con la fila de SECOP II |
+| `secop_ajustes` | La sal aleatoria del hash de documentos (generada en la migración; solo `service_role`) |
+| `fuentes_estado` | Estado de cada carga (ver arriba) |
+| `secop_nits_ips()` | NIT de las IPS activas → IPS principal (más camas) y si es pública o mixta en el REPS |
+| `secop_marcar_atipicos()` | Recalcula `atipico` al cerrar cada pasada |
+
+### Alcance (qué entra)
+- **Entidades objetivo**: NIT de IPS activas con alguna sede Pública o Mixta en `reps_sedes` (cruce por NIT).
+  Son **131** el 2026-10-11 (128 si se cruza por `hospitals.reps_code`, la cifra que circulaba antes).
+- De ellas entra un contrato si **clasifica en una línea**, si es de un **proveedor vigilado** o si es un
+  **servicio de especialista** (ortopedia, neurocirugía, columna, deportiva). Lo demás (aseo, vigilancia,
+  medicamentos, laboratorio…) no se guarda.
+- De los **proveedores vigilados** entran **todos** sus contratos con cualquier entidad (para ver dónde venden).
+- Un NIT que se añade a la lista vigilada (o una IPS pública nueva) trae su histórico completo en la siguiente
+  pasada incremental (tarea "histórico"), sin tener que recargar todo.
+
+### NIT
+Siempre 9 dígitos (`normalizeNit` en `web/lib/secop.ts`): `900294380`, `9002943801`, `900.294.380-1`,
+`900294380 1`, `860.529.890 - 0`, `830.035.101 ¿ 8` y `860.529.8900` dan `900294380` / `860529890` /
+`830035101`. La consulta pide cada NIT en sus formas (sin DV, con DV pegado y con guion; en SECOP II
+`nit_entidad` es numérico y solo admite las dos primeras; en SECOP I el proveedor se busca por prefijo con y
+sin puntos). DV con la regla de la DIAN (`nitCheckDigit`).
+
+### Clasificación por línea (v2, `clasificarContrato` en `web/lib/secop.ts`)
+Sobre objeto + descripción sin tildes:
+1. **Servicio profesional** sin compra de material ("médico especialista en ortopedia", "ejecutar los procesos
+   de ortopedia", agremiaciones sindicales) → sin línea; va a `especialidad_medico`.
+2. **Líneas específicas**: neurocirugía (neurocirug, craneal/cráneo, hidrocefalia, válvulas de derivación y
+   aneurisma salvo el de aorta: endoprótesis aórticas o endovasculares son cirugía vascular, excluida), columna (columna vertebral, cirugía de columna, vértebra, pedicular, intersomático, fusión;
+   "espinal" salvo anestesia y el municipio El Espinal), reemplazo (artroplastia, prótesis o reemplazo de
+   cadera/rodilla/hombro, reemplazos articulares, cotilo), deportiva (artroscopia, medicina deportiva,
+   ligamento, menisco, anclajes de sutura, manguito rotador) y trauma (osteosíntesis general/básica, fijación
+   o fijador externo, tutor externo, trauma, fractura, clavo endo/intramedular, Kirschner, Steinmann,
+   tornillo canulado). Placas, clavos y tornillos sueltos **no** cuentan (ferretería); con calificativo
+   ortopédico o anatómico ("tornillo cortical", "placa tibia proximal", "placa DCP", "clavo intra medular")
+   son trauma **solo si no aparece otra línea** (los tornillos de un cotilo son de reemplazo; el tornillo
+   interferencial es de deportiva). Esto lo añadió la v2: en SECOP I muchas filas son ítems sueltos.
+3. **Ninguna específica**: "osteosíntesis" → trauma; ortopedia genérica (ortopédico, traumatología, injerto,
+   sustituto o tejido óseo, órtesis) → `otros_implantes`; categoría UNSPSC `4232xxxx` (implantes ortopédicos)
+   → `otros_implantes`. Lo dental, oftálmico, cardiovascular, auditivo y los medicamentos nunca entran por
+   genérico ni por UNSPSC; los contratos de residuos (recolección, incineración) nunca clasifican.
+4. **Una específica**: esa línea ("osteosíntesis para neurocirugía" → neurocirugía), salvo un contrato de
+   "osteosíntesis de ortopedia" que nombra la otra línea después, o para varias "especialidades" → trauma.
+   "Ortopedia (artroscopia)" manda la línea calificada.
+5. **Varias**: si nombra trauma u osteosíntesis → trauma (contrato general); si no, la primera del texto.
+`lineas` guarda todas las detectadas (la principal primero). `clasificacion_version = 'v2'` (revisión del
+2026-10-11: 1.135 ítems de osteosíntesis pasaron de sin clasificar a trauma y 18 contratos de aneurisma de
+aorta dejaron de contar como neurocirugía y salieron del alcance). Si las reglas
+cambian, se reclasifica desde `objeto` y `descripcion` guardados. El prefiltro SoQL de la carga inicial es
+un superconjunto de estas reglas (lo comprueba `secop-check`).
+
+### Privacidad de los médicos
+Información pública de contratación estatal. Se guarda nombre, entidad, objeto, valor, fechas, URL y
+especialidad. **Nunca el número de documento en claro**: `proveedor_hash = sha256(sal + ':' + dígitos)`, con
+la sal de `secop_ajustes` (aleatoria, en la base, no en el código ni en variables de entorno). Un CHECK de la
+tabla impide guardar documento si `es_persona`. También se trata como persona un "NIT" que no es de persona
+jurídica (no son 9 dígitos que empiezan por 8 o 9: es la cédula + DV). En el Integrado, el identificador
+compuesto del contrato usa un prefijo del hash, nunca la cédula.
+
+### Atípicos
+`atipico = valor > 50.000 millones` o `valor > p99 de los contratos de su entidad` (este segundo criterio
+solo si la entidad tiene 100 contratos o más; si no, su mayor contrato siempre sería "atípico"). Lo recalcula
+`secop_marcar_atipicos()` sobre la vista sin duplicados. `esAtipico()` en TypeScript aplica la misma regla.
+
+### Carga incremental (cursor)
+Una **pasada** recorre tareas (grupos de 40 NIT de entidades y de proveedores) y, por tarea, páginas SoQL
+ordenadas por `:id`. La primera es la inicial (entidades con prefiltro de texto; proveedores sin filtro). Las
+siguientes son incrementales sin prefiltro desde la marca de agua − solape. El cursor (`fuentes_estado.cursor`)
+guarda modo, desde, tarea, offset, máxima marca vista (ignorando fechas futuras mal digitadas), contadores y
+los NIT ya cubiertos. Si una consulta no cabe en los 50 s, se reintenta en la siguiente invocación; a la
+tercera vez seguida la fuente queda en error pidiendo correr el script.
+
+### Comandos
+```bash
+cd web
+npx tsx scripts/secop-load.ts --inicial               # carga inicial completa de las dos fuentes (≈ 15–25 min)
+npx tsx scripts/secop-load.ts                         # ponerse al día (sigue la pasada o hace la incremental)
+npx tsx scripts/secop-load.ts --fuente integrado      # una sola fuente
+npx tsx scripts/secop-load.ts --dry-run --max-paginas 2   # leer y clasificar sin escribir
+npm run secop:check                                    # pruebas puras (también dentro de npm run test)
+```
+
+## Carga inicial real (2026-10-11)
+
+Corrida con `npx tsx scripts/secop-load.ts --inicial --page-size 10000` y después `secop-reclasificar.ts --apply`
+(ajuste de reglas: 317 contratos cambiaron de línea y 19 quedaron fuera del alcance y se borraron).
+
+| Paso | Leídas | Guardadas (upserts) | Tiempo |
+| --- | --- | --- | --- |
+| SECOP II, pasada inicial | 5.040 | 3.627 | 1,5 min |
+| SECOP Integrado, pasada inicial | 67.892 | 55.908 | 11,0 min + 2,6 min (la tarea 4 superó el límite de 180 s de una consulta; se reanudó desde el cursor) |
+| SECOP II, incremental desde el cron (desde 2026-10-06) | 485 | 9 | 8,2 s |
+| SECOP Integrado, incremental desde el cron (desde 2026-09-08) | 4.704 | 56 | 7,3 s |
+
+Estado de `secop_contratos` al terminar (consultado con SELECT el 2026-10-11):
+
+- Filas: SECOP II **3.197**; Integrado **45.424** (SECOP I 42.260, SECOP II 3.164). Sin doble conteo
+  (`secop_contratos_unicos`): **45.563** contratos, firmados entre 2005-03-04 y 2026-10-08.
+- Por línea (vista sin duplicados; valor en miles de millones): trauma **23.069** ($ 2.575,9), otros
+  ortopédicos **3.409** ($ 855,6), neurocirugía **720** ($ 107,0), reemplazo **180** ($ 15,9), deportiva **148**
+  ($ 34,7), columna **68** ($ 9,6) y sin línea **17.969** ($ 1.494,9: servicios de especialistas y contratos de
+  vigilados que no son ortopedia, p. ej. material dental de un vigilado).
+- Entidades objetivo con contratos: **116 de 131**.
+- Proveedores vigilados con contratos: **54 de 76** (21.708 contratos en 172 entidades, $ 1,811 billones; en
+  SECOP II 45 proveedores, 953 contratos, $ 0,408 billones —igual a la consulta exploratoria previa—; en SECOP I
+  50 proveedores, 20.688 contratos, $ 1,398 billones).
+- Médicos (personas con especialidad): **797 personas distintas** (por hash), 5.318 contratos, 101 entidades:
+  ortopedia 644, neurocirugía 148, deportiva 7, columna 3. Además 1.921 contratos de empresas de especialistas.
+- Atípicos: **400** (3 por encima de 50.000 millones).
+- Personas con documento en claro: **0** (lo impide además un CHECK de la tabla).
+
+Tras la reclasificación v2 de la revisión (2026-10-11, `secop-reclasificar.ts --apply`: 48.603 filas
+actualizadas, 18 borradas por quedar fuera del alcance), la vista sin duplicados tiene **45.547** contratos:
+trauma **24.205** ($ 2.586,1), otros ortopédicos **3.408** ($ 855,6), neurocirugía **704** ($ 105,0),
+reemplazo **180**, deportiva **148**, columna **68** y sin línea **16.834** ($ 1.484,7). Médicos distintos tras
+los incrementales: **799**; atípicos (las dos fuentes): **449**.
+
+## Refactor de los scripts existentes (sin cambio de comportamiento)
+
+Para que el cron use el mismo código que las cargas manuales:
+- `scripts/reps-load-sedes.ts`: columnas, fila y mapeo → `lib/reps-sedes-sync.ts`. Comprobado con
+  `--dry-run` sobre el CSV de marzo: 76.821 filas, 22.164 sedes a cargar, igual que antes.
+- `scripts/bdua-load.ts`: consulta, agregación, cuadre, upsert y poda por dataset → `lib/bdua-sync.ts`
+  (`cargarDatasetBdua`). `--dry-run`: 50.137.787 afiliados, cuadran con el total de cada dataset, 7.469 sin cruce.
+- `scripts/minsalud-cifras-load.ts`: todo lo que no es leer el disco → `lib/cifras-sync.ts` (`cargarCifras`).
+  `--dry-run` sobre los 14 ZIP: los 14 cuadran; agosto-2026 igual al tablero (52.553.613 / 53.451.430).
+- `scripts/_poblacion-db.ts` → `lib/poblacion-db.ts` (el script re-exporta). `upsertBatches` acepta `quiet`.
+
+## Limitaciones (decirlas al mostrar cifras)
+
+- **SECOP I** repite el valor del proceso en cada contratista cuando hay varios, y trae filas duplicadas: se
+  guarda una fila por contratista y fecha (las exactas se funden), pero las sumas de SECOP I pueden inflarse.
+- El Integrado trae procesos "Convocado" sin contratista: se guardan con su estado; filtrar por estado si se
+  quiere solo lo adjudicado.
+- La pasada incremental del Integrado solo ve contratos nuevos por fecha de firma (30 días de solape): los
+  cambios de estado o valor de contratos viejos de SECOP I no se refrescan. Correr `secop-load.ts --inicial`
+  de vez en cuando (p. ej. cada trimestre). SECOP II sí se refresca por `ultima_actualizacion`.
+- El código UNSPSC lo elige cada entidad y a veces no corresponde al objeto: por eso solo cuenta cuando el
+  texto no dice nada y nunca contra una exclusión.
+- La clasificación es por palabras: un contrato general de "material médico quirúrgico" que incluye
+  osteosíntesis sin nombrarla no clasifica (salvo por UNSPSC).
