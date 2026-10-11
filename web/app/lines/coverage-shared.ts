@@ -92,10 +92,11 @@ export function formatMinutes(minutes: number): string {
   return m === 0 ? `${h} h` : `${h} h ${m} min`
 }
 
-/** Extrae el mensaje de error de una respuesta JSON de la API (o uno genérico). */
+/** Extrae el mensaje de error de una respuesta JSON de la API (`error` o `message`; si no, uno genérico). */
 export async function readError(response: Response, fallback: string): Promise<string> {
   const data = await response.json().catch(() => null)
   if (data && typeof data.error === 'string' && data.error) return data.error
+  if (data && typeof data.message === 'string' && data.message) return data.message
   return `${fallback} (${response.status})`
 }
 

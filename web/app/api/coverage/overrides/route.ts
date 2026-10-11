@@ -2,7 +2,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requirePermission } from '@/lib/require-role'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { jsonError, readJson, zodMessage } from '@/app/api/kams/_lib/kam-shared'
-import { canEditCoverageLine, coverageOverrideSchema, recomputeAndSaveCoverage } from '@/lib/coverage'
+import {
+  canEditCoverageLine,
+  coverageOverrideSchema,
+  joinNamesEs,
+  overrideBlockingResidents,
+  recomputeAndSaveCoverage,
+} from '@/lib/coverage'
+import { zoneDisplayName } from '@/lib/zone-names'
 import type { CoverageOverrideResponse, CoverageOverrideRow } from '@/lib/types/coverage'
 
 const OVERRIDE_COLUMNS = 'id, line_id, kam_id, executive_id, reason, active'
@@ -12,6 +19,9 @@ type OverrideSelect = Pick<CoverageOverrideRow, 'id' | 'line_id' | 'kam_id' | 'e
 // POST /api/coverage/overrides — ajuste manual de cobertura: (línea, zona) → ejecutiva, con motivo.
 // Desactiva el ajuste activo anterior de esa (línea, zona) (queda como historial), guarda el nuevo
 // con created_by y recalcula la cobertura. coverage:edit; line_leader solo en la línea que lidera.
+// Regla del dueño (2026-10-11): solo se puede forzar a un Ejecutivo Comercial de otra ciudad cuando
+// en la zona no hay nadie (activo o por contratar) con esa línea → 409. Si vive en la zona, se permite
+// (sirve para resolver un conflicto entre residentes). El motor (lib/coverage.ts) aplica lo mismo.
 export async function POST(request: NextRequest) {
   const auth = await requirePermission(request, 'coverage:edit')
   if (!auth.ok) return auth.response
@@ -29,22 +39,22 @@ export async function POST(request: NextRequest) {
     // Línea activa
     const { data: lineData, error: lineError } = await supabaseAdmin
       .from('business_lines')
-      .select('id, active')
+      .select('id, name, active')
       .eq('id', input.line_id)
       .limit(1)
     if (lineError) throw lineError
-    const line = lineData && lineData.length > 0 ? (lineData[0] as { id: string; active: boolean }) : null
+    const line = lineData && lineData.length > 0 ? (lineData[0] as { id: string; name: string; active: boolean }) : null
     if (!line) return jsonError('Línea no encontrada', 404)
     if (!line.active) return jsonError('La línea está inactiva', 400)
 
     // Zona activa
     const { data: kamData, error: kamError } = await supabaseAdmin
       .from('kams')
-      .select('id, active')
+      .select('id, name, active')
       .eq('id', input.kam_id)
       .limit(1)
     if (kamError) throw kamError
-    const kam = kamData && kamData.length > 0 ? (kamData[0] as { id: string; active: boolean | null }) : null
+    const kam = kamData && kamData.length > 0 ? (kamData[0] as { id: string; name: string | null; active: boolean | null }) : null
     if (!kam) return jsonError('La zona no existe', 400)
     if (kam.active !== true) return jsonError('La zona está inactiva', 400)
 
@@ -73,6 +83,40 @@ export async function POST(request: NextRequest) {
     if (linkError) throw linkError
     if (!linkData || linkData.length === 0) {
       return jsonError('El Ejecutivo Comercial no lleva esta línea; asígnasela primero en Ejecutivos Comerciales', 400)
+    }
+
+    // Regla del dueño: alguien de otra ciudad solo se fuerza si en la zona nadie lleva la línea
+    if (executive.base_kam_id !== input.kam_id) {
+      const { data: residentData, error: residentError } = await supabaseAdmin
+        .from('executives')
+        .select('id, full_name, base_kam_id')
+        .eq('base_kam_id', input.kam_id)
+        .in('status', ['active', 'placeholder'])
+      if (residentError) throw residentError
+      const residents = (residentData || []) as Array<{ id: string; full_name: string; base_kam_id: string | null }>
+
+      let residentsWithLine: typeof residents = []
+      if (residents.length > 0) {
+        const { data: residentLinks, error: residentLinksError } = await supabaseAdmin
+          .from('executive_lines')
+          .select('executive_id')
+          .eq('line_id', input.line_id)
+          .in('executive_id', residents.map(resident => resident.id))
+        if (residentLinksError) throw residentLinksError
+        const withLine = new Set((residentLinks || []).map(row => row.executive_id as string))
+        residentsWithLine = residents.filter(resident => withLine.has(resident.id))
+      }
+
+      const blockers = overrideBlockingResidents(executive, input.kam_id, residentsWithLine)
+      if (blockers.length > 0) {
+        const zoneName = zoneDisplayName(kam.name) || 'La zona'
+        return jsonError(
+          `No se puede forzar: ${zoneName} ya tiene a ${joinNamesEs(blockers.map(resident => resident.full_name))} ` +
+            `con la línea ${line.name}. Solo se puede forzar a un Ejecutivo Comercial de otra ciudad cuando en la ` +
+            'zona no hay nadie con esa línea.',
+          409
+        )
+      }
     }
 
     // Ajuste activo anterior de (línea, zona): se desactiva antes de insertar (índice único parcial)

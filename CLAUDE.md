@@ -915,8 +915,18 @@ contraseña de los 2 usuarios nuevos desde `/users`.
     s.gonzalez@ – Medicina deportiva, y.jimenez@ – Trauma; las dos últimas son usuarias nuevas) y
     `commercial_director` (laurab@, directora comercial).
 - **Reglas de cobertura** (`web/lib/coverage.ts`, por línea L y zona Z, en este orden):
-  1. Ajuste manual activo (`coverage_overrides`) → `manual` (si la ejecutiva sigue activa y lleva L;
-     si no, el ajuste queda sin efecto y se avisa en `note`).
+  1. Ajuste manual activo (`coverage_overrides`) a la ejecutiva X → `manual` solo si X sigue
+     active/placeholder, lleva L y ADEMÁS: X vive en Z (resuelve un conflicto entre residentes o confirma
+     a la local) **o** ninguna residente elegible de Z (active/placeholder, `base_kam_id` = Z) lleva L.
+     Si Z ya tiene residente(s) con L y X es de otra zona, el ajuste queda sin efecto con `note`
+     "Ajuste manual sin efecto: la zona ya tiene a <nombres> con esta línea" y siguen las reglas 2-3
+     (local/conflict). También queda sin efecto (y se avisa en `note`) si X ya no existe, está inactiva
+     o no lleva L. `POST /api/coverage/overrides` valida lo mismo antes de guardar: 400 si X no lleva L,
+     409 "No se puede forzar: <zona> ya tiene a <nombre> con la línea <línea>…" si la zona ya tiene
+     residente con L y X es de otra ciudad. Regla compartida: `overrideBlockingResidents()`.
+     **Regla del dueño (2026-10-11):** "La solución debe permitir que una persona de otra ciudad, por
+     distancia o por fuerza, tome otra zona si en esa zona no hay alguien con esa línea y si esa línea
+     por supuesto está asignada a ese comercial." (por distancia = regla 3; por fuerza = este ajuste).
   2. Ejecutivas active/placeholder que viven en Z (`base_kam_id`) y llevan L: 1 → `local`; >1 → `conflict`.
   3. Si no: la más cercana que lleva L según la matriz zona→zona; ≤ `max_reach_minutes` (240) →
      `reach`; si no → `vacant` con `nearest_*`. Empates: orden alfabético y nota.
@@ -951,8 +961,11 @@ contraseña de los 2 usuarios nuevos desde `/users`.
   `/executives` muestra y edita el color; `/users` ofrece los roles nuevos. El importador de visitas
   resuelve la zona por nombre, por `base_city` y por su forma corta ("Cartagena", "Cúcuta").
 - **Aceptación** (solo lectura): `cd web && npm run fase2:check` (= `npx tsx scripts/fase2-check.ts`):
-  12 pruebas puras + comparación con la tabla "El equipo actual sobre el mapa" del documento de
-  producto (64/64 celdas el 2026-10-10).
+  20 pruebas puras (incluye la regla del dueño para ajustes y el escenario Bucaramanga ↔ Cúcuta con
+  Diana Caicedo y Linda Barrera) + comparación con la tabla "El equipo actual sobre el mapa" del
+  documento de producto (64/64 celdas el 2026-10-10; 58/64 el 2026-10-11: las 6 diferencias son
+  porque en la BD Diana Caicedo ya lleva PerOssal + Columna, sin Reemplazo ni Medicina deportiva,
+  y la tabla del documento es anterior; el motor no cambia esas celdas).
 
 ## Fase 2b (2026-10-11): municipios completos, anexo de territorio y versiones
 
