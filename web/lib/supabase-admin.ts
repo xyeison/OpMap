@@ -4,6 +4,13 @@ import { createClient } from '@supabase/supabase-js'
 // (rutas API, server components). NUNCA importarlo desde componentes 'use client'.
 // Si falta SUPABASE_SERVICE_ROLE_KEY se lanza un error: no hay fallback a la anon key.
 
+// Next.js 14 guarda en su Data Cache (sin caducidad) los fetch de las rutas GET con
+// `export const dynamic = 'force-dynamic'`: en esas rutas no se rastrea el acceso a la petición y
+// el fetch de supabase-js quedaba cacheado para siempre (giros, sesión de usuario, cola de
+// pendientes… devolvían datos viejos). Los datos de la base nunca deben salir de esa caché:
+// todas las consultas de este cliente van con cache: 'no-store'.
+const noStoreFetch: typeof fetch = (input, init) => fetch(input, { ...init, cache: 'no-store' })
+
 function createAdminClient(url: string, serviceRoleKey: string) {
   return createClient(url, serviceRoleKey, {
     auth: {
@@ -11,6 +18,7 @@ function createAdminClient(url: string, serviceRoleKey: string) {
       autoRefreshToken: false,
       detectSessionInUrl: false,
     },
+    global: { fetch: noStoreFetch },
   })
 }
 

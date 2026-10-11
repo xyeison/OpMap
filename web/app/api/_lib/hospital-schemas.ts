@@ -47,6 +47,21 @@ export const BOGOTA_LOCALITY_REQUIRED = 'Las IPS de Bogotá necesitan localidad'
 
 export const HOSPITAL_TYPES = ['Publico', 'Privado', 'Mixto'] as const
 
+// Fase 3: código de habilitación de la sede del REPS que ES la IPS (12 dígitos; hospitals.reps_code).
+// Al guardarlo, la ruta comprueba que la sede exista en reps_sedes y que no esté vinculada a otra IPS
+// (app/api/_lib/reps.ts, resolveRepsLink) y marca reps_match_status = 'matched'.
+export const REPS_CODE_MESSAGE = 'El código de habilitación del REPS son 12 dígitos'
+export const repsCodeSchema = z.string().trim().regex(/^\d{12}$/, REPS_CODE_MESSAGE)
+const optionalRepsCode = z.preprocess(emptyToNull, repsCodeSchema.nullable()).optional()
+
+// PATCH /api/hospitals/[id]/reps-link: { reps_code: "<12 dígitos>" } vincula; { reps_code: null } desvincula.
+// La clave es obligatoria (un cuerpo vacío no desvincula por accidente).
+export const repsLinkSchema = z.object({
+  reps_code: z.union([repsCodeSchema, z.null()], {
+    errorMap: () => ({ message: `${REPS_CODE_MESSAGE} (o null para desvincular)` }),
+  }),
+})
+
 // Campos editables comunes (sin códigos territoriales ni coordenadas)
 const editableFields = {
   name: z.string().trim().min(1, 'El nombre es requerido').max(300),
@@ -83,6 +98,7 @@ export const createHospitalSchema = z
     lat: latSchema,
     lng: lngSchema,
     active: z.boolean().optional(),
+    reps_code: optionalRepsCode,
   })
   .superRefine((value, ctx) => {
     if (!value.municipality_id.startsWith(value.department_id)) {
@@ -129,6 +145,7 @@ export const updateHospitalSchema = z.object({
   hospital_type: editableFields.hospital_type,
   lat: latSchema.optional(),
   lng: lngSchema.optional(),
+  reps_code: optionalRepsCode,
 })
 
 // PATCH /api/hospitals/[id]

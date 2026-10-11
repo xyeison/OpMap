@@ -153,6 +153,22 @@ Oportunidades comerciales (obsoleta, reemplazada por hospital_contracts).
 - created_at, updated_at: timestamp
 ```
 
+#### Fase 3: servicios y capacidad del REPS (migración 0620)
+Detalle en `docs/fases/fase3-servicios-capacidad-reps.md`. Las 3 tablas con RLS sin políticas (solo `service_role`).
+```sql
+hospital_services:    id, reps_code (12 dígitos | 10 | 'NIT-<nit>'), hospital_id (FK, SET NULL), service_code,
+                      service_name, group_name, complexity, modality ('' = sin dato), source, imported_at
+                      UNIQUE (reps_code, service_code, modality)
+hospital_capacity:    id, reps_code, hospital_id, group_name ('camas'|'salas'|'ambulancias'|'otros'), concept,
+                      quantity (≥ 0), source, imported_at   UNIQUE (reps_code, group_name, concept)
+hospital_import_jobs: id (token), kind, mode, status, file_name, file_kind, file_sha256, rows (jsonb, se vacía
+                      al aplicar), summary, result, created_by, created_at, expires_at (30 min), applied_at
+hospitals (+):        quirofanos, reps_beds, service_flags jsonb NOT NULL DEFAULT '{}', reps_services_count,
+                      reps_updated_at
+hospital_history:     action admite además 'import' (una fila por IPS con cambios al importar del REPS)
+función:              reps_import_apply(job uuid, payload jsonb) → jsonb (una transacción; solo service_role)
+```
+
 ### Vistas
 
 #### 1. `kam_statistics`

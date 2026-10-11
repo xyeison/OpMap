@@ -4,6 +4,8 @@ import { requirePermission, requireUser } from '@/lib/require-role'
 import { badJson, fetchAllRows, readJsonBody, serverError, validationError } from '../_lib/api-error'
 import { createHospitalSchema } from '../_lib/hospital-schemas'
 import { PENDING_ASSIGNMENT_WARNING } from '../_lib/pending-assignment'
+import { isRepsCodeConflict, resolveRepsLink } from '../_lib/reps'
+import { nitFromCode } from '@/lib/reps-match'
 
 // POST solo guarda la IPS: NO llama a Google ni recalcula el territorio. Si queda activa entra en la cola
 // de pendientes (app/api/_lib/pending-assignment.ts) y se asigna con "Calcular rutas y asignar pendientes".
@@ -67,13 +69,31 @@ export async function POST(request: NextRequest) {
     const parsed = createHospitalSchema.safeParse(body)
     if (!parsed.success) return validationError(parsed.error)
 
+    // Fase 3: con reps_code, la sede debe existir en reps_sedes y estar libre; la IPS nace 'matched'
+    const { reps_code: repsCode, ...insertData } = parsed.data
+    let repsWarnings: string[] = []
+    if (repsCode) {
+      const resolution = await resolveRepsLink({
+        repsCode,
+        hospitalId: null,
+        nit: nitFromCode(insertData.code),
+        municipalityId: insertData.municipality_id,
+      })
+      if (!resolution.ok) return NextResponse.json({ error: resolution.error }, { status: resolution.status })
+      Object.assign(insertData, resolution.fields)
+      repsWarnings = resolution.warnings
+    }
+
     const { data, error } = await supabaseAdmin
       .from('hospitals')
-      .insert(parsed.data)
+      .insert(insertData)
       .select()
       .single()
 
     if (error) {
+      if (isRepsCodeConflict(error)) {
+        return NextResponse.json({ error: 'Esa sede del REPS ya está vinculada a otra IPS' }, { status: 409 })
+      }
       if ((error as { code?: string }).code === '23505') {
         return NextResponse.json({ error: 'Ya existe un hospital con ese código' }, { status: 409 })
       }
@@ -82,7 +102,8 @@ export async function POST(request: NextRequest) {
 
     // Sin rutas ni recálculo aquí (pedido del dueño): una IPS activa queda pendiente hasta la acción masiva
     const pending = data.active === true
-    return NextResponse.json({ ...data, pending, warnings: pending ? [PENDING_ASSIGNMENT_WARNING] : [] })
+    const warnings = [...(pending ? [PENDING_ASSIGNMENT_WARNING] : []), ...repsWarnings]
+    return NextResponse.json({ ...data, pending, warnings })
   } catch (error) {
     return serverError('hospitals POST', error)
   }

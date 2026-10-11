@@ -9,9 +9,12 @@ Python de la raíz son el motor original; hoy la fuente de verdad es `web/`. Idi
 npm run dev          # servidor local (o preview "opmap-web" en .claude/launch.json)
 npm run check        # typecheck + lint + pruebas sin red  ← correr SIEMPRE antes de dar algo por terminado
 npm run typecheck    # tsc --noEmit (≈3 s)
-npm run test         # scripts/ips-routes-check.ts: Supabase falso en memoria, sin Google (109 pruebas)
+npm run test         # ips-routes-check (109, Supabase falso, sin Google) + reps-check (55) + reps-import-check (90) + adres-check (112)
 npm run fase2:check  # reglas de cobertura vs documento de producto (NECESITA Supabase real, solo lectura)
 npm run fase1:simulate   # simulación de zonas, solo lectura
+npm run reps:check   # cruce IPS ↔ sedes del REPS: pruebas puras sin red
+npm run adres:check  # giros ADRES: lectura del reporte y agregación, pruebas puras sin red
+npm run reps-import:check  # importador de servicios/capacidad del REPS (Excel, CSV, PDF): puras sin red
 ```
 
 Variables en `web/.env.local` (ver `web/VERCEL_ENV_VARS.md`): `NEXT_PUBLIC_SUPABASE_URL`,
@@ -65,17 +68,34 @@ nada llama a Google.
   solo con autorización del dueño y en la misma ventana que el despliegue del código. Acceso a datos
   desde el servidor con `service_role` (`lib/supabase-admin.ts`); permisos por rol con `requirePermission`
   (`lib/require-role.ts` + `lib/permissions.ts`), no con políticas RLS por rol.
+- **Caché de Next.js**: el cliente de `lib/supabase-admin.ts` hace todas sus consultas con
+  `cache: 'no-store'`. No quitarlo: en Next 14 las rutas GET con `dynamic = 'force-dynamic'` guardaban
+  el fetch de supabase-js para siempre en la Data Cache (datos y sesión de usuario viejos).
 - **Territorio y contratos**: el anexo de territorio (Anexo A IPS, Anexo B municipios) va al contrato de
   cada Ejecutivo Comercial; las versiones (`territory_snapshots`) son inmutables.
 - Nunca leer ni editar `.env*`; nunca imprimir claves. `.env.example` de la raíz tuvo una clave real de
   Google expuesta: hay que rotarla (tarea del dueño).
+
+## Fase 3: REPS y ADRES (detalle en `docs/fases/fase3-reps-adres.md`)
+
+- **Una IPS = una sede del REPS** (`hospitals.reps_code`, código de habilitación de 12 dígitos), no un NIT.
+  `hospitals.nit` es GENERADA desde `code` (no se escribe); el sufijo de `code` no es DV ni número de sede.
+- **Coordenadas de sedes nuevas**: solo Google Maps por nombre y con certeza; nunca la dirección del REPS.
+  Sin certeza → "sin ubicar" (pendiente D4: spec, dry-run y autorización de gasto antes).
+- Vincular sede, importar servicios/capacidad o cargar giros NO recalcula ni llama a Google.
+- **Giro ADRES por NIT**: entre sedes activas del mismo NIT se reparte por camas (nunca se suma dos veces).
+  Solo régimen subsidiado, publicado hasta junio-2025. El script se identifica con su User-Agent; no evadir
+  el firewall de la ADRES.
+- Importar del REPS: solo `admin`/`data_manager`, PDF solo con texto (sin OCR); solo se guardan sedes con
+  cruce. Permiso `intelligence:view` para `/inteligencia`.
 
 ## Dónde está el detalle (leer solo cuando toque)
 
 - `docs/algoritmo-asignacion.md` – principios, 8 fases, regla de mayoría, departamentos excluidos.
 - `docs/mapa-estetica.md` – estilo autorizado del mapa, filtros, insignias, racimos, tarjetas.
 - `docs/base-de-datos.md` – tablas, vistas, RLS. `docs/fases/` – Fase 1, 2 y 2b (modelo y reglas de
-  cobertura). `docs/ips-pendientes.md` – cola de pendientes y acción masiva.
+  cobertura) y Fase 3 (`fase3-reps-adres.md`: sedes del REPS, servicios/capacidad, giros ADRES).
+  `docs/ips-pendientes.md` – cola de pendientes y acción masiva.
 - `docs/arquitectura-y-scripts.md` – scripts Python, estructura de carpetas, archivos clave.
 - `docs/historico-resultados.md` – cifras de 2025 y colores originales (histórico, no vigente).
 - `docs/FLUJO_DE_TRABAJO_IA.md` – cómo trabajamos con Claude Code en este repo y por qué.

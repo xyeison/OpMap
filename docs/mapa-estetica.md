@@ -83,6 +83,12 @@ Estilo autorizado por el dueño el 2026-10-11 (rama `ui/mapa-estetica`; constant
   cambia el botón "Filtros" por el chip "n ejecutivas" (en escritorio el botón "Filtros y visitas" lleva
   el mismo chip). Vista de zonas (`&mode=zones`): misma lista y
   mismo comportamiento, pero por zona, en `&zones=<id1,id2>` (kam_id). Las tarjetas no cambian.
+- **Bloque "IPS" (Fase 3, servicios y capacidad del REPS)**: en la pestaña "Filtros", debajo de "Tipo de
+  Hospital": casillas "Con quirófano", "Ortopedia", "Neurocirugía", "Columna" y rango de camas (filas de
+  44 px en celular). Misma regla que la lista de IPS (`web/lib/hospital-service-filters.ts`, Y lógico).
+  Solo OCULTA puntos de IPS (con y sin zona) y cambia "Mostrando N hospitales"; territorios, colores,
+  insignias y leyenda no cambian. Una IPS sin datos del REPS no pasa un filtro de servicio (el bloque
+  dice cuántas hay). Estado solo en memoria (no va en la URL).
 - **Capa de nombres**: Esri World Light Gray Reference (o `NEXT_PUBLIC_BASEMAP_LABELS_URL`) en un panel
   propio (z 450) encima de los polígonos y debajo de los puntos de IPS y de las insignias, sin recibir
   toques; se oculta con un fundido mientras dura el zoom. Usa partes internas de Leaflet

@@ -5,6 +5,17 @@ import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { useVisits } from '@/hooks/useVisits'
 import MapGroupFilter, { type GroupFilterConfig } from './MapGroupFilter'
+import {
+  EMPTY_IPS_FILTER,
+  IPS_FILTER_HINTS,
+  IPS_FILTER_LABELS,
+  hasRepsData,
+  ipsServiceAvailability,
+  IPS_SERVICE_UNAVAILABLE_HINT,
+  isIpsFilterActive,
+  parseBedsInput,
+  type IpsServiceFilter,
+} from '@/lib/hospital-service-filters'
 
 // Referencia estable para "sin visitas": un [] nuevo en cada render dispararía el efecto que avisa
 // al padre (setVisits) en bucle mientras las visitas están apagadas
@@ -37,7 +48,12 @@ interface MapControlsProps {
   filterChipLabel?: string | null
   // Cada cambio abre la pestaña "Filtros" (botón "Filtros" de la hoja inferior)
   filtersTabRequest?: number
+  // Fase 3: bloque "IPS" (servicios y capacidad del REPS); oculta los puntos que no cumplen
+  ipsServiceFilter?: IpsServiceFilter
+  onIpsServiceFilterChange?: (filter: IpsServiceFilter) => void
 }
+
+const IPS_FILTER_CHECKS = ['quirofano', 'ortopedia', 'neurocirugia', 'columna'] as const
 
 export default function MapControls({
   mapData,
@@ -58,7 +74,9 @@ export default function MapControls({
   groupFilter = null,
   visitKamIds = null,
   filterChipLabel = null,
-  filtersTabRequest = 0
+  filtersTabRequest = 0,
+  ipsServiceFilter = EMPTY_IPS_FILTER,
+  onIpsServiceFilterChange
 }: MapControlsProps) {
   const embedded = variant === 'embedded'
   const [isOpen, setIsOpen] = useState(false)
@@ -66,6 +84,15 @@ export default function MapControls({
   const [searchTerm, setSearchTerm] = useState('')
   const [searchResults, setSearchResults] = useState<any[]>([])
   const [showContracts, setShowContracts] = useState(false)
+  // Texto de los campos de camas (el filtro solo guarda números válidos)
+  const [minBedsText, setMinBedsText] = useState(ipsServiceFilter.minBeds === null ? '' : String(ipsServiceFilter.minBeds))
+  const [maxBedsText, setMaxBedsText] = useState(ipsServiceFilter.maxBeds === null ? '' : String(ipsServiceFilter.maxBeds))
+  const ipsWithoutReps = useMemo(
+    () => (mapData?.hospitals || []).filter((h: any) => !hasRepsData(h)).length,
+    [mapData]
+  )
+  // Sin ningún dato del REPS importado, marcar un servicio dejaría el mapa sin puntos: se desactiva
+  const ipsServiceAvailable = useMemo(() => ipsServiceAvailability(mapData?.hospitals), [mapData])
   
   // Estados para visitas - Tipo de visualización
   const [visualizationType, setVisualizationType] = useState<'heatmap' | 'markers' | 'both'>('heatmap')
@@ -319,6 +346,91 @@ export default function MapControls({
               Mostrando {filteredAssignments.length + filteredUnassignedHospitals.length} hospitales
             </div>
           </div>
+
+          {/* Fase 3: IPS por servicios y capacidad del REPS (solo oculta puntos; el territorio no cambia) */}
+          {onIpsServiceFilterChange && (
+            <div className="mb-3 pt-3 border-t">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold text-gray-700">IPS</span>
+                {isIpsFilterActive(ipsServiceFilter) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMinBedsText('')
+                      setMaxBedsText('')
+                      onIpsServiceFilterChange(EMPTY_IPS_FILTER)
+                    }}
+                    className="text-xs text-gray-600 underline hover:text-gray-900"
+                  >
+                    Limpiar
+                  </button>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                {IPS_FILTER_CHECKS.map(key => {
+                  // Se puede desmarcar siempre; marcar solo si hay datos del REPS para esa casilla
+                  const unavailable = !ipsServiceAvailable[key] && !ipsServiceFilter[key]
+                  return (
+                    <label
+                      key={key}
+                      title={unavailable ? IPS_SERVICE_UNAVAILABLE_HINT : IPS_FILTER_HINTS[key]}
+                      className={`flex items-center gap-2 text-sm ${unavailable ? 'text-gray-400 cursor-not-allowed' : 'text-gray-700 cursor-pointer'} ${embedded ? 'min-h-[44px]' : 'py-0.5'}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={ipsServiceFilter[key]}
+                        disabled={unavailable}
+                        onChange={e => onIpsServiceFilterChange({ ...ipsServiceFilter, [key]: e.target.checked })}
+                        className="h-4 w-4 rounded border-gray-300"
+                      />
+                      {IPS_FILTER_LABELS[key]}
+                    </label>
+                  )
+                })}
+              </div>
+              <div className="mt-2 flex items-center gap-2">
+                <span className="text-xs text-gray-600 shrink-0">Camas</span>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  placeholder="mín."
+                  aria-label="Camas mínimas"
+                  value={minBedsText}
+                  onChange={e => {
+                    setMinBedsText(e.target.value)
+                    onIpsServiceFilterChange({ ...ipsServiceFilter, minBeds: parseBedsInput(e.target.value) })
+                  }}
+                  className={`w-full min-w-0 px-2 text-sm border border-gray-300 rounded-lg bg-white ${embedded ? 'h-11' : 'py-1'}`}
+                />
+                <span className="text-xs text-gray-500">a</span>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  placeholder="máx."
+                  aria-label="Camas máximas"
+                  value={maxBedsText}
+                  onChange={e => {
+                    setMaxBedsText(e.target.value)
+                    onIpsServiceFilterChange({ ...ipsServiceFilter, maxBeds: parseBedsInput(e.target.value) })
+                  }}
+                  className={`w-full min-w-0 px-2 text-sm border border-gray-300 rounded-lg bg-white ${embedded ? 'h-11' : 'py-1'}`}
+                />
+              </div>
+              {ipsServiceAvailable.any ? (
+                <p className="mt-1 text-xs text-gray-500">
+                  Datos del REPS (camas del REPS o, si no hay, las de la ficha).
+                  {ipsWithoutReps > 0 ? ` ${ipsWithoutReps} IPS aún sin datos del REPS quedan ocultas al filtrar por servicio.` : ''}
+                </p>
+              ) : (
+                <p className="mt-1 text-xs text-gray-500">
+                  Los servicios se activan cuando se importen del REPS (Hospitales, &quot;Importar del REPS&quot;). Mientras tanto
+                  se puede filtrar por camas (las de la ficha).
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Toggle de Solo Hospitales con Contratos */}
           <div className="mb-3 pt-3 border-t">

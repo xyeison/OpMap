@@ -17,6 +17,18 @@ const nextConfig = {
   },
   // Aumentar el timeout para generación estática
   staticPageGenerationTimeout: 180,
+  experimental: {
+    // pdf.js (importador del REPS, lib/reps-pdf.ts) se carga desde node_modules en el servidor, sin bundle
+    serverComponentsExternalPackages: ['pdfjs-dist'],
+    // ...y se incluye explícitamente en la función de Vercel (se carga con import() dinámico)
+    outputFileTracingIncludes: {
+      '/api/hospitals/import/preview': [
+        './node_modules/pdfjs-dist/legacy/build/pdf.mjs',
+        './node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs',
+        './node_modules/pdfjs-dist/package.json',
+      ],
+    },
+  },
   async headers() {
     return [
       {
