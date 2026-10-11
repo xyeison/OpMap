@@ -10,14 +10,35 @@ import { useQueryClient } from '@tanstack/react-query'
 import { usePermissions } from '@/hooks/usePermissions'
 import { useUser } from '@/contexts/UserContext'
 
-function routeStatusMessage(status: { candidates: number; missing: number; reason: string | null }): string {
+// GET /api/hospitals/[id] → routeStatus (app/api/_lib/pending-assignment.ts, getHospitalPendingStatus)
+interface RouteStatus {
+  candidates: number
+  missing: number
+  stale?: number
+  reason: string | null
+  pending?: boolean
+  pendingReason?: string | null
+}
+
+const GOOGLE_COST_PER_ELEMENT_USD = 0.005 // mismo precio que app/api/_lib/hospital-routes.ts
+
+function routeStatusMessage(status: RouteStatus, hasZone: boolean): string {
   if (status.reason === 'excluded_department') return 'Sin zona: la IPS está en un departamento excluido del análisis'
   if (status.reason === 'no_candidates') {
     return 'Sin zona: ninguna zona puede competir por esta IPS según los departamentos limítrofes'
   }
+  if (status.pending) {
+    const head = hasZone ? 'Pendiente de rutas y asignación' : 'Sin zona: pendiente de rutas y asignación'
+    return status.pendingReason ? `${head}. ${status.pendingReason}` : head
+  }
   if (status.missing === 1) return 'Sin zona: falta 1 tiempo de viaje'
   if (status.missing > 1) return `Sin zona: faltan ${status.missing} tiempos de viaje`
   return 'Sin zona: ninguna zona elegible llega a esta IPS dentro de su tiempo máximo de viaje'
+}
+
+function messageWithWarnings(head: string, warnings: unknown): string {
+  const list = Array.isArray(warnings) ? warnings.filter((warning): warning is string => typeof warning === 'string') : []
+  return list.length > 0 ? `${head}\n\n${list.join('\n')}` : head
 }
 
 function zoneResultMessage(prefix: string, zoneName: string | null | undefined, warnings: unknown): string {
@@ -34,8 +55,8 @@ export default function HospitalDetailPage() {
   const { user } = useUser()
   const hospitalId = params.id as string
 
-  // Estado de rutas de una IPS activa sin zona (GET /api/hospitals/[id] → routeStatus)
-  const [routeStatus, setRouteStatus] = useState<{ candidates: number; missing: number; reason: string | null } | null>(null)
+  // Estado de rutas y de la cola de pendientes de una IPS activa (GET /api/hospitals/[id] → routeStatus)
+  const [routeStatus, setRouteStatus] = useState<RouteStatus | null>(null)
   const [isEnsuringRoutes, setIsEnsuringRoutes] = useState(false)
   
   const [hospital, setHospital] = useState<any>(null)
@@ -175,14 +196,14 @@ export default function HospitalDetailPage() {
 
       // El historial ya se registra en el API endpoint
 
-      // Activar: el servidor ya calculó los tiempos de viaje que faltaban y recalculó las zonas
-      // (app/api/_lib/hospital-routes.ts); no hace falta llamar a /api/recalculate-smart-hospital
-      if (!hospital.active && result.zone !== undefined) {
-        await queryClient.invalidateQueries({ queryKey: ['map-data'] })
+      // Activar ya no recalcula el territorio: la IPS queda pendiente de rutas y asignación
+      // (app/api/_lib/pending-assignment.ts) y se procesa desde la lista de IPS
+      if (!hospital.active) {
+        await queryClient.invalidateQueries({ queryKey: ['hospitals-pending'] })
         await loadHospitalData()
         setShowActivateModal(false)
         setActivateReason('')
-        alert(zoneResultMessage('Hospital activado', result.zone?.assignment?.kam_name, result.warnings))
+        alert(messageWithWarnings('Hospital activado.', result.warnings))
         return
       }
 
@@ -250,9 +271,16 @@ export default function HospitalDetailPage() {
     }
   }
 
-  // "Calcular rutas y asignar": tiempos que faltan (Google) + recálculo completo de zonas
+  // "Calcular rutas y recalcular territorio": tiempos que faltan de ESTA IPS (Google) + recálculo completo
+  // de la asignación de todas las IPS. Para cargas masivas está "Calcular rutas y asignar pendientes".
   const ensureRoutes = async () => {
     if (isEnsuringRoutes) return
+    const pairs = routeStatus?.missing ?? 0
+    const confirmMessage = pairs > 0
+      ? `Se calcularán con Google Maps ${pairs} tiempo(s) de viaje de esta IPS (≈ US$${(pairs * GOOGLE_COST_PER_ELEMENT_USD).toFixed(2)}) ` +
+        'y después se recalculará la asignación de TODAS las IPS (territorio completo). ¿Continuar?'
+      : 'Se recalculará la asignación de TODAS las IPS (territorio completo), sin costo en Google. ¿Continuar?'
+    if (!window.confirm(confirmMessage)) return
     setIsEnsuringRoutes(true)
     try {
       const response = await fetch(`/api/hospitals/${hospitalId}/ensure-routes`, { method: 'POST' })
@@ -261,14 +289,15 @@ export default function HospitalDetailPage() {
         throw new Error(body.error || 'Error al calcular rutas')
       }
       await queryClient.invalidateQueries({ queryKey: ['map-data'] })
+      await queryClient.invalidateQueries({ queryKey: ['hospitals-pending'] })
       await loadHospitalData()
       const routes = body.routes
       const detail = routes && routes.googleElements > 0
         ? ` (${routes.calculated} tiempo(s) nuevo(s), coste estimado ${routes.costEstimate})`
         : ''
-      alert(zoneResultMessage(`Rutas revisadas${detail}`, body.assignment?.kam_name, body.warnings))
+      alert(zoneResultMessage(`Territorio recalculado${detail}`, body.assignment?.kam_name, body.warnings))
     } catch (error: any) {
-      alert(`No se pudo calcular rutas y asignar: ${error.message || 'Error desconocido'}`)
+      alert(`No se pudo calcular rutas y recalcular el territorio: ${error.message || 'Error desconocido'}`)
     } finally {
       setIsEnsuringRoutes(false)
     }
@@ -449,30 +478,32 @@ export default function HospitalDetailPage() {
                 </div>
               </div>
             ) : (
-              <div className="space-y-3">
-                <p className="text-gray-500">No hay Ejecutivo Comercial asignado</p>
-                {routeStatus && (
-                  <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg text-sm space-y-3">
-                    <p className="font-medium">{routeStatusMessage(routeStatus)}</p>
-                    {routeStatus.missing > 0 && (
-                      <p>Hasta calcularlos, el algoritmo no puede asignar esta IPS a ninguna zona.</p>
-                    )}
-                    {routeStatus.candidates > 0 && (
-                      <PermissionGuard permission="recalculate:complete">
-                        <button
-                          onClick={ensureRoutes}
-                          disabled={isEnsuringRoutes}
-                          className="px-4 py-2 text-sm bg-gray-900 text-white rounded-lg hover:bg-black transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          {isEnsuringRoutes
-                            ? 'Calculando rutas y asignando...'
-                            : routeStatus.missing > 0
-                              ? 'Calcular rutas y asignar'
-                              : 'Recalcular asignación'}
-                        </button>
-                      </PermissionGuard>
-                    )}
-                  </div>
+              <p className="text-gray-500">No hay Ejecutivo Comercial asignado</p>
+            )}
+            {routeStatus && (!kam || routeStatus.pending) && (
+              <div className="mt-3 p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg text-sm space-y-3">
+                <p className="font-medium">{routeStatusMessage(routeStatus, Boolean(kam))}</p>
+                {routeStatus.pending && (
+                  <p>
+                    Crear, editar la ubicación o activar una IPS ya no recalcula el territorio. Se asigna en bloque con
+                    {' '}&quot;Calcular rutas y asignar pendientes&quot; en la lista de IPS, o con el botón de abajo solo para esta IPS
+                    {' '}(recalcula la asignación de todas).
+                  </p>
+                )}
+                {routeStatus.candidates > 0 && (
+                  <PermissionGuard permission="recalculate:complete">
+                    <button
+                      onClick={ensureRoutes}
+                      disabled={isEnsuringRoutes}
+                      className="px-4 py-2 text-sm bg-gray-900 text-white rounded-lg hover:bg-black transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isEnsuringRoutes
+                        ? 'Calculando rutas y recalculando territorio...'
+                        : routeStatus.missing > 0
+                          ? 'Calcular rutas y recalcular territorio'
+                          : 'Recalcular territorio'}
+                    </button>
+                  </PermissionGuard>
                 )}
               </div>
             )}
@@ -1279,16 +1310,16 @@ export default function HospitalDetailPage() {
                         throw new Error(issues || error.error || 'Error al actualizar hospital')
                       }
 
-                      // Si cambiaron las coordenadas, el servidor recalculó la zona (warnings/zone)
+                      // Si cambió la ubicación, el servidor NO recalcula: la IPS queda pendiente (pending/warnings)
                       const updated = await response.json()
-                      if (updated?.zone?.recalculated) {
-                        await queryClient.invalidateQueries({ queryKey: ['map-data'] })
+                      if (updated?.pending) {
+                        await queryClient.invalidateQueries({ queryKey: ['hospitals-pending'] })
                       }
                       await loadHospitalData()
                       setShowEditModal(false)
                       alert(
-                        updated?.zone
-                          ? zoneResultMessage('Hospital actualizado', updated.zone.assignment?.kam_name, updated.warnings)
+                        updated?.pending
+                          ? messageWithWarnings('Hospital actualizado.', updated.warnings)
                           : 'Hospital actualizado exitosamente'
                       )
                     } catch (error: any) {

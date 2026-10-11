@@ -3,10 +3,10 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { requirePermission, requireUser } from '@/lib/require-role'
 import { badJson, fetchAllRows, readJsonBody, serverError, validationError } from '../_lib/api-error'
 import { createHospitalSchema } from '../_lib/hospital-schemas'
-import { refreshHospitalZone, zoneRefreshResponse } from '../_lib/hospital-routes'
+import { PENDING_ASSIGNMENT_WARNING } from '../_lib/pending-assignment'
 
-// POST calcula los tiempos de viaje que falten (Google) y recalcula zonas: ver app/api/_lib/hospital-routes.ts
-export const maxDuration = 60
+// POST solo guarda la IPS: NO llama a Google ni recalcula el territorio. Si queda activa entra en la cola
+// de pendientes (app/api/_lib/pending-assignment.ts) y se asigna con "Calcular rutas y asignar pendientes".
 
 export async function GET(request: NextRequest) {
   const auth = await requireUser(request)
@@ -80,11 +80,9 @@ export async function POST(request: NextRequest) {
       return serverError('hospitals POST', error, 'Error al crear el hospital')
     }
 
-    // La IPS ya está guardada. Si está activa: tiempos que falten → recálculo completo → municipios.
-    // refreshHospitalZone no lanza: cualquier fallo vuelve como aviso en `warnings`.
-    const zone = data.active === true ? await refreshHospitalZone(data.id, { actorId: auth.user.id }) : null
-
-    return NextResponse.json({ ...data, warnings: zone?.warnings ?? [], zone: zoneRefreshResponse(zone) })
+    // Sin rutas ni recálculo aquí (pedido del dueño): una IPS activa queda pendiente hasta la acción masiva
+    const pending = data.active === true
+    return NextResponse.json({ ...data, pending, warnings: pending ? [PENDING_ASSIGNMENT_WARNING] : [] })
   } catch (error) {
     return serverError('hospitals POST', error)
   }

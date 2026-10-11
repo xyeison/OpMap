@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
+import PendingAssignmentBanner, { PENDING_QUERY_KEY } from '@/components/PendingAssignmentBanner'
 
 export default function HospitalsPage() {
   const [searchTerm, setSearchTerm] = useState('')
@@ -164,8 +165,8 @@ export default function HospitalsPage() {
         active: newHospital.active
       }
 
-      // El servidor guarda la IPS y, si está activa, calcula los tiempos de viaje que falten y
-      // recalcula las zonas en la misma petición (app/api/_lib/hospital-routes.ts)
+      // El servidor solo guarda la IPS: no calcula rutas ni recalcula el territorio. Si está activa queda
+      // pendiente y se asigna con "Calcular rutas y asignar pendientes" (app/api/_lib/pending-assignment.ts)
       const response = await fetch('/api/hospitals', {
         method: 'POST',
         headers: {
@@ -182,22 +183,13 @@ export default function HospitalsPage() {
 
       const data = await response.json()
       const warnings: string[] = Array.isArray(data.warnings) ? data.warnings : []
-      const assignedZone = data.zone?.assignment?.kam_name
 
       if (!data.active) {
         alert('Hospital agregado (inactivo: no se asigna a ninguna zona hasta activarlo)')
-      } else if (assignedZone) {
-        alert(
-          `Hospital agregado y asignado a ${zoneDisplayName(assignedZone)}` +
-            (warnings.length > 0 ? `\n\nAvisos:\n- ${warnings.join('\n- ')}` : '')
-        )
       } else {
-        alert(
-          'Hospital agregado, pero quedó sin zona' +
-            (warnings.length > 0 ? `:\n- ${warnings.join('\n- ')}` : '')
-        )
+        alert(`Hospital agregado.${warnings.length > 0 ? `\n\n${warnings.join('\n')}` : ''}`)
       }
-      queryClient.invalidateQueries({ queryKey: ['map-data'] })
+      queryClient.invalidateQueries({ queryKey: PENDING_QUERY_KEY })
 
       setShowAddModal(false)
       setNewHospital({
@@ -269,6 +261,8 @@ export default function HospitalsPage() {
           </button>
         </PermissionGuard>
       </div>
+
+      <PendingAssignmentBanner />
 
       <div className="mb-6 bg-white rounded-2xl shadow-lg border border-gray-100 p-6">
         <div className="flex flex-col gap-4">
@@ -719,7 +713,7 @@ export default function HospitalsPage() {
                 className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
                 disabled={isSubmitting}
               >
-                {isSubmitting ? 'Agregando y asignando zona...' : 'Agregar Hospital'}
+                {isSubmitting ? 'Agregando...' : 'Agregar Hospital'}
               </button>
             </div>
           </div>
