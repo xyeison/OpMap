@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { zoneDisplayName } from '@/lib/zone-names'
 import { requirePermission } from '@/lib/require-role'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { kamIdSchema } from '../_lib/kam-schemas'
@@ -35,13 +36,13 @@ export async function POST(request: NextRequest) {
       .maybeSingle()
 
     if (kamError) throw kamError
-    if (!kam) return jsonError('KAM no encontrado', 404)
-    if (kam.active === true) return jsonError('El KAM ya está activo', 409)
+    if (!kam) return jsonError('Zona no encontrada', 404)
+    if (kam.active === true) return jsonError('La zona ya está activa', 409)
 
     if (kam.participates_in_assignment === true) {
       // R2-A-01: un KAM con Bogotá entera se quedaría con toda la capital
       if (kam.area_id === BOGOTA_MUNICIPALITY_CODE) {
-        return jsonError(`${BOGOTA_AREA_MESSAGE} antes de activar este KAM`, 400)
+        return jsonError(`${BOGOTA_AREA_MESSAGE} antes de activar esta zona`, 400)
       }
       // R2-M-01: un único KAM activo y territorial por área
       const conflict = await findAreaConflict(kam.area_id, kamId)
@@ -58,10 +59,10 @@ export async function POST(request: NextRequest) {
 
     if (updateError) {
       console.error('Error al activar KAM:', updateError)
-      return jsonError('Error al activar KAM', 500)
+      return jsonError('Error al activar la zona', 500)
     }
     if (!updatedRows || updatedRows.length === 0 || updatedRows[0].active !== true) {
-      return jsonError('El KAM no se activó: su estado cambió mientras tanto', 409)
+      return jsonError('La zona no se activó: su estado cambió mientras tanto', 409)
     }
 
     // 3. Recalcular todas las asignaciones
@@ -71,7 +72,7 @@ export async function POST(request: NextRequest) {
     } catch (recalcError) {
       console.error('Error al recalcular tras activar KAM:', recalcError)
       return jsonError(
-        `El KAM ${kam.name} quedó activo, pero el recálculo de asignaciones falló. Ejecuta el recálculo manualmente.`,
+        `La zona ${zoneDisplayName(kam.name)} quedó activa, pero el recálculo de asignaciones falló. Ejecuta el recálculo manualmente.`,
         500
       )
     }
@@ -91,7 +92,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: `KAM ${kam.name} activado exitosamente`,
+      message: `Zona ${zoneDisplayName(kam.name)} activada exitosamente`,
       stats: {
         totalAssignments: saved,
         kamAssignments: kamAssignments || 0,
@@ -100,6 +101,6 @@ export async function POST(request: NextRequest) {
     })
   } catch (error) {
     console.error('Error al activar KAM:', error)
-    return jsonError('Error al activar KAM', 500)
+    return jsonError('Error al activar la zona', 500)
   }
 }

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { zoneDisplayName } from '@/lib/zone-names'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import ForcedAssignmentModal from '@/components/ForcedAssignmentModal'
@@ -333,8 +334,8 @@ export default function TerritoriesPage() {
                       style={{ backgroundColor: territory.assignedKamColor || '#888' }}
                     />
                     <div className="flex-1">
-                      <p className="text-xs text-gray-600">KAM Asignado</p>
-                      <p className="text-sm font-semibold text-gray-900">{territory.assignedKamName}</p>
+                      <p className="text-xs text-gray-600">Ejecutivo Comercial Asignado</p>
+                      <p className="text-sm font-semibold text-gray-900">{zoneDisplayName(territory.assignedKamName)}</p>
                     </div>
                   </div>
                 </div>

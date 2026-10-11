@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
 
     if (error) {
       console.error('Error cargando KAMs:', error)
-      return NextResponse.json({ error: 'Error al cargar los KAMs' }, { status: 500 })
+      return NextResponse.json({ error: 'Error al cargar las zonas' }, { status: 500 })
     }
 
     return NextResponse.json(kams || [])

@@ -10,6 +10,13 @@ const HOSPITAL_COLUMNS =
 
 const KAM_COLUMNS = 'id, name, area_id, lat, lng, color, zone_id'
 
+// Ejecutivo Comercial que vive en una zona (base_kam_id). Solo activos o por contratar.
+interface MapZoneExecutive {
+  id: string
+  full_name: string
+  status: 'active' | 'placeholder'
+}
+
 // PostgREST corta en 1.000 filas por petición: se pagina con .range() hasta agotar la tabla
 // (municipalities tiene más de 1.000 filas).
 const PAGE_SIZE = 1000
@@ -37,11 +44,11 @@ export async function GET(request: NextRequest) {
     const supabase = supabaseAdmin
 
     // Cargar todos los datos necesarios para el mapa
-    const [kamsResult, assignmentsResult, municipalitiesResult, hospitalsResult, contractsResult] = await Promise.all([
+    const [kamsResult, assignmentsResult, municipalitiesResult, hospitalsResult, contractsResult, executivesResult] = await Promise.all([
       supabase.from('kams')
         .select(KAM_COLUMNS)
         .eq('active', true)
-        .eq('participates_in_assignment', true),  // Solo KAMs con territorio
+        .eq('participates_in_assignment', true),  // Solo zonas con territorio
       fetchAllRows<any>((from, to) =>
         supabase.from('assignments')
           .select(`id, kam_id, hospital_id, travel_time, assignment_type, is_base_territory, hospitals!inner(${HOSPITAL_COLUMNS}), kams!inner(id, name, color)`)
@@ -61,7 +68,13 @@ export async function GET(request: NextRequest) {
           .order('id')
           .range(from, to)
       ),
-      supabase.from('hospital_contracts').select('hospital_id, contract_value, provider').eq('active', true)
+      supabase.from('hospital_contracts').select('hospital_id, contract_value, provider').eq('active', true),
+      // Una sola consulta de ejecutivos; se agrupan por zona en memoria (sin N+1)
+      supabase.from('executives')
+        .select('id, full_name, status, base_kam_id')
+        .in('status', ['active', 'placeholder'])
+        .not('base_kam_id', 'is', null)
+        .order('full_name')
     ])
 
     // Si cualquier consulta falla, responder 500 genérico (el detalle solo va al log del servidor)
@@ -71,6 +84,7 @@ export async function GET(request: NextRequest) {
       ['municipalities', municipalitiesResult.error],
       ['hospitals', hospitalsResult.error],
       ['hospital_contracts', contractsResult.error],
+      ['executives', executivesResult.error],
     ].filter(([, error]) => error)
     if (failed.length > 0) {
       failed.forEach(([table, error]) => console.error(`Error consultando ${table} en /api/map/data:`, error))
@@ -80,7 +94,21 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const kamsFiltered = kamsResult.data || []
+    // Agrupar ejecutivos por zona (base_kam_id)
+    const executivesByZone: Record<string, MapZoneExecutive[]> = {}
+    ;(executivesResult.data || []).forEach((e: any) => {
+      if (!e.base_kam_id) return
+      ;(executivesByZone[e.base_kam_id] ||= []).push({
+        id: e.id,
+        full_name: e.full_name,
+        status: e.status,
+      })
+    })
+
+    const kamsFiltered = (kamsResult.data || []).map((kam: any) => ({
+      ...kam,
+      executives: executivesByZone[kam.id] || [],
+    }))
 
     console.log('Map data loaded:', {
       kams: kamsFiltered.length,

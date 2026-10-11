@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { zoneDisplayName } from '@/lib/zone-names'
 import { useQueryClient } from '@tanstack/react-query'
 
 interface Territory {
@@ -54,14 +55,14 @@ export default function ForcedAssignmentModal({
       const response = await fetch('/api/kams')
       const data = await response.json().catch(() => null)
       if (!response.ok) {
-        throw new Error((data && data.error) || `Error al cargar los KAMs (${response.status})`)
+        throw new Error((data && data.error) || `Error al cargar las zonas (${response.status})`)
       }
       const list: KAM[] = Array.isArray(data) ? data : []
       // Solo KAMs activos que participan en la asignación: el algoritmo ignora forzadas a otros
       setKams(list.filter((k: any) => k.active && k.participates_in_assignment === true))
     } catch (err: any) {
       console.error('Error loading KAMs:', err)
-      setError(err.message || 'Error al cargar los KAMs')
+      setError(err.message || 'Error al cargar las zonas')
     }
   }
 
@@ -69,7 +70,7 @@ export default function ForcedAssignmentModal({
     e.preventDefault()
     
     if (!territory || !selectedKam) {
-      setError('Debe seleccionar un KAM')
+      setError('Debe seleccionar una zona')
       return
     }
 
@@ -185,7 +186,7 @@ export default function ForcedAssignmentModal({
           <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-xl">
             <p className="text-sm text-blue-800">
               <strong>⚠️ Importante:</strong> La asignación forzada sobrescribe el algoritmo OpMap. 
-              Todos los hospitales del {territory.type === 'locality' ? 'localidad' : 'municipio'} se asignarán al KAM seleccionado, 
+              Todos los hospitales del {territory.type === 'locality' ? 'localidad' : 'municipio'} se asignarán a la zona seleccionada, 
               independientemente de la distancia.
             </p>
           </div>
@@ -215,8 +216,8 @@ export default function ForcedAssignmentModal({
                   )}
                   {territory.currentKam && (
                     <div className="flex justify-between">
-                      <span className="text-sm text-gray-600">KAM Actual:</span>
-                      <span className="text-sm font-medium text-gray-900">{territory.currentKam}</span>
+                      <span className="text-sm text-gray-600">Zona actual:</span>
+                      <span className="text-sm font-medium text-gray-900">{zoneDisplayName(territory.currentKam)}</span>
                     </div>
                   )}
                 </div>
@@ -224,7 +225,7 @@ export default function ForcedAssignmentModal({
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Asignar a KAM <span className="text-red-500">*</span>
+                  Asignar a zona <span className="text-red-500">*</span>
                 </label>
                 <select
                   value={selectedKam}
@@ -233,10 +234,10 @@ export default function ForcedAssignmentModal({
                   required
                   disabled={loading}
                 >
-                  <option value="">Seleccionar KAM...</option>
+                  <option value="">Seleccionar zona...</option>
                   {kams.map((kam) => (
                     <option key={kam.id} value={kam.id}>
-                      {kam.name} ({kam.area_id})
+                      {zoneDisplayName(kam.name)} ({kam.area_id})
                     </option>
                   ))}
                 </select>

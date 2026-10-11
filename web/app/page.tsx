@@ -89,7 +89,7 @@ export default function HomePage() {
                     +14%
                   </span>
                 </div>
-                <h3 className="text-sm font-medium text-gray-600 mb-1">Total KAMs</h3>
+                <h3 className="text-sm font-medium text-gray-600 mb-1">Total Zonas</h3>
                 <p className="text-3xl font-bold text-gray-900">{stats.totalKams}</p>
                 <p className="text-xs text-gray-500 mt-2 flex items-center">
                   <span className="w-2 h-2 bg-gray-600 rounded-full mr-1 animate-pulse"></span>

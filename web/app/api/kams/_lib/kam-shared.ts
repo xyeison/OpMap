@@ -1,6 +1,7 @@
 // Utilidades compartidas por las rutas de KAMs, zonas y territorios (solo servidor).
 // La carpeta empieza por "_" para que Next.js no la exponga como ruta.
 import { NextResponse } from 'next/server'
+import { zoneDisplayName } from '@/lib/zone-names'
 import { z } from 'zod'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { SimplifiedOpMapAlgorithm } from '@/lib/opmap-algorithm-simplified'
@@ -98,7 +99,7 @@ export async function findAreaConflict(areaId: string, excludeKamId?: string): P
 
 export function areaConflictResponse(kamName: string) {
   return jsonError(
-    `Ya existe un KAM activo que participa en la asignación con esa área (${kamName}). Desactívalo o elige otra área.`,
+    `Ya existe una zona activa que participa en la asignación con esa área (${zoneDisplayName(kamName)}). Desactívala o elige otra área.`,
     409
   )
 }

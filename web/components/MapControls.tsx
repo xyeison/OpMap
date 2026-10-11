@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { useVisits } from '@/hooks/useVisits'
+import { zoneDisplayName } from '@/lib/zone-names'
 
 interface MapControlsProps {
   mapData: any
@@ -536,10 +537,10 @@ export default function MapControls({
                         <p className="font-semibold text-amber-800 mb-1">Seleccione filtros para visualizar</p>
                         <p className="text-amber-700">
                           {selectedMonths.length === 0 && selectedKams.length === 0
-                            ? 'Debe seleccionar al menos un mes y un KAM'
+                            ? 'Debe seleccionar al menos un mes y un Ejecutivo Comercial'
                             : selectedMonths.length === 0
                             ? 'Debe seleccionar al menos un mes'
-                            : 'Debe seleccionar al menos un KAM'
+                            : 'Debe seleccionar al menos un Ejecutivo Comercial'
                           }
                         </p>
                       </div>
@@ -607,10 +608,10 @@ export default function MapControls({
                   )}
                 </div>
 
-                {/* Filtro de KAMs mejorado */}
+                {/* Filtro de Ejecutivos Comerciales (por zona) */}
                 <div className="mb-4 border-t pt-4">
                   <div className="flex items-center justify-between mb-3">
-                    <label className="text-xs font-semibold text-gray-700">Vendedores (KAMs)</label>
+                    <label className="text-xs font-semibold text-gray-700">Ejecutivos Comerciales</label>
                     <button
                       onClick={() => {
                         if (selectedKams.length === availableKams.length) {
@@ -654,7 +655,7 @@ export default function MapControls({
                                 borderColor: kamColor
                               }}
                             />
-                            <span className="truncate">{kam.name}</span>
+                            <span className="truncate">{zoneDisplayName(kam.name)}</span>
                           </button>
                         )
                       })}
@@ -664,7 +665,7 @@ export default function MapControls({
                   {selectedKams.length > 0 && (
                     <div className="mt-2 flex items-center justify-between text-xs">
                       <span className="text-gray-600">
-                        {selectedKams.length} de {availableKams.length} vendedores
+                        {selectedKams.length} de {availableKams.length} Ejecutivos Comerciales
                       </span>
                       {selectedKams.length !== availableKams.length && (
                         <button
@@ -754,7 +755,7 @@ export default function MapControls({
                 <div className="space-y-2 text-sm">
                   <div className="flex items-center gap-2">
                     <i className="fa fa-user" style={{ color: '#000', fontSize: '14px' }}></i>
-                    <span>KAM (Key Account Manager)</span>
+                    <span>Zona (sede del Ejecutivo Comercial)</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span style={{
@@ -779,7 +780,7 @@ export default function MapControls({
                     <span>Territorio asignado</span>
                   </div>
                   <div className="mt-3 pt-3 border-t text-xs text-gray-600">
-                    <i className="fa fa-info-circle"></i> Los colores identifican a cada KAM y su zona de cobertura asignada
+                    <i className="fa fa-info-circle"></i> Los colores identifican cada zona y su territorio de cobertura asignado
                   </div>
                 </div>
 

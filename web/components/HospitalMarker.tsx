@@ -4,6 +4,23 @@ import { useEffect, useRef } from 'react'
 import { CircleMarker, Tooltip } from 'react-leaflet'
 import { useRouter } from 'next/navigation'
 import { formatTravelTimeFromSeconds } from '@/lib/format-utils'
+import { zoneDisplayName } from '@/lib/zone-names'
+
+// Ejecutivo Comercial que vive en la zona (viene de /api/map/data, campo kams[].executives)
+export interface ZoneExecutive {
+  id: string
+  full_name: string
+  status: string
+}
+
+// Texto plano con los Ejecutivos Comerciales de una zona. Quien lo inserte en HTML crudo debe escaparlo.
+export const formatZoneExecutives = (executives?: ZoneExecutive[] | null): string => {
+  const list = Array.isArray(executives) ? executives : []
+  if (list.length === 0) return 'sin ejecutivo local'
+  return list
+    .map(e => (e.status === 'placeholder' ? `${e.full_name} (por contratar)` : e.full_name))
+    .join(', ')
+}
 
 interface HospitalMarkerProps {
   hospital: any
@@ -13,6 +30,7 @@ interface HospitalMarkerProps {
   contractValue?: number
   contractProviders?: string[]
   isSelected?: boolean
+  executives?: ZoneExecutive[]
 }
 
 export default function HospitalMarker({ 
@@ -22,7 +40,8 @@ export default function HospitalMarker({
   assignment, 
   contractValue,
   contractProviders,
-  isSelected
+  isSelected,
+  executives
 }: HospitalMarkerProps) {
   const markerRef = useRef<any>(null)
   const router = useRouter()
@@ -115,7 +134,8 @@ export default function HospitalMarker({
                 }}>{hospital.type}</span><br/>
               </>
             )}
-            <strong>KAM asignado:</strong> {kam.name}<br/>
+            <strong>Zona:</strong> {zoneDisplayName(kam.name)}<br/>
+            <strong>Ejecutivo Comercial:</strong> {formatZoneExecutives(executives)}<br/>
             {hospital.doctors && (
               <>
                 <strong>Doctores:</strong><br/>

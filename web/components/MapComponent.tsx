@@ -10,7 +10,8 @@ import { VisitsHeatmapLayer } from './VisitsHeatmapLayer'
 import { formatTravelTimeFromSeconds, formatTravelTime } from '@/lib/format-utils'
 import MapControls from './MapControls'
 import MapController from './MapController'
-import HospitalMarker from './HospitalMarker'
+import HospitalMarker, { formatZoneExecutives } from './HospitalMarker'
+import { zoneDisplayName } from '@/lib/zone-names'
 // NO usar estimaciones - solo datos reales de Google Maps
 
 // Fix for default markers in Next.js
@@ -29,7 +30,7 @@ if (typeof window !== 'undefined' && !document.querySelector('link[href*="fontaw
   document.head.appendChild(link)
 }
 
-// Add CSS for custom KAM markers
+// Add CSS for custom zone markers
 if (typeof window !== 'undefined' && !document.querySelector('#custom-kam-marker-styles')) {
   const style = document.createElement('style')
   style.id = 'custom-kam-marker-styles'
@@ -72,7 +73,7 @@ class MapDataError extends Error {
   }
 }
 
-// Colores de respaldo para KAMs sin color definido en la base de datos
+// Colores de respaldo para zonas sin color definido en la base de datos
 const BACKUP_COLORS = [
   '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FECA57',
   '#FF9FF3', '#54A0FF', '#8B4513', '#1DD1A1', '#FF7675',
@@ -480,6 +481,12 @@ export default function MapComponent({
     }
   })
 
+  // Ejecutivos Comerciales por zona, para los tooltips de las IPS
+  const kamExecutives: Record<string, any[]> = {}
+  mapData.kams.forEach((kam: any) => {
+    kamExecutives[kam.id] = Array.isArray(kam.executives) ? kam.executives : []
+  })
+
   // Filtrar hospitales según el tipo seleccionado
   const filterHospitalsByType = (hospitals: any[]) => {
     if (hospitalTypeFilter === 'all') return hospitals
@@ -600,7 +607,9 @@ export default function MapComponent({
                   const territoryName = mapData.municipalityNames[territory.territoryId] || `Territorio ${territory.territoryId}`
                   const providers: string[] = Array.isArray(stats.providers) ? stats.providers : []
                   const bedsPer1000 = population > 0 ? stats.totalBeds / population * 1000 : 0
-                  const kamLabel = stats.kamName || territory.kamId?.toUpperCase()
+                  const territoryZone = mapData.kams.find((k: any) => k.id === territory.kamId)
+                  const zoneLabel = zoneDisplayName(territoryZone?.name || stats.kamName) || territory.kamId?.toUpperCase()
+                  const executivesLabel = formatZoneExecutives(territoryZone?.executives)
                   const popupContent = `
                     <div style="min-width: 300px; padding: 10px;">
                       <div style="font-size: 15px; font-weight: bold; margin-bottom: 10px; border-bottom: 2px solid #ddd; padding-bottom: 8px;">
@@ -673,7 +682,8 @@ export default function MapComponent({
                       
                       <!-- Estado del territorio -->
                       <div style="margin-top: 10px; padding: 8px; background-color: ${isVacant ? '#fef2f2' : '#1e293b'}; color: ${isVacant ? '#dc2626' : '#fff'}; text-align: center; border-radius: 6px; font-size: 13px; font-weight: bold;">
-                        ${isVacant ? '⚠️ ZONA VACANTE - SIN KAM ASIGNADO' : `✓ KAM: ${escapeHtml(kamLabel)}`}
+                        ${isVacant ? '⚠️ ZONA VACANTE - SIN EJECUTIVO COMERCIAL' : `✓ Zona: ${escapeHtml(zoneLabel)}
+                        <div style="margin-top: 4px; font-size: 12px; font-weight: normal;">Ejecutivo Comercial: ${escapeHtml(executivesLabel)}</div>`}
                       </div>
                     </div>
                   `
@@ -709,6 +719,7 @@ export default function MapComponent({
               hospital={hospital}
               kam={kam}
               kamColor={kamColors[kam.id]}
+              executives={kamExecutives[kam.id]}
               assignment={assignment}
               contractValue={mapData.contractValuesByHospital[hospital.id]}
               contractProviders={mapData.contractProvidersByHospital[hospital.id]}
@@ -800,7 +811,7 @@ export default function MapComponent({
                       </>
                     )}
                     <div style={{ marginTop: '4px', paddingTop: '4px', borderTop: '1px solid #ddd' }}>
-                      <strong>Distancia desde cada KAM:</strong><br/>
+                      <strong>Distancia desde cada zona:</strong><br/>
                       {travelTimes && travelTimes.length > 0 ? (
                         <div style={{ fontSize: '11px', marginTop: '4px' }}>
                           <table style={{ width: '100%', borderSpacing: '0 2px' }}>
@@ -823,7 +834,7 @@ export default function MapComponent({
                                       fontWeight: 'bold',
                                       color: !hasTime ? '#999' : (isClose ? '#FF6B00' : (isOverLimit ? '#CC0000' : '#333'))
                                     }}>
-                                      {tt.kam_name}:
+                                      {zoneDisplayName(tt.kam_name)}:
                                     </td>
                                     <td style={{ 
                                       textAlign: 'right',
@@ -838,7 +849,7 @@ export default function MapComponent({
                           </table>
                           {travelTimes.length > 8 && (
                             <div style={{ marginTop: '4px', fontStyle: 'italic', color: '#999' }}>
-                              ...y {travelTimes.length - 8} KAMs más
+                              ...y {travelTimes.length - 8} zonas más
                             </div>
                           )}
                           <div style={{ marginTop: '4px', fontSize: '10px', color: '#666' }}>
@@ -859,7 +870,7 @@ export default function MapComponent({
                       {travelTimes.length > 0 && travelTimes[0].travel_time && travelTimes[0].travel_time/60 > 240 && travelTimes[0].travel_time/60 <= 300 && (
                         <div style={{ marginTop: '6px', padding: '4px', backgroundColor: '#FFF3CD', border: '1px solid #FFE69C', borderRadius: '4px' }}>
                           <div style={{ fontSize: '11px', color: '#856404' }}>
-                            💡 <strong>Sugerencia:</strong> {travelTimes[0].kam_name} está a solo {formatTravelTimeFromSeconds(travelTimes[0].travel_time)}.
+                            💡 <strong>Sugerencia:</strong> la zona {zoneDisplayName(travelTimes[0].kam_name)} está a solo {formatTravelTimeFromSeconds(travelTimes[0].travel_time)}.
                             Considere ajustar su límite de tiempo máximo de 4 a 5 horas.
                           </div>
                         </div>
@@ -873,7 +884,7 @@ export default function MapComponent({
           )
         })}
         
-        {/* Marcadores de KAMs */}
+        {/* Marcadores de zonas (ubicación base) */}
         {kamStats.filter((kam: any) => kam.lat && kam.lng).map((kam: any) => (
           <Marker
             key={kam.id}
@@ -902,7 +913,10 @@ export default function MapComponent({
                   color: kamColors[kam.id],
                   wordBreak: 'break-word',
                   display: 'block'
-                }}>{kam.name}</strong>
+                }}>Zona: {zoneDisplayName(kam.name)}</strong>
+                <div style={{ marginTop: '2px' }}>
+                  <strong>Ejecutivo Comercial:</strong> {formatZoneExecutives(kam.executives)}
+                </div>
                 <div style={{ marginTop: '4px' }}>
                   <strong>Total IPS:</strong> {kam.hospitalCount}<br/>
                   <strong>Total Camas:</strong> {kam.totalBeds.toLocaleString()}<br/>
@@ -975,7 +989,7 @@ export default function MapComponent({
                     wordBreak: 'break-word',
                     display: 'block'
                   }}>
-                    {visit.kam_name}
+                    {zoneDisplayName(visit.kam_name)}
                   </strong>
                   <div style={{ marginTop: '4px', borderTop: '1px solid #ddd', paddingTop: '4px' }}>
                     <table style={{ width: '100%', borderSpacing: '0' }}>
@@ -1016,7 +1030,7 @@ export default function MapComponent({
                     </table>
                   </div>
                   <div style={{ marginTop: '4px', fontSize: '10px', color: '#666' }}>
-                    KAM ID: {visit.kam_id}
+                    Zona: {kam ? zoneDisplayName(kam.name) : visit.kam_id}
                   </div>
                 </div>
               </Tooltip>

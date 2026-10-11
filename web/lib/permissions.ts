@@ -172,7 +172,7 @@ export function getNavigationMenu(role: Role | undefined) {
   }
   
   if (permissions.includes('kams:view')) {
-    menu.push({ name: 'KAMs', href: '/kams', icon: 'users' })
+    menu.push({ name: 'Zonas', href: '/kams', icon: 'users' })
   }
 
   if (permissions.includes('zones:view')) {

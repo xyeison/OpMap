@@ -125,6 +125,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(stats)
   } catch (error) {
     console.error('Error en GET /api/kams/stats:', error)
-    return NextResponse.json({ error: 'Error al cargar las estadísticas de KAMs' }, { status: 500 })
+    return NextResponse.json({ error: 'Error al cargar las estadísticas de zonas' }, { status: 500 })
   }
 }

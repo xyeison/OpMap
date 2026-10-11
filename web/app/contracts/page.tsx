@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { zoneDisplayName } from '@/lib/zone-names'
 import { supabase } from '@/lib/supabase'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
@@ -290,7 +291,7 @@ export default function ContractsPage() {
               </label>
               <input
                 type="text"
-                placeholder="Hospital, contrato o KAM..."
+                placeholder="Hospital, contrato o Ejecutivo Comercial..."
                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent transition-all bg-white"
                 value={filters.search}
                 onChange={(e) => setFilters({ ...filters, search: e.target.value })}
@@ -331,7 +332,7 @@ export default function ContractsPage() {
             <PermissionGuard permission="kams:view">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  KAM
+                  Ejecutivo Comercial
                 </label>
                 <select
                   className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent transition-all bg-white"
@@ -341,7 +342,7 @@ export default function ContractsPage() {
                   <option value="all">Todos</option>
                   {kams.map(kam => (
                     <option key={kam.id} value={kam.name}>
-                      {kam.name}
+                      {zoneDisplayName(kam.name)}
                     </option>
                   ))}
                 </select>
@@ -378,7 +379,7 @@ export default function ContractsPage() {
                     </th>
                     {can('kams:view') && (
                       <th className="px-6 py-5 text-left">
-                        <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">KAM</span>
+                        <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Ejecutivo Comercial</span>
                       </th>
                     )}
                     <th className="px-6 py-5 text-center">
@@ -496,7 +497,7 @@ export default function ContractsPage() {
                               </svg>
                             </div>
                             <span className="text-sm font-medium text-gray-900">
-                              {contract.kam?.name || 'Sin asignar'}
+                              {zoneDisplayName(contract.kam?.name) || 'Sin asignar'}
                             </span>
                           </div>
                         </td>
@@ -637,8 +638,8 @@ export default function ContractsPage() {
                 </div>
                 {can('kams:view') && contract.kam && (
                   <div className="col-span-2">
-                    <span className="text-gray-600">KAM:</span>
-                    <p className="font-medium text-gray-900">{contract.kam.name}</p>
+                    <span className="text-gray-600">Ejecutivo Comercial:</span>
+                    <p className="font-medium text-gray-900">{zoneDisplayName(contract.kam.name)}</p>
                   </div>
                 )}
               </div>

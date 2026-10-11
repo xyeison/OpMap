@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { zoneDisplayName } from '@/lib/zone-names'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'next/navigation'
 import KamDeactivateButton from '@/components/KamDeactivateButton'
@@ -30,7 +31,7 @@ async function fetchKams(): Promise<KamWithData[]> {
     throw new Error((data && data.error) || `Error al cargar las zonas (${response.status})`)
   }
   const list: KamWithData[] = Array.isArray(data) ? data : []
-  return list.sort((a, b) => Number(b.active) - Number(a.active) || a.name.localeCompare(b.name))
+  return list.sort((a, b) => Number(b.active) - Number(a.active) || zoneDisplayName(a.name).localeCompare(zoneDisplayName(b.name), 'es'))
 }
 
 interface KamWithData {
@@ -408,12 +409,12 @@ export default function KamsPage() {
                             className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold shadow-md ${!kam.active ? 'opacity-50' : ''}`}
                             style={{ backgroundColor: kam.color }}
                           >
-                            {kam.name.substring(0, 2).toUpperCase()}
+                            {zoneDisplayName(kam.name).substring(0, 2).toUpperCase()}
                           </div>
                         </div>
                         <div className="ml-4">
                           <div className={`text-sm font-semibold ${kam.active ? 'text-gray-900' : 'text-gray-400'}`}>
-                            {kam.name}
+                            {zoneDisplayName(kam.name)}
                           </div>
                           {!kam.active && (
                             <span className="text-xs text-gray-500">Inactiva</span>
@@ -562,11 +563,11 @@ export default function KamsPage() {
                       className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-bold shadow-md ${!kam.active ? 'opacity-50' : ''}`}
                       style={{ backgroundColor: kam.color }}
                     >
-                      {kam.name.substring(0, 2).toUpperCase()}
+                      {zoneDisplayName(kam.name).substring(0, 2).toUpperCase()}
                     </div>
                     <div className="ml-3">
                       <h3 className={`text-lg font-semibold ${kam.active ? 'text-gray-900' : 'text-gray-400'}`}>
-                        {kam.name}
+                        {zoneDisplayName(kam.name)}
                       </h3>
                       <p className="text-sm text-gray-500">{kam.municipalityName || kam.area_id}</p>
                     </div>

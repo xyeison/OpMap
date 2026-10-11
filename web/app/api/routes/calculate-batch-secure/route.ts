@@ -125,7 +125,7 @@ export async function POST(request: NextRequest) {
       const hospital = hospitals.get(pair.hospital_id)
       const kam = kams.get(pair.kam_id)
       if (!hospital || !kam || hospital.lat == null || hospital.lng == null || kam.lat == null || kam.lng == null) {
-        failedResults.push({ ...pair, error: 'Hospital o KAM no encontrado, inactivo o sin coordenadas' })
+        failedResults.push({ ...pair, error: 'Hospital o zona no encontrado, inactivo o sin coordenadas' })
         continue
       }
       if (existing.has(`${pair.hospital_id}-${pair.kam_id}`) && !overwrite) {

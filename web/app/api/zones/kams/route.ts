@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(data || [])
   } catch (error) {
     console.error('Error en GET /api/zones/kams:', error)
-    return jsonError('Error al cargar los KAMs de la zona', 500)
+    return jsonError('Error al cargar las zonas de la región', 500)
   }
 }
 
@@ -65,12 +65,12 @@ async function assignKam(request: NextRequest) {
       .select('id, name, zone_id')
 
     if (error) throw error
-    if (!data || data.length === 0) return jsonError('KAM no encontrado', 404)
+    if (!data || data.length === 0) return jsonError('Zona no encontrada', 404)
 
     return NextResponse.json({ success: true, data: data[0] })
   } catch (error) {
     console.error('Error asignando KAM a zona:', error)
-    return jsonError('Error al asignar el KAM a la zona', 500)
+    return jsonError('Error al asignar la zona a la región', 500)
   }
 }
 
@@ -105,12 +105,12 @@ export async function DELETE(request: NextRequest) {
 
     if (error) throw error
     if (!data || data.length === 0) {
-      return jsonError('El KAM no pertenece a esa zona', 404)
+      return jsonError('La zona no pertenece a esa región', 404)
     }
 
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('Error quitando KAM de zona:', error)
-    return jsonError('Error al quitar el KAM de la zona', 500)
+    return jsonError('Error al quitar la zona de la región', 500)
   }
 }

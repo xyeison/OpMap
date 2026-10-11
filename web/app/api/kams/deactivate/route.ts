@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { zoneDisplayName } from '@/lib/zone-names'
 import { requirePermission } from '@/lib/require-role'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { kamIdSchema } from '../_lib/kam-schemas'
@@ -26,8 +27,8 @@ export async function POST(request: NextRequest) {
       .maybeSingle()
 
     if (kamError) throw kamError
-    if (!kam) return jsonError('KAM no encontrado', 404)
-    if (kam.active !== true) return jsonError('El KAM ya está inactivo', 409)
+    if (!kam) return jsonError('Zona no encontrada', 404)
+    if (kam.active !== true) return jsonError('La zona ya está inactiva', 409)
 
     // 2. Contar hospitales antes de desactivar
     const { count: hospitalsBefore } = await supabaseAdmin
@@ -45,10 +46,10 @@ export async function POST(request: NextRequest) {
 
     if (updateError) {
       console.error('Error al desactivar KAM:', updateError)
-      return jsonError('Error al desactivar KAM', 500)
+      return jsonError('Error al desactivar la zona', 500)
     }
     if (!updatedRows || updatedRows.length === 0) {
-      return jsonError('El KAM no se desactivó: su estado cambió mientras tanto', 409)
+      return jsonError('La zona no se desactivó: su estado cambió mientras tanto', 409)
     }
 
     // 4. Recalcular todas las asignaciones sin el KAM
@@ -58,7 +59,7 @@ export async function POST(request: NextRequest) {
     } catch (recalcError) {
       console.error('Error al recalcular tras desactivar KAM:', recalcError)
       return jsonError(
-        `El KAM ${kam.name} quedó inactivo, pero el recálculo de asignaciones falló. Ejecuta el recálculo manualmente.`,
+        `La zona ${zoneDisplayName(kam.name)} quedó inactiva, pero el recálculo de asignaciones falló. Ejecuta el recálculo manualmente.`,
         500
       )
     }
@@ -73,7 +74,7 @@ export async function POST(request: NextRequest) {
     const warnings: string[] = []
     if (forced && forced.length > 0) {
       warnings.push(
-        `El KAM tenía ${forced.length} asignación(es) forzada(s) activa(s) (${forced
+        `La zona tenía ${forced.length} asignación(es) forzada(s) activa(s) (${forced
           .map(f => f.territory_name)
           .join(', ')}); ya no se aplican. Reasígnalas o desactívalas en Municipios.`
       )
@@ -81,7 +82,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: `KAM ${kam.name} desactivado. Los ${hospitalsBefore || 0} hospitales fueron reasignados automáticamente.`,
+      message: `Zona ${zoneDisplayName(kam.name)} desactivada. Los ${hospitalsBefore || 0} hospitales fueron reasignados automáticamente.`,
       stats: {
         totalAssignments: saved,
         hospitalsReassigned: hospitalsBefore || 0,
@@ -90,6 +91,6 @@ export async function POST(request: NextRequest) {
     })
   } catch (error) {
     console.error('Error al desactivar KAM:', error)
-    return jsonError('Error al desactivar KAM', 500)
+    return jsonError('Error al desactivar la zona', 500)
   }
 }

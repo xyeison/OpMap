@@ -1,5 +1,6 @@
 // Utilidades de la UI de ejecutivas (no es una ruta: Next.js solo publica page.tsx).
 import type { ExecutiveStatus } from '@/lib/types/lines'
+import { zoneDisplayName } from '@/lib/zone-names'
 
 // Zona = fila de kams (ciudad base = area_id). Solo los campos que usa la UI.
 export interface ZoneOption {
@@ -12,7 +13,7 @@ export interface ZoneOption {
 
 /** Nombre visible de la zona: los registros heredados se llaman "KAM Ciudad"; en la UI basta "Ciudad". */
 export function zoneLabel(name: string): string {
-  return name.replace(/^kam\s+/i, '').trim() || name
+  return zoneDisplayName(name) || name
 }
 
 export const STATUS_LABELS: Record<ExecutiveStatus, string> = {

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { zoneDisplayName } from '@/lib/zone-names'
 
 interface KamZoneModalProps {
   kam: any
@@ -66,7 +67,7 @@ export default function KamZoneModal({ kam, zones, isOpen, onClose, onSuccess }:
                 Asignar Región
               </h2>
               <p className="text-sm text-gray-300 mt-1">
-                Zona: {kam?.name}
+                Zona: {zoneDisplayName(kam?.name)}
               </p>
             </div>
             <button

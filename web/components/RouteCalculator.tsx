@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { zoneDisplayName } from '@/lib/zone-names'
 import { useQuery } from '@tanstack/react-query'
 
 interface Hospital {
@@ -326,7 +327,7 @@ export default function RouteCalculator() {
                         </label>
                       </div>
                       <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
-                        {hospitalRoutes.length} KAMs
+                        {hospitalRoutes.length} zonas
                       </span>
                     </div>
                   </div>
@@ -345,7 +346,7 @@ export default function RouteCalculator() {
                             />
                             <div className="flex-1">
                               <p className="font-medium text-gray-900">
-                                KAM: {route.kam_name}
+                                Zona: {zoneDisplayName(route.kam_name)}
                               </p>
                               <p className="text-gray-600">
                                 Desde: {route.kam_coords.lat.toFixed(4)}, {route.kam_coords.lng.toFixed(4)}
@@ -567,7 +568,7 @@ export default function RouteCalculator() {
               <div className="mt-2 max-h-40 overflow-y-auto text-xs bg-white p-2 rounded border border-green-200">
                 {results.details.map((detail: any, idx: number) => (
                   <div key={idx} className="mb-1">
-                    {detail.hospital} → {detail.kam}: {detail.time} ({detail.distance})
+                    {detail.hospital} → {zoneDisplayName(detail.kam)}: {detail.time} ({detail.distance})
                   </div>
                 ))}
               </div>
@@ -581,7 +582,7 @@ export default function RouteCalculator() {
               <div className="mt-2 max-h-40 overflow-y-auto text-xs bg-white p-2 rounded border border-red-200">
                 {results.errors.map((error: any, idx: number) => (
                   <div key={idx} className="mb-1 text-red-600">
-                    {error.hospital} → {error.kam}: {error.error}
+                    {error.hospital} → {zoneDisplayName(error.kam)}: {error.error}
                   </div>
                 ))}
               </div>

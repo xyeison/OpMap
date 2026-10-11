@@ -45,7 +45,7 @@ export async function PUT(request: NextRequest) {
       return jsonError('Error al asignar la zona', 500)
     }
     if (!data || data.length === 0) {
-      return jsonError('KAM no encontrado', 404)
+      return jsonError('Zona no encontrada', 404)
     }
 
     return NextResponse.json({ success: true, data: data[0] })

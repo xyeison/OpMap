@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { zoneDisplayName } from '@/lib/zone-names'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
 import ProtectedRoute from '@/components/ProtectedRoute'
@@ -194,13 +195,13 @@ export default function HospitalsPage() {
           
           if (!assignResponse.ok) {
             console.error('Error asignando hospital:', assignResult.error)
-            alert(`Hospital agregado pero no se pudo asignar a un KAM: ${assignResult.error}`)
+            alert(`Hospital agregado pero no se pudo asignar a un Ejecutivo Comercial: ${assignResult.error}`)
           } else {
-            alert(`Hospital agregado y asignado exitosamente a ${assignResult.kamName}`)
+            alert(`Hospital agregado y asignado exitosamente a ${zoneDisplayName(assignResult.kamName)}`)
           }
         } catch (assignError) {
           console.error('Error en asignación:', assignError)
-          alert('Hospital agregado pero hubo un error al asignarlo a un KAM')
+          alert('Hospital agregado pero hubo un error al asignarlo a un Ejecutivo Comercial')
         }
       }
 
@@ -374,7 +375,7 @@ export default function HospitalsPage() {
             <div className="text-sm text-gray-600 mb-3">
               <p>Municipio: {hospital.municipality_id}</p>
               <p>Camas: {hospital.beds || '-'}</p>
-              <p className="font-medium">KAM: {hospital.assigned_kam_name || 'Sin asignar'}</p>
+              <p className="font-medium">Zona: {zoneDisplayName(hospital.assigned_kam_name) || 'Sin asignar'}</p>
               {hospital.hospital_type && (
                 <p>
                   Tipo: <span className={`px-2 py-1 rounded text-xs ${
@@ -412,7 +413,7 @@ export default function HospitalsPage() {
                 Municipio
               </th>
               <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                KAM Asignado
+                Zona asignada
               </th>
               <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
                 Tipo
@@ -443,7 +444,7 @@ export default function HospitalsPage() {
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm">
                   <span className="text-gray-900">
-                    {hospital.assigned_kam_name || '-'}
+                    {zoneDisplayName(hospital.assigned_kam_name) || '-'}
                   </span>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm">

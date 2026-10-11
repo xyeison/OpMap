@@ -17,10 +17,10 @@ export default function RecalculateUnified() {
       '1. Analizará qué tiempos de viaje faltan según las reglas territoriales\n' +
       '2. Calculará SOLO las rutas necesarias con Google Maps\n' +
       '3. Asignará hospitales según:\n' +
-      '   • Territorios base de cada KAM (automático)\n' +
+      '   • Territorios base de cada zona (automático)\n' +
       '   • Expansión territorial (Nivel 1 y 2)\n' +
       '   • Tiempos de viaje reales (máx. 4 horas)\n' +
-      '   • Competencia entre KAMs (gana el más cercano)\n\n' +
+      '   • Competencia entre zonas (gana la más cercana)\n\n' +
       '⚠️ IMPORTANTE: Si hay muchas rutas, puede ejecutarse varias veces'
     )
     

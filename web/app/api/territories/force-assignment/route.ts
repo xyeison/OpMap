@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { zoneDisplayName } from '@/lib/zone-names'
 import { requirePermission } from '@/lib/require-role'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { jsonError, readJson, zodMessage } from '@/app/api/kams/_lib/kam-shared'
@@ -23,10 +24,10 @@ export async function POST(request: NextRequest) {
       .eq('id', kamId)
       .maybeSingle()
     if (kamError) throw kamError
-    if (!kam) return jsonError('KAM no encontrado', 404)
+    if (!kam) return jsonError('Zona no encontrada', 404)
     if (kam.active !== true || kam.participates_in_assignment !== true) {
       return jsonError(
-        `El KAM ${kam.name} no está activo o no participa en la asignación territorial; el algoritmo ignoraría la forzada`,
+        `La zona ${zoneDisplayName(kam.name)} no está activa o no participa en la asignación territorial; el algoritmo ignoraría la forzada`,
         400
       )
     }

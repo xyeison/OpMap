@@ -71,7 +71,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ 
         unassigned_hospitals: [],
         total: 0,
-        error: 'No active KAMs found' 
+        error: 'No hay zonas activas' 
       })
     }
     

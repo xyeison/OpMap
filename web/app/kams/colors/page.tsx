@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { zoneDisplayName } from '@/lib/zone-names'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
 import { useRouter } from 'next/navigation'
@@ -56,7 +57,7 @@ export default function KamColorsPage() {
       const changed = kams.filter(kam => editedColors[kam.id] !== kam.color)
       const invalid = changed.filter(kam => !HEX_COLOR_RE.test(editedColors[kam.id] || ''))
       if (invalid.length > 0) {
-        alert(`Color no válido para: ${invalid.map(k => k.name).join(', ')}. Usa el formato #RRGGBB.`)
+        alert(`Color no válido para: ${invalid.map(k => zoneDisplayName(k.name)).join(', ')}. Usa el formato #RRGGBB.`)
         return
       }
 
@@ -69,7 +70,7 @@ export default function KamColorsPage() {
         })
         if (!response.ok) {
           const result = await response.json().catch(() => ({}))
-          failures.push(`${kam.name}: ${result.error || `error ${response.status}`}`)
+          failures.push(`${zoneDisplayName(kam.name)}: ${result.error || `error ${response.status}`}`)
         }
       }
 
@@ -153,7 +154,7 @@ export default function KamColorsPage() {
             {kams.map(kam => (
               <div key={kam.id} className="bg-white rounded-xl shadow-lg border border-gray-100 p-6">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold text-gray-900">{kam.name}</h3>
+                  <h3 className="text-lg font-semibold text-gray-900">{zoneDisplayName(kam.name)}</h3>
                   <div 
                     className="w-12 h-12 rounded-lg border-2 border-gray-300"
                     style={{ backgroundColor: editedColors[kam.id] }}

@@ -57,7 +57,7 @@ export default function NavigationWithPermissions() {
     extraItems.push({ name: 'Líneas', href: '/lines', icon: 'lines' })
   }
   if (can('executives:view') && !menuItems.some(item => item.href === '/executives')) {
-    extraItems.push({ name: 'Ejecutivas', href: '/executives', icon: 'executives' })
+    extraItems.push({ name: 'Ejecutivos Comerciales', href: '/executives', icon: 'executives' })
   }
   if (extraItems.length > 0) {
     let anchor = menuItems.findIndex(item => item.href === '/zones')

@@ -181,7 +181,7 @@ function ExecutivesContent() {
       <div className="bg-gradient-to-r from-gray-900 to-gray-700 rounded-2xl shadow-xl p-6 mb-8">
         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
           <div>
-            <h1 className="text-3xl lg:text-4xl font-bold text-white">Ejecutivas</h1>
+            <h1 className="text-3xl lg:text-4xl font-bold text-white">Ejecutivos Comerciales</h1>
             <p className="text-gray-300 mt-2">Equipo comercial: zona base, líneas que lleva y estado</p>
           </div>
           {canEdit && !loadError && !linesError && (

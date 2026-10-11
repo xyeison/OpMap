@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
 
     if (existingError) return serverError('assign-to-kam (asignación existente)', existingError)
     if (existingAssignment) {
-      return NextResponse.json({ error: 'El hospital ya tiene un KAM asignado' }, { status: 409 })
+      return NextResponse.json({ error: 'El hospital ya tiene un Ejecutivo Comercial asignado' }, { status: 409 })
     }
 
     // KAMs que participan en la asignación territorial (mismo criterio que el algoritmo)
@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
       return false
     })
     if (kams.length === 0) {
-      return NextResponse.json({ error: 'No hay KAMs activos disponibles' }, { status: 422 })
+      return NextResponse.json({ error: 'No hay zonas activas disponibles' }, { status: 422 })
     }
 
     const insertAssignment = async (row: {
@@ -105,7 +105,7 @@ export async function POST(request: NextRequest) {
 
     const respondInsertError = (error: { code?: string } | null, context: string) => {
       if (error?.code === '23505') {
-        return NextResponse.json({ error: 'El hospital ya tiene un KAM asignado' }, { status: 409 })
+        return NextResponse.json({ error: 'El hospital ya tiene un Ejecutivo Comercial asignado' }, { status: 409 })
       }
       return serverError(context, error, 'Error al guardar la asignación')
     }
@@ -194,7 +194,7 @@ export async function POST(request: NextRequest) {
     const candidates = eligibleKamsForHospital(kams, hospital, adjacency)
     if (candidates.length === 0) {
       return NextResponse.json(
-        { error: 'Ningún KAM puede competir por este hospital según la matriz de adyacencia' },
+        { error: 'Ninguna zona puede competir por este hospital según la matriz de adyacencia' },
         { status: 422 }
       )
     }
@@ -289,7 +289,7 @@ export async function POST(request: NextRequest) {
     if (!bestKam) {
       return NextResponse.json(
         {
-          error: 'No se encontró ningún KAM dentro de su tiempo máximo de viaje',
+          error: 'No se encontró ninguna zona dentro de su tiempo máximo de viaje',
           googleElements,
         },
         { status: 422 }

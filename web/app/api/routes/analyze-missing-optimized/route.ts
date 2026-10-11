@@ -108,7 +108,7 @@ export async function POST(request: NextRequest) {
       .eq('participates_in_assignment', true)
 
     if (kamsError) {
-      return serverError('analyze-missing-optimized (kams)', kamsError, 'Error al obtener KAMs')
+      return serverError('analyze-missing-optimized (kams)', kamsError, 'Error al obtener las zonas')
     }
 
     console.log('analyze-missing-optimized: KAMs fetched:', kams?.length || 0)

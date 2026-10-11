@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { zoneDisplayName } from '@/lib/zone-names'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { requireUser } from '@/lib/require-role'
 import { isUuid, serverError } from '../../../_lib/api-error'
@@ -35,7 +36,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 
     const formattedDistances = (distances || []).map((d: any) => ({
       kam_id: d.kam_id,
-      kam_name: d.kams?.name || 'KAM Desconocido',
+      kam_name: zoneDisplayName(d.kams?.name) || 'Zona desconocida',
       travel_time: d.travel_time, // En segundos
       distance: d.distance,
       max_travel_time: d.kams?.max_travel_time || 240,

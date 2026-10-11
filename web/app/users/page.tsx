@@ -881,7 +881,7 @@ export default function UsersPage() {
                   </div>
                   <h3 className="font-bold text-gray-900">Gestor de Ventas</h3>
                 </div>
-                <p className="text-sm text-gray-600">Gestiona KAMs, territorios, ve estadísticas y reportes de ventas</p>
+                <p className="text-sm text-gray-600">Gestiona zonas, territorios, ve estadísticas y reportes de ventas</p>
               </div>
               <div className="bg-white rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow">
                 <div className="flex items-center gap-3 mb-3">
@@ -903,7 +903,7 @@ export default function UsersPage() {
                   </div>
                   <h3 className="font-bold text-gray-900">Gestor de Datos</h3>
                 </div>
-                <p className="text-sm text-gray-600">Actualiza información de hospitales, KAMs y mantiene datos actualizados</p>
+                <p className="text-sm text-gray-600">Actualiza información de hospitales, zonas y mantiene datos actualizados</p>
               </div>
               <div className="bg-white rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow">
                 <div className="flex items-center gap-3 mb-3">

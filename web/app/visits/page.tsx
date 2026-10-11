@@ -137,7 +137,7 @@ export default function VisitsPage() {
       
       if (kamsError) {
         console.error('Error obteniendo KAMs:', kamsError)
-        setImportErrors(['Error al obtener la lista de KAMs'])
+        setImportErrors(['Error al obtener la lista de Ejecutivos Comerciales'])
         setLoading(false)
         return
       }
@@ -182,7 +182,7 @@ export default function VisitsPage() {
 
         // Validar campos requeridos
         if (!kamInput) {
-          errors.push(`Fila ${rowNum}: Falta el KAM (use formato 'Kam Barranquilla', 'Kam Cali', etc.)`)
+          errors.push(`Fila ${rowNum}: Falta el Ejecutivo Comercial (use el nombre de la zona: 'Barranquilla', 'Cali', etc.)`)
           return
         }
 
@@ -219,7 +219,7 @@ export default function VisitsPage() {
           const kamData = kams?.find(k => k.id === kamId)
           kamName = kamData?.name || kamInput
         } else {
-          errors.push(`Fila ${rowNum}: KAM '${kamInput}' no encontrado (use formato 'Kam Barranquilla' o 'Kam Cali')`)
+          errors.push(`Fila ${rowNum}: Ejecutivo Comercial '${kamInput}' no encontrado (use el nombre de la zona: 'Barranquilla' o 'Cali')`)
           return
         }
 
@@ -342,21 +342,21 @@ export default function VisitsPage() {
   const downloadTemplate = () => {
     const template = [
       {
-        'Representante': 'Kam Barranquilla',
+        'Representante': 'Barranquilla',
         'Tipo de visitas': 'Visita efectiva',
         'Tipo de contacto': 'Visita presencial',
         'Latitud': 10.963889,
         'Longitud': -74.796387
       },
       {
-        'Representante': 'Kam Cali',
+        'Representante': 'Cali',
         'Tipo de visitas': 'Visita extra',
         'Tipo de contacto': 'Visita virtual',
         'Latitud': 3.451647,
         'Longitud': -76.531985
       },
       {
-        'Representante': 'Kam Medellin',
+        'Representante': 'Medellin',
         'Tipo de visitas': 'Visita no efectiva',
         'Tipo de contacto': 'Visita presencial',
         'Latitud': 6.244203,
@@ -768,7 +768,7 @@ export default function VisitsPage() {
                           <span className="text-sm font-bold text-gray-900">{imp.current_visits || 0}</span>
                           <span className="text-xs text-gray-500">visitas activas</span>
                           {imp.kams_count > 0 && (
-                            <span className="text-xs text-blue-600 mt-1">{imp.kams_count} KAMs</span>
+                            <span className="text-xs text-blue-600 mt-1">{imp.kams_count} Ejecutivos Comerciales</span>
                           )}
                         </div>
                       </td>

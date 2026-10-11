@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { zoneDisplayName } from '@/lib/zone-names'
 import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 
@@ -56,7 +57,7 @@ export default function KamDeactivateButton({ kam, onUpdate, className }: KamDea
         alert(`Error: ${data.error}`)
       }
     } catch (error) {
-      alert('Error al desactivar KAM')
+      alert('Error al desactivar la zona')
     } finally {
       setLoading(false)
     }
@@ -76,7 +77,7 @@ export default function KamDeactivateButton({ kam, onUpdate, className }: KamDea
         onClick={() => setShowModal(true)}
         className={className || defaultClassName}
         disabled={loading}
-        title="Desactivar KAM"
+        title="Desactivar zona"
       >
         {className?.includes('p-2') ? (
           <svg className="w-4 h-4 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -97,16 +98,16 @@ export default function KamDeactivateButton({ kam, onUpdate, className }: KamDea
               </svg>
             </div>
             
-            <h3 className="text-2xl font-bold text-gray-900 text-center mb-4">Desactivar KAM</h3>
+            <h3 className="text-2xl font-bold text-gray-900 text-center mb-4">Desactivar zona</h3>
             
             <p className="text-center text-gray-600 mb-6">
-              ¿Estás seguro de desactivar a <strong className="text-gray-900">{kam.name}</strong>?
+              ¿Estás seguro de desactivar a <strong className="text-gray-900">{zoneDisplayName(kam.name)}</strong>?
             </p>
             
             <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 mb-6">
               <p className="text-sm text-orange-800">
                 <strong>⚠️ Importante:</strong> Se recalcularán TODAS las asignaciones del sistema.
-                Los hospitales de este KAM serán reasignados automáticamente según el algoritmo OpMap.
+                Los hospitales de esta zona serán reasignados automáticamente según el algoritmo OpMap.
               </p>
             </div>
 
@@ -162,7 +163,7 @@ export default function KamDeactivateButton({ kam, onUpdate, className }: KamDea
                 </div>
                 <div className="text-center">
                   <p className="text-3xl font-bold text-orange-600">{result.stats.hospitalsReassigned}</p>
-                  <p className="text-sm text-gray-600">Hospitales de {kam.name}</p>
+                  <p className="text-sm text-gray-600">Hospitales de {zoneDisplayName(kam.name)}</p>
                 </div>
               </div>
             </div>

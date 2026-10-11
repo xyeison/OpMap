@@ -1,6 +1,7 @@
 'use client'
 
 import { useParams } from 'next/navigation'
+import { zoneDisplayName } from '@/lib/zone-names'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import ProtectedRoute from '@/components/ProtectedRoute'
@@ -139,7 +140,7 @@ export default function TerritoryDetailPage() {
                         className="w-4 h-4 rounded-full"
                         style={{ backgroundColor: assignment.kam_color }}
                       />
-                      <span className="font-medium">{assignment.kam_name}</span>
+                      <span className="font-medium">{zoneDisplayName(assignment.kam_name)}</span>
                       {assignment.is_forced && (
                         <span className="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded-full">
                           Forzado

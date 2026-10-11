@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { zoneDisplayName } from '@/lib/zone-names'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { requirePermission } from '@/lib/require-role'
 import { badJson, isUuid, readJsonBody, serverError } from '../../_lib/api-error'
@@ -91,7 +92,7 @@ export async function POST(request: NextRequest) {
     for (const visit of visits) {
       try {
         if (!visit || typeof visit !== 'object' || !visit.visit_date) {
-          errors.push(`Visita sin fecha válida para KAM ${visit?.kam_name ?? ''}`.trim())
+          errors.push(`Visita sin fecha válida para Ejecutivo Comercial ${zoneDisplayName(visit?.kam_name)}`.trim())
           failedCount++
           continue
         }
@@ -122,7 +123,7 @@ export async function POST(request: NextRequest) {
 
         if (insertError) {
           console.error('visits/import: error insertando visita', insertError)
-          errors.push(`No se pudo insertar la visita de ${visit.kam_name ?? 'KAM'} del ${visit.visit_date}`)
+          errors.push(`No se pudo insertar la visita de ${zoneDisplayName(visit.kam_name) || 'Ejecutivo Comercial'} del ${visit.visit_date}`)
           failedCount++
         } else {
           successfulCount++

@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { zoneDisplayName } from '@/lib/zone-names'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
 import { usePermissions } from '@/hooks/usePermissions'
@@ -20,7 +21,7 @@ type EquipmentDraft = Record<string, Record<string, boolean>>
 
 /** Nombre visible de la zona: los registros heredados se llaman "KAM Ciudad"; en la UI basta "Ciudad". */
 function zoneLabel(name: string): string {
-  return name.replace(/^kam\s+/i, '').trim() || name
+  return zoneDisplayName(name) || name
 }
 
 /** Extrae el mensaje de error de una respuesta JSON de la API (o uno genérico). */

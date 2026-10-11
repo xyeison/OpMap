@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { zoneDisplayName } from '@/lib/zone-names'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { requirePermission } from '@/lib/require-role'
 import { badJson, isUuid, readJsonBody, serverError } from '../_lib/api-error'
@@ -71,7 +72,7 @@ export async function POST(request: Request) {
         success: true,
         message: zoneVacant
           ? 'Asignación retirada; la zona queda vacante'
-          : 'Asignación retirada; las demás IPS del municipio conservan su KAM',
+          : 'Asignación retirada; las demás IPS del municipio conservan su Ejecutivo Comercial',
         stats: {
           assignmentsRemoved: removed?.length || 0,
           remainingActiveInMunicipality: remaining || 0,
@@ -99,7 +100,7 @@ export async function POST(request: Request) {
         {
           success: false,
           error:
-            'Se recalcularon las asignaciones, pero el hospital quedó sin KAM (no hay tiempos de viaje dentro del límite de ningún KAM elegible)',
+            'Se recalcularon las asignaciones, pero el hospital quedó sin Ejecutivo Comercial (no hay tiempos de viaje dentro del límite de ninguna zona elegible)',
           stats: {
             totalAssignments: result.totalAssignments,
             hospitalsRecalculated: 1,
@@ -119,7 +120,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       success: true,
-      message: `Hospital asignado a ${kam?.name ?? 'KAM'}`,
+      message: `Hospital asignado a ${zoneDisplayName(kam?.name) || 'Ejecutivo Comercial'}`,
       stats: {
         totalAssignments: result.totalAssignments,
         hospitalsRecalculated: 1,

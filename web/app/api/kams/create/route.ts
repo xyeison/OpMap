@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
 
     if (insertError || !data) {
       console.error('Error al insertar KAM:', insertError)
-      return jsonError('Error al crear el KAM', 500)
+      return jsonError('Error al crear la zona', 500)
     }
 
     // Si el KAM participa en la asignación territorial, recalcular en el mismo proceso
@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
         recalculated = true
       } catch (recalcError) {
         console.error('Error al recalcular tras crear KAM:', recalcError)
-        warning = 'El KAM se creó, pero el recálculo de asignaciones falló. Ejecuta el recálculo manualmente.'
+        warning = 'La zona se creó, pero el recálculo de asignaciones falló. Ejecuta el recálculo manualmente.'
       }
     }
 
@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
       data,
       recalculated,
       ...(warning ? { warning } : {}),
-      message: warning ? warning : 'KAM creado exitosamente',
+      message: warning ? warning : 'Zona creada exitosamente',
     })
   } catch (error) {
     console.error('Error en POST /api/kams/create:', error)

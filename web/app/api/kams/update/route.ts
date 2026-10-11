@@ -35,7 +35,7 @@ async function handleUpdate(request: NextRequest) {
       .maybeSingle()
 
     if (currentError) throw currentError
-    if (!current) return jsonError('KAM no encontrado', 404)
+    if (!current) return jsonError('Zona no encontrada', 404)
 
     const merged = { ...current, ...updateData }
     const areaChanged = updateData.area_id !== undefined && updateData.area_id !== current.area_id
@@ -62,10 +62,10 @@ async function handleUpdate(request: NextRequest) {
 
     if (updateError) {
       console.error('Error al actualizar KAM:', updateError)
-      return jsonError('Error al actualizar el KAM', 500)
+      return jsonError('Error al actualizar la zona', 500)
     }
     if (!updatedRows || updatedRows.length === 0) {
-      return jsonError('KAM no encontrado', 404)
+      return jsonError('Zona no encontrada', 404)
     }
 
     // Recalcular solo si el KAM está activo y cambió algo que afecta al algoritmo
@@ -80,7 +80,7 @@ async function handleUpdate(request: NextRequest) {
         recalculated = true
       } catch (recalcError) {
         console.error('Error al recalcular tras actualizar KAM:', recalcError)
-        warning = 'El KAM se actualizó, pero el recálculo de asignaciones falló. Ejecuta el recálculo manualmente.'
+        warning = 'La zona se actualizó, pero el recálculo de asignaciones falló. Ejecuta el recálculo manualmente.'
       }
     }
 
@@ -89,7 +89,7 @@ async function handleUpdate(request: NextRequest) {
       data: updatedRows[0],
       recalculated,
       ...(warning ? { warning } : {}),
-      message: warning ? warning : 'KAM actualizado exitosamente',
+      message: warning ? warning : 'Zona actualizada exitosamente',
     })
   } catch (error) {
     console.error('Error en /api/kams/update:', error)

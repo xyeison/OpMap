@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { zoneDisplayName } from '@/lib/zone-names'
 import { useParams, useRouter } from 'next/navigation'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
@@ -170,7 +171,7 @@ export default function HospitalDetailPage() {
       if (recalcResponse.status === 422) {
         // El estado del hospital ya cambió y el recálculo se ejecutó, pero el hospital quedó sin
         // KAM (u otra condición de negocio): mostrar el motivo que devuelve la API
-        let reason = 'El hospital quedó sin KAM asignado'
+        let reason = 'El hospital quedó sin Ejecutivo Comercial asignado'
         try {
           const body = await recalcResponse.json()
           if (typeof body?.error === 'string' && body.error) reason = body.error
@@ -371,12 +372,12 @@ export default function HospitalDetailPage() {
           </div>
 
           <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">KAM Asignado</h2>
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Ejecutivo Comercial Asignado</h2>
             {kam ? (
               <div className="space-y-3">
                 <div>
-                  <span className="text-gray-600">Nombre:</span>
-                  <span className="ml-2 font-medium">{kam.name}</span>
+                  <span className="text-gray-600">Zona:</span>
+                  <span className="ml-2 font-medium">{zoneDisplayName(kam.name)}</span>
                 </div>
                 <div>
                   <span className="text-gray-600">Municipio base:</span>
@@ -392,7 +393,7 @@ export default function HospitalDetailPage() {
                 </div>
               </div>
             ) : (
-              <p className="text-gray-500">No hay KAM asignado</p>
+              <p className="text-gray-500">No hay Ejecutivo Comercial asignado</p>
             )}
           </div>
         </div>
@@ -471,12 +472,12 @@ export default function HospitalDetailPage() {
         {/* Distancias a KAMs */}
         {kamDistances.length > 0 && (
           <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6 mb-8">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">Distancias desde KAMs</h2>
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Distancias desde cada zona</h2>
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr className="border-b">
-                    <th className="text-left py-2 text-gray-600 font-medium">KAM</th>
+                    <th className="text-left py-2 text-gray-600 font-medium">Zona</th>
                     <th className="text-right py-2 text-gray-600 font-medium">Tiempo de Viaje</th>
                     <th className="text-right py-2 text-gray-600 font-medium">Distancia</th>
                     <th className="text-center py-2 text-gray-600 font-medium">Estado</th>
@@ -492,7 +493,7 @@ export default function HospitalDetailPage() {
                       <tr key={idx} className="border-b hover:bg-gray-50">
                         <td className="py-3">
                           <span className={`font-medium ${isAssigned ? 'text-green-600' : 'text-gray-900'}`}>
-                            {dist.kam_name}
+                            {zoneDisplayName(dist.kam_name)}
                             {isAssigned && ' ✓'}
                           </span>
                         </td>
@@ -703,7 +704,7 @@ export default function HospitalDetailPage() {
                         </p>
                         <p className="text-xs text-gray-600 font-medium">
                           {entry.user?.name || entry.user?.email || 'Sistema'}
-                          {entry.user?.role && ` - ${entry.user.role === 'admin' ? 'Administrador' : entry.user.role === 'sales' ? 'KAM' : entry.user.role}`}
+                          {entry.user?.role && ` - ${entry.user.role === 'admin' ? 'Administrador' : entry.user.role === 'sales' ? 'Ejecutivo Comercial' : entry.user.role}`}
                         </p>
                       </div>
                       {isComment && (role === 'admin' || entry.userId === user?.id) && (

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { zoneDisplayName } from '@/lib/zone-names'
 import { useQueryClient } from '@tanstack/react-query'
 
 interface KAM {
@@ -168,11 +169,11 @@ export default function EditKamModal({ kam, isOpen, onClose, onUpdate }: EditKam
                   className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold shadow-lg"
                   style={{ backgroundColor: formData.color }}
                 >
-                  {kam.name.substring(0, 2).toUpperCase()}
+                  {zoneDisplayName(kam.name).substring(0, 2).toUpperCase()}
                 </div>
                 <div>
                   <h3 className="text-2xl font-bold">Editar Zona</h3>
-                  <p className="text-gray-300 text-sm">Configuración de {kam.name}</p>
+                  <p className="text-gray-300 text-sm">Configuración de {zoneDisplayName(kam.name)}</p>
                 </div>
               </div>
               <button
@@ -549,8 +550,8 @@ export default function EditKamModal({ kam, isOpen, onClose, onUpdate }: EditKam
             
             <p className="text-center text-gray-600 mb-6">
               {pendingAction === 'activate' 
-                ? `¿Estás seguro de activar la zona ${kam.name}?`
-                : `¿Estás seguro de desactivar la zona ${kam.name}?`
+                ? `¿Estás seguro de activar la zona ${zoneDisplayName(kam.name)}?`
+                : `¿Estás seguro de desactivar la zona ${zoneDisplayName(kam.name)}?`
               }
             </p>
             

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { zoneDisplayName } from '@/lib/zone-names'
 import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 
@@ -53,7 +54,7 @@ export default function KamActivateButton({ kam, onUpdate, className }: KamActiv
         alert(`Error: ${data.error}`)
       }
     } catch (error) {
-      alert('Error al activar KAM')
+      alert('Error al activar la zona')
     } finally {
       setLoading(false)
     }
@@ -71,7 +72,7 @@ export default function KamActivateButton({ kam, onUpdate, className }: KamActiv
         onClick={() => setShowModal(true)}
         className={className || defaultClassName}
         disabled={loading}
-        title="Activar KAM"
+        title="Activar zona"
       >
         {className?.includes('p-2') ? (
           <svg className="w-4 h-4 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -92,18 +93,18 @@ export default function KamActivateButton({ kam, onUpdate, className }: KamActiv
               </svg>
             </div>
             
-            <h3 className="text-2xl font-bold text-gray-900 text-center mb-4">Activar KAM</h3>
+            <h3 className="text-2xl font-bold text-gray-900 text-center mb-4">Activar zona</h3>
             
             <p className="text-center text-gray-600 mb-6">
-              ¿Deseas activar a <strong className="text-gray-900">{kam.name}</strong>?
+              ¿Deseas activar a <strong className="text-gray-900">{zoneDisplayName(kam.name)}</strong>?
             </p>
             
             <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-6">
-              <p className="text-sm text-green-800 font-medium mb-2">Al activar este KAM:</p>
+              <p className="text-sm text-green-800 font-medium mb-2">Al activar esta zona:</p>
               <ul className="list-disc list-inside ml-2 space-y-1 text-sm text-green-700">
                 <li>Se recalcularán TODAS las asignaciones del sistema</li>
                 <li>El algoritmo OpMap asignará hospitales según proximidad</li>
-                <li>Respetará los territorios base de cada KAM</li>
+                <li>Respetará los territorios base de cada zona</li>
               </ul>
             </div>
 
@@ -159,7 +160,7 @@ export default function KamActivateButton({ kam, onUpdate, className }: KamActiv
                 </div>
                 <div className="text-center">
                   <p className="text-3xl font-bold text-green-600">{result.stats.kamAssignments}</p>
-                  <p className="text-sm text-gray-600">Hospitales para {kam.name}</p>
+                  <p className="text-sm text-gray-600">Hospitales para {zoneDisplayName(kam.name)}</p>
                 </div>
               </div>
               {result.stats.hospitalsInMunicipality !== undefined && (
