@@ -46,6 +46,7 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: npm ci
       - name: Comprobar secretos
+        id: secretos
         run: |
           if [ -z "$NEXT_PUBLIC_SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
             echo "::error::Faltan los secretos NEXT_PUBLIC_SUPABASE_URL y/o SUPABASE_SERVICE_ROLE_KEY (ver docs/fases/fase5-fuentes-automaticas.md)"
@@ -71,7 +72,8 @@ jobs:
         continue-on-error: true
         run: node scripts/adres-identifica-giro.mjs --desde "${{ steps.mes.outputs.desde }}"
       - name: Marcar fin en fuentes_estado
-        if: always()
+        # Solo si los secretos existían: si faltan, el log debe terminar en el aviso de "Comprobar secretos"
+        if: always() && steps.secretos.outcome == 'success'
         run: npx tsx scripts/fuente-estado.ts --fuente adres_identifica --fin --resultado "${{ steps.carga.outcome }}"
       - name: Resultado
         if: steps.carga.outcome != 'success'
