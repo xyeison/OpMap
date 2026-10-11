@@ -38,6 +38,9 @@ export type Permission =
   | 'coverage:view'    // Fase 2: cobertura por línea (la API limita a las líneas del usuario)
   | 'coverage:edit'    // Fase 2: recalcular y ajustes manuales (line_leader solo en SU línea)
   | 'map:all-lines'    // Fase 2: ver el mapa de cualquier línea y la vista "Zonas"
+  | 'territory:view'           // Fase 2b: anexo de territorio por ejecutivo comercial (la API limita por línea/ejecutivo)
+  | 'territory:snapshot'       // Fase 2b: guardar versiones inmutables del anexo (line_leader solo SU línea)
+  | 'municipalities:recompute' // Fase 2b: recalcular municipality_zone con la caché (sin Google)
 
 // Definición de permisos por rol
 export const rolePermissions: Record<Role, Permission[]> = {
@@ -68,7 +71,10 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'executives:edit',
     'coverage:view',
     'coverage:edit',
-    'map:all-lines'
+    'map:all-lines',
+    'territory:view',
+    'territory:snapshot',
+    'municipalities:recompute'
   ],
   sales_manager: [
     'dashboard:view',
@@ -80,7 +86,8 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'territories:view',  // Solo ver territorios, NO gestionar
     'lines:view',        // lines:edit es del rol line_leader (restringido a su línea)
     'executives:view',
-    'coverage:view'      // Solo las líneas que lleva como ejecutiva (GET /api/me/lines)
+    'coverage:view',     // Solo las líneas que lleva como ejecutiva (GET /api/me/lines)
+    'territory:view'     // Solo el anexo de su(s) ejecutivo(s) enlazado(s)
   ],
   // Líder de línea: lo de sales_manager + editar su línea y su cobertura.
   // Las rutas /api/business-lines/** y /api/coverage/** restringen la edición a las líneas
@@ -97,7 +104,9 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'lines:edit',
     'executives:view',
     'coverage:view',
-    'coverage:edit'
+    'coverage:edit',
+    'territory:view',
+    'territory:snapshot'
   ],
   // Dirección comercial: todo lo de ver + gestionar líneas, equipo y cobertura de todas las líneas.
   // Sin users:manage ni recalculate:complete.
@@ -117,7 +126,9 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'executives:edit',
     'coverage:view',
     'coverage:edit',
-    'map:all-lines'
+    'map:all-lines',
+    'territory:view',
+    'territory:snapshot'
   ],
   contract_manager: [
     'map:view',
@@ -148,7 +159,8 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'executives:view',
     'executives:edit',      // Gestiona el equipo comercial (ejecutivas y sus líneas)
     'coverage:view',
-    'map:all-lines'
+    'map:all-lines',
+    'territory:view'
   ],
   viewer: [
     'map:view',
@@ -156,7 +168,8 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'lines:view',
     'executives:view',
     'coverage:view',
-    'map:all-lines'
+    'map:all-lines',
+    'territory:view'
   ],
   user: [
     'map:view',

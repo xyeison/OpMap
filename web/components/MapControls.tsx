@@ -5,7 +5,13 @@ import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { useVisits } from '@/hooks/useVisits'
 import { zoneDisplayName } from '@/lib/zone-names'
-import type { MapLine, MapMode } from './MapComponent'
+import type { MapLine, MapMode, TerritoryLegend } from './MapComponent'
+
+// Colores fijos de los municipios sin IPS (capa completa, Fase 2b); MapComponent los usa al pintar
+export const OUT_OF_REACH_COLOR = '#d1d5db'
+export const NO_ROAD_COLOR = '#4A4A4A'
+export const PENDING_FILL_COLOR = '#ffffff'
+export const PENDING_BORDER_COLOR = '#9ca3af'
 
 // Leyenda del modo por línea (colores ya validados en MapComponent)
 export interface LineLegend {
@@ -41,6 +47,16 @@ interface MapControlsProps {
   mapMode?: MapMode
   onMapModeChange?: (mode: MapMode) => void
   lineLegend?: LineLegend | null
+  // Capa completa de municipios (Fase 2b)
+  territoryLegend?: TerritoryLegend | null
+}
+
+// Muestra de territorio en la leyenda
+const TERRITORY_SWATCH: React.CSSProperties = {
+  display: 'inline-block',
+  width: '30px',
+  height: '12px',
+  flexShrink: 0
 }
 
 // Muestra rayada de "sin equipo" para la leyenda (mismo patrón que los territorios)
@@ -74,7 +90,8 @@ export default function MapControls({
   canSeeAllLines = false,
   mapMode = 'line',
   onMapModeChange,
-  lineLegend = null
+  lineLegend = null,
+  territoryLegend = null
 }: MapControlsProps) {
   const selectedLine = lines.find(l => l.code === selectedLineCode) ?? null
   const [isOpen, setIsOpen] = useState(false)
@@ -908,17 +925,48 @@ export default function MapControls({
                     }}></span>
                     <span>Institución Prestadora de Salud</span>
                   </div>
+                  {/* Territorios: dos intensidades (visitar / de alcance) y municipios sin zona */}
                   <div className="flex items-center gap-2">
-                    <span style={{
-                      display: 'inline-block',
-                      width: '30px',
-                      height: '12px',
-                      backgroundColor: '#888',
-                      opacity: 0.4,
-                      border: '1px solid #333'
-                    }}></span>
-                    <span>Territorio asignado</span>
+                    <span style={{ ...TERRITORY_SWATCH, backgroundColor: 'rgba(136, 136, 136, 0.4)', border: '1px solid #333' }}></span>
+                    <span className="flex-1">Con IPS objetivo (visitar)</span>
+                    {territoryLegend && <span className="text-xs text-gray-500">{territoryLegend.ips}</span>}
                   </div>
+                  <div className="flex items-center gap-2">
+                    <span style={{ ...TERRITORY_SWATCH, backgroundColor: 'rgba(136, 136, 136, 0.15)', border: '1px solid rgba(136, 136, 136, 0.7)' }}></span>
+                    <span className="flex-1">De alcance (sin IPS hoy)</span>
+                    {territoryLegend && <span className="text-xs text-gray-500">{territoryLegend.reach}</span>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span style={{ ...TERRITORY_SWATCH, backgroundColor: OUT_OF_REACH_COLOR, border: '1px dashed #9ca3af' }}></span>
+                    <span className="flex-1">Fuera de alcance</span>
+                    {territoryLegend && <span className="text-xs text-gray-500">{territoryLegend.outOfReach}</span>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span style={{ ...TERRITORY_SWATCH, backgroundColor: NO_ROAD_COLOR, opacity: 0.8, border: `1px solid ${NO_ROAD_COLOR}` }}></span>
+                    <span className="flex-1">Sin acceso terrestre</span>
+                    {territoryLegend && <span className="text-xs text-gray-500">{territoryLegend.noRoad}</span>}
+                  </div>
+                  {territoryLegend && territoryLegend.pending > 0 && (
+                    <div className="flex items-center gap-2">
+                      <span style={{ ...TERRITORY_SWATCH, backgroundColor: PENDING_FILL_COLOR, border: `1px solid ${PENDING_BORDER_COLOR}` }}></span>
+                      <span className="flex-1">Pendiente de calcular</span>
+                      <span className="text-xs text-gray-500">{territoryLegend.pending}</span>
+                    </div>
+                  )}
+                  <p className="text-xs text-gray-500">
+                    Los municipios sin IPS se reparten por tiempo real de carretera (Google Maps), nunca por distancia en línea recta.
+                    Sin ruta por carretera no se asignan a ninguna zona.
+                  </p>
+                  {territoryLegend?.noMunicipalityData && (
+                    <p className="text-xs text-amber-700">
+                      Aún no hay tiempos por carretera de los municipios sin IPS: se muestran como pendientes.
+                    </p>
+                  )}
+                  {territoryLegend?.geoError && (
+                    <p className="text-xs text-red-700">
+                      No se pudieron cargar los límites de municipios. Recarga la página.
+                    </p>
+                  )}
                   <div className="mt-3 pt-3 border-t text-xs text-gray-600">
                     <i className="fa fa-info-circle"></i> {lineLegend
                       ? 'Los pines conservan el color de su zona; territorios y puntos usan el color del Ejecutivo Comercial de la línea'

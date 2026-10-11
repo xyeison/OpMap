@@ -202,3 +202,107 @@ y `conflict`; quita `executives.color`; devuelve los nombres de zona del 2026-10
 `base_city`; deja deportiva y trauma sin líder; pasa a `sales_manager` a todo usuario
 `line_leader`/`commercial_director`; borra `s.gonzalez@` y `y.jimenez@` (o, si ya tienen datos
 ligados, los desactiva como `viewer`); y restaura el CHECK de 6 roles.
+
+---
+
+# Migraciones — Fase 2b: municipios y anexos de territorio
+
+> **ESTADO: NADA DE ESTO SE HA EJECUTADO.** Generado el 2026-10-11 a partir del estado vivo de
+> `norvxqgohddgsdkggqzq`, consultado solo con `SELECT`. Requiere las Fases 1 y 2 aplicadas.
+
+## Regla de negocio (decisión del dueño, va al contrato)
+
+El mapa cubre **todos** los municipios, con dos intensidades:
+
+- **Con IPS objetivo (visitar)**: color fuerte. La zona sale de la asignación de IPS, con la
+  misma regla de mayoría con la que el mapa colorea territorios.
+- **Sin IPS hoy**: color suave. Se reparten por **tiempo real de carretera** (Google Distance
+  Matrix, modo `driving`) desde la ciudad base de cada zona, **nunca por distancia en línea
+  recta**: dos municipios vecinos pueden no tener carretera entre sí, y no se entrega a nadie
+  un municipio al que no puede llegar. Si mañana abre allí una clínica, ya se sabe qué zona la
+  atiende.
+  - Google no encuentra ruta → **sin acceso terrestre** (`no_road`): no se asigna a nadie.
+  - La ruta supera el tope de la zona (`kams.max_travel_time`, minutos) → **fuera de alcance**
+    (`out_of_reach`): no se asigna; la zona más cercana se guarda solo como dato.
+  - Candidatas: zonas activas del departamento del municipio o de departamentos adyacentes de
+    nivel 1 o 2 (`department_adjacency`, en los dos sentidos). Mismo criterio que las IPS.
+
+## Qué crea
+
+| Tabla | Para qué |
+|---|---|
+| `municipality_travel_times` | Caché **permanente** de tiempos zona → municipio de Google. `status`: `ok` (minutos y km), `no_route` (sin ruta por carretera), `error` (se reintenta). Un par `ok`/`no_route` nunca se vuelve a pedir. Único por (`kam_id`, `municipality_code`). |
+| `municipality_zone` | Zona de cada municipio: `ips`, `reach`, `out_of_reach`, `no_road`, `pending`. `kam_id` solo en `ips`/`reach` (CHECK). Se recalcula completo; no editar a mano. |
+| `territory_snapshots` | Versiones **inmutables** del territorio de un ejecutivo comercial en una línea (resumen, anexo A = IPS, anexo B = municipios por departamento, `content_hash` sha256). Únicas por (línea, ejecutivo, etiqueta). |
+| `line_territory_names` | Nombre comercial de la zona de cada ejecutivo comercial por línea (PK línea + ejecutivo; `updated_at` con trigger). |
+
+Seguridad: las 4 con **RLS activado, sin políticas, sin privilegios para `anon`/`authenticated`/
+`PUBLIC`** y `GRANT` explícito a `service_role`. En `territory_snapshots` `service_role` solo
+tiene `SELECT` e `INSERT` (el `pg_default_acl` de `postgres` le daría también UPDATE/DELETE/
+TRUNCATE; se revocan).
+
+**Inmutabilidad**: función `territory_snapshots_immutable()` (search_path fijo, sin EXECUTE para
+anon/authenticated) y dos triggers: `BEFORE UPDATE OR DELETE` por fila y `BEFORE TRUNCATE` por
+sentencia. Lanzan `SQLSTATE OPM01`; ni `service_role` ni `postgres` los saltan. Para "cambiar" un
+anexo se guarda otra versión con otra etiqueta.
+
+Decisiones además de la especificación:
+
+- `municipality_zone.nearest_kam_id` con `ON DELETE SET NULL` (igual que `kam_id`): es un dato
+  recalculable y no debe impedir borrar una zona.
+- CHECKs de coherencia: `status = 'ok'` ⇔ `travel_minutes` no nulo; minutos, km e `ips_count` ≥ 0.
+- FKs de `territory_snapshots` sin acción: no se puede borrar un usuario que haya guardado una
+  versión (los usuarios se desactivan) ni una línea o ejecutivo con versiones.
+
+## Orden y despliegue
+
+| # | Archivo | Qué hace | Destructivo |
+|---|---|---|---|
+| 5 | `2026-10-11_0500_fase2b_municipios_anexos.sql` | Crea las 4 tablas, índices, triggers, RLS, REVOKE/GRANT y comentarios; comprueba todo | No |
+| — | `2026-10-11_9920_fase2b_rollback.sql` | Borra las 4 tablas y la función | Sí (incluida la caché pagada a Google) |
+
+1. Ejecutar `0500` **antes** de desplegar el código de Fase 2b (sin las tablas fallan
+   `/api/municipality-coverage` y `/api/territory/**`). Con la base migrada y el código viejo
+   no pasa nada: nadie usa las tablas.
+2. Desplegar.
+3. `cd web && npx tsx scripts/fase2b-municipios.ts` (por defecto `--dry-run`, **no llama a
+   Google**): da municipios por tipo, pares pendientes y el costo estimado exacto.
+4. Con la autorización del dueño sobre esa cifra: `--run --max-elements N` y luego `--assign`.
+
+Mensaje esperado (`NOTICE`): `Fase 2b OK: 4 tablas con RLS, 0 políticas, 0 privilegios para
+anon/authenticated, territory_snapshots inmutable (UPDATE/DELETE/TRUNCATE bloqueados). …`
+
+El bloque final hace una **prueba real** de inmutabilidad: inserta una versión
+`__autoprueba_0500__`, intenta UPDATE, DELETE y TRUNCATE, y lo deshace todo dentro de la misma
+transacción (no queda ninguna fila). Usa la primera línea y el primer ejecutivo existentes.
+
+Re-ejecutable: sí (`IF NOT EXISTS` / `OR REPLACE`). Si una tabla ya existiera con otra forma, el
+bloque final lo detecta (cuenta las 30 columnas y las 11 FKs) y aborta.
+
+## Datos comprobados con SELECT (2026-10-10/11)
+
+- `municipalities`: **`PRIMARY KEY (code)`** (`municipalities_pkey`), `code varchar(10) NOT NULL`,
+  1.121 filas, todas de 5 dígitos, 0 sin lat/lng, 11001 (Bogotá) presente. La FK desde `text`
+  funciona (varchar se compara con el operador de text).
+- Ninguna de las 4 tablas existe; no existe `territory_snapshots_immutable()`.
+- `kams.id`, `business_lines.id`, `executives.id`, `users.id`: uuid PK. `kams.max_travel_time`
+  existe. 5 líneas, 13 ejecutivos (los 13 con color: Fase 2 aplicada).
+- `gen_random_uuid()` disponible (PostgreSQL 17.4). `update_updated_at_column()` existe.
+- `pg_default_acl` de `postgres` en `public` ya no concede nada a anon/authenticated
+  (hardening/03 aplicado), pero sí `arwdDxtm` a `service_role`.
+- Las consultas de verificación del bloque final (aclexplode, has_table_privilege con
+  TRUNCATE, has_function_privilege, conteo de columnas/FKs) se probaron como SELECT sobre
+  tablas existentes.
+
+## Cómo volver atrás
+
+Primero volver a desplegar el código anterior a la Fase 2b; luego
+`2026-10-11_9920_fase2b_rollback.sql` (una transacción). **Va antes que 9910 y 9900**: las 4
+tablas tienen FKs hacia `business_lines`, `executives` y `users`.
+
+- Borra `municipality_travel_times`: la caché de Google se pierde y re-aplicar la Fase 2b
+  obligaría a pagar de nuevo. Si solo se quiere apagar la función, revertir el código y dejar
+  las tablas.
+- Si `territory_snapshots` tiene versiones (documentos contractuales), el script **se niega**
+  salvo que antes, en la misma sesión, se ejecute `SET opmap.rollback_drop_snapshots = 'on';` (en el SQL Editor: esa línea encima
+  del script, ejecutando todo junto). Exportarlas primero.

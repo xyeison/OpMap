@@ -119,3 +119,114 @@ nav {
 ::-webkit-scrollbar-thumb:hover {
   background: #555;
 }
+/* Fase 2b: anexo de territorio imprimible (components/TerritoryPanel.tsx).
+   El anexo se monta en un portal .territory-print-root hijo directo de <body>; al imprimir se
+   oculta el resto de la aplicación. Fuera de la impresión el anexo no se ve. */
+.territory-print-root {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 14mm 12mm;
+  }
+
+  body.territory-printing {
+    background: #fff !important;
+  }
+
+  body.territory-printing > *:not(.territory-print-root) {
+    display: none !important;
+  }
+
+  body.territory-printing > .territory-print-root {
+    display: block !important;
+  }
+
+  .territory-print {
+    color: #111827;
+    font-size: 10pt;
+    line-height: 1.35;
+  }
+
+  .territory-print h1 {
+    font-size: 18pt;
+    font-weight: 700;
+    margin: 0 0 6pt;
+  }
+
+  .territory-print h2 {
+    font-size: 12pt;
+    font-weight: 700;
+    margin: 14pt 0 6pt;
+    break-after: avoid;
+  }
+
+  .territory-print-meta {
+    border-collapse: collapse;
+    margin-bottom: 6pt;
+  }
+
+  .territory-print-meta th {
+    text-align: left;
+    font-weight: 600;
+    color: #4b5563;
+    padding: 1pt 8pt 1pt 0;
+    white-space: nowrap;
+  }
+
+  .territory-print-meta td {
+    padding: 1pt 16pt 1pt 0;
+  }
+
+  .territory-print-hash {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 8pt;
+    word-break: break-all;
+  }
+
+  .territory-print-summary,
+  .territory-print-zones {
+    margin: 2pt 0;
+  }
+
+  .territory-print-note {
+    font-size: 8.5pt;
+    color: #4b5563;
+    margin: 6pt 0;
+  }
+
+  .territory-print-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 9pt;
+  }
+
+  .territory-print-table thead {
+    display: table-header-group;
+  }
+
+  .territory-print-table th,
+  .territory-print-table td {
+    border: 0.5pt solid #9ca3af;
+    padding: 2pt 4pt;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .territory-print-table th {
+    background: #f3f4f6 !important;
+    font-weight: 700;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .territory-print-table .num {
+    text-align: right;
+  }
+
+  .territory-print-table tr {
+    break-inside: avoid;
+  }
+}

@@ -7,6 +7,7 @@ import PermissionGuard from '@/components/PermissionGuard'
 import { usePermissions } from '@/hooks/usePermissions'
 import type { BusinessLine, LineZone } from '@/lib/types/lines'
 import CoveragePanel from './CoveragePanel'
+import TerritoryPanel from '@/components/TerritoryPanel'
 import { parseMyLines, type MyLine } from './coverage-shared'
 
 // Zona = fila de kams (ciudad base = area_id). Solo se usan los campos que necesita esta página.
@@ -90,6 +91,11 @@ function LinesContent() {
   const [canSeeAll, setCanSeeAll] = useState(false)
   const [myLinesError, setMyLinesError] = useState('')
   const [zoneNameById, setZoneNameById] = useState<Map<string, string>>(new Map())
+  // Fase 2b: línea elegida en la cobertura y contador para recargar el territorio
+  const [coverageLineCode, setCoverageLineCode] = useState<string | null>(null)
+  const [territoryRefresh, setTerritoryRefresh] = useState(0)
+  const canViewTerritory = can('territory:view')
+  const handleCoverageChanged = useCallback(() => setTerritoryRefresh(value => value + 1), [])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -327,7 +333,16 @@ function LinesContent() {
             </div>
           )}
           {myLines !== null && (
-            <CoveragePanel myLines={coverageLines} hasCoverageEdit={hasCoverageEdit} zoneNameById={zoneNameById} />
+            <CoveragePanel
+              myLines={coverageLines}
+              hasCoverageEdit={hasCoverageEdit}
+              zoneNameById={zoneNameById}
+              onLineChange={setCoverageLineCode}
+              onCoverageChanged={handleCoverageChanged}
+            />
+          )}
+          {myLines !== null && canViewTerritory && coverageLines.length > 0 && (
+            <TerritoryPanel lineCode={coverageLineCode} refreshKey={territoryRefresh} />
           )}
 
           {/* Tabla de líneas */}

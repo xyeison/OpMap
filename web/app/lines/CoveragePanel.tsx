@@ -25,6 +25,10 @@ interface CoveragePanelProps {
   hasCoverageEdit: boolean
   /** kams.id → nombre visible de la zona (para "por alcance desde <zona base>"). */
   zoneNameById: Map<string, string>
+  /** Fase 2b: avisa a la página qué línea está elegida (para el panel de territorio). */
+  onLineChange?: (code: string | null) => void
+  /** Fase 2b: avisa cuando la cobertura cambió (recálculo o ajuste manual). */
+  onCoverageChanged?: () => void
 }
 
 const KIND_ORDER: CoverageKindUI[] = ['local', 'reach', 'manual', 'vacant', 'conflict']
@@ -55,7 +59,13 @@ function writeLineToUrl(code: string) {
   }
 }
 
-export default function CoveragePanel({ myLines, hasCoverageEdit, zoneNameById }: CoveragePanelProps) {
+export default function CoveragePanel({
+  myLines,
+  hasCoverageEdit,
+  zoneNameById,
+  onLineChange,
+  onCoverageChanged,
+}: CoveragePanelProps) {
   const [selectedCode, setSelectedCode] = useState<string | null>(null)
   const [coverage, setCoverage] = useState<CoverageResponse | null>(null)
   const [loading, setLoading] = useState(false)
@@ -84,7 +94,8 @@ export default function CoveragePanel({ myLines, hasCoverageEdit, zoneNameById }
 
   useEffect(() => {
     if (selectedCode) writeLineToUrl(selectedCode)
-  }, [selectedCode])
+    onLineChange?.(selectedCode)
+  }, [selectedCode, onLineChange])
 
   const selectedLine = useMemo(
     () => myLines.find(line => line.code === selectedCode),
@@ -166,6 +177,7 @@ export default function CoveragePanel({ myLines, hasCoverageEdit, zoneNameById }
       const total = typeof data?.rows === 'number' ? data.rows : null
       setNotice(total !== null ? `Cobertura recalculada (${total} filas en todas las líneas).` : 'Cobertura recalculada.')
       await loadCoverage(selectedCode)
+      onCoverageChanged?.()
     } catch (error: unknown) {
       console.error('Error recalculando cobertura:', error)
       setActionError(error instanceof Error ? error.message : 'No se pudo recalcular la cobertura')
@@ -180,6 +192,7 @@ export default function CoveragePanel({ myLines, hasCoverageEdit, zoneNameById }
     setActionError('')
     setNotice(message)
     if (selectedCode) await loadCoverage(selectedCode)
+    onCoverageChanged?.()
   }
 
   const describeExecutive = (row: CoverageRowUI) => {

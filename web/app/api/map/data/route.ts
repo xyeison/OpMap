@@ -4,6 +4,8 @@ import { requireUser } from '@/lib/require-role'
 import { hasPermission } from '@/lib/permissions'
 import { LINE_CODE_RE, findAccessibleLine, loadCoverageResponse } from '@/lib/coverage'
 import type { CoverageExecutiveRef, CoverageLineInfo } from '@/lib/types/coverage'
+import { computeTerritoryWinners, territoryIdOf } from '@/lib/territory-rules'
+import { zoneDisplayName } from '@/lib/zone-names'
 
 // Columnas de hospital que realmente usa el mapa (marcadores, tooltips, filtros y búsqueda).
 // Se evita hospitals(*) para no enviar al navegador dirección, teléfono, email, servicios, etc.
@@ -300,6 +302,31 @@ export async function GET(request: NextRequest) {
       }
     })
     
+    // Zona del territorio (kamId/kamName) por la regla de mayoría compartida (lib/territory-rules.ts:
+    // camas, desempate determinista). Es la MISMA función que usan el mapa al colorear, el motor de
+    // municipios (municipality_zone 'ips') y el anexo de territorio; antes aquí quedaba la primera
+    // asignación que llegara.
+    const zoneNameById: Record<string, string> = {}
+    ;(assignmentsResult.data || []).forEach((a: any) => {
+      if (a.kams?.id && !zoneNameById[a.kams.id]) zoneNameById[a.kams.id] = zoneDisplayName(a.kams.name)
+    })
+    const winners = computeTerritoryWinners(
+      (assignmentsResult.data || [])
+        .filter((a: any) => a.kams?.id && a.hospitals)
+        .map((a: any) => ({ kam_id: a.kams.id as string, beds: a.hospitals.beds ?? null, territory: territoryIdOf(a.hospitals) })),
+      item => item.territory,
+      kamId => zoneNameById[kamId] ?? null
+    )
+    const kamNameById: Record<string, string> = {}
+    ;(assignmentsResult.data || []).forEach((a: any) => {
+      if (a.kams?.id) kamNameById[a.kams.id] = a.kams.name
+    })
+    winners.forEach((winner, territoryId) => {
+      if (!territoryStats[territoryId]) return
+      territoryStats[territoryId].kamId = winner.kam_id
+      territoryStats[territoryId].kamName = kamNameById[winner.kam_id] ?? territoryStats[territoryId].kamName
+    })
+
     // Convertir Sets a arrays
     Object.keys(territoryStats).forEach(key => {
       territoryStats[key].providers = Array.from(territoryStats[key].providers)
