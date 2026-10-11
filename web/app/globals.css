@@ -13,39 +13,6 @@
   background-image: url(https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png);
 }
 
-/* Fix z-index for Leaflet controls to stay below navigation */
-.leaflet-control-container {
-  z-index: 800 !important;
-  position: relative !important;
-}
-
-.leaflet-control {
-  z-index: 800 !important;
-  position: relative !important;
-}
-
-/* Ensure all leaflet controls stay below navigation bar */
-.leaflet-top,
-.leaflet-bottom {
-  z-index: 800 !important;
-  position: relative !important;
-}
-
-.leaflet-pane {
-  z-index: 400 !important;
-}
-
-.leaflet-top.leaflet-left {
-  z-index: 800 !important;
-  position: relative !important;
-}
-
-/* Fix for control containers after interaction */
-.leaflet-control-container * {
-  position: relative !important;
-  z-index: 800 !important;
-}
-
 /* Ensure navigation stays on top */
 nav {
   z-index: 9999 !important;
@@ -119,6 +86,610 @@ nav {
 ::-webkit-scrollbar-thumb:hover {
   background: #555;
 }
+/* ---------- Mapa (/map) ---------- */
+
+/* En /map el <main> del layout no debe medir una pantalla completa además de la cabecera (dejaba
+   48-64 px de scroll vertical y en el teléfono arrastrar fuera del mapa movía la página) */
+main:has(.opmap-map-page) {
+  min-height: 0;
+}
+
+/* Alto de la página del mapa: pantalla menos la cabecera (64 px; 48 px en móvil). dvh evita el salto
+   de la barra del navegador en el teléfono. */
+.opmap-map-page {
+  height: calc(100vh - 4rem);
+  overflow: hidden;
+}
+
+@supports (height: 100dvh) {
+  .opmap-map-page {
+    height: calc(100dvh - 4rem);
+  }
+}
+
+@media (max-width: 767px) {
+  .opmap-map-page {
+    height: calc(100vh - 3rem);
+  }
+
+  @supports (height: 100dvh) {
+    .opmap-map-page {
+      height: calc(100dvh - 3rem);
+    }
+  }
+}
+
+.opmap-map {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+/* La capa de calor (canvas de leaflet.heat) no debe capturar toques ni clics */
+.opmap-map .leaflet-heatmap-layer {
+  pointer-events: none;
+}
+
+/* Tooltips del mapa: tarjeta blanca y ligera */
+.opmap-map .leaflet-tooltip {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.15);
+  color: #111827;
+  padding: 6px 10px;
+}
+
+.opmap-map .leaflet-tooltip-top:before {
+  border-top-color: #e5e7eb;
+}
+
+/* width: max-content evita que el texto se parta palabra a palabra (el panel de tooltips no tiene ancho) */
+.opmap-map .leaflet-tooltip.opmap-tooltip {
+  width: max-content;
+  max-width: 260px;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.opmap-tooltip__title {
+  font-weight: 600;
+}
+
+.opmap-tooltip__meta {
+  margin-top: 2px;
+  font-weight: 400;
+  color: #4b5563;
+}
+
+.opmap-tooltip__hint {
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 400;
+  color: #9ca3af;
+}
+
+/* Móvil: el mapa ocupa toda la pantalla; los controles de Leaflet suben sobre la hoja inferior
+   asomada (64 px, SHEET_PEEK_PX), zoom pequeño y atribución compacta */
+.opmap-map.opmap-map--mobile .leaflet-bottom {
+  bottom: 64px;
+}
+
+.opmap-map.opmap-map--mobile .leaflet-control-zoom {
+  margin: 0 10px 8px 0;
+  border: 1px solid rgba(15, 23, 42, 0.15);
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.2);
+  overflow: hidden;
+}
+
+.opmap-map.opmap-map--mobile .leaflet-control-zoom a {
+  width: 40px;
+  height: 40px;
+  line-height: 38px;
+  font-size: 20px;
+}
+
+.opmap-map.opmap-map--mobile .leaflet-control-attribution {
+  margin: 0;
+  padding: 0 6px;
+  font-size: 10px;
+  line-height: 16px;
+  background: rgba(255, 255, 255, 0.75);
+}
+
+/* Puntos de IPS (panel SVG por encima de los nombres): al hacer clic el navegador enfoca el círculo y
+   le pondría un contorno naranja; la tarjeta ya indica cuál se eligió */
+.opmap-map .leaflet-opmapIps-pane path.leaflet-interactive:focus {
+  outline: none;
+}
+
+/* Capa de nombres de lugares (Esri Light Gray Reference) encima de los polígonos: nunca recibe toques.
+   Mientras dura un zoom se oculta con un fundido (components/MapLabelsLayer.tsx) para no mostrar
+   nombres reescalados y borrosos. */
+.opmap-map .opmap-labels-layer {
+  pointer-events: none;
+}
+
+.opmap-map .leaflet-labels-pane {
+  transition: opacity 160ms ease-out;
+}
+
+.opmap-map .leaflet-labels-pane.opmap-labels-pane--zooming {
+  opacity: 0;
+  transition-duration: 80ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .opmap-map .leaflet-labels-pane {
+    transition: none;
+  }
+}
+
+/* Insignia de zona (components/ZoneBadgeIcon.ts): círculo con las iniciales de la ciudad base sobre el
+   color de la vista, anillo blanco de 2 px, sombra suave y punta corta. Racimo: mismo pin, un poco más
+   grande, con el número de zonas y un halo del mismo color. */
+.opmap-zone-badge-icon {
+  background: transparent;
+  border: 0;
+}
+
+.opmap-zone-badge {
+  position: relative;
+  width: var(--badge-size);
+  height: calc(var(--badge-size) + 6px);
+  cursor: pointer;
+}
+
+.opmap-zone-badge__circle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--badge-size);
+  height: var(--badge-size);
+  border: 2px solid #ffffff;
+  border-radius: 9999px;
+  background: var(--badge-color);
+  color: var(--badge-text, #ffffff);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: transform 120ms ease-out, box-shadow 120ms ease-out;
+}
+
+.opmap-zone-badge__text {
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: var(--badge-font, 12px);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
+.opmap-zone-badge__tail {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 0;
+  height: 0;
+  transform: translateX(-50%);
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 7px solid var(--badge-color);
+}
+
+/* Zona vacante en la línea (y racimo todo vacante): anillo pizarra de 2,5 px, fondo blanco y "—" en 700 */
+.opmap-zone-badge--hollow .opmap-zone-badge__circle {
+  border-width: 2.5px;
+  background: rgba(255, 255, 255, 0.95);
+  border-color: var(--badge-color);
+  color: var(--badge-color);
+}
+
+.opmap-zone-badge--hollow .opmap-zone-badge__text {
+  font-weight: 700;
+}
+
+/* Racimo: halo del color del racimo detrás del círculo */
+.opmap-zone-badge--cluster .opmap-zone-badge__circle::before {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  z-index: -1;
+  border-radius: 9999px;
+  background: var(--badge-color);
+  opacity: 0.22;
+}
+
+/* Con cursor: la insignia se levanta un poco al pasar por encima */
+@media (hover: hover) and (pointer: fine) {
+  .opmap-zone-badge:hover .opmap-zone-badge__circle {
+    transform: translateY(-1px) scale(1.06);
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.28);
+  }
+}
+
+.leaflet-marker-icon.opmap-zone-badge-icon:focus-visible {
+  outline: none;
+}
+
+.leaflet-marker-icon.opmap-zone-badge-icon:focus-visible .opmap-zone-badge__circle {
+  box-shadow: 0 0 0 3px #111827, 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .opmap-zone-badge__circle {
+    transition: none;
+  }
+}
+
+/* Muestras de marcadores en la leyenda (components/MapLegend.tsx) */
+.opmap-legend-dot {
+  display: inline-block;
+  box-sizing: border-box;
+  width: 11px;
+  height: 11px;
+  border: 1.5px solid #ffffff;
+  border-radius: 9999px;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.12);
+}
+
+.opmap-legend-dot--small {
+  width: 8px;
+  height: 8px;
+  border-width: 1px;
+}
+
+/* Mini-muestra de una zona (tono) bajo un Ejecutivo Comercial con varias zonas */
+.opmap-legend-dot--zone {
+  width: 12px;
+  height: 12px;
+}
+
+.opmap-legend-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 22px;
+  height: 22px;
+  border: 2px solid #ffffff;
+  border-radius: 9999px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.opmap-legend-badge--cluster {
+  box-shadow: 0 0 0 3px rgba(51, 65, 85, 0.22), 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+/* Tarjetas (popups) del mapa: components/MapPopups.tsx */
+.leaflet-container .opmap-popup .leaflet-popup-content-wrapper {
+  padding: 0;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+}
+
+.leaflet-container .opmap-popup .leaflet-popup-content {
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+  color: #111827;
+}
+
+.leaflet-container .opmap-popup a.leaflet-popup-close-button {
+  top: 4px;
+  right: 4px;
+  width: 32px;
+  height: 32px;
+  font-size: 20px;
+  line-height: 30px;
+  color: #6b7280;
+}
+
+.opmap-popup__card {
+  padding: 12px 40px 12px 14px;
+}
+
+.opmap-popup__title {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.opmap-popup__title--with-dot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.opmap-popup__dot {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #ffffff;
+  border-radius: 9999px;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.2);
+}
+
+.opmap-popup__secondary {
+  font-weight: 400;
+  color: #6b7280;
+}
+
+.opmap-popup__subtitle {
+  margin-top: 2px;
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.opmap-popup__meta {
+  margin-top: 4px;
+  font-size: 13px;
+  color: #374151;
+}
+
+.opmap-popup__rows,
+.opmap-popup__stats {
+  margin: 10px 0 0;
+}
+
+.opmap-popup__rows--tight {
+  margin-top: 4px;
+}
+
+.opmap-popup__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 0;
+}
+
+.opmap-popup__row dt {
+  flex-shrink: 0;
+  color: #6b7280;
+}
+
+.opmap-popup__row dd {
+  min-width: 0;
+  margin: 0;
+  font-weight: 500;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.opmap-popup__row--stacked {
+  display: block;
+  padding: 4px 0;
+}
+
+.opmap-popup__row--stacked dt {
+  font-size: 12px;
+}
+
+.opmap-popup__row--stacked dd {
+  text-align: left;
+}
+
+.opmap-popup__stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 16px;
+}
+
+.opmap-popup__section {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #f3f4f6;
+}
+
+.opmap-popup__section-title {
+  margin-bottom: 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #6b7280;
+}
+
+.opmap-popup__status {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #f3f4f6;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.opmap-popup__status-title {
+  font-weight: 600;
+}
+
+.opmap-popup__status--zone {
+  background: #1e293b;
+  color: #ffffff;
+}
+
+.opmap-popup__status--vacant {
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.opmap-popup__status--conflict {
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.opmap-popup__note {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.opmap-popup__note--warn {
+  color: #92400e;
+}
+
+.opmap-popup__time--ok {
+  color: #374151;
+}
+
+.opmap-popup__time--near {
+  color: #c2410c;
+}
+
+.opmap-popup__time--over {
+  color: #b91c1c;
+}
+
+.opmap-popup__time--none {
+  color: #9ca3af;
+}
+
+.opmap-popup__beds--low {
+  color: #dc2626;
+}
+
+.opmap-popup__beds--mid {
+  color: #d97706;
+}
+
+.opmap-popup__beds--ok {
+  color: #059669;
+}
+
+.opmap-popup__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.leaflet-container .opmap-popup a.opmap-popup__btn,
+.opmap-popup__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 8px;
+  background: #111827;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.leaflet-container .opmap-popup a.opmap-popup__btn:hover {
+  background: #000000;
+  color: #ffffff;
+}
+
+.leaflet-container .opmap-popup a.opmap-popup__btn--secondary {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.leaflet-container .opmap-popup a.opmap-popup__btn--secondary:hover {
+  background: #e5e7eb;
+  color: #111827;
+}
+
+@media (max-width: 767px) {
+  .leaflet-container .opmap-popup .leaflet-popup-content-wrapper {
+    max-width: 92vw;
+  }
+
+  /* Tooltips de visitas (marcadores desde zoom 10): sin desbordar la pantalla del teléfono */
+  .leaflet-tooltip.custom-tooltip,
+  .leaflet-tooltip.custom-tooltip .leaflet-tooltip-content {
+    max-width: 86vw !important;
+  }
+
+  .leaflet-container .opmap-popup a.leaflet-popup-close-button {
+    top: 0;
+    right: 0;
+    width: 44px;
+    height: 44px;
+    line-height: 42px;
+  }
+
+  .opmap-popup__card {
+    padding-right: 44px;
+  }
+
+  .leaflet-container .opmap-popup a.opmap-popup__btn,
+  .opmap-popup__btn {
+    flex: 1 1 auto;
+    min-height: 44px;
+  }
+}
+
+/* Lista de zonas de un racimo que no se separa al acercar (misma ubicación o zoom máximo) */
+.opmap-popup__zone-list {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.opmap-popup__zone-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 6px 8px;
+  margin: 0 -8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.opmap-popup__zone-btn:hover {
+  background: #f3f4f6;
+}
+
+.opmap-popup__zone-btn:focus-visible {
+  outline: 2px solid #111827;
+  outline-offset: 1px;
+}
+
+.opmap-popup__zone-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.opmap-popup__zone-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.opmap-popup__zone-meta {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+@media (pointer: coarse) {
+  .opmap-popup__zone-btn {
+    min-height: 44px;
+  }
+}
+
 /* Fase 2b: anexo de territorio imprimible (components/TerritoryPanel.tsx).
    El anexo se monta en un portal .territory-print-root hijo directo de <body>; al imprimir se
    oculta el resto de la aplicación. Fuera de la impresión el anexo no se ve. */

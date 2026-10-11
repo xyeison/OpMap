@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect } from 'react'
-import { useMap } from 'react-leaflet'
+import { useEffect, useState, type ReactNode } from 'react'
+import { useMap, useMapEvent } from 'react-leaflet'
 
 interface MapControllerProps {
   center?: [number, number]
@@ -25,4 +25,15 @@ export default function MapController({ center, zoom }: MapControllerProps) {
   }, [map])
 
   return null
+}
+
+/**
+ * Muestra sus hijos solo desde un nivel de zoom (p. ej. puntos de IPS en móvil desde zoom 6,
+ * marcadores de visitas desde zoom 10). Solo este componente se vuelve a renderizar al hacer zoom.
+ */
+export function ZoomGate({ min, children }: { min: number; children: ReactNode }) {
+  const map = useMap()
+  const [zoom, setZoom] = useState(() => map.getZoom())
+  useMapEvent('zoomend', () => setZoom(map.getZoom()))
+  return zoom >= min ? <>{children}</> : null
 }

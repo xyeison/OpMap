@@ -2,9 +2,9 @@
 
 import { useEffect, useRef } from 'react'
 import { useMap } from 'react-leaflet'
-import L from 'leaflet'
+import 'leaflet'
 
-// Declaración de tipos para leaflet.heat
+// leaflet.heat se registra sobre el L global
 declare global {
   interface Window {
     L: any
@@ -16,187 +16,102 @@ interface Visit {
   lng: number
   visit_type: string
   contact_type: string
-  kam_name: string
+  kam_name?: string
 }
 
 interface VisitsHeatmapLayerProps {
   visits: Visit[]
   intensity?: number
-  radius?: number
-  blur?: number
   maxZoom?: number
   gradient?: Record<number, string>
+}
+
+const DEFAULT_GRADIENT: Record<number, string> = {
+  0.0: 'blue',
+  0.25: 'cyan',
+  0.5: 'lime',
+  0.75: 'yellow',
+  1.0: 'red'
+}
+
+// Radio y desenfoque según el zoom: a escala país manchas pequeñas; en ciudad, más amplias
+export function heatOptionsForZoom(zoom: number): { radius: number; blur: number } {
+  if (zoom <= 7) return { radius: 8, blur: 12 }
+  if (zoom <= 10) return { radius: 14, blur: 20 }
+  return { radius: 22, blur: 28 }
+}
+
+// Coordenadas válidas (pueden llegar como texto desde la API)
+const isValidVisit = (visit: Visit) => {
+  const lat = Number(visit?.lat)
+  const lng = Number(visit?.lng)
+  return Number.isFinite(lat) && Number.isFinite(lng) && lat !== 0 && lng !== 0 &&
+    lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180
+}
+
+// Peso sutil por tipo de visita; las presenciales pesan un poco más
+const visitWeight = (visit: Visit) => {
+  let weight = 0.3
+  if (visit.visit_type === 'Visita efectiva') weight = 0.6
+  else if (visit.visit_type === 'Visita extra') weight = 0.4
+  if (visit.contact_type === 'Visita presencial') weight *= 1.1
+  return weight
 }
 
 export function VisitsHeatmapLayer({
   visits,
   intensity = 1,
-  radius = 25,
-  blur = 15,
   maxZoom = 18,
-  gradient
+  gradient = DEFAULT_GRADIENT
 }: VisitsHeatmapLayerProps) {
   const map = useMap()
-  const heatmapLayerRef = useRef<any>(null)
+  const heatLayerRef = useRef<any>(null)
 
+  // La capa se crea cuando cambian las visitas; el zoom solo ajusta radio y desenfoque
   useEffect(() => {
-    console.log('VisitsHeatmapLayer - Total visitas:', visits?.length)
-    console.log('VisitsHeatmapLayer - Primeras 5 visitas:', visits?.slice(0, 5))
-    
-    // IMPORTANTE: Limpiar capa existente si hay una
-    if (heatmapLayerRef.current) {
-      try {
-        console.log('VisitsHeatmapLayer - Removiendo capa anterior...', heatmapLayerRef.current)
-        map.removeLayer(heatmapLayerRef.current)
-        heatmapLayerRef.current = null
-        console.log('VisitsHeatmapLayer - Capa de calor anterior removida exitosamente')
-      } catch (error) {
-        console.error('Error removiendo capa de calor anterior:', error)
-        // Intentar forzar la limpieza
-        try {
-          map.eachLayer((layer: any) => {
-            if (layer._heat) {
-              map.removeLayer(layer)
-              console.log('VisitsHeatmapLayer - Capa de calor removida por búsqueda')
-            }
-          })
-        } catch (e) {
-          console.error('Error en limpieza forzada:', e)
+    const points: Array<[number, number, number]> = (Array.isArray(visits) ? visits : [])
+      .filter(isValidVisit)
+      .map(visit => [Number(visit.lat), Number(visit.lng), visitWeight(visit)])
+    if (points.length === 0) return
+
+    let cancelled = false
+    import('leaflet.heat')
+      .then(() => {
+        if (cancelled) return
+        if (!window.L?.heatLayer) {
+          console.error('leaflet.heat no está disponible después de cargar')
+          return
         }
-      }
-    }
-    
-    // Validación estricta: NO mostrar nada si no hay visitas válidas
-    if (!visits || !Array.isArray(visits) || visits.length === 0) {
-      console.log('VisitsHeatmapLayer - No hay visitas válidas para mostrar:', {
-        hasVisits: !!visits,
-        isArray: Array.isArray(visits),
-        length: visits?.length || 0
-      })
-      return
-    }
-
-    // Cargar leaflet.heat dinámicamente
-    const loadHeatmapLibrary = async () => {
-      if (typeof window === 'undefined') return
-      
-      try {
-        // Importar leaflet.heat
-        await import('leaflet.heat')
-        console.log('leaflet.heat cargado exitosamente')
-      } catch (error) {
-        console.error('Error cargando leaflet.heat:', error)
-        return
-      }
-    }
-
-    loadHeatmapLibrary().then(() => {
-      if (!window.L || !window.L.heatLayer) {
-        console.error('leaflet.heat no está disponible después de cargar')
-        return
-      }
-
-      // Convertir visitas a formato de heatmap
-      // El tercer valor es la intensidad (peso) del punto
-      const heatPoints: Array<[number, number, number]> = visits
-        .filter((visit) => {
-          // Filtrar visitas con coordenadas inválidas
-          const isValid = visit.lat && visit.lng && 
-                         !isNaN(visit.lat) && !isNaN(visit.lng) &&
-                         visit.lat >= -90 && visit.lat <= 90 &&
-                         visit.lng >= -180 && visit.lng <= 180
-          if (!isValid) {
-            console.warn('Visita con coordenadas inválidas:', visit)
-          }
-          return isValid
-        })
-        .map((visit) => {
-          // Dar peso más sutil a las visitas
-          let weight = 0.3
-          if (visit.visit_type === 'Visita efectiva') {
-            weight = 0.6
-          } else if (visit.visit_type === 'Visita extra') {
-            weight = 0.4
-          }
-          
-          // Visitas presenciales tienen un poco más de peso
-          if (visit.contact_type === 'Visita presencial') {
-            weight *= 1.1
-          }
-
-          return [visit.lat, visit.lng, weight]
-        })
-
-      console.log('VisitsHeatmapLayer - Puntos de calor generados:', heatPoints.length)
-      console.log('VisitsHeatmapLayer - Primeros 5 puntos:', heatPoints.slice(0, 5))
-
-      if (heatPoints.length === 0) {
-        console.warn('VisitsHeatmapLayer - No hay puntos válidos para mostrar en el mapa de calor')
-        return
-      }
-
-      // Configuración del gradiente de colores
-      const heatGradient = gradient || {
-        0.0: 'blue',
-        0.25: 'cyan',
-        0.5: 'lime',
-        0.75: 'yellow',
-        1.0: 'red'
-      }
-
-      try {
-        // LIMPIAR CUALQUIER CAPA DE CALOR EXISTENTE ANTES DE CREAR UNA NUEVA
-        map.eachLayer((layer: any) => {
-          if (layer._heat) {
-            map.removeLayer(layer)
-            console.log('VisitsHeatmapLayer - Limpiando capa de calor previa')
-          }
-        })
-        
-        // Crear la capa de calor usando window.L
-        const newHeatLayer = window.L.heatLayer(heatPoints, {
-          radius,
-          blur,
+        const layer = window.L.heatLayer(points, {
+          ...heatOptionsForZoom(map.getZoom()),
           maxZoom,
           max: intensity,
-          gradient: heatGradient,
+          gradient,
           minOpacity: 0.5
         })
+        layer.addTo(map)
+        heatLayerRef.current = layer
+      })
+      .catch(error => console.error('Error cargando leaflet.heat:', error))
 
-        // Agregar la capa al mapa
-        newHeatLayer.addTo(map)
-        console.log('VisitsHeatmapLayer - Nueva capa de calor agregada al mapa')
-        heatmapLayerRef.current = newHeatLayer
-      } catch (error) {
-        console.error('Error creando capa de calor:', error)
-      }
-    })
-
-    // CRÍTICO: Limpiar al desmontar el componente
     return () => {
-      console.log('VisitsHeatmapLayer - Desmontando componente, limpiando capa...')
-      if (heatmapLayerRef.current) {
-        try {
-          map.removeLayer(heatmapLayerRef.current)
-          heatmapLayerRef.current = null
-          console.log('VisitsHeatmapLayer - Capa de calor removida del mapa (cleanup en desmonte)')
-        } catch (error) {
-          console.error('Error removiendo capa de calor (cleanup):', error)
-        }
-      }
-      // Limpieza adicional por si acaso
-      try {
-        map.eachLayer((layer: any) => {
-          if (layer._heat) {
-            map.removeLayer(layer)
-            console.log('VisitsHeatmapLayer - Capa de calor adicional removida en cleanup')
-          }
-        })
-      } catch (e) {
-        console.error('Error en limpieza adicional:', e)
+      cancelled = true
+      if (heatLayerRef.current) {
+        map.removeLayer(heatLayerRef.current)
+        heatLayerRef.current = null
       }
     }
-  }, [map, visits, intensity, radius, blur, maxZoom, gradient])
+  }, [map, visits, intensity, maxZoom, gradient])
+
+  useEffect(() => {
+    const onZoomEnd = () => {
+      heatLayerRef.current?.setOptions(heatOptionsForZoom(map.getZoom()))
+    }
+    map.on('zoomend', onZoomEnd)
+    return () => {
+      map.off('zoomend', onZoomEnd)
+    }
+  }, [map])
 
   return null
 }

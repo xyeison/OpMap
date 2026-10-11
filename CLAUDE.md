@@ -92,13 +92,69 @@ vercel                                  # Desplegar a producción
 ## VISUALIZACIÓN DEL MAPA - IMPORTANTE
 
 ### Estética del Mapa (MANTENER SIEMPRE)
-**NUNCA cambiar estos elementos visuales**:
-- Territorios coloreados por KAM asignado
-- Puntos de IPS con colores correspondientes al KAM
-- Marcadores de KAMs con icono de perfil del color del territorio
-- Departamentos excluidos en gris oscuro (#4A4A4A)
+Estilo autorizado por el dueño el 2026-10-11 (rama `ui/mapa-estetica`; constantes en
+`web/components/mapStyles.ts`). Cualquier cambio a este estilo necesita una nueva autorización explícita.
+
+- **Una sola fuente de color por vista**: `colorForZone` (`web/components/MapComponent.tsx`). Vista por
+  línea: color del Ejecutivo Comercial que cubre la zona (`executives.color`), con un tono por zona si
+  cubre varias (ver "Tonos por zona"); vista de zonas: color de la zona (`kams.color`); vista de
+  regiones: color de la región. Polígonos, puntos de IPS, insignias, tooltips y tarjetas usan siempre
+  ese mismo color.
+- **Tonos por zona** (pedido del dueño 2026-10-11: "los 4 de Bogotá se deberían diferenciar por
+  colores"): solo en la vista por línea, si un Ejecutivo Comercial cubre n > 1 zonas (cobertura local,
+  reach o manual), cada zona usa `zoneTint(color, índice, n)` (`web/components/mapStyles.ts`): mismo
+  matiz HSL, luminosidad desplazada según la secuencia [0, +18, -16, +32, -26, +40, -34] (se repite
+  desde la 8.ª zona), acotada a [26, 78]; al aclarar, saturación +6 (máx. 95). El índice es la posición
+  de la zona entre las del Ejecutivo Comercial ordenadas por ciudad base (`localeCompare` 'es'); la
+  primera conserva el color base. Ej. PerOssal: Yineth (#d62728) → Chapinero #d62728, Engativá #e85c5d,
+  Kennedy #a21e1e, San Cristóbal #f09293; María Isabel (#8c564b) → Ibagué #8c564b, Pereira #b87467. NO
+  aplica a la vista de zonas ni a la de regiones, ni al chip e iniciales del Ejecutivo Comercial en la
+  leyenda ni a su racimo (color base). En la leyenda, bajo "n zonas · m IPS", una mini-muestra por zona
+  (12 px, iniciales de la ciudad base, `title` = ciudad): tocarla resalta solo esa zona; tocar la fila
+  resalta todas. La tarjeta de la zona dice "(zona 2 de 4)" junto al nombre del Ejecutivo Comercial.
+- **Polígonos** (municipios y localidades de Bogotá, mismo estilo): con IPS objetivo (ganador por la
+  regla de mayoría) relleno 0.55; de alcance (sin IPS hoy) mismo color a 0.22. Borde blanco fino
+  (0.6 px, opacidad 0.7); nunca bordes gris oscuro ni negros. Hover (solo con cursor): relleno +0.15 y
+  borde blanco de 1.5 px. Resaltar un Ejecutivo Comercial / zona desde la leyenda deja el resto a 0.08.
+- **Estados con color fijo**: vacante en la línea (o territorio solo con IPS sin zona): relleno pizarra
+  sólido #94a3b8 a 0.5 en municipios con IPS y 0.3 en los de alcance de la zona vacante, con borde
+  pizarra #64748b sólido de 0.8 px (no blanco) para que se lea como "hueco" a escala país (antes
+  #cbd5e1 a 0.35: el dueño pidió el 2026-10-11 que Bucaramanga se viera más); sin rayado ni borde rojo;
+  conflicto #f59e0b a 0.4; sin equipo: rayado del color de la zona (capa SVG);
+  fuera de alcance #e5e7eb a 0.5 con borde #9ca3af discontinuo de 0.8 px; sin acceso terrestre #d1d5db
+  a 0.45 con trama de puntos (patrón SVG); pendiente blanco a 0.3 con borde #e5e7eb (solo lo que de
+  verdad falta calcular). Localidades de Bogotá sin IPS: la zona residente o, si no hay, la zona que gana
+  Bogotá (fila 11001 de `municipality_zone`; respaldo: misma regla de mayoría sobre las 20 localidades),
+  pintadas como alcance (0.22).
+- **Puntos de IPS**: círculo del color de la vista (0.95) con borde blanco de 1.5 px; radio 4 px, 5.5 desde
+  100 camas y 7 desde 300 camas; compactos (2.5 px) por debajo de zoom 6. IPS sin zona en la vista
+  (incluye departamentos excluidos, p. ej. San Andrés): gris claro #9ca3af de 3.5 px (`IPS_UNZONED_COLOR`).
+  IPS de una zona vacante en la línea: pizarra #64748b (`VACANT_STATE_COLOR`) a tamaño normal; la
+  leyenda los explica en filas separadas ("IPS sin zona", "IPS de zona vacante en la línea"). En celular los
+  puntos se ven desde zoom 5. Van en un panel SVG propio (`opmapIps`, z 460) por encima de los nombres;
+  el panel no recibe eventos, solo los círculos. Tocar un punto abre su tarjeta (en táctil, área de toque
+  transparente de 11 px).
+- **Insignias de zona** (una por zona, en su ciudad base): círculo de 32 px (28 en celular) con las
+  iniciales de la ciudad base ("Ba", "Cú", "SC"; si dos coinciden, la segunda usa otra letra: "Cr") en
+  letra 600 de 12 px (11 en celular), texto blanco u oscuro (#111827) según cuál dé más contraste WCAG
+  con el color de la vista (`readableTextColor`, también en racimos y chips de la leyenda; si ninguno
+  llega a 4.5:1, negro puro, así todo color y todo tono pasa de 4.5:1), anillo blanco de 2 px, sombra
+  suave y punta corta. Zona vacante en la línea: insignia hueca con anillo pizarra #475569 de 2.5 px
+  (`VACANT_BADGE_COLOR`), fondo blanco a 0.95 y "—" #475569 en 700.
+- **Racimos**: las insignias que se tocan en pantalla (distancia entre centros < diámetro + 6 px; en
+  vertical se suma la punta) se agrupan en una insignia "racimo" de 34 px (30 en celular) con el número
+  de zonas; color base del Ejecutivo Comercial (sin tonos) si todas son suyas, hueco pizarra (#475569)
+  si todas son vacantes, si no #334155. Tocar un racimo acerca el mapa a sus zonas (máx. zoom 10); si ya no se separan (misma
+  ubicación o zoom máximo) abre una tarjeta con la lista de sus zonas. Ninguna zona se oculta sin estar
+  en un racimo. En escritorio a zoom 5 Bogotá se junta con Ibagué, Pereira, Cali y Neiva ("8") porque
+  sus insignias se tocan de verdad; el mapa de escritorio abre en zoom 6, donde sale "4".
+- **Tarjetas al tocar**: IPS, IPS sin zona, zona y territorio abren una tarjeta (`MapPopups.tsx`); con
+  cursor hay además un tooltip corto.
+- **Capa de nombres**: Esri World Light Gray Reference (o `NEXT_PUBLIC_BASEMAP_LABELS_URL`) en un panel
+  propio (z 450) encima de los polígonos y debajo de los puntos de IPS y de las insignias, sin recibir
+  toques; se oculta con un fundido mientras dura el zoom. Usa partes internas de Leaflet
+  (`_tiles`, `_pruneTiles`): revisar `MapLabelsLayer.tsx` al actualizar Leaflet.
 - **NO agregar marcadores de población (👥)**
-- **NO cambiar el estilo visual base**
 - **NO agregar capas o elementos visuales nuevos sin autorización explícita**
 
 ### Lógica de Coloreado de Territorios Compartidos
@@ -402,7 +458,9 @@ La configuración individual permite estrategias diferenciadas como:
 
 ## DEPARTAMENTOS EXCLUIDOS
 
-Los siguientes departamentos están excluidos del análisis y se muestran en gris oscuro en el mapa:
+Los siguientes departamentos están excluidos del análisis. El gris oscuro (#4A4A4A) solo lo usa el
+visualizador Python; en la web sus municipios se pintan según `municipality_zone` (fuera de alcance,
+sin acceso terrestre o pendiente) y sus IPS como puntos grises de "IPS sin zona":
 - 27: Chocó
 - 97: Vaupés 
 - 99: Vichada
@@ -883,9 +941,11 @@ contraseña de los 2 usuarios nuevos desde `/users`.
   sin `?line` (vista "Zonas") solo para map:all-lines.
 - **Mapa** (`/map?line=<code>`): elegir línea es obligatorio (modal si hay varias; "No tienes líneas
   asignadas" si ninguna). Territorios e IPS con el color de la ejecutiva que cubre la zona en esa línea;
-  vacante gris #9ca3af, conflicto ámbar #f59e0b, sin equipo con trama y opacidad baja. Tooltip con
-  zona, ciudad base, línea y tipo de cobertura. Quien tiene map:all-lines puede pasar a la vista
-  "Zonas" (`&mode=zones`, colores de zona de siempre). Los pines de zona no cambian.
+  vacante: polígono pizarra #94a3b8 (0.5 con IPS, 0.3 de alcance) con borde #64748b, insignia hueca
+  pizarra con "—" e IPS #64748b; conflicto ámbar #f59e0b; sin equipo con
+  trama y opacidad baja. Tooltip con zona, ciudad base, línea y tipo de cobertura. Quien tiene
+  map:all-lines puede pasar a la vista "Zonas" (`&mode=zones`, colores de zona de siempre). Pines,
+  racimos y tarjetas: ver "Estética del Mapa".
 - **Páginas**: `/lines` con panel "Cobertura por línea" (tabla, Recalcular, Ajuste manual con motivo
   obligatorio, Quitar ajuste); `/kams` muestra nombre + "Ciudad base"; `EditKamModal` edita el nombre;
   `/executives` muestra y edita el color; `/users` ofrece los roles nuevos. El importador de visitas
@@ -943,11 +1003,11 @@ scripts/fase2b-municipios.ts` (dry-run, sin Google) → el dueño autoriza el ga
   line_leader en su línea), `municipalities:recompute` (admin).
 - **Mapa** (excepción autorizada por el dueño 2026-10-11 a "no agregar capas"): capa completa de
   municipios y localidades desde `web/public/geo/municipios.json` (1.120, sin 11001) y
-  `localidades.json` (20), generados con `scripts/build-geojson.ts` (mapshaper). Con IPS: estilo de
-  siempre (0,4); de alcance: mismo color a 0,15; fuera de alcance: gris claro #d1d5db discontinuo;
-  sin acceso terrestre: #4A4A4A; pendiente: blanco con borde gris. Leyenda "Con IPS objetivo
-  (visitar)", "De alcance (sin IPS hoy)", "Fuera de alcance", "Sin acceso terrestre". Colores de zona
-  e iconos sin cambios; `/api/geojson` queda solo por compatibilidad.
+  `localidades.json` (20), generados con `scripts/build-geojson.ts` (mapshaper). Estilo actualizado el
+  2026-10-11 (ver "Estética del Mapa"): con IPS 0,55; de alcance: mismo color a 0,22; fuera de alcance:
+  #e5e7eb con borde #9ca3af discontinuo; sin acceso terrestre: #d1d5db con trama de puntos; pendiente:
+  blanco con borde #e5e7eb. Leyenda "Con IPS objetivo (visitar)", "De alcance (sin IPS hoy)", "Fuera de
+  alcance", "Sin acceso terrestre". `/api/geojson` queda solo por compatibilidad.
 - **Anexo de territorio** (`/lines`, panel "Territorio por ejecutivo comercial"): Anexo A = IPS activas
   asignadas a sus zonas (las que hay que visitar); Anexo B = municipios por departamento, "Con IPS"
   (incluye los municipios donde tiene IPS del Anexo A aunque otra zona gane la mayoría) y "Alcance"

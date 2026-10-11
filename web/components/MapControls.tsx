@@ -5,25 +5,10 @@ import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { useVisits } from '@/hooks/useVisits'
 import { zoneDisplayName } from '@/lib/zone-names'
-import type { MapLine, MapMode, TerritoryLegend } from './MapComponent'
 
-// Colores fijos de los municipios sin IPS (capa completa, Fase 2b); MapComponent los usa al pintar
-export const OUT_OF_REACH_COLOR = '#d1d5db'
-export const NO_ROAD_COLOR = '#4A4A4A'
-export const PENDING_FILL_COLOR = '#ffffff'
-export const PENDING_BORDER_COLOR = '#9ca3af'
-
-// Leyenda del modo por línea (colores ya validados en MapComponent)
-export interface LineLegend {
-  lineName: string
-  executives: { id: string; name: string; color: string; zones: number }[]
-  vacantColor: string
-  conflictColor: string
-  vacant: number
-  conflict: number
-  noEquipment: number
-  totalZones: number
-}
+// Referencia estable para "sin visitas": un [] nuevo en cada render dispararía el efecto que avisa
+// al padre (setVisits) en bucle mientras las visitas están apagadas
+const NO_VISITS: any[] = []
 
 interface MapControlsProps {
   mapData: any
@@ -37,37 +22,13 @@ interface MapControlsProps {
   onHospitalSelect?: (hospitalId: string | null) => void
   onMapNavigate?: (lat: number, lng: number, zoom: number) => void
   onShowContractsChange?: (show: boolean) => void
-  viewMode?: 'kams' | 'zones'
-  onViewModeChange?: (mode: 'kams' | 'zones') => void
-  // Mapa por línea
-  lines?: MapLine[]
-  selectedLineCode?: string | null
-  onLineChange?: (code: string) => void
-  canSeeAllLines?: boolean
-  mapMode?: MapMode
-  onMapModeChange?: (mode: MapMode) => void
-  lineLegend?: LineLegend | null
-  // Capa completa de municipios (Fase 2b)
-  territoryLegend?: TerritoryLegend | null
-}
-
-// Muestra de territorio en la leyenda
-const TERRITORY_SWATCH: React.CSSProperties = {
-  display: 'inline-block',
-  width: '30px',
-  height: '12px',
-  flexShrink: 0
-}
-
-// Muestra rayada de "sin equipo" para la leyenda (mismo patrón que los territorios)
-const NO_EQUIPMENT_SWATCH: React.CSSProperties = {
-  display: 'inline-block',
-  width: '30px',
-  height: '12px',
-  border: '1px dashed #333',
-  backgroundColor: 'rgba(107, 114, 128, 0.15)',
-  backgroundImage: 'repeating-linear-gradient(45deg, rgba(107, 114, 128, 0.75) 0 3px, transparent 3px 8px)',
-  flexShrink: 0
+  // 'floating': botón y panel flotante (escritorio). 'embedded': contenido dentro de la hoja inferior (móvil)
+  variant?: 'floating' | 'embedded'
+  // Visitas apagadas por defecto: sin consulta ni mapa de calor hasta activarlas
+  visitsEnabled?: boolean
+  onVisitsEnabledChange?: (enabled: boolean) => void
+  // Tras elegir un resultado de búsqueda (en móvil, la hoja se recoge)
+  onSearchSelect?: () => void
 }
 
 export default function MapControls({
@@ -82,20 +43,14 @@ export default function MapControls({
   onHospitalSelect,
   onMapNavigate,
   onShowContractsChange,
-  viewMode = 'kams',
-  onViewModeChange,
-  lines = [],
-  selectedLineCode = null,
-  onLineChange,
-  canSeeAllLines = false,
-  mapMode = 'line',
-  onMapModeChange,
-  lineLegend = null,
-  territoryLegend = null
+  variant = 'floating',
+  visitsEnabled = false,
+  onVisitsEnabledChange,
+  onSearchSelect
 }: MapControlsProps) {
-  const selectedLine = lines.find(l => l.code === selectedLineCode) ?? null
+  const embedded = variant === 'embedded'
   const [isOpen, setIsOpen] = useState(false)
-  const [activeTab, setActiveTab] = useState<'filters' | 'visits' | 'legend' | 'search'>('filters')
+  const [activeTab, setActiveTab] = useState<'filters' | 'visits' | 'search'>(embedded ? 'visits' : 'filters')
   const [searchTerm, setSearchTerm] = useState('')
   const [searchResults, setSearchResults] = useState<any[]>([])
   const [showContracts, setShowContracts] = useState(false)
@@ -113,53 +68,21 @@ export default function MapControls({
   const [selectedKams, setSelectedKams] = useState<string[]>([]) // Vacío = todos los KAMs
   const [availableKams, setAvailableKams] = useState<{id: string, name: string, color: string}[]>([])
   
-  // Calcular si las visualizaciones deben mostrarse automáticamente
+  // Las visualizaciones solo se muestran con las visitas activadas y filtros válidos
   const hasValidFilters = selectedMonths.length > 0 && selectedKams.length > 0;
-  const showHeatmap = hasValidFilters && (visualizationType === 'heatmap' || visualizationType === 'both');
-  const showMarkers = hasValidFilters && (visualizationType === 'markers' || visualizationType === 'both');
-  
-  // Inicialización del componente
-  useEffect(() => {
-    console.log('MapControls - Inicialización del componente')
-    console.log('- Año inicial: 2025')
-    console.log('- Mes inicial: julio (7)')
-    console.log('- KAMs: Se cargarán todos por defecto')
-  }, [])
-
-  // Debug de estado de filtros
-  useEffect(() => {
-    console.log('MapControls - Estado de filtros:', {
-      año: selectedYear,
-      mesesSeleccionados: selectedMonths,
-      kamsSeleccionados: selectedKams.length,
-      tipoVisita: visitTypeFilter,
-      tipoContacto: contactTypeFilter
-    })
-  }, [selectedMonths, selectedYear, selectedKams, visitTypeFilter, contactTypeFilter])
-  
-  // Debug - log de los parámetros de búsqueda
-  useEffect(() => {
-    console.log('MapControls - Estado actualizado:', {
-      año: selectedYear,
-      meses: selectedMonths,
-      kamsCount: selectedKams.length,
-      kamsIds: selectedKams
-    })
-  }, [selectedYear, selectedKams, selectedMonths])
+  const showHeatmap = visitsEnabled && hasValidFilters && (visualizationType === 'heatmap' || visualizationType === 'both');
+  const showMarkers = visitsEnabled && hasValidFilters && (visualizationType === 'markers' || visualizationType === 'both');
 
   // Construir queryParams basado en el estado actual de TODOS los filtros
   const queryParams = useMemo(() => {
+    // Visitas apagadas: no se consulta nada
+    if (!visitsEnabled) return null
+
     // Verificar que haya meses seleccionados
-    if (selectedMonths.length === 0) {
-      console.log('MapControls - Sin meses seleccionados, NO se hará query')
-      return null
-    }
-    
+    if (selectedMonths.length === 0) return null
+
     // Verificar que haya KAMs seleccionados
-    if (selectedKams.length === 0) {
-      console.log('MapControls - Sin KAMs seleccionados, NO se hará query')
-      return null
-    }
+    if (selectedKams.length === 0) return null
     
     // Construir parámetros
     const params: any = {
@@ -177,33 +100,15 @@ export default function MapControls({
       params.kamIds = selectedKams
     }
     // Si todos los KAMs están seleccionados, no enviar el filtro (mostrar todos)
-    
-    console.log('MapControls - Query params construidos:', {
-      año: params.year,
-      meses: params.months?.join(','),
-      kams: params.kamIds?.length || 'todos',
-      filtros: [params.visitType, params.contactType].filter(Boolean).join(', ') || 'ninguno'
-    })
-    
+
     return params
-  }, [selectedMonths, selectedYear, visitTypeFilter, contactTypeFilter, selectedKams, availableKams.length])
+  }, [visitsEnabled, selectedMonths, selectedYear, visitTypeFilter, contactTypeFilter, selectedKams, availableKams.length])
   
   // Hacer la query solo si hay parámetros válidos
   const { data: visitsData, isLoading, error } = useVisits(queryParams)
   
   // Las visitas son simplemente lo que retorna la query, pero SOLO si hay parámetros válidos
-  const visits = queryParams && Array.isArray(visitsData) ? visitsData : []
-  
-  // Debug del resultado
-  useEffect(() => {
-    console.log('MapControls - Estado de visitas:', {
-      total: visits.length,
-      cargando: isLoading,
-      error: error?.message,
-      hayParametros: !!queryParams,
-      mostrandoHeatmap: showHeatmap
-    })
-  }, [visits.length, isLoading, error, queryParams, showHeatmap])
+  const visits = queryParams && Array.isArray(visitsData) ? visitsData : NO_VISITS
 
   // Cargar KAMs disponibles
   useEffect(() => {
@@ -227,13 +132,10 @@ export default function MapControls({
       }
 
       if (kams) {
-        console.log('MapControls - KAMs cargados:', kams.length)
         setAvailableKams(kams)
-        
+
         // Seleccionar TODOS los KAMs por defecto
-        const allKamIds = kams.map(k => k.id)
-        setSelectedKams(allKamIds)
-        console.log('MapControls - Todos los KAMs seleccionados por defecto:', allKamIds.length)
+        setSelectedKams(kams.map(k => k.id))
       }
     }
     loadKams()
@@ -242,14 +144,8 @@ export default function MapControls({
   // Notificar cambios de visitas al componente padre
   useEffect(() => {
     if (onVisitsChange) {
-      // Si no hay parámetros válidos (no hay meses o KAMs seleccionados), enviar array vacío
-      if (!queryParams) {
-        console.log('MapControls - Limpiando visitas (sin filtros válidos)')
-        onVisitsChange([])
-      } else {
-        console.log('MapControls - Actualizando mapa con', visits.length, 'visitas (con filtros)')
-        onVisitsChange(visits)
-      }
+      // Sin parámetros válidos (visitas apagadas, sin meses o sin Ejecutivos Comerciales): sin visitas
+      onVisitsChange(queryParams ? visits : NO_VISITS)
     }
   }, [visits, onVisitsChange, queryParams])
 
@@ -360,9 +256,523 @@ export default function MapControls({
   }, [showContracts, onShowContractsChange])
 
 
+  const tabs: { id: 'filters' | 'visits' | 'search'; label: string; icon: string }[] = [
+    { id: 'filters', label: 'Filtros', icon: 'M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z' },
+    { id: 'visits', label: 'Visitas', icon: 'M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0zM15 11a3 3 0 11-6 0 3 3 0 016 0z' },
+    { id: 'search', label: 'Buscar', icon: 'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z' }
+  ]
+
+  const tabBar = (
+    <div className="flex gap-1 p-1 bg-gray-100 rounded-xl" role="tablist" aria-label="Controles del mapa">
+      {tabs.map(tab => (
+        <button
+          key={tab.id}
+          type="button"
+          role="tab"
+          aria-selected={activeTab === tab.id}
+          onClick={() => setActiveTab(tab.id)}
+          className={`flex-1 inline-flex items-center justify-center gap-1.5 px-2 rounded-lg text-sm font-medium transition-all ${embedded ? 'min-h-[44px]' : 'py-2'} ${
+            activeTab === tab.id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+          }`}
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={tab.icon}></path>
+          </svg>
+          {tab.label}
+        </button>
+      ))}
+    </div>
+  )
+
+  const panelBody = (
+    <div className={embedded ? 'pt-3' : 'p-4'}>
+      {/* Tab de Filtros */}
+      {activeTab === 'filters' && (
+        <div>
+          <h3 className="text-sm font-semibold mb-3">Filtros del Mapa</h3>
+          
+          {/* Filtro de tipo de hospital */}
+          <div className="mb-3">
+            <label className="text-xs font-semibold text-gray-700 block mb-2">Tipo de Hospital</label>
+            <select 
+              value={hospitalTypeFilter}
+              onChange={(e) => setHospitalTypeFilter(e.target.value)}
+              className={`w-full px-3 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent transition-all bg-white ${embedded ? 'h-11' : 'py-2'}`}
+            >
+              <option value="all">Todos los hospitales</option>
+              <option value="Publico">Públicos</option>
+              <option value="Privada">Privados</option>
+              <option value="Mixta">Mixtos</option>
+              <option value="sin_tipo">Sin clasificar</option>
+            </select>
+            <div className="mt-2 px-3 py-2 bg-gray-100 rounded-lg text-xs text-gray-700 font-medium">
+              <svg className="w-3 h-3 inline mr-1" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd"></path>
+              </svg>
+              Mostrando {filteredAssignments.length + filteredUnassignedHospitals.length} hospitales
+            </div>
+          </div>
+
+          {/* Toggle de Solo Hospitales con Contratos */}
+          <div className="mb-3 pt-3 border-t">
+            <div className={`flex items-center justify-between ${embedded ? 'min-h-[44px]' : ''}`}>
+              <label className="text-xs font-semibold text-gray-700">Solo con Contratos</label>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={showContracts}
+                aria-label="Solo con contratos"
+                onClick={() => setShowContracts(!showContracts)}
+                className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors ${
+                  showContracts ? 'bg-green-500' : 'bg-gray-300'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    showContracts ? 'translate-x-5' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+            {showContracts && (
+              <div className="mt-2 px-3 py-2 bg-green-50 rounded-lg text-xs text-green-700">
+                <svg className="w-3 h-3 inline mr-1" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M8.433 7.418c.155-.103.346-.196.567-.267v1.698a2.305 2.305 0 01-.567-.267C8.07 8.34 8 8.114 8 8c0-.114.07-.34.433-.582zM11 12.849v-1.698c.22.071.412.164.567.267.364.243.433.468.433.582 0 .114-.07.34-.433.582a2.305 2.305 0 01-.567.267z"/>
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.092a4.535 4.535 0 00-1.676.662C6.602 6.234 6 7.009 6 8c0 .99.602 1.765 1.324 2.246.48.32 1.054.545 1.676.662v1.941c-.391-.127-.68-.317-.843-.504a1 1 0 10-1.51 1.31c.562.649 1.413 1.076 2.353 1.253V15a1 1 0 102 0v-.092a4.535 4.535 0 001.676-.662C13.398 13.766 14 12.991 14 12c0-.99-.602-1.765-1.324-2.246A4.535 4.535 0 0011 9.092V7.151c.391.127.68.317.843.504a1 1 0 101.511-1.31c-.563-.649-1.413-1.076-2.354-1.253V5z" clipRule="evenodd"/>
+                </svg>
+                Mostrando solo hospitales con contratos activos
+              </div>
+            )}
+          </div>
+
+          {/* Estadísticas por tipo */}
+          <div className="text-xs space-y-1 pt-2 border-t">
+            <div className="flex justify-between">
+              <span>Públicos:</span>
+              <span className="font-medium">{mapData.hospitals.filter((h: any) => h.type === 'Publico').length}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Privados:</span>
+              <span className="font-medium">{mapData.hospitals.filter((h: any) => h.type === 'Privada').length}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Mixtos:</span>
+              <span className="font-medium">{mapData.hospitals.filter((h: any) => h.type === 'Mixta').length}</span>
+            </div>
+            <div className="flex justify-between text-gray-400">
+              <span>Sin clasificar:</span>
+              <span className="font-medium">{mapData.hospitals.filter((h: any) => !h.type).length}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tab de Visitas */}
+      {activeTab === 'visits' && (
+        <div>
+          <h3 className="text-sm font-semibold mb-3">Visualización de Visitas Médicas</h3>
+
+          {/* Visitas apagadas por defecto: sin consulta ni capa hasta activarlas */}
+          <button
+            type="button"
+            role="switch"
+            aria-checked={visitsEnabled}
+            onClick={() => onVisitsEnabledChange?.(!visitsEnabled)}
+            className={`mb-4 w-full flex items-center justify-between gap-3 rounded-lg border border-gray-200 px-3 text-left hover:bg-gray-50 ${embedded ? 'min-h-[52px] py-2' : 'py-2'}`}
+          >
+            <span className="min-w-0">
+              <span className="block text-sm font-medium text-gray-900">Mostrar visitas en el mapa</span>
+              <span className="block text-xs text-gray-500">Los marcadores individuales aparecen desde zoom 10</span>
+            </span>
+            <span
+              aria-hidden="true"
+              className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors ${visitsEnabled ? 'bg-gray-900' : 'bg-gray-300'}`}
+            >
+              <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${visitsEnabled ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
+            </span>
+          </button>
+
+          {/* Tipo de visualización - Solo si hay filtros válidos */}
+          {hasValidFilters ? (
+            <div className="mb-4">
+              <label className="text-xs font-medium text-gray-700 mb-2 block">Tipo de visualización</label>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  onClick={() => setVisualizationType('heatmap')}
+                  className={`px-3 py-2 text-xs rounded-lg border transition-all ${
+                    visualizationType === 'heatmap'
+                      ? 'bg-blue-500 text-white border-blue-500 shadow-sm'
+                      : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  <svg className="w-4 h-4 mx-auto mb-1" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M5 2a2 2 0 00-2 2v14l3.5-2 3.5 2 3.5-2 3.5 2V4a2 2 0 00-2-2H5zm2.5 3a1.5 1.5 0 100 3 1.5 1.5 0 000-3zm6.207.293a1 1 0 00-1.414 0l-6 6a1 1 0 101.414 1.414l6-6a1 1 0 000-1.414zM12.5 10a1.5 1.5 0 100 3 1.5 1.5 0 000-3z" clipRule="evenodd" />
+                  </svg>
+                  Mapa de Calor
+                </button>
+                <button
+                  onClick={() => setVisualizationType('markers')}
+                  className={`px-3 py-2 text-xs rounded-lg border transition-all ${
+                    visualizationType === 'markers'
+                      ? 'bg-blue-500 text-white border-blue-500 shadow-sm'
+                      : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  <svg className="w-4 h-4 mx-auto mb-1" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+                  </svg>
+                  Marcadores
+                </button>
+                <button
+                  onClick={() => setVisualizationType('both')}
+                  className={`px-3 py-2 text-xs rounded-lg border transition-all ${
+                    visualizationType === 'both'
+                      ? 'bg-blue-500 text-white border-blue-500 shadow-sm'
+                      : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  <svg className="w-4 h-4 mx-auto mb-1" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M10 3.5a1.5 1.5 0 013 0V4a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-.5a1.5 1.5 0 000 3h.5a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-.5a1.5 1.5 0 00-3 0v.5a1 1 0 01-1 1H6a1 1 0 01-1-1v-3a1 1 0 00-1-1h-.5a1.5 1.5 0 010-3H4a1 1 0 001-1V6a1 1 0 011-1h3a1 1 0 001-1v-.5z" />
+                  </svg>
+                  Ambos
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+              <div className="flex items-start gap-2">
+                <svg className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+                <div className="text-xs">
+                  <p className="font-semibold text-amber-800 mb-1">Seleccione filtros para visualizar</p>
+                  <p className="text-amber-700">
+                    {selectedMonths.length === 0 && selectedKams.length === 0
+                      ? 'Debe seleccionar al menos un mes y un Ejecutivo Comercial'
+                      : selectedMonths.length === 0
+                      ? 'Debe seleccionar al menos un mes'
+                      : 'Debe seleccionar al menos un Ejecutivo Comercial'
+                    }
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Filtros de fecha mejorados */}
+          <div className="mb-4 border-t pt-4">
+            <div className="flex items-center justify-between mb-3">
+              <label className="text-xs font-semibold text-gray-700">Período de Consulta</label>
+              <select
+                value={selectedYear}
+                onChange={(e) => setSelectedYear(Number(e.target.value))}
+                className="px-3 py-1 text-xs font-medium border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {[2023, 2024, 2025].map(year => (
+                  <option key={year} value={year}>{year}</option>
+                ))}
+              </select>
+            </div>
+            
+            <div className="grid grid-cols-4 gap-1.5">
+              {[...Array(12)].map((_, i) => {
+                const monthDate = new Date(2000, i, 1);
+                const monthShort = format(monthDate, 'MMM', { locale: es });
+                const monthFull = format(monthDate, 'MMMM', { locale: es });
+                const isSelected = selectedMonths.includes(i + 1);
+                
+                return (
+                  <button
+                    key={i + 1}
+                    onClick={() => {
+                      if (isSelected) {
+                        setSelectedMonths(selectedMonths.filter(m => m !== i + 1))
+                      } else {
+                        setSelectedMonths([...selectedMonths, i + 1])
+                      }
+                    }}
+                    className={`px-1 text-xs font-medium rounded-lg transition-all capitalize ${embedded ? 'min-h-[44px]' : 'py-2'} ${
+                      isSelected
+                        ? 'bg-blue-500 text-white shadow-sm'
+                        : 'bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-200'
+                    }`}
+                    title={monthFull}
+                  >
+                    {monthShort}
+                  </button>
+                )
+              })}
+            </div>
+            
+            {selectedMonths.length > 0 && (
+              <div className="mt-2 flex items-center justify-between text-xs">
+                <span className="text-gray-600">
+                  {selectedMonths.length} {selectedMonths.length === 1 ? 'mes' : 'meses'} seleccionado{selectedMonths.length === 1 ? '' : 's'}
+                </span>
+                <button
+                  onClick={() => setSelectedMonths([])}
+                  className="text-gray-500 hover:text-red-600 transition-colors"
+                >
+                  Limpiar
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Filtro de Ejecutivos Comerciales (por zona) */}
+          <div className="mb-4 border-t pt-4">
+            <div className="flex items-center justify-between mb-3">
+              <label className="text-xs font-semibold text-gray-700">Ejecutivos Comerciales</label>
+              <button
+                onClick={() => {
+                  if (selectedKams.length === availableKams.length) {
+                    setSelectedKams([])
+                  } else {
+                    setSelectedKams(availableKams.map(k => k.id))
+                  }
+                }}
+                className="text-xs font-medium text-blue-600 hover:text-blue-800 transition-colors"
+              >
+                {selectedKams.length === availableKams.length ? 'Quitar todos' : 'Seleccionar todos'}
+              </button>
+            </div>
+            
+            <div className={`${embedded ? 'max-h-56' : 'max-h-32'} overflow-y-auto border border-gray-200 rounded-lg p-2`}>
+              <div className="grid grid-cols-2 gap-1">
+                {availableKams.map(kam => {
+                  const isSelected = selectedKams.includes(kam.id);
+                  // Solo colores #RRGGBB válidos (el valor viene de la BD y es editable)
+                  const kamColor = /^#[0-9a-fA-F]{6}$/.test(kam.color || '') ? kam.color : '#888888'
+                  return (
+                    <button
+                      key={kam.id}
+                      onClick={() => {
+                        if (isSelected) {
+                          setSelectedKams(selectedKams.filter(k => k !== kam.id))
+                        } else {
+                          setSelectedKams([...selectedKams, kam.id])
+                        }
+                      }}
+                      className={`flex items-center gap-1.5 px-2 text-xs rounded-md transition-all ${embedded ? 'min-h-[44px]' : 'py-1.5'} ${
+                        isSelected
+                          ? 'bg-blue-50 text-blue-700 font-medium'
+                          : 'hover:bg-gray-50 text-gray-600'
+                      }`}
+                    >
+                      <span 
+                        className="w-3 h-3 rounded-full border-2 flex-shrink-0" 
+                        style={{ 
+                          backgroundColor: isSelected ? kamColor : 'transparent',
+                          borderColor: kamColor
+                        }}
+                      />
+                      <span className="truncate">{zoneDisplayName(kam.name)}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+            
+            {selectedKams.length > 0 && (
+              <div className="mt-2 flex items-center justify-between text-xs">
+                <span className="text-gray-600">
+                  {selectedKams.length} de {availableKams.length} Ejecutivos Comerciales
+                </span>
+                {selectedKams.length !== availableKams.length && (
+                  <button
+                    onClick={() => setSelectedKams([])}
+                    className="text-gray-500 hover:text-red-600 transition-colors"
+                  >
+                    Limpiar selección
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Estadísticas de visitas (solo con las visitas activadas) */}
+          {visitsEnabled && hasValidFilters && (
+            <div className="mt-4 pt-4 border-t">
+              <h4 className="text-xs font-semibold text-gray-700 mb-3">Resumen de Visitas</h4>
+              {isLoading ? (
+                <div className="flex items-center justify-center py-4">
+                  <svg className="animate-spin h-5 w-5 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span className="ml-2 text-xs text-gray-500">Cargando visitas...</span>
+                </div>
+              ) : error ? (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-xs text-red-700">Error al cargar: {error.message}</p>
+                </div>
+              ) : visits && visits.length > 0 ? (
+                <div className="space-y-3">
+                  {/* Contador principal */}
+                  <div className="bg-gradient-to-r from-blue-500 to-blue-600 rounded-lg p-3 text-white">
+                    <div className="text-2xl font-bold">{visits.length}</div>
+                    <div className="text-xs opacity-90">Visitas totales</div>
+                  </div>
+                  
+                  {/* Estadísticas detalladas */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-2">
+                      <div className="text-lg font-semibold text-green-700">
+                        {visits.filter(v => v.visit_type === 'Visita efectiva').length}
+                      </div>
+                      <div className="text-xs text-green-600">Efectivas</div>
+                    </div>
+                    <div className="bg-purple-50 border border-purple-200 rounded-lg p-2">
+                      <div className="text-lg font-semibold text-purple-700">
+                        {visits.filter(v => v.contact_type === 'Visita presencial').length}
+                      </div>
+                      <div className="text-xs text-purple-600">Presenciales</div>
+                    </div>
+                  </div>
+                  
+                  {/* Porcentaje de efectividad */}
+                  <div className="bg-gray-50 rounded-lg p-2">
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-xs text-gray-600">Efectividad</span>
+                      <span className="text-xs font-semibold text-gray-900">
+                        {Math.round((visits.filter(v => v.visit_type === 'Visita efectiva').length / visits.length) * 100)}%
+                      </span>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-1.5">
+                      <div 
+                        className="bg-green-500 h-1.5 rounded-full transition-all"
+                        style={{ width: `${(visits.filter(v => v.visit_type === 'Visita efectiva').length / visits.length) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="py-4 text-center">
+                  <svg className="w-12 h-12 mx-auto text-gray-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                  </svg>
+                  <p className="text-xs text-gray-500">No hay visitas en el período seleccionado</p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tab de Búsqueda */}
+      {activeTab === 'search' && (
+        <div>
+          <h3 className="text-sm font-semibold mb-3">Buscar en el Mapa</h3>
+          
+          <div className="mb-3">
+            <input
+              type="text"
+              placeholder="Buscar hospital, municipio o departamento..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className={`w-full px-3 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent transition-all bg-white ${embedded ? 'h-11' : 'py-2'}`}
+            />
+          </div>
+
+          {searchResults.length > 0 && (
+            <div className="space-y-2 max-h-96 overflow-y-auto">
+              {searchResults.map((result, index) => (
+                <button
+                  key={index}
+                  onClick={() => {
+                    // Centrar mapa en el resultado
+                    const zoomLevel = result.type === 'hospital' ? 16 : 
+                                    result.type === 'municipality' ? 13 : 
+                                    9 // departamento
+                    
+                    // Navegar al punto usando la nueva función
+                    if (onMapNavigate) {
+                      onMapNavigate(result.lat, result.lng, zoomLevel)
+                    }
+                    
+                    // Si es un hospital, abrir su tarjeta en el mapa
+                    if (result.type === 'hospital' && onHospitalSelect) {
+                      onHospitalSelect(result.id)
+                    }
+
+                    setIsOpen(false)
+                    onSearchSelect?.()
+                  }}
+                  className="w-full text-left px-3 py-2 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                      result.type === 'hospital' ? 'bg-gray-900' : 
+                      result.type === 'municipality' ? 'bg-gray-600' : 
+                      'bg-gray-400'
+                    }`}>
+                      <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        {result.type === 'hospital' ? (
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
+                        ) : result.type === 'municipality' ? (
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path>
+                        ) : (
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        )}
+                      </svg>
+                    </div>
+                    <div className="flex-1">
+                      <div className="text-sm font-medium text-gray-900">{result.name}</div>
+                      {result.type === 'hospital' && (
+                        <>
+                          <div className="text-xs text-gray-500">Hospital - Código: {result.code}</div>
+                          {result.municipality && (
+                            <div className="text-xs text-gray-400">{result.municipality}</div>
+                          )}
+                        </>
+                      )}
+                      {result.type === 'municipality' && (
+                        <>
+                          <div className="text-xs text-gray-500">Municipio - {result.hospitalCount} IPS</div>
+                          {result.department && (
+                            <div className="text-xs text-gray-400">{result.department}</div>
+                          )}
+                        </>
+                      )}
+                      {result.type === 'department' && (
+                        <div className="text-xs text-gray-500">Departamento - {result.hospitalCount} IPS</div>
+                      )}
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {searchTerm.length > 0 && searchTerm.length <= 2 && (
+            <div className="text-xs text-gray-500 mt-2">
+              Escriba al menos 3 caracteres para buscar
+            </div>
+          )}
+
+          {searchTerm.length > 2 && searchResults.length === 0 && (
+            <div className="text-xs text-gray-500 mt-2">
+              No se encontraron resultados
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+
+  // Móvil: el contenido va dentro de la hoja inferior (sin botón ni panel flotante)
+  if (embedded) {
+    return (
+      <div>
+        {tabBar}
+        {panelBody}
+      </div>
+    )
+  }
+
   return (
     <>
-      {/* Botón moderno para abrir/cerrar controles */}
+      {/* Botón para abrir/cerrar controles (escritorio) */}
       <button
         onClick={(e) => {
           e.preventDefault()
@@ -371,25 +781,21 @@ export default function MapControls({
         }}
         className="fixed bottom-4 right-4 z-[9996] bg-white rounded-xl shadow-lg px-5 py-3 hover:shadow-xl transform hover:-translate-y-0.5 transition-all duration-200 flex items-center gap-2 text-sm font-medium border border-gray-100"
         type="button"
+        aria-expanded={isOpen}
       >
         {isOpen ? (
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
           </svg>
         ) : (
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"></path>
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"></path>
           </svg>
         )}
-        {selectedLine && !isOpen && (
-          <span className="max-w-[9rem] truncate text-gray-900">
-            {mapMode === 'zones' ? 'Vista por zonas' : selectedLine.name}
-          </span>
-        )}
-        <span className="hidden sm:inline">{isOpen ? 'Cerrar' : 'Controles'}</span>
+        <span>{isOpen ? 'Cerrar' : 'Filtros y visitas'}</span>
       </button>
 
-      {/* Panel de controles moderno */}
+      {/* Panel de controles */}
       {isOpen && (
         <div className="fixed bottom-16 right-4 z-[9995] bg-white rounded-2xl shadow-2xl border border-gray-100" style={{ width: 'min(360px, calc(100vw - 2rem))', maxHeight: 'calc(100vh - 120px)', overflowY: 'auto' }}>
           {/* Botón de cerrar dentro del panel */}
@@ -397,706 +803,15 @@ export default function MapControls({
             onClick={() => setIsOpen(false)}
             className="absolute top-3 right-3 z-10 p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
             title="Cerrar panel"
+            aria-label="Cerrar panel"
+            type="button"
           >
-            <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
             </svg>
           </button>
-          
-          {/* Línea de negocio y vista (por línea / por zonas) */}
-          {lines.length > 0 && (
-            <div className="px-4 pt-4 pb-3 pr-12 border-b border-gray-100">
-              <label htmlFor="map-line-select" className="text-xs font-semibold text-gray-700 block mb-1.5">
-                Línea de negocio
-              </label>
-              <select
-                id="map-line-select"
-                value={selectedLineCode ?? ''}
-                onChange={(e) => onLineChange?.(e.target.value)}
-                disabled={lines.length < 2}
-                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent bg-white disabled:bg-gray-50 disabled:text-gray-700"
-              >
-                {lines.map(line => (
-                  <option key={line.id} value={line.code}>{line.name}</option>
-                ))}
-              </select>
-              {canSeeAllLines && onMapModeChange && (
-                <div className="mt-2 grid grid-cols-2 gap-1 p-1 bg-gray-100 rounded-lg" role="group" aria-label="Vista del mapa">
-                  <button
-                    type="button"
-                    onClick={() => onMapModeChange('line')}
-                    aria-pressed={mapMode === 'line'}
-                    className={`px-2 py-1.5 text-xs font-medium rounded-md transition-all ${
-                      mapMode === 'line' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
-                    }`}
-                  >
-                    Por línea
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onMapModeChange('zones')}
-                    aria-pressed={mapMode === 'zones'}
-                    className={`px-2 py-1.5 text-xs font-medium rounded-md transition-all ${
-                      mapMode === 'zones' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
-                    }`}
-                  >
-                    Zonas
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Tabs modernos */}
-          <div className={`flex p-2 bg-gray-50 ${lines.length > 0 ? "" : "rounded-t-2xl"}`}>
-            <button
-              onClick={() => setActiveTab('filters')}
-              className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
-                activeTab === 'filters' 
-                  ? 'bg-white text-gray-900 shadow-md' 
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              <svg className="w-4 h-4 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"></path>
-              </svg>
-              Filtros
-            </button>
-            <button
-              onClick={() => setActiveTab('visits')}
-              className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
-                activeTab === 'visits' 
-                  ? 'bg-white text-gray-900 shadow-md' 
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              <svg className="w-4 h-4 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path>
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path>
-              </svg>
-              Visitas
-            </button>
-            <button
-              onClick={() => setActiveTab('search')}
-              className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
-                activeTab === 'search' 
-                  ? 'bg-white text-gray-900 shadow-md' 
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              <svg className="w-4 h-4 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
-              </svg>
-              Buscar
-            </button>
-            <button
-              onClick={() => setActiveTab('legend')}
-              className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
-                activeTab === 'legend' 
-                  ? 'bg-white text-gray-900 shadow-md' 
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              <svg className="w-4 h-4 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-              </svg>
-              Leyenda
-            </button>
-          </div>
-
-          <div className="p-4">
-            {/* Tab de Filtros */}
-            {activeTab === 'filters' && (
-              <div>
-                <h3 className="text-sm font-semibold mb-3">Filtros del Mapa</h3>
-                
-                {/* Filtro de tipo de hospital */}
-                <div className="mb-3">
-                  <label className="text-xs font-semibold text-gray-700 block mb-2">Tipo de Hospital</label>
-                  <select 
-                    value={hospitalTypeFilter}
-                    onChange={(e) => setHospitalTypeFilter(e.target.value)}
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent transition-all bg-white"
-                  >
-                    <option value="all">Todos los hospitales</option>
-                    <option value="Publico">Públicos</option>
-                    <option value="Privada">Privados</option>
-                    <option value="Mixta">Mixtos</option>
-                    <option value="sin_tipo">Sin clasificar</option>
-                  </select>
-                  <div className="mt-2 px-3 py-2 bg-gray-100 rounded-lg text-xs text-gray-700 font-medium">
-                    <svg className="w-3 h-3 inline mr-1" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd"></path>
-                    </svg>
-                    Mostrando {filteredAssignments.length + filteredUnassignedHospitals.length} hospitales
-                  </div>
-                </div>
-
-                {/* Toggle de Solo Hospitales con Contratos */}
-                <div className="mb-3 pt-3 border-t">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-semibold text-gray-700">Solo con Contratos</label>
-                    <button
-                      onClick={() => setShowContracts(!showContracts)}
-                      className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors ${
-                        showContracts ? 'bg-green-500' : 'bg-gray-300'
-                      }`}
-                    >
-                      <span
-                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                          showContracts ? 'translate-x-5' : 'translate-x-1'
-                        }`}
-                      />
-                    </button>
-                  </div>
-                  {showContracts && (
-                    <div className="mt-2 px-3 py-2 bg-green-50 rounded-lg text-xs text-green-700">
-                      <svg className="w-3 h-3 inline mr-1" fill="currentColor" viewBox="0 0 20 20">
-                        <path d="M8.433 7.418c.155-.103.346-.196.567-.267v1.698a2.305 2.305 0 01-.567-.267C8.07 8.34 8 8.114 8 8c0-.114.07-.34.433-.582zM11 12.849v-1.698c.22.071.412.164.567.267.364.243.433.468.433.582 0 .114-.07.34-.433.582a2.305 2.305 0 01-.567.267z"/>
-                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.092a4.535 4.535 0 00-1.676.662C6.602 6.234 6 7.009 6 8c0 .99.602 1.765 1.324 2.246.48.32 1.054.545 1.676.662v1.941c-.391-.127-.68-.317-.843-.504a1 1 0 10-1.51 1.31c.562.649 1.413 1.076 2.353 1.253V15a1 1 0 102 0v-.092a4.535 4.535 0 001.676-.662C13.398 13.766 14 12.991 14 12c0-.99-.602-1.765-1.324-2.246A4.535 4.535 0 0011 9.092V7.151c.391.127.68.317.843.504a1 1 0 101.511-1.31c-.563-.649-1.413-1.076-2.354-1.253V5z" clipRule="evenodd"/>
-                      </svg>
-                      Mostrando solo hospitales con contratos activos
-                    </div>
-                  )}
-                </div>
-
-                {/* Estadísticas por tipo */}
-                <div className="text-xs space-y-1 pt-2 border-t">
-                  <div className="flex justify-between">
-                    <span>Públicos:</span>
-                    <span className="font-medium">{mapData.hospitals.filter((h: any) => h.type === 'Publico').length}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Privados:</span>
-                    <span className="font-medium">{mapData.hospitals.filter((h: any) => h.type === 'Privada').length}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Mixtos:</span>
-                    <span className="font-medium">{mapData.hospitals.filter((h: any) => h.type === 'Mixta').length}</span>
-                  </div>
-                  <div className="flex justify-between text-gray-400">
-                    <span>Sin clasificar:</span>
-                    <span className="font-medium">{mapData.hospitals.filter((h: any) => !h.type).length}</span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Tab de Visitas */}
-            {activeTab === 'visits' && (
-              <div>
-                <h3 className="text-sm font-semibold mb-3">Visualización de Visitas Médicas</h3>
-                
-                {/* Tipo de visualización - Solo si hay filtros válidos */}
-                {hasValidFilters ? (
-                  <div className="mb-4">
-                    <label className="text-xs font-medium text-gray-700 mb-2 block">Tipo de visualización</label>
-                    <div className="grid grid-cols-3 gap-2">
-                      <button
-                        onClick={() => setVisualizationType('heatmap')}
-                        className={`px-3 py-2 text-xs rounded-lg border transition-all ${
-                          visualizationType === 'heatmap'
-                            ? 'bg-blue-500 text-white border-blue-500 shadow-sm'
-                            : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                        }`}
-                      >
-                        <svg className="w-4 h-4 mx-auto mb-1" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M5 2a2 2 0 00-2 2v14l3.5-2 3.5 2 3.5-2 3.5 2V4a2 2 0 00-2-2H5zm2.5 3a1.5 1.5 0 100 3 1.5 1.5 0 000-3zm6.207.293a1 1 0 00-1.414 0l-6 6a1 1 0 101.414 1.414l6-6a1 1 0 000-1.414zM12.5 10a1.5 1.5 0 100 3 1.5 1.5 0 000-3z" clipRule="evenodd" />
-                        </svg>
-                        Mapa de Calor
-                      </button>
-                      <button
-                        onClick={() => setVisualizationType('markers')}
-                        className={`px-3 py-2 text-xs rounded-lg border transition-all ${
-                          visualizationType === 'markers'
-                            ? 'bg-blue-500 text-white border-blue-500 shadow-sm'
-                            : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                        }`}
-                      >
-                        <svg className="w-4 h-4 mx-auto mb-1" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
-                        </svg>
-                        Marcadores
-                      </button>
-                      <button
-                        onClick={() => setVisualizationType('both')}
-                        className={`px-3 py-2 text-xs rounded-lg border transition-all ${
-                          visualizationType === 'both'
-                            ? 'bg-blue-500 text-white border-blue-500 shadow-sm'
-                            : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                        }`}
-                      >
-                        <svg className="w-4 h-4 mx-auto mb-1" fill="currentColor" viewBox="0 0 20 20">
-                          <path d="M10 3.5a1.5 1.5 0 013 0V4a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-.5a1.5 1.5 0 000 3h.5a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-.5a1.5 1.5 0 00-3 0v.5a1 1 0 01-1 1H6a1 1 0 01-1-1v-3a1 1 0 00-1-1h-.5a1.5 1.5 0 010-3H4a1 1 0 001-1V6a1 1 0 011-1h3a1 1 0 001-1v-.5z" />
-                        </svg>
-                        Ambos
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                    <div className="flex items-start gap-2">
-                      <svg className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                      </svg>
-                      <div className="text-xs">
-                        <p className="font-semibold text-amber-800 mb-1">Seleccione filtros para visualizar</p>
-                        <p className="text-amber-700">
-                          {selectedMonths.length === 0 && selectedKams.length === 0
-                            ? 'Debe seleccionar al menos un mes y un Ejecutivo Comercial'
-                            : selectedMonths.length === 0
-                            ? 'Debe seleccionar al menos un mes'
-                            : 'Debe seleccionar al menos un Ejecutivo Comercial'
-                          }
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Filtros de fecha mejorados */}
-                <div className="mb-4 border-t pt-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <label className="text-xs font-semibold text-gray-700">Período de Consulta</label>
-                    <select
-                      value={selectedYear}
-                      onChange={(e) => setSelectedYear(Number(e.target.value))}
-                      className="px-3 py-1 text-xs font-medium border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      {[2023, 2024, 2025].map(year => (
-                        <option key={year} value={year}>{year}</option>
-                      ))}
-                    </select>
-                  </div>
-                  
-                  <div className="grid grid-cols-4 gap-1.5">
-                    {[...Array(12)].map((_, i) => {
-                      const monthDate = new Date(2000, i, 1);
-                      const monthShort = format(monthDate, 'MMM', { locale: es });
-                      const monthFull = format(monthDate, 'MMMM', { locale: es });
-                      const isSelected = selectedMonths.includes(i + 1);
-                      
-                      return (
-                        <button
-                          key={i + 1}
-                          onClick={() => {
-                            if (isSelected) {
-                              setSelectedMonths(selectedMonths.filter(m => m !== i + 1))
-                            } else {
-                              setSelectedMonths([...selectedMonths, i + 1])
-                            }
-                          }}
-                          className={`py-2 px-1 text-xs font-medium rounded-lg transition-all capitalize ${
-                            isSelected
-                              ? 'bg-blue-500 text-white shadow-sm'
-                              : 'bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-200'
-                          }`}
-                          title={monthFull}
-                        >
-                          {monthShort}
-                        </button>
-                      )
-                    })}
-                  </div>
-                  
-                  {selectedMonths.length > 0 && (
-                    <div className="mt-2 flex items-center justify-between text-xs">
-                      <span className="text-gray-600">
-                        {selectedMonths.length} {selectedMonths.length === 1 ? 'mes' : 'meses'} seleccionado{selectedMonths.length === 1 ? '' : 's'}
-                      </span>
-                      <button
-                        onClick={() => setSelectedMonths([])}
-                        className="text-gray-500 hover:text-red-600 transition-colors"
-                      >
-                        Limpiar
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* Filtro de Ejecutivos Comerciales (por zona) */}
-                <div className="mb-4 border-t pt-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <label className="text-xs font-semibold text-gray-700">Ejecutivos Comerciales</label>
-                    <button
-                      onClick={() => {
-                        if (selectedKams.length === availableKams.length) {
-                          setSelectedKams([])
-                        } else {
-                          setSelectedKams(availableKams.map(k => k.id))
-                        }
-                      }}
-                      className="text-xs font-medium text-blue-600 hover:text-blue-800 transition-colors"
-                    >
-                      {selectedKams.length === availableKams.length ? 'Quitar todos' : 'Seleccionar todos'}
-                    </button>
-                  </div>
-                  
-                  <div className="max-h-32 overflow-y-auto border border-gray-200 rounded-lg p-2">
-                    <div className="grid grid-cols-2 gap-1">
-                      {availableKams.map(kam => {
-                        const isSelected = selectedKams.includes(kam.id);
-                        // Solo colores #RRGGBB válidos (el valor viene de la BD y es editable)
-                        const kamColor = /^#[0-9a-fA-F]{6}$/.test(kam.color || '') ? kam.color : '#888888'
-                        return (
-                          <button
-                            key={kam.id}
-                            onClick={() => {
-                              if (isSelected) {
-                                setSelectedKams(selectedKams.filter(k => k !== kam.id))
-                              } else {
-                                setSelectedKams([...selectedKams, kam.id])
-                              }
-                            }}
-                            className={`flex items-center gap-1.5 px-2 py-1.5 text-xs rounded-md transition-all ${
-                              isSelected
-                                ? 'bg-blue-50 text-blue-700 font-medium'
-                                : 'hover:bg-gray-50 text-gray-600'
-                            }`}
-                          >
-                            <span 
-                              className="w-3 h-3 rounded-full border-2 flex-shrink-0" 
-                              style={{ 
-                                backgroundColor: isSelected ? kamColor : 'transparent',
-                                borderColor: kamColor
-                              }}
-                            />
-                            <span className="truncate">{zoneDisplayName(kam.name)}</span>
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-                  
-                  {selectedKams.length > 0 && (
-                    <div className="mt-2 flex items-center justify-between text-xs">
-                      <span className="text-gray-600">
-                        {selectedKams.length} de {availableKams.length} Ejecutivos Comerciales
-                      </span>
-                      {selectedKams.length !== availableKams.length && (
-                        <button
-                          onClick={() => setSelectedKams([])}
-                          className="text-gray-500 hover:text-red-600 transition-colors"
-                        >
-                          Limpiar selección
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Estadísticas de visitas mejoradas */}
-                {hasValidFilters && (
-                  <div className="mt-4 pt-4 border-t">
-                    <h4 className="text-xs font-semibold text-gray-700 mb-3">Resumen de Visitas</h4>
-                    {isLoading ? (
-                      <div className="flex items-center justify-center py-4">
-                        <svg className="animate-spin h-5 w-5 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        <span className="ml-2 text-xs text-gray-500">Cargando visitas...</span>
-                      </div>
-                    ) : error ? (
-                      <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-                        <p className="text-xs text-red-700">Error al cargar: {error.message}</p>
-                      </div>
-                    ) : visits && visits.length > 0 ? (
-                      <div className="space-y-3">
-                        {/* Contador principal */}
-                        <div className="bg-gradient-to-r from-blue-500 to-blue-600 rounded-lg p-3 text-white">
-                          <div className="text-2xl font-bold">{visits.length}</div>
-                          <div className="text-xs opacity-90">Visitas totales</div>
-                        </div>
-                        
-                        {/* Estadísticas detalladas */}
-                        <div className="grid grid-cols-2 gap-2">
-                          <div className="bg-green-50 border border-green-200 rounded-lg p-2">
-                            <div className="text-lg font-semibold text-green-700">
-                              {visits.filter(v => v.visit_type === 'Visita efectiva').length}
-                            </div>
-                            <div className="text-xs text-green-600">Efectivas</div>
-                          </div>
-                          <div className="bg-purple-50 border border-purple-200 rounded-lg p-2">
-                            <div className="text-lg font-semibold text-purple-700">
-                              {visits.filter(v => v.contact_type === 'Visita presencial').length}
-                            </div>
-                            <div className="text-xs text-purple-600">Presenciales</div>
-                          </div>
-                        </div>
-                        
-                        {/* Porcentaje de efectividad */}
-                        <div className="bg-gray-50 rounded-lg p-2">
-                          <div className="flex justify-between items-center mb-1">
-                            <span className="text-xs text-gray-600">Efectividad</span>
-                            <span className="text-xs font-semibold text-gray-900">
-                              {Math.round((visits.filter(v => v.visit_type === 'Visita efectiva').length / visits.length) * 100)}%
-                            </span>
-                          </div>
-                          <div className="w-full bg-gray-200 rounded-full h-1.5">
-                            <div 
-                              className="bg-green-500 h-1.5 rounded-full transition-all"
-                              style={{ width: `${(visits.filter(v => v.visit_type === 'Visita efectiva').length / visits.length) * 100}%` }}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="py-4 text-center">
-                        <svg className="w-12 h-12 mx-auto text-gray-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                        </svg>
-                        <p className="text-xs text-gray-500">No hay visitas en el período seleccionado</p>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Tab de Leyenda */}
-            {activeTab === 'legend' && (
-              <div>
-                {lineLegend && (
-                  <div className="mb-4 pb-3 border-b">
-                    <h3 className="text-sm font-semibold mb-1">Cobertura · {lineLegend.lineName}</h3>
-                    <p className="text-xs text-gray-500 mb-3">
-                      Cada territorio toma el color del Ejecutivo Comercial que cubre su zona en esta línea.
-                    </p>
-                    <div className="space-y-1.5 text-sm">
-                      {lineLegend.executives.length === 0 && (
-                        <p className="text-xs text-gray-500">Nadie lleva esta línea todavía.</p>
-                      )}
-                      {lineLegend.executives.map(e => (
-                        <div key={e.id} className="flex items-center gap-2">
-                          <span
-                            className="inline-block rounded-sm flex-shrink-0"
-                            style={{ width: '14px', height: '14px', backgroundColor: e.color, border: '1px solid #333' }}
-                          />
-                          <span className="flex-1 min-w-0 truncate">{e.name}</span>
-                          <span className="text-xs text-gray-500 flex-shrink-0">
-                            {e.zones} {e.zones === 1 ? 'zona' : 'zonas'}
-                          </span>
-                        </div>
-                      ))}
-                      <div className="flex items-center gap-2 pt-1">
-                        <span
-                          className="inline-block rounded-sm flex-shrink-0"
-                          style={{ width: '14px', height: '14px', backgroundColor: lineLegend.vacantColor, border: '1px solid #333' }}
-                        />
-                        <span className="flex-1">Vacante</span>
-                        <span className="text-xs text-gray-500">{lineLegend.vacant}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span
-                          className="inline-block rounded-sm flex-shrink-0"
-                          style={{ width: '14px', height: '14px', backgroundColor: lineLegend.conflictColor, border: '1px solid #333' }}
-                        />
-                        <span className="flex-1">Conflicto (dos locales con la línea)</span>
-                        <span className="text-xs text-gray-500">{lineLegend.conflict}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span style={NO_EQUIPMENT_SWATCH} />
-                        <span className="flex-1">Sin equipo (rayado)</span>
-                        <span className="text-xs text-gray-500">{lineLegend.noEquipment}</span>
-                      </div>
-                    </div>
-                    {lineLegend.totalZones === 0 && (
-                      <p className="mt-3 text-xs text-amber-700">
-                        No hay cobertura calculada para esta línea. Recalcúlala desde Líneas.
-                      </p>
-                    )}
-                  </div>
-                )}
-                <h3 className="text-sm font-semibold mb-3">Convenciones</h3>
-                <div className="space-y-2 text-sm">
-                  <div className="flex items-center gap-2">
-                    <i className="fa fa-user" style={{ color: '#000', fontSize: '14px' }}></i>
-                    <span>Zona (sede del Ejecutivo Comercial)</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span style={{
-                      display: 'inline-block',
-                      width: '12px',
-                      height: '12px',
-                      backgroundColor: '#888',
-                      borderRadius: '50%',
-                      border: '1px solid #222'
-                    }}></span>
-                    <span>Institución Prestadora de Salud</span>
-                  </div>
-                  {/* Territorios: dos intensidades (visitar / de alcance) y municipios sin zona */}
-                  <div className="flex items-center gap-2">
-                    <span style={{ ...TERRITORY_SWATCH, backgroundColor: 'rgba(136, 136, 136, 0.4)', border: '1px solid #333' }}></span>
-                    <span className="flex-1">Con IPS objetivo (visitar)</span>
-                    {territoryLegend && <span className="text-xs text-gray-500">{territoryLegend.ips}</span>}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span style={{ ...TERRITORY_SWATCH, backgroundColor: 'rgba(136, 136, 136, 0.15)', border: '1px solid rgba(136, 136, 136, 0.7)' }}></span>
-                    <span className="flex-1">De alcance (sin IPS hoy)</span>
-                    {territoryLegend && <span className="text-xs text-gray-500">{territoryLegend.reach}</span>}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span style={{ ...TERRITORY_SWATCH, backgroundColor: OUT_OF_REACH_COLOR, border: '1px dashed #9ca3af' }}></span>
-                    <span className="flex-1">Fuera de alcance</span>
-                    {territoryLegend && <span className="text-xs text-gray-500">{territoryLegend.outOfReach}</span>}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span style={{ ...TERRITORY_SWATCH, backgroundColor: NO_ROAD_COLOR, opacity: 0.8, border: `1px solid ${NO_ROAD_COLOR}` }}></span>
-                    <span className="flex-1">Sin acceso terrestre</span>
-                    {territoryLegend && <span className="text-xs text-gray-500">{territoryLegend.noRoad}</span>}
-                  </div>
-                  {territoryLegend && territoryLegend.pending > 0 && (
-                    <div className="flex items-center gap-2">
-                      <span style={{ ...TERRITORY_SWATCH, backgroundColor: PENDING_FILL_COLOR, border: `1px solid ${PENDING_BORDER_COLOR}` }}></span>
-                      <span className="flex-1">Pendiente de calcular</span>
-                      <span className="text-xs text-gray-500">{territoryLegend.pending}</span>
-                    </div>
-                  )}
-                  <p className="text-xs text-gray-500">
-                    Los municipios sin IPS se reparten por tiempo real de carretera (Google Maps), nunca por distancia en línea recta.
-                    Sin ruta por carretera no se asignan a ninguna zona.
-                  </p>
-                  {territoryLegend?.noMunicipalityData && (
-                    <p className="text-xs text-amber-700">
-                      Aún no hay tiempos por carretera de los municipios sin IPS: se muestran como pendientes.
-                    </p>
-                  )}
-                  {territoryLegend?.geoError && (
-                    <p className="text-xs text-red-700">
-                      No se pudieron cargar los límites de municipios. Recarga la página.
-                    </p>
-                  )}
-                  <div className="mt-3 pt-3 border-t text-xs text-gray-600">
-                    <i className="fa fa-info-circle"></i> {lineLegend
-                      ? 'Los pines conservan el color de su zona; territorios y puntos usan el color del Ejecutivo Comercial de la línea'
-                      : 'Los colores identifican cada zona y su territorio de cobertura asignado'}
-                  </div>
-                </div>
-
-                {/* Leyenda de visitas si están activas */}
-                {showMarkers && (
-                  <div className="mt-4 pt-3 border-t">
-                    <h4 className="text-sm font-semibold mb-2">Tipos de Visita</h4>
-                    <div className="space-y-1 text-xs">
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full bg-gray-900"></div>
-                        <span>Visita efectiva</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full bg-gray-600"></div>
-                        <span>Visita extra</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full bg-gray-400"></div>
-                        <span>Visita no efectiva</span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Tab de Búsqueda */}
-            {activeTab === 'search' && (
-              <div>
-                <h3 className="text-sm font-semibold mb-3">Buscar en el Mapa</h3>
-                
-                <div className="mb-3">
-                  <input
-                    type="text"
-                    placeholder="Buscar hospital, municipio o departamento..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent transition-all bg-white"
-                  />
-                </div>
-
-                {searchResults.length > 0 && (
-                  <div className="space-y-2 max-h-96 overflow-y-auto">
-                    {searchResults.map((result, index) => (
-                      <button
-                        key={index}
-                        onClick={() => {
-                          // Centrar mapa en el resultado
-                          const zoomLevel = result.type === 'hospital' ? 16 : 
-                                          result.type === 'municipality' ? 13 : 
-                                          9 // departamento
-                          
-                          // Navegar al punto usando la nueva función
-                          if (onMapNavigate) {
-                            onMapNavigate(result.lat, result.lng, zoomLevel)
-                          }
-                          
-                          // Si es un hospital, seleccionarlo para mostrar tooltip
-                          if (result.type === 'hospital' && onHospitalSelect) {
-                            onHospitalSelect(result.id)
-                            // Mantener el tooltip visible por 8 segundos
-                            setTimeout(() => onHospitalSelect(null), 8000)
-                          }
-                          
-                          setIsOpen(false)
-                        }}
-                        className="w-full text-left px-3 py-2 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors"
-                      >
-                        <div className="flex items-center gap-2">
-                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                            result.type === 'hospital' ? 'bg-gray-900' : 
-                            result.type === 'municipality' ? 'bg-gray-600' : 
-                            'bg-gray-400'
-                          }`}>
-                            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              {result.type === 'hospital' ? (
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
-                              ) : result.type === 'municipality' ? (
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path>
-                              ) : (
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                              )}
-                            </svg>
-                          </div>
-                          <div className="flex-1">
-                            <div className="text-sm font-medium text-gray-900">{result.name}</div>
-                            {result.type === 'hospital' && (
-                              <>
-                                <div className="text-xs text-gray-500">Hospital - Código: {result.code}</div>
-                                {result.municipality && (
-                                  <div className="text-xs text-gray-400">{result.municipality}</div>
-                                )}
-                              </>
-                            )}
-                            {result.type === 'municipality' && (
-                              <>
-                                <div className="text-xs text-gray-500">Municipio - {result.hospitalCount} IPS</div>
-                                {result.department && (
-                                  <div className="text-xs text-gray-400">{result.department}</div>
-                                )}
-                              </>
-                            )}
-                            {result.type === 'department' && (
-                              <div className="text-xs text-gray-500">Departamento - {result.hospitalCount} IPS</div>
-                            )}
-                          </div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {searchTerm.length > 0 && searchTerm.length <= 2 && (
-                  <div className="text-xs text-gray-500 mt-2">
-                    Escriba al menos 3 caracteres para buscar
-                  </div>
-                )}
-
-                {searchTerm.length > 2 && searchResults.length === 0 && (
-                  <div className="text-xs text-gray-500 mt-2">
-                    No se encontraron resultados
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+          <div className="p-2 pr-12">{tabBar}</div>
+          {panelBody}
         </div>
       )}
     </>
