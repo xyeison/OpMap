@@ -5,6 +5,9 @@
  * 2026-10-11), valores es-CO ("903.103.531,00" → 903103531), meses ("Enero-2025"), NIT desde
  * hospitals.code, mapeo de columnas por contenido, suma de duplicados, rangos de meses, reparto del giro
  * de un NIT entre sus sedes y agregación por municipio / zona / ejecutivo.
+ * "Identifica tu Giro" (sección 7, muestras literales del 2026-10-11): CSV y XML de "Consulta tu Giro",
+ * fecha, entidad ordenadora, proceso y referencia, regla de régimen, huella y ocurrencias, validación
+ * XML↔CSV, ventanas de consulta, agregación mensual, fuente automática y agregación por régimen/entidad.
  *
  * Uso (desde web/): npx tsx scripts/adres-check.ts      Código de salida 1 si alguna prueba falla.
  */
@@ -27,12 +30,30 @@ import {
   toAdresDate,
 } from '../lib/adres-parse.mjs'
 import {
+  aggregateDetalleMensual,
+  buildDetalleRows,
+  crossCheckExports,
+  detalleKey,
+  parseEntidad,
+  parseFechaGiro,
+  parseIdentificaCsv,
+  parseIdentificaXml,
+  procesoYReferencia,
+  regimenDeConcepto,
+  splitDateWindows,
+  sumByRegimen,
+} from '../lib/adres-identifica.mjs'
+import {
   addMonths,
   aggregateGiros,
+  chooseGirosSource,
+  epsDisplayName,
   parseGirosQuery,
+  parseIntel,
   parseResumen,
   resolveGirosRange,
   sedeShares,
+  summarizeHospitalDetalle,
   summarizeHospitalGiros,
   type GiroNitResumen,
   type IntelHospital,
@@ -276,9 +297,9 @@ eq('asignado = todo menos b1 (sin zona)', all.kpis.asignado, 1100)
 eq('% en IPS con zona', all.kpis.asignadoPct, 84.62)
 eq('sin zona', all.kpis.sinZona, 200)
 eq('capitación / evento', [all.kpis.capitacion, all.kpis.evento, all.kpis.otros], [500, 800, 0])
-eq('serie mensual', all.series, [
-  { periodo: '2025-05', total: 500, capitacion: 500, evento: 0 },
-  { periodo: '2025-06', total: 800, capitacion: 0, evento: 800 },
+eq('serie mensual (Reporte 29: todo subsidiado)', all.series, [
+  { periodo: '2025-05', total: 500, capitacion: 500, evento: 0, contributivo: 0, subsidiado: 500, otro: 0 },
+  { periodo: '2025-06', total: 800, capitacion: 0, evento: 800, contributivo: 0, subsidiado: 800, otro: 0 },
 ])
 eq('ranking IPS: a1 primero con 750 (75 % de 1000)', [all.rows[0].hospital_id, all.rows[0].giro, all.rows[0].giro_nit, all.rows[0].sedes_nit], ['a1', 750, 1000, 2])
 eq('ranking IPS: ejecutivo de la zona y vacante', [all.rows[0].ejecutivo, all.rows.find(r => r.hospital_id === 'a2')?.ejecutivo], ['Carmen Barrios', 'Vacante'])
@@ -327,7 +348,15 @@ eq('serie: solo los meses pedidos', unMes.series.map(p => p.periodo), ['2025-06'
 
 console.log('\n6. Parámetros de la API y ficha de IPS')
 const q = (s: string) => parseGirosQuery(new URLSearchParams(s))
-eq('query por defecto', q(''), { ok: true, value: { group: 'ips', line: null, desde: null, hasta: null, departamento: null, municipio: null } })
+eq('query por defecto', q(''), {
+  ok: true,
+  value: { group: 'ips', line: null, desde: null, hasta: null, departamento: null, municipio: null, regimen: 'todos', fuente: 'auto' },
+})
+eq('query regimen y fuente', [q('regimen=contributivo&fuente=identifica')], [
+  { ok: true, value: { group: 'ips', line: null, desde: null, hasta: null, departamento: null, municipio: null, regimen: 'contributivo', fuente: 'identifica' } },
+])
+eq('regimen no válido', q('regimen=otro').ok, false)
+eq('fuente no válida', q('fuente=bdua').ok, false)
 eq('group no válido', q('group=foo').ok, false)
 eq('ejecutivo exige línea', q('group=ejecutivo'), { ok: false, error: 'Elige una línea para agrupar por Ejecutivo Comercial' })
 eq('ejecutivo con línea', q('group=ejecutivo&line=perossal').ok, true)
@@ -350,6 +379,241 @@ eq('ficha: serie', ficha.series, [
   { periodo: '2025-05', total: 120 },
   { periodo: '2025-06', total: 80 },
 ])
+
+console.log('\n7. Identifica tu Giro (ERP, "Consulta tu Giro")')
+
+// NIT 890102768, exportación CSV (literal: BOM, CRLF, sin comillas, valor redondeado a pesos con "$")
+const CSV_IDENT =
+  '﻿Cuenta_Beneficiario,Nombre_Beneficiario,Fecha_Transaccion,Valor,Concepto,Nombre_Beneficiario2\r\n' +
+  '890102768,NIT-890102768-ORGANIZACION CLINICA GENERAL DEL NORTE SA,27/01/2026,$177.773.524,PAGO Proc. Compensación Giro Directo (IPS) GIRO DIRECTO RECURSOS UPC DISTRIBUCION IPS Proceso 12056 CGD_Proc_12041_EPS005_269_C,NIT-800251440-ENTIDAD PROMOTORA DE SALUD SANITAS S A S\r\n' +
+  '890102768,NIT-890102768-ORGANIZACION CLINICA GENERAL DEL NORTE SA,16/01/2026,$89.867.506,PAGO Régimen Subsidiado UPC REGIMEN SUBSIDIADO - CXP IPS   LMA_178_IPS,NIT-800098911-SECRETARIA DE EDUCACIONMUNICIPAL DE VALLEDUPAR\r\n' +
+  '890102768,NIT-890102768-ORGANIZACION CLINICA GENERAL DEL NORTE,13/08/2026,$345.716,PAGO Reclamaciones VICTIMAS ACCIDENTES DE TRANSITO_SERVICIOS MEDICOS 20264200086643 Paquete_31073,NIT-890102768-ORGANIZACION CLINICA GENERAL DEL NORTE\r\n' +
+  '\r\n'
+// El mismo reporte en XML (literal: valores con centavos)
+const XML_IDENT =
+  '﻿<?xml version="1.0" encoding="utf-8"?><Report xsi:schemaLocation="Consulta_Pagos_ERP http://bdprep02/ReportServer?%2FERP%2FConsulta_Pagos_ERP&amp;rs%3ACommand=Render&amp;rs%3AFormat=XML&amp;rc%3ASchema=True" Name="Consulta_Pagos_ERP" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="Consulta_Pagos_ERP"><Tablix1><Details_Collection>' +
+  '<Details Cuenta_Beneficiario="890102768" Nombre_Beneficiario="NIT-890102768-ORGANIZACION CLINICA GENERAL DEL NORTE SA" Fecha_Transaccion="27/01/2026" Valor="177773524.0000000000000000" Concepto="PAGO Proc. Compensación Giro Directo (IPS) GIRO DIRECTO RECURSOS UPC DISTRIBUCION IPS Proceso 12056 CGD_Proc_12041_EPS005_269_C" Nombre_Beneficiario2="NIT-800251440-ENTIDAD PROMOTORA DE SALUD SANITAS S A S" />' +
+  '<Details Cuenta_Beneficiario="890102768" Nombre_Beneficiario="NIT-890102768-ORGANIZACION CLINICA GENERAL DEL NORTE SA" Fecha_Transaccion="16/01/2026" Valor="89867506.0000000000000000" Concepto="PAGO Régimen Subsidiado UPC REGIMEN SUBSIDIADO - CXP IPS   LMA_178_IPS" Nombre_Beneficiario2="NIT-800098911-SECRETARIA DE EDUCACIONMUNICIPAL DE VALLEDUPAR" />' +
+  '<Details Cuenta_Beneficiario="890102768" Nombre_Beneficiario="NIT-890102768-ORGANIZACION CLINICA GENERAL DEL NORTE" Fecha_Transaccion="13/08/2026" Valor="345716.3000000000000000" Concepto="PAGO Reclamaciones VICTIMAS ACCIDENTES DE TRANSITO_SERVICIOS MEDICOS 20264200086643 Paquete_31073" Nombre_Beneficiario2="NIT-890102768-ORGANIZACION CLINICA GENERAL DEL NORTE" />' +
+  '</Details_Collection></Tablix1></Report>'
+// NIT sin giros (literal)
+const CSV_IDENT_VACIO = '﻿Cuenta_Beneficiario,Nombre_Beneficiario,Fecha_Transaccion,Valor,Concepto,Nombre_Beneficiario2\r\n\r\n'
+const XML_IDENT_VACIO =
+  '﻿<?xml version="1.0" encoding="utf-8"?><Report xsi:schemaLocation="Consulta_Pagos_ERP http://bdprep02/ReportServer?%2FERP%2FConsulta_Pagos_ERP&amp;rs%3ACommand=Render" Name="Consulta_Pagos_ERP" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="Consulta_Pagos_ERP"><Tablix1 /></Report>'
+
+const icsv = parseIdentificaCsv(CSV_IDENT)
+check('CSV: cabecera reconocida, 3 filas, 0 saltadas', icsv.headerFound && icsv.rows.length === 3 && icsv.skipped === 0, icsv)
+eq('CSV: primera fila', icsv.rows[0], {
+  nit: '890102768',
+  fecha_giro: '2026-01-27',
+  valor: 177773524,
+  concepto: 'PAGO Proc. Compensación Giro Directo (IPS) GIRO DIRECTO RECURSOS UPC DISTRIBUCION IPS Proceso 12056 CGD_Proc_12041_EPS005_269_C',
+  beneficiario: 'NIT-890102768-ORGANIZACION CLINICA GENERAL DEL NORTE SA',
+  ordenadora: 'NIT-800251440-ENTIDAD PROMOTORA DE SALUD SANITAS S A S',
+})
+eq('CSV: prestador sin el prefijo NIT', icsv.prestador, 'ORGANIZACION CLINICA GENERAL DEL NORTE SA')
+eq('CSV: valor redondeado a pesos ("$345.716")', icsv.rows[2].valor, 345716)
+eq('CSV: espacios del concepto colapsados', icsv.rows[1].concepto, 'PAGO Régimen Subsidiado UPC REGIMEN SUBSIDIADO - CXP IPS LMA_178_IPS')
+const ixml = parseIdentificaXml(XML_IDENT)
+check('XML: 3 filas', ixml.headerFound && ixml.rows.length === 3 && ixml.skipped === 0, ixml)
+eq('XML: centavos ("345716.30")', ixml.rows[2].valor, 345716.3)
+eq('XML: misma fila que el CSV', ixml.rows[0], icsv.rows[0])
+eq('XML↔CSV cuadran (diferencia de redondeo 0,30 ≤ medio peso por fila)', crossCheckExports(ixml.rows, icsv.rows), {
+  ok: true,
+  filasXml: 3,
+  filasCsv: 3,
+  sumaXml: 267986746.3,
+  sumaCsv: 267986746,
+  diff: 0.3,
+})
+check('XML↔CSV no cuadran si falta una fila', !crossCheckExports(ixml.rows, icsv.rows.slice(1)).ok)
+check('XML↔CSV no cuadran si un valor cambia', !crossCheckExports(ixml.rows, [{ ...icsv.rows[0], valor: 177773000 }, ...icsv.rows.slice(1)]).ok)
+const vacioCsv = parseIdentificaCsv(CSV_IDENT_VACIO)
+const vacioXml = parseIdentificaXml(XML_IDENT_VACIO)
+check('sin giros: CSV y XML reconocidos con 0 filas', vacioCsv.headerFound && vacioCsv.rows.length === 0 && vacioXml.headerFound && vacioXml.rows.length === 0)
+check('HTML de error: no es el reporte (CSV y XML)', !parseIdentificaCsv('<html><body>Error</body></html>').headerFound && !parseIdentificaXml('<html>Error</html>').headerFound)
+check('el Reporte 29 no se confunde con "Consulta tu Giro"', !parseIdentificaCsv(CSV_891200679_ENE2025).headerFound)
+// El CSV no lleva comillas: una coma dentro del concepto parte la fila y se rearma por contenido
+const conComa = parseIdentificaCsv(
+  'Cuenta_Beneficiario,Nombre_Beneficiario,Fecha_Transaccion,Valor,Concepto,Nombre_Beneficiario2\r\n' +
+    '890102768,NIT-890102768-CLINICA X, S.A.,20/10/2025,$1.000,PAGO Giro A, B y C REF_1,NIT-800130907-SALUD TOTAL, S.A.\r\n'
+)
+eq('CSV con comas sin comillas: se rearma la fila', [conComa.skipped, conComa.rows[0]], [
+  0,
+  { nit: '890102768', fecha_giro: '2025-10-20', valor: 1000, concepto: 'PAGO Giro A, B y C REF_1', beneficiario: 'NIT-890102768-CLINICA X, S.A.', ordenadora: 'NIT-800130907-SALUD TOTAL, S.A.' },
+])
+const malValor = parseIdentificaCsv(CSV_IDENT.replace('$89.867.506', '$89.867.50X'))
+eq('CSV: valor ilegible se cuenta como saltada', [malValor.skipped, malValor.rows.length], [1, 2])
+
+eq('parseFechaGiro "27/01/2026"', parseFechaGiro('27/01/2026'), '2026-01-27')
+eq('parseFechaGiro "2026-01-27T00:00:00"', parseFechaGiro('2026-01-27T00:00:00'), '2026-01-27')
+eq('parseFechaGiro "31/02/2026" → null', parseFechaGiro('31/02/2026'), null)
+eq('parseEntidad con NIT', parseEntidad('NIT-800251440-ENTIDAD PROMOTORA DE SALUD SANITAS S A S'), { nit: '800251440', nombre: 'ENTIDAD PROMOTORA DE SALUD SANITAS S A S' })
+eq('parseEntidad ente territorial', parseEntidad('NIT-891855017-MUNICIPIO DE YOPAL'), { nit: '891855017', nombre: 'MUNICIPIO DE YOPAL' })
+eq('parseEntidad sin prefijo', parseEntidad('ADRES'), { nit: null, nombre: 'ADRES' })
+eq('parseEntidad vacío', parseEntidad(''), { nit: null, nombre: null })
+
+const PR = (concepto: string) => procesoYReferencia(concepto)
+eq('proceso y referencia de la compensación', PR('PAGO Proc. Compensación Giro Directo (IPS) GIRO DIRECTO RECURSOS UPC DISTRIBUCION IPS Proceso 12056 CGD_Proc_12041_EPS005_269_C'), {
+  proceso: '12056',
+  referencia: 'CGD_Proc_12041_EPS005_269_C',
+})
+eq('formato viejo Proceso_<n>_GD_', PR('PAGO Proc. Compensacion Giro Directo (IPS) GIRO DIRECTO RECURSOS UPC DISTRIBUCION IPS Proceso 11690 Proceso_11684_GD_SURA_108'), {
+  proceso: '11690',
+  referencia: 'Proceso_11684_GD_SURA_108',
+})
+eq('referencia con espacio tras el proceso', PR('PAGO Proc. Compensacion Giro Directo (IPS) GIRO DIRECTO RECURSOS UPC DISTRIBUCION IPS Proceso 11316 Proceso_11305_GD_COOSALUD MOV'), {
+  proceso: '11316',
+  referencia: 'Proceso_11305_GD_COOSALUD MOV',
+})
+eq('proceso sin referencia', PR('PAGO Proc. Compensación Giro Directo (IPS) GIRO DIRECTO RECURSOS UPC DISTRIBUCION IPS Proceso 11802'), { proceso: '11802', referencia: null })
+eq('concepto repetido', PR('Proceso_11266_GD_SALUDTOTAL Proceso_11266_GD_SALUDTOTAL'), { proceso: '11266', referencia: 'Proceso_11266_GD_SALUDTOTAL' })
+eq('LMA: referencia sin proceso', PR('PAGO Régimen Subsidiado UPC REGIMEN SUBSIDIADO - CXP IPS   LMA_178_IPS'), { proceso: null, referencia: 'LMA_178_IPS' })
+eq('referencia con guiones (PM2025-RC-GD1)', PR('PAGO Presupuesto Maximo Regimen Contributivo PRESUPUESTO MAXIMO REGIMEN CONTRIBUTIVO  PM2025-RC-GD1'), { proceso: null, referencia: 'PM2025-RC-GD1' })
+eq('"LMA 51" no es referencia', PR('PAGO Regimen Subsidiado REPROGRAMACIONES VIGENCIAS ANTERIORES - URA  LMA 51'), { proceso: null, referencia: null })
+eq('"COVID-19" no es referencia', PR('PAGO Giro PRUEBAS COVID-19'), { proceso: null, referencia: null })
+
+eq('régimen: compensación → contributivo', regimenDeConcepto('PAGO Proc. Compensación Giro Directo (IPS) GIRO DIRECTO RECURSOS UPC DISTRIBUCION IPS Proceso 12056 CGD_Proc_12041_EPS005_269_C'), 'contributivo')
+eq('régimen: "Compensacion" sin tilde → contributivo', regimenDeConcepto('PAGO Proc. Compensacion Giro Directo (IPS) Proceso 11690 Proceso_11684_GD_SURA_108'), 'contributivo')
+eq('régimen: formato viejo sin la palabra → contributivo', regimenDeConcepto('Proceso_11266_GD_SURA Proceso_11266_GD_SURA'), 'contributivo')
+eq('régimen: presupuesto máximo contributivo → contributivo', regimenDeConcepto('PAGO Presupuesto Máximo Régimen Contributivo PRESUPUESTO MAXIMO REGIMEN CONTRIBUTIVO 20264200069293 890102768_89_69293'), 'contributivo')
+eq('régimen: LMA → subsidiado', regimenDeConcepto('PAGO Régimen Subsidiado UPC REGIMEN SUBSIDIADO - CXP IPS   LMA_178_IPS'), 'subsidiado')
+eq('régimen: "LMA IPS DE ABRIL" → subsidiado', regimenDeConcepto('LMA IPS DE ABRIL 2025 LMA_169_IPS'), 'subsidiado')
+eq('régimen: presupuesto máximo subsidiado → subsidiado', regimenDeConcepto('PAGO Presupuesto Máximo Régimen Subsidiado PRESUPUESTO MAXIMO REGIMEN SUBSIDIADO 20264200069293 890102768_338_69293'), 'subsidiado')
+eq('régimen: reclamaciones SOAT → otro', regimenDeConcepto('PAGO Reclamaciones VICTIMAS ACCIDENTES DE TRANSITO_SERVICIOS MEDICOS 20264200086643 Paquete_31073'), 'otro')
+eq('régimen: recobros NO UPC → otro', regimenDeConcepto('PAGO Servicios y tecnologias no upc RECOBROS - SERVICIOS Y TECNOLOGIAS NO UPC  1. NMP_1224_0125_IPS'), 'otro')
+eq('régimen: "PALMA" no es LMA → otro', regimenDeConcepto('PAGO Resoluciones del MSPS MUNICIPIO DE PALMAR'), 'otro')
+
+const detalle = buildDetalleRows(ixml.rows)
+eq('detalle: orden por fecha desc', detalle.map(r => r.fecha_giro), ['2026-08-13', '2026-01-27', '2026-01-16'])
+eq('detalle: compensación enriquecida', detalle[1], {
+  nit: '890102768',
+  fecha_giro: '2026-01-27',
+  valor: 177773524,
+  concepto: 'PAGO Proc. Compensación Giro Directo (IPS) GIRO DIRECTO RECURSOS UPC DISTRIBUCION IPS Proceso 12056 CGD_Proc_12041_EPS005_269_C',
+  eps_ordenadora_nit: '800251440',
+  eps_ordenadora_nombre: 'ENTIDAD PROMOTORA DE SALUD SANITAS S A S',
+  proceso: '12056',
+  referencia: 'CGD_Proc_12041_EPS005_269_C',
+  regimen: 'contributivo',
+  ocurrencia: 1,
+  clave:
+    '890102768|2026-01-27|177773524.00|PAGO Proc. Compensación Giro Directo (IPS) GIRO DIRECTO RECURSOS UPC DISTRIBUCION IPS Proceso 12056 CGD_Proc_12041_EPS005_269_C|800251440|1',
+})
+eq('detalle: regímenes', detalle.map(r => r.regimen), ['otro', 'contributivo', 'subsidiado'])
+const dobles = buildDetalleRows([ixml.rows[1], { ...ixml.rows[1] }, ixml.rows[0]])
+eq('giros idénticos el mismo día: ocurrencia 1 y 2 (no se funden)', dobles.filter(r => r.regimen === 'subsidiado').map(r => r.ocurrencia), [1, 2])
+check('…y sus claves son distintas', new Set(dobles.map(r => r.clave)).size === 3)
+eq('clave estable: mismo giro en otra descarga = misma clave', buildDetalleRows([ixml.rows[0]])[0].clave, detalle[1].clave)
+eq(
+  'clave: sin NIT de ordenadora usa el nombre',
+  detalleKey({ nit: '1', fecha_giro: '2026-01-01', valor: 10, concepto: 'X  Y', eps_ordenadora_nit: null, eps_ordenadora_nombre: 'ADRES' }, 1),
+  '1|2026-01-01|10.00|X Y|nombre:ADRES|1'
+)
+eq('suma por régimen', sumByRegimen(detalle), { total: 267986746.3, contributivo: 177773524, subsidiado: 89867506, otro: 345716.3 })
+
+eq('ventanas de 6 meses (ene-2025 a sep-2026)', splitDateWindows('2025-01-01', '2026-09-30', 6), [
+  { desde: '2025-01-01', hasta: '2025-06-30' },
+  { desde: '2025-07-01', hasta: '2025-12-31' },
+  { desde: '2026-01-01', hasta: '2026-06-30' },
+  { desde: '2026-07-01', hasta: '2026-09-30' },
+])
+eq('ventana con inicio a mitad de mes', splitDateWindows('2025-01-15', '2025-03-10', 6), [{ desde: '2025-01-15', hasta: '2025-03-10' }])
+eq('ventanas de 1 mes', splitDateWindows('2024-12-01', '2025-02-28', 1).map(w => w.hasta), ['2024-12-31', '2025-01-31', '2025-02-28'])
+eq('ventanas: desde > hasta → []', splitDateWindows('2026-01-01', '2025-01-01', 6), [])
+
+const mensual = aggregateDetalleMensual([
+  ...detalle,
+  { nit: '890102768', fecha_giro: '2026-01-30', valor: 100.5, regimen: 'contributivo', eps_ordenadora_nit: '800251440', eps_ordenadora_nombre: 'EPS SANITAS' },
+])
+eq('agregación mensual (como la vista adres_giros_mensual)', mensual, [
+  { nit: '890102768', periodo: '2026-01-01', regimen: 'contributivo', eps_ordenadora_nit: '800251440', eps_ordenadora_nombre: 'EPS SANITAS', valor: 177773624.5, giros: 2, ultima_fecha: '2026-01-30' },
+  { nit: '890102768', periodo: '2026-01-01', regimen: 'subsidiado', eps_ordenadora_nit: '800098911', eps_ordenadora_nombre: 'SECRETARIA DE EDUCACIONMUNICIPAL DE VALLEDUPAR', valor: 89867506, giros: 1, ultima_fecha: '2026-01-16' },
+  { nit: '890102768', periodo: '2026-08-01', regimen: 'otro', eps_ordenadora_nit: '890102768', eps_ordenadora_nombre: 'ORGANIZACION CLINICA GENERAL DEL NORTE', valor: 345716.3, giros: 1, ultima_fecha: '2026-08-13' },
+])
+
+// Fuente automática
+const SRC = { identifica: { min: '2025-04', max: '2026-09' }, reporte29: { min: '2023-07', max: '2025-06' }, nitsActivos: 700 }
+eq('auto: Identifica cargado para 3 de 700 NIT → Reporte 29', chooseGirosSource({ ...SRC, requested: 'auto', desde: null, hasta: null, identificaNitsOk: 3 }).fuente, 'reporte29')
+eq('auto: Identifica cargado para 650 de 700 (≥ 90 %) → Identifica', chooseGirosSource({ ...SRC, requested: 'auto', desde: null, hasta: null, identificaNitsOk: 650 }).fuente, 'identifica')
+eq('auto: rango 2024 sin detalle → Reporte 29', chooseGirosSource({ ...SRC, requested: 'auto', desde: '2024-01', hasta: '2024-12', identificaNitsOk: 700 }).fuente, 'reporte29')
+eq('auto: sin detalle cargado → Reporte 29', chooseGirosSource({ ...SRC, identifica: null, requested: 'auto', desde: null, hasta: null, identificaNitsOk: 0 }).fuente, 'reporte29')
+eq('elegida: identifica se respeta aunque esté incompleta', chooseGirosSource({ ...SRC, requested: 'identifica', desde: null, hasta: null, identificaNitsOk: 3 }).fuente, 'identifica')
+check(
+  'auto: el motivo dice cuántos NIT están cargados',
+  chooseGirosSource({ ...SRC, requested: 'auto', desde: null, hasta: null, identificaNitsOk: 3 }).motivo.includes('3 de 700 NIT')
+)
+
+// adres_giros_intel() → agregación por régimen y por entidad ordenadora (con reparto por sede)
+const intel = parseIntel({
+  nits: [
+    {
+      nit: '800000001',
+      total: '1000.00',
+      contributivo: 600,
+      subsidiado: 300,
+      otro: 100,
+      ultima: '2026-09-28',
+      meses: { '2026-08': { t: 400, rc: 400 }, '2026-09': { t: 600, rc: 200, rs: 300, ro: 100 } },
+      eps: { '800088702': 600, '891855017': 300, 'nombre:ADRES': 100 },
+    },
+    { nit: '800000002', total: 200, subsidiado: 200, ultima: '2026-07-01', meses: { '2026-08': { t: 200, rs: 200 } }, eps: { '891855017': 200 } },
+  ],
+  eps: { '800088702': 'EPS SURA', '891855017': 'MUNICIPIO DE YOPAL' },
+})
+eq('parseIntel: claves ausentes valen 0', [intel.nits[1].contributivo, intel.nits[1].meses['2026-08'].rc, intel.nits[0].capitacion], [0, 0, 0])
+eq('parseIntel: nombres', intel.epsNombres, { '800088702': 'EPS SURA', '891855017': 'MUNICIPIO DE YOPAL' })
+eq('epsDisplayName: "nombre:" sin diccionario', epsDisplayName('nombre:ADRES', intel.epsNombres), 'ADRES')
+eq('parseResumen del Reporte 29 (sin regímenes): todo es subsidiado', [resumen[0].subsidiado, resumen[0].meses['2025-05'].rs], [1000, 400])
+const porRegimen = aggregateGiros({ hospitals, giros: intel.nits, months: ['2026-08', '2026-09'], filter: {}, group: 'zona', withExecutive: false, epsNombres: intel.epsNombres })
+eq('KPIs por régimen (NIT A repartido 75/25, NIT B entero)', [porRegimen.kpis.total, porRegimen.kpis.contributivo, porRegimen.kpis.subsidiado, porRegimen.kpis.regimenOtro], [1200, 600, 500, 100])
+eq('último giro de las IPS filtradas', porRegimen.kpis.ultimaFecha, '2026-09-28')
+eq('serie por régimen', porRegimen.series, [
+  { periodo: '2026-08', total: 600, capitacion: 0, evento: 0, contributivo: 400, subsidiado: 200, otro: 0 },
+  { periodo: '2026-09', total: 600, capitacion: 0, evento: 0, contributivo: 200, subsidiado: 300, otro: 100 },
+])
+eq('top entidades del total', porRegimen.epsTop.map(e => [e.nombre, e.valor, e.pct]), [
+  ['EPS SURA', 600, 50],
+  ['MUNICIPIO DE YOPAL', 500, 41.67],
+  ['ADRES', 100, 8.33],
+])
+const zonaAtl = porRegimen.rows.find(r => r.label === 'Atlántico y Magdalena')!
+eq('fila de zona: régimen, último giro y entidad principal con la parte de la sede (75 %)', [zonaAtl.giro, zonaAtl.contributivo, zonaAtl.ultima_fecha, zonaAtl.eps_top[0]], [
+  750,
+  450,
+  '2026-09-28',
+  { codigo: '800088702', nombre: 'EPS SURA', valor: 450, pct: 60 },
+])
+const sinZonaRow = porRegimen.rows.find(r => r.key === 'sin_zona')!
+eq('fila sin zona: NIT B con su entidad', [sinZonaRow.giro, sinZonaRow.ultima_fecha, sinZonaRow.eps_top.map(e => e.nombre)], [200, '2026-07-01', ['MUNICIPIO DE YOPAL']])
+const porIps = aggregateGiros({ hospitals, giros: intel.nits, months: ['2026-08', '2026-09'], filter: {}, group: 'ips', withExecutive: false, epsNombres: intel.epsNombres })
+eq('fila IPS: entidades top 3 de la sede a2 (25 %)', porIps.rows.find(r => r.hospital_id === 'a2')!.eps_top.map(e => [e.nombre, e.valor]), [
+  ['EPS SURA', 150],
+  ['MUNICIPIO DE YOPAL', 75],
+  ['ADRES', 25],
+])
+
+const fichaDet = summarizeHospitalDetalle(
+  [
+    { periodo: '2026-08-01', regimen: 'contributivo', eps_ordenadora_nit: '800088702', eps_ordenadora_nombre: 'EPS SURA', valor: '400.00', ultima_fecha: '2026-08-20' },
+    { periodo: '2026-09-01', regimen: 'subsidiado', eps_ordenadora_nit: '891855017', eps_ordenadora_nombre: 'MUNICIPIO DE YOPAL', valor: 300, ultima_fecha: '2026-09-28' },
+    { periodo: '2026-09-01', regimen: 'otro', eps_ordenadora_nit: null, eps_ordenadora_nombre: 'ADRES', valor: 100, ultima_fecha: '2026-09-02' },
+    { periodo: '2025-01-01', regimen: 'contributivo', eps_ordenadora_nit: '800088702', eps_ordenadora_nombre: 'EPS SURA', valor: 999, ultima_fecha: '2025-01-05' },
+  ],
+  ['2026-08', '2026-09'],
+  2
+)
+eq('ficha (Identifica): total por régimen, ignora meses fuera del rango', [fichaDet.total, fichaDet.contributivo, fichaDet.subsidiado, fichaDet.regimenOtro], [800, 400, 300, 100])
+eq('ficha (Identifica): último giro', fichaDet.ultimaFecha, '2026-09-28')
+eq('ficha (Identifica): top entidad ordenadora', fichaDet.topEps, [
+  { codigo: '800088702', nombre: 'EPS SURA', valor: 400, pct: 50 },
+  { codigo: '891855017', nombre: 'MUNICIPIO DE YOPAL', valor: 300, pct: 37.5 },
+])
+eq('ficha (Identifica): serie por régimen', fichaDet.series, [
+  { periodo: '2026-08', total: 400, contributivo: 400, subsidiado: 0, otro: 0 },
+  { periodo: '2026-09', total: 400, contributivo: 0, subsidiado: 300, otro: 100 },
+])
+eq('ficha (Reporte 29): régimen subsidiado y último mes', [ficha.subsidiado, ficha.contributivo, ficha.ultimaFecha], [200, 0, '2025-06'])
 
 console.log(`\n${passed} pruebas OK, ${failed} fallidas`)
 process.exit(failed > 0 ? 1 : 0)

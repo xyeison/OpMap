@@ -14,6 +14,8 @@
  * Nota: el servidor de la ADRES envía una cadena de certificados incompleta (le falta el intermedio
  * "Go Daddy Secure Certificate Authority - G2"); el script lo descarga de la URL AIA que trae el
  * propio certificado (como hacen los navegadores) y verifica la cadena contra las raíces de Node.
+ * La sesión HTTP y la cadena TLS están en scripts/lib/adres-http.mjs (compartidas con
+ * scripts/adres-identifica-giro.mjs).
  *
  * Uso (desde web/; Node 22; sin dependencias nuevas):
  *   node scripts/adres-giros.mjs                          → todos los NIT de las IPS activas
@@ -37,10 +39,6 @@
  * Requiere la migración database/migrations/2026-10-11_0610_fase3_adres.sql.
  * Código de salida 1 si hubo errores o bloqueo.
  */
-import https from 'node:https'
-import http from 'node:http'
-import tls from 'node:tls'
-import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -49,9 +47,6 @@ import {
   aggregateGiroRows,
   checkReportTotal,
   defaultRange,
-  extractExportUrlBase,
-  extractFormFields,
-  isBlockedPage,
   nitFromHospitalCode,
   normalizeNit,
   parseDateArg,
@@ -59,11 +54,11 @@ import {
   parseGirosXml,
   toAdresDate,
 } from '../lib/adres-parse.mjs'
+import { ADRES_HOST, BlockedError, ReportViewerSession, buildAgent, supabaseClient } from './lib/adres-http.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 dotenv.config({ path: path.resolve(here, '..', '.env.local'), quiet: true })
 
-const HOST = 'aplicaciones.adres.gov.co'
 const REPORT_PATH = '/SII_LMA_WEB/LMA/frmReportes.aspx?Reporte=29'
 const USER_AGENT = 'OpMap-giros-ADRES/1.0 (Node.js; consulta del Reporte 29 publico de la ADRES)'
 const PARAM_PREFIX = 'ctl00$ContentPlaceHolder1$ReportViewer$ctl04$'
@@ -71,15 +66,20 @@ const FIELD_DESDE = PARAM_PREFIX + 'ctl03$txtValue'
 const FIELD_HASTA = PARAM_PREFIX + 'ctl05$txtValue'
 const FIELD_NIT = PARAM_PREFIX + 'ctl07$txtValue'
 const VIEW_BUTTON = PARAM_PREFIX + 'ctl00'
-const REQUEST_TIMEOUT_MS = 90000
+const SESSION_CONFIG = {
+  host: ADRES_HOST,
+  path: REPORT_PATH,
+  userAgent: USER_AGENT,
+  timeoutMs: 90000,
+  fields: { desde: FIELD_DESDE, hasta: FIELD_HASTA, nit: FIELD_NIT },
+  button: [VIEW_BUTTON, 'View Report'],
+}
 const REGIMEN = 'subsidiado'
 const FUENTE = 'adres_reporte_29'
 const UPSERT_BATCH = 500
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 const cop = value => new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 }).format(Math.round(value))
-
-class BlockedError extends Error {}
 
 // ---------------------------------------------------------------------------
 // Argumentos
@@ -172,141 +172,6 @@ function parseArgs(argv) {
 }
 
 // ---------------------------------------------------------------------------
-// TLS: completa la cadena con el intermedio de la URL AIA del certificado del servidor
-// ---------------------------------------------------------------------------
-
-function peerCertificate() {
-  return new Promise((resolve, reject) => {
-    // Solo se lee el certificado que presenta el servidor; no se envía ningún dato por esta conexión.
-    const socket = tls.connect({ host: HOST, port: 443, servername: HOST, rejectUnauthorized: false }, () => {
-      const cert = socket.getPeerCertificate(true)
-      socket.end()
-      resolve(cert)
-    })
-    socket.setTimeout(30000, () => socket.destroy(new Error('Tiempo de espera agotado leyendo el certificado')))
-    socket.on('error', reject)
-  })
-}
-
-function httpGetBuffer(url) {
-  return new Promise((resolve, reject) => {
-    const req = http.get(url, { timeout: 30000, headers: { 'user-agent': USER_AGENT } }, res => {
-      if (res.statusCode !== 200) {
-        res.resume()
-        reject(new Error(`HTTP ${res.statusCode} descargando ${url}`))
-        return
-      }
-      const chunks = []
-      res.on('data', chunk => chunks.push(chunk))
-      res.on('end', () => resolve(Buffer.concat(chunks)))
-    })
-    req.on('timeout', () => req.destroy(new Error(`Tiempo de espera agotado descargando ${url}`)))
-    req.on('error', reject)
-  })
-}
-
-async function buildAgent() {
-  const ca = [...tls.rootCertificates]
-  try {
-    const leaf = await peerCertificate()
-    const issuers = (leaf.infoAccess && leaf.infoAccess['CA Issuers - URI']) || []
-    for (const url of issuers.filter(u => /^http:\/\//.test(u))) {
-      const der = await httpGetBuffer(url)
-      const intermediate = new crypto.X509Certificate(der)
-      ca.push(intermediate.toString())
-    }
-  } catch (error) {
-    console.warn(`Aviso: no se pudo completar la cadena TLS por AIA (${error.message}); se intenta con las raíces de Node.`)
-  }
-  // La verificación sigue siendo completa (rejectUnauthorized por defecto = true).
-  return new https.Agent({ keepAlive: true, maxSockets: 2, ca })
-}
-
-// ---------------------------------------------------------------------------
-// Sesión con el formulario del reporte (una por consulta simultánea)
-// ---------------------------------------------------------------------------
-
-class AdresSession {
-  constructor(agent) {
-    this.agent = agent
-    this.reset()
-  }
-
-  reset() {
-    this.cookies = new Map()
-    this.formHtml = null
-    this.lastNit = null // salvaguarda: el reporte de un NIT nuevo no puede traer el prestador del anterior
-    this.lastPrestador = null
-  }
-
-  request(method, requestPath, body = null) {
-    return new Promise((resolve, reject) => {
-      const headers = { 'user-agent': USER_AGENT, accept: '*/*', 'accept-language': 'es-CO,es;q=0.9' }
-      if (this.cookies.size > 0) headers.cookie = Array.from(this.cookies, ([k, v]) => `${k}=${v}`).join('; ')
-      if (body !== null) {
-        headers['content-type'] = 'application/x-www-form-urlencoded'
-        headers['content-length'] = Buffer.byteLength(body)
-        headers.referer = `https://${HOST}${REPORT_PATH}`
-        headers.origin = `https://${HOST}`
-      }
-      const req = https.request({ host: HOST, path: requestPath, method, agent: this.agent, headers, timeout: REQUEST_TIMEOUT_MS }, res => {
-        for (const cookie of res.headers['set-cookie'] || []) {
-          const pair = cookie.split(';')[0]
-          const eq = pair.indexOf('=')
-          if (eq > 0) this.cookies.set(pair.slice(0, eq).trim(), pair.slice(eq + 1))
-        }
-        const chunks = []
-        res.on('data', chunk => chunks.push(chunk))
-        res.on('end', () => resolve({ status: res.statusCode || 0, headers: res.headers, body: Buffer.concat(chunks) }))
-        res.on('error', reject)
-      })
-      req.on('timeout', () => req.destroy(new Error(`Tiempo de espera agotado (${REQUEST_TIMEOUT_MS / 1000} s)`)))
-      req.on('error', reject)
-      if (body !== null) req.write(body)
-      req.end()
-    })
-  }
-
-  async loadForm() {
-    const res = await this.request('GET', REPORT_PATH)
-    const html = res.body.toString('utf8')
-    if (isBlockedPage(html)) throw new BlockedError('El firewall de la ADRES bloqueó la consulta (página "Web Page Blocked")')
-    if (res.status !== 200 || !html.includes(FIELD_NIT)) throw new Error(`La página del reporte no cargó (HTTP ${res.status})`)
-    this.formHtml = html
-  }
-
-  /** Pide el reporte del NIT y el rango ("View Report") y devuelve la URL base de exportación. */
-  async run(nit, desde, hasta) {
-    if (!this.formHtml) await this.loadForm()
-    const fields = extractFormFields(this.formHtml).filter(([name]) => ![FIELD_DESDE, FIELD_HASTA, FIELD_NIT].includes(name))
-    fields.push([FIELD_DESDE, toAdresDate(desde)], [FIELD_HASTA, toAdresDate(hasta)], [FIELD_NIT, nit], [VIEW_BUTTON, 'View Report'])
-    const body = fields.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&')
-    const res = await this.request('POST', REPORT_PATH, body)
-    const html = res.body.toString('utf8')
-    if (isBlockedPage(html)) throw new BlockedError('El firewall de la ADRES bloqueó la consulta (página "Web Page Blocked")')
-    if (res.status !== 200) throw new Error(`HTTP ${res.status} al pedir el reporte`)
-    const exportBase = extractExportUrlBase(html)
-    if (!exportBase) {
-      this.formHtml = null
-      throw new Error('El reporte no devolvió la URL de exportación (¿parámetros rechazados?)')
-    }
-    this.formHtml = html // siguiente NIT: se envía desde esta página, como haría una persona
-    return exportBase
-  }
-
-  /** Descarga el reporte ya pedido en CSV o XML (texto). */
-  async exportAs(exportBase, format) {
-    const res = await this.request('GET', exportBase + format)
-    const text = res.body.toString('utf8')
-    if (isBlockedPage(text)) throw new BlockedError('El firewall de la ADRES bloqueó la descarga del reporte')
-    const type = String(res.headers['content-type'] || '')
-    const expected = format === 'CSV' ? /csv|text\/plain/i : /xml/i
-    if (res.status !== 200 || !expected.test(type)) throw new Error(`Exportación ${format}: HTTP ${res.status} ${type}`)
-    return text
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Un NIT: consultar, leer, validar
 // ---------------------------------------------------------------------------
 
@@ -325,7 +190,7 @@ async function fetchNit(session, nit, args) {
   for (let attempt = 1; attempt <= args.retries; attempt++) {
     const started = Date.now()
     try {
-      const exportBase = await session.run(nit, args.desde, args.hasta)
+      const exportBase = await session.run(nit, toAdresDate(args.desde), toAdresDate(args.hasta))
       let parsed = null
       let format = null
       let text = null
@@ -383,14 +248,6 @@ async function fetchNit(session, nit, args) {
 // Base de datos
 // ---------------------------------------------------------------------------
 
-async function supabaseClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!url || !key) throw new Error('Faltan NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY (web/.env.local)')
-  const { createClient } = await import('@supabase/supabase-js') // solo si hay que leer/escribir la base
-  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } })
-}
-
 async function loadHospitalNits(db) {
   const nits = new Map()
   for (let from = 0; ; from += 1000) {
@@ -417,6 +274,7 @@ async function recentlyFetched(db, nits, args) {
       .in('nit', chunk)
       .in('estado', ['ok', 'sin_registros'])
       .eq('regimen', REGIMEN)
+      .eq('fuente', FUENTE)
       .gte('fetched_at', since)
     if (error) throw new Error(`Error leyendo adres_fetch_log (¿falta la migración 0610?): ${error.message}`)
     for (const row of data || []) {
@@ -501,7 +359,7 @@ async function main() {
   )
   if (pending.length === 0) return 0
 
-  const agent = await buildAgent()
+  const agent = await buildAgent(USER_AGENT)
   const summary = { ok: 0, sin_registros: 0, error: 0, filas: 0, total: 0, errores: [] }
   let blocked = null
   let next = 0
@@ -509,7 +367,7 @@ async function main() {
   const width = String(pending.length).length
 
   async function worker() {
-    const session = new AdresSession(agent)
+    const session = new ReportViewerSession(agent, SESSION_CONFIG)
     while (!blocked) {
       const index = next++
       if (index >= pending.length) return

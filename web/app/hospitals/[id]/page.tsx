@@ -11,6 +11,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { usePermissions } from '@/hooks/usePermissions'
 import { useUser } from '@/contexts/UserContext'
 import HospitalGirosCard from '@/components/HospitalGirosCard'
+import HospitalEntornoCard from '@/components/HospitalEntornoCard'
 import HospitalRepsPanel from '@/components/HospitalRepsPanel'
 
 // GET /api/hospitals/[id] → routeStatus (app/api/_lib/pending-assignment.ts, getHospitalPendingStatus)
@@ -332,8 +333,8 @@ export default function HospitalDetailPage() {
     <ProtectedRoute>
       <div className="container mx-auto p-6">
         {/* Header */}
-        <div className="flex justify-between items-start mb-8">
-          <div>
+        <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start mb-8">
+          <div className="min-w-0">
             <button
               onClick={() => router.push('/hospitals')}
               className="text-gray-700 hover:text-gray-900 mb-4 flex items-center gap-2 font-medium"
@@ -346,7 +347,7 @@ export default function HospitalDetailPage() {
             <h1 className="text-4xl font-bold text-gray-900">{hospital.name}</h1>
             <p className="text-gray-600 mt-2">Código NIT: {hospital.code}</p>
           </div>
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3">
             {/* Botón de Editar Hospital - Visible para todos los usuarios autenticados */}
             <button
               onClick={() => {
@@ -520,6 +521,7 @@ export default function HospitalDetailPage() {
         <HospitalRepsPanel key={`reps-${repsVersion}`} hospitalId={hospitalId} />
         {/* Giros ADRES del NIT (Fase 3), junto a la sede y los datos del REPS */}
         <HospitalGirosCard hospitalId={hospitalId} />
+        <HospitalEntornoCard hospitalId={hospitalId} />
 
         {/* Doctores */}
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6 mb-8">

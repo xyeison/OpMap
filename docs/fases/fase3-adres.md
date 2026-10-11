@@ -18,8 +18,8 @@ función nuevas; no toca ninguna tabla existente).
 
 ## Limitaciones (decirlas siempre que se muestren cifras)
 
-- **Solo régimen subsidiado.** El contributivo (servicios.adres.gov.co) devolvía error el 2026-10-11;
-  `adres_giros.regimen` ya admite `contributivo` para cuando se pueda cargar.
+- **Reporte 29: solo régimen subsidiado.** El contributivo y los giros de 2026 vienen de "Identifica tu
+  Giro" (sección al final), que se guarda en otra tabla (`adres_giros_detalle`).
 - **El NIT es del prestador, no de la sede.** Un NIT con varias sedes activas en OpMap (47 NIT, 127
   IPS el 2026-10-11; p. ej. Colsanitas con 10) recibe un solo giro. Para agregar por municipio / zona /
   ejecutivo, la app lo reparte entre sus sedes **en proporción a las camas** (a partes iguales si ninguna
@@ -107,5 +107,130 @@ node scripts/adres-giros.mjs --help
 - ~~Correr la carga completa~~ Hecha el 2026-10-11: 701 NIT, 553 con datos, 148 sin registros, 0
   errores, 62.480 filas, $ 26,96 billones COP (jul-2023 a jun-2025). La tabla tiene además los 3 NIT de
   la prueba previa (512 filas).
-- Contributivo cuando servicios.adres.gov.co responda.
-- Revisar si la ADRES publica los giros posteriores a junio-2025 en otro reporte.
+- ~~Contributivo y giros posteriores a junio-2025~~ Resuelto con "Identifica tu Giro" (sección
+  siguiente). Falta la carga completa de esa fuente (ver allí).
+
+## Identifica tu Giro (ERP de la ADRES): contributivo, subsidiado y 2026
+
+Migración `database/migrations/2026-10-11_0630_adres_detalle.sql` (rollback
+`2026-10-11_9930_adres_detalle_rollback.sql`). **Aplicada** el 2026-10-11 (aditiva: 1 tabla, 1 vista y
+1 función nuevas; no toca `adres_giros` ni `adres_giros_resumen()`).
+
+### Fuente
+
+- `https://aplicaciones.adres.gov.co/ERP/Default.aspx`, reporte SSRS "Consulta_Pagos_ERP" (ReportViewer
+  2012), público y sin login. Parámetros: Fecha Inicio, Fecha Fin (dd/mm/aaaa) y "NIT EPS o IPS
+  Beneficiaria" (NIT sin DV). Botón "Ver informe".
+- Una fila por giro: NIT beneficiario, nombre, fecha del giro, valor, concepto y entidad ordenadora
+  (`NIT-800251440-ENTIDAD PROMOTORA DE SALUD SANITAS S A S`).
+- Exporta en **XML** (valores con centavos: `177773524.0000000000000000`) y en **CSV** (valores
+  redondeados a pesos, `$177.773.524`, y **sin comillas**). El script lee el XML y usa el CSV para
+  validarlo (mismas filas y sumas que cuadran a medio peso por fila); el CSV solo se usa si falta el XML.
+- **Datos desde el 4-abr-2025** (lo más antiguo que devolvió con rango desde ene-2025; consultado el
+  2026-10-11) hasta el día anterior a la consulta.
+- Mismo mecanismo HTTP que el Reporte 29 (sin navegador, User-Agent propio, cadena TLS completada por
+  AIA, se detiene ante el firewall). La sesión y la cadena TLS quedaron en `web/scripts/lib/adres-http.mjs`,
+  compartido por los dos scripts.
+
+### Regla de régimen (`regimenDeConcepto()` en `web/lib/adres-identifica.mjs`)
+
+Sobre el concepto sin tildes ni mayúsculas, en este orden:
+
+1. **subsidiado** si contiene "subsidiado" o la palabra "lma" (`LMA_186_IPS`, "PROCESO LMA"; no
+   "palma"). Incluye los giros LMA "CXP IPS", los "CXP EPS" (giro a terceros) y el presupuesto máximo del
+   subsidiado.
+2. **contributivo** si contiene "compensacion", "regimen contributivo", "cgd_proc" o `proceso_<n>_gd_`
+   (giro directo de la compensación con el formato viejo de abr-2025, que no trae la palabra). Incluye el
+   presupuesto máximo del contributivo.
+3. **otro** en los demás casos: recobros NO UPC, reclamaciones SOAT/ECAT (víctimas de accidentes de
+   tránsito), pruebas COVID, resoluciones del MSPS (deuda con entes territoriales por migrantes).
+
+Se ajustó la regla pedida ("Compensación" → contributivo; "LMA"/"Subsidiado" → subsidiado; otro) con dos
+casos reales: el formato viejo `Proceso_11266_GD_SURA` y el presupuesto máximo "Régimen Contributivo".
+
+**Entidad ordenadora**: es la EPS, salvo en los giros LMA "CXP IPS" del subsidiado, donde la ADRES
+registra el **ente territorial** (municipio o departamento) de la liquidación. Con los 3 NIT de prueba:
+342 de 377 giros del subsidiado traen un ente territorial. Las columnas se llaman `eps_ordenadora_*` pero
+guardan lo que publica la ADRES.
+
+### Modelo (0630)
+
+- **`adres_giros_detalle`**: `nit`, `fecha_giro`, `valor` numeric(18,2), `concepto` (espacios
+  colapsados), `proceso` ("Proceso 12056" → `12056`; NULL si no trae), `referencia` (código final:
+  `CGD_Proc_12041_EPS005_269_C`, `LMA_186_IPS`, `PM2025-RC-GD1`…; NULL si no trae), `eps_ordenadora_nit`,
+  `eps_ordenadora_nombre`, `regimen` (contributivo | subsidiado | otro), `fuente`
+  ('adres_identifica_giro'), `ocurrencia`, `huella`, `fetched_at`.
+- **Clave única `huella`** = sha256 de `nit|fecha|valor (2 decimales)|concepto|NIT ordenadora (o su
+  nombre)|ocurrencia`. `ocurrencia` numera los giros idénticos de una misma descarga (no se funden dos
+  pagos iguales el mismo día). Se eligió la huella en lugar de un UNIQUE de 5 columnas porque una
+  ordenadora sin NIT (NULL) rompería la unicidad.
+- **`adres_giros_mensual`** (vista, `security_invoker`): el detalle por NIT, mes (`periodo` = día 1),
+  régimen y NIT de la ordenadora, con `valor`, `giros` y `ultima_fecha`. Misma forma que `adres_giros`; la
+  usa la ficha de IPS.
+- **`adres_giros_intel(p_fuente, p_desde, p_hasta, p_regimen)`**: agregado por NIT en un jsonb para las
+  **dos** fuentes (`identifica` = detalle; `reporte29` = `adres_giros`): totales, capitación/evento,
+  contributivo/subsidiado/otro, meses, valor por entidad y último giro, más el diccionario de nombres de
+  entidades. La usa `GET /api/intelligence/giros` (y la vista de población de la Fase 4). Comprobado: para
+  el Reporte 29 da el mismo total que `adres_giros_resumen()` (jul-2024 a jun-2025: $ 15.967.511.745.238).
+- `adres_fetch_log` (0610) se reutiliza con `fuente = 'adres_identifica_giro'` y `regimen = 'todos'`.
+- RLS activado sin políticas, sin privilegios para anon/authenticated/PUBLIC; función solo `service_role`.
+
+### Carga: `web/scripts/adres-identifica-giro.mjs`
+
+```bash
+cd web
+node scripts/adres-identifica-giro.mjs --nit 890102768 --desde 2025-01 --hasta 2026-09 --dry-run
+node scripts/adres-identifica-giro.mjs --desde 2025-04          # carga completa (todos los NIT activos; reanudable)
+node scripts/adres-identifica-giro.mjs --help
+```
+
+- Mismas opciones que `adres-giros.mjs` (`--nit`, `--desde`, `--hasta`, `--parallel`, `--force`,
+  `--recent-days`, `--retries`, `--delay`, `--limit`, `--dry-run`, `--save-dir`) más `--ventana N`
+  (meses por consulta, 1–12, por defecto 6): el rango se parte en ventanas de calendario.
+- Por ventana: valida XML↔CSV, que todos los giros sean del NIT pedido y estén dentro de la ventana, y
+  que no haya filas ilegibles; si algo falla, reintenta con una sesión nueva y al final marca el NIT como
+  error **sin escribir nada** de ese NIT.
+- Escritura por NIT (solo si todas sus ventanas se leyeron bien): upsert por `huella` en lotes de 500,
+  poda de los giros de ese NIT dentro del rango que ya no vinieron (correcciones de la ADRES) y una fila
+  en `adres_fetch_log`. Reanudable como el Reporte 29.
+- **Prueba del 2026-10-11** (`--nit 890102768,891200679,800058856 --desde 2025-01 --hasta 2026-09`):
+  3 NIT con datos, 0 errores, **987 filas**, **$ 408.759.037.125**: contributivo $ 157.699.804.782,
+  subsidiado $ 247.230.299.298, otro $ 3.828.933.045. ≈ 3–4 s por NIT (4 ventanas, 2 exportaciones cada
+  una). Sin giros repetidos (ocurrencia máxima 1).
+- **Cruce con el Reporte 29** (abr–jun 2025, los meses que se solapan): para 800058856 la LMA de
+  Identifica suma lo mismo que el Reporte 29 ($ 600.073.913); para 891200679 la parte "CXP IPS" de la LMA
+  (abr + may + jun = $ 981.566.371) coincide peso a peso con el Reporte 29, y la diferencia son giros
+  "CXP EPS" que el Reporte 29 no incluye. Ojo: el Reporte 29 va por **mes de proceso** e Identifica por
+  **fecha de giro**.
+
+### API y UI
+
+- `GET /api/intelligence/giros` acepta `regimen=todos|contributivo|subsidiado` y
+  `fuente=auto|reporte29|identifica`, y devuelve además `fuente`, `fuenteMotivo`, `cobertura` (hasta el
+  último giro cargado), `sources`, `epsTop` (10 entidades que más giraron, con el reparto por sede) y, por
+  fila, `contributivo`, `subsidiado`, `otro`, `ultima_fecha` y `eps_top` (3).
+- **Fuente automática** (`chooseGirosSource()`): Identifica tu Giro si está cargado para **al menos el
+  90 % de los NIT activos** (consulta ok o sin registros) y tiene giros en el rango; si no, el Reporte 29.
+  Decisión: con solo los 3 NIT de prueba, cambiar a Identifica dejaría la página con 3 IPS; por eso hoy
+  la fuente automática sigue siendo el Reporte 29 y lo dice en pantalla ("cargado para 3 de 703 NIT").
+  Con `fuente=identifica` se ve lo cargado. `regimen=contributivo` con el Reporte 29 devuelve 0 y un aviso.
+- `GET /api/intelligence/giros/hospital/[id]`: si el NIT ya se consultó en Identifica tu Giro (ok o sin
+  registros) devuelve `fuente: 'identifica'` con total por régimen, entidades ordenadoras y serie por
+  régimen (vista `adres_giros_mensual`, 12 meses hasta el último mes con giros); si no, el Reporte 29
+  como antes. Ambos traen `ultimaFecha`.
+- **`/inteligencia`**: filtros Régimen y Fuente, línea con la fuente usada y el motivo, nota de cobertura
+  temporal, KPI "Contributivo / Subsidiado" (Identifica) o "Capitación / Evento" (Reporte 29), gráfico
+  apilado por régimen o por tipo, tarjeta "Entidades ordenadoras" (o "EPS que más giraron"), columna
+  "Último giro" y "Principal: …" en cada fila; el CSV exporta las mismas columnas.
+- **Ficha de IPS**: la tarjeta "Giros ADRES" muestra total, contributivo, subsidiado y otros conceptos,
+  último giro, las 5 entidades ordenadoras que más giraron y la serie por régimen.
+- Pruebas: sección 7 de `npm run adres:check` (muestras literales del CSV y el XML, sin registros, CSV con
+  comas sin comillas, proceso/referencia, régimen, huella y ocurrencias, ventanas, agregación mensual,
+  fuente automática, agregación por régimen y entidad).
+
+### Pendiente
+
+- **Carga completa** de Identifica tu Giro (≈ 703 NIT × 4 ventanas): `node scripts/adres-identifica-giro.mjs
+  --desde 2025-04`. Hasta que cubra el 90 % de los NIT, la fuente automática sigue en el Reporte 29.
+- La vista de población (Fase 4, `poblacion-server.ts`) usa el detalle en cuanto existe alguna fila; con
+  la carga parcial muestra solo los 3 NIT de prueba. Conviene aplicarle el mismo umbral de cobertura.

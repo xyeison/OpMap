@@ -1,21 +1,48 @@
 'use client'
 
-// Columnas por mes de los giros ADRES (SVG propio, sin librerías). Con stacked=true apila
-// Capitación (azul) + Evento (naranja) + Otros (gris, solo si hay), con leyenda.
+// Columnas por mes de los giros ADRES (SVG propio, sin librerías). Con stacked=true apila los
+// segmentos (por defecto Capitación azul + Evento naranja; con `segments`, p. ej. por régimen) y lo que
+// sobre del total como "Otros" (gris, solo si hay), con leyenda.
 // Hover/foco por columna muestra los valores; la tabla (details) los deja accesibles sin hover.
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { formatCop, formatCopCompact, GIROS_COLORS, monthLabel } from '@/lib/giros-format'
+
+export type GirosChartKey = 'capitacion' | 'evento' | 'contributivo' | 'subsidiado' | 'otro'
 
 export interface GirosChartPoint {
   periodo: string // 'YYYY-MM'
   total: number
   capitacion?: number
   evento?: number
+  contributivo?: number
+  subsidiado?: number
+  otro?: number
 }
+
+export interface GirosChartSegment {
+  key: GirosChartKey
+  label: string
+  color: string
+}
+
+/** Segmentos por tipo de contratación (Reporte 29). */
+export const SEGMENTS_TIPO: GirosChartSegment[] = [
+  { key: 'capitacion', label: 'Capitación', color: GIROS_COLORS.capitacion },
+  { key: 'evento', label: 'Evento', color: GIROS_COLORS.evento },
+]
+
+/** Segmentos por régimen (Identifica tu Giro). */
+export const SEGMENTS_REGIMEN: GirosChartSegment[] = [
+  { key: 'contributivo', label: 'Contributivo', color: GIROS_COLORS.contributivo },
+  { key: 'subsidiado', label: 'Subsidiado', color: GIROS_COLORS.subsidiado },
+  { key: 'otro', label: 'Otros conceptos', color: GIROS_COLORS.otros },
+]
 
 interface Props {
   points: GirosChartPoint[]
   stacked?: boolean
+  /** Segmentos apilados (por defecto SEGMENTS_TIPO). */
+  segments?: GirosChartSegment[]
   height?: number
   ariaLabel: string
   showTable?: boolean
@@ -39,7 +66,10 @@ function topRounded(x: number, y: number, w: number, h: number, r: number): stri
   return `M${x},${y + h}V${y + rr}Q${x},${y} ${x + rr},${y}H${x + w - rr}Q${x + w},${y} ${x + w},${y + rr}V${y + h}Z`
 }
 
-export default function GirosMonthlyChart({ points, stacked = false, height = 220, ariaLabel, showTable = true }: Props) {
+export default function GirosMonthlyChart({ points, stacked = false, segments: segmentsProp, height = 220, ariaLabel, showTable = true }: Props) {
+  const segmentDefs = segmentsProp ?? SEGMENTS_TIPO
+  const partOf = (point: GirosChartPoint, key: GirosChartKey) => point[key] || 0
+  const remainderOf = (point: GirosChartPoint) => Math.max(0, point.total - segmentDefs.reduce((acc, seg) => acc + partOf(point, seg.key), 0))
   const [hover, setHover] = useState<number | null>(null)
   // El SVG se dibuja al ancho real del contenedor para que los textos midan siempre lo mismo
   const boxRef = useRef<HTMLDivElement>(null)
@@ -63,7 +93,8 @@ export default function GirosMonthlyChart({ points, stacked = false, height = 22
     const steps = Math.max(1, Math.ceil(top / step))
     return { max: steps * step, ticks: Array.from({ length: steps + 1 }, (_, i) => i * step) }
   }, [points])
-  const hasOtros = stacked && points.some(p => p.total - (p.capitacion || 0) - (p.evento || 0) > 0.5)
+  const hasOtros = stacked && points.some(p => remainderOf(p) > 0.5)
+  const visibleSegments = segmentDefs.filter(seg => seg.key !== 'otro' || points.some(p => partOf(p, 'otro') > 0.5))
   const slot = points.length > 0 ? innerW / points.length : innerW
   const barW = Math.max(4, Math.min(24, slot * 0.6))
   // Etiquetas de mes cada k columnas para que no se monten (~56 px por etiqueta)
@@ -79,12 +110,11 @@ export default function GirosMonthlyChart({ points, stacked = false, height = 22
     <div>
       {stacked && (
         <div className="flex flex-wrap gap-4 text-xs text-gray-600 mb-2" aria-hidden="true">
-          <span className="inline-flex items-center gap-1.5">
-            <span className="inline-block w-3 h-3 rounded-sm" style={{ background: GIROS_COLORS.capitacion }} /> Capitación
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span className="inline-block w-3 h-3 rounded-sm" style={{ background: GIROS_COLORS.evento }} /> Evento
-          </span>
+          {visibleSegments.map(seg => (
+            <span key={seg.key} className="inline-flex items-center gap-1.5">
+              <span className="inline-block w-3 h-3 rounded-sm" style={{ background: seg.color }} /> {seg.label}
+            </span>
+          ))}
           {hasOtros && (
             <span className="inline-flex items-center gap-1.5">
               <span className="inline-block w-3 h-3 rounded-sm" style={{ background: GIROS_COLORS.otros }} /> Otros
@@ -98,7 +128,7 @@ export default function GirosMonthlyChart({ points, stacked = false, height = 22
             <g key={tick}>
               <line x1={PAD.left} x2={WIDTH - PAD.right} y1={y(tick)} y2={y(tick)} stroke="#e5e7eb" strokeWidth={1} />
               <text x={PAD.left - 6} y={y(tick)} dy="0.32em" textAnchor="end" fontSize={11} fill="#6b7280">
-                {tick === 0 ? '0' : formatCopCompact(tick).replace('$ ', '')}
+                {tick === 0 ? '0' : formatCopCompact(tick).replace(/^\$\s/, '')}
               </text>
             </g>
           ))}
@@ -107,9 +137,8 @@ export default function GirosMonthlyChart({ points, stacked = false, height = 22
             const x = cx - barW / 2
             const segments: Array<{ value: number; color: string }> = stacked
               ? [
-                  { value: point.capitacion || 0, color: GIROS_COLORS.capitacion },
-                  { value: point.evento || 0, color: GIROS_COLORS.evento },
-                  { value: Math.max(0, point.total - (point.capitacion || 0) - (point.evento || 0)), color: GIROS_COLORS.otros },
+                  ...segmentDefs.map(seg => ({ value: partOf(point, seg.key), color: seg.color })),
+                  { value: remainderOf(point), color: GIROS_COLORS.otros },
                 ].filter(segment => segment.value > 0.5)
               : [{ value: point.total, color: GIROS_COLORS.total }]
             let base = PAD.top + innerH
@@ -160,16 +189,13 @@ export default function GirosMonthlyChart({ points, stacked = false, height = 22
             <div className="text-gray-500">{monthLabel(hovered.periodo)}</div>
             {stacked && (
               <div className="mt-1 space-y-0.5">
-                <div className="flex items-center gap-1.5 text-gray-700">
-                  <span className="inline-block w-3 h-0.5" style={{ background: GIROS_COLORS.capitacion }} />
-                  <span className="font-medium">{formatCop(hovered.capitacion || 0)}</span>
-                  <span className="text-gray-500">Capitación</span>
-                </div>
-                <div className="flex items-center gap-1.5 text-gray-700">
-                  <span className="inline-block w-3 h-0.5" style={{ background: GIROS_COLORS.evento }} />
-                  <span className="font-medium">{formatCop(hovered.evento || 0)}</span>
-                  <span className="text-gray-500">Evento</span>
-                </div>
+                {visibleSegments.map(seg => (
+                  <div key={seg.key} className="flex items-center gap-1.5 text-gray-700">
+                    <span className="inline-block w-3 h-0.5" style={{ background: seg.color }} />
+                    <span className="font-medium">{formatCop(partOf(hovered, seg.key))}</span>
+                    <span className="text-gray-500">{seg.label}</span>
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -184,8 +210,12 @@ export default function GirosMonthlyChart({ points, stacked = false, height = 22
                 <tr className="text-left text-gray-500">
                   <th className="py-1 pr-4 font-medium">Mes</th>
                   <th className="py-1 pr-4 font-medium text-right">Total</th>
-                  {stacked && <th className="py-1 pr-4 font-medium text-right">Capitación</th>}
-                  {stacked && <th className="py-1 pr-4 font-medium text-right">Evento</th>}
+                  {stacked &&
+                    visibleSegments.map(seg => (
+                      <th key={seg.key} className="py-1 pr-4 font-medium text-right">
+                        {seg.label}
+                      </th>
+                    ))}
                 </tr>
               </thead>
               <tbody>
@@ -193,8 +223,12 @@ export default function GirosMonthlyChart({ points, stacked = false, height = 22
                   <tr key={point.periodo} className="border-t border-gray-100">
                     <td className="py-1 pr-4 text-gray-700">{monthLabel(point.periodo)}</td>
                     <td className="py-1 pr-4 text-right tabular-nums text-gray-900">{formatCop(point.total)}</td>
-                    {stacked && <td className="py-1 pr-4 text-right tabular-nums text-gray-700">{formatCop(point.capitacion || 0)}</td>}
-                    {stacked && <td className="py-1 pr-4 text-right tabular-nums text-gray-700">{formatCop(point.evento || 0)}</td>}
+                    {stacked &&
+                      visibleSegments.map(seg => (
+                        <td key={seg.key} className="py-1 pr-4 text-right tabular-nums text-gray-700">
+                          {formatCop(partOf(point, seg.key))}
+                        </td>
+                      ))}
                   </tr>
                 ))}
               </tbody>

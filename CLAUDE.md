@@ -96,6 +96,8 @@ nada llama a Google.
 - `docs/base-de-datos.md` – tablas, vistas, RLS. `docs/fases/` – Fase 1, 2 y 2b (modelo y reglas de
   cobertura) y Fase 3 (`fase3-reps-adres.md`: sedes del REPS, servicios/capacidad, giros ADRES).
   `docs/ips-pendientes.md` – cola de pendientes y acción masiva.
+- `docs/fases/fase4-poblacion.md` – población: afiliados BDUA, cifras mensuales de MinSalud y proyecciones
+  DANE (estructura real de las fuentes, tablas 0640, alias de municipio, scripts de carga y cifras).
 - `docs/arquitectura-y-scripts.md` – scripts Python, estructura de carpetas, archivos clave.
 - `docs/historico-resultados.md` – cifras de 2025 y colores originales (histórico, no vigente).
 - `docs/FLUJO_DE_TRABAJO_IA.md` – cómo trabajamos con Claude Code en este repo y por qué.

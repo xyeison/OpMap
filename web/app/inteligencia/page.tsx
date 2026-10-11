@@ -1,16 +1,28 @@
 'use client'
 
-// Fase 3 · Inteligencia de giros directos de la ADRES (régimen subsidiado) por IPS, municipio, zona y
-// Ejecutivo Comercial. Datos: GET /api/intelligence/giros (permiso intelligence:view).
+// Fase 3 · Inteligencia de giros directos de la ADRES por IPS, municipio, zona y Ejecutivo Comercial.
+// Dos fuentes: Reporte 29 (subsidiado, por mes de proceso) e "Identifica tu Giro" (por giro, contributivo
+// y subsidiado, con entidad ordenadora). Datos: GET /api/intelligence/giros (permiso intelligence:view).
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
-import GirosMonthlyChart from '@/components/GirosMonthlyChart'
+import GirosMonthlyChart, { SEGMENTS_REGIMEN, SEGMENTS_TIPO } from '@/components/GirosMonthlyChart'
+import IntelligencePoblacion from '@/components/IntelligencePoblacion'
 import { usePermissions } from '@/hooks/usePermissions'
-import { formatCop, formatCopCompact, formatPct, monthLabel } from '@/lib/giros-format'
+import { formatCop, formatCopCompact, formatFechaGiro, formatPct, monthLabel, GIROS_COLORS } from '@/lib/giros-format'
 
 type Group = 'ips' | 'municipio' | 'zona' | 'ejecutivo'
+type Fuente = 'reporte29' | 'identifica'
+type FuenteParam = 'auto' | Fuente
+type Regimen = 'todos' | 'contributivo' | 'subsidiado'
+
+interface EpsShare {
+  codigo: string
+  nombre: string
+  valor: number
+  pct: number
+}
 
 interface MyLine {
   id: string
@@ -28,6 +40,11 @@ interface GirosRow {
   ips: number
   ipsConGiro: number
   camas: number
+  contributivo: number
+  subsidiado: number
+  otro: number
+  ultima_fecha: string | null
+  eps_top: EpsShare[]
   hospital_id?: string
   nit?: string
   municipio?: string | null
@@ -45,8 +62,13 @@ interface GirosRow {
 interface GirosResponse {
   group: Group
   line: { code: string; name: string } | null
+  fuente: Fuente
+  fuenteSolicitada: FuenteParam
+  fuenteMotivo: string
+  regimen: Regimen
   range: { desde: string; hasta: string; meses: number } | null
   available: { min: string; max: string } | null
+  cobertura: { desde: string; hasta: string; texto: string } | null
   fetch: { nitsConsultados: number; conDatos: number; sinRegistros: number; errores: number; ultimaConsulta: string | null }
   filters: {
     departamentos: Array<{ code: string; name: string }>
@@ -65,9 +87,14 @@ interface GirosResponse {
     sinZona: number
     ipsSinNit: number
     ipsConNitCompartido: number
+    contributivo: number
+    subsidiado: number
+    regimenOtro: number
+    ultimaFecha: string | null
   }
-  series: Array<{ periodo: string; total: number; capitacion: number; evento: number }>
+  series: Array<{ periodo: string; total: number; capitacion: number; evento: number; contributivo: number; subsidiado: number; otro: number }>
   rows: GirosRow[]
+  epsTop: EpsShare[]
   notes: string[]
 }
 
@@ -79,6 +106,35 @@ const GROUP_TABS: Array<{ value: Group; label: string }> = [
 ]
 
 const PAGE = 50
+
+const REGIMEN_OPTIONS: Array<{ value: Regimen; label: string }> = [
+  { value: 'todos', label: 'Todos' },
+  { value: 'contributivo', label: 'Contributivo' },
+  { value: 'subsidiado', label: 'Subsidiado' },
+]
+
+const FUENTE_OPTIONS: Array<{ value: FuenteParam; label: string }> = [
+  { value: 'auto', label: 'Automática' },
+  { value: 'identifica', label: 'Identifica tu Giro' },
+  { value: 'reporte29', label: 'Reporte 29 (subsidiado)' },
+]
+
+/** Las dos columnas de reparto según la fuente: por régimen (Identifica tu Giro) o por tipo (Reporte 29). */
+function splitColumns(fuente: Fuente): Array<{ key: 'contributivo' | 'subsidiado' | 'capitacion' | 'evento'; label: string }> {
+  return fuente === 'identifica'
+    ? [
+        { key: 'contributivo', label: 'Contributivo' },
+        { key: 'subsidiado', label: 'Subsidiado' },
+      ]
+    : [
+        { key: 'capitacion', label: 'Capitación' },
+        { key: 'evento', label: 'Evento' },
+      ]
+}
+
+const entidadLabel = (fuente: Fuente) => (fuente === 'identifica' ? 'entidad ordenadora' : 'EPS')
+const ultimaLabel = (row: { ultima_fecha: string | null }, fuente: Fuente) => formatFechaGiro(row.ultima_fecha, fuente === 'reporte29')
+const principal = (row: GirosRow) => (row.eps_top[0] ? `${row.eps_top[0].nombre} (${formatPct(row.eps_top[0].pct)})` : null)
 
 // CSV para Excel en español: UTF-8 con BOM, separador ";", CRLF; evita fórmulas (inyección CSV).
 function csvCell(value: string | number | null | undefined): string {
@@ -94,16 +150,21 @@ function buildCsv(data: GirosResponse): string {
   const lines: string[] = []
   const push = (cells: Array<string | number | null | undefined>) => lines.push(cells.map(csvCell).join(';'))
   const withExecutive = data.line !== null
+  const split = splitColumns(data.fuente)
+  const splitHeaders = split.map(col => `${col.label} (COP)`)
+  const tail = (row: GirosRow) => [ultimaLabel(row, data.fuente), row.eps_top[0]?.nombre ?? '', row.eps_top[0] ? row.eps_top[0].pct.toLocaleString('es-CO') : '']
+  const tailHeaders = ['Último giro', `Principal ${entidadLabel(data.fuente)}`, `% de la principal ${entidadLabel(data.fuente)}`]
+  push([`Fuente: ${data.fuente === 'identifica' ? 'ADRES Identifica tu Giro' : 'ADRES Reporte 29'}`, `Régimen: ${data.regimen}`])
   if (data.group === 'ips') {
-    push(['IPS', 'NIT', 'Municipio', 'Departamento', 'Zona', ...(withExecutive ? ['Ejecutivo Comercial'] : []), 'Camas', 'Giro (COP)', '% del total', 'Capitación (COP)', 'Evento (COP)', 'Giro total del NIT (COP)', 'Sedes del NIT en OpMap'])
+    push(['IPS', 'NIT', 'Municipio', 'Departamento', 'Zona', ...(withExecutive ? ['Ejecutivo Comercial'] : []), 'Camas', 'Giro (COP)', '% del total', ...splitHeaders, 'Giro total del NIT (COP)', 'Sedes del NIT en OpMap', ...tailHeaders])
     for (const row of data.rows) {
-      push([row.label, row.nit, row.municipio, row.departamento, row.zona ?? 'Sin zona asignada', ...(withExecutive ? [row.ejecutivo] : []), row.camas, row.giro, row.pct.toLocaleString('es-CO'), row.capitacion, row.evento, row.giro_nit, row.sedes_nit])
+      push([row.label, row.nit, row.municipio, row.departamento, row.zona ?? 'Sin zona asignada', ...(withExecutive ? [row.ejecutivo] : []), row.camas, row.giro, row.pct.toLocaleString('es-CO'), ...split.map(col => row[col.key]), row.giro_nit, row.sedes_nit, ...tail(row)])
     }
   } else {
     const first = data.group === 'municipio' ? 'Municipio' : data.group === 'zona' ? 'Zona' : 'Ejecutivo Comercial'
-    push([first, ...(data.group === 'municipio' ? ['Departamento'] : []), ...(data.group === 'ejecutivo' ? ['Zonas'] : []), 'IPS', 'IPS con giro', 'Camas', 'Giro (COP)', '% del total', 'Capitación (COP)', 'Evento (COP)', 'IPS con más giro'])
+    push([first, ...(data.group === 'municipio' ? ['Departamento'] : []), ...(data.group === 'ejecutivo' ? ['Zonas'] : []), 'IPS', 'IPS con giro', 'Camas', 'Giro (COP)', '% del total', ...splitHeaders, 'IPS con más giro', ...tailHeaders])
     for (const row of data.rows) {
-      push([row.label, ...(data.group === 'municipio' ? [row.departamento] : []), ...(data.group === 'ejecutivo' ? [(row.zonas || []).join(', ')] : []), row.ips, row.ipsConGiro, row.camas, row.giro, row.pct.toLocaleString('es-CO'), row.capitacion, row.evento, row.top_ips])
+      push([row.label, ...(data.group === 'municipio' ? [row.departamento] : []), ...(data.group === 'ejecutivo' ? [(row.zonas || []).join(', ')] : []), row.ips, row.ipsConGiro, row.camas, row.giro, row.pct.toLocaleString('es-CO'), ...split.map(col => row[col.key]), row.top_ips, ...tail(row)])
     }
   }
   return '﻿' + lines.join('\r\n') + '\r\n'
@@ -115,7 +176,7 @@ function downloadCsv(data: GirosResponse) {
   const a = document.createElement('a')
   const range = data.range ? `${data.range.desde}_${data.range.hasta}` : 'sin-rango'
   a.href = url
-  a.download = `giros-adres-${data.group}${data.line ? `-${data.line.code}` : ''}-${range}.csv`
+  a.download = `giros-adres-${data.fuente}-${data.regimen}-${data.group}${data.line ? `-${data.line.code}` : ''}-${range}.csv`
   document.body.appendChild(a)
   a.click()
   a.remove()
@@ -126,7 +187,7 @@ function Kpi({ label, value, hint }: { label: string; value: string; hint?: stri
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
       <p className="text-xs font-medium text-gray-500">{label}</p>
-      <p className="text-2xl font-bold text-gray-900 tabular-nums mt-1 break-words">{value}</p>
+      <p className={`${value.length > 16 ? 'text-xl' : 'text-2xl'} font-bold text-gray-900 tabular-nums mt-1 break-words`}>{value}</p>
       {hint && <p className="text-xs text-gray-500 mt-1">{hint}</p>}
     </div>
   )
@@ -144,6 +205,7 @@ export default function InteligenciaPage() {
         }
       >
         <InteligenciaContent />
+        <IntelligencePoblacion />
       </PermissionGuard>
     </ProtectedRoute>
   )
@@ -158,6 +220,8 @@ function InteligenciaContent() {
   const [municipio, setMunicipio] = useState('')
   const [desde, setDesde] = useState('')
   const [hasta, setHasta] = useState('')
+  const [regimen, setRegimen] = useState<Regimen>('todos')
+  const [fuente, setFuente] = useState<FuenteParam>('auto')
   const [data, setData] = useState<GirosResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -180,6 +244,8 @@ function InteligenciaContent() {
       if (municipio) params.set('municipio', municipio)
       if (desde) params.set('desde', desde)
       if (hasta) params.set('hasta', hasta)
+      if (regimen !== 'todos') params.set('regimen', regimen)
+      if (fuente !== 'auto') params.set('fuente', fuente)
       setLoading(true)
       setError(null)
       fetch(`/api/intelligence/giros?${params.toString()}`, { cache: 'no-store', signal })
@@ -198,8 +264,8 @@ function InteligenciaContent() {
           if (!signal.aborted) setLoading(false)
         })
     },
-    // desde/hasta vacíos = rango por defecto de la API (12 meses hasta el último mes con giros)
-    [group, line, departamento, municipio, desde, hasta]
+    // desde/hasta vacíos = rango por defecto de la API (12 meses hasta el último mes con giros de la fuente)
+    [group, line, departamento, municipio, desde, hasta, regimen, fuente]
   )
 
   useEffect(() => {
@@ -218,6 +284,8 @@ function InteligenciaContent() {
     setMunicipio('')
     setDesde('')
     setHasta('')
+    setRegimen('todos')
+    setFuente('auto')
     setGroup(group === 'ejecutivo' && !line ? 'ips' : group)
   }
 
@@ -225,20 +293,23 @@ function InteligenciaContent() {
   const rangeLabel = data?.range ? `${monthLabel(data.range.desde)} a ${monthLabel(data.range.hasta)}` : ''
   const withExecutive = Boolean(data?.line)
   const rows = data?.rows || []
+  const fuenteActual: Fuente = data?.fuente ?? 'reporte29'
+  const split = splitColumns(fuenteActual)
+  const ultimoGiro = kpis ? formatFechaGiro(kpis.ultimaFecha, fuenteActual === 'reporte29') : '—'
 
   return (
     <div className="container mx-auto p-4 sm:p-6">
       <div className="mb-6">
         <h1 className="text-3xl sm:text-4xl font-bold text-gray-900">Inteligencia: giros ADRES</h1>
         <p className="text-gray-600 mt-2">
-          Recursos que la ADRES gira directamente a las IPS (régimen subsidiado), por NIT del prestador. Sirve para ver qué IPS y
-          municipios reciben más recursos.
+          Recursos que la ADRES gira directamente a las IPS (régimen contributivo y subsidiado), por NIT del prestador. Sirve para
+          ver qué IPS y municipios reciben más recursos y de qué entidades.
         </p>
       </div>
 
       {/* Filtros: una fila, encima de todo */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-6">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 items-end">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
           <label className="text-sm">
             <span className="block text-xs font-medium text-gray-600 mb-1">Línea</span>
             <select
@@ -287,6 +358,26 @@ function InteligenciaContent() {
             </select>
           </label>
           <label className="text-sm">
+            <span className="block text-xs font-medium text-gray-600 mb-1">Régimen</span>
+            <select value={regimen} onChange={event => setRegimen(event.target.value as Regimen)} className="w-full rounded-lg border border-gray-300 px-3 py-2 bg-white">
+              {REGIMEN_OPTIONS.map(option => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-sm">
+            <span className="block text-xs font-medium text-gray-600 mb-1">Fuente</span>
+            <select value={fuente} onChange={event => setFuente(event.target.value as FuenteParam)} className="w-full rounded-lg border border-gray-300 px-3 py-2 bg-white">
+              {FUENTE_OPTIONS.map(option => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-sm">
             <span className="block text-xs font-medium text-gray-600 mb-1">Desde (mes)</span>
             <input
               type="month"
@@ -322,10 +413,23 @@ function InteligenciaContent() {
             </button>
           </div>
         </div>
-        {data?.available && (
-          <p className="text-xs text-gray-500 mt-3">
-            Meses con giros cargados: {monthLabel(data.available.min)} a {monthLabel(data.available.max)}.
-          </p>
+        {data && (
+          <div className="text-xs text-gray-500 mt-3 space-y-0.5">
+            <p>
+              <span className="font-medium text-gray-700">{data.fuente === 'identifica' ? 'Identifica tu Giro' : 'Reporte 29'}</span>
+              {' · '}
+              {data.fuenteMotivo}
+            </p>
+            {data.cobertura ? (
+              <p>Cobertura: {data.cobertura.texto}</p>
+            ) : (
+              data.available && (
+                <p>
+                  Meses con giros cargados: {monthLabel(data.available.min)} a {monthLabel(data.available.max)}.
+                </p>
+              )
+            )}
+          </div>
         )}
       </div>
 
@@ -333,10 +437,13 @@ function InteligenciaContent() {
 
       {data && !data.available && !loading && (
         <div className="mb-6 rounded-xl border border-gray-200 bg-white p-6 text-center">
-          <p className="font-medium text-gray-800">Aún no se han cargado giros de la ADRES.</p>
+          <p className="font-medium text-gray-800">Aún no se han cargado giros de la ADRES en esta fuente.</p>
           {role === 'admin' && (
             <p className="text-sm text-gray-500 mt-1">
-              Cargarlos con <code className="px-1 py-0.5 bg-gray-100 rounded">cd web &amp;&amp; node scripts/adres-giros.mjs</code>
+              Cargarlos con{' '}
+              <code className="px-1 py-0.5 bg-gray-100 rounded">
+                cd web &amp;&amp; node scripts/{data.fuente === 'identifica' ? 'adres-identifica-giro.mjs' : 'adres-giros.mjs'}
+              </code>
             </p>
           )}
         </div>
@@ -345,7 +452,7 @@ function InteligenciaContent() {
       {kpis && data?.available && (
         <>
           <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 ${loading ? 'opacity-60' : ''}`}>
-            <Kpi label="Total girado" value={formatCop(kpis.total)} hint={rangeLabel} />
+            <Kpi label="Total girado" value={formatCop(kpis.total)} hint={`${rangeLabel} · último giro ${ultimoGiro}`} />
             <Kpi
               label="IPS con giro"
               value={`${kpis.ipsConGiro.toLocaleString('es-CO')} de ${kpis.ipsTotal.toLocaleString('es-CO')}`}
@@ -356,17 +463,61 @@ function InteligenciaContent() {
               value={formatPct(kpis.asignadoPct)}
               hint={`${formatCopCompact(kpis.asignado)} con zona · ${formatCopCompact(kpis.sinZona)} sin zona`}
             />
-            <Kpi
-              label="Capitación / Evento"
-              value={kpis.total > 0 ? `${formatPct((kpis.capitacion / kpis.total) * 100)} / ${formatPct((kpis.evento / kpis.total) * 100)}` : '—'}
-              hint={`${formatCopCompact(kpis.capitacion)} · ${formatCopCompact(kpis.evento)}`}
-            />
+            {fuenteActual === 'identifica' ? (
+              <Kpi
+                label="Contributivo / Subsidiado"
+                value={kpis.total > 0 ? `${formatPct((kpis.contributivo / kpis.total) * 100)} / ${formatPct((kpis.subsidiado / kpis.total) * 100)}` : '—'}
+                hint={`${formatCopCompact(kpis.contributivo)} · ${formatCopCompact(kpis.subsidiado)}${kpis.regimenOtro > 0 ? ` · otros conceptos ${formatCopCompact(kpis.regimenOtro)}` : ''}`}
+              />
+            ) : (
+              <Kpi
+                label="Capitación / Evento"
+                value={kpis.total > 0 ? `${formatPct((kpis.capitacion / kpis.total) * 100)} / ${formatPct((kpis.evento / kpis.total) * 100)}` : '—'}
+                hint={`${formatCopCompact(kpis.capitacion)} · ${formatCopCompact(kpis.evento)}`}
+              />
+            )}
           </div>
 
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 mb-6">
-            <h2 className="text-lg font-semibold text-gray-900">Giro por mes</h2>
-            <p className="text-xs text-gray-500 mb-3">{rangeLabel} · Capitación y Evento apilados</p>
-            <GirosMonthlyChart points={data.series} stacked ariaLabel={`Giro mensual de la ADRES, ${rangeLabel}`} />
+          <div className={`grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6 ${loading ? 'opacity-60' : ''}`}>
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 lg:col-span-2 min-w-0">
+              <h2 className="text-lg font-semibold text-gray-900">Giro por mes</h2>
+              <p className="text-xs text-gray-500 mb-3">
+                {rangeLabel} · {fuenteActual === 'identifica' ? 'por fecha de giro, régimen apilado' : 'por mes de proceso, Capitación y Evento apilados'}
+              </p>
+              <GirosMonthlyChart
+                points={data.series}
+                stacked
+                segments={fuenteActual === 'identifica' ? SEGMENTS_REGIMEN : SEGMENTS_TIPO}
+                ariaLabel={`Giro mensual de la ADRES, ${rangeLabel}`}
+              />
+            </div>
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 min-w-0">
+              <h2 className="text-lg font-semibold text-gray-900">{fuenteActual === 'identifica' ? 'Entidades ordenadoras' : 'EPS que más giraron'}</h2>
+              <p className="text-xs text-gray-500 mb-3">
+                {fuenteActual === 'identifica' ? 'La EPS; en los giros LMA "CXP IPS" del subsidiado, el ente territorial' : 'Régimen subsidiado'}
+              </p>
+              {data.epsTop.length === 0 ? (
+                <p className="text-sm text-gray-500">Sin giros en el rango.</p>
+              ) : (
+                <ul className="space-y-2.5">
+                  {data.epsTop.map(eps => (
+                    <li key={eps.codigo}>
+                      <div className="flex items-baseline justify-between gap-3 text-sm">
+                        <span className="text-gray-800 truncate" title={fuenteActual === 'identifica' && !eps.codigo.startsWith('nombre:') ? `${eps.nombre} (NIT ${eps.codigo})` : eps.nombre}>
+                          {eps.nombre} {fuenteActual === 'reporte29' && <span className="text-gray-400 text-xs">{eps.codigo}</span>}
+                        </span>
+                        <span className="tabular-nums text-gray-900 whitespace-nowrap">
+                          {formatCopCompact(eps.valor)} <span className="text-gray-500 text-xs">{formatPct(eps.pct)}</span>
+                        </span>
+                      </div>
+                      <div className="h-1.5 bg-gray-100 rounded-full mt-1">
+                        <div className="h-1.5 rounded-full" style={{ width: `${Math.max(1, Math.min(100, eps.pct))}%`, background: GIROS_COLORS.total }} />
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </div>
 
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 mb-6">
@@ -434,10 +585,16 @@ function InteligenciaContent() {
                           </div>
                         </div>
                         <p className="text-xs text-gray-500 mt-1 tabular-nums">
-                          Capitación {formatCopCompact(row.capitacion)} · Evento {formatCopCompact(row.evento)}
+                          {split.map(col => `${col.label} ${formatCopCompact(row[col.key])}`).join(' · ')}
                           {group !== 'ips' ? ` · IPS con giro ${row.ipsConGiro} / ${row.ips}` : ''}
                           {group === 'ips' && row.sedes_nit && row.sedes_nit > 1 ? ` · NIT compartido (${row.sedes_nit} sedes)` : ''}
+                          {` · último giro ${ultimaLabel(row, fuenteActual)}`}
                         </p>
+                        {principal(row) && (
+                          <p className="text-xs text-gray-500 mt-0.5 break-words">
+                            Principal {entidadLabel(fuenteActual)}: {principal(row)}
+                          </p>
+                        )}
                       </li>
                     )
                   })}
@@ -477,8 +634,12 @@ function InteligenciaContent() {
                       )}
                       <th className="py-2 pr-3 font-medium text-right">Giro</th>
                       <th className="py-2 pr-3 font-medium text-right">%</th>
-                      <th className="py-2 pr-3 font-medium text-right">Capitación</th>
-                      <th className="py-2 pr-3 font-medium text-right">Evento</th>
+                      {split.map(col => (
+                        <th key={col.key} className="py-2 pr-3 font-medium text-right">
+                          {col.label}
+                        </th>
+                      ))}
+                      <th className="py-2 pr-3 font-medium text-right whitespace-nowrap">Último giro</th>
                       {group !== 'ips' && group !== 'ejecutivo' && <th className="py-2 pr-3 font-medium">IPS con más giro</th>}
                     </tr>
                   </thead>
@@ -500,6 +661,11 @@ function InteligenciaContent() {
                                   </span>
                                 )}
                               </div>
+                              {principal(row) && (
+                                <div className="text-xs text-gray-500" title={`Principal ${entidadLabel(fuenteActual)}`}>
+                                  Principal: {principal(row)}
+                                </div>
+                              )}
                             </td>
                             <td className="py-2 pr-3 text-gray-700">
                               {row.municipio || '—'}
@@ -519,18 +685,27 @@ function InteligenciaContent() {
                         )}
                         {group === 'municipio' && (
                           <>
-                            <td className="py-2 pr-3 font-medium text-gray-900">{row.label}</td>
+                            <td className="py-2 pr-3 font-medium text-gray-900">
+                              {row.label}
+                              {principal(row) && <div className="text-xs font-normal text-gray-500">Principal: {principal(row)}</div>}
+                            </td>
                             <td className="py-2 pr-3 text-gray-700">{row.departamento || '—'}</td>
                           </>
                         )}
-                        {group === 'zona' && <td className="py-2 pr-3 font-medium text-gray-900">{row.label}</td>}
+                        {group === 'zona' && (
+                          <td className="py-2 pr-3 font-medium text-gray-900">
+                            {row.label}
+                            {principal(row) && <div className="text-xs font-normal text-gray-500">Principal: {principal(row)}</div>}
+                          </td>
+                        )}
                         {group === 'ejecutivo' && (
                           <>
-                            <td className="py-2 pr-3 font-medium text-gray-900 whitespace-nowrap">
-                              <span className="inline-flex items-center gap-1.5">
+                            <td className="py-2 pr-3 font-medium text-gray-900">
+                              <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
                                 <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: row.color || '#d1d5db' }} />
                                 {row.label}
                               </span>
+                              {principal(row) && <div className="text-xs font-normal text-gray-500">Principal: {principal(row)}</div>}
                             </td>
                             <td className="py-2 pr-3 text-gray-600 text-xs">{(row.zonas || []).join(', ') || '—'}</td>
                           </>
@@ -545,8 +720,12 @@ function InteligenciaContent() {
                         )}
                         <td className="py-2 pr-3 text-right tabular-nums font-semibold text-gray-900 whitespace-nowrap">{formatCop(row.giro)}</td>
                         <td className="py-2 pr-3 text-right tabular-nums text-gray-700 whitespace-nowrap">{formatPct(row.pct)}</td>
-                        <td className="py-2 pr-3 text-right tabular-nums text-gray-600 whitespace-nowrap">{formatCopCompact(row.capitacion)}</td>
-                        <td className="py-2 pr-3 text-right tabular-nums text-gray-600 whitespace-nowrap">{formatCopCompact(row.evento)}</td>
+                        {split.map(col => (
+                          <td key={col.key} className="py-2 pr-3 text-right tabular-nums text-gray-600 whitespace-nowrap">
+                            {formatCopCompact(row[col.key])}
+                          </td>
+                        ))}
+                        <td className="py-2 pr-3 text-right tabular-nums text-gray-600 whitespace-nowrap">{ultimaLabel(row, fuenteActual)}</td>
                         {group !== 'ips' && group !== 'ejecutivo' && <td className="py-2 pr-3 text-gray-600 text-xs">{row.top_ips || '—'}</td>}
                       </tr>
                     ))}

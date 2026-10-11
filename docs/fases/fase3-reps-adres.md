@@ -8,7 +8,7 @@ detalle de cada parte está en:
 | --- | --- | --- |
 | Sedes del REPS (IPS por código de habilitación) | `docs/fases/fase3-reps.md` | `lib/reps-match.ts`, `scripts/reps-load-sedes.ts`, `scripts/reps-match.ts` |
 | Servicios habilitados y capacidad instalada | `docs/fases/fase3-servicios-capacidad-reps.md` | `lib/reps-import.ts`, `/hospitals/import` |
-| Giros directos de la ADRES | `docs/fases/fase3-adres.md` | `lib/adres-parse.mjs`, `lib/adres-intelligence.ts`, `scripts/adres-giros.mjs` |
+| Giros directos de la ADRES | `docs/fases/fase3-adres.md` | `lib/adres-parse.mjs`, `lib/adres-identifica.mjs`, `lib/adres-intelligence.ts`, `scripts/adres-giros.mjs`, `scripts/adres-identifica-giro.mjs` |
 
 Pedido del dueño (2026-10-11): "un NIT puede tener varias sedes… debe ser por código de habilitación y
 debe tener servicios habilitados e info que me dé a entender qué tan grande es; también podemos hacer
@@ -142,9 +142,10 @@ a los giros y también a la cola de pendientes, a los usuarios (sesión) y al te
 - **PDF solo con texto**: un PDF escaneado responde "requiere OCR" y no hay OCR. El portal del REPS
   exige login, así que no hay descarga automática.
 - **ADRES**:
-  - Solo régimen **subsidiado** (el contributivo daba error el 2026-10-11).
-  - Datos publicados hasta **junio-2025**; por defecto se muestran los 12 meses que terminan en el último
-    mes cargado.
+  - Reporte 29: solo régimen **subsidiado** y datos hasta **junio-2025**. El contributivo y 2026 vienen de
+    "Identifica tu Giro" (migración 0630, `scripts/adres-identifica-giro.mjs`, desde abr-2025); hasta su
+    carga completa, la fuente automática de `/inteligencia` sigue siendo el Reporte 29.
+  - Por defecto se muestran los 12 meses que terminan en el último mes cargado de la fuente usada.
   - El giro es por NIT: en un NIT compartido, el reparto por camas es una estimación.
 - **Excel**: `xlsx` 0.18.5 de npm tiene avisos conocidos (contaminación de prototipo y ReDoS). Se mitiga
   con solo admin y data_manager, máx. 4 MB y 200.000 filas. Queda pendiente actualizar desde el CDN de
@@ -159,5 +160,5 @@ a los giros y también a la cola de pendientes, a los usuarios (sesión) y al te
   del dueño. Gasto de Google en esta fase: ninguno.
 - Vincular a mano las 35 ambiguas y revisar las 22 sin cruce.
 - Primera importación real de servicios y capacidad. Probar el PDF mensual del dueño cuando lo comparta.
-- Régimen contributivo de la ADRES y giros posteriores a junio-2025.
+- Carga completa de "Identifica tu Giro" (contributivo y giros posteriores a junio-2025; ver `docs/fases/fase3-adres.md`).
 - Actualizar SheetJS.

@@ -29,6 +29,25 @@ export function formatPct(value: number | null | undefined): string {
 export const GIROS_COLORS = {
   capitacion: '#2a78d6',
   evento: '#eb6834',
+  contributivo: '#2a78d6',
+  subsidiado: '#eb6834',
   otros: '#9ca3af',
   total: '#2a78d6',
 } as const
+
+/**
+ * Último giro: 'YYYY-MM-DD' (Identifica tu Giro) → '28/09/2026'; 'YYYY-MM' o 'YYYY-MM-01' de un mes de
+ * proceso (Reporte 29) → 'jun-2025' si mensual=true. null → '—'.
+ */
+export function formatFechaGiro(value: string | null | undefined, mensual = false): string {
+  if (!value) return '—'
+  if (mensual || value.length === 7) return monthLabelFrom(value.slice(0, 7))
+  const [y, m, d] = value.slice(0, 10).split('-')
+  return d && m && y ? `${d}/${m}/${y}` : value
+}
+
+const MESES_CORTOS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
+function monthLabelFrom(ym: string): string {
+  const [y, m] = ym.split('-').map(Number)
+  return m >= 1 && m <= 12 ? `${MESES_CORTOS[m - 1]}-${y}` : ym
+}
