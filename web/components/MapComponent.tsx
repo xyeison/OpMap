@@ -1,16 +1,67 @@
 'use client'
 
-import { MapContainer, TileLayer, GeoJSON, CircleMarker, Marker, Tooltip, ZoomControl } from 'react-leaflet'
+import { MapContainer, TileLayer, GeoJSON, CircleMarker, Tooltip, ZoomControl, AttributionControl, Pane } from 'react-leaflet'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
 import { VisitsHeatmapLayer } from './VisitsHeatmapLayer'
-import { formatTravelTimeFromSeconds, formatTravelTime } from '@/lib/format-utils'
-import MapControls, { OUT_OF_REACH_COLOR, NO_ROAD_COLOR, PENDING_FILL_COLOR, PENDING_BORDER_COLOR } from './MapControls'
-import MapController from './MapController'
-import HospitalMarker, { formatZoneExecutives } from './HospitalMarker'
+import { formatTravelTimeFromSeconds } from '@/lib/format-utils'
+import MapControls from './MapControls'
+import MapController, { ZoomGate } from './MapController'
+import HospitalMarker, { UnassignedHospitalMarker, IpsZoomLayer, formatZoneExecutives, ipsRadius, IPS_FULL_SIZE_ZOOM, type HospitalSelectHandler } from './HospitalMarker'
+import MapLegend, { MapLegendCard, type LegendEntry, type LegendNote, type LegendState, type LegendViewSelect } from './MapLegend'
+import MapBottomSheet, { SHEET_PEEK_PX, type SheetSnap } from './MapBottomSheet'
+import {
+  MapPopup,
+  IpsPopupCard,
+  UnassignedPopupCard,
+  ZonePopupCard,
+  ClusterPopupCard,
+  TerritoryPopupCard,
+  type IpsPopupData,
+  type UnassignedPopupData,
+  type ZonePopupData,
+  type ClusterPopupData,
+  type PopupAction,
+  type TerritoryInfo
+} from './MapPopups'
+import { zoneBadgeHeight, initialsOf, uniqueCityInitials, shortCityName, readableTextColor } from './ZoneBadgeIcon'
+import ZoneBadgeLayer, { type ZoneBadgeItem } from './ZoneBadgeLayer'
+import MapLabelsLayer from './MapLabelsLayer'
+import {
+  TERRITORY_BORDER_COLOR,
+  TERRITORY_BORDER_WEIGHT,
+  TERRITORY_BORDER_OPACITY,
+  IPS_FILL_OPACITY,
+  REACH_FILL_OPACITY,
+  REACH_OPACITY_RATIO,
+  HOVER_FILL_BOOST,
+  HOVER_BORDER_WEIGHT,
+  DIMMED_FILL_OPACITY,
+  VACANT_FILL_COLOR,
+  VACANT_FILL_OPACITY,
+  CONFLICT_FILL_COLOR,
+  CONFLICT_FILL_OPACITY,
+  OUT_OF_REACH_FILL_COLOR,
+  OUT_OF_REACH_FILL_OPACITY,
+  OUT_OF_REACH_BORDER_COLOR,
+  OUT_OF_REACH_BORDER_WEIGHT,
+  OUT_OF_REACH_DASH,
+  NO_ROAD_FILL_COLOR,
+  NO_ROAD_FILL_OPACITY,
+  NO_ROAD_PATTERN_ID,
+  NO_ROAD_DOT_COLOR,
+  PENDING_FILL_COLOR,
+  PENDING_FILL_OPACITY,
+  PENDING_BORDER_COLOR,
+  IPS_UNZONED_COLOR,
+  CLUSTER_NEUTRAL_COLOR,
+  VACANT_STATE_COLOR
+} from './mapStyles'
+import { useMediaQuery, matchesMediaQuery, MOBILE_QUERY, HOVER_QUERY } from './useMediaQuery'
+import { usePermissions } from '@/hooks/usePermissions'
 import { zoneDisplayName } from '@/lib/zone-names'
 import { computeTerritoryWinners, territoryIdOf } from '@/lib/territory-rules'
 // NO usar estimaciones - solo datos reales de Google Maps
@@ -23,40 +74,25 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 })
 
-// Font Awesome CDN for icons
-if (typeof window !== 'undefined' && !document.querySelector('link[href*="fontawesome"]')) {
-  const link = document.createElement('link')
-  link.rel = 'stylesheet'
-  link.href = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.2.0/css/all.min.css'
-  document.head.appendChild(link)
-}
-
-// Add CSS for custom zone markers
-if (typeof window !== 'undefined' && !document.querySelector('#custom-kam-marker-styles')) {
-  const style = document.createElement('style')
-  style.id = 'custom-kam-marker-styles'
-  style.innerHTML = `
-    .custom-kam-marker {
-      cursor: pointer !important;
-      pointer-events: auto !important;
-    }
-    .custom-kam-marker:hover {
-      z-index: 10000 !important;
-    }
-  `
-  document.head.appendChild(style)
-}
-
 // Mapa base configurable. CARTO ya no sirve tiles sin API key (devuelve un PNG "API KEY REQUIRED"
 // con HTTP 200), así que por defecto se usa Esri World Light Gray Base, de estética clara similar.
 const DEFAULT_BASEMAP_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}'
 const BASEMAP_URL = process.env.NEXT_PUBLIC_BASEMAP_URL || DEFAULT_BASEMAP_URL
 const BASEMAP_ATTRIBUTION = process.env.NEXT_PUBLIC_BASEMAP_ATTRIBUTION || 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ'
+// Atribución corta para móvil (sin el prefijo de Leaflet). Con un mapa base propio se respeta su texto.
+const COMPACT_ATTRIBUTION = process.env.NEXT_PUBLIC_BASEMAP_ATTRIBUTION ||
+  (BASEMAP_URL === DEFAULT_BASEMAP_URL ? '&copy; Esri &middot; Leaflet' : BASEMAP_ATTRIBUTION)
 // El servicio de Esri solo tiene tiles nativos hasta z16; por encima se reescalan en vez de fallar
 const BASEMAP_MAX_NATIVE_ZOOM = BASEMAP_URL === DEFAULT_BASEMAP_URL ? 16 : undefined
+// Capa de nombres (ciudades, departamentos) encima de los polígonos: la de referencia de Esri Light Gray
+// cuando se usa el mapa base por defecto, o la de NEXT_PUBLIC_BASEMAP_LABELS_URL si se configura.
+const DEFAULT_LABELS_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}'
+const LABELS_URL = process.env.NEXT_PUBLIC_BASEMAP_LABELS_URL ||
+  (BASEMAP_URL === DEFAULT_BASEMAP_URL ? DEFAULT_LABELS_URL : null)
+const LABELS_MAX_NATIVE_ZOOM = LABELS_URL === DEFAULT_LABELS_URL ? 16 : undefined
 
 // Escapa cualquier valor antes de interpolarlo en HTML construido con template strings
-// (popups de Leaflet, divIcon). Evita XSS con datos editables como nombres de proveedor.
+// (tooltips de Leaflet, divIcon). Evita XSS con datos editables como nombres de proveedor.
 const HTML_ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
 const escapeHtml = (v: unknown) => String(v ?? '').replace(/[&<>"']/g, c => HTML_ESCAPES[c]!)
 
@@ -64,6 +100,15 @@ const escapeHtml = (v: unknown) => String(v ?? '').replace(/[&<>"']/g, c => HTML
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/
 const isSafeColor = (v: unknown): v is string => typeof v === 'string' && HEX_COLOR_RE.test(v)
 const safeColor = (v: unknown, fallback = '#888888') => (isSafeColor(v) ? v : fallback)
+
+// #RRGGBB + opacidad → rgba() para las muestras de la leyenda
+const hexToRgba = (hex: string, alpha: number) => {
+  const safe = safeColor(hex)
+  const r = parseInt(safe.slice(1, 3), 16)
+  const g = parseInt(safe.slice(3, 5), 16)
+  const b = parseInt(safe.slice(5, 7), 16)
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
 
 // Error HTTP de /api/map/data con el código de estado, para distinguir sesión caducada (401)
 class MapDataError extends Error {
@@ -120,8 +165,8 @@ export interface CoverageRow {
   override_reason?: string | null
 }
 
-// Colores fijos del modo por línea
-export const VACANT_COLOR = '#9ca3af'
+// Colores fijos del modo por línea (vacante: misma constante que la insignia hueca y la leyenda)
+export const VACANT_COLOR = VACANT_STATE_COLOR
 export const CONFLICT_COLOR = '#f59e0b'
 const NO_COVERAGE_DATA_COLOR = '#cccccc'
 
@@ -147,7 +192,7 @@ const executiveName = (e: { full_name: string; status?: string } | null | undefi
 
 /**
  * Texto plano de quién cubre la zona en la línea. Quien lo inserte en HTML crudo debe escaparlo.
- * "<nombre> — local" | "— por alcance desde <zona>, 2 h 26" | "— ajuste manual: <motivo>" |
+ * "<nombre> — local" | "— por alcance desde <zona>, 2 h 26 (mediana entre zonas)" | "— ajuste manual: <motivo>" |
  * "Vacante (más cercana: <nombre> a 4 h 39)" | "Conflicto: <nombres>"
  */
 export const describeCoverage = (row: CoverageRow | undefined, zoneNameById: Record<string, string>): string => {
@@ -157,7 +202,9 @@ export const describeCoverage = (row: CoverageRow | undefined, zoneNameById: Rec
       return `${executiveName(row.executive)} — local`
     case 'reach': {
       const from = zoneDisplayName(row.source_kam_id ? zoneNameById[row.source_kam_id] : '') || 'otra zona'
-      return `${executiveName(row.executive)} — por alcance desde ${from}, ${formatMinutes(row.travel_minutes)}`
+      // Minutos = mediana zona→zona (no el tiempo a una IPS concreta): se aclara para no confundirlo
+      // con el "Tiempo de llegada" de la tarjeta de IPS
+      return `${executiveName(row.executive)} — por alcance desde ${from}, ${formatMinutes(row.travel_minutes)} (mediana entre zonas)`
     }
     case 'manual':
       return `${executiveName(row.executive)} — ajuste manual: ${row.override_reason || row.note || 'sin motivo registrado'}`
@@ -194,7 +241,7 @@ export interface MunicipalityZoneRow {
   ips_count: number
 }
 
-// Cómo se pinta cada polígono. 'vacant' = solo IPS sin asignar (estilo de siempre: gris con borde rojo).
+// Cómo se pinta cada polígono. 'vacant' = solo IPS sin asignar (gris azulado claro, como las vacantes).
 type TerritoryKind = 'ips' | 'vacant' | 'reach' | 'out_of_reach' | 'no_road' | 'pending'
 
 interface ResolvedTerritory {
@@ -202,10 +249,12 @@ interface ResolvedTerritory {
   kamId?: string
   isVacant: boolean
   row?: MunicipalityZoneRow
+  // Localidad de Bogotá sin IPS ni zona residente: hereda, como alcance, la zona que gana Bogotá
+  bogotaInherited?: boolean
 }
 
 
-// Leyenda de la capa de municipios (la pinta MapControls)
+// Leyenda de la capa de municipios
 export interface TerritoryLegend {
   ips: number
   reach: number
@@ -216,6 +265,85 @@ export interface TerritoryLegend {
   noMunicipalityData: boolean
   // /geo/*.json no se pudo cargar
   geoError: boolean
+}
+
+// ---------- Presentación del mapa ----------
+
+const DEFAULT_CENTER: L.LatLngTuple = [4.5709, -74.2973]
+// Panel propio para el rayado "sin equipo" (SVG): por debajo del canvas de territorios e IPS
+const HATCH_PANE = 'opmapHatch'
+// Trama de puntos de "sin acceso terrestre" (SVG, sin eventos): justo encima del canvas de territorios.
+// Esos municipios no tienen IPS, así que la trama no tapa puntos.
+const NO_ROAD_PANE = 'opmapNoRoad'
+// Nombres de lugares: encima de los polígonos, debajo de los puntos de IPS y de las insignias; no
+// recibe toques
+const LABELS_PANE = 'labels'
+const LABELS_PANE_Z = 450
+// Puntos de IPS: SVG en su propio panel, por encima de los nombres. El panel no recibe eventos; solo
+// los círculos (leaflet-interactive), así los polígonos de debajo siguen respondiendo al toque.
+const IPS_PANE = 'opmapIps'
+const IPS_PANE_Z = 460
+// Código DANE de Bogotá en municipality_zone (guarda el ganador global de las localidades)
+const BOGOTA_CODE = '11001'
+// Ancho que ocupa la leyenda flotante de escritorio (300 px + margen): al acercar a un racimo se deja libre
+const LEGEND_INSET_PX = 316
+// Valor del selector de vista para "Vista de zonas"
+const ZONES_VIEW_VALUE = '__zones__'
+// Zoom mínimo de los puntos de IPS en móvil (compactos en zoom 5) y de los marcadores de visitas
+const MOBILE_IPS_MIN_ZOOM = 5
+const VISIT_MARKERS_MIN_ZOOM = 10
+
+const HEAT_GRADIENT: Record<number, string> = {
+  0.0: 'blue',
+  0.25: 'cyan',
+  0.5: 'lime',
+  0.75: 'yellow',
+  0.85: 'orange',
+  1.0: 'red'
+}
+
+// Muestras de la leyenda (mismos colores y opacidades que los polígonos). Los polígonos llevan borde
+// blanco; sobre la tarjeta blanca de la leyenda ese borde se sugiere con un contorno gris muy tenue.
+const SWATCH_OUTLINE = 'rgba(15, 23, 42, 0.12)'
+const swatch = (fill: string, fillOpacity: number, border = SWATCH_OUTLINE, dashed = false): CSSProperties => ({
+  backgroundColor: hexToRgba(fill, fillOpacity),
+  border: `1px ${dashed ? 'dashed' : 'solid'} ${border}`
+})
+// Muestra neutra para "con IPS" / "de alcance" (el color real es el de cada Ejecutivo Comercial o zona)
+const LEGEND_NEUTRAL_FILL = '#475569'
+const NO_EQUIPMENT_SWATCH: CSSProperties = {
+  border: `1px solid ${SWATCH_OUTLINE}`,
+  backgroundColor: 'rgba(71, 85, 105, 0.12)',
+  backgroundImage: 'repeating-linear-gradient(45deg, rgba(71, 85, 105, 0.6) 0 3px, transparent 3px 8px)'
+}
+const NO_ROAD_SWATCH: CSSProperties = {
+  ...swatch(NO_ROAD_FILL_COLOR, NO_ROAD_FILL_OPACITY),
+  backgroundImage: `radial-gradient(${hexToRgba(NO_ROAD_DOT_COLOR, 0.7)} 0.9px, transparent 1.1px)`,
+  backgroundSize: '4px 4px'
+}
+
+// Capa SVG de la trama de puntos: solo relleno con el patrón (el borde y el gris los pinta el canvas)
+const NO_ROAD_OVERLAY_STYLE: L.PathOptions = { stroke: false, fillColor: `url(#${NO_ROAD_PATTERN_ID})`, fillOpacity: 1 }
+
+const HOSPITAL_TYPE_LABELS: Record<string, string> = { Publico: 'Pública', Privada: 'Privada', Mixta: 'Mixta' }
+
+// Tarjeta abierta en el mapa (una a la vez)
+type PopupTarget =
+  | { kind: 'ips'; id: string; position: L.LatLngTuple }
+  | { kind: 'unassigned'; id: string; position: L.LatLngTuple }
+  | { kind: 'zone'; id: string; position: L.LatLngTuple }
+  | { kind: 'cluster'; ids: string[]; position: L.LatLngTuple }
+  | { kind: 'territory'; code: string; isLocality: boolean; name: string; position: L.LatLngTuple }
+type ActivePopup = PopupTarget & { nonce: number }
+
+// Contexto vigente para los manejadores de los polígonos (estables: leen de una referencia)
+interface TerritoryContext {
+  canHover: boolean
+  isHidden: (code: string, isLocality: boolean) => boolean
+  tooltip: (code: string, isLocality: boolean, featureName: string) => string
+  rest: (code: string, isLocality: boolean) => L.PathOptions
+  hover: (code: string, isLocality: boolean) => L.PathOptions
+  open: (code: string, isLocality: boolean, featureName: string, latlng: L.LatLng) => void
 }
 
 interface MapComponentProps {
@@ -239,8 +367,6 @@ export default function MapComponent({
   showHeatmap: initialShowHeatmap = false,
   showMarkers: initialShowMarkers = false,
   viewMode = 'kams',
-  selectedZoneId = null,
-  onViewModeChange,
   lines = [],
   selectedLineCode = null,
   onLineChange,
@@ -249,29 +375,46 @@ export default function MapComponent({
   onMapModeChange
 }: MapComponentProps) {
   const router = useRouter()
-  const [kamColors, setKamColors] = useState<Record<string, string>>({})
+  const { can } = usePermissions()
+
+  // Teléfono (hoja inferior, cabecera compacta) y dispositivo con cursor (tooltips al pasar el cursor)
+  const isMobile = useMediaQuery(MOBILE_QUERY)
+  const canHover = useMediaQuery(HOVER_QUERY)
+  // Leaflet solo lee estas opciones al crear el mapa
+  const [initialZoom] = useState(() => (matchesMediaQuery(MOBILE_QUERY) ? 5 : 6))
+  // Canvas para territorios y visitas (las IPS van en su propio panel SVG, ver IPS_PANE). En táctil,
+  // tolerancia amplia para acertar a los marcadores de visitas.
+  const [vectorRenderer] = useState(() => L.canvas({ padding: 0.5, tolerance: matchesMediaQuery(HOVER_QUERY) ? 2 : 10 }))
+  // Rayado "sin equipo": SVG (el patrón url(#...) no existe en canvas) en su propio panel
+  const [hatchRenderer] = useState(() => L.svg({ padding: 0.5, pane: HATCH_PANE }))
+  // Trama de puntos "sin acceso terrestre": SVG en un panel por encima del canvas de territorios
+  const [noRoadRenderer] = useState(() => L.svg({ padding: 0.5, pane: NO_ROAD_PANE }))
+  // Puntos de IPS: SVG en un panel por encima de los nombres de lugares (ver IPS_PANE)
+  const [ipsRenderer] = useState(() => L.svg({ padding: 0.5, pane: IPS_PANE }))
+  const mapRef = useRef<L.Map | null>(null)
+  // Leyenda de escritorio plegada: al acercar a un racimo no se reserva su ancho
+  const [legendCollapsed, setLegendCollapsed] = useState(false)
+
   const [zoneColors, setZoneColors] = useState<Record<string, string>>({})
   const [unassignedTravelTimes, setUnassignedTravelTimes] = useState<Record<string, any[]>>({})
-  const [selectedHospitalId, setSelectedHospitalId] = useState<string | null>(null)
   const [hospitalTypeFilter, setHospitalTypeFilter] = useState<string>('all') // 'all', 'Publico', 'Privada', 'Mixta'
   const [visits, setVisits] = useState(initialVisits)
   const [showHeatmap, setShowHeatmap] = useState(initialShowHeatmap)
   const [showMarkers, setShowMarkers] = useState(initialShowMarkers)
   const [showContracts, setShowContracts] = useState(false)
   const [zones, setZones] = useState<any[]>([])
-  const [zoneAssignments, setZoneAssignments] = useState<Record<string, string>>({})
-  
-  // Debug de visitas
-  useEffect(() => {
-    console.log('MapComponent - Visitas actualizadas:', {
-      cantidad: visits?.length || 0,
-      showHeatmap,
-      primeras_3: visits?.slice(0, 3)
-    })
-  }, [visits, showHeatmap])
   const [mapCenter, setMapCenter] = useState<[number, number] | undefined>(undefined)
   const [mapZoom, setMapZoom] = useState<number | undefined>(undefined)
-  
+
+  // Capas visibles y resaltado desde la leyenda. Las visitas arrancan apagadas.
+  const [showIps, setShowIps] = useState(true)
+  const [showReach, setShowReach] = useState(true)
+  const [visitsEnabled, setVisitsEnabled] = useState(false)
+  const [highlightKey, setHighlightKey] = useState<string | null>(null)
+  const [sheetSnap, setSheetSnap] = useState<SheetSnap>('peek')
+  const [activePopup, setActivePopup] = useState<ActivePopup | null>(null)
+  const popupNonceRef = useRef(0)
+
   // Cargar datos desde el API
   const { data: mapData, isLoading, isError, error: mapDataError, refetch, isFetching } = useQuery({
     queryKey: ['map-data', selectedLineCode],
@@ -284,14 +427,7 @@ export default function MapComponent({
       if (!response.ok) {
         throw new MapDataError('Error al cargar datos del mapa', response.status)
       }
-      const data = await response.json()
-      console.log('Map data received:', {
-        kams: data.kams?.length || 0,
-        assignments: data.assignments?.length || 0,
-        hospitals: data.hospitals?.length || 0,
-        unassignedHospitals: data.unassignedHospitals?.length || 0
-      })
-      return data
+      return response.json()
     },
     // Al cambiar de línea se conserva el mapa anterior mientras llega la nueva cobertura
     placeholderData: keepPreviousData,
@@ -319,34 +455,27 @@ export default function MapComponent({
     setBasemapError(true)
   }
 
-  // Asignar colores a KAMs desde la base de datos
-  useEffect(() => {
-    if (!mapData) return
-
+  // Colores de las zonas desde la base de datos (solo #RRGGBB válidos; si no, uno de respaldo)
+  const kamColors = useMemo(() => {
     const colors: Record<string, string> = {}
     let backupIdx = 0
-
-    mapData.kams.forEach((kam: any) => {
-      // Usar el color del KAM desde la base de datos (solo si es un #RRGGBB válido)
+    ;(mapData?.kams || []).forEach((kam: any) => {
       if (isSafeColor(kam.color)) {
         colors[kam.id] = kam.color
       } else {
-        // Usar color de respaldo si no tiene color definido
         colors[kam.id] = BACKUP_COLORS[backupIdx % BACKUP_COLORS.length]
         backupIdx++
       }
     })
-
-    setKamColors(colors)
+    return colors
   }, [mapData])
 
-  // Cargar datos de zonas cuando viewMode es 'zones'
+  // Cargar regiones (tabla zones) y sus colores cuando viewMode es 'zones'
   useEffect(() => {
     if (viewMode !== 'zones' || !mapData) return
 
     const loadZonesData = async () => {
       try {
-        // Cargar zonas
         const zonesResponse = await fetch('/api/zones')
         if (!zonesResponse.ok) {
           throw new Error(`Error ${zonesResponse.status} al cargar zonas`)
@@ -355,7 +484,7 @@ export default function MapComponent({
         const zonesList: any[] = Array.isArray(zonesData) ? zonesData : []
         setZones(zonesList)
 
-        // Asignar colores a zonas (solo #RRGGBB válidos)
+        // Asignar colores a regiones (solo #RRGGBB válidos)
         const colors: Record<string, string> = {}
         zonesList.forEach((zone: any) => {
           if (isSafeColor(zone.color)) {
@@ -363,28 +492,6 @@ export default function MapComponent({
           }
         })
         setZoneColors(colors)
-
-        // Mapa de KAM a zona: /api/map/data ya incluye zone_id de cada KAM
-        const kamToZone: Record<string, string> = {}
-        for (const kam of mapData.kams) {
-          if (kam.zone_id) {
-            kamToZone[kam.id] = kam.zone_id
-          }
-        }
-
-        // Ahora, para cada territorio asignado, buscar la zona del KAM
-        const territoryToZone: Record<string, string> = {}
-        mapData.assignments.forEach((assignment: any) => {
-          const kamId = assignment.kams.id
-          const hospital = assignment.hospitals
-          const territoryId = hospital.locality_id || hospital.municipality_id
-
-          if (territoryId && kamToZone[kamId]) {
-            territoryToZone[territoryId] = kamToZone[kamId]
-          }
-        })
-
-        setZoneAssignments(territoryToZone)
       } catch (error) {
         console.error('Error loading zones data:', error)
       }
@@ -402,31 +509,16 @@ export default function MapComponent({
 
     const fetchUnassignedTravelTimes = async () => {
       try {
-        console.log('🚀 MapComponent: Iniciando carga de tiempos para hospitales sin asignar...')
-        console.log('📊 MapComponent: Total hospitales sin asignar en mapData:', mapData.unassignedHospitals.length)
-        
         // Usar la API optimizada con la nueva tabla hospital_kam_distances
         const response = await fetch('/api/travel-times/unassigned-optimized')
         if (response.ok) {
           const data = await response.json()
           const timesMap: Record<string, any[]> = {}
-          
-          console.log('✅ MapComponent: Respuesta recibida del API')
-          console.log('📊 MapComponent: Hospitales con datos:', data.unassigned_hospitals?.length || 0)
-          console.log('🔍 MapComponent: Debug info del API:', data.debug)
-          
-          let hospitalsWithTravelTimes = 0
-          
           data.unassigned_hospitals?.forEach((hospital: any) => {
             if (hospital.travel_times && hospital.travel_times.length > 0) {
               timesMap[hospital.id] = hospital.travel_times
-              hospitalsWithTravelTimes++
             }
           })
-          
-          console.log(`✨ MapComponent: ${hospitalsWithTravelTimes} hospitales tienen tiempos de viaje`)
-          console.log('📝 MapComponent: Ejemplo de hospital con tiempos:', Object.keys(timesMap)[0], timesMap[Object.keys(timesMap)[0]]?.slice(0, 3))
-          
           setUnassignedTravelTimes(timesMap)
         } else {
           console.error('Failed to fetch travel times:', response.status, await response.text())
@@ -464,6 +556,8 @@ export default function MapComponent({
     },
     ...geoQueryOptions
   })
+  // Los puntos se agregan cuando ya están los polígonos (las visitas comparten su canvas y deben quedar encima)
+  const geoSettled = (!!municipiosGeo || municipiosGeoError) && (!!localidadesGeo || localidadesGeoError)
 
   // Reparto de municipios sin IPS por tiempo real de carretera (municipality_zone). Mientras la tabla
   // no exista o no tenga filas, la respuesta se trata como vacía y esos municipios quedan 'pending'.
@@ -502,7 +596,8 @@ export default function MapComponent({
     const territoriesWithIps = new Set<string>()
     const vacantTerritories = new Set<string>()
     const territoryWinners: Record<string, string> = {}
-    if (!mapData) return { territoriesWithIps, vacantTerritories, territoryWinners }
+    let bogotaWinner: string | null = null
+    if (!mapData) return { territoriesWithIps, vacantTerritories, territoryWinners, bogotaWinner }
 
     mapData.unassignedHospitals.forEach((hospital: any) => {
       const territoryId = territoryIdOf(hospital)
@@ -524,7 +619,13 @@ export default function MapComponent({
     computeTerritoryWinners(votes, v => v.territory, kamId => zoneNames[kamId] ?? null)
       .forEach((winner, territory) => { territoryWinners[territory] = winner.kam_id })
 
-    return { territoriesWithIps, vacantTerritories, territoryWinners }
+    // Ganador global de Bogotá con la misma regla (todas sus localidades juntas): respaldo si
+    // municipality_zone aún no tiene la fila 11001
+    const bogotaOf = (v: { territory: string | null }) =>
+      v.territory && v.territory.length === 7 && v.territory.startsWith('11') ? BOGOTA_CODE : null
+    bogotaWinner = computeTerritoryWinners(votes, bogotaOf, kamId => zoneNames[kamId] ?? null).get(BOGOTA_CODE)?.kam_id ?? null
+
+    return { territoriesWithIps, vacantTerritories, territoryWinners, bogotaWinner }
   }, [mapData])
 
   // Zonas por id y zona residente por localidad (kams.area_id de 7 dígitos)
@@ -540,7 +641,7 @@ export default function MapComponent({
     return { byId, residentByArea, toRegion }
   }, [mapData])
 
-  // Nombre de departamento por código (sale de las IPS; solo para el encabezado del tooltip)
+  // Nombre de departamento por código (sale de las IPS; solo para el encabezado de las tarjetas)
   const departmentNames = useMemo(() => {
     const names: Record<string, string> = {}
     ;(mapData?.hospitals || []).forEach((h: any) => {
@@ -556,10 +657,15 @@ export default function MapComponent({
     if (territoriesWithIps.has(code)) return { kind: 'ips', kamId: territoryWinners[code], isVacant }
     if (isVacant) return { kind: 'vacant', isVacant }
     if (isLocality) {
-      // Localidad sin IPS: solo se atribuye a la zona que vive en ella (territorio base);
-      // no hay tiempo por carretera calculado para localidades, así que el resto queda pendiente.
+      // Localidad sin IPS: la zona que vive en ella (territorio base); si no hay, hereda como alcance
+      // la zona que gana Bogotá (fila 11001 de municipality_zone o, en su defecto, la misma regla de
+      // mayoría sobre todas las localidades). No hay tiempos por carretera hacia localidades.
       const resident = kamIndex.residentByArea[code]
-      return resident ? { kind: 'reach', kamId: resident, isVacant } : { kind: 'pending', isVacant }
+      if (resident) return { kind: 'reach', kamId: resident, isVacant }
+      const bogotaRow = municipalityByCode[BOGOTA_CODE]
+      const fromRow = bogotaRow && (bogotaRow.kind === 'ips' || bogotaRow.kind === 'reach') ? bogotaRow.kam_id : null
+      const winner = fromRow && kamIndex.byId[fromRow] ? fromRow : territoryAnalysis.bogotaWinner
+      return winner ? { kind: 'reach', kamId: winner, isVacant, bogotaInherited: true } : { kind: 'pending', isVacant }
     }
     const row = municipalityByCode[code]
     if (!row) return { kind: 'pending', isVacant }
@@ -572,9 +678,6 @@ export default function MapComponent({
   }, [territoryAnalysis, kamIndex, municipalityByCode])
 
   // ---------- Datos derivados del modo por línea ----------
-  // Renderizador SVG solo para territorios "sin equipo": el patrón rayado (fill url(#...)) no existe en canvas
-  const svgRenderer = useMemo(() => L.svg({ padding: 0.5 }), [])
-
   const lineView = useMemo(() => {
     const coverage = mapData?.coverage
     if (!coverage || !Array.isArray(coverage.rows)) return null
@@ -642,6 +745,42 @@ export default function MapComponent({
     return row.executive ? safeColor(lineView.executiveColors[row.executive.id]) : VACANT_COLOR
   }, [lineView])
 
+  // ---------- Color: una sola fuente de verdad por vista ----------
+  // Vista por línea: Ejecutivo Comercial que cubre la zona. Vista de zonas: color de la zona.
+  // Vista de regiones (?viewMode=zones): color de la región de la zona. Lo usan polígonos, puntos y pines.
+  const colorForZone = useCallback((kamId: string | null | undefined): string => {
+    if (!kamId) return NO_COVERAGE_DATA_COLOR
+    if (isLineMode) return zoneLineColor(kamId)
+    if (viewMode === 'zones') {
+      const regionId = kamIndex.toRegion[kamId]
+      return regionId ? (zoneColors[regionId] || NO_COVERAGE_DATA_COLOR) : NO_COVERAGE_DATA_COLOR
+    }
+    return kamColors[kamId] || NO_COVERAGE_DATA_COLOR
+  }, [isLineMode, zoneLineColor, viewMode, kamIndex, zoneColors, kamColors])
+
+  // Grupo de la zona en la vista activa (lo que se resalta desde la leyenda)
+  const groupKeyForZone = useCallback((kamId: string | null | undefined): string | null => {
+    if (!kamId) return null
+    if (isLineMode && lineView) {
+      const row = lineView.byKam[kamId]
+      if (!row) return null
+      if (row.kind === 'vacant') return 'vacant'
+      if (row.kind === 'conflict') return 'conflict'
+      return row.executive?.id ?? null
+    }
+    if (viewMode === 'zones') return kamIndex.toRegion[kamId] ?? null
+    return kamId
+  }, [isLineMode, lineView, viewMode, kamIndex])
+
+  const isDimmedZone = useCallback((kamId: string | null | undefined): boolean =>
+    !!highlightKey && groupKeyForZone(kamId) !== highlightKey
+  , [highlightKey, groupKeyForZone])
+
+  // Al cambiar de línea o de vista se quita el resaltado
+  useEffect(() => {
+    setHighlightKey(null)
+  }, [isLineMode, selectedLineCode, viewMode])
+
   // ---------- Estilo de la capa completa de municipios y localidades ----------
 
   // Zona sin equipo en la línea elegida (solo aplica a polígonos con zona: IPS o alcance)
@@ -650,74 +789,88 @@ export default function MapComponent({
     lineView?.byKam[t.kamId]?.has_equipment === false
   , [isLineMode, lineView])
 
-  // Color de la zona del polígono según la vista: línea (Ejecutivo Comercial), región o zona
-  const territoryColor = useCallback((t: ResolvedTerritory, code: string): string => {
-    if (isLineMode && t.kamId) return zoneLineColor(t.kamId)
-    if (t.kind === 'vacant' || (t.kind === 'ips' && t.isVacant)) return '#808080'
-    if (!t.kamId) return '#cccccc'
-    if (viewMode === 'zones') {
-      const regionId = t.kind === 'ips' ? zoneAssignments[code] : kamIndex.toRegion[t.kamId]
-      return regionId ? (zoneColors[regionId] || '#cccccc') : '#cccccc'
+  // Relleno del polígono según la vista: color de la zona (misma fuente que puntos e insignias) o el
+  // color fijo de vacante / conflicto. Alcance = mismo color con menos opacidad.
+  const territoryFill = useCallback((t: ResolvedTerritory): { color: string; opacity: number } => {
+    const isReach = t.kind === 'reach'
+    let state: 'zone' | 'vacant' | 'conflict' = 'zone'
+    if (t.kind === 'vacant') {
+      state = 'vacant'
+    } else if (isLineMode && t.kamId) {
+      const kind = lineView?.byKam[t.kamId]?.kind
+      if (kind === 'vacant') state = 'vacant'
+      else if (kind === 'conflict') state = 'conflict'
+    } else if (t.kind === 'ips' && t.isVacant) {
+      // Vista de zonas: territorio que además tiene IPS sin zona (regla de siempre: se marca vacante)
+      state = 'vacant'
     }
-    return kamColors[t.kamId] || '#cccccc'
-  }, [isLineMode, zoneLineColor, viewMode, zoneAssignments, kamIndex, zoneColors, kamColors])
+    if (state === 'vacant') return { color: VACANT_FILL_COLOR, opacity: VACANT_FILL_OPACITY * (isReach ? REACH_OPACITY_RATIO : 1) }
+    if (state === 'conflict') return { color: CONFLICT_FILL_COLOR, opacity: CONFLICT_FILL_OPACITY * (isReach ? REACH_OPACITY_RATIO : 1) }
+    return { color: t.kamId ? colorForZone(t.kamId) : NO_COVERAGE_DATA_COLOR, opacity: isReach ? REACH_FILL_OPACITY : IPS_FILL_OPACITY }
+  }, [isLineMode, lineView, colorForZone])
 
-  // Estilo en reposo. Todas las variantes fijan dashArray para que setStyle no arrastre el anterior.
-  const territoryRestStyle = useCallback((code: string, isLocality: boolean): L.PathOptions => {
-    const t = resolveTerritory(code, isLocality)
-    const noEquipment = isNoEquipment(t)
+  // Atenuado: se resalta otro grupo en la leyenda (solo polígonos con zona o vacantes)
+  const isDimmedTerritory = useCallback((t: ResolvedTerritory): boolean => {
+    if (!highlightKey) return false
+    if (t.kind !== 'ips' && t.kind !== 'reach' && t.kind !== 'vacant') return false
+    return (t.kamId ? groupKeyForZone(t.kamId) : null) !== highlightKey
+  }, [highlightKey, groupKeyForZone])
+
+  // Estilo autorizado 2026-10-11: borde blanco fino en todos los polígonos con zona, vacantes y
+  // pendientes; relleno 0.55 con IPS / 0.22 de alcance. Todas las variantes fijan dashArray para que
+  // setStyle no arrastre el anterior.
+  const baseTerritoryStyle = useCallback((t: ResolvedTerritory): L.PathOptions => {
+    const border = { color: TERRITORY_BORDER_COLOR, weight: TERRITORY_BORDER_WEIGHT, opacity: TERRITORY_BORDER_OPACITY, dashArray: undefined }
     switch (t.kind) {
       case 'ips':
-      case 'vacant': {
-        // Estilo de siempre de los territorios con IPS (relleno 0.4 / 0.5 en localidades)
-        const color = territoryColor(t, code)
-        const vacantStyle = t.kind === 'vacant' || (t.isVacant && !(isLineMode && t.kamId))
-        if (noEquipment) {
-          // El rayado lo pinta la capa SVG superpuesta; aquí solo el borde punteado
-          return { fillColor: color, fillOpacity: 0, color: isLocality ? '#000000' : '#333333', weight: isLocality ? 1.5 : 0.8, opacity: 1, dashArray: '4 3' }
-        }
-        return {
-          fillColor: color,
-          color: vacantStyle ? '#FF0000' : (isLocality ? '#000000' : '#333333'),
-          weight: vacantStyle ? 1 : (isLocality ? 1.5 : 0.8),
-          opacity: 1,
-          fillOpacity: vacantStyle ? 0.3 : (isLocality ? 0.5 : 0.4),
-          dashArray: undefined
-        }
-      }
+      case 'vacant':
       case 'reach': {
-        // De alcance (sin IPS hoy): mismo color de la zona, relleno tenue y borde fino
-        const color = territoryColor(t, code)
-        if (noEquipment) {
-          return { fillColor: color, fillOpacity: 0, color, weight: 0.6, opacity: 0.8, dashArray: '4 3' }
-        }
-        return { fillColor: color, fillOpacity: 0.15, color, weight: 0.5, opacity: 0.7, dashArray: undefined }
+        const fill = territoryFill(t)
+        // Sin equipo: el rayado lo pinta la capa SVG de debajo; aquí solo el borde
+        return { ...border, fillColor: fill.color, fillOpacity: isNoEquipment(t) ? 0 : fill.opacity }
       }
       case 'out_of_reach':
-        return { fillColor: OUT_OF_REACH_COLOR, fillOpacity: 0.55, color: '#9ca3af', weight: 0.7, opacity: 1, dashArray: '4 3' }
+        return {
+          fillColor: OUT_OF_REACH_FILL_COLOR,
+          fillOpacity: OUT_OF_REACH_FILL_OPACITY,
+          color: OUT_OF_REACH_BORDER_COLOR,
+          weight: OUT_OF_REACH_BORDER_WEIGHT,
+          opacity: 1,
+          dashArray: OUT_OF_REACH_DASH
+        }
       case 'no_road':
-        return { fillColor: NO_ROAD_COLOR, fillOpacity: 0.6, color: NO_ROAD_COLOR, weight: 0.5, opacity: 1, dashArray: undefined }
+        // Relleno plano en el canvas; la trama de puntos va en la capa SVG de encima (si el patrón no
+        // estuviera disponible, queda este relleno plano)
+        return { ...border, fillColor: NO_ROAD_FILL_COLOR, fillOpacity: NO_ROAD_FILL_OPACITY }
       default:
-        return { fillColor: PENDING_FILL_COLOR, fillOpacity: 0.45, color: PENDING_BORDER_COLOR, weight: 0.6, opacity: 1, dashArray: undefined }
+        return { fillColor: PENDING_FILL_COLOR, fillOpacity: PENDING_FILL_OPACITY, color: PENDING_BORDER_COLOR, weight: TERRITORY_BORDER_WEIGHT, opacity: 1, dashArray: undefined }
     }
-  }, [resolveTerritory, isNoEquipment, territoryColor, isLineMode])
+  }, [territoryFill, isNoEquipment])
 
+  // Estilo en reposo: municipios de alcance ocultos o grupos atenuados según la leyenda
+  const territoryRestStyle = useCallback((code: string, isLocality: boolean): L.PathOptions => {
+    const t = resolveTerritory(code, isLocality)
+    const base = baseTerritoryStyle(t)
+    if (t.kind === 'reach' && !showReach) return { ...base, fillOpacity: 0, opacity: 0 }
+    if (isDimmedTerritory(t)) return { ...base, fillOpacity: Math.min(base.fillOpacity ?? 0, DIMMED_FILL_OPACITY), opacity: 0.3 }
+    return base
+  }, [resolveTerritory, baseTerritoryStyle, showReach, isDimmedTerritory])
+
+  // Hover (solo con cursor): relleno +0.15 y borde blanco de 1,5 px
   const territoryHoverStyle = useCallback((code: string, isLocality: boolean): L.PathOptions => {
     const rest = territoryRestStyle(code, isLocality)
     const t = resolveTerritory(code, isLocality)
-    if (t.kind === 'ips' || t.kind === 'vacant') {
-      const vacantStyle = t.kind === 'vacant' || (t.isVacant && !(isLineMode && t.kamId))
-      return {
-        ...rest,
-        weight: vacantStyle ? 2 : (isLocality ? 2.5 : 1.5),
-        fillOpacity: isNoEquipment(t) ? 0 : (vacantStyle ? 0.5 : (isLocality ? 0.7 : 0.6))
-      }
+    return {
+      ...rest,
+      fillOpacity: isNoEquipment(t) ? 0 : Math.min(1, (rest.fillOpacity ?? 0) + HOVER_FILL_BOOST),
+      color: TERRITORY_BORDER_COLOR,
+      weight: HOVER_BORDER_WEIGHT,
+      opacity: 1
     }
-    return { ...rest, weight: (rest.weight || 0.5) + 1, fillOpacity: rest.fillOpacity ? Math.min(1, rest.fillOpacity + 0.2) : 0 }
-  }, [territoryRestStyle, resolveTerritory, isLineMode, isNoEquipment])
+  }, [territoryRestStyle, resolveTerritory, isNoEquipment])
 
-  // style por feature: al cambiar de línea/vista solo cambia esta función y react-leaflet llama a setStyle
-  // (los polígonos no se vuelven a crear)
+  // style por feature: al cambiar de línea/vista/resaltado solo cambia esta función y react-leaflet
+  // llama a setStyle (los polígonos no se vuelven a crear)
   const municipiosStyle = useCallback((feature?: any) => territoryRestStyle(String(feature?.properties?.code ?? ''), false), [territoryRestStyle])
   const localidadesStyle = useCallback((feature?: any) => territoryRestStyle(String(feature?.properties?.code ?? ''), true), [territoryRestStyle])
 
@@ -737,22 +890,35 @@ export default function MapComponent({
     return { data: { type: 'FeatureCollection', features }, key: `${lineView?.line.code}-${features.length}-${hash}` }
   }, [isLineMode, municipiosGeo, localidadesGeo, isNoEquipment, resolveTerritory, lineView])
 
+  // Solo el relleno rayado: el borde blanco lo dibuja el canvas de encima
   const noEquipmentOverlayStyle = useCallback((feature?: any): L.PathOptions => {
     const isLocality = !!feature?.properties?.isLocality
     const t = resolveTerritory(String(feature?.properties?.code ?? ''), isLocality)
-    const color = territoryColor(t, String(feature?.properties?.code ?? ''))
+    const color = territoryFill(t).color
+    const hidden = t.kind === 'reach' && !showReach
+    const dimmed = isDimmedTerritory(t)
     return {
+      stroke: false,
       fillColor: `url(#${noEquipmentPatternId(safeColor(color))})`,
-      fillOpacity: t.kind === 'reach' ? 0.35 : 0.85,
-      color: t.kind === 'reach' ? color : (isLocality ? '#000000' : '#333333'),
-      weight: t.kind === 'reach' ? 0.6 : (isLocality ? 1.5 : 0.8),
-      dashArray: '4 3'
+      fillOpacity: hidden ? 0 : dimmed ? DIMMED_FILL_OPACITY : (t.kind === 'reach' ? 0.35 : 0.85)
     }
-  }, [resolveTerritory, territoryColor])
+  }, [resolveTerritory, territoryFill, showReach, isDimmedTerritory])
 
-  // Conteos para la leyenda de la capa de municipios
-  const territoryLegend = useMemo<TerritoryLegend>(() => {
+  // Trama de puntos de "sin acceso terrestre" (solo municipios; no dependen de la línea)
+  const noRoadOverlay = useMemo(() => {
+    const features = (Array.isArray(municipiosGeo?.features) ? municipiosGeo.features : []).filter((f: any) =>
+      resolveTerritory(String(f?.properties?.code ?? ''), false).kind === 'no_road')
+    if (features.length === 0) return null
+    const codes = features.map((f: any) => String(f.properties?.code ?? '')).join(',')
+    let hash = 0
+    for (let i = 0; i < codes.length; i++) hash = (hash * 31 + codes.charCodeAt(i)) | 0
+    return { data: { type: 'FeatureCollection', features }, key: `sin-acceso-${features.length}-${hash}` }
+  }, [municipiosGeo, resolveTerritory])
+
+  // Conteos de la leyenda y municipios por zona (con IPS / de alcance) para la tarjeta de cada zona
+  const territorySummary = useMemo(() => {
     const counts = { ips: 0, reach: 0, outOfReach: 0, noRoad: 0, pending: 0 }
+    const byZone: Record<string, { ips: number; reach: number }> = {}
     const tally = (fc: any, isLocality: boolean) => {
       ;(Array.isArray(fc?.features) ? fc.features : []).forEach((f: any) => {
         const t = resolveTerritory(String(f?.properties?.code ?? ''), isLocality)
@@ -761,53 +927,339 @@ export default function MapComponent({
         else if (t.kind === 'out_of_reach') counts.outOfReach++
         else if (t.kind === 'no_road') counts.noRoad++
         else counts.pending++
+        if (t.kamId && (t.kind === 'ips' || t.kind === 'reach')) {
+          const zone = (byZone[t.kamId] ||= { ips: 0, reach: 0 })
+          if (t.kind === 'ips') zone.ips++
+          else zone.reach++
+        }
       })
     }
     tally(municipiosGeo, false)
     tally(localidadesGeo, true)
-    return {
+    const legend: TerritoryLegend = {
       ...counts,
       noMunicipalityData: municipalityRows.length === 0,
       geoError: municipiosGeoError || localidadesGeoError
     }
+    return { legend, byZone }
   }, [municipiosGeo, localidadesGeo, resolveTerritory, municipalityRows, municipiosGeoError, localidadesGeoError])
+  const territoryLegend = territorySummary.legend
 
-  // Popup/tooltip al pasar el cursor. Los manejadores son estables y leen el contexto vigente de esta
-  // referencia (se actualiza en cada render), así no se re-registran eventos al cambiar de línea.
-  const territoryHoverRef = useRef<{
-    describe: (code: string, isLocality: boolean, featureName: string) => { html: string; popup: boolean }
-    rest: (code: string, isLocality: boolean) => L.PathOptions
-    hover: (code: string, isLocality: boolean) => L.PathOptions
-  } | null>(null)
-
-  const makeTerritoryHandlers = useCallback((isLocality: boolean) => ({
-    mouseover: (e: any) => {
-      const layer = e.layer || e.propagatedFrom
-      const feature = layer?.feature
-      const ctx = territoryHoverRef.current
-      if (!feature || !ctx) return
-      const code = String(feature.properties?.code ?? '')
-      layer.setStyle(ctx.hover(code, isLocality))
-      const { html, popup } = ctx.describe(code, isLocality, String(feature.properties?.name ?? ''))
-      if (popup) {
-        layer.bindPopup(html, { maxWidth: 350, minWidth: 300, className: 'territory-popup', autoPan: false }).openPopup()
-      } else {
-        layer.unbindTooltip()
-        layer.bindTooltip(html, { sticky: true, opacity: 0.95, className: 'custom-tooltip' }).openTooltip(e.latlng)
+  // Estadísticas por zona (tarjeta del pin y leyenda de la vista de zonas)
+  const kamStats = useMemo(() => {
+    if (!mapData) return [] as any[]
+    return mapData.kams.map((kam: any) => {
+      const assignments = mapData.assignments.filter((a: any) => a.kams.id === kam.id)
+      const totalBeds = assignments.reduce((sum: number, a: any) => sum + (a.hospitals.beds || 0), 0)
+      const municipalities = new Set(assignments.map((a: any) => a.hospitals.municipality_id))
+      const avgTravelTime = assignments.length > 0
+        ? Math.round(assignments.reduce((sum: number, a: any) => sum + (a.travel_time || 0), 0) / assignments.length)
+        : 0
+      const totalPopulation = Array.from(municipalities).reduce((sum: number, munId: any) => {
+        return sum + (mapData.populationMap[munId] || 0)
+      }, 0)
+      return {
+        ...kam,
+        hospitalCount: assignments.length,
+        totalBeds,
+        municipalityCount: municipalities.size,
+        avgTravelTime,
+        totalPopulation
       }
-    },
-    mouseout: (e: any) => {
+    }) as any[]
+  }, [mapData])
+
+  const kamStatsById = useMemo(() => {
+    const byId: Record<string, any> = {}
+    kamStats.forEach(k => { byId[k.id] = k })
+    return byId
+  }, [kamStats])
+
+  // Filtros de tipo de hospital y de contratos
+  const filteredAssignments = useMemo(() => {
+    if (!mapData) return [] as any[]
+    return mapData.assignments.filter((a: any) => {
+      // Filtrar por contratos primero si está activo
+      if (showContracts && !mapData.contractValuesByHospital[a.hospitals.id]) return false
+      // Luego aplicar filtro de tipo
+      if (hospitalTypeFilter === 'all') return true
+      if (hospitalTypeFilter === 'sin_tipo') return !a.hospitals.type
+      return a.hospitals.type === hospitalTypeFilter
+    }) as any[]
+  }, [mapData, showContracts, hospitalTypeFilter])
+
+  const filteredUnassignedHospitals = useMemo(() => {
+    if (!mapData) return [] as any[]
+    return mapData.unassignedHospitals.filter((h: any) => {
+      if (hospitalTypeFilter !== 'all') {
+        const matchesType = h.type === hospitalTypeFilter || (hospitalTypeFilter === 'sin_tipo' && !h.type)
+        if (!matchesType) return false
+      }
+      // Si showContracts está activo, solo mostrar hospitales con contratos
+      if (showContracts && !mapData.contractValuesByHospital[h.id]) return false
+      return true
+    }) as any[]
+  }, [mapData, showContracts, hospitalTypeFilter])
+
+  const assignmentByHospital = useMemo(() => {
+    const byId: Record<string, any> = {}
+    ;(mapData?.assignments || []).forEach((a: any) => {
+      if (a?.hospitals?.id) byId[a.hospitals.id] = a
+    })
+    return byId
+  }, [mapData])
+
+  const unassignedById = useMemo(() => {
+    const byId: Record<string, any> = {}
+    ;(mapData?.unassignedHospitals || []).forEach((h: any) => { byId[h.id] = h })
+    return byId
+  }, [mapData])
+
+  // IPS por Ejecutivo Comercial en la línea (detalle de la leyenda)
+  const ipsByExecutive = useMemo(() => {
+    const counts: Record<string, number> = {}
+    if (!lineView || !mapData) return counts
+    mapData.assignments.forEach((a: any) => {
+      const row = a.kams?.id ? lineView.byKam[a.kams.id] : undefined
+      if (!row || row.kind === 'vacant' || row.kind === 'conflict' || !row.executive) return
+      counts[row.executive.id] = (counts[row.executive.id] || 0) + 1
+    })
+    return counts
+  }, [lineView, mapData])
+
+  // ---------- Tarjetas (popups) ----------
+
+  const openPopup = useCallback((target: PopupTarget) => {
+    popupNonceRef.current += 1
+    setActivePopup({ ...target, nonce: popupNonceRef.current } as ActivePopup)
+    // En móvil la hoja se recoge para que la tarjeta se vea completa
+    setSheetSnap('peek')
+  }, [])
+
+  const closePopup = useCallback((nonce: number) => {
+    setActivePopup(current => (current && current.nonce === nonce ? null : current))
+  }, [])
+
+  const selectIps = useCallback<HospitalSelectHandler>((id, position) => {
+    openPopup({ kind: 'ips', id, position })
+  }, [openPopup])
+
+  const selectUnassigned = useCallback<HospitalSelectHandler>((id, position) => {
+    openPopup({ kind: 'unassigned', id, position })
+  }, [openPopup])
+
+  // Resultado de búsqueda: abre la tarjeta de la IPS
+  const openHospitalPopup = useCallback((id: string | null) => {
+    if (!id) return
+    const assignment = assignmentByHospital[id]
+    if (assignment) {
+      openPopup({ kind: 'ips', id, position: [Number(assignment.hospitals.lat), Number(assignment.hospitals.lng)] })
+      return
+    }
+    const hospital = unassignedById[id]
+    if (hospital) openPopup({ kind: 'unassigned', id, position: [Number(hospital.lat), Number(hospital.lng)] })
+  }, [assignmentByHospital, unassignedById, openPopup])
+
+  const navigateTo = useCallback((lat: number, lng: number, zoom: number) => {
+    setMapCenter([lat, lng])
+    setMapZoom(zoom)
+    // Limpiar después de un momento para permitir nuevas navegaciones
+    setTimeout(() => {
+      setMapCenter(undefined)
+      setMapZoom(undefined)
+    }, 100)
+  }, [])
+
+  // ---------- Manejadores de los polígonos ----------
+  // Estables (no se vuelven a registrar al cambiar de línea): leen el contexto vigente de esta referencia.
+  // Con cursor: resaltado y tooltip corto al pasar; clic → tarjeta. En táctil: solo el toque → tarjeta.
+  const territoryCtxRef = useRef<TerritoryContext | null>(null)
+
+  const makeTerritoryHandlers = useCallback((isLocality: boolean) => {
+    const featureOf = (e: any) => {
       const layer = e.layer || e.propagatedFrom
       const feature = layer?.feature
-      const ctx = territoryHoverRef.current
-      if (!feature || !ctx) return
-      layer.setStyle(ctx.rest(String(feature.properties?.code ?? ''), isLocality))
-      layer.closePopup()
-      layer.unbindTooltip()
+      if (!feature) return null
+      return { layer, code: String(feature.properties?.code ?? ''), name: String(feature.properties?.name ?? '') }
     }
-  }), [])
+    return {
+      mouseover: (e: any) => {
+        const ctx = territoryCtxRef.current
+        const f = featureOf(e)
+        if (!ctx || !f || !ctx.canHover || ctx.isHidden(f.code, isLocality)) return
+        f.layer.setStyle(ctx.hover(f.code, isLocality))
+        f.layer.unbindTooltip()
+        f.layer
+          .bindTooltip(ctx.tooltip(f.code, isLocality, f.name), { sticky: true, opacity: 1, direction: 'top', offset: [0, -10], className: 'opmap-tooltip' })
+          .openTooltip(e.latlng)
+      },
+      mouseout: (e: any) => {
+        const ctx = territoryCtxRef.current
+        const f = featureOf(e)
+        if (!ctx || !f) return
+        f.layer.setStyle(ctx.rest(f.code, isLocality))
+        f.layer.unbindTooltip()
+      },
+      click: (e: any) => {
+        const ctx = territoryCtxRef.current
+        const f = featureOf(e)
+        if (!ctx || !f || ctx.isHidden(f.code, isLocality)) return
+        f.layer.closeTooltip?.()
+        ctx.open(f.code, isLocality, f.name, e.latlng)
+      }
+    }
+  }, [])
   const municipiosHandlers = useMemo(() => makeTerritoryHandlers(false), [makeTerritoryHandlers])
   const localidadesHandlers = useMemo(() => makeTerritoryHandlers(true), [makeTerritoryHandlers])
+
+  // ---------- Capas de puntos (memoizadas: cambiar de vista solo cambia colores) ----------
+
+  const ipsMarkers = useMemo(() => filteredAssignments
+    .filter((a: any) => Number.isFinite(Number(a.hospitals?.lat)) && Number.isFinite(Number(a.hospitals?.lng)))
+    .map((a: any) => {
+      const hospital = a.hospitals
+      const kamId = a.kams?.id
+      return (
+        <HospitalMarker
+          key={hospital.id}
+          id={hospital.id}
+          lat={Number(hospital.lat)}
+          lng={Number(hospital.lng)}
+          name={hospital.name}
+          beds={hospital.beds}
+          color={colorForZone(kamId)}
+          dimmed={isDimmedZone(kamId)}
+          showTooltip={canHover}
+          onSelect={selectIps}
+        />
+      )
+    }), [filteredAssignments, colorForZone, isDimmedZone, canHover, selectIps])
+
+  // IPS sin zona en la vista (incluye departamentos excluidos): punto gris pequeño con borde blanco
+  const unassignedMarkers = useMemo(() => filteredUnassignedHospitals
+    .filter((h: any) => Number.isFinite(Number(h.lat)) && Number.isFinite(Number(h.lng)))
+    .map((hospital: any) => (
+      <UnassignedHospitalMarker
+        key={`unassigned-${hospital.id}`}
+        id={hospital.id}
+        lat={Number(hospital.lat)}
+        lng={Number(hospital.lng)}
+        name={hospital.name}
+        dimmed={!!highlightKey}
+        showTooltip={canHover}
+        onSelect={selectUnassigned}
+      />
+    )), [filteredUnassignedHospitals, highlightKey, canHover, selectUnassigned])
+
+  // Insignias de zona: una por zona en su ciudad base, con las iniciales de la ciudad base sobre el
+  // color de la vista (colorForZone). Las que se tocan en pantalla se agrupan en racimos (ZoneBadgeLayer).
+  const badgeSize = isMobile ? 28 : 32
+  const clusterSize = isMobile ? 30 : 34
+  const badgeTextSize = isMobile ? 11 : 12
+
+  const zoneInitials = useMemo(() => uniqueCityInitials(
+    (mapData?.kams || []).map((k: any) => ({ id: k.id, city: k.base_city || zoneDisplayName(k.name) || k.name || '' }))
+  ), [mapData])
+
+  const zoneBadgeItems = useMemo<ZoneBadgeItem[]>(() => kamStats
+    .filter((kam: any) => Number.isFinite(Number(kam.lat)) && Number.isFinite(Number(kam.lng)) && kam.lat && kam.lng)
+    .map((kam: any) => {
+      const row = isLineMode && lineView ? lineView.byKam[kam.id] : undefined
+      const hollow = isLineMode && row?.kind === 'vacant'
+      const name = zoneDisplayName(kam.name) || kam.name
+      let tooltipMeta: string
+      if (isLineMode && lineView) {
+        if (!row) tooltipMeta = 'Sin datos de cobertura'
+        else if (row.kind === 'vacant') tooltipMeta = 'Vacante en esta línea'
+        else if (row.kind === 'conflict') tooltipMeta = `Conflicto: ${row.note || 'varios Ejecutivos Comerciales locales'}`
+        else tooltipMeta = executiveName(row.executive) || 'Sin Ejecutivo Comercial'
+      } else {
+        tooltipMeta = formatZoneExecutives(kam.executives)
+      }
+      return {
+        id: kam.id,
+        lat: Number(kam.lat),
+        lng: Number(kam.lng),
+        color: hollow ? VACANT_COLOR : colorForZone(kam.id),
+        text: zoneInitials[kam.id] || initialsOf(kam.base_city || name),
+        hollow,
+        shortName: shortCityName(kam.base_city) || name,
+        label: `Zona ${name}`,
+        groupKey: groupKeyForZone(kam.id),
+        dimmed: isDimmedZone(kam.id),
+        tooltipTitle: `Zona ${name}`,
+        tooltipMeta
+      }
+    }), [kamStats, isLineMode, lineView, colorForZone, zoneInitials, groupKeyForZone, isDimmedZone])
+
+  const selectZone = useCallback((id: string, position: L.LatLngTuple) => {
+    openPopup({ kind: 'zone', id, position })
+  }, [openPopup])
+
+  // Racimo que ya no se separa al acercar (misma ubicación o zoom máximo): tarjeta con sus zonas
+  const listCluster = useCallback((ids: string[], position: L.LatLngTuple) => {
+    openPopup({ kind: 'cluster', ids, position })
+  }, [openPopup])
+
+  // Marcadores individuales de visitas (solo desde zoom 10)
+  const visitMarkers = useMemo(() => (Array.isArray(visits) ? visits : []).map((visit: any, index: number) => {
+    const kam = kamIndex.byId[visit.kam_id]
+    const kamColor = kam ? colorForZone(kam.id) : '#888888'
+    const typeColor = visit.visit_type === 'Visita efectiva' ? '#2ECC71' :
+      visit.visit_type === 'Visita extra' ? '#3498DB' : '#E74C3C'
+    return (
+      <CircleMarker
+        key={`visit-${index}`}
+        center={[visit.lat, visit.lng]}
+        radius={6}
+        pathOptions={{ fillColor: typeColor, color: kamColor, weight: 2, opacity: 1, fillOpacity: 0.8 }}
+      >
+        <Tooltip className="custom-tooltip">
+          <div style={{ fontSize: '12px', minWidth: 'min(200px, 60vw)', maxWidth: 'min(350px, 86vw)', wordWrap: 'break-word', whiteSpace: 'normal' }}>
+            <strong style={{ fontSize: '13px', color: kamColor, wordBreak: 'break-word', display: 'block' }}>
+              {zoneDisplayName(visit.kam_name)}
+            </strong>
+            <div style={{ marginTop: '4px', borderTop: '1px solid #ddd', paddingTop: '4px' }}>
+              <table style={{ width: '100%', borderSpacing: '0' }}>
+                <tbody>
+                  <tr>
+                    <td style={{ paddingRight: '10px' }}><strong>Tipo:</strong></td>
+                    <td style={{ color: typeColor }}>{visit.visit_type}</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Contacto:</strong></td>
+                    <td>{visit.contact_type}</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Fecha:</strong></td>
+                    <td>{new Date(visit.visit_date).toLocaleDateString('es-CO')}</td>
+                  </tr>
+                  {visit.hospital_name && (
+                    <tr>
+                      <td><strong>Hospital:</strong></td>
+                      <td>{visit.hospital_name}</td>
+                    </tr>
+                  )}
+                  {visit.observations && (
+                    <tr>
+                      <td colSpan={2}>
+                        <div style={{ marginTop: '4px', fontSize: '11px', fontStyle: 'italic' }}>
+                          {visit.observations}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ marginTop: '4px', fontSize: '10px', color: '#666' }}>
+              Zona: {kam ? zoneDisplayName(kam.name) : visit.kam_id}
+            </div>
+          </div>
+        </Tooltip>
+      </CircleMarker>
+    )
+  }), [visits, kamIndex, colorForZone])
 
   if (isUnauthorized) {
     return <div className="flex items-center justify-center h-full">Sesión expirada. Redirigiendo al inicio de sesión...</div>
@@ -835,167 +1287,95 @@ export default function MapComponent({
     return <div className="flex items-center justify-center h-full">Cargando mapa...</div>
   }
 
-  // Crear iconos personalizados para KAMs con el color del KAM
-  const createKamIcon = (kamId: string) => {
-    // Validado de nuevo aquí porque se interpola en HTML crudo
-    const color = safeColor(kamColors[kamId])
-    return L.divIcon({
-      className: 'custom-kam-marker',
-      html: `
-        <div style="width: 42px; height: 52px; position: relative;">
-          <div style="
-            width: 36px;
-            height: 36px;
-            background-color: ${color};
-            border: 3px solid #ffffff;
-            border-radius: 50%;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin: 0 auto;
-          ">
-            <i class="fa fa-user" style="
-              color: white;
-              font-size: 18px;
-              text-shadow: 1px 1px 1px rgba(0,0,0,0.5);
-            "></i>
-          </div>
-          <div style="
-            width: 0;
-            height: 0;
-            border-left: 8px solid transparent;
-            border-right: 8px solid transparent;
-            border-top: 10px solid ${color};
-            margin: -3px auto 0 auto;
-          "></div>
-        </div>
-      `,
-      iconSize: [42, 52],
-      iconAnchor: [21, 52],
-      popupAnchor: [0, -52],
-      tooltipAnchor: [0, -52]
-    })
+  // ---------- Textos de territorios, IPS y zonas ----------
+
+  const zoneLabelOf = (kamId: string | null | undefined) => {
+    const k = kamId ? kamIndex.byId[kamId] : null
+    return k ? (zoneDisplayName(k.name) || k.name) : ''
   }
 
-  // Agrupar hospitales por KAM para estadísticas
-  const kamStats = mapData.kams.map((kam: any) => {
-    const assignments = mapData.assignments.filter((a: any) => a.kams.id === kam.id)
-    
-    // Calcular estadísticas
-    const totalBeds = assignments.reduce((sum: number, a: any) => sum + (a.hospitals.beds || 0), 0)
-    const municipalities = new Set(assignments.map((a: any) => a.hospitals.municipality_id))
-    const avgTravelTime = assignments.length > 0 
-      ? Math.round(assignments.reduce((sum: number, a: any) => sum + (a.travel_time || 0), 0) / assignments.length)
-      : 0
-    
-    // Calcular población total
-    const totalPopulation = Array.from(municipalities).reduce((sum, munId: any) => {
-      return sum + (mapData.populationMap[munId] || 0)
-    }, 0)
-    
-    return {
-      ...kam,
-      hospitalCount: assignments.length,
-      totalBeds,
-      municipalityCount: municipalities.size,
-      avgTravelTime,
-      totalPopulation
-    }
-  })
+  const territoryNameOf = (code: string, featureName: string) =>
+    mapData.municipalityNames[code] || featureName || `Territorio ${code}`
 
-  // Ejecutivos Comerciales por zona, para los tooltips de las IPS
-  const kamExecutives: Record<string, any[]> = {}
-  mapData.kams.forEach((kam: any) => {
-    kamExecutives[kam.id] = Array.isArray(kam.executives) ? kam.executives : []
-  })
-
-  // Filtrar hospitales según el tipo seleccionado
-  const filterHospitalsByType = (hospitals: any[]) => {
-    if (hospitalTypeFilter === 'all') return hospitals
-    return hospitals.filter(h => h.type === hospitalTypeFilter || (hospitalTypeFilter === 'sin_tipo' && !h.type))
-  }
-
-  const filteredAssignments = mapData.assignments.filter((a: any) => {
-    // Filtrar por contratos primero si está activo
-    if (showContracts && !mapData.contractValuesByHospital[a.hospitals.id]) {
-      return false
-    }
-    // Luego aplicar filtro de tipo
-    if (hospitalTypeFilter === 'all') return true
-    if (hospitalTypeFilter === 'sin_tipo') return !a.hospitals.type
-    return a.hospitals.type === hospitalTypeFilter
-  })
-
-  const filteredUnassignedHospitals = filterHospitalsByType(mapData.unassignedHospitals).filter((h: any) => {
-    // Si showContracts está activo, solo mostrar hospitales con contratos
-    if (showContracts && !mapData.contractValuesByHospital[h.id]) {
-      return false
-    }
-    return true
-  })
-
-  // Contenido del cursor sobre un polígono. Con IPS: el popup de estadísticas de siempre.
-  // Sin IPS: tooltip corto con el reparto por tiempo real de carretera.
-  // TODO valor dinámico pasa por escapeHtml: este HTML se inserta crudo en Leaflet.
-  const describeTerritory = (code: string, isLocality: boolean, featureName: string): { html: string; popup: boolean } => {
+  // Tooltip corto al pasar el cursor por un polígono. Todo valor dinámico pasa por escapeHtml.
+  const territoryTooltipHtml = (code: string, isLocality: boolean, featureName: string): string => {
     const t = resolveTerritory(code, isLocality)
-    const territoryName = mapData.municipalityNames[code] || featureName || `Territorio ${code}`
-    const zoneOf = (kamId: string | null | undefined) => {
-      const k = kamId ? kamIndex.byId[kamId] : null
-      return k ? (zoneDisplayName(k.name) || k.name) : ''
+    const zone = zoneLabelOf(t.kamId)
+    let meta: string
+    if (t.kind === 'ips' || t.kind === 'vacant') {
+      if (isLineMode && lineView && t.kamId) {
+        meta = `Zona ${zone} · ${describeCoverage(lineView.byKam[t.kamId], lineView.zoneNameById)}`
+      } else if (t.isVacant || !t.kamId) {
+        meta = 'Zona vacante: sin Ejecutivo Comercial'
+      } else {
+        meta = `Zona ${zone} · ${formatZoneExecutives(kamIndex.byId[t.kamId]?.executives)}`
+      }
+    } else if (t.kind === 'reach') {
+      const minutes = t.row?.travel_minutes
+      meta = `De alcance · Zona ${zone || 'otra zona'}${t.bogotaInherited ? ' (gana Bogotá)' : ''}${minutes !== null && minutes !== undefined ? ` · ${formatMinutes(minutes)}` : ''}`
+    } else if (t.kind === 'out_of_reach') {
+      meta = 'Fuera de alcance'
+    } else if (t.kind === 'no_road') {
+      meta = 'Sin acceso por carretera'
+    } else {
+      meta = isLocality ? 'Localidad sin IPS objetivo hoy' : 'Tiempo por carretera pendiente de calcular'
     }
-    const lineCoverageHtml = (kamId: string | undefined) => {
-      if (!isLineMode || !lineView || !kamId) return ''
-      const row = lineView.byKam[kamId]
-      return `<div style="margin-top: 4px;">Ejecutivo Comercial (${escapeHtml(lineView.line.name)}): ${escapeHtml(describeCoverage(row, lineView.zoneNameById))}${row?.has_equipment === false ? ' · sin equipo' : ''}</div>`
-    }
+    return `<div class="opmap-tooltip__title">${escapeHtml(territoryNameOf(code, featureName))}</div>` +
+      `<div class="opmap-tooltip__meta">${escapeHtml(meta)}</div>` +
+      '<div class="opmap-tooltip__hint">Clic para ver el detalle</div>'
+  }
+
+  // Contenido de la tarjeta de un territorio (mismos datos que el popup de siempre)
+  const territoryInfo = (code: string, isLocality: boolean, featureName: string): TerritoryInfo => {
+    const t = resolveTerritory(code, isLocality)
+    const name = territoryNameOf(code, featureName)
+    const deptCode = municipalityByCode[code]?.department_code || code.slice(0, 2)
+    const deptName = isLocality ? 'Bogotá, D.C.' : (departmentNames[deptCode] || null)
+    const population = mapData.populationMap[code] || 0
 
     if (t.kind !== 'ips' && t.kind !== 'vacant') {
-      const deptCode = municipalityByCode[code]?.department_code || code.slice(0, 2)
-      const deptName = isLocality ? 'Bogotá, D.C.' : departmentNames[deptCode] || ''
-      const population = mapData.populationMap[code] || 0
-      let status = ''
+      let title: string
+      let detail: string | null = null
       if (t.kind === 'reach') {
         const kam = t.kamId ? kamIndex.byId[t.kamId] : null
-        const zone = zoneOf(t.kamId) || 'otra zona'
-        if (t.row && t.row.travel_minutes !== null && t.row.travel_minutes !== undefined) {
-          const from = kam?.base_city || zone
-          status = `Zona: ${escapeHtml(zone)} · Alcance: ${escapeHtml(formatMinutes(t.row.travel_minutes))} por carretera desde ${escapeHtml(from)} · Sin IPS objetivo hoy`
+        const zone = zoneLabelOf(t.kamId) || 'otra zona'
+        if (t.bogotaInherited) {
+          title = `Zona ${zone} · De alcance: localidad sin IPS hoy; se asigna a la zona que gana Bogotá`
+        } else if (t.row && t.row.travel_minutes !== null && t.row.travel_minutes !== undefined) {
+          title = `Zona ${zone} · Alcance: ${formatMinutes(t.row.travel_minutes)} por carretera desde ${kam?.base_city || zone}`
         } else {
-          status = `Zona: ${escapeHtml(zone)} · Territorio base de la zona · Sin IPS objetivo hoy`
+          title = `Zona ${zone} · Territorio base de la zona`
         }
+        detail = 'Sin IPS objetivo hoy'
       } else if (t.kind === 'out_of_reach') {
-        const nearest = zoneOf(t.row?.nearest_kam_id)
-        status = nearest
-          ? `Fuera de alcance (más cercana: ${escapeHtml(nearest)} a ${escapeHtml(formatMinutes(t.row?.nearest_minutes))})`
+        const nearest = zoneLabelOf(t.row?.nearest_kam_id)
+        title = nearest
+          ? `Fuera de alcance (más cercana: ${nearest} a ${formatMinutes(t.row?.nearest_minutes)})`
           : 'Fuera de alcance'
-        status += '<div style="margin-top: 2px; font-size: 11px; color: #6b7280;">No se asigna a ninguna zona: supera el tope de tiempo por carretera.</div>'
+        detail = 'No se asigna a ninguna zona: supera el tope de tiempo por carretera.'
       } else if (t.kind === 'no_road') {
-        status = 'Sin acceso por carretera'
-        status += '<div style="margin-top: 2px; font-size: 11px; color: #6b7280;">Google Maps no encontró ruta desde ninguna ciudad base candidata; no se asigna a ninguna zona.</div>'
+        title = 'Sin acceso por carretera'
+        detail = 'Google Maps no encontró ruta desde ninguna ciudad base candidata; no se asigna a ninguna zona.'
       } else {
-        status = isLocality
-          ? 'Localidad sin IPS objetivo hoy · sin zona residente'
+        title = isLocality
+          ? 'Localidad sin IPS objetivo hoy · sin zona asignada'
           : 'Tiempo por carretera pendiente de calcular'
       }
-      const html = `
-        <div style="font-size: 12px; min-width: 220px; max-width: 320px; padding: 8px 10px; white-space: normal; line-height: 1.45;">
-          <div style="font-size: 13px; font-weight: bold; margin-bottom: 4px;">
-            ${escapeHtml(territoryName)}${deptName ? ` <span style="font-weight: normal; color: #6b7280;">· ${escapeHtml(deptName)}</span>` : ''}
-          </div>
-          <div>${status}</div>
-          ${t.kind === 'reach' ? lineCoverageHtml(t.kamId) : ''}
-          ${population > 0 ? `<div style="margin-top: 4px; font-size: 11px; color: #6b7280;">Población 2025: ${escapeHtml(Number(population).toLocaleString('es-CO'))}</div>` : ''}
-        </div>`
-      return { html, popup: false }
+      let coverage: { label: string; text: string } | null = null
+      if (t.kind === 'reach' && isLineMode && lineView && t.kamId) {
+        const row = lineView.byKam[t.kamId]
+        coverage = {
+          label: `Ejecutivo Comercial (${lineView.line.name})`,
+          text: `${describeCoverage(row, lineView.zoneNameById)}${row?.has_equipment === false ? ' · sin equipo' : ''}`
+        }
+      }
+      return { kind: 'other', name, deptName, title, detail, coverage, population }
     }
 
-    // ----- Territorio con IPS (estilo y contenido de siempre) -----
-    const isVacant = t.isVacant
-    // Modo por línea: un territorio con zona se pinta con la cobertura de esa zona en la línea.
-    // Los territorios sin zona (solo IPS sin asignar) conservan el estilo de vacante de siempre.
-    const useLineStyle = isLineMode && !!t.kamId
+    // ----- Territorio con IPS -----
+    // Modo por línea: un territorio con zona se describe con la cobertura de esa zona en la línea.
+    // Los territorios sin zona (solo IPS sin asignar) conservan el texto de vacante de siempre.
+    const useLineStyle = isLineMode && !!t.kamId && !!lineView
     const lineRow: CoverageRow | undefined = useLineStyle && t.kamId ? lineView!.byKam[t.kamId] : undefined
     const noEquipment = isNoEquipment(t)
     const stats = mapData.territoryStats?.[code] || {
@@ -1007,172 +1387,409 @@ export default function MapComponent({
       contractValue: 0,
       providers: []
     }
-    const population = mapData.populationMap[code] || 0
     const providers: string[] = Array.isArray(stats.providers) ? stats.providers : []
-    const bedsPer1000 = population > 0 ? stats.totalBeds / population * 1000 : 0
     const territoryZone = t.kamId ? kamIndex.byId[t.kamId] : undefined
-    const zoneLabel = zoneDisplayName(territoryZone?.name || stats.kamName) || t.kamId?.toUpperCase()
-    const executivesLabel = formatZoneExecutives(territoryZone?.executives)
-    // Recuadro de cobertura de la línea: zona, ciudad base, línea y quién la cubre
-    let lineStatusHtml = ''
+    const zoneLabel = zoneDisplayName(territoryZone?.name || stats.kamName) || t.kamId?.toUpperCase() || ''
+
+    let status: { tone: 'zone' | 'vacant' | 'conflict'; title: string; lines: string[] }
     if (useLineStyle && lineView) {
       const kind = lineRow?.kind
-      const boxBg = kind === 'vacant' ? '#fef2f2' : kind === 'conflict' ? '#fffbeb' : '#1e293b'
-      const boxFg = kind === 'vacant' ? '#991b1b' : kind === 'conflict' ? '#92400e' : '#ffffff'
       const lineZoneName = zoneDisplayName(lineRow?.zone_name || territoryZone?.name || '') || zoneLabel
       const baseCity = lineRow?.base_city || territoryZone?.base_city || ''
-      lineStatusHtml = `
-        <div style="margin-top: 10px; padding: 8px; background-color: ${boxBg}; color: ${boxFg}; border-radius: 6px; font-size: 12px; line-height: 1.45;">
-          <div style="font-size: 13px; font-weight: bold;">
-            Zona: ${escapeHtml(lineZoneName)}${baseCity ? ` <span style="font-weight: normal;">(ciudad base ${escapeHtml(baseCity)})</span>` : ''}
-          </div>
-          <div>Línea: ${escapeHtml(lineView.line.name)}</div>
-          <div>Ejecutivo Comercial: ${escapeHtml(describeCoverage(lineRow, lineView.zoneNameById))}</div>
-          ${noEquipment ? '<div style="margin-top: 4px; font-weight: bold;">Sin equipo: la línea no opera en esta zona</div>' : ''}
-        </div>`
+      status = {
+        tone: kind === 'vacant' ? 'vacant' : kind === 'conflict' ? 'conflict' : 'zone',
+        title: `Zona: ${lineZoneName}${baseCity ? ` (ciudad base ${baseCity})` : ''}`,
+        lines: [
+          `Línea: ${lineView.line.name}`,
+          `Ejecutivo Comercial: ${describeCoverage(lineRow, lineView.zoneNameById)}`,
+          ...(noEquipment ? ['Sin equipo: la línea no opera en esta zona'] : [])
+        ]
+      }
+    } else if (t.isVacant) {
+      status = { tone: 'vacant', title: 'Zona vacante: sin Ejecutivo Comercial', lines: [] }
+    } else {
+      status = {
+        tone: 'zone',
+        title: `Zona: ${zoneLabel}`,
+        lines: [`Ejecutivo Comercial: ${formatZoneExecutives(territoryZone?.executives)}`]
+      }
     }
-      const popupContent = `
-                    <div style="min-width: 300px; padding: 10px;">
-                      <div style="font-size: 15px; font-weight: bold; margin-bottom: 10px; border-bottom: 2px solid #ddd; padding-bottom: 8px;">
-                        ${escapeHtml(territoryName)}
-                      </div>
-                      
-                      <!-- Estadísticas de hospitales -->
-                      <div style="margin-bottom: 10px;">
-                        <div style="font-size: 13px; font-weight: bold; margin-bottom: 5px; color: #666;">
-                          📊 ESTADÍSTICAS HOSPITALARIAS
-                        </div>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px; font-size: 12px;">
-                          <div style="display: flex; justify-content: space-between;">
-                            <span>🏥 Hospitales:</span>
-                            <strong>${escapeHtml(stats.totalHospitals)}</strong>
-                          </div>
-                          <div style="display: flex; justify-content: space-between;">
-                            <span>🛏️ Camas:</span>
-                            <strong>${escapeHtml(Number(stats.totalBeds || 0).toLocaleString())}</strong>
-                          </div>
-                          <div style="display: flex; justify-content: space-between;">
-                            <span>🚑 Ambulancias:</span>
-                            <strong>${escapeHtml(stats.totalAmbulances)}</strong>
-                          </div>
-                          <div style="display: flex; justify-content: space-between;">
-                            <span>🏥 Cirugías:</span>
-                            <strong>${escapeHtml(Number(stats.totalSurgeries || 0).toLocaleString())}</strong>
-                          </div>
-                        </div>
-                      </div>
-                      
-                      ${stats.contractValue > 0 ? `
-                      <!-- Información de contratos -->
-                      <div style="margin-bottom: 10px; padding: 8px; background-color: #f0f9ff; border-radius: 6px;">
-                        <div style="font-size: 13px; font-weight: bold; margin-bottom: 5px; color: #0369a1;">
-                          💼 CONTRATOS ACTIVOS
-                        </div>
-                        <div style="font-size: 12px;">
-                          <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
-                            <span>Contratos:</span>
-                            <strong>${escapeHtml(stats.totalContracts)}</strong>
-                          </div>
-                          <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
-                            <span>Valor total:</span>
-                            <strong style="color: #059669;">$${escapeHtml((Number(stats.contractValue) / 1000000).toFixed(1))}M</strong>
-                          </div>
-                          ${providers.length > 0 ? `
-                          <div style="margin-top: 5px; font-size: 11px; color: #64748b;">
-                            <span>Proveedores: </span>
-                            <span style="font-style: italic;">${providers.slice(0, 3).map(escapeHtml).join(', ')}</span>
-                            ${providers.length > 3 ? `<span> (+${escapeHtml(providers.length - 3)} más)</span>` : ''}
-                          </div>` : ''}
-                        </div>
-                      </div>` : ''}
-                      
-                      ${population > 0 ? `
-                      <!-- Población y métricas -->
-                      <div style="margin-bottom: 10px; font-size: 12px;">
-                        <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
-                          <span>👥 Población 2025:</span>
-                          <strong>${escapeHtml(Number(population).toLocaleString())}</strong>
-                        </div>
-                        <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
-                          <span>📊 Camas/1000 hab:</span>
-                          <strong style="color: ${bedsPer1000 < 1.5 ? '#dc2626' : bedsPer1000 < 2.5 ? '#f59e0b' : '#059669'};">
-                            ${escapeHtml(bedsPer1000.toFixed(2))}
-                          </strong>
-                        </div>
-                      </div>` : ''}
-                      
-                      <!-- Estado del territorio -->
-                      ${useLineStyle ? lineStatusHtml : `<div style="margin-top: 10px; padding: 8px; background-color: ${isVacant ? '#fef2f2' : '#1e293b'}; color: ${isVacant ? '#dc2626' : '#fff'}; text-align: center; border-radius: 6px; font-size: 13px; font-weight: bold;">
-                        ${isVacant ? '⚠️ ZONA VACANTE - SIN EJECUTIVO COMERCIAL' : `✓ Zona: ${escapeHtml(zoneLabel)}
-                        <div style="margin-top: 4px; font-size: 12px; font-weight: normal;">Ejecutivo Comercial: ${escapeHtml(executivesLabel)}</div>`}
-                      </div>`}
-                    </div>
-                  `
-    return { html: popupContent, popup: true }
+
+    return {
+      kind: 'ips',
+      name,
+      deptName,
+      stats: {
+        hospitals: Number(stats.totalHospitals || 0),
+        beds: Number(stats.totalBeds || 0),
+        ambulances: Number(stats.totalAmbulances || 0),
+        surgeries: Number(stats.totalSurgeries || 0)
+      },
+      contracts: Number(stats.contractValue) > 0
+        ? {
+            count: Number(stats.totalContracts || 0),
+            value: Number(stats.contractValue),
+            providers: providers.slice(0, 3),
+            moreProviders: Math.max(0, providers.length - 3)
+          }
+        : null,
+      population,
+      bedsPer1000: population > 0 ? Number(stats.totalBeds || 0) / population * 1000 : null,
+      status
+    }
   }
 
-  territoryHoverRef.current = {
-    describe: describeTerritory,
+  territoryCtxRef.current = {
+    canHover,
+    isHidden: (code, isLocality) => !showReach && resolveTerritory(code, isLocality).kind === 'reach',
+    tooltip: territoryTooltipHtml,
     rest: territoryRestStyle,
-    hover: territoryHoverStyle
+    hover: territoryHoverStyle,
+    open: (code, isLocality, featureName, latlng) =>
+      openPopup({ kind: 'territory', code, isLocality, name: featureName, position: [latlng.lat, latlng.lng] })
+  }
+
+  const hospitalLocation = (h: any) => h.locality_id
+    ? `${h.locality_name || 'Localidad'} · Bogotá, D.C.`
+    : `${h.municipality_name || mapData.municipalityNames[h.municipality_id] || h.municipality_id || ''}${h.department_name ? ` · ${h.department_name}` : ''}`
+
+  const hospitalMeta = (h: any) => [
+    `${Number(h.beds || 0).toLocaleString('es-CO')} camas`,
+    `Nivel ${h.service_level || 'N/A'}`,
+    h.type ? (HOSPITAL_TYPE_LABELS[h.type] || h.type) : null
+  ].filter(Boolean).join(' · ')
+
+  const fichaActions = (hospitalId: string): PopupAction[] =>
+    can('hospitals:view') ? [{ label: 'Ver ficha →', href: `/hospitals/${hospitalId}` }] : []
+
+  const lineExecutiveLabel = isLineMode && lineView ? `Ejecutivo Comercial (${lineView.line.name})` : 'Ejecutivo Comercial'
+
+  const buildIpsPopup = (hospitalId: string): IpsPopupData | null => {
+    const assignment = assignmentByHospital[hospitalId]
+    if (!assignment) return null
+    const hospital = assignment.hospitals
+    const kamId: string = assignment.kams?.id
+    const row = isLineMode && lineView ? lineView.byKam[kamId] : undefined
+    return {
+      name: hospital.name,
+      location: hospitalLocation(hospital),
+      meta: hospitalMeta(hospital),
+      zone: zoneDisplayName(assignment.kams?.name) || zoneLabelOf(kamId),
+      executiveLabel: lineExecutiveLabel,
+      executiveText: isLineMode && lineView
+        ? describeCoverage(row, lineView.zoneNameById)
+        : formatZoneExecutives(kamIndex.byId[kamId]?.executives),
+      noEquipment: isLineMode && row?.has_equipment === false,
+      travelTime: assignment.travel_time !== null && assignment.travel_time !== undefined
+        ? formatTravelTimeFromSeconds(assignment.travel_time)
+        : null,
+      contractValue: mapData.contractValuesByHospital[hospital.id] || null,
+      actions: fichaActions(hospital.id)
+    }
+  }
+
+  const buildUnassignedPopup = (hospitalId: string): UnassignedPopupData | null => {
+    const hospital = unassignedById[hospitalId]
+    if (!hospital) return null
+    // Los tiempos vienen en SEGUNDOS desde hospital_kam_distances; solo datos reales de Google Maps
+    const travelTimes: any[] = unassignedTravelTimes[hospitalId] || []
+    const nearest = travelTimes.slice(0, 3).map((tt: any) => {
+      const hasTime = tt.travel_time !== null && tt.travel_time !== undefined
+      const minutes = hasTime ? Math.round(tt.travel_time / 60) : 0
+      const isOverLimit = hasTime && minutes > (tt.max_travel_time || 240)
+      const isClose = hasTime && minutes > 240 && minutes <= 300 // 5 horas
+      return {
+        zone: zoneDisplayName(tt.kam_name),
+        time: hasTime ? formatTravelTimeFromSeconds(tt.travel_time) : 'Sin calcular',
+        tone: (!hasTime ? 'none' : isClose ? 'near' : isOverLimit ? 'over' : 'ok') as 'ok' | 'near' | 'over' | 'none'
+      }
+    })
+    const first = travelTimes[0]
+    const firstMinutes = first?.travel_time ? first.travel_time / 60 : 0
+    const suggestion = firstMinutes > 240 && firstMinutes <= 300
+      ? `La zona ${zoneDisplayName(first.kam_name)} está a solo ${formatTravelTimeFromSeconds(first.travel_time)}. Considere ajustar su límite de tiempo máximo de 4 a 5 horas.`
+      : null
+    return {
+      name: hospital.name,
+      location: hospitalLocation(hospital),
+      meta: hospitalMeta(hospital),
+      contractValue: mapData.contractValuesByHospital[hospital.id] || null,
+      nearest,
+      moreCount: Math.max(0, travelTimes.length - nearest.length),
+      suggestion,
+      actions: fichaActions(hospital.id)
+    }
+  }
+
+  const buildZonePopup = (kamId: string): ZonePopupData | null => {
+    const kam = kamStatsById[kamId]
+    if (!kam) return null
+    const row = isLineMode && lineView ? lineView.byKam[kamId] : undefined
+    const hollow = isLineMode && row?.kind === 'vacant'
+    const counts = territorySummary.byZone[kamId] || { ips: 0, reach: 0 }
+    const actions: PopupAction[] = []
+    // /kams es la lista general (no tiene vista por zona)
+    if (can('kams:view')) actions.push({ label: 'Ver zonas →', href: '/kams' })
+    if (isLineMode && can('lines:view')) {
+      actions.push({ label: 'Ver territorio →', href: '/lines', variant: actions.length > 0 ? 'secondary' : 'primary' })
+    }
+    return {
+      name: zoneDisplayName(kam.name) || kam.name,
+      baseCity: kam.base_city || null,
+      color: hollow ? VACANT_COLOR : colorForZone(kamId),
+      hollow,
+      executiveLabel: lineExecutiveLabel,
+      executiveText: isLineMode && lineView
+        ? `${describeCoverage(row, lineView.zoneNameById)}`
+        : formatZoneExecutives(kam.executives),
+      noEquipment: isLineMode && row?.has_equipment === false,
+      ipsCount: kam.hospitalCount,
+      beds: kam.totalBeds,
+      municipalitiesWithIps: counts.ips,
+      municipalitiesReach: counts.reach,
+      population: kam.totalPopulation,
+      actions
+    }
+  }
+
+  const buildClusterPopup = (ids: string[]): ClusterPopupData | null => {
+    const items = ids
+      .map(id => zoneBadgeItems.find(z => z.id === id))
+      .filter((z): z is ZoneBadgeItem => !!z)
+      .sort((a, b) => a.shortName.localeCompare(b.shortName, 'es'))
+      .map(z => ({
+        id: z.id,
+        name: zoneLabelOf(z.id) || z.shortName,
+        meta: z.tooltipMeta || null,
+        color: z.color,
+        hollow: z.hollow,
+        onSelect: () => selectZone(z.id, [z.lat, z.lng])
+      }))
+    return items.length > 0 ? { items } : null
+  }
+
+  const renderActivePopup = (): ReactNode => {
+    if (!activePopup) return null
+    let content: ReactNode = null
+    let offset: L.PointTuple | undefined
+    switch (activePopup.kind) {
+      case 'ips': {
+        const data = buildIpsPopup(activePopup.id)
+        if (data) content = <IpsPopupCard data={data} />
+        // Por debajo de zoom 6 los puntos son compactos (2,5 px): la punta de la tarjeta se ajusta
+        const compact = (mapRef.current?.getZoom() ?? IPS_FULL_SIZE_ZOOM) < IPS_FULL_SIZE_ZOOM
+        offset = [0, 7 - ipsRadius(assignmentByHospital[activePopup.id]?.hospitals?.beds, compact)]
+        break
+      }
+      case 'unassigned': {
+        const data = buildUnassignedPopup(activePopup.id)
+        if (data) content = <UnassignedPopupCard data={data} />
+        offset = [0, 2]
+        break
+      }
+      case 'zone': {
+        const data = buildZonePopup(activePopup.id)
+        if (data) content = <ZonePopupCard data={data} />
+        offset = [0, 7 - zoneBadgeHeight(badgeSize)]
+        break
+      }
+      case 'cluster': {
+        const data = buildClusterPopup(activePopup.ids)
+        if (data) content = <ClusterPopupCard data={data} />
+        offset = [0, 7 - zoneBadgeHeight(clusterSize)]
+        break
+      }
+      case 'territory':
+        content = <TerritoryPopupCard info={territoryInfo(activePopup.code, activePopup.isLocality, activePopup.name)} />
+        break
+    }
+    if (!content) return null
+    return (
+      <MapPopup
+        key={activePopup.nonce}
+        nonce={activePopup.nonce}
+        position={activePopup.position}
+        offset={offset}
+        bottomPadding={isMobile ? SHEET_PEEK_PX + 12 : 12}
+        onClose={closePopup}
+      >
+        {content}
+      </MapPopup>
+    )
+  }
+
+  // ---------- Leyenda ----------
+
+  const selectedLineName = lines.find(l => l.code === selectedLineCode)?.name ?? null
+  const viewLabel = isLineMode && lineView
+    ? lineView.line.name
+    : mapMode === 'zones'
+      ? (viewMode === 'zones' ? 'Vista de regiones' : 'Vista de zonas')
+      : (selectedLineName || 'Mapa')
+  const viewSubtitle = isLineMode && lineView
+    ? `${lineView.executives.length} ${lineView.executives.length === 1 ? 'Ejecutivo Comercial' : 'Ejecutivos Comerciales'} · ${lineView.rows.length} zonas`
+    : `${kamStats.length} zonas`
+
+  const viewOptions = [
+    ...lines.map(line => ({ value: line.code, label: line.name })),
+    ...(canSeeAllLines && onMapModeChange ? [{ value: ZONES_VIEW_VALUE, label: 'Vista de zonas' }] : [])
+  ]
+  const viewSelect: LegendViewSelect | null = viewOptions.length > 1
+    ? {
+        value: mapMode === 'zones' ? ZONES_VIEW_VALUE : (selectedLineCode ?? ''),
+        options: viewOptions,
+        onChange: value => {
+          if (value === ZONES_VIEW_VALUE) onMapModeChange?.('zones')
+          else onLineChange?.(value)
+        }
+      }
+    : null
+
+  let entriesTitle: string
+  let legendEntries: LegendEntry[]
+  if (isLineMode && lineView) {
+    entriesTitle = 'Ejecutivos Comerciales'
+    legendEntries = lineView.executives.map(e => {
+      const zoneCount = lineView.counts.zonesByExecutive[e.id] || 0
+      const ipsCount = ipsByExecutive[e.id] || 0
+      return {
+        key: e.id,
+        label: executiveName(e),
+        color: safeColor(lineView.executiveColors[e.id]),
+        initials: initialsOf(e.full_name),
+        detail: `${zoneCount} ${zoneCount === 1 ? 'zona' : 'zonas'} · ${ipsCount} IPS`
+      }
+    })
+  } else if (viewMode === 'zones') {
+    entriesTitle = 'Regiones'
+    legendEntries = zones.map((region: any) => {
+      const zoneCount = kamStats.filter(k => k.zone_id === region.id).length
+      return {
+        key: region.id,
+        label: region.name,
+        color: safeColor(zoneColors[region.id], NO_COVERAGE_DATA_COLOR),
+        initials: initialsOf(region.name),
+        detail: `${zoneCount} ${zoneCount === 1 ? 'zona' : 'zonas'}`
+      }
+    })
+  } else {
+    entriesTitle = 'Zonas'
+    legendEntries = kamStats
+      .map(kam => ({
+        key: kam.id,
+        label: zoneDisplayName(kam.name) || kam.name,
+        color: safeColor(kamColors[kam.id]),
+        // Mismas iniciales que la insignia de la zona en el mapa
+        initials: zoneInitials[kam.id] || initialsOf(kam.base_city || zoneDisplayName(kam.name)),
+        detail: `${kam.hospitalCount} IPS`
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'es'))
+  }
+
+  const legendStates: LegendState[] = [
+    { key: 'ips', label: 'Con IPS objetivo (visitar)', swatch: swatch(LEGEND_NEUTRAL_FILL, IPS_FILL_OPACITY), count: territoryLegend.ips },
+    { key: 'reach', label: 'De alcance (sin IPS hoy)', swatch: swatch(LEGEND_NEUTRAL_FILL, REACH_FILL_OPACITY), count: territoryLegend.reach },
+    isLineMode && lineView
+      ? { key: 'vacant', label: 'Zonas vacantes en la línea', swatch: swatch(VACANT_FILL_COLOR, VACANT_FILL_OPACITY), count: lineView.counts.vacant }
+      : { key: 'vacant', label: 'Vacante (IPS sin zona)', swatch: swatch(VACANT_FILL_COLOR, VACANT_FILL_OPACITY) }
+  ]
+  if (isLineMode && lineView && lineView.counts.conflict > 0) {
+    legendStates.push({ key: 'conflict', label: 'Zonas en conflicto', swatch: swatch(CONFLICT_FILL_COLOR, CONFLICT_FILL_OPACITY), count: lineView.counts.conflict })
+  }
+  if (isLineMode && lineView && lineView.counts.noEquipment > 0) {
+    legendStates.push({ key: 'noequip', label: 'Zonas sin equipo (rayado)', swatch: NO_EQUIPMENT_SWATCH, count: lineView.counts.noEquipment })
+  }
+  legendStates.push(
+    { key: 'out', label: 'Fuera de alcance', swatch: swatch(OUT_OF_REACH_FILL_COLOR, OUT_OF_REACH_FILL_OPACITY, OUT_OF_REACH_BORDER_COLOR, true), count: territoryLegend.outOfReach },
+    { key: 'noroad', label: 'Sin acceso terrestre', swatch: NO_ROAD_SWATCH, count: territoryLegend.noRoad }
+  )
+  if (territoryLegend.pending > 0) {
+    legendStates.push({ key: 'pending', label: 'Pendiente de calcular', swatch: swatch(PENDING_FILL_COLOR, PENDING_FILL_OPACITY, PENDING_BORDER_COLOR), count: territoryLegend.pending })
+  }
+
+  // Muestras de los marcadores en la leyenda: una zona real del primer grupo de la lista (mismo color
+  // e iniciales que en el mapa), el punto de IPS de ese color, la IPS sin zona y el racimo neutro
+  const sampleZone = zoneBadgeItems.find(z => !z.hollow && z.groupKey === legendEntries[0]?.key) ??
+    zoneBadgeItems.find(z => !z.hollow)
+  const sampleColor = sampleZone?.color ?? LEGEND_NEUTRAL_FILL
+  const legendMarkers = {
+    ipsColor: sampleColor,
+    unzonedIpsColor: IPS_UNZONED_COLOR,
+    zoneColor: sampleColor,
+    zoneTextColor: readableTextColor(sampleColor),
+    zoneText: sampleZone?.text ?? 'Ba',
+    clusterColor: CLUSTER_NEUTRAL_COLOR,
+    clusterTextColor: readableTextColor(CLUSTER_NEUTRAL_COLOR),
+    // Vista por línea con zonas vacantes: sus IPS van en el mismo gris, a tamaño normal
+    vacantIpsColor: isLineMode && lineView && lineView.counts.vacant > 0 ? VACANT_COLOR : null
+  }
+
+  const legendNotes: LegendNote[] = [
+    { tone: 'info', text: 'Los municipios sin IPS se reparten por tiempo real de carretera (Google Maps); sin ruta por carretera no se asignan a ninguna zona.' }
+  ]
+  if (isLineMode && lineView && lineView.rows.length === 0) {
+    legendNotes.push({ tone: 'warn', text: 'No hay cobertura calculada para esta línea. Recalcúlala desde Líneas.' })
+  }
+  if (territoryLegend.noMunicipalityData) {
+    legendNotes.push({ tone: 'warn', text: 'Aún no hay tiempos por carretera de los municipios sin IPS: se muestran como pendientes.' })
+  }
+  if (territoryLegend.geoError) {
+    legendNotes.push({ tone: 'error', text: 'No se pudieron cargar los límites de municipios. Recarga la página.' })
+  }
+
+  const legendProps = {
+    viewLabel,
+    viewSelect,
+    entriesTitle,
+    entries: legendEntries,
+    emptyEntriesText: isLineMode ? 'Nadie lleva esta línea todavía.' : 'Sin datos.',
+    highlightKey,
+    onHighlight: setHighlightKey,
+    states: legendStates,
+    markers: legendMarkers,
+    notes: legendNotes,
+    toggles: {
+      showIps,
+      onShowIps: setShowIps,
+      showReach,
+      onShowReach: setShowReach,
+      visitsEnabled,
+      onVisitsEnabled: setVisitsEnabled
+    }
+  }
+
+  const controlsProps = {
+    mapData,
+    hospitalTypeFilter,
+    setHospitalTypeFilter,
+    filteredAssignments,
+    filteredUnassignedHospitals,
+    onVisitsChange: setVisits,
+    onShowHeatmapChange: setShowHeatmap,
+    onShowMarkersChange: setShowMarkers,
+    onShowContractsChange: setShowContracts,
+    onHospitalSelect: openHospitalPopup,
+    onMapNavigate: navigateTo,
+    visitsEnabled,
+    onVisitsEnabledChange: setVisitsEnabled
   }
 
   return (
     <>
-      {/* Control unificado del mapa */}
-      <MapControls
-        mapData={mapData}
-        hospitalTypeFilter={hospitalTypeFilter}
-        setHospitalTypeFilter={setHospitalTypeFilter}
-        filteredAssignments={filteredAssignments}
-        filteredUnassignedHospitals={filteredUnassignedHospitals}
-        onVisitsChange={setVisits}
-        onShowHeatmapChange={setShowHeatmap}
-        onShowMarkersChange={setShowMarkers}
-        viewMode={viewMode}
-        onViewModeChange={onViewModeChange}
-        lines={lines}
-        selectedLineCode={selectedLineCode}
-        onLineChange={onLineChange}
-        canSeeAllLines={canSeeAllLines}
-        mapMode={mapMode}
-        onMapModeChange={onMapModeChange}
-        lineLegend={isLineMode && lineView ? {
-          lineName: lineView.line.name,
-          executives: lineView.executives.map(e => ({
-            id: e.id,
-            name: executiveName(e),
-            color: safeColor(lineView.executiveColors[e.id]),
-            zones: lineView.counts.zonesByExecutive[e.id] || 0
-          })),
-          vacantColor: VACANT_COLOR,
-          conflictColor: CONFLICT_COLOR,
-          vacant: lineView.counts.vacant,
-          conflict: lineView.counts.conflict,
-          noEquipment: lineView.counts.noEquipment,
-          totalZones: lineView.rows.length
-        } : null}
-        territoryLegend={territoryLegend}
-        onShowContractsChange={setShowContracts}
-        onHospitalSelect={setSelectedHospitalId}
-        onMapNavigate={(lat: number, lng: number, zoom: number) => {
-          setMapCenter([lat, lng])
-          setMapZoom(zoom)
-          // Limpiar después de un momento para permitir nuevas navegaciones
-          setTimeout(() => {
-            setMapCenter(undefined)
-            setMapZoom(undefined)
-          }, 100)
-        }}
-      />
+      {/* Escritorio: filtros, visitas y búsqueda en el panel flotante de siempre */}
+      {!isMobile && <MapControls variant="floating" {...controlsProps} />}
 
-      {/* Patrones rayados de "sin equipo" (uno por color usado en la línea), referenciados con fill url(#id) */}
-      {isLineMode && lineView && (
-        <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden="true" focusable="false">
-          <defs>
-            {Array.from(new Set([
+      {/* Patrones SVG que usan las capas SVG de Leaflet con fill url(#id): trama de puntos de "sin acceso
+          terrestre" (siempre) y rayado de "sin equipo" (uno por color usado en la línea) */}
+      <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden="true" focusable="false">
+        <defs>
+          <pattern id={NO_ROAD_PATTERN_ID} patternUnits="userSpaceOnUse" width="6" height="6">
+            <circle cx="3" cy="3" r="0.9" fill={NO_ROAD_DOT_COLOR} fillOpacity="0.6" />
+          </pattern>
+          {isLineMode && lineView && Array.from(new Set([
               ...Object.values(lineView.executiveColors).map(c => safeColor(c)),
               VACANT_COLOR,
+              VACANT_FILL_COLOR,
               CONFLICT_COLOR,
               NO_COVERAGE_DATA_COLOR
             ])).map(hex => (
@@ -1188,434 +1805,148 @@ export default function MapComponent({
                 <line x1="0" y1="0" x2="0" y2="8" stroke={hex} strokeWidth="3" strokeOpacity="0.75" />
               </pattern>
             ))}
-          </defs>
-        </svg>
+        </defs>
+      </svg>
+
+      <div className={`opmap-map${isMobile ? ' opmap-map--mobile' : ''}`}>
+        <MapContainer
+          ref={mapRef}
+          center={DEFAULT_CENTER}
+          zoom={initialZoom}
+          className="h-full w-full"
+          preferCanvas={true}
+          renderer={vectorRenderer}
+          zoomControl={false}
+          attributionControl={false}
+        >
+          <MapController center={mapCenter} zoom={mapZoom} />
+          <TileLayer
+            key={isMobile ? 'basemap-compact' : 'basemap-full'}
+            attribution={isMobile ? COMPACT_ATTRIBUTION : BASEMAP_ATTRIBUTION}
+            url={BASEMAP_URL}
+            maxNativeZoom={BASEMAP_MAX_NATIVE_ZOOM}
+            eventHandlers={{ tileerror: handleTileError }}
+          />
+          {/* Móvil: atribución corta y zoom pequeño abajo a la derecha, por encima de la hoja inferior */}
+          <AttributionControl
+            key={isMobile ? 'attribution-compact' : 'attribution-full'}
+            position={isMobile ? 'bottomright' : 'bottomleft'}
+            {...(isMobile ? { prefix: false as const } : {})}
+          />
+          <ZoomControl key={isMobile ? 'zoom-mobile' : 'zoom-desktop'} position={isMobile ? 'bottomright' : 'topright'} />
+
+          {/* Todos los municipios (sin Bogotá) y las localidades: un solo <GeoJSON> por colección, estilo
+              por feature. Con IPS: color de la zona 0.55; sin IPS: alcance / fuera de alcance / sin carretera. */}
+          {municipiosGeo && (
+            <GeoJSON
+              key="geo-municipios"
+              data={municipiosGeo}
+              style={municipiosStyle}
+              eventHandlers={municipiosHandlers}
+            />
+          )}
+          {localidadesGeo && (
+            <GeoJSON
+              key="geo-localidades"
+              data={localidadesGeo}
+              style={localidadesStyle}
+              eventHandlers={localidadesHandlers}
+            />
+          )}
+          {/* Rayado "sin equipo" de la línea (SVG, sin eventos), en un panel bajo el canvas de territorios */}
+          <Pane name={HATCH_PANE} style={{ zIndex: 390 }}>
+            {noEquipmentOverlay && (
+              <GeoJSON
+                key={noEquipmentOverlay.key}
+                data={noEquipmentOverlay.data as any}
+                style={noEquipmentOverlayStyle}
+                interactive={false}
+                {...({ renderer: hatchRenderer } as any)}
+              />
+            )}
+          </Pane>
+          {/* Trama de puntos de "sin acceso terrestre" (SVG, sin eventos), justo encima del canvas */}
+          <Pane name={NO_ROAD_PANE} style={{ zIndex: 405, pointerEvents: 'none' }}>
+            {noRoadOverlay && (
+              <GeoJSON
+                key={noRoadOverlay.key}
+                data={noRoadOverlay.data as any}
+                style={NO_ROAD_OVERLAY_STYLE}
+                interactive={false}
+                {...({ renderer: noRoadRenderer } as any)}
+              />
+            )}
+          </Pane>
+          {/* Nombres de lugares encima de los polígonos y debajo de las insignias; no recibe toques */}
+          {LABELS_URL && <MapLabelsLayer pane={LABELS_PANE} zIndex={LABELS_PANE_Z} url={LABELS_URL} maxNativeZoom={LABELS_MAX_NATIVE_ZOOM} />}
+
+          {/* Puntos de IPS encima de los territorios y de los nombres (en móvil desde zoom 5; compactos por
+              debajo de 6). SVG en su panel; en táctil cada punto lleva un área de toque transparente. */}
+          <Pane name={IPS_PANE} style={{ zIndex: IPS_PANE_Z, pointerEvents: 'none' }}>
+            {geoSettled && showIps && (
+              <IpsZoomLayer minZoom={isMobile ? MOBILE_IPS_MIN_ZOOM : 0} renderer={ipsRenderer} touch={!canHover}>
+                {ipsMarkers}
+                {unassignedMarkers}
+              </IpsZoomLayer>
+            )}
+          </Pane>
+
+          {/* Insignias de zona (ciudad base) con racimos cuando se tocan en pantalla */}
+          <ZoneBadgeLayer
+            zones={zoneBadgeItems}
+            size={badgeSize}
+            clusterSize={clusterSize}
+            textSize={badgeTextSize}
+            showTooltip={canHover}
+            insetLeft={isMobile || legendCollapsed ? 0 : LEGEND_INSET_PX}
+            insetBottom={isMobile ? SHEET_PEEK_PX : 0}
+            onSelect={selectZone}
+            onClusterList={listCluster}
+          />
+
+          {/* Mapa de calor de visitas: apagado por defecto; radio y desenfoque según el zoom */}
+          {showHeatmap && Array.isArray(visits) && visits.length > 0 && (
+            <VisitsHeatmapLayer visits={visits} intensity={0.5} maxZoom={15} gradient={HEAT_GRADIENT} />
+          )}
+
+          {/* Marcadores individuales de visitas, solo desde zoom 10 */}
+          {geoSettled && showMarkers && Array.isArray(visits) && visits.length > 0 && (
+            <ZoomGate min={VISIT_MARKERS_MIN_ZOOM}>{visitMarkers}</ZoomGate>
+          )}
+
+          {renderActivePopup()}
+        </MapContainer>
+      </div>
+
+      {/* Escritorio: leyenda flotante abajo a la izquierda */}
+      {!isMobile && (
+        <MapLegendCard title="Leyenda" subtitle={viewLabel} collapsed={legendCollapsed} onCollapsedChange={setLegendCollapsed}>
+          <MapLegend {...legendProps} />
+        </MapLegendCard>
       )}
 
-      <MapContainer
-        center={[4.5709, -74.2973]}
-        zoom={6}
-        className="h-full w-full"
-        preferCanvas={true}
-        zoomControl={false}
-      >
-        <MapController center={mapCenter} zoom={mapZoom} />
-        <TileLayer
-          attribution={BASEMAP_ATTRIBUTION}
-          url={BASEMAP_URL}
-          maxNativeZoom={BASEMAP_MAX_NATIVE_ZOOM}
-          eventHandlers={{ tileerror: handleTileError }}
-        />
-        <ZoomControl position="bottomleft" />
-        
-        {/* Todos los municipios (sin Bogotá) y las localidades: un solo <GeoJSON> por colección, estilo
-            por feature. Con IPS: estilo de siempre; sin IPS: alcance / fuera de alcance / sin carretera. */}
-        {municipiosGeo && (
-          <GeoJSON
-            key="geo-municipios"
-            data={municipiosGeo}
-            style={municipiosStyle}
-            eventHandlers={municipiosHandlers}
-          />
-        )}
-        {localidadesGeo && (
-          <GeoJSON
-            key="geo-localidades"
-            data={localidadesGeo}
-            style={localidadesStyle}
-            eventHandlers={localidadesHandlers}
-          />
-        )}
-        {/* Rayado "sin equipo" de la línea (SVG, sin eventos: el cursor lo atiende la capa de abajo) */}
-        {noEquipmentOverlay && (
-          <GeoJSON
-            key={noEquipmentOverlay.key}
-            data={noEquipmentOverlay.data as any}
-            style={noEquipmentOverlayStyle}
-            interactive={false}
-            {...({ renderer: svgRenderer } as any)}
-          />
-        )}
-        
-        {/* Puntos de IPS - Segunda capa (encima de territorios) */}
-        {filteredAssignments.map((assignment: any) => {
-          const hospital = assignment.hospitals
-          const kam = assignment.kams
-          // Modo por línea: el punto toma el color del Ejecutivo Comercial que cubre su zona en la línea
-          const lineRow = isLineMode ? lineView!.byKam[kam.id] : undefined
-          
-          return (
-            <HospitalMarker
-              key={hospital.id}
-              hospital={hospital}
-              kam={kam}
-              kamColor={isLineMode ? zoneLineColor(kam.id) : kamColors[kam.id]}
-              executives={kamExecutives[kam.id]}
-              lineInfo={isLineMode ? {
-                lineName: lineView!.line.name,
-                coverageText: describeCoverage(lineRow, lineView!.zoneNameById),
-                hasEquipment: lineRow ? lineRow.has_equipment !== false : true
-              } : undefined}
-              assignment={assignment}
-              contractValue={mapData.contractValuesByHospital[hospital.id]}
-              contractProviders={mapData.contractProvidersByHospital[hospital.id]}
-              isSelected={selectedHospitalId === hospital.id}
-            />
-          )
-        })}
-        
-        {/* Hospitales sin asignar (zonas vacantes) */}
-        {filteredUnassignedHospitals.map((hospital: any, index: number) => {
-          const travelTimes = unassignedTravelTimes[hospital.id] || []
-          
-          // Log para el primer hospital sin asignar
-          if (index === 0) {
-            console.log('🏥 MapComponent Render - Hospital sin asignar:', hospital.name)
-            console.log('📍 MapComponent Render - ID:', hospital.id)
-            console.log('⏱️ MapComponent Render - Tiempos disponibles:', travelTimes.length)
-            console.log('📊 MapComponent Render - Primeros 3 tiempos:', travelTimes.slice(0, 3))
-          }
-          
-          // SOLO mostrar tiempos reales de Google Maps
-          // NO estimar si no hay datos
-          
-          // const zoneInfo = getZoneInfo(hospital.municipality_name) // Removido - usar solo datos reales
-          
-          return (
-            <CircleMarker
-              key={`unassigned-${hospital.id}-${travelTimes.length}`}
-              center={[hospital.lat, hospital.lng]}
-              radius={5}
-              pathOptions={{
-                color: '#FF0000',
-                weight: 1,
-                fillColor: '#CCCCCC',
-                fillOpacity: 0.7,
-                className: 'hospital-marker'
-              }}
-              pane="markerPane"
-              eventHandlers={{
-                click: () => {
-                  router.push(`/hospitals/${hospital.id}`)
-                }
-              }}
-            >
-              <Tooltip 
-                sticky={false} 
-                opacity={0.95}
-                permanent={selectedHospitalId === hospital.id}
-                className="custom-tooltip"
-              >
-                <div style={{ 
-                  fontSize: '12px', 
-                  minWidth: '250px', 
-                  maxWidth: '350px',
-                  maxHeight: '400px',
-                  overflowY: 'auto',
-                  overflowX: 'hidden',
-                  wordWrap: 'break-word',
-                  whiteSpace: 'normal'
-                }}>
-                  <strong style={{ fontSize: '13px', color: '#FF0000' }}>⚠️ SIN COBERTURA</strong><br/>
-                  <strong style={{ 
-                    fontSize: '13px', 
-                    wordBreak: 'break-word',
-                    display: 'block',
-                    marginBottom: '4px'
-                  }}>{hospital.name}</strong>
-                  <div style={{ marginTop: '4px' }}>
-                    <strong>Código NIT:</strong> {hospital.code}<br/>
-                    <strong>Ubicación:</strong> {hospital.municipality_name || mapData.municipalityNames[hospital.municipality_id] || hospital.municipality_id}{hospital.department_name ? `, ${hospital.department_name}` : ''}<br/>
-                    <strong>Camas:</strong> {hospital.beds || 0}<br/>
-                    <strong>Nivel:</strong> {hospital.service_level || 'N/A'}<br/>
-                    {hospital.type && (
-                      <>
-                        <strong>Tipo:</strong> <span style={{ 
-                          padding: '2px 6px', 
-                          borderRadius: '4px', 
-                          fontSize: '11px',
-                          backgroundColor: hospital.type === 'Publico' ? '#DBEAFE' : 
-                                         hospital.type === 'Privada' ? '#E9D5FF' : '#D1FAE5',
-                          color: hospital.type === 'Publico' ? '#1E40AF' : 
-                                hospital.type === 'Privada' ? '#6B21A8' : '#065F46'
-                        }}>{hospital.type}</span><br/>
-                      </>
-                    )}
-                    {mapData.contractValuesByHospital[hospital.id] && (
-                      <>
-                        <strong style={{ color: '#2ECC71' }}>💰 Contratos:</strong> ${mapData.contractValuesByHospital[hospital.id].toLocaleString('es-CO')}<br/>
-                      </>
-                    )}
-                    <div style={{ marginTop: '4px', paddingTop: '4px', borderTop: '1px solid #ddd' }}>
-                      <strong>Distancia desde cada zona:</strong><br/>
-                      {travelTimes && travelTimes.length > 0 ? (
-                        <div style={{ fontSize: '11px', marginTop: '4px' }}>
-                          <table style={{ width: '100%', borderSpacing: '0 2px' }}>
-                            <tbody>
-                              {travelTimes.slice(0, 8).map((tt: any, idx: number) => {
-                                const hasTime = tt.travel_time !== null && tt.travel_time !== undefined
-                                // Los tiempos vienen en SEGUNDOS desde hospital_kam_distances
-                                const timeStr = hasTime 
-                                  ? formatTravelTimeFromSeconds(tt.travel_time) // Convertir segundos a formato legible
-                                  : 'Sin calcular'
-                                
-                                const minutes = hasTime ? Math.round(tt.travel_time / 60) : 0
-                                const isOverLimit = hasTime && minutes > (tt.max_travel_time || 240)
-                                const isClose = hasTime && minutes > 240 && minutes <= 300 // 5 horas
-                                
-                                return (
-                                  <tr key={idx}>
-                                    <td style={{ 
-                                      paddingRight: '10px',
-                                      fontWeight: 'bold',
-                                      color: !hasTime ? '#999' : (isClose ? '#FF6B00' : (isOverLimit ? '#CC0000' : '#333'))
-                                    }}>
-                                      {zoneDisplayName(tt.kam_name)}:
-                                    </td>
-                                    <td style={{ 
-                                      textAlign: 'right',
-                                      color: !hasTime ? '#999' : (isClose ? '#FF6B00' : (isOverLimit ? '#CC0000' : '#666'))
-                                    }}>
-                                      {timeStr} {isClose && '⚠️'}
-                                    </td>
-                                  </tr>
-                                )
-                              })}
-                            </tbody>
-                          </table>
-                          {travelTimes.length > 8 && (
-                            <div style={{ marginTop: '4px', fontStyle: 'italic', color: '#999' }}>
-                              ...y {travelTimes.length - 8} zonas más
-                            </div>
-                          )}
-                          <div style={{ marginTop: '4px', fontSize: '10px', color: '#666' }}>
-                            <em>Tiempos reales de Google Maps</em>
-                          </div>
-                        </div>
-                      ) : (
-                        <div style={{ fontSize: '11px', color: '#666', marginTop: '4px' }}>
-                          <div style={{ padding: '4px', backgroundColor: '#f8f9fa', borderRadius: '4px' }}>
-                            <strong>Hospital sin asignar</strong><br/>
-                            <div style={{ marginTop: '4px', fontSize: '10px' }}>
-                              No hay tiempos de viaje calculados para este hospital.<br/>
-                              Ejecute un recálculo completo para incluirlo en el análisis.
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                      {travelTimes.length > 0 && travelTimes[0].travel_time && travelTimes[0].travel_time/60 > 240 && travelTimes[0].travel_time/60 <= 300 && (
-                        <div style={{ marginTop: '6px', padding: '4px', backgroundColor: '#FFF3CD', border: '1px solid #FFE69C', borderRadius: '4px' }}>
-                          <div style={{ fontSize: '11px', color: '#856404' }}>
-                            💡 <strong>Sugerencia:</strong> la zona {zoneDisplayName(travelTimes[0].kam_name)} está a solo {formatTravelTimeFromSeconds(travelTimes[0].travel_time)}.
-                            Considere ajustar su límite de tiempo máximo de 4 a 5 horas.
-                          </div>
-                        </div>
-                      )}
-                      {/* Información de zona removida - usar solo datos reales */}
-                    </div>
-                  </div>
-                </div>
-              </Tooltip>
-            </CircleMarker>
-          )
-        })}
-        
-        {/* Marcadores de zonas (ubicación base) */}
-        {kamStats.filter((kam: any) => kam.lat && kam.lng).map((kam: any) => (
-          <Marker
-            key={kam.id}
-            position={[kam.lat, kam.lng]}
-            icon={createKamIcon(kam.id)}
-            zIndexOffset={1000}
-          >
-            <Tooltip 
-              sticky={true} 
-              opacity={0.95}
-              direction="top"
-              offset={[0, -30]}
-              permanent={false}
-              interactive={false}
-              className="custom-tooltip"
-            >
-              <div style={{ 
-                fontSize: '12px', 
-                minWidth: '200px',
-                maxWidth: '350px',
-                wordWrap: 'break-word',
-                whiteSpace: 'normal'
-              }}>
-                <strong style={{ 
-                  fontSize: '14px', 
-                  color: kamColors[kam.id],
-                  wordBreak: 'break-word',
-                  display: 'block'
-                }}>Zona: {zoneDisplayName(kam.name)}</strong>
-                {kam.base_city && (
-                  <div style={{ marginTop: '2px' }}>
-                    <strong>Ciudad base:</strong> {kam.base_city}
-                  </div>
-                )}
-                <div style={{ marginTop: '2px' }}>
-                  <strong>Ejecutivo Comercial:</strong> {formatZoneExecutives(kam.executives)}
-                </div>
-                {isLineMode && (
-                  <div style={{ marginTop: '2px' }}>
-                    <strong>Línea {lineView!.line.name}:</strong> {describeCoverage(lineView!.byKam[kam.id], lineView!.zoneNameById)}
-                    {lineView!.byKam[kam.id]?.has_equipment === false && ' · sin equipo'}
-                  </div>
-                )}
-                <div style={{ marginTop: '4px' }}>
-                  <strong>Total IPS:</strong> {kam.hospitalCount}<br/>
-                  <strong>Total Camas:</strong> {kam.totalBeds.toLocaleString()}<br/>
-                  <strong>Municipios:</strong> {kam.municipalityCount}<br/>
-                  <strong>Población:</strong> {kam.totalPopulation.toLocaleString()}<br/>
-                  <strong>Base:</strong> {kam.area_id}
-                </div>
-              </div>
-            </Tooltip>
-          </Marker>
-        ))}
-        
-        {/* Capa de mapa de calor de visitas - SOLO mostrar si hay visitas válidas */}
-        {showHeatmap && visits && Array.isArray(visits) && visits.length > 0 ? (
-          <VisitsHeatmapLayer 
-            key={`heatmap-${showHeatmap}-${visits.length}`} // Clave única para forzar remontaje
-            visits={visits}
-            intensity={0.5}
-            radius={15}
-            blur={25}
-            maxZoom={15}
-            gradient={{
-              0.0: 'blue',
-              0.25: 'cyan',
-              0.5: 'lime',
-              0.75: 'yellow',
-              0.85: 'orange',
-              1.0: 'red'
-            }}
-          />
-        ) : (
-          showHeatmap && console.log('MapComponent - Heatmap solicitado pero sin visitas válidas:', {
-            showHeatmap,
-            visitsLength: visits?.length || 0,
-            visitsIsArray: Array.isArray(visits)
-          })
-        )}
-        
-        {/* Marcadores individuales de visitas */}
-        {showMarkers && visits && visits.length > 0 && visits.map((visit, index) => {
-          // Buscar el KAM para obtener su color
-          const kam = mapData.kams.find((k: any) => k.id === visit.kam_id)
-          const kamColor = kam ? kamColors[kam.id] : '#888888'
-          
-          return (
-            <CircleMarker
-              key={`visit-${index}`}
-              center={[visit.lat, visit.lng]}
-              radius={6}
-              pathOptions={{
-                fillColor: visit.visit_type === 'Visita efectiva' ? '#2ECC71' :
-                          visit.visit_type === 'Visita extra' ? '#3498DB' : '#E74C3C',
-                color: kamColor,
-                weight: 2,
-                opacity: 1,
-                fillOpacity: 0.8
-              }}
-            >
-              <Tooltip className="custom-tooltip">
-                <div style={{ 
-                  fontSize: '12px', 
-                  minWidth: '200px',
-                  maxWidth: '350px',
-                  wordWrap: 'break-word',
-                  whiteSpace: 'normal'
-                }}>
-                  <strong style={{ 
-                    fontSize: '13px', 
-                    color: kamColor,
-                    wordBreak: 'break-word',
-                    display: 'block'
-                  }}>
-                    {zoneDisplayName(visit.kam_name)}
-                  </strong>
-                  <div style={{ marginTop: '4px', borderTop: '1px solid #ddd', paddingTop: '4px' }}>
-                    <table style={{ width: '100%', borderSpacing: '0' }}>
-                      <tbody>
-                        <tr>
-                          <td style={{ paddingRight: '10px' }}><strong>Tipo:</strong></td>
-                          <td style={{ 
-                            color: visit.visit_type === 'Visita efectiva' ? '#2ECC71' :
-                                  visit.visit_type === 'Visita extra' ? '#3498DB' : '#E74C3C'
-                          }}>
-                            {visit.visit_type}
-                          </td>
-                        </tr>
-                        <tr>
-                          <td><strong>Contacto:</strong></td>
-                          <td>{visit.contact_type}</td>
-                        </tr>
-                        <tr>
-                          <td><strong>Fecha:</strong></td>
-                          <td>{new Date(visit.visit_date).toLocaleDateString('es-CO')}</td>
-                        </tr>
-                        {visit.hospital_name && (
-                          <tr>
-                            <td><strong>Hospital:</strong></td>
-                            <td>{visit.hospital_name}</td>
-                          </tr>
-                        )}
-                        {visit.observations && (
-                          <tr>
-                            <td colSpan={2}>
-                              <div style={{ marginTop: '4px', fontSize: '11px', fontStyle: 'italic' }}>
-                                {visit.observations}
-                              </div>
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                  <div style={{ marginTop: '4px', fontSize: '10px', color: '#666' }}>
-                    Zona: {kam ? zoneDisplayName(kam.name) : visit.kam_id}
-                  </div>
-                </div>
-              </Tooltip>
-            </CircleMarker>
-          )
-        })}
-      </MapContainer>
+      {/* Móvil: hoja inferior con la leyenda y, a altura completa, filtros de visitas y búsqueda */}
+      {isMobile && (
+        <MapBottomSheet
+          snap={sheetSnap}
+          onSnapChange={setSheetSnap}
+          title={viewLabel}
+          subtitle={viewSubtitle}
+          secondary={<MapControls variant="embedded" {...controlsProps} onSearchSelect={() => setSheetSnap('peek')} />}
+        >
+          <MapLegend {...legendProps} touch />
+        </MapBottomSheet>
+      )}
 
       {/* Aviso no bloqueante: el proveedor del mapa base no responde (territorios y marcadores siguen visibles) */}
       {basemapError && (
         <div
           role="status"
-          className="absolute bottom-4 left-1/2 -translate-x-1/2 z-[1000] pointer-events-none rounded-md bg-white/95 border border-amber-300 px-3 py-1.5 text-xs text-amber-800 shadow"
+          className="absolute bottom-20 md:bottom-4 left-1/2 -translate-x-1/2 z-[1000] pointer-events-none rounded-md bg-white/95 border border-amber-300 px-3 py-1.5 text-xs text-amber-800 shadow"
         >
           No se pudo cargar el mapa base
         </div>
       )}
-      
-      {/* Estilos CSS para el cursor */}
-      <style jsx global>{`
-        .hospital-marker {
-          cursor: pointer !important;
-        }
-        .hospital-marker:hover {
-          stroke-width: 2 !important;
-          stroke-opacity: 1 !important;
-        }
-        .leaflet-tooltip {
-          background: white !important;
-          border: 1px solid #ddd !important;
-          border-radius: 8px !important;
-          box-shadow: 0 2px 8px rgba(0,0,0,0.15) !important;
-          padding: 0 !important;
-        }
-        .leaflet-tooltip-top:before {
-          border-top-color: #ddd !important;
-        }
-      `}</style>
     </>
   )
 }

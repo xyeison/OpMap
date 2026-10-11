@@ -1,10 +1,14 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
-import { CircleMarker, Tooltip } from 'react-leaflet'
-import { useRouter } from 'next/navigation'
-import { formatTravelTimeFromSeconds } from '@/lib/format-utils'
-import { zoneDisplayName } from '@/lib/zone-names'
+import { createContext, memo, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
+import { CircleMarker, Tooltip, useMap, useMapEvent } from 'react-leaflet'
+import type { LatLngTuple, PathOptions, Renderer } from 'leaflet'
+import {
+  IPS_POINT_BORDER_COLOR,
+  IPS_POINT_BORDER_WEIGHT,
+  IPS_POINT_FILL_OPACITY,
+  IPS_UNZONED_COLOR
+} from './mapStyles'
 
 // Ejecutivo Comercial que vive en la zona (viene de /api/map/data, campo kams[].executives)
 export interface ZoneExecutive {
@@ -22,175 +26,170 @@ export const formatZoneExecutives = (executives?: ZoneExecutive[] | null): strin
     .join(', ')
 }
 
-interface HospitalMarkerProps {
-  hospital: any
-  kam: any
-  kamColor: string
-  assignment: any
-  contractValue?: number
-  contractProviders?: string[]
-  isSelected?: boolean
-  executives?: ZoneExecutive[]
-  // Mapa por línea: quién cubre la zona de esta IPS en la línea elegida (texto plano)
-  lineInfo?: {
-    lineName: string
-    coverageText: string
-    hasEquipment: boolean
-  }
+// Radio del punto según las camas: 4 px; desde 100 camas 5,5 px; desde 300 camas 7 px.
+// Compacto (vista de país, zoom < 6): 2,5 px para que el mapa no abra saturado.
+export const COMPACT_IPS_RADIUS = 2.5
+export const ipsRadius = (beds: unknown, compact = false): number => {
+  if (compact) return COMPACT_IPS_RADIUS
+  const n = Number(beds) || 0
+  if (n >= 300) return 7
+  if (n >= 100) return 5.5
+  return 4
+}
+export const UNZONED_IPS_RADIUS = 3.5
+
+// Zoom desde el que los puntos tienen su tamaño normal
+export const IPS_FULL_SIZE_ZOOM = 6
+
+// Radio del área de toque transparente de cada punto en pantallas táctiles (el SVG no tiene la
+// tolerancia del canvas)
+export const IPS_TOUCH_RADIUS = 11
+
+// Lo lee cada marcador: puntos compactos (zoom bajo), renderer SVG del panel de IPS y si hay que
+// añadir el área de toque. Cambiar de zoom no recrea los marcadores.
+interface IpsRenderOptions {
+  compact: boolean
+  renderer?: Renderer
+  touch: boolean
+}
+const IpsRenderContext = createContext<IpsRenderOptions>({ compact: false, touch: false })
+
+const TOUCH_TARGET_STYLE: PathOptions = { stroke: false, fill: true, fillColor: '#000000', fillOpacity: 0 }
+
+/**
+ * Capa de puntos de IPS dependiente del zoom: oculta sus hijos por debajo de `minZoom` (en móvil, 5)
+ * y los dibuja compactos por debajo de IPS_FULL_SIZE_ZOOM. Solo este componente se vuelve a
+ * renderizar al hacer zoom; los marcadores memoizados solo cambian de radio.
+ */
+export function IpsZoomLayer({ minZoom, renderer, touch = false, children }: { minZoom: number; renderer?: Renderer; touch?: boolean; children: ReactNode }) {
+  const map = useMap()
+  const [zoom, setZoom] = useState(() => map.getZoom())
+  useMapEvent('zoomend', () => setZoom(map.getZoom()))
+  const compact = zoom < IPS_FULL_SIZE_ZOOM
+  const value = useMemo(() => ({ compact, renderer, touch }), [compact, renderer, touch])
+  if (zoom < minZoom) return null
+  return <IpsRenderContext.Provider value={value}>{children}</IpsRenderContext.Provider>
 }
 
-export default function HospitalMarker({ 
-  hospital, 
-  kam, 
-  kamColor, 
-  assignment, 
-  contractValue,
-  contractProviders,
-  isSelected,
-  executives,
-  lineInfo
-}: HospitalMarkerProps) {
-  const markerRef = useRef<any>(null)
-  const router = useRouter()
-  
-  useEffect(() => {
-    if (isSelected && markerRef.current) {
-      // Usar setTimeout para asegurar que el marcador esté renderizado
-      setTimeout(() => {
-        if (markerRef.current) {
-          markerRef.current.openTooltip()
-        }
-      }, 100)
-    } else if (!isSelected && markerRef.current) {
-      // Cerrar el tooltip cuando se deselecciona
-      markerRef.current.closeTooltip()
-    }
-  }, [isSelected])
+const isFiniteCoord = (lat: number, lng: number) => Number.isFinite(lat) && Number.isFinite(lng)
 
-  const serviceLevel = parseInt(hospital.service_level) || 1
-  const radius = 3 + (serviceLevel * 1.0)
-  
+// Área de toque transparente (solo táctil): mismo manejador que el punto
+function TouchTarget({ center, renderer, onClick }: { center: LatLngTuple; renderer?: Renderer; onClick: () => void }) {
+  const eventHandlers = useMemo(() => ({ click: onClick }), [onClick])
   return (
     <CircleMarker
-      ref={markerRef}
-      center={[hospital.lat, hospital.lng]}
-      radius={radius}
-      pathOptions={{
-        color: '#222222',
-        weight: 0.5,
-        fillColor: kamColor,
-        fillOpacity: 0.9,
-        className: 'hospital-marker'
-      }}
-      pane="markerPane"
-      eventHandlers={{
-        click: () => {
-          router.push(`/hospitals/${hospital.id}`)
-        },
-        add: (e: any) => {
-          // Guardar referencia cuando el marcador se agrega al mapa
-          if (isSelected) {
-            setTimeout(() => {
-              e.target.openTooltip()
-            }, 100)
-          }
-        }
-      }}
-    >
-      <Tooltip 
-        sticky={false} 
-        opacity={0.95}
-        permanent={isSelected || false}
-        direction="top"
-        offset={[0, -10]}
-        className="custom-tooltip"
-      >
-        <div style={{ 
-          fontSize: '12px', 
-          minWidth: '200px',
-          maxWidth: '350px',
-          maxHeight: '400px',
-          overflowY: 'auto',
-          overflowX: 'hidden',
-          wordWrap: 'break-word',
-          whiteSpace: 'normal'
-        }}>
-          <strong style={{ 
-            fontSize: '13px', 
-            wordBreak: 'break-word',
-            display: 'block',
-            marginBottom: '4px'
-          }}>{hospital.name}</strong>
-          <div style={{ marginTop: '4px' }}>
-            <strong>Código NIT:</strong> {hospital.code}<br/>
-            <strong>Ubicación:</strong> {hospital.locality_id ? 
-              `${hospital.locality_name || 'Localidad'}, Bogotá` : 
-              `${hospital.municipality_name || hospital.municipality_id}, ${hospital.department_name || ''}`}<br/>
-            <strong>Camas:</strong> {hospital.beds || 0}<br/>
-            <strong>Nivel:</strong> {hospital.service_level || 'N/A'}<br/>
-            {hospital.type && (
-              <>
-                <strong>Tipo:</strong> <span style={{ 
-                  padding: '2px 6px', 
-                  borderRadius: '4px', 
-                  fontSize: '11px',
-                  backgroundColor: hospital.type === 'Publico' ? '#f5f5f5' : 
-                                 hospital.type === 'Privada' ? '#000' : '#e5e5e5',
-                  color: hospital.type === 'Publico' ? '#000' : 
-                        hospital.type === 'Privada' ? '#fff' : '#333'
-                }}>{hospital.type}</span><br/>
-              </>
-            )}
-            <strong>Zona:</strong> {zoneDisplayName(kam.name)}<br/>
-            {lineInfo ? (
-              <>
-                <strong>Línea:</strong> {lineInfo.lineName}<br/>
-                <strong>Ejecutivo Comercial:</strong> {lineInfo.coverageText}<br/>
-                {!lineInfo.hasEquipment && (
-                  <>
-                    <span style={{ color: '#92400e' }}>Sin equipo de la línea en esta zona</span><br/>
-                  </>
-                )}
-              </>
-            ) : (
-              <>
-                <strong>Ejecutivo Comercial:</strong> {formatZoneExecutives(executives)}<br/>
-              </>
-            )}
-            {hospital.doctors && (
-              <>
-                <strong>Doctores:</strong><br/>
-                <div style={{ marginLeft: '10px', fontSize: '11px', color: '#555' }}>
-                  {hospital.doctors.split('\n').slice(0, 3).map((doctor: string, index: number) => (
-                    <div key={index}>• {doctor.trim()}</div>
-                  ))}
-                  {hospital.doctors.split('\n').length > 3 && (
-                    <div style={{ fontStyle: 'italic', color: '#888' }}>
-                      ...y {hospital.doctors.split('\n').length - 3} más
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
-            {contractValue && (
-              <>
-                <strong style={{ color: '#2ECC71' }}>💰 Contratos:</strong> ${contractValue.toLocaleString('es-CO')}<br/>
-              </>
-            )}
-            {contractProviders && contractProviders.length > 0 && (
-              <>
-                <strong>Proveedores:</strong><br/>
-                <div style={{ marginLeft: '10px', fontSize: '11px', color: '#555' }}>
-                  {contractProviders.map((provider: string, index: number) => (
-                    <div key={index}>• {provider}</div>
-                  ))}
-                </div>
-              </>
-            )}
-            <strong>Tiempo de llegada:</strong> {formatTravelTimeFromSeconds(assignment.travel_time)}
-          </div>
-        </div>
-      </Tooltip>
-    </CircleMarker>
+      center={center}
+      radius={IPS_TOUCH_RADIUS}
+      pathOptions={TOUCH_TARGET_STYLE}
+      eventHandlers={eventHandlers}
+      {...(renderer ? { renderer } : {})}
+    />
   )
 }
+
+export type HospitalSelectHandler = (id: string, position: LatLngTuple) => void
+
+interface HospitalMarkerProps {
+  id: string
+  lat: number
+  lng: number
+  name: string
+  beds: unknown
+  // Color de la vista activa (Ejecutivo Comercial en la línea, zona o región), ya validado
+  color: string
+  // Atenuado mientras se resalta otro Ejecutivo Comercial / zona en la leyenda
+  dimmed?: boolean
+  // Solo con cursor real: en táctil no hay hover y el toque abre directamente la tarjeta
+  showTooltip: boolean
+  onSelect: HospitalSelectHandler
+}
+
+const pointStyle = (fillColor: string, dimmed: boolean, compact: boolean): PathOptions => ({
+  color: IPS_POINT_BORDER_COLOR,
+  weight: compact ? 1 : IPS_POINT_BORDER_WEIGHT,
+  opacity: dimmed ? 0.35 : 1,
+  fillColor,
+  fillOpacity: dimmed ? 0.25 : IPS_POINT_FILL_OPACITY
+})
+
+/**
+ * Punto de IPS asignada: color de la vista, borde blanco, tamaño por camas. Tocar o hacer clic abre
+ * la tarjeta de la IPS (en táctil, con un área de toque transparente más grande). Memoizado: cambiar
+ * de línea solo cambia el color (setStyle), el marcador no se vuelve a crear.
+ */
+function HospitalMarkerBase({ id, lat, lng, name, beds, color, dimmed = false, showTooltip, onSelect }: HospitalMarkerProps) {
+  const { compact, renderer, touch } = useContext(IpsRenderContext)
+  const center = useMemo<LatLngTuple>(() => [lat, lng], [lat, lng])
+  const pathOptions = useMemo(() => pointStyle(color, dimmed, compact), [color, dimmed, compact])
+  const handleClick = useCallback(() => onSelect(id, center), [id, center, onSelect])
+  const eventHandlers = useMemo(() => ({ click: handleClick }), [handleClick])
+
+  // Coordenadas inválidas: no se dibuja (Leaflet lanzaría "Invalid LatLng object")
+  if (!isFiniteCoord(lat, lng)) return null
+
+  return (
+    <>
+      {touch && <TouchTarget center={center} renderer={renderer} onClick={handleClick} />}
+      <CircleMarker
+        center={center}
+        radius={ipsRadius(beds, compact)}
+        pathOptions={pathOptions}
+        eventHandlers={eventHandlers}
+        {...(renderer ? { renderer } : {})}
+      >
+        {showTooltip && (
+          <Tooltip direction="top" offset={[0, -4]} opacity={1} className="opmap-tooltip">
+            {name}
+          </Tooltip>
+        )}
+      </CircleMarker>
+    </>
+  )
+}
+
+export default memo(HospitalMarkerBase)
+
+interface UnassignedHospitalMarkerProps {
+  id: string
+  lat: number
+  lng: number
+  name: string
+  dimmed?: boolean
+  showTooltip: boolean
+  onSelect: HospitalSelectHandler
+}
+
+/** IPS sin zona en la vista (incluye departamentos excluidos): punto gris pequeño con borde blanco. */
+function UnassignedHospitalMarkerBase({ id, lat, lng, name, dimmed = false, showTooltip, onSelect }: UnassignedHospitalMarkerProps) {
+  const { compact, renderer, touch } = useContext(IpsRenderContext)
+  const center = useMemo<LatLngTuple>(() => [lat, lng], [lat, lng])
+  const pathOptions = useMemo<PathOptions>(() => ({
+    ...pointStyle(IPS_UNZONED_COLOR, dimmed, compact),
+    weight: 1
+  }), [dimmed, compact])
+  const handleClick = useCallback(() => onSelect(id, center), [id, center, onSelect])
+  const eventHandlers = useMemo(() => ({ click: handleClick }), [handleClick])
+
+  if (!isFiniteCoord(lat, lng)) return null
+
+  return (
+    <>
+      {touch && <TouchTarget center={center} renderer={renderer} onClick={handleClick} />}
+      <CircleMarker
+        center={center}
+        radius={compact ? COMPACT_IPS_RADIUS : UNZONED_IPS_RADIUS}
+        pathOptions={pathOptions}
+        eventHandlers={eventHandlers}
+        {...(renderer ? { renderer } : {})}
+      >
+        {showTooltip && (
+          <Tooltip direction="top" offset={[0, -4]} opacity={1} className="opmap-tooltip">
+            {name}
+          </Tooltip>
+        )}
+      </CircleMarker>
+    </>
+  )
+}
+
+export const UnassignedHospitalMarker = memo(UnassignedHospitalMarkerBase)

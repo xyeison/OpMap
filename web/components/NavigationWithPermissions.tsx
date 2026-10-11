@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation'
 import { useUser } from '@/contexts/UserContext'
 import { usePermissions } from '@/hooks/usePermissions'
 import { getRoleTitle } from '@/lib/permissions'
+import { useMapHeaderTitle } from '@/components/mapHeaderStore'
 
 interface MenuItem {
   name: string
@@ -26,6 +27,10 @@ export default function NavigationWithPermissions() {
   const [isOpen, setIsOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const pathname = usePathname()
+  // En /map la cabecera es compacta en móvil (48 px) y muestra la línea: "OpMap · <línea>"
+  const isMap = pathname === '/map'
+  const mapTitle = useMapHeaderTitle()
+  const topOffset = isMap ? 'top-12 md:top-16' : 'top-16'
   
   // Cerrar menú al hacer clic fuera
   useEffect(() => {
@@ -72,16 +77,17 @@ export default function NavigationWithPermissions() {
     <>
       {/* Barra de navegación fija */}
       <nav className="fixed top-0 left-0 right-0 bg-white border-b border-gray-200 z-[9999]">
-        <div className="container mx-auto px-4 h-16 flex justify-between items-center">
+        <div className={`container mx-auto flex justify-between items-center ${isMap ? 'h-12 md:h-16 px-2 md:px-4' : 'h-16 px-4'}`}>
           {/* Logo y título */}
-          <div className="flex items-center gap-3">
+          <div className={`flex items-center min-w-0 ${isMap ? 'gap-1 md:gap-3' : 'gap-3'}`}>
             <button
               onClick={(e) => {
                 e.stopPropagation()
                 setIsOpen(!isOpen)
               }}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors relative z-[10000]"
-              aria-label="Toggle menu"
+              className={`hover:bg-gray-100 rounded-lg transition-colors relative z-[10000] ${isMap ? 'p-2.5 md:p-2' : 'p-2'}`}
+              aria-label={isOpen ? 'Cerrar menú' : 'Abrir menú'}
+              aria-expanded={isOpen}
             >
               <svg 
                 className="w-6 h-6 text-gray-700" 
@@ -106,9 +112,17 @@ export default function NavigationWithPermissions() {
                 )}
               </svg>
             </button>
-            <Link href="/" className="text-2xl font-bold text-gray-900 hover:text-gray-700 transition-colors">
+            <Link
+              href="/"
+              className={`font-bold text-gray-900 hover:text-gray-700 transition-colors ${isMap ? 'text-lg md:text-2xl flex-shrink-0' : 'text-2xl'}`}
+            >
               OpMap
             </Link>
+            {isMap && mapTitle && (
+              <span className="md:hidden min-w-0 truncate text-sm font-medium text-gray-600">
+                <span aria-hidden="true">·</span> {mapTitle}
+              </span>
+            )}
           </div>
 
           {/* Información del usuario */}
@@ -119,7 +133,8 @@ export default function NavigationWithPermissions() {
             </div>
             <button
               onClick={logout}
-              className="px-4 py-2 bg-gray-900 text-white hover:bg-black rounded-lg text-sm font-medium transition-all hover:shadow-md"
+              aria-label="Cerrar sesión"
+              className={`bg-gray-900 text-white hover:bg-black rounded-lg text-sm font-medium transition-all hover:shadow-md ${isMap ? 'inline-flex items-center justify-center h-11 w-11 sm:h-auto sm:w-auto sm:px-4 sm:py-2' : 'px-4 py-2'}`}
             >
               <span className="hidden sm:inline">Cerrar sesión</span>
               <svg className="w-5 h-5 sm:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -133,11 +148,12 @@ export default function NavigationWithPermissions() {
       {/* Menú lateral deslizante */}
       <div 
         ref={menuRef}
-        className={`fixed top-16 left-0 bottom-0 bg-white border-r border-gray-100 w-72 transform transition-transform duration-300 ease-in-out z-[9998] shadow-xl overflow-hidden ${
+        className={`fixed ${topOffset} left-0 bottom-0 bg-white border-r border-gray-100 w-72 transform transition-transform duration-300 ease-in-out z-[9998] shadow-xl overflow-hidden ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
         style={{ 
-          height: 'calc(100vh - 4rem)',
+          // En /map el alto lo dan top y bottom (la cabecera cambia de alto entre móvil y escritorio)
+          ...(isMap ? {} : { height: 'calc(100vh - 4rem)' }),
           visibility: isOpen ? 'visible' : 'hidden',
           pointerEvents: isOpen ? 'auto' : 'none'
         }}
@@ -210,14 +226,14 @@ export default function NavigationWithPermissions() {
       {/* Overlay oscuro cuando el menú está abierto */}
       {isOpen && (
         <div 
-          className="fixed inset-0 top-16 bg-black bg-opacity-50 z-[9997]"
+          className={`fixed inset-0 ${topOffset} bg-black bg-opacity-50 z-[9997]`}
           onClick={() => setIsOpen(false)}
           style={{ pointerEvents: 'auto' }}
         />
       )}
 
       {/* Espaciador para el contenido */}
-      <div className="h-16" />
+      <div className={isMap ? 'h-12 md:h-16' : 'h-16'} />
     </>
   )
 }

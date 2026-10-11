@@ -7,6 +7,7 @@ import dynamic from 'next/dynamic'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
 import type { MapLine, MapMode } from '@/components/MapComponent'
+import { setMapHeaderTitle } from '@/components/mapHeaderStore'
 
 // Importar MapComponent directamente en lugar de MapWithVisitsSimple
 const MapComponent = dynamic(
@@ -119,7 +120,8 @@ function MapPageContent() {
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
   }, [searchParams, router, pathname])
 
-  const selectLine = useCallback((code: string) => updateParams({ line: code }), [updateParams])
+  // Elegir una línea en el selector del mapa vuelve a la vista por línea (quita ?mode=zones)
+  const selectLine = useCallback((code: string) => updateParams({ line: code, mode: null }), [updateParams])
   const changeMapMode = useCallback(
     (mode: MapMode) => updateParams({ mode: mode === 'zones' ? 'zones' : null }),
     [updateParams]
@@ -131,6 +133,13 @@ function MapPageContent() {
       selectLine(lines[0].code)
     }
   }, [lines, selectedLine, selectLine])
+
+  // Cabecera compacta en móvil: "OpMap · <línea>"
+  const headerTitle = mapMode === 'zones' ? 'Vista de zonas' : selectedLine?.name ?? null
+  useEffect(() => {
+    setMapHeaderTitle(headerTitle)
+  }, [headerTitle])
+  useEffect(() => () => setMapHeaderTitle(null), [])
 
   const renderBody = () => {
     if (linesUnauthorized) {
@@ -204,7 +213,8 @@ function MapPageContent() {
           </div>
         }
       >
-        <div className="h-screen relative">
+        {/* Alto de la pantalla menos la cabecera (48 px en móvil, 64 px en escritorio); sin scroll de página */}
+        <div className="opmap-map-page relative">
           {renderBody()}
         </div>
       </PermissionGuard>
@@ -216,7 +226,7 @@ function MapPageContent() {
 function LineSelectorModal({ lines, onSelect }: { lines: MapLine[]; onSelect: (code: string) => void }) {
   return (
     <div
-      className="fixed inset-0 top-16 z-[9997] flex items-center justify-center bg-gray-900/40 px-4"
+      className="fixed inset-0 top-12 md:top-16 z-[9997] flex items-center justify-center bg-gray-900/40 px-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="line-selector-title"
@@ -226,7 +236,7 @@ function LineSelectorModal({ lines, onSelect }: { lines: MapLine[]; onSelect: (c
           Elige una línea de negocio
         </h2>
         <p className="mt-1 text-sm text-gray-600">
-          El mapa muestra la cobertura de una línea a la vez. Podrás cambiarla después desde el panel de controles.
+          El mapa muestra la cobertura de una línea a la vez. Podrás cambiarla después desde la leyenda del mapa.
         </p>
         <div className="mt-4 space-y-2">
           {lines.map((line, index) => (
@@ -235,7 +245,7 @@ function LineSelectorModal({ lines, onSelect }: { lines: MapLine[]; onSelect: (c
               type="button"
               autoFocus={index === 0}
               onClick={() => onSelect(line.code)}
-              className="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl border border-gray-200 text-left hover:border-gray-900 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-900 transition-colors"
+              className="w-full min-h-[48px] flex items-center justify-between gap-3 px-4 py-3 rounded-xl border border-gray-200 text-left hover:border-gray-900 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-900 transition-colors"
             >
               <span className="text-sm font-medium text-gray-900">{line.name}</span>
               {line.role === 'leader' && (
