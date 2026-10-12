@@ -9,7 +9,7 @@ Python de la raíz son el motor original; hoy la fuente de verdad es `web/`. Idi
 npm run dev          # servidor local (o preview "opmap-web" en .claude/launch.json)
 npm run check        # typecheck + lint + pruebas sin red  ← correr SIEMPRE antes de dar algo por terminado
 npm run typecheck    # tsc --noEmit (≈3 s)
-npm run test         # ips-routes-check (109, Supabase falso, sin Google) + reps-check (55) + reps-import-check (90) + adres-check (112)
+npm run test         # 12 suites sin red (Supabase falso, sin Google): ips-routes, reps, adres, población, bogotá, secop, terceros…
 npm run fase2:check  # reglas de cobertura vs documento de producto (NECESITA Supabase real, solo lectura)
 npm run fase1:simulate   # simulación de zonas, solo lectura
 npm run reps:check   # cruce IPS ↔ sedes del REPS: pruebas puras sin red
@@ -109,6 +109,8 @@ nada llama a Google.
   datos") y lista vigilada.
 - `docs/fases/fase5-fuentes-automaticas.md` – carga de SECOP (0710, clasificación, privacidad, cursor) y cargas
   automáticas: `/api/cron/<fuente>` (CRON_SECRET), `.github/workflows/datos.yml`, `fuentes_estado`.
+- `docs/fases/fase6-visitas-f1-terceros.md` – app de visita F1: cuentas, sedes, médicos, visitantes y contactos (0800
+  sin aplicar), permisos `terceros:*` y `visitantes:manage`, API `/api/terceros/**` y página `/terceros`.
 - `docs/arquitectura-y-scripts.md` – scripts Python, estructura de carpetas, archivos clave.
 - `docs/historico-resultados.md` – cifras de 2025 y colores originales (histórico, no vigente).
 - `docs/FLUJO_DE_TRABAJO_IA.md` – cómo trabajamos con Claude Code en este repo y por qué.

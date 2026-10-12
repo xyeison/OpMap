@@ -11,7 +11,7 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "tsx scripts/ips-routes-check.ts && tsx scripts/reps-check.ts && tsx scripts/reps-import-check.ts && tsx scripts/adres-check.ts && tsx scripts/poblacion-api-check.ts && tsx scripts/poblacion-check.ts && tsx scripts/bogota-check.ts && tsx scripts/corredores-config-check.ts && tsx scripts/secop-api-check.ts && tsx scripts/secop-check.ts",
+    "test": "tsx scripts/ips-routes-check.ts && tsx scripts/reps-check.ts && tsx scripts/reps-import-check.ts && tsx scripts/adres-check.ts && tsx scripts/poblacion-api-check.ts && tsx scripts/poblacion-check.ts && tsx scripts/bogota-check.ts && tsx scripts/corredores-config-check.ts && tsx scripts/secop-api-check.ts && tsx scripts/secop-check.ts && tsx scripts/terceros-check.ts && tsx scripts/terceros-api-check.ts",
     "check": "npm run typecheck && npm run lint && npm run test",
     "fase1:simulate": "tsx scripts/fase1-simulate.ts",
     "fase2:check": "tsx scripts/fase2-check.ts",
@@ -26,7 +26,9 @@
     "corredores-config:check": "tsx scripts/corredores-config-check.ts",
     "secop-api:check": "tsx scripts/secop-api-check.ts",
     "secop:check": "tsx scripts/secop-check.ts",
-    "secop:load": "tsx scripts/secop-load.ts"
+    "secop:load": "tsx scripts/secop-load.ts",
+    "terceros:check": "tsx scripts/terceros-check.ts",
+    "terceros-api:check": "tsx scripts/terceros-api-check.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.53.0",

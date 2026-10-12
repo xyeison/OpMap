@@ -44,6 +44,10 @@ export type Permission =
   | 'intelligence:view'        // Fase 3: inteligencia de giros ADRES (/inteligencia, GET /api/intelligence/giros)
   | 'kams:bogota-config'       // PR 3: Bogotá hacia afuera (k celdas, corredores, tope único). Solo admin
   | 'fuentes:manage'           // PR 7: panel "Fuentes de datos" (estado y "Actualizar ahora") y lista vigilada de SECOP. Solo admin
+  | 'terceros:view'            // Fase 6 F1: ver cuentas, sedes, médicos (sin documento) y contactos (/terceros)
+  | 'terceros:create'          // Fase 6 F1: crear cuentas, sedes, médicos y contactos
+  | 'terceros:manage'          // Fase 6 F1: editar o desactivar, ver documentos, confirmar sedes, marcar cliente y modalidad
+  | 'visitantes:manage'        // Fase 6 F1: asignar y terminar visitantes de un médico (line_leader solo SUS líneas; lo limita la API)
 
 // Definición de permisos por rol
 export const rolePermissions: Record<Role, Permission[]> = {
@@ -80,7 +84,11 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'municipalities:recompute',
     'intelligence:view',
     'kams:bogota-config',
-    'fuentes:manage'
+    'fuentes:manage',
+    'terceros:view',
+    'terceros:create',
+    'terceros:manage',
+    'visitantes:manage'
   ],
   sales_manager: [
     'dashboard:view',
@@ -93,7 +101,9 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'lines:view',        // lines:edit es del rol line_leader (restringido a su línea)
     'executives:view',
     'coverage:view',     // Solo las líneas que lleva como ejecutiva (GET /api/me/lines)
-    'territory:view'     // Solo el anexo de su(s) ejecutivo(s) enlazado(s)
+    'territory:view',    // Solo el anexo de su(s) ejecutivo(s) enlazado(s)
+    'terceros:view',     // Fase 6 F1: terceros (cuentas, sedes, médicos sin documento, contactos)
+    'terceros:create'
   ],
   // Líder de línea: lo de sales_manager + editar su línea y su cobertura.
   // Las rutas /api/business-lines/** y /api/coverage/** restringen la edición a las líneas
@@ -113,7 +123,10 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'coverage:edit',
     'territory:view',
     'territory:snapshot',
-    'intelligence:view'
+    'intelligence:view',
+    'terceros:view',
+    'terceros:create',
+    'visitantes:manage'  // Solo en las líneas donde business_lines.leader_user_id = el usuario (lo limita la API)
   ],
   // Dirección comercial: todo lo de ver + gestionar líneas, equipo y cobertura de todas las líneas.
   // Sin users:manage ni recalculate:complete.
@@ -136,7 +149,11 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'map:all-lines',
     'territory:view',
     'territory:snapshot',
-    'intelligence:view'
+    'intelligence:view',
+    'terceros:view',
+    'terceros:create',
+    'terceros:manage',
+    'visitantes:manage'
   ],
   contract_manager: [
     'map:view',
@@ -169,7 +186,10 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'coverage:view',
     'map:all-lines',
     'territory:view',
-    'intelligence:view'
+    'intelligence:view',
+    'terceros:view',
+    'terceros:create',
+    'terceros:manage'
   ],
   viewer: [
     'map:view',
@@ -179,7 +199,8 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'coverage:view',
     'map:all-lines',
     'territory:view',
-    'intelligence:view'
+    'intelligence:view',
+    'terceros:view'
   ],
   user: [
     'map:view',
@@ -223,6 +244,7 @@ export function getAllowedRoutes(role: Role | undefined): string[] {
   if (permissions.includes('lines:view')) routes.push('/lines')            // Fase 1
   if (permissions.includes('executives:view')) routes.push('/executives')  // Fase 1
   if (permissions.includes('intelligence:view')) routes.push('/inteligencia') // Fase 3: giros ADRES
+  if (permissions.includes('terceros:view')) routes.push('/terceros')        // Fase 6 F1: cuentas y médicos
   
   return routes
 }
@@ -249,6 +271,11 @@ export function getNavigationMenu(role: Role | undefined) {
   
   if (permissions.includes('hospitals:view')) {
     menu.push({ name: 'Hospitales', href: '/hospitals', icon: 'building' })
+  }
+
+  // Fase 6 F1: terceros (cuentas con sus sedes, médicos y contactos)
+  if (permissions.includes('terceros:view')) {
+    menu.push({ name: 'Terceros', href: '/terceros', icon: 'users' })
   }
   
   if (permissions.includes('kams:view')) {
