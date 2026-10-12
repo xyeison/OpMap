@@ -85,6 +85,9 @@ import { POST as createUserRoute } from '../app/api/users/route'
 import { POST as importVisitsRoute } from '../app/api/visits/import/route'
 import { DELETE as deleteImportRoute } from '../app/api/visits/imports/route'
 import { PATCH as updateExecutiveRoute } from '../app/api/executives/[id]/route'
+import { GET as planAccountsRoute, POST as createAccountsRoute } from '../app/api/users/from-executives/route'
+import { generateTempPassword, planExecutiveAccounts } from '../lib/executive-accounts'
+import bcrypt from 'bcryptjs'
 import { passwordVersion, SESSION_COOKIE_NAME, signSession } from '../lib/session'
 
 for (const key of [
@@ -1431,6 +1434,59 @@ async function main() {
         `${response.status} ${JSON.stringify(body).slice(0, 200)}`)
       const del = await deleteImportRoute(apiRequest('/api/visits/imports?id=11111111-1111-4111-8111-999999999999', { method: 'DELETE' }))
       check('DELETE /api/visits/imports: 410 y no borra el histórico de VMO', del.status === 410 && fake.writes().length === 0)
+    }
+
+    print('\n8. Usuarios para las Ejecutivas Comerciales sin cuenta')
+    {
+      const seq = (start: number) => (size: number) => Uint8Array.from({ length: size }, (_, i) => (start + i * 37) % 256)
+      const pw = generateTempPassword(seq(7))
+      check('contraseña temporal: 12 caracteres con minúscula, mayúscula y dígito, sin 0/O/1/l/I',
+        pw.length === 12 && /[a-z]/.test(pw) && /[A-Z]/.test(pw) && /[2-9]/.test(pw) && !/[0O1lI]/.test(pw), pw)
+      check('contraseña temporal determinista con la misma fuente y distinta con otra', generateTempPassword(seq(7)) === pw && generateTempPassword(seq(8)) !== pw)
+
+      const plan = planExecutiveAccounts([
+        { id: 'a', full_name: 'Ana', email: 'Ana@vg.co', status: 'active', user_id: null },
+        { id: 'b', full_name: 'Bea', email: 'bea@vg.co', status: 'active', user_id: null },
+        { id: 'c', full_name: 'Cata', email: null, status: 'active', user_id: null },
+        { id: 'd', full_name: 'Vacante', email: 'vac@vg.co', status: 'placeholder', user_id: null },
+        { id: 'e', full_name: 'Eli', email: 'eli@vg.co', status: 'active', user_id: 'u-eli' },
+        { id: 'f', full_name: 'Fer', email: 'dup@vg.co', status: 'active', user_id: null },
+        { id: 'g', full_name: 'Gabi', email: 'dup@vg.co', status: 'active', user_id: null },
+        { id: 'h', full_name: 'Hilda', email: 'hilda@vg.co', status: 'inactive', user_id: null },
+      ], [{ id: 'u-bea', email: 'bea@vg.co' }, { id: 'u-eli', email: 'eli@vg.co' }])
+      const kinds = Object.fromEntries(plan.map(action => [action.executive.id, action.kind]))
+      check('plan: crea a quien no tiene usuario, enlaza si ya existe, omite sin email y emails repetidos; no toca vacantes, inactivas ni enlazadas',
+        kinds.a === 'create' && kinds.b === 'link' && kinds.c === 'skip' && kinds.f === 'skip' && kinds.g === 'skip' && !('d' in kinds) && !('e' in kinds) && !('h' in kinds),
+        JSON.stringify(kinds))
+
+      const tables = {
+        users: fakeUsers(),
+        executives: [
+          { id: 'x1', full_name: 'Zoe Uno', email: 'zoe@vg.co', status: 'active', user_id: null },
+          { id: 'x2', full_name: 'Yan Dos', email: 'yan@vg.co', status: 'active', user_id: null },
+          { id: 'x3', full_name: 'Vacante', email: null, status: 'placeholder', user_id: null },
+        ],
+      } as Record<string, Array<Record<string, unknown>>>
+      const fake = fakeSupabase(tables)
+      fetchHandler = fake.handler
+      const viewer = await planAccountsRoute(apiRequest('/api/users/from-executives', { userId: VIEWER_ID, password: 'hash-viewer' }))
+      check('GET sin users:manage (viewer): 403', viewer.status === 403)
+      const preview = await planAccountsRoute(apiRequest('/api/users/from-executives'))
+      const previewBody = await preview.json()
+      check('GET: simulación con 2 por crear y sin escribir nada', preview.status === 200 && previewBody.items.filter((i: { action: string }) => i.action === 'create').length === 2 && fake.writes().length === 0)
+      const noConfirm = await createAccountsRoute(apiRequest('/api/users/from-executives', { method: 'POST', body: {} }))
+      check('POST sin confirm: 400 y nada creado', noConfirm.status === 400 && fake.writes().length === 0)
+      const run = await createAccountsRoute(apiRequest('/api/users/from-executives', { method: 'POST', body: { confirm: true } }))
+      const runBody = await run.json()
+      const zoe = tables.users.find(u => u.email === 'zoe@vg.co')
+      const zoeResult = runBody.results?.find((r: { email: string }) => r.email === 'zoe@vg.co')
+      check('POST: crea 2 usuarios sales_manager enlazados, devuelve la contraseña una vez y guarda solo el hash',
+        run.status === 200 && runBody.created === 2 && zoe?.role === 'sales_manager' && tables.executives[0].user_id === zoe?.id &&
+          typeof zoeResult?.tempPassword === 'string' && zoe?.password !== zoeResult.tempPassword && bcrypt.compareSync(zoeResult.tempPassword, String(zoe?.password)),
+        `${run.status} ${JSON.stringify(runBody).slice(0, 300)}`)
+      const again = await createAccountsRoute(apiRequest('/api/users/from-executives', { method: 'POST', body: { confirm: true } }))
+      const againBody = await again.json()
+      check('POST otra vez: no crea nada (idempotente)', again.status === 200 && againBody.created === 0 && tables.users.length === fakeUsers().length + 2)
     }
   } finally {
     fetchHandler = null

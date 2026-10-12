@@ -5,6 +5,7 @@ import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
 import { useUser } from '@/contexts/UserContext'
 import type { Role } from '@/lib/permissions'
+import ExecutiveAccountsPanel from '@/components/ExecutiveAccountsPanel'
 
 interface User {
   id: string
@@ -343,6 +344,9 @@ export default function UsersPage() {
               <span>{success}</span>
             </div>
           )}
+
+          {/* Usuarios de las Ejecutivas Comerciales que aún no tienen (app de visita) */}
+          <ExecutiveAccountsPanel onDone={loadUsers} />
 
           {/* Modal de crear usuario mejorado */}
           {showCreateForm && (
