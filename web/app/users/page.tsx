@@ -73,7 +73,8 @@ export default function UsersPage() {
       const data = await response.json()
 
       if (response.ok) {
-        setSuccess('Usuario creado exitosamente')
+        // El servidor dice si el usuario quedó enlazado con su Ejecutiva Comercial (mismo email)
+        setSuccess(typeof data.message === 'string' ? data.message : 'Usuario creado exitosamente')
         setShowCreateForm(false)
         setFormData({ email: '', password: '', full_name: '', role: 'user' })
         loadUsers()

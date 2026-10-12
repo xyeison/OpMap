@@ -116,6 +116,42 @@ export async function resolveUserIdByEmail(email: string | null, excludeExecutiv
 }
 
 /**
+ * Enlaza el usuario recién creado o editado con la Ejecutiva Comercial que tiene su mismo email (sin distinguir
+ * mayúsculas), solo si esa ejecutiva no tiene usuario y no está inactiva, y si el usuario no está enlazado ya con
+ * otra. Es el camino inverso de resolveUserIdByEmail (que enlaza al crear o editar la ejecutiva): así no importa
+ * qué se crea primero. Devuelve el nombre de la ejecutiva enlazada o null. Nunca desenlaza a nadie.
+ */
+export async function linkExecutiveToUserByEmail(userId: string, email: string | null | undefined): Promise<string | null> {
+  if (!email) return null
+  const { data: already, error: alreadyError } = await supabaseAdmin
+    .from('executives').select('id').eq('user_id', userId).limit(1)
+  if (alreadyError) throw alreadyError
+  if (already && already.length > 0) return null
+
+  const pattern = email.replace(/[\\%_]/g, char => `\\${char}`)
+  const { data: candidates, error: candError } = await supabaseAdmin
+    .from('executives')
+    .select('id, full_name')
+    .ilike('email', pattern)
+    .is('user_id', null)
+    .neq('status', 'inactive')
+    .limit(2)
+  if (candError) throw candError
+  // Si dos ejecutivas comparten email no se adivina: hay que corregir el email de una en /executives y
+  // guardarla (el PUT vuelve a intentar el enlace).
+  if (!candidates || candidates.length !== 1) return null
+
+  const { data: updated, error: updateError } = await supabaseAdmin
+    .from('executives')
+    .update({ user_id: userId })
+    .eq('id', candidates[0].id)
+    .is('user_id', null)
+    .select('full_name')
+  if (updateError) throw updateError
+  return updated && updated.length === 1 ? String(updated[0].full_name) : null
+}
+
+/**
  * Reemplaza las líneas de una ejecutiva. Primero inserta las nuevas (upsert) y después borra
  * las que sobran, para no dejarla sin líneas a mitad de la operación.
  * Devuelve false si alguna escritura no se confirmó (el handler responde 500).

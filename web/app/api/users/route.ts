@@ -4,6 +4,7 @@ import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { requirePermission } from '@/lib/require-role'
 import { hashPassword } from '@/lib/passwords'
 import { createUserSchema, firstIssueMessage } from '@/lib/user-schemas'
+import { linkExecutiveToUserByEmail } from '../executives/_lib/executive-shared'
 
 export const dynamic = 'force-dynamic'
 
@@ -88,7 +89,23 @@ export async function POST(request: NextRequest) {
       throw error
     }
 
-    return NextResponse.json({ user: newUser, message: 'Usuario creado exitosamente' })
+    // Si hay una Ejecutiva Comercial con ese email y sin usuario, queda enlazada (para la app de visita y las
+    // líneas que ve en el mapa). Un fallo aquí no deshace la creación del usuario: se vuelve a intentar cada vez
+    // que se guarda la ejecutiva en /executives (PUT /api/executives/[id]).
+    let linkedExecutive: string | null = null
+    try {
+      linkedExecutive = await linkExecutiveToUserByEmail(newUser.id as string, email)
+    } catch (linkError) {
+      console.error('Usuario creado, pero no se pudo enlazar con su ejecutiva:', linkError)
+    }
+
+    return NextResponse.json({
+      user: newUser,
+      linkedExecutive,
+      message: linkedExecutive
+        ? `Usuario creado y enlazado con la Ejecutiva Comercial ${linkedExecutive}`
+        : 'Usuario creado exitosamente',
+    })
   } catch (error) {
     console.error('Error al crear usuario:', error)
     return NextResponse.json({ error: 'Error al crear usuario' }, { status: 500 })
