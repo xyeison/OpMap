@@ -1,12 +1,14 @@
-# Spec: app de visita de OpMap (reemplazo de VMO)  (2026-10-12, v4)
+# Spec: app de visita de OpMap (reemplazo de VMO)  (2026-10-12, v5)
 
-**Estado**: borrador v4 en revisión con el dueño (2026-10-12). Es un **piloto de desarrollo**: el dueño
+**Estado**: borrador v5 en revisión con el dueño (2026-10-12). Es un **piloto de desarrollo**: el dueño
 quiere un producto mínimo viable ya, organizar primero la información dentro de OpMap y, cuando funcione,
 entregárselo a sus desarrolladores para pegarlo a Odoo. **Odoo queda fuera de este alcance** (ni terceros ni
-ausencias). Cambios frente a v3: terceros propios de OpMap, **tipos de actividad configurables por
-objetivo** (inducción al médico, inducción a la compra, gestiones), metas por tipo de actividad por zona y
-por persona (una persona puede tener solo visitas a cuentas, como un gerente de cuentas clave), y "cuenta"
-como nombre de la organización que se visita.
+ausencias). Modelo: terceros propios de OpMap, **tipos de actividad configurables por objetivo** (inducción
+al médico, inducción a la compra, gestiones), metas por tipo de actividad por zona y por persona (una
+persona puede tener solo visitas a cuentas, como un gerente de cuentas clave), y "cuenta" como nombre de la
+organización que se visita (confirmado por el dueño). Cambios de v5: **nada se trae de VMO** (ni médicos ni
+clientes: el equipo los crea a mano, bien organizados), **los médicos se crean siempre con tipo y número de
+identificación** para que no se dupliquen, y la telefónica se habilita por persona.
 
 Documento de referencia de VMO: `docs/referencias/2026-10-11-vmo-2026-documentacion-funcional.md`.
 
@@ -80,8 +82,10 @@ terminología visible "Ejecutivo Comercial", "Zona", "IPS", "Médico", "Cuenta",
   > **Visita a compras** · Clínica X · Marta (compras) · van a cotizar.
   > **Gestión de codificación** · Clínica X · químico farmacéutico · tornillo canulado.
   Confirma con un toque, corrige hablando o cambia el tipo si la app se equivocó.
-- Si el médico o el contacto no existen, la app lo dice y ofrece crearlo ahí mismo (nombre, especialidad o
-  cargo, cuenta) con aviso de posibles duplicados; sin aprobación.
+- Si el médico o el contacto no existen, la app lo dice y ofrece crearlo ahí mismo, sin aprobación. Un
+  médico se crea **siempre con tipo y número de identificación** (cédula, cédula de extranjería, pasaporte),
+  nombre, especialidad y ciudad: si el documento ya existe, la app muestra al médico existente y no crea
+  otro. Esto se digita, nunca se dicta. Un contacto se crea con cuenta, nombre y cargo (documento opcional).
 - Presencial solo a menos del radio de una dirección conocida; lejos, telefónica si la tiene habilitada o
   "guardar este punto como dirección nueva" cuando es un consultorio.
 - Solicita ausencias desde la app; ve su meta ajustada y "Mis números".
@@ -122,10 +126,13 @@ meta se miden igual (número, tiempo, mezcla) y la directora puede ponerles meta
    efectiva o no, conclusión, compromisos, próxima reunión) → tarjetas de confirmación → un toque. Nada se
    guarda sin confirmar. Audio 12 meses en bucket privado; transcripción con el registro.
 3. **Reporte por toques** (respaldo) con los mismos campos.
-4. **Médicos, cuentas, contactos y direcciones en OpMap**: carga por archivo (Excel o CSV, con el mismo
-   patrón del importador del REPS: detección de columnas, simulación, aplicar), las 783 IPS entran como
-   cuentas automáticamente (vinculadas a `hospitals`), creación desde la app y desde la web con aviso de
-   duplicados, asignación de médicos y cuentas a cada ejecutiva (desde el territorio o a mano).
+4. **Médicos, cuentas, contactos y direcciones en OpMap**, creados a mano por el equipo (app y web), bien
+   organizados: las 783 IPS entran como cuentas automáticamente (vinculadas a `hospitals`); los médicos
+   se crean uno a uno con tipo y número de identificación (único en el sistema), nombre, especialidad,
+   ciudad y, si se sabe, dirección; los contactos con cuenta, nombre y cargo. **Nada se importa de VMO.**
+   Una plantilla de archivo (Excel o CSV, con simulación y la misma regla de identificación) queda
+   disponible para que data manager cargue lotes ya organizados, si el dueño la quiere usar. Asignación de
+   médicos y cuentas a cada ejecutiva desde el territorio o a mano.
 5. **Direcciones con GPS**: consultorio nuevo o clínica donde atiende, guardadas desde la app.
 6. **Tipos de actividad** configurables (sección 5) y sugerencia por cargo.
 7. **Radio con bloqueo** (500 m, único) y **telefónica por persona**.
@@ -177,9 +184,9 @@ la confirmación en voz alta, visitas en el mapa (requiere autorización: estét
 
 | Tabla | Columnas clave | Para qué |
 | --- | --- | --- |
-| `medicos` | `id`, `nombre`, `especialidades` text[] (ortopedia, neurocirugía, columna, deportiva, maxilofacial, fisiatría, cirugía general, otra), `ciudad`, `municipality_id`, `executive_id` (asignada), `telefono`, `email`, `origen` ('archivo' \| 'app' \| 'vmo'), `created_by`, `activo`, `notas`; sin documento | Base de médicos propia; aviso de duplicado por nombre normalizado + ciudad |
+| `medicos` | `id`, `tipo_documento` ('CC' \| 'CE' \| 'PA' \| 'PEP' \| 'otro') NOT NULL, `numero_documento` NOT NULL, **UNIQUE (tipo_documento, numero_documento)**, `nombre`, `especialidades` text[] (ortopedia, neurocirugía, columna, deportiva, maxilofacial, fisiatría, cirugía general, otra), `ciudad`, `municipality_id`, `executive_id` (asignada), `telefono`, `email`, `origen` ('app' \| 'web' \| 'archivo'), `created_by`, `activo`, `notas` | Base de médicos propia; la identificación es la llave contra duplicados (regla del dueño); aviso adicional por nombre normalizado + ciudad |
 | `cuentas` | `id`, `nombre`, `tipo` ('ips' \| 'operador_logistico' \| 'eps' \| 'otra'), `nit` NULL, `hospital_id` NULL UNIQUE, `municipality_id`, `executive_id` NULL, `origen`, `activo` | Organizaciones; las IPS se crean solas desde `hospitals` |
-| `contactos` | `id`, `cuenta_id`, `nombre`, `cargo_texto`, `rol` ('compras' \| 'gerencia' \| 'direccion_medica' \| 'quimico_farmaceutico' \| 'almacen_farmacia' \| 'programacion_cirugia' \| 'quirofano' \| 'esterilizacion' \| 'instrumentacion' \| 'cartera_facturacion' \| 'autorizaciones' \| 'otro'), `telefono`, `email`, `origen`, `activo` | Personas de la cuenta; el rol sugiere el tipo de actividad |
+| `contactos` | `id`, `cuenta_id`, `nombre`, `cargo_texto`, `rol` ('compras' \| 'gerencia' \| 'direccion_medica' \| 'quimico_farmaceutico' \| 'almacen_farmacia' \| 'programacion_cirugia' \| 'quirofano' \| 'esterilizacion' \| 'instrumentacion' \| 'cartera_facturacion' \| 'autorizaciones' \| 'otro'), `tipo_documento` NULL, `numero_documento` NULL (UNIQUE si existe), `telefono`, `email`, `origen`, `activo` | Personas de la cuenta; el rol sugiere el tipo de actividad; aviso de duplicado por nombre + cuenta |
 | `direcciones` | `id`, `medico_id` NULL, `cuenta_id` NULL (una de las dos), `etiqueta` ('consultorio' \| 'clinica' \| 'sede' \| 'otra'), `hospital_id` NULL, `reps_code` NULL, `direccion`, `ciudad`, `lat`, `lng`, `origen` ('archivo' \| 'gps_app' \| 'hospitals'), `created_by` | Dónde se visita; las de `gps_app` las crea la ejecutiva |
 | `tipos_actividad` | `id`, `codigo`, `nombre`, `objetivo` ('induccion_medico' \| 'induccion_compra' \| 'gestion'), `dirigido_a` ('medico' \| 'cuenta'), `roles_sugeridos` text[], `cuenta_para_meta` bool, `exige_presencial` bool, `activo`, `orden` | Semilla de la sección 5; editable por la directora |
 | `metas` | `scope` ('zona' \| 'ejecutiva'), `kam_id` NULL, `executive_id` NULL, `tipo_actividad_id`, `periodo` ('dia' \| 'semana'), `cantidad` numeric, `vigente_desde`, `set_by` | La de persona manda sobre la de zona; sin fila = sin meta (solo seguimiento) |
@@ -243,8 +250,11 @@ creación de una cuenta por IPS activa y el backfill del histórico de VMO (`sou
   dirección nueva antes de reportar, o reporta telefónica si la tiene habilitada.
 - Mismo día y tiempo real: fecha y hora del teléfono al confirmar; no se reportan días anteriores desde la
   app; dirección corrige con rastro.
-- Médicos, cuentas y contactos se crean sin aprobación (app o web) con aviso de duplicado; data manager
-  revisa la lista de "creados esta semana" y fusiona duplicados.
+- Médicos, cuentas y contactos se crean sin aprobación (app o web). **Un médico no existe sin tipo y
+  número de identificación**; la base rechaza un segundo médico con el mismo documento y la app muestra el
+  existente. El documento se digita (nunca se dicta ni se extrae del audio), se guarda solo para quien tenga
+  `contacts:manage` y no sale en listas, exportaciones ni tarjetas. Data manager revisa "creados esta
+  semana" y fusiona duplicados por nombre.
 - Metas: por tipo, zona y persona; periodo día o semana; sin fila no hay meta (solo seguimiento); las
   vacantes no se miden. Días hábiles = lunes a viernes menos festivos de Colombia (código) menos
   `company_calendar_exceptions`.
@@ -252,15 +262,18 @@ creación de una cuenta por IPS activa y el backfill del histórico de VMO (`sou
   descuenta de inmediato.
 - Quién edita qué: la ejecutiva sus registros del mismo día; dirección cualquiera con rastro; líder solo su
   línea; las ejecutivas no se ven entre sí.
-- Privacidad: nunca cédula de médicos ni contactos; nada de pacientes; audio y transcripción internos.
+- Privacidad: la identificación del médico se guarda porque es la llave contra duplicados y la que usará la
+  integración con Odoo; se protege (solo `service_role`, visible solo con `contacts:manage`, fuera de
+  exportaciones y de la voz). Nada de pacientes. Audio y transcripción internos. Pendiente del dueño: aviso
+  de tratamiento de datos para médicos y contactos (Ley 1581), que hoy VMO tenía vacío.
 
 ## 10. Migración y convivencia con VMO
 
 - Fase 0 verificada: `web/next.config.js` bloquea GPS y micrófono para la web; el importador de VMO borra
   todas las visitas del mes sin filtrar por fuente.
-- Carga inicial de médicos, cuentas y contactos: por archivo (plantilla), o desde el export de VMO si el
-  dueño lo decide (cruce de clientes con IPS por nombre y ciudad; lo que no cruce queda como cuenta "otra"
-  para revisar).
+- Carga inicial de médicos, cuentas y contactos: **a mano por el equipo** (decisión del dueño: nada de VMO).
+  Las IPS ya existen como cuentas. Antes del piloto, las dos ejecutivas crean sus médicos y contactos con
+  identificación; es parte del trabajo de organizar la información.
 - Histórico de VMO con `source='vmo_import'`; `executive_id` por `vmo_representantes`.
 - Piloto: 2 ejecutivas con la app móvil un mes; corte con última importación.
 
@@ -283,8 +296,11 @@ creación de una cuenta por IPS activa y el backfill del histórico de VMO (`sou
       sus tipos y nada se guarda sin confirmar; dado un médico que no cruza, propone crearlo y no lo crea solo.
 - [ ] Dado "guardar este punto como dirección del médico", entonces existe `direcciones` con `origen='gps_app'`
       y la próxima visita lo ofrece como lugar.
-- [ ] Dado la carga por archivo de 2.000 médicos con 30 nombres repetidos en la misma ciudad, entonces la
-      simulación marca los 30 como posibles duplicados y no los crea sin decisión.
+- [ ] Dado un médico con cédula 12345678 ya creado, cuando otra ejecutiva intenta crear uno con la misma
+      cédula, entonces la base lo rechaza y la app le muestra el existente para usarlo.
+- [ ] Dado un intento de crear un médico sin tipo o número de identificación, entonces la API devuelve 400.
+- [ ] Dado la carga por archivo de 200 médicos con 3 documentos repetidos, entonces la simulación marca los
+      3 y no los crea sin decisión; y un dictado nunca produce ni muestra un número de documento.
 - [ ] Dado el mismo `client_id` dos veces, entonces hay una sola fila.
 - [ ] Dado una visita de la app en octubre y una importación de VMO de octubre, entonces la visita de la app
       sigue existiendo.
@@ -323,16 +339,15 @@ Ya decididas el 2026-10-12: Odoo fuera del piloto; objetivos distintos (inducci�
 compra, gestiones) con tipos configurables; metas por tipo, zona y persona calculadas por el sistema;
 gestiones con meta opcional configurable por la directora; bloqueo por distancia; mismo día y tiempo real;
 app móvil; voz con Whisper o similar y confirmación breve; consultorios como direcciones; ausencias en
-OpMap con aprobación masiva (directora y recursos humanos).
+OpMap con aprobación masiva (directora y recursos humanos); **"Cuenta"** como nombre; **nada se trae de
+VMO**, el equipo crea médicos y contactos a mano; **los médicos se crean con tipo y número de
+identificación** (llave contra duplicados); telefónica habilitada por persona.
 
 | # | Pregunta | Recomendación |
 | --- | --- | --- |
-| 1 | ¿Te sirve **"Cuenta"** como nombre de la organización que se visita (clínica, operador logístico, EPS, otra), con "tipo de cuenta", en lugar de "institución" y "cliente"? | **Sí.** Resuelve la confusión y encaja con "gerente de cuentas clave". |
-| 2 | ¿La **semilla de tipos de actividad** de la sección 5 es la correcta para arrancar (visita médica, visita a compras, codificación, programación, cartera, acompañamiento en sala)? | **Sí**, y la directora agrega los que aparezcan. |
-| 3 | ¿La **carga inicial** de médicos, cuentas y contactos sale del export de VMO (2.178 médicos, 785 clientes) más la plantilla por archivo, o solo de la plantilla? | **VMO más plantilla**: ahorra digitar; los 166 médicos y 249 clientes duplicados de VMO se resuelven en la simulación. |
-| 4 | ¿La ejecutiva puede **crear médicos y contactos desde la app** sin aprobación, con aviso de duplicado y revisión semanal de data manager? | **Sí.** |
-| 5 | ¿**Telefónica** habilitada por persona por la directora, cuenta para la meta y se evalúa aparte? | **Sí**, habilitada para las dos del piloto al inicio. |
-| 6 | ¿Piloto con 2 ejecutivas un mes con la app móvil y corte de VMO al mes siguiente? | **Sí.** |
+| 1 | Los **tipos de actividad iniciales** ("semilla" = los seis que vienen precargados para arrancar, sección 5: visita médica, visita a compras, gestión de codificación, gestión de programación, gestión de cartera, acompañamiento en sala; la directora puede añadir, apagar o cambiar cualquiera). ¿Son los correctos? | **Sí.** Si falta alguno que ya se haga hoy, se agrega a la semilla. |
+| 2 | **Cómo se pasa de VMO a OpMap.** Opción A, piloto: dos ejecutivas usan la app un mes mientras las demás siguen en VMO, se corrigen los problemas que aparezcan y al mes siguiente pasan todas y VMO se apaga. Opción B, todas a la vez: el día que la app esté lista, todas la usan y VMO se apaga ese mismo día. | **A.** Un mes con dos personas reales muestra si la voz entiende, si el GPS bloquea donde no debe y si las metas cuadran, antes de mover a las 20. Sin VMO de por medio, la Opción B también es viable. |
+| 3 | ¿El **aviso de tratamiento de datos** para médicos y contactos lo entrega el área legal antes del piloto (hoy VMO lo tiene vacío)? | **Sí**, porque OpMap guardará identificación de médicos. |
 
 Las respuestas van a `docs/decisiones/2026-10-XX-app-de-visita.md` y la spec pasa a "aprobada por el dueño"
 antes de abrir la Fase 0.
