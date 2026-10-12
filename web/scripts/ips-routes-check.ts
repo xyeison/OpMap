@@ -81,6 +81,10 @@ import { PUT as updateHospitalRoute } from '../app/api/hospitals/[id]/route'
 import { POST as activateHospitalRoute } from '../app/api/hospitals/[id]/activate/route'
 import { GET as pendingAssignmentRoute } from '../app/api/hospitals/pending-assignment/route'
 import { POST as processPendingRoute } from '../app/api/hospitals/process-pending/route'
+import { POST as createUserRoute } from '../app/api/users/route'
+import { POST as importVisitsRoute } from '../app/api/visits/import/route'
+import { DELETE as deleteImportRoute } from '../app/api/visits/imports/route'
+import { PATCH as updateExecutiveRoute } from '../app/api/executives/[id]/route'
 import { passwordVersion, SESSION_COOKIE_NAME, signSession } from '../lib/session'
 
 for (const key of [
@@ -410,6 +414,20 @@ function matchesFilters(row: Record<string, unknown>, params: URLSearchParams): 
       if (!options.includes(value)) return false
     } else if (raw.startsWith('neq.')) {
       if (value === raw.slice(4)) return false
+    } else if (raw === 'is.null') {
+      if (value !== 'null') return false
+    } else if (raw.startsWith('ilike.')) {
+      // Patrón ILIKE de PostgREST: % y _ comodines, \ escapa; comparación sin mayúsculas
+      const pattern = raw.slice(6)
+      let regex = ''
+      for (let i = 0; i < pattern.length; i++) {
+        const char = pattern[i]
+        if (char === '\\' && i + 1 < pattern.length) regex += pattern[++i].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        else if (char === '%') regex += '.*'
+        else if (char === '_') regex += '.'
+        else regex += char.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      }
+      if (value === 'null' || !new RegExp(`^${regex}$`, 'i').test(value)) return false
     } else {
       throw new Error(`Supabase falso: filtro no soportado ${key}=${raw}`)
     }
@@ -1346,6 +1364,73 @@ async function main() {
       const invalid = await processPendingRoute(apiRequest('/api/hospitals/process-pending', { method: 'POST', body: { cursor: 'no-es-uuid' } }))
       const invalidBody = await invalid.json()
       check('process-pending con cursor inválido: 400 con error JSON', invalid.status === 400 && typeof invalidBody.error === 'string' && sameSet(fake.touched(), ['users']))
+    }
+
+    print('\n6. Enlace de usuarios con Ejecutivas Comerciales (app de visita, Fase 0)')
+    {
+      const newUser = (email: string) => apiRequest('/api/users', { method: 'POST', body: { email, password: 'clave-de-prueba-1', full_name: 'Prueba', role: 'sales_manager' } })
+      const executives = () => [
+        { id: 'exe-1', full_name: 'Ana Prueba', email: 'Ana@Test.Local', status: 'active', user_id: null },
+        { id: 'exe-2', full_name: 'Bea Inactiva', email: 'bea@test.local', status: 'inactive', user_id: null },
+        { id: 'exe-3', full_name: 'Cata Enlazada', email: 'cata@test.local', status: 'active', user_id: 'otro-usuario' },
+        { id: 'exe-4', full_name: 'Dup Uno', email: 'dup@test.local', status: 'active', user_id: null },
+        { id: 'exe-5', full_name: 'Dup Dos', email: 'dup@test.local', status: 'placeholder', user_id: null },
+      ]
+      const tables = { users: fakeUsers(), executives: executives() } as Record<string, Array<Record<string, unknown>>>
+      const fake = fakeSupabase(tables)
+      fetchHandler = fake.handler
+
+      const ok = await createUserRoute(newUser('ana@test.local'))
+      const okBody = await ok.json()
+      const ana = tables.executives.find(e => e.id === 'exe-1')
+      check('usuario nuevo con el email de una ejecutiva sin usuario (la ejecutiva lo tiene con mayúsculas): queda enlazado',
+        ok.status === 200 && okBody.linkedExecutive === 'Ana Prueba' && ana?.user_id === okBody.user?.id,
+        `${ok.status} ${JSON.stringify(okBody).slice(0, 200)}`)
+
+      const inactive = await createUserRoute(newUser('bea@test.local'))
+      const inactiveBody = await inactive.json()
+      check('ejecutiva inactiva: no se enlaza', inactive.status === 200 && inactiveBody.linkedExecutive === null && tables.executives.find(e => e.id === 'exe-2')?.user_id === null)
+
+      const taken = await createUserRoute(newUser('cata@test.local'))
+      const takenBody = await taken.json()
+      check('ejecutiva ya enlazada con otro usuario: no se cambia', taken.status === 200 && takenBody.linkedExecutive === null && tables.executives.find(e => e.id === 'exe-3')?.user_id === 'otro-usuario')
+
+      const dup = await createUserRoute(newUser('dup@test.local'))
+      const dupBody = await dup.json()
+      check('dos ejecutivas con el mismo email: no se adivina, ninguna se enlaza',
+        dup.status === 200 && dupBody.linkedExecutive === null && tables.executives.filter(e => e.email === 'dup@test.local').every(e => e.user_id === null))
+
+      const none = await createUserRoute(newUser('nadie@test.local'))
+      const noneBody = await none.json()
+      check('email sin ejecutiva: usuario creado sin enlace', none.status === 200 && noneBody.linkedExecutive === null && noneBody.message === 'Usuario creado exitosamente')
+      check('el enlace no toca otras tablas que users y executives', sameSet(fake.touched(), ['users', 'executives']) && fake.external.length === 0)
+
+      // Al guardar una ejecutiva sin usuario (aunque no cambie el email) se vuelve a intentar el enlace
+      const EVA_EXE = '33333333-3333-4333-8333-333333333333'
+      const EVA_USER = '44444444-4444-4444-8444-444444444444'
+      const putTables = {
+        users: [...fakeUsers(), { id: EVA_USER, email: 'eva@test.local', full_name: 'Eva', role: 'sales_manager', active: true, password: 'x' }],
+        executives: [{ id: EVA_EXE, full_name: 'Eva Prueba', email: 'Eva@Test.Local', status: 'active', user_id: null, company: 'VG', base_kam_id: null, odoo_employee_id: null, notes: null, color: null }],
+        executive_lines: [], kams: [], business_lines: [],
+      } as Record<string, Array<Record<string, unknown>>>
+      const putFake = fakeSupabase(putTables)
+      fetchHandler = putFake.handler
+      const put = await updateExecutiveRoute(apiRequest(`/api/executives/${EVA_EXE}`, { method: 'PATCH', body: { notes: 'sin cambio de email' } }), { params: { id: EVA_EXE } })
+      check('PATCH de una ejecutiva sin usuario: se enlaza con el usuario de su email aunque el email no cambie',
+        put.status === 200 && putTables.executives[0].user_id === EVA_USER, `${put.status} ${(await put.text()).slice(0, 200)}`)
+    }
+
+    print('\n7. Importador de VMO deshabilitado')
+    {
+      const fake = fakeSupabase({ users: fakeUsers(), visits: [{ id: 'v-app', visit_date: '2026-10-05' }], visit_imports: [] })
+      fetchHandler = fake.handler
+      const response = await importVisitsRoute(apiRequest('/api/visits/import', { method: 'POST', body: { month: 10, year: 2026, filename: 'vmo.xlsx', visits: [{ kam_name: 'X', visit_date: '2026-10-05' }] } }))
+      const body = await response.json()
+      check('POST /api/visits/import: 410 y no borra ni inserta visitas',
+        response.status === 410 && typeof body.error === 'string' && fake.writes().length === 0 && sameSet(fake.touched(), ['users']),
+        `${response.status} ${JSON.stringify(body).slice(0, 200)}`)
+      const del = await deleteImportRoute(apiRequest('/api/visits/imports?id=11111111-1111-4111-8111-999999999999', { method: 'DELETE' }))
+      check('DELETE /api/visits/imports: 410 y no borra el histórico de VMO', del.status === 410 && fake.writes().length === 0)
     }
   } finally {
     fetchHandler = null

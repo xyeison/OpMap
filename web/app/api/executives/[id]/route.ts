@@ -35,12 +35,12 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
     const { data: currentData, error: currentError } = await supabaseAdmin
       .from('executives')
-      .select('id, email, status')
+      .select('id, email, status, user_id')
       .eq('id', executiveId)
       .limit(1)
     if (currentError) throw currentError
     const current = currentData && currentData.length > 0
-      ? (currentData[0] as { id: string; email: string | null; status: ExecutiveStatus })
+      ? (currentData[0] as { id: string; email: string | null; status: ExecutiveStatus; user_id: string | null })
       : null
     if (!current) return jsonError('Ejecutiva no encontrada', 404)
 
@@ -61,6 +61,11 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     if (input.email !== undefined && input.email !== current.email) {
       update.email = input.email
       update.user_id = await resolveUserIdByEmail(input.email, executiveId)
+    } else if (current.user_id === null && current.email) {
+      // Sin usuario enlazado: cada vez que se guarda la ejecutiva se vuelve a intentar con su email (por si el
+      // usuario se creó antes que ella o el enlace automático al crear el usuario falló). Nunca desenlaza.
+      const userId = await resolveUserIdByEmail(current.email, executiveId)
+      if (userId) update.user_id = userId
     }
     if (input.status !== undefined && input.status !== current.status) {
       update.status = input.status

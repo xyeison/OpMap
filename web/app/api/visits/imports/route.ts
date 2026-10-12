@@ -64,10 +64,20 @@ export async function GET(request: NextRequest) {
   }
 }
 
+// Con el importador de VMO deshabilitado (decisión del dueño 2026-10-12), borrar una importación destruiría para
+// siempre parte del histórico de VMO (ya no se puede volver a importar). Ver app/api/visits/import/route.ts.
+const VMO_IMPORT_DELETE_ENABLED = false
+
 export async function DELETE(request: NextRequest) {
   // visits:manage = admin y data_manager (sales_manager no tiene visits:view en permissions.ts)
   const auth = await requirePermission(request, 'visits:manage')
   if (!auth.ok) return auth.response
+  if (!VMO_IMPORT_DELETE_ENABLED) {
+    return NextResponse.json(
+      { error: 'Borrar importaciones de VMO está deshabilitado: el histórico ya no se puede volver a importar.' },
+      { status: 410 },
+    )
+  }
 
   try {
     const { searchParams } = new URL(request.url)

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { requirePermission } from '@/lib/require-role'
 import { UUID_RE, firstIssueMessage, updateUserSchema } from '@/lib/user-schemas'
+import { linkExecutiveToUserByEmail } from '../../executives/_lib/executive-shared'
 
 export const dynamic = 'force-dynamic'
 
@@ -102,7 +103,23 @@ export async function PUT(
       return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 404 })
     }
 
-    return NextResponse.json({ user: updatedUser, message: 'Usuario actualizado exitosamente' })
+    // Al cambiar el email, si coincide con una Ejecutiva Comercial sin usuario, queda enlazada.
+    let linkedExecutive: string | null = null
+    if (updates.email !== undefined) {
+      try {
+        linkedExecutive = await linkExecutiveToUserByEmail(updatedUser.id as string, updatedUser.email as string)
+      } catch (linkError) {
+        console.error('Usuario actualizado, pero no se pudo enlazar con su ejecutiva:', linkError)
+      }
+    }
+
+    return NextResponse.json({
+      user: updatedUser,
+      linkedExecutive,
+      message: linkedExecutive
+        ? `Usuario actualizado y enlazado con la Ejecutiva Comercial ${linkedExecutive}`
+        : 'Usuario actualizado exitosamente',
+    })
   } catch (error) {
     console.error('Error al actualizar usuario:', error)
     return NextResponse.json({ error: 'Error al actualizar usuario' }, { status: 500 })

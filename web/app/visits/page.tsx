@@ -23,6 +23,10 @@ interface ImportHistory {
   imported_at: string
 }
 
+
+// Importador de VMO deshabilitado (decisión del dueño 2026-10-12); ver app/api/visits/import/route.ts.
+const VMO_IMPORT_ENABLED = false
+
 export default function VisitsPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
@@ -422,6 +426,13 @@ export default function VisitsPage() {
                 <h1 className="text-3xl lg:text-4xl font-bold text-white">Gestión de Visitas</h1>
                 <p className="text-gray-300 mt-2">Control y seguimiento de visitas comerciales</p>
               </div>
+              {!VMO_IMPORT_ENABLED && (
+                <p className="text-sm text-white/90 bg-white/10 rounded-lg px-4 py-3 max-w-md">
+                  La importación de visitas de VMO está deshabilitada. Las visitas nuevas se reportarán desde la app
+                  de visita; aquí sigue el histórico importado.
+                </p>
+              )}
+              {VMO_IMPORT_ENABLED && (
               <div className="flex flex-wrap gap-3">
                 <button
                   onClick={downloadTemplate}
@@ -442,6 +453,7 @@ export default function VisitsPage() {
                   Importar Visitas
                 </button>
               </div>
+              )}
             </div>
           </div>
 
@@ -537,7 +549,7 @@ export default function VisitsPage() {
           </div>
 
           {/* Sección de importación mejorada */}
-          {showImportSection && (
+          {VMO_IMPORT_ENABLED && showImportSection && (
             <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-8 mb-8 animate-slideDown">
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-2xl font-bold text-gray-900">Importar Visitas desde Excel</h2>
@@ -795,6 +807,7 @@ export default function VisitsPage() {
                         </div>
                       </td>
                       <td className="px-6 py-4 text-center">
+                        {VMO_IMPORT_ENABLED ? (
                         <button
                           onClick={() => deleteImport(imp.id, imp.month_name || `${imp.month}/${imp.year}`)}
                           className="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-all group"
@@ -804,6 +817,9 @@ export default function VisitsPage() {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                           </svg>
                         </button>
+                        ) : (
+                          <span className="text-xs text-gray-400">Histórico</span>
+                        )}
                       </td>
                     </tr>
                   ))}

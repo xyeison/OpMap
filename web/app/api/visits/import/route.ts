@@ -22,9 +22,21 @@ function monthRange(year: number, month: number) {
   return { start, end }
 }
 
+// Importador de VMO DESHABILITADO (decisión del dueño 2026-10-12, docs/decisiones/2026-10-12-app-de-visita.md):
+// VMO se apaga y las visitas nuevas se reportan desde la app de visita. Además, este importador borra TODAS
+// las visitas del mes antes de insertar (sin distinguir fuente) y se llevaría las de la app. Para reactivarlo
+// habría que limitar el borrado a source = 'vmo_import' (columna de la migración 0800) y poner esto en true.
+const VMO_IMPORT_ENABLED = false
+
 export async function POST(request: NextRequest) {
   const auth = await requirePermission(request, 'visits:manage')
   if (!auth.ok) return auth.response
+  if (!VMO_IMPORT_ENABLED) {
+    return NextResponse.json(
+      { error: 'La importación de visitas de VMO está deshabilitada: las visitas nuevas se reportan desde la app de visita.' },
+      { status: 410 },
+    )
+  }
   const user = auth.user
 
   try {
