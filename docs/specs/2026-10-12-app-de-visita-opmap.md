@@ -331,8 +331,8 @@ de VMO (sin tipo ni subtipo: el histórico solo alimenta el mapa de calor).
 - [ ] Dado el mismo `client_id` dos veces, entonces hay una sola fila.
 - [ ] Dado una visita de la app en octubre y una importación de VMO de octubre, entonces la visita de la app
       sigue existiendo.
-- [ ] Dado un usuario `hr`, entonces ve y aprueba ausencias en bloque; un líder solo las de su línea; `viewer`
-      recibe 403.
+- [ ] Dado un usuario `hr` o la directora, entonces ve y aprueba ausencias en bloque; un líder de línea solo
+      ve las de su línea, sin aprobar; `viewer` recibe 403.
 
 ## 12. Fuera de alcance, impacto, plan y verificación
 
@@ -340,7 +340,7 @@ de VMO (sin tipo ni subtipo: el histórico solo alimenta el mapa de calor).
 médico, priorización automática, módulos descartados de VMO, estética del mapa, Google.
 
 **Impacto**: migración 0800 + rollback 9940 (Fase 1); Google 0 USD; voz ≈ 0,01 USD por visita (OpenAI) +
-0,005 USD por dictado (Claude), menos de 10 USD al mes; `OPENAI_API_KEY` y `ANTHROPIC_API_KEY` en Vercel
+0,005 USD por dictado (Claude): unos 5 USD al mes en el piloto y 30 a 45 USD al mes con las 20 personas; `OPENAI_API_KEY` y `ANTHROPIC_API_KEY` en Vercel
 (las crea el dueño); bucket privado `visit-audio`; app Expo en `mobile/` (comparte reglas puras con
 `web/lib`), compilación con EAS, cuentas Apple Developer (99 USD al año) y Google Play (25 USD) que crea el
 dueño; estética del mapa sin cambios; permisos nuevos `visits:report`, `visits:team`, `visits:targets`,
@@ -372,13 +372,37 @@ número de identificación**; telefónica por persona.
 
 Las preguntas que siguen abiertas, con su recomendación, están en la sección 14.
 
-## 14. Preguntas abiertas (2026-10-12)
+## 14. Preguntas abiertas (2026-10-12, revisión independiente de la v6)
+
+Tres revisores independientes (campo, dirección y metas, técnica y legal) leyeron la v6 contra lo que dijo
+el dueño; 36 hallazgos depurados en estas preguntas. Las demás ya estaban resueltas o son detalle técnico.
+
+**Decidir antes de construir**
 
 | # | Pregunta | Recomendación |
 | --- | --- | --- |
-| 1 | ¿Qué subtipos cuentan para la meta institucional al arrancar? | **Todos**, y la mezcla por subtipo a la vista; con datos del piloto se decide si se limita alguno. |
-| 2 | **Paso de VMO a OpMap.** A: dos ejecutivas un mes en piloto, luego todas y VMO se apaga. B: todas el mismo día. | **A.** |
-| 3 | ¿Legal entrega el **aviso de tratamiento de datos** para médicos y contactos antes del piloto? | **Sí**, porque OpMap guardará identificación de médicos. |
+| 1 | Sin señal (sótano, quirófano, municipio): ¿la app guarda la visita con el punto y la hora tomados en el sitio y la envía sola cuando vuelve la señal, el mismo día? | **Sí**, versión mínima en el MVP: la distancia se mide con el punto tomado en el sitio; vale si llega antes de medianoche; queda marcada "enviada después". |
+| 2 | Dirección nueva creada por la ejecutiva (consultorio): ¿la visita ahí suma de inmediato o cuando data manager confirma el punto? | **Cuando data manager la confirma** en su revisión semanal; y vale como lugar cualquier IPS o cuenta ubicada a menos de 500 m, para que crear direcciones sea la excepción. Sin esto, el bloqueo se esquiva desde la casa. |
+| 3 | Si el médico no da la cédula en el momento o no autoriza sus datos, ¿la visita queda "en espera" y suma cuando se complete, o no se puede reportar? | **En espera 7 días**: la visita se guarda con nombre, especialidad y lugar; suma cuando se completan documento y autorización (el médico acepta en pantalla o por enlace). El médico sigue sin existir sin documento. |
+| 4 | ¿Cada médico tiene una ejecutiva responsable **por línea** (no una sola), y si otra ejecutiva lo visita, le suma a quien lo visita? | **Sí**: responsable por médico y línea, tomada de la cobertura que OpMap ya calcula; la directora resuelve choques; la visita de otra suma a su meta, no a la cobertura de la responsable. |
+| 5 | Al arrancar, ¿qué subtipos suman a la meta institucional? | **Cambio la recomendación anterior: solo Compras** (y Autorizaciones si la directora la considera apertura de venta); químico, programación y otro se ven en la mezcla sin sumar. Si todo suma, quien solo programa sale al 100 % y una parada en una clínica cumple tres días. |
+| 6 | Día o medio día sin visitas no previsto (acompañar una cirugía, incapacidad, día cívico de su ciudad): ¿se puede registrar el mismo día o hasta 5 días después para descontarlo de la cuota? | **Sí**, con aprobación en bloque de la directora; mientras tanto se ve "por aprobar" y no en rojo; los días no hábiles se pueden marcar por ciudad. |
+| 7 | ¿Cada médico suma como máximo **una visita al día**, y las telefónicas suman solo hasta un tope por persona? | **Sí**: una por médico al día (si van dos personas, una visita "acompañada por"); telefónicas con tope (sugerido 1 de las 6) y solo llamada o videollamada, nunca chat ni audio de WhatsApp. |
+| 8 | ¿La cuenta es la **empresa (un NIT)** con sus sedes como direcciones, en lugar de una cuenta por sede? | **Sí**: compras es de la empresa y vale en cualquier sede; químico y programación son de su sede; una visita a compras cubre todas las sedes de esa empresa en el Anexo A. |
+| 9 | ¿El audio se borra a los **30 días** de confirmada la visita (no a los 12 meses) y se enseña a no dictar datos de pacientes? | **Sí**; antes del piloto legal revisa los términos de OpenAI y Anthropic (cuentas a nombre de VG, sin uso para entrenar) y cada ejecutiva firma una autorización corta para su voz y su GPS. |
 
-Las respuestas van a `docs/decisiones/2026-10-XX-app-de-visita.md` y la spec pasa a "aprobada por el dueño"
-antes de abrir la Fase 0.
+**Decidir durante el piloto**
+
+| # | Pregunta | Recomendación |
+| --- | --- | --- |
+| 10 | ¿La cuota se calcula solo de lunes a viernes, y quien entra, sale o cambia de zona a mitad de mes se mide por sus días activos? | **Sí**; el sábado no genera cuota pero sus visitas suman; el primer mes de alguien nuevo, al 50 %. |
+| 11 | Con 1 institucional al día (unas 20 al mes), ¿la cobertura de cuentas se mide sobre 15 a 20 **cuentas objetivo** por ejecutiva y por trimestre, no sobre todo el Anexo A cada mes? | **Sí**: la directora marca las cuentas objetivo (por defecto las primeras del Anexo A por camas, quirófanos y compras SECOP). |
+| 12 | Antes de apagar VMO, ¿se exporta y archiva fuera de OpMap lo que vive solo allá (médicos, comentarios, solicitudes de días, soportes de Hábeas Data, transferencias de valor)? | **Sí**, archivo de VG con acceso restringido, sin cargarlo en OpMap; confirmar con legal si el reporte de transferencias de valor a médicos (Resolución 2881 de 2018) sale hoy de VMO. |
+
+Siguen abiertas de la v6: **paso de VMO a OpMap** (A: piloto con dos ejecutivas un mes; B: todas el mismo
+día; recomendación A) y **aviso de tratamiento de datos** de legal antes del piloto (recomendación sí;
+ampliado por las preguntas 3 y 9).
+
+Correcciones menores incorporadas: el costo de la voz para las 20 personas es de unos 30 a 45 USD al mes (no
+"menos de 10", que vale para las 2 del piloto); las ausencias las aprueban la directora y recursos humanos,
+no la líder de línea.
