@@ -511,9 +511,8 @@ tablas tienen FKs hacia `business_lines`, `executives` y `users`.
 
 ### 0730 — SECOP I con valor adjudicado por contratista y "Compra pública" manual
 
-> **ESTADO: NO APLICADA.** Escrita el 2026-10-12 en la rama `feat/secop-i-valores-reales`; se aplica con
-> autorización del dueño y en la misma ventana que el despliegue del código (aditiva; depende de 0710 y 0720;
-> no borra ni modifica datos existentes). Spec: `docs/specs/2026-10-12-secop-i-valores-reales-y-compra-publica.md`;
+> **ESTADO: APLICADA el 2026-10-12** con autorización del dueño, junto con el despliegue del PR #9 (aditiva;
+> depende de 0710 y 0720; no borra ni modifica datos existentes). Spec: `docs/specs/2026-10-12-secop-i-valores-reales-y-compra-publica.md`;
 > decisión: `docs/decisiones/2026-10-12-secop-i-valores-reales-y-compra-publica.md`.
 
 | # | Archivo | Qué hace | Destructivo |
@@ -535,8 +534,9 @@ tablas tienen FKs hacia `business_lines`, `executives` y `users`.
 
 # Migraciones — App de visita · F1 Terceros (cuentas, sedes, médicos, visitantes, contactos)
 
-> **ESTADO: NO APLICADA.** Escrita el 2026-10-12 en la rama `feat/visitas-f1-terceros`; se aplica con
-> autorización del dueño y en la misma ventana que el despliegue del código de `/terceros` (aditiva: 7 tablas,
+> **ESTADO: APLICADA el 2026-10-12** con autorización del dueño, en la misma ventana que el despliegue de
+> `/terceros` (PR #13). Resultado: 703 cuentas, 783 sedes, 47 cuentas con más de una sede, una principal por
+> cuenta; las 5 funciones guardadas son idénticas a las del archivo (md5). Aditiva: 7 tablas,
 > 5 funciones, 1 disparador sobre `hospitals` y la semilla de subtipos; no cambia ninguna fila ni columna de
 > `hospitals`). Contrato: `docs/fases/fase6-visitas-f1-terceros.md`; spec:
 > `docs/specs/2026-10-12-app-de-visita-opmap.md`; decisiones: `docs/decisiones/2026-10-12-app-de-visita.md`.

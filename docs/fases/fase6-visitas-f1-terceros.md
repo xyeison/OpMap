@@ -126,12 +126,14 @@ Menú: "Terceros" → `/terceros` para `terceros:view`.
   opcional) y terminar, para quien tenga visitantes:manage.
 - Estilo de las páginas existentes (Tailwind, como `/executives`); nada de mapa.
 
-## Estado: implementado (PR pendiente)
+## Estado: implementado y en producción (PR #13)
 
-Rama `feat/visitas-f1-terceros` (2026-10-12). **La migración 0800 NO está aplicada**: se aplica con autorización
-del dueño, en la misma ventana que el despliegue, y después `NOTIFY pgrst, 'reload schema';`. Mientras falte, las
-rutas `/api/terceros/**` responden 503 con un mensaje claro. Nunca se ejecutó contra un Postgres real: conviene
-probarla antes en una rama de Supabase (su bloque DO final se comprueba solo y aborta si algo no cuadra).
+Rama `feat/visitas-f1-terceros` (2026-10-12). **La migración 0800 está aplicada** (2026-10-12, con autorización
+del dueño y en la misma ventana que el despliegue), seguida de `NOTIFY pgrst, 'reload schema';`. Su bloque DO pasó
+entero. Resultado en producción: 703 cuentas (origen hospitals, 681 con código de prestador del REPS), 783 sedes
+activas (727 con código de habilitación, todas con coordenadas válidas), 47 cuentas con más de una sede (la mayor:
+Clínica Colsanitas, 10) y una principal por cuenta. Las 5 funciones guardadas son idénticas a las del archivo.
+Si la base no tuviera la 0800, las rutas `/api/terceros/**` responden 503 con un mensaje claro.
 
 Archivos:
 - Base de datos: `database/migrations/2026-10-12_0800_visitas_terceros.sql`,

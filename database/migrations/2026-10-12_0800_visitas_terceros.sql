@@ -1,6 +1,6 @@
 -- =====================================================================================
 -- OpMap · feat/visitas-f1-terceros (app de visita · F1 Terceros) · 0800
--- Proyecto: norvxqgohddgsdkggqzq · Generado: 2026-10-12 · NO APLICADA TODAVÍA
+-- Proyecto: norvxqgohddgsdkggqzq · Generado: 2026-10-12 · APLICADA 2026-10-12 (PR #13)
 --
 -- Contrato: docs/fases/fase6-visitas-f1-terceros.md (sección "Base de datos"; fuente de verdad de nombres).
 --   Spec aprobada: docs/specs/2026-10-12-app-de-visita-opmap.md (secciones 3, 9 y 11).
