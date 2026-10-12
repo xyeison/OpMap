@@ -3,24 +3,26 @@
  * (lib/fuentes-runner.ts → lib/secop-sync.ts), pero sin el límite de 50 s: sirve para la carga inicial y
  * para ponerse al día si el cron estuvo apagado.
  *
- * Fuentes: SECOP II Contratos (jbjy-vk9h) y SECOP Integrado (rpmr-utcd), datos.gov.co, sin token.
- * Alcance: contratos de las IPS activas públicas o mixtas (REPS) que clasifican en una línea, son de un
- * proveedor vigilado o son servicios de especialistas; y todos los contratos de los proveedores vigilados.
- * Personas naturales sin documento en claro (hash con sal). Reglas en lib/secop.ts.
+ * Fuentes (datos.gov.co, sin token): SECOP II Contratos (jbjy-vk9h), SECOP I Procesos (f789-7hwg: contratista y
+ * valor adjudicado por contratista) y SECOP Integrado (rpmr-utcd: respaldo de SECOP I para antes de 2018).
+ * Alcance: contratos de las IPS activas que son entidad de compra pública (marca manual compra_publica o REPS
+ * pública/mixta) que clasifican en una línea, son de un proveedor vigilado o son servicios de especialistas; y
+ * todos los contratos de los proveedores vigilados. Personas naturales sin documento en claro (hash con sal).
+ * Reglas en lib/secop.ts.
  *
  * Uso (desde web/):
- *   npx tsx scripts/secop-load.ts                       → las dos fuentes; sigue la pasada en curso o hace la
+ *   npx tsx scripts/secop-load.ts                       → las tres fuentes; sigue la pasada en curso o hace la
  *                                                         incremental (la primera vez, la inicial completa)
- *   npx tsx scripts/secop-load.ts --fuente secop2       → solo SECOP II (o --fuente integrado)
+ *   npx tsx scripts/secop-load.ts --fuente secop1       → solo SECOP I (o secop2, integrado, todas)
  *   npx tsx scripts/secop-load.ts --inicial             → fuerza una pasada inicial completa
  *   npx tsx scripts/secop-load.ts --dry-run --max-paginas 2   → lee y clasifica sin escribir nada
  *   --page-size N (por defecto 5000, máx. 50000)
- * Registra cada corrida en fuentes_estado (secop_ii / secop_integrado). Requiere la migración 0710.
- * No llama a Google.
+ * Registra cada corrida en fuentes_estado (secop_ii / secop_i / secop_integrado). Requiere las migraciones 0710
+ * y 2026-10-12_0730 (secop1, valor_proceso, valor_adiciones). No llama a Google.
  */
 import path from 'path'
 import dotenv from 'dotenv'
-import type { SecopFuente } from '../lib/secop'
+import { SECOP_DATASETS, SECOP_ETIQUETAS, SECOP_FUENTES, SECOP_FUENTE_ESTADO, type SecopFuente } from '../lib/secop'
 
 dotenv.config({ path: path.resolve(__dirname, '..', '.env.local') })
 
@@ -33,7 +35,7 @@ interface Args {
 }
 
 function parseArgs(argv: string[]): Args {
-  const args: Args = { fuentes: ['secop2', 'integrado'], inicial: false, dryRun: false, pageSize: 5000, maxPaginas: undefined }
+  const args: Args = { fuentes: [...SECOP_FUENTES], inicial: false, dryRun: false, pageSize: 5000, maxPaginas: undefined }
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
     const next = () => {
@@ -45,9 +47,9 @@ function parseArgs(argv: string[]): Args {
     else if (arg === '--dry-run') args.dryRun = true
     else if (arg === '--fuente') {
       const value = next()
-      if (value === 'todas') args.fuentes = ['secop2', 'integrado']
-      else if (value === 'secop2' || value === 'integrado') args.fuentes = [value]
-      else throw new Error('--fuente debe ser secop2, integrado o todas')
+      if (value === 'todas') args.fuentes = [...SECOP_FUENTES]
+      else if ((SECOP_FUENTES as readonly string[]).includes(value)) args.fuentes = [value as SecopFuente]
+      else throw new Error(`--fuente debe ser ${SECOP_FUENTES.join(', ')} o todas`)
     } else if (arg === '--page-size') args.pageSize = Number(next())
     else if (arg === '--max-paginas') args.maxPaginas = Number(next())
     else throw new Error(`Argumento desconocido: ${arg}`)
@@ -67,7 +69,7 @@ async function main() {
 
   for (const fuente of args.fuentes) {
     const inicio = Date.now()
-    console.log(`\n=== ${fuente === 'secop2' ? 'SECOP II (jbjy-vk9h)' : 'SECOP Integrado (rpmr-utcd)'}${args.dryRun ? ' · DRY-RUN (no escribe)' : ''} ===`)
+    console.log(`\n=== ${SECOP_ETIQUETAS[fuente]} (${SECOP_DATASETS[fuente]})${args.dryRun ? ' · DRY-RUN (no escribe)' : ''} ===`)
     if (args.dryRun || args.maxPaginas !== undefined) {
       const { sincronizarSecop } = await import('../lib/secop-sync')
       const r = await sincronizarSecop({ db, fuente, deadline: Infinity, pageSize: args.pageSize, forzarInicial: args.inicial, dryRun: args.dryRun, maxPaginas: args.maxPaginas, log })
@@ -77,7 +79,7 @@ async function main() {
       continue
     }
     const { ejecutarFuente } = await import('../lib/fuentes-runner')
-    const r = await ejecutarFuente(fuente === 'secop2' ? 'secop_ii' : 'secop_integrado', {
+    const r = await ejecutarFuente(SECOP_FUENTE_ESTADO[fuente], {
       presupuestoMs: Number.POSITIVE_INFINITY,
       origen: 'script',
       forzarInicial: args.inicial,

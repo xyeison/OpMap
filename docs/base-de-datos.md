@@ -169,6 +169,22 @@ hospital_history:     action admite además 'import' (una fila por IPS con cambi
 función:              reps_import_apply(job uuid, payload jsonb) → jsonb (una transacción; solo service_role)
 ```
 
+#### Fase 5: compras públicas SECOP (migraciones 0710, 0720 y 0730)
+Detalle en `docs/fases/fase5-secop.md` y `docs/fases/fase5-fuentes-automaticas.md`. Tablas con RLS sin políticas (solo `service_role`).
+```sql
+secop_contratos:        contratos de SECOP; UNIQUE (fuente, id_contrato); fuente 'secop2' (jbjy-vk9h) | 'secop1' (f789-7hwg,
+                        solo origen 'SECOPI'; 0730) | 'integrado' (rpmr-utcd); valor en COP (adjudicado al contratista)
+secop_contratos (+0730): valor_proceso numeric(18,2) (secop1: cuantia_proceso, valor del PROCESO común a la constancia; NULL en otras)
+                        valor_adiciones numeric(18,2) (secop1: valor_total_de_adiciones; valor ya las incluye; NULL en otras)
+secop_contratos_unicos: vista sin doble conteo (+0730: estimado boolean = Integrado SECOP I, valor del proceso que secop_hechos()
+                        reparte por partes iguales; las constancias que ya trae secop1 no entran del Integrado)
+hospitals (+0730):      compra_publica boolean NULL (NULL = según el REPS; true/false = marca manual "Compra pública (SECOP)",
+                        hospitals:edit; decide si la IPS es entidad objetivo de la carga de SECOP)
+fuentes_estado:         estado de cada carga automática (+0730: fuente 'secop_i', cron 0 7 * * 2)
+funciones:              secop_nits_ips() (publica = marca manual del NIT → REPS), secop_hechos(desde, hasta, nits, proveedores) → jsonb
+                        (+0730: clave est), secop_marcar_atipicos(); solo service_role
+```
+
 ### Vistas
 
 #### 1. `kam_statistics`

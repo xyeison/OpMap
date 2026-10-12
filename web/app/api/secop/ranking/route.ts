@@ -18,10 +18,10 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 30
 
 const NOTES = [
-  'Fuente: SECOP II y SECOP Integrado (Colombia Compra Eficiente, datos.gov.co). Solo contratos de material ortopédico y de neurocirugía, por fecha de firma.',
+  'Fuente: SECOP I, SECOP II y SECOP Integrado (Colombia Compra Eficiente, datos.gov.co). Solo contratos de material ortopédico y de neurocirugía, por fecha de firma.',
   'Una entidad = un NIT. Si el NIT tiene varias sedes activas en OpMap, su compra se reparte entre ellas en proporción a las camas para agregar por zona o ejecutivo (el total no se duplica); un contrato cuenta en cada fila que toca.',
   'Los servicios de especialistas (médicos y empresas de especialistas) no son compras de material: se cuentan aparte.',
-  'SECOP I publica el valor del proceso en cada contratista: esas filas se cuentan una vez, repartiendo el valor por partes iguales entre los contratistas del proceso.',
+  'SECOP I: valor adjudicado a cada contratista (dataset SECOP I, con detalle por contrato desde 2017-2018). Las constancias que ese dataset no trae (sobre todo las anteriores a 2018) solo existen en el SECOP Integrado, con el valor del proceso repetido en cada contratista: se cuentan una vez, repartido por partes iguales, y son un valor estimado.',
   'Por defecto solo las 6 líneas ortopédicas; "Sin clasificar" (proveedores vigilados sin línea detectada) se ve en el desglose por línea y con el filtro "Todas". Los contratos de más de 50.000 millones (fuera de escala) no suman.',
 ]
 

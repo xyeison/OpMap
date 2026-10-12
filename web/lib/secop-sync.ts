@@ -3,14 +3,19 @@
  * (carga inicial, sin límite de tiempo) y el cron / "Actualizar ahora" (lib/fuentes-runner.ts, 50 s por
  * invocación). Mismo código en los dos casos.
  *
+ * Fuentes: SECOP II (jbjy-vk9h), SECOP I con valor adjudicado por contratista (f789-7hwg) y SECOP Integrado
+ * (rpmr-utcd, respaldo de SECOP I para antes de 2018). Una pasada por fuente; mismo código para las tres.
+ *
  * Cómo funciona una PASADA (reanudable; el avance vive en fuentes_estado.cursor):
- *   1. Contexto: NIT de las IPS activas (función secop_nits_ips: IPS principal por NIT y si es pública o
- *      mixta en el REPS), proveedores vigilados activos y la sal del hash de documentos (secop_ajustes).
- *   2. Tareas: grupos de 40 NIT de entidades objetivo y de proveedores vigilados (lib/secop.ts).
+ *   1. Contexto: NIT de las IPS activas (función secop_nits_ips: IPS principal por NIT y si es entidad de
+ *      compra pública: marca manual hospitals.compra_publica o, si es null, pública o mixta en el REPS),
+ *      proveedores vigilados activos y la sal del hash de documentos (secop_ajustes).
+ *   2. Tareas: grupos de NIT de entidades objetivo y de proveedores vigilados (40 por consulta; 30 entidades en
+ *      SECOP I porque su prefiltro es más largo: lib/secop.ts).
  *   3. Por tarea, páginas SoQL ordenadas por :id. Pasada inicial: entidades con prefiltro de texto (y
- *      UNSPSC 4232 en SECOP II) + todos los contratos de los vigilados. Pasada incremental: lo mismo sin
- *      prefiltro (es poco) y solo desde la marca de agua − solape (SECOP II: ultima_actualizacion, 3 días;
- *      Integrado: fecha de firma, 30 días).
+ *      clase UNSPSC 4232 en SECOP II y SECOP I) + todos los contratos de los vigilados. Pasada incremental: lo
+ *      mismo sin prefiltro (es poco) y solo desde la marca de agua − solape (SECOP II: ultima_actualizacion,
+ *      3 días; SECOP I: ultima_actualizacion o fecha de firma, 30 días; Integrado: fecha de firma, 30 días).
  *   4. Cada fila se mapea (mapSecopRow), se decide si entra (decidirAlcance) y se hace upsert por
  *      (fuente, id_contrato) en lotes de 500. Tras cada página se guarda el cursor (y se renueva el bloqueo).
  *   5. Al terminar la última tarea: secop_marcar_atipicos() y el cursor queda listo para la próxima pasada.
@@ -21,8 +26,10 @@
  */
 import type { SupabaseAdminClient } from './supabase-admin'
 import {
+  SECOP_ETIQUETAS,
   SECOP_FUENTE_ESTADO,
   SECOP_SOLAPE_DIAS,
+  SECOP_TAREA_TAMANO_POR_FUENTE,
   buildSecopTareas,
   buildSecopUrl,
   cerrarPasada,
@@ -83,7 +90,7 @@ export const fetchJsonSocrata: FetchJson = async (url, timeoutMs) => {
 }
 
 export interface SecopContexto {
-  /** NIT (9 dígitos) de las IPS activas públicas o mixtas en el REPS. */
+  /** NIT (9 dígitos) de las IPS activas que son entidad de compra pública (marca manual o REPS pública/mixta). */
   entidades: Set<string>
   /** NIT de cualquier IPS activa → su IPS principal (más camas). */
   hospitalPorNit: Map<string, string>
@@ -156,7 +163,7 @@ export interface SecopSyncResult {
 const fmt = (n: number) => n.toLocaleString('es-CO')
 
 export function mensajeSecop(r: Pick<SecopSyncResult, 'fuente' | 'terminado' | 'cursor' | 'leidas' | 'guardadas'>, totalTareas: number): string {
-  const etiqueta = r.fuente === 'secop2' ? 'SECOP II' : 'SECOP Integrado'
+  const etiqueta = SECOP_ETIQUETAS[r.fuente]
   const tipo = r.cursor.modo === 'inicial' ? 'carga inicial' : `incremental desde ${r.cursor.desde}`
   if (r.terminado) {
     const p = r.cursor.ultima_pasada
@@ -165,6 +172,10 @@ export function mensajeSecop(r: Pick<SecopSyncResult, 'fuente' | 'terminado' | '
   return `${etiqueta}: ${tipo} en curso, tarea ${Math.min(r.cursor.paso + 1, totalTareas)} de ${totalTareas} (${fmt(r.cursor.leidas)} leídas, ${fmt(r.cursor.guardadas)} guardadas); sigue en la próxima ejecución.`
 }
 
+/**
+ * Upsert por (fuente, id_contrato). Van TODAS las columnas de SecopContratoRow, incluidas valor_proceso y
+ * valor_adiciones (migración 2026-10-12_0730; null en secop2 e integrado).
+ */
 async function upsertContratos(db: SupabaseAdminClient, rows: SecopContratoRow[], importedAt: string): Promise<void> {
   for (let i = 0; i < rows.length; i += UPSERT_LOTE) {
     const lote = rows.slice(i, i + UPSERT_LOTE).map(row => ({ ...row, imported_at: importedAt }))
@@ -190,7 +201,7 @@ export async function sincronizarSecop(opts: SecopSyncOptions): Promise<SecopSyn
   // Si es la primera vez que se registra la lista (cursor de antes de este cambio), se toma la actual.
   const completos = guardado.nits_completos ?? (guardado.ultima_pasada ? { entidades, proveedores: vigilados } : null)
   const tareasPara = (incremental: boolean) =>
-    buildSecopTareas(entidades, vigilados, undefined, incremental && completos ? { entidades: nitsNuevos(entidades, completos.entidades), proveedores: nitsNuevos(vigilados, completos.proveedores) } : null)
+    buildSecopTareas(entidades, vigilados, SECOP_TAREA_TAMANO_POR_FUENTE[fuente], incremental && completos ? { entidades: nitsNuevos(entidades, completos.entidades), proveedores: nitsNuevos(vigilados, completos.proveedores) } : null)
   const incrementalPrevisto = guardado.en_curso ? guardado.modo === 'incremental' : !opts.forzarInicial && Boolean(guardado.siguiente_desde)
   let tareas = tareasPara(incrementalPrevisto)
   let cursor = iniciarPasada({ ...guardado, nits_completos: completos }, { ahora: ahora(), huella: huellaTareas(fuente, tareas), forzarInicial: opts.forzarInicial })
@@ -270,6 +281,19 @@ export async function sincronizarSecop(opts: SecopSyncOptions): Promise<SecopSyn
       porId.set(mapped.row.id_contrato, mapped.row)
     }
     const filas = Array.from(porId.values())
+    if (opts.dryRun && result.paginas === 0 && filas.length > 0) {
+      // Solo dry-run: muestra de lo que se guardaría. En secop1 se ve el valor ADJUDICADO al contratista frente
+      // al del proceso (se prefieren filas donde difieren); nunca el nombre ni el documento de una persona.
+      const distintos = fuente === 'secop1' ? filas.filter(f => f.valor !== null && f.valor_proceso !== null && f.valor !== f.valor_proceso) : []
+      for (const f of (distintos.length > 0 ? distintos : filas).slice(0, 3)) {
+        const quien = f.es_persona ? 'persona natural (hash)' : `NIT ${f.documento_proveedor ?? '—'}`
+        const valores =
+          fuente === 'secop1'
+            ? `adjudicado ${f.valor === null ? '—' : fmt(f.valor)} · proceso ${f.valor_proceso === null ? '—' : fmt(f.valor_proceso)}`
+            : `valor ${f.valor === null ? '—' : fmt(f.valor)}`
+        log(`    ejemplo: ${f.numero_contrato ?? f.id_contrato} · entidad ${f.nit_entidad} · ${quien} · ${valores} · ${f.linea}${f.especialidad_medico ? ` · ${f.especialidad_medico}` : ''}`)
+      }
+    }
     if (!opts.dryRun && filas.length > 0) await upsertContratos(db, filas, new Date().toISOString())
 
     cursor = registrarPagina(cursor, { filas: raws.length, limite: opts.pageSize, guardadas: filas.length, maxVisto, ahora: ahora() })

@@ -1,8 +1,12 @@
 'use client'
 
 // Fase 5 · Tarjeta "Contratación pública (SECOP)" de la ficha de IPS.
-// Datos: GET /api/secop/hospital/[id] (permiso intelligence:view). Solo aparece si la IPS es pública o
-// mixta (REPS) o si su NIT figura como entidad contratante en SECOP; si es privada, una línea.
+// Datos: GET /api/secop/hospital/[id] (permiso intelligence:view). Aparece si la IPS es entidad de compra
+// pública: marcada a mano en la ficha ("Compra pública (SECOP)": sí), pública o mixta en el REPS, o con su
+// NIT como entidad contratante en SECOP; si no, una línea. SECOP I muestra el valor adjudicado; los contratos
+// de SECOP I que solo trae el Integrado (sin valor adjudicado en el dataset SECOP I) van marcados "Estimado" y
+// el resumen dice cuántos son. La marca la pone la vista por fuente, no por fecha: "antes de 2018" es solo la
+// explicación general (nota de la API), nunca una etiqueta por contrato.
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePermissions } from '@/hooks/usePermissions'
@@ -12,7 +16,11 @@ import { FILTRO_ATIPICOS, FILTRO_MEDICOS, especialidadLabel, lineaColor, lineaLa
 
 const LISTA_INICIAL = 8
 
-function Chip({ children, tone = 'gray' }: { children: React.ReactNode; tone?: 'gray' | 'amber' | 'blue' | 'red' }) {
+const ESTIMADO_TITLE =
+  'Valor estimado: SECOP I sin valor adjudicado. Esta constancia solo la publica el SECOP Integrado, que trae el valor del proceso repetido en cada contratista (no el adjudicado a cada uno); aquí cuenta su parte, repartida por partes iguales entre los contratistas del proceso.'
+const MANUAL_TITLE = 'Marcada a mano en "Editar Información" → "Compra pública (SECOP)". La marca manda sobre la naturaleza del REPS.'
+
+function Chip({ children, tone = 'gray', title }: { children: React.ReactNode; tone?: 'gray' | 'amber' | 'blue' | 'red'; title?: string }) {
   const cls =
     tone === 'amber'
       ? 'bg-amber-50 text-amber-800 border-amber-200'
@@ -21,7 +29,11 @@ function Chip({ children, tone = 'gray' }: { children: React.ReactNode; tone?: '
         : tone === 'red'
           ? 'bg-red-50 text-red-700 border-red-200'
           : 'bg-gray-50 text-gray-700 border-gray-200'
-  return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium whitespace-nowrap ${cls}`}>{children}</span>
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium whitespace-nowrap ${cls}`} title={title}>
+      {children}
+    </span>
+  )
 }
 
 function LineaChip({ linea }: { linea: string | null }) {
@@ -72,8 +84,12 @@ export default function HospitalSecopCard({ hospitalId }: { hospitalId: string }
 
   if (data && !data.publica) {
     return (
-      <p className="text-sm text-gray-500 mb-8 px-1">
-        {data.naturaleza === 'Privada' ? 'IPS privada: sin contratación pública (SECOP).' : 'Sin contratación pública registrada en SECOP para este NIT.'}
+      <p className="text-sm text-gray-500 mb-8 px-1 break-words">
+        {data.compra_publica === false
+          ? 'Compra pública (SECOP): marcada a mano como "No". No se cargan ni se muestran sus contratos.'
+          : data.naturaleza === 'Privada'
+            ? 'IPS privada: sin contratación pública (SECOP).'
+            : 'Sin contratación pública registrada en SECOP para este NIT.'}
       </p>
     )
   }
@@ -94,6 +110,13 @@ export default function HospitalSecopCard({ hospitalId }: { hospitalId: string }
             {data?.entidad?.nit ? ` · NIT ${data.entidad.nit}` : ''}
             {data?.entidad?.nombre ? ` · en SECOP: ${data.entidad.nombre}` : ''}
           </p>
+          {data?.publica_origen === 'manual' && (
+            <p className="mt-1.5">
+              <Chip tone="amber" title={MANUAL_TITLE}>
+                Compra pública: marcada a mano
+              </Chip>
+            </p>
+          )}
         </div>
         <Link
           href="/inteligencia?tab=secop"
@@ -133,6 +156,12 @@ export default function HospitalSecopCard({ hospitalId }: { hospitalId: string }
                 {summary.totales.fueraEscala > 0 && (
                   <p className="text-xs text-red-700 mt-1">
                     {summary.totales.fueraEscala} con valor fuera de escala (más de 50.000 M) no suman ({formatCopCompact(summary.totales.valorFueraEscala)})
+                  </p>
+                )}
+                {summary.estimados.contratos > 0 && (
+                  <p className="text-xs text-amber-700 mt-1 break-words" title={ESTIMADO_TITLE}>
+                    Estimados (SECOP I sin valor adjudicado): {summary.estimados.contratos.toLocaleString('es-CO')}{' '}
+                    {summary.estimados.contratos === 1 ? 'contrato' : 'contratos'} · {formatCopCompact(summary.estimados.valor)}
                   </p>
                 )}
               </div>
@@ -284,9 +313,10 @@ export default function HospitalSecopCard({ hospitalId }: { hospitalId: string }
                           <Chip tone="red">Fuera de escala, no suma</Chip>
                         ) : (
                           row.atipico && <Chip tone="amber">Valor alto para la entidad</Chip>
-                        )}
+                        )}{' '}
+                        {row.estimado && <Chip title={ESTIMADO_TITLE}>Estimado</Chip>}
                       </p>
-                      <p className="text-xs text-gray-500 mt-0.5">
+                      <p className="text-xs text-gray-500 mt-0.5 break-words">
                         {formatFechaGiro(row.fecha)}
                         {row.esServicio ? (row.especialidad ? ` · ${especialidadLabel(row.especialidad)}` : '') : ` · ${lineaLabel(row.linea)}`}
                         {row.estado ? ` · ${row.estado}` : ''}
@@ -295,11 +325,19 @@ export default function HospitalSecopCard({ hospitalId }: { hospitalId: string }
                     </div>
                     <p className="text-sm font-semibold text-gray-900 tabular-nums whitespace-nowrap shrink-0">{formatCopCompact(row.valor)}</p>
                   </div>
-                  {row.valorProceso !== null && row.contratistasProceso > 1 && (
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      SECOP I publica el valor del proceso ({formatCopCompact(row.valorProceso)}) en cada uno de sus {row.contratistasProceso}{' '}
-                      contratistas: aquí cuenta su parte.
+                  {row.estimado ? (
+                    <p className="text-xs text-gray-500 mt-0.5 break-words">
+                      {row.contratistasProceso > 1
+                        ? `Valor estimado: SECOP Integrado publica el valor del proceso (${formatCopCompact(row.valorProceso ?? row.valor)}) en cada uno de sus ${row.contratistasProceso} contratistas; aquí cuenta su parte.`
+                        : 'Valor estimado: SECOP Integrado solo publica el valor del proceso, no el adjudicado a este contratista.'}
                     </p>
+                  ) : (
+                    row.valorProceso !== null &&
+                    Math.abs(row.valorProceso - row.valor) >= 1 && (
+                      <p className="text-xs text-gray-500 mt-0.5 break-words">
+                        Proceso: {formatCopCompact(row.valorProceso)} · adjudicado a este contratista: {formatCopCompact(row.valor)}
+                      </p>
+                    )
                   )}
                   {row.objeto && (
                     <p className="text-xs text-gray-600 mt-1 line-clamp-2" title={row.objeto}>

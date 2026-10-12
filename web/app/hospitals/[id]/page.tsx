@@ -153,7 +153,9 @@ export default function HospitalDetailPage() {
           hospital_type: data.hospital.hospital_type || 'Publico',
           services: data.hospital.services || '',
           surgeries: data.hospital.surgeries || 0,
-          ambulances: data.hospital.ambulances || 0
+          ambulances: data.hospital.ambulances || 0,
+          // Fase 5: "Compra pública (SECOP)" a mano; null = según REPS
+          compra_publica: data.hospital.compra_publica ?? null
         })
         
         // Cargar historial si existe
@@ -383,7 +385,8 @@ export default function HospitalDetailPage() {
                   hospital_type: hospital.hospital_type || 'Publico',
                   services: hospital.services || '',
                   surgeries: hospital.surgeries || 0,
-                  ambulances: hospital.ambulances || 0
+                  ambulances: hospital.ambulances || 0,
+                  compra_publica: hospital.compra_publica ?? null
                 })
                 setShowEditModal(true)
               }}
@@ -477,6 +480,15 @@ export default function HospitalDetailPage() {
                   )}
                 </span>
               </div>
+              {/* Fase 5: solo si se marcó a mano (null = según REPS, no se muestra) */}
+              {(hospital.compra_publica === true || hospital.compra_publica === false) && (
+                <div>
+                  <span className="text-gray-600">Compra pública (SECOP):</span>
+                  <span className="ml-2 font-medium">
+                    {hospital.compra_publica ? 'Sí' : 'No'} <span className="text-xs text-gray-500 font-normal">(marcada a mano)</span>
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -1232,7 +1244,33 @@ export default function HospitalDetailPage() {
                         <option value="Mixto">Mixto</option>
                       </select>
                     </div>
-                    
+
+                    {/* Fase 5: marca manual de entidad de compra pública (hospitals.compra_publica). null = según REPS. */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="edit-compra-publica">
+                        Compra pública (SECOP)
+                      </label>
+                      <select
+                        id="edit-compra-publica"
+                        value={editForm.compra_publica === true ? 'si' : editForm.compra_publica === false ? 'no' : ''}
+                        onChange={(e) =>
+                          setEditForm({
+                            ...editForm,
+                            compra_publica: e.target.value === 'si' ? true : e.target.value === 'no' ? false : null,
+                          })
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent"
+                      >
+                        <option value="">Según REPS</option>
+                        <option value="si">Sí</option>
+                        <option value="no">No</option>
+                      </select>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Para entidades públicas sin sede del REPS (UPRES, Policía, Armada, ESE). &quot;Sí&quot; carga y muestra sus contratos de SECOP;
+                        &quot;No&quot; los excluye aunque el REPS la registre como pública.
+                      </p>
+                    </div>
+
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Número de Camas

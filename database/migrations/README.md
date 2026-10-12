@@ -508,3 +508,25 @@ tablas tienen FKs hacia `business_lines`, `executives` y `users`.
   grupos, misma suma de contratos que la vista y de valor que la vista con el reparto ($ 3,82 billones; sin
   reparto $ 5,09 billones), 3 fuera de escala.
 - Rollback: **antes** de `2026-10-11_9930_secop_rollback.sql` si se deshacen los dos.
+
+### 0730 — SECOP I con valor adjudicado por contratista y "Compra pública" manual
+
+> **ESTADO: NO APLICADA.** Escrita el 2026-10-12 en la rama `feat/secop-i-valores-reales`; se aplica con
+> autorización del dueño y en la misma ventana que el despliegue del código (aditiva; depende de 0710 y 0720;
+> no borra ni modifica datos existentes). Spec: `docs/specs/2026-10-12-secop-i-valores-reales-y-compra-publica.md`;
+> decisión: `docs/decisiones/2026-10-12-secop-i-valores-reales-y-compra-publica.md`.
+
+| # | Archivo | Qué hace | Destructivo |
+|---|---|---|---|
+| 15 | `2026-10-12_0730_secop_i_y_compra_publica.sql` | Añade `hospitals.compra_publica` boolean (NULL = según el REPS; true/false = marca manual) y `secop_contratos.valor_proceso` / `valor_adiciones` numeric(18,2) (≥ 0 o NULL); `fuente` admite `secop1` (dataset `f789-7hwg`, solo con `origen = 'SECOPI'`); índice parcial `(nit_entidad, numero_contrato) WHERE fuente = 'secop1'`. Vista `secop_contratos_unicos`: mismas columnas + `estimado` al final (= Integrado SECOP I) y sin las filas del Integrado cuya constancia (`nit_entidad` + `numero_contrato`) ya trae `secop1`. `secop_hechos()`: misma firma, reparto por partes iguales **solo** para `fuente = 'integrado' AND origen = 'SECOPI'` y clave `est` en el jsonb. `secop_nits_ips()`: `publica` = marca manual del NIT (true si alguna IPS activa del NIT dice sí, false si todas las marcadas dicen no) y, sin marca, el REPS. Siembra `compra_publica = true` en 10 NIT sin sede REPS pública/mixta (6 UPRES, HOCEN, HONAC, ESE San Marcos, ESE Corozal; solo donde sigue NULL; HU de Sincelejo ESE, ESE N.S. del Carmen y ESE Universitaria del Atlántico ya son públicas por el REPS y quedan en NULL) y la fuente `secop_i` ("SECOP I · Contratos", cron `0 7 * * 2`). Bloque DO final que prueba constraints, regla de la constancia, reparto y semántica de la marca con filas de prueba que se deshacen (no deja datos) y aborta si algo no cuadra | No |
+| — | `2026-10-12_9931_secop_i_rollback.sql` | Borra los contratos `secop1`, la vista (para quitar `estimado`; la recrea como en 0710), el índice, el constraint y las 2 columnas nuevas; restaura los constraints de `fuente`/`origen`, `secop_nits_ips()` (0710) y `secop_hechos()` (0720) tal cual; pone `compra_publica` a NULL y borra la columna; borra la fuente `secop_i`; re-aplica los grants | Sí (contratos de SECOP I —se recargan con `scripts/secop-load.ts --fuente secop1 --inicial`—, las marcas manuales de compra pública y el cursor de `secop_i`) |
+
+- Orden: después de 0710 y 0720. Tras aplicar: `NOTIFY pgrst, 'reload schema';` y luego
+  `cd web && npx tsx scripts/secop-load.ts --fuente secop1 --inicial` (histórico de `f789-7hwg`) y una pasada
+  `npx tsx scripts/secop-load.ts --fuente todas` para el histórico de las 10 entidades nuevas;
+  `secop_marcar_atipicos()` corre sola al cerrar cada pasada. Costo Google: 0.
+- Re-ejecutable (`IF NOT EXISTS`, `DROP IF EXISTS` + `ADD`, `CREATE OR REPLACE`, `ON CONFLICT DO NOTHING`; la
+  semilla solo marca IPS con `compra_publica IS NULL`, no pisa marcas manuales). `CREATE OR REPLACE VIEW` vale
+  porque solo añade columnas al final.
+- Rollback: **antes** de `9929_secop_api_rollback` y `9930_secop_rollback` si se deshacen los tres. Antes de
+  correrlo, volver a desplegar el código anterior y quitar el cron `/api/cron/secop_i` de `web/vercel.json`.

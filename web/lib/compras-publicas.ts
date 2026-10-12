@@ -19,6 +19,14 @@
 // - Valor fuera de escala (> 50.000 millones en UN contrato, VALOR_ATIPICO_COP de lib/secop.ts): se lista
 //   pero no suma (suelen ser errores de digitación o el valor de un proceso entero). Los demás "atípicos" de
 //   la carga (por encima del p99 de su entidad) son contratos grandes reales: suman y se marcan para revisar.
+// - SECOP I: el valor es el ADJUDICADO a cada contratista (dataset SECOP I f789-7hwg, con detalle por contrato
+//   desde 2017-2018); el valor del proceso se conserva como dato (valor_proceso). Las constancias que solo
+//   trae el SECOP Integrado (sin fila secop1 de la misma entidad y constancia; sobre todo antes de 2018, pero
+//   la marca NO mira la fecha) publican el valor del PROCESO repetido en cada contratista: se reparte por
+//   partes iguales y se marcan "estimado". Los estimados SÍ suman en el total; la ficha dice cuántos son y
+//   por cuánto (decisión 2026-10-12).
+// - Entidad de compra pública: la marca manual hospitals.compra_publica manda; si es null, el REPS
+//   (Pública/Mixta); si tampoco, que el NIT tenga contratos en SECOP (resolverCompraPublica).
 import { nitOfHospital, sedeShares, type IntelHospital } from './adres-intelligence'
 import { nextCronRun, parseCronExpression } from './fuentes-estado'
 import { VALOR_ATIPICO_COP } from './secop'
@@ -234,33 +242,57 @@ export interface SecopFact {
   fecha: string | null
   valor: number
   contratos: number
+  /**
+   * true = valor ESTIMADO: fila de SECOP I que solo trae el SECOP Integrado (sin fila secop1 de la misma
+   * constancia; sobre todo antes de 2018, pero la marca no depende de la fecha), con el valor del proceso
+   * repartido por partes iguales entre sus contratistas (secop_contratos_unicos.estimado, clave 'est' de
+   * secop_hechos()). Suma en los totales; la ficha lo señala.
+   */
+  estimado?: boolean
 }
 
 /** Contrato individual para la ficha (con objeto y enlace al expediente). */
 export interface SecopContrato extends SecopFact {
   id: string
+  /** Etiqueta de la fuente para la UI: 'SECOP I' | 'SECOP II' (por origen) o el nombre crudo de la fuente. */
   fuente: string | null
   objeto: string | null
   estado: string | null
   modalidad: string | null
   url: string | null
-  /** 'SECOPI' | 'SECOPII' (para el reparto de procesos de SECOP I). */
+  /** Valor estimado (ver SecopFact.estimado). Siempre informado en un contrato individual. */
+  estimado: boolean
+  /** 'SECOPI' | 'SECOPII' (origen del dato; informativo). */
   origen?: string | null
   /** Constancia del contrato en SECOP I (numero_contrato). */
   numero_contrato?: string | null
-  /** Valor del proceso tal como lo publica SECOP I, si se repartió entre varios contratistas. */
+  /**
+   * Valor del PROCESO: en SECOP I (dataset f789-7hwg) viene de la columna secop_contratos.valor_proceso
+   * (cuantia_proceso) y acompaña al valor adjudicado; en los estimados lo pone repartirProcesosSecopI con el
+   * valor publicado antes del reparto. null si no se conoce.
+   */
   valor_proceso?: number | null
   /** Nº de contratistas entre los que se repartió el valor del proceso (1 = sin reparto). */
   contratistas_proceso?: number
 }
 
 /**
- * SECOP I repite el valor del PROCESO en cada contratista (misma constancia y mismo valor en varias filas).
- * Esas filas se cuentan una vez: el valor se reparte por partes iguales entre ellas (valor_proceso guarda
- * el original). Misma regla que secop_hechos() (migración 0720) para que la ficha y el ranking cuadren.
+ * Reparto del valor del proceso de SECOP I: SOLO para los contratos marcados `estimado` (filas del SECOP
+ * Integrado sin equivalente en el dataset SECOP I: sobre todo antes de 2018, pero también cualquier constancia
+ * posterior que f789-7hwg no traiga o cuya fila secop1 no pase el prefiltro; la marca no mira la fecha).
+ *
+ * Por qué solo esos: el Integrado publica el valor del PROCESO repetido en cada contratista (misma entidad,
+ * constancia y valor en varias filas), así que contarlas tal cual multiplica el proceso; repartir por
+ * partes iguales es lo mejor que se puede hacer con ese dato y por eso queda marcado "estimado". El
+ * dataset SECOP I (f789-7hwg, fuente 'secop1', origen 'SECOPI') ya trae el valor ADJUDICADO a cada
+ * contratista: ahí no hay nada que repartir, aunque dos contratistas compartan constancia y valor. Antes
+ * (0720) se repartía por origen 'SECOPI', lo que habría partido también los adjudicados reales.
+ *
+ * valor_proceso: en los repartidos guarda el valor publicado (si la base no traía uno). Misma regla que
+ * secop_hechos() en la migración 2026-10-12_0730 para que la ficha y el ranking cuadren.
  */
 export function repartirProcesosSecopI<T extends SecopContrato>(contratos: T[]): T[] {
-  const clave = (c: T) => (c.origen === 'SECOPI' && c.numero_contrato && c.valor > 0 ? `${c.nit_entidad}|${c.numero_contrato}|${c.valor}` : null)
+  const clave = (c: T) => (c.estimado === true && c.numero_contrato && c.valor > 0 ? `${c.nit_entidad}|${c.numero_contrato}|${c.valor}` : null)
   const cuenta = new Map<string, number>()
   for (const c of contratos) {
     const k = clave(c)
@@ -269,8 +301,35 @@ export function repartirProcesosSecopI<T extends SecopContrato>(contratos: T[]):
   return contratos.map(c => {
     const k = clave(c)
     const n = k ? cuenta.get(k) || 1 : 1
-    return n > 1 ? { ...c, valor: c.valor / n, valor_proceso: c.valor, contratistas_proceso: n } : c
+    return n > 1 ? { ...c, valor: c.valor / n, valor_proceso: c.valor_proceso ?? c.valor, contratistas_proceso: n } : c
   })
+}
+
+// ---------------------------------------------------------------------------
+// Entidad de compra pública (SECOP)
+// ---------------------------------------------------------------------------
+
+/** De dónde sale que una IPS cuente (o no) como entidad de compra pública. */
+export type CompraPublicaOrigen = 'manual' | 'reps' | 'contratos' | 'ninguno'
+
+/**
+ * ¿Es la IPS una entidad de compra pública (SECOP)? Orden de precedencia (decisión 2026-10-12):
+ * 1. hospitals.compra_publica marcado a mano (true/false) manda, aunque el REPS diga otra cosa: sirve para
+ *    entidades públicas sin sede del REPS (UPRES, Policía, Armada, ESE) y para excluir falsos positivos.
+ * 2. Si es null, el REPS: naturaleza Pública o Mixta.
+ * 3. Si tampoco, que su NIT ya tenga contratos cargados en SECOP (contratos > 0).
+ * 4. Si no, no es entidad de compra pública ('ninguno').
+ */
+export function resolverCompraPublica(
+  compra_publica: boolean | null | undefined,
+  naturaleza: string | null | undefined,
+  contratos: number
+): { publica: boolean; origen: CompraPublicaOrigen } {
+  if (compra_publica === true || compra_publica === false) return { publica: compra_publica, origen: 'manual' }
+  const nat = sinTildes(String(naturaleza ?? '')).trim().toLowerCase()
+  if (nat === 'publica' || nat === 'mixta') return { publica: true, origen: 'reps' }
+  if (contratos > 0) return { publica: true, origen: 'contratos' }
+  return { publica: false, origen: 'ninguno' }
 }
 
 /** Umbral de "fuera de escala" por contrato (50.000 millones, el mismo de la carga). */
@@ -367,11 +426,17 @@ export interface ContratoFila {
   fueraEscala: boolean
   linea: string | null
   especialidad: string | null
-  /** Valor que suma (en SECOP I, la parte del proceso que le toca a este contratista). */
+  /** Valor que suma: en SECOP I el adjudicado a este contratista; si es estimado, su parte del proceso. */
   valor: number
-  /** Valor del proceso publicado y entre cuántos contratistas se repartió (SECOP I), si aplica. */
+  /**
+   * Valor del proceso, si se conoce: en SECOP I (dataset) acompaña al adjudicado ("Proceso: X · adjudicado:
+   * Y"); en los estimados es el publicado antes del reparto.
+   */
   valorProceso: number | null
+  /** Entre cuántos contratistas se repartió el valor del proceso (1 = sin reparto). */
   contratistasProceso: number
+  /** true = valor estimado (SECOP I solo en el Integrado, sin valor adjudicado en el dataset): suma, pero se señala. */
+  estimado: boolean
   objeto: string | null
   estado: string | null
   url: string | null
@@ -399,6 +464,14 @@ export interface HospitalSecopSummary {
     /** Contratos marcados atípicos por la carga que sí suman (valor alto para la entidad). */
     atipicos: number
   }
+  /**
+   * Parte ESTIMADA del total histórico ortopédico (totales.valorTotal / contratosTotal): contratos de SECOP I
+   * que solo trae el Integrado (sin valor adjudicado en el dataset SECOP I; la marca no depende de la fecha,
+   * aunque en la práctica sean sobre todo anteriores a 2018), con el valor del proceso repartido por partes iguales. Ya
+   * están sumados en los totales; aquí se dice cuántos son y por cuánto. No cuenta sin clasificar, médicos
+   * ni fuera de escala (esos no entran en el total).
+   */
+  estimados: { contratos: number; valor: number }
   porLinea: LineaResumen[]
   anual: AnioPunto[]
   proveedores: ProveedorResumen[]
@@ -447,6 +520,7 @@ export function summarizeHospitalSecop(params: {
     valorFueraEscala: 0,
     atipicos: 0,
   }
+  const estimados = { contratos: 0, valor: 0 }
   const lineas = new Map<string, LineaResumen>()
   const anios = new Map<number, AnioPunto>()
   const proveedores = new Map<string, ProveedorResumen & { lineSet: Set<string> }>()
@@ -492,6 +566,10 @@ export function summarizeHospitalSecop(params: {
       totales.contratosTotal += n
       totales.primeraFecha = minDate(totales.primeraFecha, c.fecha)
       totales.ultimaFecha = maxDate(totales.ultimaFecha, c.fecha)
+      if (c.estimado) {
+        estimados.contratos += n
+        estimados.valor += valor
+      }
       if (enVentana) {
         totales.valorVentana += valor
         totales.contratosVentana += n
@@ -586,6 +664,7 @@ export function summarizeHospitalSecop(params: {
       valor: round2(c.valor || 0),
       valorProceso: c.valor_proceso ?? null,
       contratistasProceso: c.contratistas_proceso ?? 1,
+      estimado: c.estimado === true,
       objeto: c.objeto,
       estado: c.estado,
       url: safeUrl(c.url),
@@ -601,6 +680,7 @@ export function summarizeHospitalSecop(params: {
       valorSinClasificar: round2(totales.valorSinClasificar),
       valorFueraEscala: round2(totales.valorFueraEscala),
     },
+    estimados: { contratos: estimados.contratos, valor: round2(estimados.valor) },
     porLinea: Array.from(lineas.values())
       .map(item => ({ ...item, valorVentana: round2(item.valorVentana), valorTotal: round2(item.valorTotal) }))
       .sort((a, b) => compareLineas(a.linea, b.linea)),
@@ -1407,8 +1487,15 @@ export interface HospitalSecopResponse {
   hospital: { id: string; name: string; nit: string | null }
   /** Naturaleza en el REPS ('Pública', 'Mixta', 'Privada') o null si no se sabe. */
   naturaleza: string | null
-  /** true si el REPS dice Pública/Mixta o si el NIT aparece como entidad contratante en SECOP. */
+  /**
+   * true si la IPS es entidad de compra pública: marca manual (compra_publica) → REPS Pública/Mixta → NIT
+   * con contratos en SECOP (resolverCompraPublica).
+   */
   publica: boolean
+  /** hospitals.compra_publica tal como está guardado: null = según REPS, true/false = marcado a mano. */
+  compra_publica: boolean | null
+  /** De dónde sale `publica`. */
+  publica_origen: CompraPublicaOrigen
   /** Nombre con el que figura en SECOP (el más reciente). */
   entidad: { nit: string; nombre: string | null } | null
   summary: HospitalSecopSummary | null

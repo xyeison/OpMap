@@ -1,8 +1,10 @@
 // Fase 5 · Lecturas de Supabase para la API de compras públicas (solo servidor; "_lib" no es ruta).
-// Esquema de database/migrations/2026-10-11_0710_secop.sql: secop_contratos (se lee SIEMPRE por la vista
-// secop_contratos_unicos, que quita del Integrado los contratos que ya vienen de SECOP II),
-// secop_proveedores_vigilados y fuentes_estado. Todo con service_role (lib/supabase-admin.ts). Este archivo
-// es el ÚNICO que conoce los nombres de columnas: lib/compras-publicas.ts trabaja con hechos normalizados.
+// Esquema de database/migrations/2026-10-11_0710_secop.sql y 2026-10-12_0730_secop_i_y_compra_publica.sql:
+// secop_contratos (se lee SIEMPRE por la vista secop_contratos_unicos, que quita del Integrado los contratos
+// que ya vienen de SECOP II o del dataset SECOP I y marca `estimado` los de SECOP I que solo trae el
+// Integrado), secop_proveedores_vigilados y fuentes_estado. Todo con service_role (lib/supabase-admin.ts).
+// Este archivo es el ÚNICO que conoce los nombres de columnas: lib/compras-publicas.ts trabaja con hechos
+// normalizados.
 import { fetchAllRows } from '@/app/api/_lib/api-error'
 import { supabaseAdmin, type SupabaseAdminClient } from '@/lib/supabase-admin'
 import { isMissingRelationError } from '@/app/api/intelligence/_lib/giros-server'
@@ -22,16 +24,19 @@ export { isMissingRelationError }
 export const SECOP_MISSING_MESSAGE =
   'Faltan las tablas de SECOP (secop_contratos, secop_proveedores_vigilados, fuentes_estado): aplicar database/migrations/2026-10-11_0710_secop.sql'
 
-/** Vista sin doble conteo (Integrado ∖ SECOP II). */
+/** Vista sin doble conteo (Integrado ∖ (SECOP II ∪ SECOP I)), con la columna `estimado` (0730). */
 const CONTRATOS_VIEW = 'secop_contratos_unicos'
 
-/** Columnas que usa la ficha (una entidad: pocas filas, con objeto y URL). */
+/**
+ * Columnas que usa la ficha (una entidad: pocas filas, con objeto y URL). `estimado` y `valor_proceso`
+ * llegan con la migración 0730 (SECOP I con valor adjudicado; valor del proceso como dato).
+ */
 const CONTRATO_COLUMNS =
-  'id, fuente, origen, numero_contrato, nit_entidad, nombre_entidad, documento_proveedor, proveedor_hash, proveedor_nombre, es_persona, especialidad_medico, linea, objeto, descripcion, valor, fecha_firma, estado, modalidad, url, atipico'
+  'id, fuente, origen, numero_contrato, nit_entidad, nombre_entidad, documento_proveedor, proveedor_hash, proveedor_nombre, es_persona, especialidad_medico, linea, objeto, descripcion, valor, fecha_firma, estado, modalidad, url, atipico, estimado, valor_proceso'
 
-/** Columnas mínimas para agregar (ranking, proveedor y lista vigilada). */
+/** Columnas mínimas para agregar (ranking, proveedor y lista vigilada) cuando no existe secop_hechos(). */
 const HECHO_COLUMNS =
-  'id, nit_entidad, nombre_entidad, documento_proveedor, proveedor_hash, proveedor_nombre, es_persona, especialidad_medico, linea, valor, fecha_firma, atipico'
+  'id, nit_entidad, nombre_entidad, documento_proveedor, proveedor_hash, proveedor_nombre, es_persona, especialidad_medico, linea, valor, fecha_firma, atipico, estimado'
 
 type Row = Record<string, unknown>
 
@@ -69,9 +74,12 @@ function toFact(row: Row): SecopFact {
     fecha: str(row.fecha_firma)?.slice(0, 10) ?? null,
     valor: num(row.valor),
     contratos: 1,
+    // Vista 0730: SECOP I que solo trae el Integrado (valor del proceso repartido). Sin la columna: false.
+    estimado: row.estimado === true,
   }
 }
 
+/** Etiqueta de la fuente por origen: el dataset SECOP I y el Integrado SECOPI se muestran igual ('SECOP I'). */
 const ORIGEN_LABEL: Record<string, string> = { SECOPI: 'SECOP I', SECOPII: 'SECOP II' }
 
 function toContrato(row: Row): SecopContrato {
@@ -83,8 +91,11 @@ function toContrato(row: Row): SecopContrato {
     estado: str(row.estado),
     modalidad: str(row.modalidad),
     url: str(row.url),
+    estimado: row.estimado === true,
     origen: str(row.origen),
     numero_contrato: str(row.numero_contrato),
+    // secop_contratos.valor_proceso (0730): cuantia_proceso del dataset SECOP I; null en las demás fuentes.
+    valor_proceso: row.valor_proceso === null || row.valor_proceso === undefined ? null : num(row.valor_proceso),
   }
 }
 
@@ -94,8 +105,10 @@ function dbError(label: string, error: unknown): Error {
 }
 
 /**
- * Todos los contratos (material y médicos) de una entidad por NIT de 9 dígitos, con el valor de los procesos
- * de SECOP I repetidos por contratista ya repartido (repartirProcesosSecopI, igual que secop_hechos()).
+ * Todos los contratos (material y médicos) de una entidad por NIT de 9 dígitos. Los de SECOP I traen el valor
+ * adjudicado a cada contratista; solo los `estimado` (Integrado SECOP I sin fila secop1 de la constancia; la
+ * marca no mira la fecha) llevan el valor del proceso ya repartido por partes iguales (repartirProcesosSecopI,
+ * igual que secop_hechos()).
  */
 export async function loadContratosEntidad(nit: string, db: SupabaseAdminClient = supabaseAdmin): Promise<SecopContrato[]> {
   const { data, error } = await fetchAllRows<Row>((from, to) =>
@@ -118,6 +131,8 @@ interface HechoRpc {
   a: boolean
   /** Fuera de escala: cada contrato del grupo vale más de 50.000 M (0720 agrupa por esto). */
   x?: boolean
+  /** Estimado: SECOP I que solo trae el Integrado, valor del proceso repartido (0730 agrupa por esto). */
+  est?: boolean
   f: string | null
   v: number | string | null
   n: number
@@ -134,6 +149,7 @@ function hechoRpcToFact(row: HechoRpc): SecopFact {
     especialidad_medico: row.es,
     linea: row.l,
     atipico: row.a,
+    estimado: row.est,
     fecha_firma: row.f,
     valor: row.v,
   })

@@ -4,7 +4,9 @@
  * Cubre: NIT de empresa (DV de la DIAN, 9/10 dígitos, guion), líneas de producto (normalización, rótulos,
  * orden, "Sin clasificar"), ficha de IPS (ventana de 24 meses, histórico por línea, años sin compras en 0,
  * sin clasificar y atípicos aparte, proveedores con marca de vigilado, médicos y empresas de especialistas
- * aparte y sin documento, paginación y filtros de contratos, enlaces seguros), ranking por hospital /
+ * aparte y sin documento, paginación y filtros de contratos, enlaces seguros), SECOP I (valor adjudicado del
+ * dataset intacto; reparto del valor del proceso SOLO en los estimados del Integrado; estimados contados
+ * aparte en el resumen), entidad de compra pública (marca manual → REPS → contratos), ranking por hospital /
  * proveedor / zona / ejecutivo con reparto por camas entre sedes del NIT, filtros de línea (ortopédicas,
  * todas, sin clasificar) y departamento, ámbito "todas", tabla proveedor × hospital, proveedor (dónde
  * vende), parámetros, CSV y panel de fuentes (semáforo, horario cron en hora de Colombia, próxima carga).
@@ -27,6 +29,7 @@ import {
   parseSecopRankingQuery,
   proveedorKey,
   repartirProcesosSecopI,
+  resolverCompraPublica,
   safeUrl,
   summarizeHospitalSecop,
   summarizeProveedorSecop,
@@ -162,12 +165,13 @@ function contrato(id: string, partial: Partial<SecopContrato> & Pick<SecopContra
   return {
     ...fact({ nit_entidad: '800000001', valor: partial.valor }),
     id,
-    fuente: 'SECOPII',
+    fuente: 'SECOP II',
     objeto: 'Suministro de material de osteosíntesis',
     estado: 'En ejecución',
     modalidad: null,
     url: 'https://community.secop.gov.co/x',
     ...partial,
+    estimado: partial.estimado ?? false,
   }
 }
 const CONTRATOS: SecopContrato[] = [
@@ -235,17 +239,23 @@ eq('filtro de contratos: atípicos (p99 y fuera de escala)', soloAtipicos.contra
 ])
 const soloSinClasificar = summarizeHospitalSecop({ contratos: CONTRATOS, vigilados: VIGILADOS, hoy: '2026-10-11', lineaContratos: 'no_clasificado' })
 eq('filtro de contratos: sin clasificar (sin la empresa de especialistas)', soloSinClasificar.contratos.rows.map(r => r.id), ['c4'])
-section('SECOP I: valor del proceso repetido por contratista')
+section('SECOP I: valor adjudicado (dataset) intacto; el valor del proceso se reparte SOLO en los estimados (Integrado)')
 const repartidos = repartirProcesosSecopI([
-  contrato('p1', { valor: 900, origen: 'SECOPI', numero_contrato: '21-4-1', proveedor_key: 'nit:900000001' }),
-  contrato('p2', { valor: 900, origen: 'SECOPI', numero_contrato: '21-4-1', proveedor_key: 'nit:900000002' }),
-  contrato('p3', { valor: 900, origen: 'SECOPI', numero_contrato: '21-4-1', proveedor_key: 'persona:abc', es_persona: true }),
-  contrato('p4', { valor: 500, origen: 'SECOPI', numero_contrato: '21-4-1' }), // otro valor: contrato propio
+  // Integrado SECOP I sin equivalente en el dataset (constancia '21-4-1', de 2021: la marca no mira la fecha):
+  // estimado → el valor del proceso se reparte.
+  contrato('p1', { valor: 900, origen: 'SECOPI', numero_contrato: '21-4-1', estimado: true, proveedor_key: 'nit:900000001' }),
+  contrato('p2', { valor: 900, origen: 'SECOPI', numero_contrato: '21-4-1', estimado: true, proveedor_key: 'nit:900000002' }),
+  contrato('p3', { valor: 900, origen: 'SECOPI', numero_contrato: '21-4-1', estimado: true, proveedor_key: 'persona:abc', es_persona: true }),
+  contrato('p4', { valor: 500, origen: 'SECOPI', numero_contrato: '21-4-1', estimado: true }), // otro valor: contrato propio
   contrato('p5', { valor: 900, origen: 'SECOPII', numero_contrato: '21-4-1' }), // SECOP II: no se reparte
-  contrato('p6', { valor: 900, origen: 'SECOPI', numero_contrato: '21-4-1', nit_entidad: '800000002' }), // otra entidad
-  contrato('p7', { valor: 900, origen: 'SECOPI', numero_contrato: null }), // sin constancia
+  contrato('p6', { valor: 900, origen: 'SECOPI', numero_contrato: '21-4-1', estimado: true, nit_entidad: '800000002' }), // otra entidad
+  contrato('p7', { valor: 900, origen: 'SECOPI', numero_contrato: null, estimado: true }), // sin constancia
+  // Dataset SECOP I (f789-7hwg): valor ADJUDICADO por contratista. Misma constancia y valor que p1-p3, pero no
+  // es estimado: no se reparte ni cuenta para el reparto de los estimados. valor_proceso viene de la columna.
+  contrato('p8', { valor: 900, origen: 'SECOPI', numero_contrato: '21-4-1', fuente: 'SECOP I', valor_proceso: 2000, proveedor_key: 'nit:900000001' }),
+  contrato('p9', { valor: 900, origen: 'SECOPI', numero_contrato: '21-4-1', fuente: 'SECOP I', valor_proceso: 2000, proveedor_key: 'nit:900000002' }),
 ])
-eq('se reparte por partes iguales solo entre filas de SECOP I con la misma entidad, constancia y valor', repartidos.map(c => [c.id, c.valor, c.valor_proceso ?? null, c.contratistas_proceso ?? 1]), [
+eq('se reparte por partes iguales SOLO entre filas estimadas con la misma entidad, constancia y valor', repartidos.map(c => [c.id, c.valor, c.valor_proceso ?? null, c.contratistas_proceso ?? 1]), [
   ['p1', 300, 900, 3],
   ['p2', 300, 900, 3],
   ['p3', 300, 900, 3],
@@ -253,11 +263,78 @@ eq('se reparte por partes iguales solo entre filas de SECOP I con la misma entid
   ['p5', 900, null, 1],
   ['p6', 900, null, 1],
   ['p7', 900, null, 1],
+  ['p8', 900, 2000, 1],
+  ['p9', 900, 2000, 1],
 ])
 eq('la suma del proceso repartido es el valor publicado una vez', repartidos.slice(0, 3).reduce((acc, c) => acc + c.valor, 0), 900)
+const dosEstimados = repartirProcesosSecopI([
+  contrato('e1', { valor: 1000, origen: 'SECOPI', numero_contrato: '17-1-1', estimado: true, proveedor_key: 'nit:900000001' }),
+  contrato('e2', { valor: 1000, origen: 'SECOPI', numero_contrato: '17-1-1', estimado: true, proveedor_key: 'nit:900000002' }),
+])
+eq('dos contratos iguales con estimado = true → mitad cada uno, con el valor del proceso guardado', dosEstimados.map(c => [c.valor, c.valor_proceso, c.contratistas_proceso]), [
+  [500, 1000, 2],
+  [500, 1000, 2],
+])
+const dosReales = repartirProcesosSecopI([
+  contrato('r1', { valor: 1000, origen: 'SECOPI', numero_contrato: '17-1-1', estimado: false, proveedor_key: 'nit:900000001' }),
+  contrato('r2', { valor: 1000, origen: 'SECOPI', numero_contrato: '17-1-1', estimado: false, proveedor_key: 'nit:900000002' }),
+])
+eq('los mismos con estimado = false quedan intactos aunque el origen sea SECOPI (ya no se reparte por origen)', dosReales.map(c => [c.valor, c.valor_proceso ?? null, c.contratistas_proceso ?? 1]), [
+  [1000, null, 1],
+  [1000, null, 1],
+])
+const estimadoConProceso = repartirProcesosSecopI([
+  contrato('e3', { valor: 600, origen: 'SECOPI', numero_contrato: '16-1-1', estimado: true, valor_proceso: 700, proveedor_key: 'nit:900000001' }),
+  contrato('e4', { valor: 600, origen: 'SECOPI', numero_contrato: '16-1-1', estimado: true, valor_proceso: 700, proveedor_key: 'nit:900000002' }),
+])
+eq('si la base ya trae valor_proceso, el reparto lo respeta', estimadoConProceso.map(c => [c.valor, c.valor_proceso]), [[300, 700], [300, 700]])
+
 const fichaRepartida = summarizeHospitalSecop({ contratos: repartidos.filter(c => c.nit_entidad === '800000001'), vigilados: VIGILADOS, hoy: '2026-10-11' })
 const filaRepartida = fichaRepartida.contratos.rows.find(r => r.id === 'p1')
-eq('la ficha muestra la parte y el valor del proceso', [filaRepartida?.valor, filaRepartida?.valorProceso, filaRepartida?.contratistasProceso], [300, 900, 3])
+eq('la ficha muestra la parte, el valor del proceso y la marca estimado', [filaRepartida?.valor, filaRepartida?.valorProceso, filaRepartida?.contratistasProceso, filaRepartida?.estimado], [300, 900, 3, true])
+const filaAdjudicada = fichaRepartida.contratos.rows.find(r => r.id === 'p8')
+eq('contrato del dataset SECOP I: adjudicado, valor del proceso como dato, sin reparto ni marca', [filaAdjudicada?.valor, filaAdjudicada?.valorProceso, filaAdjudicada?.contratistasProceso, filaAdjudicada?.estimado, filaAdjudicada?.fuente], [900, 2000, 1, false, 'SECOP I'])
+// p1, p2, p3 (300 c/u), p4 (500) y p7 (900) son estimados y SUMAN; p5, p8 y p9 (900 c/u) no lo son.
+eq('resumen: estimados contados aparte y SUMADOS en el total histórico', [fichaRepartida.estimados, fichaRepartida.totales.valorTotal, fichaRepartida.totales.contratosTotal], [{ contratos: 5, valor: 2300 }, 5000, 8])
+const estimadosQueNoEntran = summarizeHospitalSecop({
+  contratos: [
+    contrato('x1', { valor: 9e13, estimado: true, linea: 'trauma' }), // fuera de escala: no suma → tampoco cuenta como estimado del total
+    contrato('x2', { valor: 100, estimado: true, linea: 'no_clasificado' }), // sin clasificar: fuera del total
+    contrato('x3', { valor: 50, estimado: true, es_persona: true, proveedor_key: 'persona:abc', proveedor_nit: null, proveedor_nombre: 'Dr. Juan Ruiz', especialidad: 'Ortopedia', linea: null }), // médico
+    contrato('x4', { valor: 400, estimado: true, linea: 'columna' }),
+  ],
+  vigilados: VIGILADOS,
+  hoy: '2026-10-11',
+})
+eq('estimados: solo los que entran en el total ortopédico (ni fuera de escala, ni sin clasificar, ni médicos)', [estimadosQueNoEntran.estimados, estimadosQueNoEntran.totales.valorTotal, estimadosQueNoEntran.totales.fueraEscala], [{ contratos: 1, valor: 400 }, 400, 1])
+eq('sin estimados → 0', ficha.estimados, { contratos: 0, valor: 0 })
+// La marca `estimado` la pone la vista por fuente (Integrado SECOP I sin fila secop1 de la constancia), NO por
+// fecha: un estimado de 2021 cuenta como estimado y un adjudicado real del dataset SECOP I de 2016 no. Por eso
+// la UI no debe etiquetar los estimados como "antes de 2018" (revisión 2026-10-12).
+const estimadoSinFecha = summarizeHospitalSecop({
+  contratos: [
+    contrato('f1', { valor: 100, origen: 'SECOPI', estimado: true, linea: 'trauma', fecha: '2021-06-15' }),
+    contrato('f2', { valor: 200, origen: 'SECOPI', estimado: false, fuente: 'SECOP I', valor_proceso: 250, linea: 'trauma', fecha: '2016-03-01' }),
+  ],
+  vigilados: VIGILADOS,
+  hoy: '2026-10-11',
+})
+eq(
+  'la marca estimado no depende de la fecha: estimado de 2021 cuenta; adjudicado real de 2016 no',
+  [estimadoSinFecha.estimados, estimadoSinFecha.contratos.rows.map(r => [r.id, r.fecha, r.estimado])],
+  [{ contratos: 1, valor: 100 }, [['f1', '2021-06-15', true], ['f2', '2016-03-01', false]]],
+)
+
+section('Compra pública (SECOP): marca manual → REPS → contratos')
+eq('manual true manda aunque el REPS diga Privada y no haya contratos', resolverCompraPublica(true, 'Privada', 0), { publica: true, origen: 'manual' })
+eq('manual false manda aunque el REPS diga Pública y haya contratos', resolverCompraPublica(false, 'Pública', 12), { publica: false, origen: 'manual' })
+eq('sin marca: REPS Pública', resolverCompraPublica(null, 'Pública', 0), { publica: true, origen: 'reps' })
+eq('sin marca: REPS Mixta', resolverCompraPublica(null, 'Mixta', 0), { publica: true, origen: 'reps' })
+eq('sin marca: la naturaleza sin tilde o en mayúsculas también vale', resolverCompraPublica(null, 'PUBLICA', 0), { publica: true, origen: 'reps' })
+eq('sin marca y REPS Privada: manda que el NIT tenga contratos', resolverCompraPublica(null, 'Privada', 3), { publica: true, origen: 'contratos' })
+eq('sin marca ni REPS: contratos', resolverCompraPublica(undefined, null, 1), { publica: true, origen: 'contratos' })
+eq('sin marca, REPS Privada y sin contratos → ninguno', resolverCompraPublica(null, 'Privada', 0), { publica: false, origen: 'ninguno' })
+eq('sin marca, sin REPS ni contratos → ninguno', resolverCompraPublica(null, null, 0), { publica: false, origen: 'ninguno' })
 
 const conPersonaProveedora = summarizeHospitalSecop({
   contratos: [contrato('p1', { valor: 500, es_persona: true, proveedor_key: 'persona:zzz', proveedor_nit: null, proveedor_nombre: 'Pedro Gómez', especialidad: null, linea: 'trauma', fecha: '2026-04-01' })],

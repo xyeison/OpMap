@@ -180,6 +180,9 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     const parsed = updateHospitalSchema.safeParse(body)
     if (!parsed.success) return validationError(parsed.error)
 
+    // Pasa tal cual lo que admite updateHospitalSchema (zod ya descartó cualquier otra clave). Incluye
+    // compra_publica (Fase 5, marca manual de "Compra pública (SECOP)"): se guarda sin más efectos; la carga
+    // semanal de SECOP la lee por secop_nits_ips().
     const updateData: Record<string, unknown> = { ...parsed.data }
 
     // Solo admin puede editar coordenadas

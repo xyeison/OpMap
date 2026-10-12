@@ -16,18 +16,27 @@ Datos abiertos de Colombia Compra Eficiente en datos.gov.co (API Socrata/SoQL, p
 | Conjunto | Id | Uso |
 | --- | --- | --- |
 | SECOP II · Contratos electrónicos | `jbjy-vk9h` | Carga diaria incremental por `ultima_actualizacion` (`secop_contratos.fuente = 'secop2'`) |
-| SECOP Integrado (SECOP I + II desde 2005) | `rpmr-utcd` | Carga semanal; da el histórico (`fuente = 'integrado'`, `origen` SECOPI / SECOPII) |
-| SECOP I · Procesos | `f789-7hwg` | Solo respaldo (no se carga) |
-| SECOP II · Procesos | `p6dx-8zbt` | Licitaciones abiertas (oportunidades): opcional, no cargado |
+| SECOP I · Procesos de Compra Pública | `f789-7hwg` | **Fuente principal de SECOP I** (desde 2026-10-12): una fila por contrato-contratista con el **valor adjudicado** a cada uno (`valor_contrato_con_adiciones`; si es 0, `cuantia_contrato`) y el valor del proceso (`cuantia_proceso`) como dato; detalle por contrato desde 2017-2018. Carga semanal (martes) incremental (`fuente = 'secop1'`, `origen = 'SECOPI'`) |
+| SECOP Integrado (SECOP I + II desde 2005) | `rpmr-utcd` | Carga semanal (lunes). Para SECOP II, respaldo de lo que no venga de `jbjy-vk9h`; para SECOP I, **solo respaldo estimado**: trae el valor del PROCESO repetido en cada contratista y sus filas entran únicamente cuando `f789-7hwg` no trae esa constancia (en la práctica, antes de 2018), marcadas `estimado` (`fuente = 'integrado'`, `origen` SECOPI / SECOPII) |
+| SECOP II · Procesos | `p6dx-8zbt` | Licitaciones abiertas (oportunidades): spec aparte (`docs/specs/2026-10-12-secop-procesos-abiertos.md`), no cargado |
 
-La API suma siempre sobre la vista `secop_contratos_unicos` (el Integrado repite los contratos de SECOP II;
-la vista se queda con la fila de SECOP II).
+La API suma siempre sobre la vista `secop_contratos_unicos` (migración 0730): entran `secop2` y `secop1`
+siempre; del Integrado, SECOP II solo si no vino ya de `secop2` (mismo `CO1.PCCNTR…`) y SECOP I solo si
+`secop1` no trae esa constancia (`nit_entidad` + `numero_contrato`). La vista añade la columna `estimado`
+(= Integrado SECOP I). Decisión del dueño y evidencia en
+`docs/decisiones/2026-10-12-secop-i-valores-reales-y-compra-publica.md`.
 
 ## Alcance
 
-- **Entidades**: NIT de IPS activas con alguna sede Pública o Mixta en el REPS (`reps_sedes.naturaleza`):
-  131 NIT el 2026-10-11. De ellas entra un contrato si clasifica en una línea, si es de un proveedor vigilado
-  o si es un servicio de especialista.
+- **Entidades**: NIT de IPS activas que son **entidad de compra pública**: marcadas a mano "Compra pública
+  (SECOP): Sí" (`hospitals.compra_publica = true`) o, sin marca (`null`), con alguna sede Pública o Mixta en el
+  REPS (`reps_sedes.naturaleza`); con "No" quedan fuera aunque el REPS diga Pública (`secop_nits_ips()`, 0730:
+  la marca del NIT es `bool_or` de sus IPS activas marcadas). Eran 131 NIT por REPS el 2026-10-11; la
+  migración 0730 marca "Sí" 10 más sin sede REPS pública/mixta (6 UPRES de la Policía, HOCEN, HONAC, ESE San
+  Marcos y ESE Corozal; HU de Sincelejo, ESE N. S. del Carmen y ESE Universitaria del Atlántico ya salen públicas
+  por el REPS y no se marcan). De ellas
+  entra un contrato si clasifica en una línea, si es de un proveedor vigilado o si es un servicio de
+  especialista.
 - **Proveedores vigilados**: todos sus contratos con cualquier entidad pública (para ver dónde venden).
 - **NIT** siempre a 9 dígitos, sin DV, para entidad y proveedor (SECOP lo guarda a veces con DV y con
   variantes de nombre). El DV se valida con la regla de la DIAN.
@@ -57,13 +66,25 @@ resultaron ruidosos con los datos reales y no clasifican solos.
 - **Total ortopédico = las 6 líneas.** "Sin clasificar" se muestra aparte (tarjeta punteada "no suma" en la
   ficha; atenuado en el desglose del ranking) y solo suma con el filtro "Todas (incluye sin clasificar)"
   (`linea=todas`) o eligiéndolo (`linea=no_clasificado`).
-- **SECOP I: valor del proceso repetido por contratista.** SECOP I publica el valor del PROCESO en cada uno de
-  sus contratistas (misma constancia `numero_contrato`, mismo valor). La API cuenta esas filas una vez,
-  repartiendo el valor por partes iguales entre ellas (`repartirProcesosSecopI()` en la ficha y la misma regla
-  en `secop_hechos()`); la ficha lo dice en cada contrato. Medido el 2026-10-11: SECOP I pasa de
-  $ 5,09 a $ 3,82 billones en total; en la Samaritana (NIT 899999032), "trauma" de $ 780 mil millones (352
-  filas, 84 procesos) a $ 44,8 mil millones. El reparto entre contratistas es una estimación (SECOP I no
-  publica la parte de cada uno).
+- **SECOP I: valor adjudicado por contratista; el del proceso solo como dato.** Desde 2026-10-12 SECOP I
+  entra por `f789-7hwg` (`fuente = 'secop1'`), que trae el valor **adjudicado** a cada contratista (con
+  adiciones; si no las hay, `cuantia_contrato`). La ficha, el ranking y el proveedor suman ese valor tal cual
+  y conservan el del proceso como dato (`valor_proceso`; la ficha dice "Proceso: 1.189,8 M · adjudicado a este
+  contratista: 1.159,8 M"). Comprobado con la constancia 20-4-11235766 del Erasmo Meoz: Promed 30 M y UT VD
+  Salud 1.159,8 M, frente a los 594,9 M por cabeza que daba el reparto del Integrado.
+  Las constancias que `f789-7hwg` no trae (sobre todo las anteriores a 2018, pero la marca no mira la fecha:
+  también las que ese dataset omite o cuya fila `secop1` no pasa el prefiltro, y todas mientras no termine la
+  carga inicial de `secop1`) siguen entrando por el Integrado con el valor del
+  PROCESO repetido en cada contratista: se cuentan una vez, repartidas por partes iguales
+  (`repartirProcesosSecopI()` en la ficha, misma regla en `secop_hechos()`), y quedan marcadas **estimado**
+  (`secop_contratos_unicos.estimado`, clave `est` del jsonb). El reparto se aplica SOLO a los estimados: dos
+  filas de `secop1` con la misma constancia y valor son dos contratos reales y no se parten. Los estimados
+  **sí suman** en el total; la ficha dice cuántos son y por cuánto ("Estimados (SECOP I sin valor adjudicado):
+  N contratos · $ X", `summary.estimados`; "antes de 2018" solo va en la nota general de la API, nunca como
+  etiqueta por contrato). Referencia del 2026-10-11, solo con el Integrado: SECOP I pasaba de
+  $ 5,09 a $ 3,82 billones con el reparto; en La Samaritana (NIT 899999032) el valor por proceso es 4 a 5
+  veces el adjudicado (3,63 frente a 0,90 billones), así que las cifras de SECOP I bajan de forma importante
+  al cargar `secop1` (anotar las nuevas en `fase5-fuentes-automaticas.md` tras la carga inicial).
 - **Fuera de escala** (un contrato —o su parte del proceso— de más de 50.000 millones, el umbral `VALOR_ATIPICO_COP` de la carga):
   se lista con la marca "Fuera de escala, no suma" y no suma en ningún total (suelen ser errores de
   digitación o el valor de un proceso entero; el 2026-10-11 eran 3 contratos por $ 680 mil millones). La
@@ -83,8 +104,14 @@ resultaron ruidosos con los datos reales y no clasifican solos.
   "Todas las entidades públicas" (`ambito=todas`; sin filtro de departamento).
 - **Rango** del ranking por fecha de firma; por defecto los 24 meses que terminan en el mes actual (hora de
   Bogotá). La ficha muestra 24 meses y el histórico completo.
-- **IPS pública**: REPS Pública o Mixta para su NIT, o el NIT figura como entidad en SECOP. Si no, la ficha
-  muestra una sola línea: "IPS privada: sin contratación pública (SECOP)".
+- **Entidad de compra pública** (`resolverCompraPublica()` en `lib/compras-publicas.ts`): manda la marca
+  manual `hospitals.compra_publica` (true/false; campo "Compra pública (SECOP)" del modal "Editar
+  Información", permiso `hospitals:edit`, también por `PUT`/`PATCH /api/hospitals/[id]`, otro valor → 400);
+  si es `null`, el REPS (Pública o Mixta); si tampoco, que el NIT figure como entidad contratante en SECOP. La
+  respuesta de la ficha trae `compra_publica` y `publica_origen` (`manual` | `reps` | `contratos` |
+  `ninguno`). Si no es pública, la ficha muestra una sola línea ("IPS privada: sin contratación pública
+  (SECOP)" o, con la marca en "No", 'Compra pública (SECOP): marcada a mano como "No"'). Cambiar la marca no
+  recalcula nada ni llama a Google: la carga semanal trae el histórico de la entidad (tarea "histórico").
 - **Vigilado**: el NIT del proveedor está activo en `secop_proveedores_vigilados` (también los añadidos a
   mano, al instante).
 
@@ -103,7 +130,7 @@ mensaje claro.
 
 | Ruta | Qué devuelve |
 | --- | --- |
-| `GET /api/secop/hospital/[id]?page=&linea=` | Naturaleza (REPS), nombre en SECOP, resumen 24 meses e histórico por línea, sin clasificar y fuera de escala aparte, compras por año, proveedores (vigilado, valor, último contrato, líneas), médicos (especialidad, nº de contratos, último; marca "Empresa"), contratos con enlace al expediente (20 por página; `linea` = código, `no_clasificado`, `medicos` o `atipicos` = p99 y fuera de escala) |
+| `GET /api/secop/hospital/[id]?page=&linea=` | Naturaleza (REPS), `publica` con `compra_publica` (marca manual) y `publica_origen`, nombre en SECOP, resumen 24 meses e histórico por línea, sin clasificar y fuera de escala aparte, `estimados` (contratos y valor de SECOP I que solo trae el Integrado; ya sumados), compras por año, proveedores (vigilado, valor, último contrato, líneas), médicos (especialidad, nº de contratos, último; marca "Empresa"), contratos con enlace al expediente, fuente ("SECOP I" / "SECOP II"), `estimado` y `valorProceso` (20 por página; `linea` = código, `no_clasificado`, `medicos` o `atipicos` = p99 y fuera de escala) |
 | `GET /api/secop/ranking?group=hospital\|proveedor\|zona\|ejecutivo&linea=&desde=YYYY-MM&hasta=YYYY-MM&line=&departamento=&ambito=ips\|todas` | KPIs (total, contratos, entidades, proveedores, % a vigilados, médicos, fuera de escala), desglose por línea antes del filtro, ranking y tabla proveedor × hospital (300 pares de más valor). `line` (línea de negocio) es obligatoria para `ejecutivo` y debe ser del usuario (403) |
 | `GET /api/secop/proveedor/[nit]` | Dónde vende un proveedor (NIT con o sin DV): total, parte ortopédica, a IPS de OpMap, por línea y año, y por entidad (marca "IPS de OpMap") |
 | `GET /api/secop/vigilados` | Lista vigilada con sus ventas de material en SECOP y `canEdit` |
@@ -127,13 +154,36 @@ de escala; anon sin EXECUTE. El ranking con todo el histórico bajó de ≈ 6 s 
 el mismo día (CREATE OR REPLACE): la primera sin "fuera de escala" ni reparto. Sin la función la API sigue funcionando (lee contrato
 por contrato). Rollback `2026-10-11_9929_secop_api_rollback.sql` (antes de `9930_secop_rollback`).
 
+### Migración 0730 (escrita el 2026-10-12, **NO aplicada**; aditiva)
+
+`database/migrations/2026-10-12_0730_secop_i_y_compra_publica.sql`: `hospitals.compra_publica` boolean
+(null = según REPS); `secop_contratos.valor_proceso` y `valor_adiciones` numeric(18,2); `fuente` admite
+`secop1` (solo con `origen = 'SECOPI'`); índice parcial por constancia; vista `secop_contratos_unicos` con
+`estimado` y sin las filas del Integrado cuya constancia ya trae `secop1`; `secop_hechos()` con la clave `est`
+y el reparto solo para `fuente = 'integrado' AND origen = 'SECOPI'`; `secop_nits_ips()` con la marca manual;
+semilla de las 10 entidades sin REPS pública/mixta y de la fuente `secop_i`. Un bloque DO final prueba constraints, regla de la
+constancia, reparto (300 + 500 repartido = 800 en 3 contratos, 500 estimados) y la semántica de la marca con
+filas de prueba que se deshacen. Se aplica con autorización del dueño, en la misma ventana que el despliegue
+del código (antes de ella el código nuevo falla con "column does not exist" en la ficha y en el upsert de la
+carga); después, `NOTIFY pgrst, 'reload schema'` y la carga inicial de `secop1`. Rollback
+`2026-10-12_9931_secop_i_rollback.sql` (antes de 9929 y 9930). Detalle en `database/migrations/README.md`.
+
 ## UI
 
 - **Ficha de IPS** (`web/components/HospitalSecopCard.tsx`, una línea en `app/hospitals/[id]/page.tsx`,
-  después de "Giros ADRES"): tarjeta "Contratación pública (SECOP)" solo para IPS públicas y solo para quien
-  tiene `intelligence:view`. KPIs por línea (24 meses e histórico), columnas por año apiladas por línea
-  (`SecopAnnualChart.tsx`, al ancho real del contenedor), proveedores con marca "Vigilado" (enlace al detalle
-  del proveedor), médicos contratados, contratos paginados con filtro y "Ver expediente en SECOP".
+  después de "Giros ADRES"): tarjeta "Contratación pública (SECOP)" solo para entidades de compra pública y
+  solo para quien tiene `intelligence:view`. KPIs por línea (24 meses e histórico), columnas por año apiladas
+  por línea (`SecopAnnualChart.tsx`, al ancho real del contenedor), proveedores con marca "Vigilado" (enlace
+  al detalle del proveedor), médicos contratados, contratos paginados con filtro y "Ver expediente en SECOP".
+  Desde 2026-10-12: cada contrato muestra su fuente ("SECOP I" / "SECOP II") y, si es estimado, el chip
+  "Estimado" con la nota "Valor estimado: SECOP Integrado publica el valor del proceso (X) en cada uno de sus N
+  contratistas; aquí cuenta su parte"; si es un adjudicado real cuyo valor difiere del del proceso, "Proceso:
+  X · adjudicado a este contratista: Y". En el KPI total, la línea ámbar "Estimados (SECOP I sin valor
+  adjudicado): N contratos · $ X". Si la IPS está marcada a mano, el chip ámbar "Compra pública: marcada a
+  mano" en la
+  cabecera. En el modal "Editar Información" (Información Básica, tras Tipo) el selector "Compra pública
+  (SECOP)": Según REPS / Sí / No; en "Información General" se ve "Compra pública (SECOP): Sí/No (marcada a
+  mano)" solo si está marcada.
 - **`/inteligencia`** ahora tiene pestañas (`?tab=`): "Giros y población" (lo de siempre), "Compras públicas"
   (`IntelligenceSecop.tsx`) y, solo admin, "Fuentes de datos" (`FuentesDatosPanel.tsx`).
   - Compras públicas: filtros (línea de producto, línea de negocio para ejecutivo, departamento, entidades,
@@ -155,38 +205,44 @@ por contrato). Rollback `2026-10-11_9929_secop_api_rollback.sql` (antes de `9930
    trae DV se valida con la regla de la DIAN) y, opcional, el nombre. "Añadir NIT".
 3. Sus contratos ya cargados con IPS públicas se marcan "Vigilado" de inmediato. Su histórico con cualquier
    entidad llega en la siguiente pasada incremental de la carga (tarea "histórico", ver
-   `fase5-fuentes-automaticas.md`); para no esperar al cron: "Fuentes de datos" → SECOP II / SECOP Integrado
-   → "Actualizar ahora".
+   `fase5-fuentes-automaticas.md`); para no esperar al cron: "Fuentes de datos" → SECOP II / SECOP I / SECOP
+   Integrado → "Actualizar ahora".
 4. "Desactivar" quita la marca sin borrar la fila; con "Ver inactivos" se puede "Activar" de nuevo.
 
 Por API: `POST /api/secop/vigilados` con `{"nit": "900123456", "nombre": "…"}` (sesión de admin).
 
 ## Código
 
-- `web/lib/compras-publicas.ts` (puro): líneas y rótulos, NIT/DV, ficha (`summarizeHospitalSecop`), ranking
-  (`aggregateSecopRanking`), proveedor (`summarizeProveedorSecop`), parámetros, CSV, horario cron en hora de
-  Colombia, semáforo de fuentes y las formas de respuesta de la API.
+- `web/lib/compras-publicas.ts` (puro): líneas y rótulos, NIT/DV, ficha (`summarizeHospitalSecop`, con
+  `estimados`), reparto solo de los estimados (`repartirProcesosSecopI`), entidad de compra pública
+  (`resolverCompraPublica`), ranking (`aggregateSecopRanking`), proveedor (`summarizeProveedorSecop`),
+  parámetros, CSV, horario cron en hora de Colombia, semáforo de fuentes y las formas de respuesta de la API.
 - `web/app/api/secop/_lib/secop-server.ts`: único archivo que conoce las columnas de las tablas de SECOP.
 - `web/app/api/fuentes/_lib/catalogo.ts` (catálogo derivado de `FUENTES`) y `runner.ts` (puente a
   `ejecutarFuente`).
 
 ## Pruebas
 
-`cd web && npm run secop-api:check` (también dentro de `npm run test`): 137 pruebas puras sin red con datos
+`cd web && npm run secop-api:check` (también dentro de `npm run test`): 153 pruebas puras sin red con datos
 ficticios (NIT y DV, líneas y "Sin clasificar", ficha con ventana de 24 meses, fuera de escala y servicios
-aparte, atípico p99 que sí suma, reparto de procesos de SECOP I,
-persona proveedora vs. médico, médicos sin documento, paginación y filtros, ranking por los 4 grupos con
-reparto por camas, filtros de línea y departamento, ámbito, proveedor × hospital, proveedor, parámetros, CSV,
-horario cron y semáforo de fuentes).
+aparte, atípico p99 que sí suma, SECOP I con valor adjudicado intacto y reparto SOLO de los estimados,
+`estimados` del resumen sumados en el total, `resolverCompraPublica` (manual → REPS → contratos), persona
+proveedora vs. médico, médicos sin documento, paginación y filtros, ranking por los 4 grupos con reparto por
+camas, filtros de línea y departamento, ámbito, proveedor × hospital, proveedor, parámetros, CSV, horario
+cron y semáforo de fuentes). El mapeo de `f789-7hwg` con las filas reales del Erasmo Meoz, las URL SoQL de
+`secop1` y la fuente `secop_i` están en `npm run secop:check` (241); la validación zod de `compra_publica`
+(true/false/null; otro valor → 400) en `npm run ips:check`; la regla SQL (vista, `secop_hechos()`,
+`secop_nits_ips()`) en el bloque DO de la migración 0730.
 
 ## Límites
 
-- Mientras la carga inicial del Integrado no termina, el histórico está incompleto (el panel "Fuentes de
-  datos" dice en qué tarea va).
-- El reparto de SECOP I corrige el valor del proceso repetido, pero no las filas que SECOP I trae con valores
-  distintos para el mismo contratista, ni los contratos generales de "material médico quirúrgico" que la
-  clasificación pone en "trauma" porque nombran osteosíntesis entre muchos ítems (ver
-  `fase5-fuentes-automaticas.md`, "Limitaciones").
+- Mientras la carga inicial de una fuente no termina, el histórico está incompleto (el panel "Fuentes de
+  datos" dice en qué tarea va). Hasta que se aplique la migración 0730 y se cargue `secop1`, SECOP I sigue
+  entrando solo por el Integrado (todo estimado).
+- `f789-7hwg` solo tiene detalle por contrato desde 2017-2018: las cifras de SECOP I de 2014-2017 son
+  estimadas (valor del proceso repartido por partes iguales) y la ficha lo dice. El reparto no corrige los
+  contratos generales de "material médico quirúrgico" que la clasificación pone en "trauma" porque nombran
+  osteosíntesis entre muchos ítems (ver `fase5-fuentes-automaticas.md`, "Limitaciones").
 - SECOP I a veces registra a una empresa con tipo de documento "Nit de Persona Natural" (se vio un contrato
   de "MDT MEDICAL TECHNOLOGY SAS" así): la carga la guarda como persona (sin documento, solo hash), y en la
   ficha aparece sin NIT, con la marca "Persona natural" y sin enlace al detalle del proveedor.
