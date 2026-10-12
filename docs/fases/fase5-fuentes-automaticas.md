@@ -17,7 +17,8 @@ dispararse en cualquier minuto de la hora indicada; todos los de OpMap son diari
 | Fuente (`fuentes_estado.fuente`) | Qué carga | Cuándo | Quién | Cómo sabe que hay datos nuevos |
 | --- | --- | --- | --- | --- |
 | `secop_ii` | SECOP II Contratos (`jbjy-vk9h`) → `secop_contratos` | Diario 06:00 | Vercel Cron `/api/cron/secop_ii` | `ultima_actualizacion ≥ última vista − 3 días` |
-| `secop_integrado` | SECOP Integrado (`rpmr-utcd`, SECOP I + II) → `secop_contratos` | Lunes 07:00 | Vercel Cron `/api/cron/secop_integrado` | `fecha_de_firma ≥ última vista − 30 días` |
+| `secop_i` | SECOP I Procesos (`f789-7hwg`: contratista y valor **adjudicado** por contratista, desde 2017-2018) → `secop_contratos` (`fuente = 'secop1'`) | Martes 07:00 | Vercel Cron `/api/cron/secop_i` | `ultima_actualizacion` **o** `fecha_de_firma ≥ última vista − 30 días` |
+| `secop_integrado` | SECOP Integrado (`rpmr-utcd`, SECOP I + II; para SECOP I solo respaldo estimado de lo que `f789-7hwg` no trae, sobre todo antes de 2018) → `secop_contratos` | Lunes 07:00 | Vercel Cron `/api/cron/secop_integrado` | `fecha_de_firma ≥ última vista − 30 días` |
 | `reps_sedes` | Sedes del REPS (`c36g-9fc2`) → `reps_sedes` | Día 2, 08:00 | Vercel Cron `/api/cron/reps_sedes` | `rowsUpdatedAt` del dataset más nuevo que la última carga |
 | `bdua` | BDUA contributivo y subsidiado → `bdua_afiliados` | Día 4, 08:00 | Vercel Cron `/api/cron/bdua` | El corte de `rowsUpdatedAt` no está en `bdua_afiliados` |
 | `minsalud_cifras` | Cifras de afiliación de MinSalud → `afiliacion_cifras` | Día 5, 08:00 | Vercel Cron `/api/cron/minsalud_cifras` | La página de MinSalud enlaza un ZIP de un mes posterior al último corte cargado |
@@ -47,7 +48,7 @@ dispararse en cualquier minuto de la hora indicada; todos los de OpMap son diari
    Nombre `CRON_SECRET`, valor el del paso 1, entorno **Production**. Guardar.
 3. **Deployments** → el último despliegue de producción → **Redeploy** (las variables nuevas solo se leen al
    desplegar). Vercel enviará `Authorization: Bearer <CRON_SECRET>` en cada llamada del cron.
-4. Comprobar: en Vercel → Settings → **Cron Jobs** aparecen los 6 trabajos de `web/vercel.json`; ahí mismo
+4. Comprobar: en Vercel → Settings → **Cron Jobs** aparecen los 7 trabajos de `web/vercel.json`; ahí mismo
    "Run" lanza uno a mano. En `/inteligencia` → pestaña "Fuentes de datos" desaparece el aviso de
    `CRON_SECRET` y, al día siguiente, `SECOP II` muestra "Último OK" de esa madrugada.
 5. Opcional: `SOCRATA_APP_TOKEN` (token de aplicación gratuito de datos.gov.co) sube el límite de peticiones;
@@ -65,27 +66,64 @@ dispararse en cualquier minuto de la hora indicada; todos los de OpMap son diari
    se detiene, no lo evade) y el panel lo dice. Entonces se corre desde un equipo propio:
    `cd web && node scripts/adres-identifica-giro.mjs --desde <AAAA-MM>`.
 
-## SECOP: modelo (migración 0710, aplicada el 2026-10-11)
+## SECOP: modelo (migración 0710, aplicada el 2026-10-11; `2026-10-12_0730` añade `secop1`, `valor_proceso`, `valor_adiciones` y `hospitals.compra_publica`)
 
 | Tabla / objeto | Qué guarda |
 | --- | --- |
 | `secop_proveedores_vigilados` | NIT (9 dígitos) de los proveedores de material que se vigilan. Semilla: 76 de Odoo (`es_empresa` y no intercompañía, con `compras_gcp_cop`); `origen` odoo_gcp / manual, `activo`, `nota` |
-| `secop_contratos` | Un contrato por fila. `fuente` secop2 / integrado, `origen` SECOPI / SECOPII, `id_contrato` (único por fuente), entidad (NIT a 9 dígitos, nombre, departamento, municipio, nivel), `hospital_id` (IPS principal de ese NIT), proveedor (`documento_proveedor` a 9 dígitos si es empresa; `proveedor_hash` si es persona), `proveedor_vigilado_id`, `es_persona`, tipo, modalidad, UNSPSC, objeto, descripción, `linea` + `lineas`, `especialidad_medico`, valores, fechas, estado, URL, `ultima_actualizacion`, `atipico` |
-| `secop_contratos_unicos` (vista) | Para sumar sin doble conteo: el Integrado repite los contratos de SECOP II (mismo `CO1.PCCNTR…`); la vista se queda con la fila de SECOP II |
+| `secop_contratos` | Un contrato por fila. `fuente` secop2 / secop1 / integrado, `origen` SECOPI / SECOPII, `id_contrato` (único por fuente), entidad (NIT a 9 dígitos, nombre, departamento, municipio, nivel), `hospital_id` (IPS principal de ese NIT), proveedor (`documento_proveedor` a 9 dígitos si es empresa; `proveedor_hash` si es persona), `proveedor_vigilado_id`, `es_persona`, tipo, modalidad, UNSPSC, objeto, descripción, `linea` + `lineas`, `especialidad_medico`, valores (`valor`, `valor_pagado`; `valor_proceso` y `valor_adiciones` solo en secop1), fechas, estado, URL, `ultima_actualizacion`, `atipico` |
+| `secop_contratos_unicos` (vista) | Para sumar sin doble conteo: el Integrado repite los contratos de SECOP II (mismo `CO1.PCCNTR…`) y los de SECOP I (misma constancia y entidad que `secop1`); la vista se queda con la fila de SECOP II / `secop1` y marca `estimado` las de SECOP I que solo trae el Integrado |
 | `secop_ajustes` | La sal aleatoria del hash de documentos (generada en la migración; solo `service_role`) |
 | `fuentes_estado` | Estado de cada carga (ver arriba) |
-| `secop_nits_ips()` | NIT de las IPS activas → IPS principal (más camas) y si es pública o mixta en el REPS |
+| `secop_nits_ips()` | NIT de las IPS activas → IPS principal (más camas) y si es entidad de compra pública: `hospitals.compra_publica` manual (true/false) o, si es null, pública o mixta en el REPS |
 | `secop_marcar_atipicos()` | Recalcula `atipico` al cerrar cada pasada |
 
 ### Alcance (qué entra)
-- **Entidades objetivo**: NIT de IPS activas con alguna sede Pública o Mixta en `reps_sedes` (cruce por NIT).
-  Son **131** el 2026-10-11 (128 si se cruza por `hospitals.reps_code`, la cifra que circulaba antes).
+- **Entidades objetivo**: NIT de IPS activas con alguna sede Pública o Mixta en `reps_sedes` (cruce por NIT), o
+  marcadas a mano "Compra pública: sí" (`hospitals.compra_publica = true`; la migración `0730` marca 10 sin
+  ninguna sede REPS pública/mixta con su NIT: las 6 UPRES de la Policía, HOCEN, HONAC, ESE San Marcos y ESE
+  Corozal). Con `false` la IPS queda fuera aunque el
+  REPS diga Pública. Eran **131** el 2026-10-11 por REPS (128 si se cruza por `hospitals.reps_code`).
 - De ellas entra un contrato si **clasifica en una línea**, si es de un **proveedor vigilado** o si es un
   **servicio de especialista** (ortopedia, neurocirugía, columna, deportiva). Lo demás (aseo, vigilancia,
   medicamentos, laboratorio…) no se guarda.
 - De los **proveedores vigilados** entran **todos** sus contratos con cualquier entidad (para ver dónde venden).
 - Un NIT que se añade a la lista vigilada (o una IPS pública nueva) trae su histórico completo en la siguiente
   pasada incremental (tarea "histórico"), sin tener que recargar todo.
+
+### SECOP I (`f789-7hwg`, `fuente = 'secop1'`): valor adjudicado por contratista (2026-10-12)
+El dataset "SECOP I - Procesos de Compra Pública" trae una fila por contrato-contratista con `cuantia_contrato`,
+`valor_total_de_adiciones` y `valor_contrato_con_adiciones`, además de `cuantia_proceso`. Comprobado con la
+constancia 20-4-11235766 del Erasmo Meoz (proceso SS20-417, 1.189,8 M): Promed Quirúrgicos 30 M y UT VD Salud
+1.159,8 M; el Integrado daba 1.189,8 M a cada uno (repartido por partes iguales: 594,9 M). Mapeo
+(`mapSecopRow('secop1', …)` en `web/lib/secop.ts`, probado en `secop-check` con esas dos filas reales):
+- `valor` = `valor_contrato_con_adiciones` si > 0, si no `cuantia_contrato`; `valor_proceso` = `cuantia_proceso`;
+  `valor_adiciones` = `valor_total_de_adiciones` (las otras dos fuentes dejan estas dos columnas en null).
+- `numero_contrato` = `numero_de_constancia` (igual al `numero_del_contrato` del Integrado: por ahí la vista
+  `secop_contratos_unicos` descarta la fila del Integrado de la misma constancia y entidad); `referencia` =
+  `numero_de_proceso`; `proceso` = `numero_de_contrato` (número interno de la entidad); `id_contrato` =
+  `SECOPI|<id_adjudicacion>` cuando es numérica (una por contrato-contratista; funde las filas duplicadas del
+  dataset), si no ("Sin Adjudicar", vacía) el compuesto del Integrado.
+- Texto: `objeto` = `objeto_del_contrato_a_la` (si falta, `detalle_del_objeto_a_contratar`); `descripcion` = el
+  detalle cuando difiere. **`objeto_a_contratar` no se usa**: en SECOP I es el segmento UNSPSC ("Servicios de
+  Salud", "Equipo Médico, Accesorios y Suministros"), genérico y con palabras ("equipo", "suministros") que
+  confunden la regla servicio/producto. `nombre_clase` tampoco: la clase la elige la entidad a ojo (851221
+  "Servicios de rehabilitación" para material de osteosíntesis). `categoria_unspsc` = `id_clase` (clase UNSPSC de
+  6 dígitos): como en SECOP II, solo decide cuando el texto no dice nada y nunca contra una exclusión.
+- Contratista: `identificacion_del_contratista` + `tipo_identifi_del_contratista`, misma regla de persona natural
+  (hash) o empresa (NIT a 9 dígitos). Sin identificación ni nombre ("No Definido": convocados, "Sin Firma",
+  terminados anormalmente) la fila se descarta con error: no es un contrato adjudicado.
+- Entidad: `nit_de_la_entidad` (texto, sin DV), `nombre_entidad` (ojo: no `nombre_de_la_entidad` como en el
+  Integrado), `nivel_entidad`, departamento y municipio. URL: `ruta_proceso_en_secop_i`.
+- Consulta: entidades por `nit_de_la_entidad in (…)` con las tres variantes del NIT; proveedores por
+  `starts_with(identificacion_del_contratista, …)` con y sin puntos; prefiltro inicial sobre
+  `objeto_del_contrato_a_la` y `detalle_del_objeto_a_contratar` más `id_clase like '4232%'`. Con 40 entidades la
+  URL quedaría en 9,2 KB (con los tres campos de texto, 12 KB): las tareas de entidades de `secop1` son de **30**
+  NIT (8,7 KB). Incremental: desde la marca por `ultima_actualizacion` **o** `fecha_de_firma_del_contrato` (la
+  primera puede ser anterior a la firma: en la constancia de arriba 2020-11-03 frente a 2020-11-18), solape de 30
+  días; la marca de agua de cada fila es la mayor de las dos. Cron los martes 07:00 UTC (`/api/cron/secop_i`).
+- Cobertura: detalle por contrato desde 2017-2018; para antes solo existe el Integrado (valor del proceso
+  repartido por partes iguales y marcado **estimado**; reglas de suma en `docs/fases/fase5-secop.md`).
 
 ### NIT
 Siempre 9 dígitos (`normalizeNit` en `web/lib/secop.ts`): `900294380`, `9002943801`, `900.294.380-1`,
@@ -136,7 +174,8 @@ solo si la entidad tiene 100 contratos o más; si no, su mayor contrato siempre 
 `secop_marcar_atipicos()` sobre la vista sin duplicados. `esAtipico()` en TypeScript aplica la misma regla.
 
 ### Carga incremental (cursor)
-Una **pasada** recorre tareas (grupos de 40 NIT de entidades y de proveedores) y, por tarea, páginas SoQL
+Una **pasada** recorre tareas (grupos de 40 NIT de entidades y de proveedores; 30 entidades en SECOP I, cuyo
+prefiltro es más largo) y, por tarea, páginas SoQL
 ordenadas por `:id`. La primera es la inicial (entidades con prefiltro de texto; proveedores sin filtro). Las
 siguientes son incrementales sin prefiltro desde la marca de agua − solape. El cursor (`fuentes_estado.cursor`)
 guarda modo, desde, tarea, offset, máxima marca vista (ignorando fechas futuras mal digitadas), contadores y
@@ -146,10 +185,10 @@ tercera vez seguida la fuente queda en error pidiendo correr el script.
 ### Comandos
 ```bash
 cd web
-npx tsx scripts/secop-load.ts --inicial               # carga inicial completa de las dos fuentes (≈ 15–25 min)
+npx tsx scripts/secop-load.ts --inicial               # carga inicial completa de las tres fuentes (≈ 20–35 min)
 npx tsx scripts/secop-load.ts                         # ponerse al día (sigue la pasada o hace la incremental)
-npx tsx scripts/secop-load.ts --fuente integrado      # una sola fuente
-npx tsx scripts/secop-load.ts --dry-run --max-paginas 2   # leer y clasificar sin escribir
+npx tsx scripts/secop-load.ts --fuente secop1         # una sola fuente (secop1, secop2, integrado o todas)
+npx tsx scripts/secop-load.ts --fuente secop1 --dry-run --max-paginas 2   # leer y clasificar sin escribir
 npm run secop:check                                    # pruebas puras (también dentro de npm run test)
 ```
 
@@ -188,6 +227,15 @@ trauma **24.205** ($ 2.586,1), otros ortopédicos **3.408** ($ 855,6), neurociru
 reemplazo **180**, deportiva **148**, columna **68** y sin línea **16.834** ($ 1.484,7). Médicos distintos tras
 los incrementales: **799**; atípicos (las dos fuentes): **449**.
 
+**Pendiente (2026-10-12)**: tras aplicar la migración `2026-10-12_0730`, carga inicial de `secop1`
+(`npx tsx scripts/secop-load.ts --fuente secop1 --inicial`) y una pasada de `todas` para el histórico de las 10
+entidades marcadas `compra_publica`. Las cifras de SECOP I de arriba (valor del proceso) bajan al valor
+adjudicado; anotar aquí las nuevas. Dry-run del 2026-10-12 (`--fuente secop1 --dry-run --max-paginas 1`, sin
+escribir, costo 0): 131 entidades objetivo (sin la migración aún no entran las 10 manuales), 76 vigilados,
+7 tareas; la primera tarea (30 NIT) leyó 2.629 filas → 1.321 guardables (vigilado 167, línea 318,
+especialidad 836), 901 fuera de alcance y 407 ilegibles (todas "SECOP I sin contratista": procesos no
+adjudicados).
+
 ## Refactor de los scripts existentes (sin cambio de comportamiento)
 
 Para que el cron use el mismo código que las cargas manuales:
@@ -201,8 +249,13 @@ Para que el cron use el mismo código que las cargas manuales:
 
 ## Limitaciones (decirlas al mostrar cifras)
 
-- **SECOP I** repite el valor del proceso en cada contratista cuando hay varios, y trae filas duplicadas: se
-  guarda una fila por contratista y fecha (las exactas se funden), pero las sumas de SECOP I pueden inflarse.
+- **SECOP I en el Integrado** repite el valor del PROCESO en cada contratista: por eso SECOP I entra por
+  `f789-7hwg` (`secop1`) con el valor adjudicado, y el Integrado solo aporta las constancias que ese dataset no
+  trae (sobre todo antes de 2018; la marca `estimado` no mira la fecha), repartidas por partes iguales y
+  marcadas **estimadas** (`docs/fases/fase5-secop.md`).
+  `f789-7hwg` también trae filas duplicadas: el upsert por `id_adjudicacion` las funde.
+- En `f789-7hwg` la `ultima_actualizacion` puede ser anterior a la firma del contrato; el incremental de `secop1`
+  pide `ultima_actualizacion` **o** `fecha_de_firma` desde la marca para no saltarse contratos firmados tarde.
 - El Integrado trae procesos "Convocado" sin contratista: se guardan con su estado; filtrar por estado si se
   quiere solo lo adjudicado.
 - La pasada incremental del Integrado solo ve contratos nuevos por fecha de firma (30 días de solape): los

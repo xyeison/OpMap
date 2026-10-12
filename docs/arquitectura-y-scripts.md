@@ -101,6 +101,11 @@ vercel                                  # Desplegar a producción
 - **`web/components/MapComponent.tsx`**: Componente principal del mapa interactivo
 - **`web/app/api/recalculate-assignments/`**: API para recálculo de asignaciones
 - **`web/app/api/travel-times/unassigned/`**: API para hospitales sin asignar
+- **`web/scripts/`**: scripts versionados: pruebas puras `*-check.ts` (las corre `npm run check`) y cargas de
+  datos (`secop-load.ts`, `fase2b-municipios.ts`, …). Todo lo que esté aquí entra al PR y a CI.
+- **`web/scripts-dev/`**: ayudas locales NO versionadas (ignorada en `web/.gitignore`): por ejemplo
+  `dev-session.ts`, que firma una cookie de sesión de desarrollo para abrir `next dev` con un usuario existente.
+  Nada de aquí se documenta como parte del producto ni se prueba en CI.
 
 #### Scripts Python
 - **`opmap_bogota_complete.py`**: Sistema completo con algoritmo y visualización mejorada

@@ -5,14 +5,19 @@
  *
  * Fuentes (datos abiertos de Colombia Compra Eficiente en datos.gov.co, SoQL sin token):
  *   - SECOP II Contratos  jbjy-vk9h → fuente 'secop2'    (marca de agua: ultima_actualizacion)
- *   - SECOP Integrado     rpmr-utcd → fuente 'integrado' (marca de agua: fecha_de_firma_del_contrato)
+ *   - SECOP I Procesos    f789-7hwg → fuente 'secop1'    (marca de agua: ultima_actualizacion). Trae el
+ *     contratista y el valor ADJUDICADO a cada uno (cuantia_contrato / valor_contrato_con_adiciones) además
+ *     del valor del proceso (cuantia_proceso); con detalle por contrato desde 2017-2018.
+ *   - SECOP Integrado     rpmr-utcd → fuente 'integrado' (marca de agua: fecha_de_firma_del_contrato). Para
+ *     SECOP I repite el valor del PROCESO en cada contratista: queda de respaldo (constancias que f789-7hwg
+ *     no trae, en la práctica antes de 2018) y la vista secop_contratos_unicos las marca como estimadas.
  *
  * Qué hay aquí:
  *   1. NIT: normalizeNit (siempre 9 dígitos para un NIT de persona jurídica), DV de la DIAN y variantes.
  *   2. Clasificación por línea (classifyLinea / clasificarContrato) y especialidad del médico
  *      (detectEspecialidad), con el prefiltro SoQL que es un SUPERCONJUNTO de la clasificación.
  *   3. esAtipico (misma regla que la función SQL secop_marcar_atipicos de la migración 0710).
- *   4. Mapeo de filas de los dos datasets al modelo común (mapSecopRow) y regla de alcance.
+ *   4. Mapeo de filas de los tres datasets al modelo común (mapSecopRow) y regla de alcance.
  *   5. URLs SoQL por tarea y cursor de la carga incremental (pasadas reanudables).
  */
 import { nitCheckDigit } from './reps-match'
@@ -22,11 +27,14 @@ import { nitCheckDigit } from './reps-match'
 // ---------------------------------------------------------------------------------------------
 
 export const SECOP_BASE_URL = 'https://www.datos.gov.co'
-export type SecopFuente = 'secop2' | 'integrado'
-export const SECOP_FUENTES: readonly SecopFuente[] = ['secop2', 'integrado'] as const
-export const SECOP_DATASETS: Record<SecopFuente, string> = { secop2: 'jbjy-vk9h', integrado: 'rpmr-utcd' }
+export type SecopFuente = 'secop2' | 'secop1' | 'integrado'
+export const SECOP_FUENTES: readonly SecopFuente[] = ['secop2', 'secop1', 'integrado'] as const
+export const SECOP_DATASETS: Record<SecopFuente, string> = { secop2: 'jbjy-vk9h', secop1: 'f789-7hwg', integrado: 'rpmr-utcd' }
 /** Clave de cada dataset en fuentes_estado (la misma que usa el panel y la ruta /api/cron/<clave>). */
-export const SECOP_FUENTE_ESTADO: Record<SecopFuente, 'secop_ii' | 'secop_integrado'> = { secop2: 'secop_ii', integrado: 'secop_integrado' }
+export type SecopFuenteEstado = 'secop_ii' | 'secop_i' | 'secop_integrado'
+export const SECOP_FUENTE_ESTADO: Record<SecopFuente, SecopFuenteEstado> = { secop2: 'secop_ii', secop1: 'secop_i', integrado: 'secop_integrado' }
+/** Etiqueta de cada fuente en mensajes del panel y del script de carga. */
+export const SECOP_ETIQUETAS: Record<SecopFuente, string> = { secop2: 'SECOP II', secop1: 'SECOP I', integrado: 'SECOP Integrado' }
 
 export const SECOP_LINEAS = ['trauma', 'reemplazo', 'columna', 'deportiva', 'neurocirugia', 'otros_implantes', 'no_clasificado'] as const
 export type SecopLinea = (typeof SECOP_LINEAS)[number]
@@ -439,6 +447,10 @@ export interface SecopContratoRow {
   clasificacion_version: string
   valor: number | null
   valor_pagado: number | null
+  /** Solo secop1: valor del PROCESO (cuantia_proceso), el que el Integrado repite en cada contratista. null en las otras fuentes. */
+  valor_proceso: number | null
+  /** Solo secop1: valor_total_de_adiciones. null en las otras fuentes. */
+  valor_adiciones: number | null
   fecha_firma: string | null
   fecha_inicio: string | null
   fecha_fin: string | null
@@ -488,8 +500,41 @@ export function toMoney(value: unknown): number | null {
 
 export type SecopMapResult = { row: SecopContratoRow } | { error: string }
 
-/** Mapea una fila cruda de jbjy-vk9h (SECOP II) o rpmr-utcd (Integrado) al modelo común. */
+/** Proveedor de una fila: persona natural → hash (nunca el documento); empresa → NIT a 9 dígitos. */
+function leerProveedor(tipoDocRaw: unknown, documentoRaw: unknown, nombreRaw: unknown, ctx: SecopMapContext) {
+  const tipoDoc = cleanText(tipoDocRaw, 80)
+  const documentoCrudo = cleanText(documentoRaw, 80)
+  const nombre = cleanText(nombreRaw, 300)
+  const esPersona = documentoCrudo !== null && esDocumentoPersona(tipoDoc, documentoCrudo)
+  let documento: string | null = null
+  let hash: string | null = null
+  if (documentoCrudo !== null) {
+    if (esPersona) {
+      const digitos = digitosDocumento(documentoCrudo)
+      hash = digitos ? ctx.hashDocumento(digitos) : null
+    } else {
+      documento = normalizeNit(documentoCrudo)
+    }
+  }
+  // Para un id compuesto: NIT, prefijo del hash (nunca la cédula) o el nombre normalizado
+  const clave = documento ?? (hash ? `h${hash.slice(0, 24)}` : normalizeText(nombre).slice(0, 60))
+  return { tipoDoc, documentoCrudo, nombre, esPersona, documento, hash, clave }
+}
+
+function camposProveedor(p: ReturnType<typeof leerProveedor>, ctx: SecopMapContext) {
+  return {
+    documento_proveedor: p.documento,
+    proveedor_hash: p.hash,
+    tipo_doc_proveedor: p.tipoDoc,
+    proveedor_nombre: p.nombre,
+    proveedor_vigilado_id: p.documento && ctx.vigilados?.has(p.documento) ? p.documento : null,
+    es_persona: p.esPersona,
+  }
+}
+
+/** Mapea una fila cruda de jbjy-vk9h (SECOP II), f789-7hwg (SECOP I) o rpmr-utcd (Integrado) al modelo común. */
 export function mapSecopRow(fuente: SecopFuente, raw: SecopRaw, ctx: SecopMapContext): SecopMapResult {
+  if (fuente === 'secop1') return mapSecopIRow(raw, ctx)
   const s2 = fuente === 'secop2'
   const nitEntidad = normalizeNit(s2 ? raw.nit_entidad : raw.nit_de_la_entidad)
   if (!nitEntidad) return { error: `NIT de entidad ilegible (${String(s2 ? raw.nit_entidad : raw.nit_de_la_entidad)})` }
@@ -498,19 +543,7 @@ export function mapSecopRow(fuente: SecopFuente, raw: SecopRaw, ctx: SecopMapCon
   if (origenRaw !== 'SECOPI' && origenRaw !== 'SECOPII') return { error: `origen desconocido (${String(raw.origen)})` }
   const origen = origenRaw as 'SECOPI' | 'SECOPII'
 
-  const tipoDoc = cleanText(s2 ? raw.tipodocproveedor : raw.tipo_documento_proveedor, 80)
-  const documentoRaw = cleanText(raw.documento_proveedor, 80)
-  const esPersona = documentoRaw !== null && esDocumentoPersona(tipoDoc, documentoRaw)
-  let documento: string | null = null
-  let hash: string | null = null
-  if (documentoRaw !== null) {
-    if (esPersona) {
-      const digitos = digitosDocumento(documentoRaw)
-      hash = digitos ? ctx.hashDocumento(digitos) : null
-    } else {
-      documento = normalizeNit(documentoRaw)
-    }
-  }
+  const proveedor = leerProveedor(s2 ? raw.tipodocproveedor : raw.tipo_documento_proveedor, raw.documento_proveedor, s2 ? raw.proveedor_adjudicado : raw.nom_raz_social_contratista, ctx)
 
   const objeto = cleanText(s2 ? raw.objeto_del_contrato : raw.objeto_del_proceso)
   const descripcionRaw = cleanText(s2 ? raw.descripcion_del_proceso : raw.objeto_a_contratar)
@@ -521,18 +554,14 @@ export function mapSecopRow(fuente: SecopFuente, raw: SecopRaw, ctx: SecopMapCon
 
   const numero = cleanText(s2 ? raw.id_contrato : raw.numero_del_contrato, 200)
   const fechaFirma = toIsoDate(s2 ? raw.fecha_de_firma : raw.fecha_de_firma_del_contrato)
-  const proveedorNombre = cleanText(s2 ? raw.proveedor_adjudicado : raw.nom_raz_social_contratista, 300)
   let idContrato: string
   if (s2) {
     if (!numero) return { error: 'SECOP II sin id_contrato' }
     idContrato = numero
   } else {
     if (!numero && !fechaFirma) return { error: 'Integrado sin número de contrato ni fecha de firma' }
-    const proveedorClave = documento ?? (hash ? `h${hash.slice(0, 24)}` : normalizeText(proveedorNombre).slice(0, 60))
-    idContrato = [origen, numero ?? '', proveedorClave, fechaFirma ?? ''].join('|')
+    idContrato = [origen, numero ?? '', proveedor.clave, fechaFirma ?? ''].join('|')
   }
-
-  const vigilado = documento && ctx.vigilados?.has(documento) ? documento : null
 
   return {
     row: {
@@ -548,12 +577,7 @@ export function mapSecopRow(fuente: SecopFuente, raw: SecopRaw, ctx: SecopMapCon
       municipio_entidad: cleanText(s2 ? raw.ciudad : raw.municipio_entidad, 100),
       nivel_entidad: cleanText(s2 ? raw.orden : raw.nivel_entidad, 60),
       hospital_id: ctx.hospitalPorNit?.get(nitEntidad) ?? null,
-      documento_proveedor: documento,
-      proveedor_hash: hash,
-      tipo_doc_proveedor: tipoDoc,
-      proveedor_nombre: proveedorNombre,
-      proveedor_vigilado_id: vigilado,
-      es_persona: esPersona,
+      ...camposProveedor(proveedor, ctx),
       tipo_contrato: cleanText(raw.tipo_de_contrato, 120),
       modalidad: cleanText(s2 ? raw.modalidad_de_contratacion : raw.modalidad_de_contrataci_n, 200),
       categoria_unspsc: unspsc,
@@ -565,12 +589,98 @@ export function mapSecopRow(fuente: SecopFuente, raw: SecopRaw, ctx: SecopMapCon
       clasificacion_version: CLASIFICACION_VERSION,
       valor: toMoney(s2 ? raw.valor_del_contrato : raw.valor_contrato),
       valor_pagado: s2 ? toMoney(raw.valor_pagado) : null,
+      valor_proceso: null,
+      valor_adiciones: null,
       fecha_firma: fechaFirma,
       fecha_inicio: toIsoDate(s2 ? raw.fecha_de_inicio_del_contrato : raw.fecha_inicio_ejecuci_n),
       fecha_fin: toIsoDate(s2 ? raw.fecha_de_fin_del_contrato : raw.fecha_fin_ejecuci_n),
       estado: cleanText(s2 ? raw.estado_contrato : raw.estado_del_proceso, 120),
       url: cleanText(s2 ? raw.urlproceso : raw.url_contrato, 1000),
       ultima_actualizacion: s2 ? toIsoDate(raw.ultima_actualizacion) : null,
+    },
+  }
+}
+
+/**
+ * SECOP I (f789-7hwg): una fila por contrato-contratista con el valor ADJUDICADO a ese contratista. Decisiones
+ * (2026-10-12, comprobadas con las filas reales de la constancia 20-4-11235766 del Erasmo Meoz; ver secop-check):
+ *   - valor = valor_contrato_con_adiciones si > 0, si no cuantia_contrato. valor_proceso = cuantia_proceso (lo
+ *     que el Integrado publica como "valor del contrato" en cada contratista); valor_adiciones = valor_total_de_adiciones.
+ *   - objeto = objeto_del_contrato_a_la (objeto a la firma; si falta, detalle_del_objeto_a_contratar) y
+ *     descripcion = el detalle cuando difiere. objeto_a_contratar NO se usa: en SECOP I es el SEGMENTO UNSPSC
+ *     ("Servicios de Salud", "Equipo Médico, Accesorios y Suministros"), genérico y con palabras ("equipo",
+ *     "suministros") que confunden la regla servicio/producto. nombre_clase tampoco: la clase la elige la
+ *     entidad y a veces no corresponde (851221 "Servicios de rehabilitación" para material de osteosíntesis).
+ *   - categoria_unspsc = id_clase (clase UNSPSC de 6 dígitos): solo pesa cuando el texto no dice nada y nunca
+ *     contra una exclusión (misma regla que 'V1.4232…' en SECOP II).
+ *   - id_contrato = 'SECOPI|' + id_adjudicacion (única por contrato-contratista) cuando es numérica; si no
+ *     ("Sin Adjudicar", vacía), el compuesto del Integrado (constancia, proveedor, fecha de firma).
+ *   - Sin contratista (identificación y nombre "No Definido": convocados, "Sin Firma", terminados anormalmente)
+ *     → error: no es un contrato adjudicado y no se guarda.
+ *   - numero_contrato = numero_de_constancia (lo que el Integrado guarda en numero_del_contrato: por ahí se
+ *     cruzan para no contar dos veces), referencia = numero_de_proceso, proceso = numero_de_contrato (número
+ *     interno de la entidad). La entidad viene en nombre_entidad (no nombre_de_la_entidad como en el Integrado).
+ */
+function mapSecopIRow(raw: SecopRaw, ctx: SecopMapContext): SecopMapResult {
+  const nitEntidad = normalizeNit(raw.nit_de_la_entidad)
+  if (!nitEntidad) return { error: `NIT de entidad ilegible (${String(raw.nit_de_la_entidad)})` }
+  const proveedor = leerProveedor(raw.tipo_identifi_del_contratista, raw.identificacion_del_contratista, raw.nom_razon_social_contratista, ctx)
+  if (proveedor.documentoCrudo === null && proveedor.nombre === null) return { error: 'SECOP I sin contratista (proceso no adjudicado)' }
+
+  const objetoFirma = cleanText(raw.objeto_del_contrato_a_la)
+  const detalle = cleanText(raw.detalle_del_objeto_a_contratar)
+  const objeto = objetoFirma ?? detalle
+  const descripcion = detalle && detalle !== objeto ? detalle : null
+  const unspsc = cleanText(raw.id_clase, 40)
+  const clasificacion = clasificarContrato(objeto, descripcion, unspsc)
+  const especialidad = detectEspecialidad(objeto, descripcion)
+
+  const constancia = cleanText(raw.numero_de_constancia, 200)
+  const fechaFirma = toIsoDate(raw.fecha_de_firma_del_contrato)
+  const adjudicacion = cleanText(raw.id_adjudicacion, 40)
+  let idContrato: string
+  if (adjudicacion && /^\d+$/.test(adjudicacion)) {
+    idContrato = `SECOPI|${adjudicacion}`
+  } else {
+    if (!constancia && !fechaFirma) return { error: 'SECOP I sin adjudicación, constancia ni fecha de firma' }
+    idContrato = ['SECOPI', constancia ?? '', proveedor.clave, fechaFirma ?? ''].join('|')
+  }
+  const conAdiciones = toMoney(raw.valor_contrato_con_adiciones)
+
+  return {
+    row: {
+      fuente: 'secop1',
+      origen: 'SECOPI',
+      id_contrato: idContrato,
+      numero_contrato: constancia,
+      referencia: cleanText(raw.numero_de_proceso, 300),
+      proceso: cleanText(raw.numero_de_contrato, 200),
+      nit_entidad: nitEntidad,
+      nombre_entidad: cleanText(raw.nombre_entidad, 300),
+      departamento_entidad: cleanText(raw.departamento_entidad, 100),
+      municipio_entidad: cleanText(raw.municipio_entidad, 100),
+      nivel_entidad: cleanText(raw.nivel_entidad, 60),
+      hospital_id: ctx.hospitalPorNit?.get(nitEntidad) ?? null,
+      ...camposProveedor(proveedor, ctx),
+      tipo_contrato: cleanText(raw.tipo_de_contrato, 120),
+      modalidad: cleanText(raw.modalidad_de_contratacion, 200),
+      categoria_unspsc: unspsc,
+      objeto,
+      descripcion,
+      linea: clasificacion.linea,
+      lineas: clasificacion.lineas,
+      especialidad_medico: especialidad,
+      clasificacion_version: CLASIFICACION_VERSION,
+      valor: conAdiciones !== null && conAdiciones > 0 ? conAdiciones : toMoney(raw.cuantia_contrato),
+      valor_pagado: null,
+      valor_proceso: toMoney(raw.cuantia_proceso),
+      valor_adiciones: toMoney(raw.valor_total_de_adiciones),
+      fecha_firma: fechaFirma,
+      fecha_inicio: toIsoDate(raw.fecha_ini_ejec_contrato),
+      fecha_fin: toIsoDate(raw.fecha_fin_ejec_contrato),
+      estado: cleanText(raw.estado_del_proceso, 120),
+      url: cleanText(raw.ruta_proceso_en_secop_i, 1000),
+      ultima_actualizacion: toIsoDate(raw.ultima_actualizacion),
     },
   }
 }
@@ -590,9 +700,18 @@ export function decidirAlcance(row: Pick<SecopContratoRow, 'proveedor_vigilado_i
   return null
 }
 
-/** Marca de agua de la fila para el cursor incremental (secop2: ultima_actualizacion; integrado: firma). */
+/**
+ * Marca de agua de la fila para el cursor incremental: secop2 ultima_actualizacion; integrado fecha de firma;
+ * secop1 la MAYOR entre las dos (en SECOP I la última actualización puede quedar antes de la firma del
+ * contrato: constancia 20-4-11235766, actualización 2020-11-03 y firma 2020-11-18).
+ */
 export function watermarkDeFila(fuente: SecopFuente, raw: SecopRaw): string | null {
-  return toIsoDate(fuente === 'secop2' ? raw.ultima_actualizacion : raw.fecha_de_firma_del_contrato)
+  if (fuente === 'secop2') return toIsoDate(raw.ultima_actualizacion)
+  if (fuente === 'integrado') return toIsoDate(raw.fecha_de_firma_del_contrato)
+  const actualizacion = toIsoDate(raw.ultima_actualizacion)
+  const firma = toIsoDate(raw.fecha_de_firma_del_contrato)
+  if (actualizacion && firma) return actualizacion > firma ? actualizacion : firma
+  return actualizacion ?? firma
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -612,8 +731,17 @@ export interface SecopTarea {
   historico?: boolean
 }
 
-/** Tamaño de los grupos de NIT por consulta (la URL debe quedar por debajo de ~7 KB). */
+/** Tamaño de los grupos de NIT por consulta (la URL debe quedar por debajo de 9,5 KB; ver secop-check). */
 export const SECOP_TAREA_TAMANO = { entidades: 40, proveedores: 40 } as const
+/**
+ * Tamaño por fuente. En secop1 el prefiltro va sobre dos campos de nombre largo (objeto_del_contrato_a_la,
+ * detalle_del_objeto_a_contratar): con 40 entidades la URL roza el límite (9,2 KB), con 30 queda en 8,7 KB.
+ */
+export const SECOP_TAREA_TAMANO_POR_FUENTE: Record<SecopFuente, { entidades: number; proveedores: number }> = {
+  secop2: SECOP_TAREA_TAMANO,
+  secop1: { entidades: 30, proveedores: 40 },
+  integrado: SECOP_TAREA_TAMANO,
+}
 
 export function buildSecopTareas(
   entidades: readonly string[],
@@ -655,11 +783,21 @@ export function huellaTareas(fuente: SecopFuente, tareas: readonly SecopTarea[])
 
 const sq = (value: string) => `'${value.replace(/'/g, "''")}'`
 
-/** Cláusula del prefiltro de texto (y UNSPSC en SECOP II) para la carga inicial. */
+/** Campos de texto que recorre el prefiltro de la carga inicial (los mismos que lee mapSecopRow para clasificar). */
+export const SECOP_PREFILTRO_CAMPOS: Record<SecopFuente, readonly string[]> = {
+  secop2: ['objeto_del_contrato', 'descripcion_del_proceso'],
+  // objeto_a_contratar es el segmento UNSPSC (genérico): no se filtra ni se clasifica por él (ver mapSecopIRow)
+  secop1: ['objeto_del_contrato_a_la', 'detalle_del_objeto_a_contratar'],
+  integrado: ['objeto_del_proceso', 'objeto_a_contratar'],
+}
+
+/** Cláusula del prefiltro de texto (y clase UNSPSC 4232 en SECOP II y SECOP I) para la carga inicial. */
 export function prefiltroSoql(fuente: SecopFuente): string {
-  const campos = fuente === 'secop2' ? ['objeto_del_contrato', 'descripcion_del_proceso'] : ['objeto_del_proceso', 'objeto_a_contratar']
-  const partes = campos.flatMap(campo => SECOP_PREFILTRO_RAICES.map(raiz => `upper(${campo}) like ${sq(`%${raiz}%`)}`))
-  if (fuente === 'secop2') for (const prefijo of SECOP_UNSPSC_ORTOPEDIA_PREFIJOS) partes.push(`codigo_de_categoria_principal like ${sq(`V1.${prefijo}%`)}`)
+  const partes = SECOP_PREFILTRO_CAMPOS[fuente].flatMap(campo => SECOP_PREFILTRO_RAICES.map(raiz => `upper(${campo}) like ${sq(`%${raiz}%`)}`))
+  for (const prefijo of SECOP_UNSPSC_ORTOPEDIA_PREFIJOS) {
+    if (fuente === 'secop2') partes.push(`codigo_de_categoria_principal like ${sq(`V1.${prefijo}%`)}`)
+    if (fuente === 'secop1') partes.push(`id_clase like ${sq(`${prefijo}%`)}`)
+  }
   return partes.join(' OR ')
 }
 
@@ -678,8 +816,8 @@ export function buildSecopUrl(fuente: SecopFuente, tarea: SecopTarea, opciones: 
   const condiciones: string[] = []
   if (tarea.tipo === 'entidades') {
     const columna = fuente === 'secop2' ? 'nit_entidad' : 'nit_de_la_entidad'
-    // En SECOP II nit_entidad es numérico: la forma con guion daría "type mismatch"
-    const valores = tarea.nits.flatMap(nit => variantesNit(nit)).filter(v => fuente === 'integrado' || /^\d+$/.test(v))
+    // En SECOP II nit_entidad es numérico: la forma con guion daría "type mismatch"; en SECOP I y el Integrado es texto
+    const valores = tarea.nits.flatMap(nit => variantesNit(nit)).filter(v => fuente !== 'secop2' || /^\d+$/.test(v))
     condiciones.push(`${columna} in (${valores.map(sq).join(',')})`)
     if (opts.modo === 'inicial') condiciones.push(`(${prefiltroSoql(fuente)})`)
   } else if (fuente === 'secop2') {
@@ -687,12 +825,17 @@ export function buildSecopUrl(fuente: SecopFuente, tarea: SecopTarea, opciones: 
     condiciones.push(`documento_proveedor in (${valores.map(sq).join(',')})`)
   } else {
     // SECOP I escribe el NIT del contratista de muchas formas ('900294380-1', '900.294.380 - 1', '900294380 1')
+    const columna = fuente === 'secop1' ? 'identificacion_del_contratista' : 'documento_proveedor'
     const prefijos = tarea.nits.flatMap(nit => [nit, nitConPuntos(nit)])
-    condiciones.push(`(${prefijos.map(p => `starts_with(documento_proveedor, ${sq(p)})`).join(' OR ')})`)
+    condiciones.push(`(${prefijos.map(p => `starts_with(${columna}, ${sq(p)})`).join(' OR ')})`)
   }
   if (opts.modo === 'incremental' && opts.desde) {
-    const columna = fuente === 'secop2' ? 'ultima_actualizacion' : 'fecha_de_firma_del_contrato'
-    condiciones.push(`${columna} >= ${sq(`${opts.desde}T00:00:00.000`)}`)
+    const desde = sq(`${opts.desde}T00:00:00.000`)
+    if (fuente === 'secop2') condiciones.push(`ultima_actualizacion >= ${desde}`)
+    else if (fuente === 'integrado') condiciones.push(`fecha_de_firma_del_contrato >= ${desde}`)
+    // SECOP I: la última actualización puede ser anterior a la firma (ver watermarkDeFila), así que también
+    // entran los contratos firmados desde la marca
+    else condiciones.push(`(ultima_actualizacion >= ${desde} OR fecha_de_firma_del_contrato >= ${desde})`)
   }
   const params = new URLSearchParams({
     $where: condiciones.join(' AND '),
@@ -704,7 +847,7 @@ export function buildSecopUrl(fuente: SecopFuente, tarea: SecopTarea, opciones: 
 }
 
 /** Días que se re-leen en cada pasada incremental (SECOP publica tarde y corrige). */
-export const SECOP_SOLAPE_DIAS: Record<SecopFuente, number> = { secop2: 3, integrado: 30 }
+export const SECOP_SOLAPE_DIAS: Record<SecopFuente, number> = { secop2: 3, secop1: 30, integrado: 30 }
 
 export interface SecopCursor {
   version: 1

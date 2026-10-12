@@ -74,6 +74,10 @@ nada llama a Google.
   el fetch de supabase-js para siempre en la Data Cache (datos y sesión de usuario viejos).
 - **Territorio y contratos**: el anexo de territorio (Anexo A IPS, Anexo B municipios) va al contrato de
   cada Ejecutivo Comercial; las versiones (`territory_snapshots`) son inmutables.
+- **SECOP I** se cuenta por el valor ADJUDICADO a cada contratista desde `f789-7hwg` (`fuente = 'secop1'`); el
+  Integrado (`rpmr-utcd`) es solo respaldo estimado para lo que ese dataset no trae (sobre todo antes de 2018; la marca `estimado` va por fuente, no por fecha: valor del
+  proceso repartido por partes iguales, marcado `estimado`). `hospitals.compra_publica` (Sí/No a mano) manda
+  sobre el REPS para decidir si una IPS es entidad de compra pública (`docs/fases/fase5-secop.md`).
 - Nunca leer ni editar `.env*`; nunca imprimir claves. `.env.example` de la raíz tuvo una clave real de
   Google expuesta: hay que rotarla (tarea del dueño).
 
@@ -100,8 +104,9 @@ nada llama a Google.
 - `docs/fases/fase4-poblacion.md` – población: afiliados BDUA, cifras mensuales de MinSalud y proyecciones
   DANE (estructura real de las fuentes, tablas 0640, alias de municipio, scripts de carga y cifras).
 - `docs/fases/fase5-secop.md` – compras públicas (SECOP): reglas de suma (sin clasificar, fuera de escala,
-  reparto de SECOP I), privacidad de médicos (sin cédula), API `/api/secop/*` y `/api/fuentes/*`, ficha,
-  /inteligencia ("Compras públicas", "Fuentes de datos") y lista vigilada.
+  SECOP I por valor adjudicado y estimados del Integrado, `compra_publica`), privacidad de médicos (sin
+  cédula), API `/api/secop/*` y `/api/fuentes/*`, ficha, /inteligencia ("Compras públicas", "Fuentes de
+  datos") y lista vigilada.
 - `docs/fases/fase5-fuentes-automaticas.md` – carga de SECOP (0710, clasificación, privacidad, cursor) y cargas
   automáticas: `/api/cron/<fuente>` (CRON_SECRET), `.github/workflows/datos.yml`, `fuentes_estado`.
 - `docs/arquitectura-y-scripts.md` – scripts Python, estructura de carpetas, archivos clave.

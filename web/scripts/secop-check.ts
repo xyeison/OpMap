@@ -4,14 +4,22 @@
  * Cubre: normalizeNit (9 dígitos desde las formas que publica SECOP), DV y variantes, persona natural,
  * classifyLinea con objetos REALES de SECOP II y del Integrado (copiados de datos.gov.co el 2026-10-11),
  * que el prefiltro SoQL sea un superconjunto de la clasificación, detectEspecialidad, esAtipico, mapeo de
- * filas literales de los dos datasets, regla de alcance, URLs SoQL, cursor incremental, hash de documento
- * y la próxima ejecución de una expresión cron.
+ * filas literales de los tres datasets (SECOP II, SECOP I f789-7hwg con valor adjudicado, Integrado), regla
+ * de alcance, URLs SoQL, cursor incremental, hash de documento, definiciones de las fuentes automáticas y la
+ * próxima ejecución de una expresión cron.
  *
  * Uso (desde web/): npx tsx scripts/secop-check.ts      Código de salida 1 si alguna prueba falla.
  */
 import {
   ATIPICO_MIN_CONTRATOS,
+  SECOP_DATASETS,
+  SECOP_ETIQUETAS,
+  SECOP_FUENTES,
+  SECOP_FUENTE_ESTADO,
+  SECOP_PREFILTRO_CAMPOS,
   SECOP_PREFILTRO_RAICES,
+  SECOP_SOLAPE_DIAS,
+  SECOP_TAREA_TAMANO_POR_FUENTE,
   VALOR_ATIPICO_COP,
   buildSecopTareas,
   buildSecopUrl,
@@ -42,7 +50,7 @@ import {
   type SecopLinea,
 } from '../lib/secop'
 import { hashDocumento } from '../lib/secop-hash'
-import { nextCronRun, parseCronExpression } from '../lib/fuentes-estado'
+import { FUENTES, FUENTES_AUTOMATICAS, definicionFuente, esFuenteAutomatica, nextCronRun, parseCronExpression } from '../lib/fuentes-estado'
 import { extraerZipsCifras } from '../lib/cifras-sync'
 import { buildRepsSedesUrl } from '../lib/reps-sedes-sync'
 
@@ -233,6 +241,7 @@ if ('row' in m1) {
   eq('SECOP II: urlproceso es un objeto {url}', r.url?.startsWith('https://community.secop.gov.co/'), true)
   eq('SECOP II: valores, fechas, UNSPSC', [r.valor, r.valor_pagado, r.fecha_firma, r.fecha_fin, r.ultima_actualizacion, r.categoria_unspsc], [105000000, 0, '2026-01-13', '2026-12-31', '2026-06-30', 'V1.80111701'])
   eq('SECOP II: descripción igual al objeto → null', r.descripcion, null)
+  eq('SECOP II: sin valor del proceso ni adiciones (solo secop1)', [r.valor_proceso, r.valor_adiciones], [null, null])
   eq('SECOP II: urología → sin línea ni especialidad → no se guarda', [r.linea, r.especialidad_medico, decidirAlcance(r, new Set(['800006850']))], ['no_clasificado', null, null])
   eq('marca de agua SECOP II = ultima_actualizacion', watermarkDeFila('secop2', secop2Medico), '2026-06-30')
 }
@@ -286,6 +295,7 @@ if ('row' in m3) {
   eq('Integrado SECOP I: "NO DEFINIDO" → null', [r.descripcion, r.proveedor_nombre, r.documento_proveedor, r.tipo_doc_proveedor, r.es_persona], [null, null, null, null, false])
   eq('Integrado SECOP I: id compuesto sin fecha de firma', r.id_contrato, 'SECOPI|17-4-6990259||')
   eq('Integrado SECOP I: sin valor pagado ni UNSPSC', [r.valor, r.valor_pagado, r.categoria_unspsc, r.ultima_actualizacion], [27000000, null, null, null])
+  eq('Integrado SECOP I: valor del proceso y adiciones null (van en secop1)', [r.valor_proceso, r.valor_adiciones], [null, null])
   eq('Integrado SECOP I: entidad objetivo + trauma → se guarda', decidirAlcance(r, new Set(['890680025'])), 'linea')
 } else check('Integrado SECOP I se mapea', false, m3)
 
@@ -321,6 +331,93 @@ if ('row' in m4) {
   eq('Integrado médico en otra entidad → no se guarda', decidirAlcance(r, new Set(['890680025'])), null)
   eq('marca de agua Integrado = fecha de firma', watermarkDeFila('integrado', integradoMedico), '2025-06-09')
 } else check('Integrado médico se mapea', false, m4)
+
+// ---------------------------------------------------------------------------------------------
+console.log('\nMapeo SECOP I (f789-7hwg; filas reales de la constancia 20-4-11235766 del Erasmo Meoz, leídas el 2026-10-12)')
+const secopIUtVd = {
+  numero_de_constancia: '20-4-11235766',
+  numero_de_proceso: 'SS20-417',
+  numero_de_contrato: '285',
+  id_adjudicacion: '10476120',
+  objeto_a_contratar: 'Servicios de Salud',
+  detalle_del_objeto_a_contratar: 'SUMINISTRO DE MATERIAL DE OSTEOSINTESIS DE ORTOPEDIA GENERAL; MATERIALES ESPECIALES; EN LA E.S.E HOSPITAL UNIVERSITARIO ERASMO MEOZ',
+  objeto_del_contrato_a_la: 'SUMINISTRO DE MATERIAL DE OSTEOSINTESIS DE ORTOPEDIA GENERAL; MATERIALES ESPECIALES; EN LA E.S.E HOSPITAL UNIVERSITARIO ERASMO MEOZ',
+  id_objeto_a_contratar: '85000000',
+  id_familia: '8512',
+  nombre_familia: 'Práctica médica',
+  id_clase: '851221',
+  nombre_clase: 'Servicios de rehabilitación',
+  tipo_identifi_del_contratista: 'Nit de Persona Jurídica',
+  identificacion_del_contratista: '901080496',
+  nom_razon_social_contratista: 'UNION TEMPORAL VD SALUD',
+  dpto_y_muni_contratista: 'Norte De Santander',
+  cuantia_proceso: '1189800000',
+  cuantia_contrato: '1159800000',
+  valor_total_de_adiciones: '0',
+  valor_contrato_con_adiciones: '1159800000',
+  fecha_de_firma_del_contrato: '2020-11-18T00:00:00.000',
+  fecha_ini_ejec_contrato: '2020-11-18T00:00:00.000',
+  fecha_fin_ejec_contrato: '2020-12-31T00:00:00.000',
+  ultima_actualizacion: '2020-11-03T00:00:00.000',
+  anno_firma_contrato: '2020',
+  ruta_proceso_en_secop_i: { url: 'https://www.contratos.gov.co/consultas/detalleProceso.do?numConstancia=20-4-11235766' },
+  modalidad_de_contratacion: 'Régimen Especial',
+  tipo_de_contrato: 'Suministro',
+  estado_del_proceso: 'Celebrado',
+  nit_de_la_entidad: '800014918',
+  nombre_entidad: 'NORTE DE SANTANDER - E.S.E. HOSPITAL UNIVERSITARIO ERASMO MEOZ',
+  nivel_entidad: 'TERRITORIAL',
+  orden_entidad: 'TERRITORIAL DISTRITAL MUNICIPAL NIVEL 1',
+  departamento_entidad: 'Norte De Santander',
+  municipio_entidad: 'San José de Cúcuta',
+}
+const ctxMeoz = { ...ctx, hospitalPorNit: new Map([...ctx.hospitalPorNit, ['800014918', '22222222-2222-2222-2222-222222222222']]) }
+const s1 = mapSecopRow('secop1', secopIUtVd, ctxMeoz)
+check('SECOP I se mapea', 'row' in s1, s1)
+if ('row' in s1) {
+  const r = s1.row
+  eq('SECOP I: fuente, origen, id por id_adjudicacion, constancia, proceso, número interno', [r.fuente, r.origen, r.id_contrato, r.numero_contrato, r.referencia, r.proceso], ['secop1', 'SECOPI', 'SECOPI|10476120', '20-4-11235766', 'SS20-417', '285'])
+  eq('SECOP I: valor ADJUDICADO al contratista (no el del proceso); proceso y adiciones aparte', [r.valor, r.valor_proceso, r.valor_adiciones, r.valor_pagado], [1159800000, 1189800000, 0, null])
+  eq('SECOP I: contratista empresa a 9 dígitos, sin hash, no vigilado', [r.documento_proveedor, r.es_persona, r.proveedor_hash, r.tipo_doc_proveedor, r.proveedor_nombre, r.proveedor_vigilado_id], ['901080496', false, null, 'Nit de Persona Jurídica', 'UNION TEMPORAL VD SALUD', null])
+  eq('SECOP I: entidad (columna nombre_entidad, no nombre_de_la_entidad) e IPS por NIT', [r.nit_entidad, r.nombre_entidad, r.departamento_entidad, r.municipio_entidad, r.nivel_entidad, r.hospital_id], ['800014918', 'NORTE DE SANTANDER - E.S.E. HOSPITAL UNIVERSITARIO ERASMO MEOZ', 'Norte De Santander', 'San José de Cúcuta', 'TERRITORIAL', '22222222-2222-2222-2222-222222222222'])
+  eq('SECOP I: fechas, estado, modalidad, tipo, última actualización', [r.fecha_firma, r.fecha_inicio, r.fecha_fin, r.estado, r.modalidad, r.tipo_contrato, r.ultima_actualizacion], ['2020-11-18', '2020-11-18', '2020-12-31', 'Celebrado', 'Régimen Especial', 'Suministro', '2020-11-03'])
+  eq('SECOP I: url desde ruta_proceso_en_secop_i {url}', r.url, 'https://www.contratos.gov.co/consultas/detalleProceso.do?numConstancia=20-4-11235766')
+  eq('SECOP I: objeto a la firma; detalle igual → sin descripción; el segmento UNSPSC (objeto_a_contratar) no entra al texto', [r.objeto?.startsWith('SUMINISTRO DE MATERIAL DE OSTEOSINTESIS'), r.descripcion], [true, null])
+  eq('SECOP I: osteosíntesis de ortopedia general → trauma; clase UNSPSC guardada tal cual', [r.linea, r.lineas, r.especialidad_medico, r.categoria_unspsc, r.clasificacion_version], ['trauma', ['trauma'], null, '851221', 'v2'])
+  eq('SECOP I: entidad objetivo → se guarda por línea', decidirAlcance(r, new Set(['800014918'])), 'linea')
+  eq('marca de agua SECOP I = la mayor entre última actualización (2020-11-03) y firma (2020-11-18)', watermarkDeFila('secop1', secopIUtVd), '2020-11-18')
+}
+eq('marca de agua SECOP I con una sola fecha o ninguna', [watermarkDeFila('secop1', { ultima_actualizacion: '2021-05-28T00:00:00.000' }), watermarkDeFila('secop1', { fecha_de_firma_del_contrato: '2019-02-01T00:00:00.000' }), watermarkDeFila('secop1', {})], ['2021-05-28', '2019-02-01', null])
+const s1Promed = mapSecopRow('secop1', { ...secopIUtVd, numero_de_contrato: '284', id_adjudicacion: '10470858', identificacion_del_contratista: '900026143', nom_razon_social_contratista: 'PROMED QUIRURGICOS EU', dpto_y_muni_contratista: 'Cundinamarca', fecha_de_firma_del_contrato: '2020-11-17T00:00:00.000', cuantia_contrato: '30000000', valor_contrato_con_adiciones: '30000000' }, ctx)
+eq('SECOP I: el otro contratista de la misma constancia: su id, su valor (30 M, no los 594,9 M del reparto) y el mismo proceso', 'row' in s1Promed ? [s1Promed.row.id_contrato, s1Promed.row.numero_contrato, s1Promed.row.valor, s1Promed.row.valor_proceso, s1Promed.row.documento_proveedor, s1Promed.row.fecha_firma] : s1Promed, ['SECOPI|10470858', '20-4-11235766', 30000000, 1189800000, '900026143', '2020-11-17'])
+const valorDe = (raw: Record<string, unknown>) => {
+  const m = mapSecopRow('secop1', raw, ctx)
+  return 'row' in m ? [m.row.valor, m.row.valor_adiciones] : m
+}
+eq('valor_contrato_con_adiciones 0 → cuantia_contrato', valorDe({ ...secopIUtVd, valor_contrato_con_adiciones: '0' }), [1159800000, 0])
+eq('valor_contrato_con_adiciones vacío → cuantia_contrato', valorDe({ ...secopIUtVd, valor_contrato_con_adiciones: undefined, valor_total_de_adiciones: undefined }), [1159800000, null])
+eq('valor_contrato_con_adiciones > 0 → ese valor (con las adiciones aparte)', valorDe({ ...secopIUtVd, valor_total_de_adiciones: '100000000', valor_contrato_con_adiciones: '1259800000' }), [1259800000, 100000000])
+eq('sin cuantía ni adiciones → valor null', valorDe({ ...secopIUtVd, cuantia_contrato: 'No Definido', valor_contrato_con_adiciones: '0' }), [null, 0])
+const sinFirma = mapSecopRow('secop1', { ...secopIUtVd, numero_de_constancia: '21-4-12007133', estado_del_proceso: 'Terminado Anormalmente después de Convocado', anno_firma_contrato: 'Sin Firma', identificacion_del_contratista: 'No Definido', nom_razon_social_contratista: 'No Definido', id_adjudicacion: 'Sin Adjudicar', cuantia_contrato: '0', fecha_de_firma_del_contrato: undefined }, ctx)
+check('SECOP I sin contratista ("Sin Firma", "Sin Adjudicar", fila real) → error, no se guarda', 'error' in sinFirma && sinFirma.error.includes('sin contratista'), sinFirma)
+const sinAdj = mapSecopRow('secop1', { ...secopIUtVd, id_adjudicacion: 'Sin Adjudicar' }, ctx)
+eq('SECOP I con contratista pero id_adjudicacion no numérica → id compuesto como el Integrado', 'row' in sinAdj ? sinAdj.row.id_contrato : sinAdj, 'SECOPI|20-4-11235766|901080496|2020-11-18')
+check('SECOP I sin NIT de entidad → error', 'error' in mapSecopRow('secop1', { ...secopIUtVd, nit_de_la_entidad: 'No Definido' }, ctx))
+const s1Medico = mapSecopRow('secop1', { ...secopIUtVd, id_adjudicacion: '', tipo_identifi_del_contratista: 'Cédula de Ciudadanía', identificacion_del_contratista: '3093395', nom_razon_social_contratista: 'MIGUEL ABDON MARTINEZ GARZON', objeto_del_contrato_a_la: 'PRESTACIÓN DE SERVICIOS PROFESIONALES COMO MÉDICO ESPECIALISTA EN ORTOPEDIA Y TRAUMATOLOGÍA', detalle_del_objeto_a_contratar: 'No Definido' }, ctx)
+if ('row' in s1Medico) {
+  const r = s1Medico.row
+  eq('SECOP I médico: persona, sin cédula en claro, con hash; especialidad ortopedia sin línea', [r.es_persona, r.documento_proveedor, r.proveedor_hash?.length, r.especialidad_medico, r.linea, r.descripcion], [true, null, 64, 'ortopedia', 'no_clasificado', null])
+  check('SECOP I médico: id compuesto con prefijo del hash y fecha, sin la cédula', r.id_contrato.startsWith('SECOPI|20-4-11235766|h') && r.id_contrato.endsWith('|2020-11-18') && !r.id_contrato.includes('3093395'), r.id_contrato)
+  eq('SECOP I médico: entidad objetivo → se guarda por especialidad', decidirAlcance(r, new Set(['800014918'])), 'especialidad')
+} else check('SECOP I médico se mapea', false, s1Medico)
+const s1Vigilado = mapSecopRow('secop1', { ...secopIUtVd, identificacion_del_contratista: '900.294.380-1', nom_razon_social_contratista: 'LH S.A.S' }, ctx)
+eq('SECOP I vigilado: NIT con puntos y DV → 9 dígitos, vínculo con la lista; se guarda con cualquier entidad', 'row' in s1Vigilado ? [s1Vigilado.row.documento_proveedor, s1Vigilado.row.proveedor_vigilado_id, decidirAlcance(s1Vigilado.row, new Set())] : s1Vigilado, ['900294380', '900294380', 'vigilado'])
+const s1SoloUnspsc = mapSecopRow('secop1', { ...secopIUtVd, objeto_del_contrato_a_la: 'TORNILLO 4.5 X 30 MM', detalle_del_objeto_a_contratar: 'TORNILLO 4.5 X 30 MM', id_clase: '423215' }, ctx)
+eq('SECOP I: ítem sin palabra ortopédica pero con clase UNSPSC 4232 → otros_implantes (misma regla que SECOP II)', 'row' in s1SoloUnspsc ? [s1SoloUnspsc.row.linea, s1SoloUnspsc.row.categoria_unspsc] : s1SoloUnspsc, ['otros_implantes', '423215'])
+const s1Dental = mapSecopRow('secop1', { ...secopIUtVd, objeto_del_contrato_a_la: 'SUMINISTRO DE MATERIAL DENTAL', detalle_del_objeto_a_contratar: 'SUMINISTRO DE MATERIAL DENTAL', id_clase: '423215' }, ctx)
+eq('SECOP I: la clase UNSPSC nunca manda contra una exclusión (dental)', 'row' in s1Dental ? [s1Dental.row.linea, decidirAlcance(s1Dental.row, new Set(['800014918']))] : s1Dental, ['no_clasificado', null])
+eq('constantes secop1: dataset, clave de estado, etiqueta, solape, orden de fuentes', [SECOP_DATASETS.secop1, SECOP_FUENTE_ESTADO.secop1, SECOP_ETIQUETAS.secop1, SECOP_SOLAPE_DIAS.secop1, SECOP_FUENTES], ['f789-7hwg', 'secop_i', 'SECOP I', 30, ['secop2', 'secop1', 'integrado']])
+
 eq('mismo documento → mismo hash; otra sal → otro hash', [hashDocumento('123', sal) === hashDocumento('123', sal), hashDocumento('123', sal) === hashDocumento('123', 'b'.repeat(32))], [true, false])
 let salCorta = false
 try {
@@ -356,6 +453,22 @@ check('Integrado proveedores: starts_with con y sin puntos + fecha de firma', wP
 const uProv2 = new URL(buildSecopUrl('secop2', tareas[3], { modo: 'inicial', desde: null, offset: 0, limit: 500 }))
 check('SECOP II proveedores: IN con variantes y sin prefiltro (todos sus contratos)', (uProv2.searchParams.get('$where') ?? '') === "documento_proveedor in ('860529890','8605298900','860529890-0','900294380','9002943801','900294380-1')", uProv2.searchParams.get('$where'))
 check('URL de 40 entidades con prefiltro por debajo de 9,5 KB (datos.gov.co aceptó 9,6 KB el 2026-10-11)', buildSecopUrl('integrado', tareas[0], { modo: 'inicial', desde: null, offset: 0, limit: 5000 }).length < 9500 && buildSecopUrl('secop2', tareas[0], { modo: 'inicial', desde: null, offset: 0, limit: 5000 }).length < 9500)
+const tareas1 = buildSecopTareas(Array.from({ length: 85 }, (_, i) => String(800000000 + i)), ['900294380', '860529890'], SECOP_TAREA_TAMANO_POR_FUENTE.secop1)
+eq('SECOP I: tareas de 30 entidades (su prefiltro es más largo) y 40 proveedores', tareas1.map(t => `${t.tipo}:${t.nits.length}`), ['entidades:30', 'entidades:30', 'entidades:25', 'proveedores:2'])
+const uIni1 = new URL(buildSecopUrl('secop1', tareas1[0], { modo: 'inicial', desde: null, offset: 0, limit: 5000 }))
+const wIni1 = uIni1.searchParams.get('$where') ?? ''
+check('SECOP I inicial: dataset f789-7hwg y nit_de_la_entidad con las tres variantes (es texto: también con guion)', uIni1.pathname === '/resource/f789-7hwg.json' && wIni1.startsWith(`nit_de_la_entidad in (${variantesNit('800000000').map(v => `'${v}'`).join(',')},`), wIni1.slice(0, 160))
+check('SECOP I inicial: prefiltro sobre objeto a la firma y detalle + clase UNSPSC 4232; NO sobre el segmento (objeto_a_contratar)', wIni1.includes("upper(objeto_del_contrato_a_la) like '%OSTEO%'") && wIni1.includes("upper(detalle_del_objeto_a_contratar) like '%OSTEO%'") && wIni1.includes("id_clase like '4232%'") && !wIni1.includes('upper(objeto_a_contratar)') && !wIni1.includes('ultima_actualizacion'), wIni1.slice(-200))
+eq('SECOP I: los campos del prefiltro son los que lee el mapeo', SECOP_PREFILTRO_CAMPOS.secop1, ['objeto_del_contrato_a_la', 'detalle_del_objeto_a_contratar'])
+check('SECOP I: URL de una tarea de entidades con prefiltro por debajo de 9,5 KB (con tres campos pasaría de 12 KB)', uIni1.href.length < 9500 && uIni1.href.length > 8000, uIni1.href.length)
+check('SECOP I: con 40 entidades también cabría (9,2 KB); 30 deja margen', buildSecopUrl('secop1', tareas[0], { modo: 'inicial', desde: null, offset: 0, limit: 5000 }).length < 9500)
+const uInc1 = new URL(buildSecopUrl('secop1', tareas1[0], { modo: 'incremental', desde: '2026-09-01', offset: 500, limit: 500 }))
+const wInc1 = uInc1.searchParams.get('$where') ?? ''
+check('SECOP I incremental: sin prefiltro; última actualización O fecha de firma desde la marca', !wInc1.includes('upper(') && !wInc1.includes('id_clase') && wInc1.endsWith("(ultima_actualizacion >= '2026-09-01T00:00:00.000' OR fecha_de_firma_del_contrato >= '2026-09-01T00:00:00.000')") && uInc1.searchParams.get('$offset') === '500', wInc1)
+const uProv1 = new URL(buildSecopUrl('secop1', tareas1[3], { modo: 'inicial', desde: null, offset: 0, limit: 500 }))
+const wProv1 = uProv1.searchParams.get('$where') ?? ''
+check('SECOP I proveedores: starts_with(identificacion_del_contratista) con y sin puntos, sin prefiltro', wProv1.includes("starts_with(identificacion_del_contratista, '900294380')") && wProv1.includes("starts_with(identificacion_del_contratista, '900.294.380')") && !wProv1.includes('upper(') && !wProv1.includes('documento_proveedor'), wProv1)
+check('la huella distingue la fuente con la misma lista de tareas', huellaTareas('secop1', tareas1) !== huellaTareas('integrado', tareas1))
 check('huella cambia si cambia la lista', huellaTareas('secop2', tareas) !== huellaTareas('secop2', tareas.slice(1)) && huellaTareas('secop2', tareas) === huellaTareas('secop2', buildSecopTareas(Array.from({ length: 85 }, (_, i) => String(800000000 + i)), ['860529890', '900294380'])))
 
 // ---------------------------------------------------------------------------------------------
@@ -396,9 +509,16 @@ console.log('\nCron (próxima ejecución, UTC)')
 const base = new Date('2026-10-11T07:30:00Z') // domingo
 eq('diario 06:00 → mañana', nextCronRun('0 6 * * *', base)?.toISOString(), '2026-10-12T06:00:00.000Z')
 eq('semanal lunes 07:00', nextCronRun('0 7 * * 1', base)?.toISOString(), '2026-10-12T07:00:00.000Z')
+eq('semanal martes 07:00 (SECOP I)', nextCronRun('0 7 * * 2', base)?.toISOString(), '2026-10-13T07:00:00.000Z')
 eq('mensual día 2 → noviembre', nextCronRun('0 8 2 * *', base)?.toISOString(), '2026-11-02T08:00:00.000Z')
 eq('mensual día 3 07:00 (GitHub Actions)', nextCronRun('0 7 3 * *', new Date('2026-10-03T06:59:00Z'))?.toISOString(), '2026-10-03T07:00:00.000Z')
 eq('expresión no soportada → null', [parseCronExpression('*/5 * * * *'), nextCronRun('nada', base)], [null, null])
+
+// ---------------------------------------------------------------------------------------------
+console.log('\nFuentes automáticas (definiciones)')
+eq('secop_i justo después de secop_ii: martes 07:00 UTC, Vercel Cron', [FUENTES.map(f => f.id).slice(0, 3), definicionFuente('secop_i').nombre, definicionFuente('secop_i').programacion, definicionFuente('secop_i').ejecutor], [['secop_ii', 'secop_i', 'secop_integrado'], 'SECOP I · Contratos', '0 7 * * 2', 'vercel_cron'])
+check('secop_i es automática (cron y "Actualizar ahora"); la ADRES no', esFuenteAutomatica('secop_i') && FUENTES_AUTOMATICAS.includes('secop_i') && !esFuenteAutomatica('adres_identifica'))
+check('cada fuente de SECOP tiene su fila definida en fuentes_estado', SECOP_FUENTES.every(f => FUENTES.some(d => d.id === SECOP_FUENTE_ESTADO[f])))
 
 // ---------------------------------------------------------------------------------------------
 console.log('\nCargas mensuales (partes puras)')

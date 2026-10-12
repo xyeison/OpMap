@@ -54,6 +54,7 @@ import { MAX_ORIGINS, type LatLng, type MatrixResult } from '../app/api/_lib/goo
 import {
   BOGOTA_LOCALITY_REQUIRED,
   createHospitalSchema,
+  patchHospitalSchema,
   updateHospitalSchema,
 } from '../app/api/_lib/hospital-schemas'
 import { eligibleKamsForHospital, isBogotaKam, routeCandidateKams } from '../lib/opmap-algorithm-simplified'
@@ -864,6 +865,30 @@ async function main() {
   )
   check('PUT: latitud fuera de Colombia rechazada', !updateHospitalSchema.safeParse({ lat: 50 }).success)
   check('PUT: sin coordenadas sigue siendo válido', updateHospitalSchema.safeParse({ name: 'Otro nombre' }).success)
+
+  // Fase 5 (spec 2026-10-12): "Compra pública (SECOP)" a mano. null = según REPS; true/false manda sobre el REPS.
+  {
+    const compraPublica = (body: Record<string, unknown>) => {
+      const result = updateHospitalSchema.safeParse(body)
+      return result.success ? result.data.compra_publica : 'rechazado'
+    }
+    check(
+      'PUT compra_publica: true, false y null se aceptan y llegan tal cual al update',
+      compraPublica({ compra_publica: true }) === true && compraPublica({ compra_publica: false }) === false && compraPublica({ compra_publica: null }) === null
+    )
+    check('PUT sin compra_publica: no toca la columna (queda undefined, no null)', compraPublica({ name: 'Otro nombre' }) === undefined)
+    check(
+      'PUT compra_publica: "true", 1, "si" y "" → 400 (solo booleano o null)',
+      ['true', 1, 'si', ''].every(valor => compraPublica({ compra_publica: valor }) === 'rechazado')
+    )
+    check(
+      'PATCH compra_publica: true/false/null se aceptan; "si" → 400',
+      patchHospitalSchema.safeParse({ compra_publica: true }).success &&
+        patchHospitalSchema.safeParse({ compra_publica: false }).success &&
+        patchHospitalSchema.safeParse({ compra_publica: null }).success &&
+        !patchHospitalSchema.safeParse({ compra_publica: 'si' }).success
+    )
+  }
 
   print('\n6. Cambios que obligan a recalcular la zona')
   check('touchesZoneFields({ name }) = false', !touchesZoneFields({ name: 'x' }))

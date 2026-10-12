@@ -48,7 +48,7 @@ export interface CargaResultado {
   cursor?: Record<string, unknown>
 }
 
-const SECOP_DE_FUENTE: Partial<Record<FuenteAutomatica, SecopFuente>> = { secop_ii: 'secop2', secop_integrado: 'integrado' }
+const SECOP_DE_FUENTE: Partial<Record<FuenteAutomatica, SecopFuente>> = { secop_ii: 'secop2', secop_i: 'secop1', secop_integrado: 'integrado' }
 
 async function correrCarga(fuente: FuenteAutomatica, db: SupabaseAdminClient, deadline: number, opts: EjecucionOpciones): Promise<CargaResultado> {
   const secop = SECOP_DE_FUENTE[fuente]

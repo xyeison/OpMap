@@ -13,7 +13,7 @@
  */
 import type { SupabaseAdminClient } from './supabase-admin'
 
-export type FuenteId = 'secop_ii' | 'secop_integrado' | 'reps_sedes' | 'bdua' | 'minsalud_cifras' | 'adres_identifica'
+export type FuenteId = 'secop_ii' | 'secop_i' | 'secop_integrado' | 'reps_sedes' | 'bdua' | 'minsalud_cifras' | 'adres_identifica'
 export type FuenteAutomatica = Exclude<FuenteId, 'adres_identifica'>
 
 export interface FuenteDefinicion {
@@ -26,6 +26,8 @@ export interface FuenteDefinicion {
 
 export const FUENTES: readonly FuenteDefinicion[] = [
   { id: 'secop_ii', nombre: 'SECOP II · Contratos', programacion: '0 6 * * *', ejecutor: 'vercel_cron' },
+  // SECOP I con valor adjudicado por contratista (f789-7hwg); el Integrado queda de respaldo para antes de 2018
+  { id: 'secop_i', nombre: 'SECOP I · Contratos', programacion: '0 7 * * 2', ejecutor: 'vercel_cron' },
   { id: 'secop_integrado', nombre: 'SECOP Integrado (I + II)', programacion: '0 7 * * 1', ejecutor: 'vercel_cron' },
   { id: 'reps_sedes', nombre: 'REPS · Sedes', programacion: '0 8 2 * *', ejecutor: 'vercel_cron' },
   { id: 'bdua', nombre: 'BDUA · Afiliados por municipio', programacion: '0 8 4 * *', ejecutor: 'vercel_cron' },
@@ -33,7 +35,7 @@ export const FUENTES: readonly FuenteDefinicion[] = [
   { id: 'adres_identifica', nombre: 'ADRES · Identifica tu Giro', programacion: '0 7 3 * *', ejecutor: 'github_actions' },
 ] as const
 
-export const FUENTES_AUTOMATICAS: readonly FuenteAutomatica[] = ['secop_ii', 'secop_integrado', 'reps_sedes', 'bdua', 'minsalud_cifras'] as const
+export const FUENTES_AUTOMATICAS: readonly FuenteAutomatica[] = ['secop_ii', 'secop_i', 'secop_integrado', 'reps_sedes', 'bdua', 'minsalud_cifras'] as const
 
 export function esFuenteAutomatica(value: string): value is FuenteAutomatica {
   return (FUENTES_AUTOMATICAS as readonly string[]).includes(value)

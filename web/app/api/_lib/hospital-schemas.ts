@@ -54,6 +54,13 @@ export const REPS_CODE_MESSAGE = 'El código de habilitación del REPS son 12 d�
 export const repsCodeSchema = z.string().trim().regex(/^\d{12}$/, REPS_CODE_MESSAGE)
 const optionalRepsCode = z.preprocess(emptyToNull, repsCodeSchema.nullable()).optional()
 
+// Fase 5: "Compra pública (SECOP)" marcada a mano (hospitals.compra_publica, migración 2026-10-12_0730).
+// null = según REPS (Pública/Mixta); true/false manda sobre el REPS: para entidades públicas sin sede del REPS
+// (UPRES, Policía, Armada, ESE) o para excluir falsos positivos. Decide si secop_nits_ips() la trata como
+// entidad objetivo de la carga de SECOP; NO recalcula el territorio ni llama a Google. Cualquier otro valor
+// ('true', 1, 'si') → 400.
+const optionalCompraPublica = z.boolean().nullable().optional()
+
 // PATCH /api/hospitals/[id]/reps-link: { reps_code: "<12 dígitos>" } vincula; { reps_code: null } desvincula.
 // La clave es obligatoria (un cuerpo vacío no desvincula por accidente).
 export const repsLinkSchema = z.object({
@@ -146,12 +153,14 @@ export const updateHospitalSchema = z.object({
   lat: latSchema.optional(),
   lng: lngSchema.optional(),
   reps_code: optionalRepsCode,
+  compra_publica: optionalCompraPublica,
 })
 
-// PATCH /api/hospitals/[id]
+// PATCH /api/hospitals/[id] (ediciones puntuales de la ficha: enlace a documentos, doctores, compra pública)
 export const patchHospitalSchema = z.object({
   documents_url: editableFields.documents_url,
   doctors: editableFields.doctors,
+  compra_publica: optionalCompraPublica,
 })
 
 // POST activate / deactivate

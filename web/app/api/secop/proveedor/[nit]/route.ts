@@ -40,8 +40,8 @@ export async function GET(request: NextRequest, { params }: { params: { nit: str
       lista: enLista ? { nombre: enLista.nombre, ciudad: enLista.ciudad, origen: enLista.origen, activo: enLista.activo } : null,
       actualizado,
       notes: [
-        'Fuente: SECOP II y SECOP Integrado (datos.gov.co). Contratos de material de este proveedor, todo el histórico cargado (incluye "Sin clasificar"); sin los de más de 50.000 millones (fuera de escala).',
-        'SECOP I publica el valor del proceso en cada contratista: aquí cuenta la parte de este proveedor (valor repartido por partes iguales).',
+        'Fuente: SECOP I, SECOP II y SECOP Integrado (datos.gov.co). Contratos de material de este proveedor, todo el histórico cargado (incluye "Sin clasificar"); sin los de más de 50.000 millones (fuera de escala).',
+        'SECOP I: cuenta el valor adjudicado a este proveedor (dataset SECOP I, con detalle por contrato desde 2017-2018). Las constancias que ese dataset no trae (sobre todo las anteriores a 2018) solo existen en el SECOP Integrado con el valor del proceso: aquí cuenta su parte, repartida por partes iguales entre los contratistas (valor estimado).',
         'Las entidades marcadas "IPS de OpMap" tienen al menos una sede activa en OpMap con ese NIT.',
       ],
     }

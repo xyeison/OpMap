@@ -14,6 +14,7 @@ function frecuencia(def: FuenteDefinicion): string {
 
 const COMO: Record<string, string> = {
   secop_ii: 'Vercel Cron → /api/cron/secop_ii (incremental por última actualización, con cursor)',
+  secop_i: 'Vercel Cron → /api/cron/secop_i (semanal, martes; incremental, con cursor)',
   secop_integrado: 'Vercel Cron → /api/cron/secop_integrado (incremental, con cursor)',
   reps_sedes: 'Vercel Cron → /api/cron/reps_sedes',
   bdua: 'Vercel Cron → /api/cron/bdua (SoQL agregado en datos.gov.co)',
