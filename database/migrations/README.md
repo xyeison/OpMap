@@ -511,9 +511,8 @@ tablas tienen FKs hacia `business_lines`, `executives` y `users`.
 
 ### 0730 — SECOP I con valor adjudicado por contratista y "Compra pública" manual
 
-> **ESTADO: NO APLICADA.** Escrita el 2026-10-12 en la rama `feat/secop-i-valores-reales`; se aplica con
-> autorización del dueño y en la misma ventana que el despliegue del código (aditiva; depende de 0710 y 0720;
-> no borra ni modifica datos existentes). Spec: `docs/specs/2026-10-12-secop-i-valores-reales-y-compra-publica.md`;
+> **ESTADO: APLICADA el 2026-10-12** con autorización del dueño, junto con el despliegue del PR #9 (aditiva;
+> depende de 0710 y 0720; no borra ni modifica datos existentes). Spec: `docs/specs/2026-10-12-secop-i-valores-reales-y-compra-publica.md`;
 > decisión: `docs/decisiones/2026-10-12-secop-i-valores-reales-y-compra-publica.md`.
 
 | # | Archivo | Qué hace | Destructivo |
@@ -530,3 +529,34 @@ tablas tienen FKs hacia `business_lines`, `executives` y `users`.
   porque solo añade columnas al final.
 - Rollback: **antes** de `9929_secop_api_rollback` y `9930_secop_rollback` si se deshacen los tres. Antes de
   correrlo, volver a desplegar el código anterior y quitar el cron `/api/cron/secop_i` de `web/vercel.json`.
+
+---
+
+# Migraciones — App de visita · F1 Terceros (cuentas, sedes, médicos, visitantes, contactos)
+
+> **ESTADO: APLICADA el 2026-10-12** con autorización del dueño, en la misma ventana que el despliegue de
+> `/terceros` (PR #13). Resultado: 703 cuentas, 783 sedes, 47 cuentas con más de una sede, una principal por
+> cuenta; las 5 funciones guardadas son idénticas a las del archivo (md5). Aditiva: 7 tablas,
+> 5 funciones, 1 disparador sobre `hospitals` y la semilla de subtipos; no cambia ninguna fila ni columna de
+> `hospitals`). Contrato: `docs/fases/fase6-visitas-f1-terceros.md`; spec:
+> `docs/specs/2026-10-12-app-de-visita-opmap.md`; decisiones: `docs/decisiones/2026-10-12-app-de-visita.md`.
+
+| # | Archivo | Qué hace | Destructivo |
+|---|---|---|---|
+| 16 | `2026-10-12_0800_visitas_terceros.sql` | Crea `cuentas` (UNIQUE tipo + número de identificación; NIT a 9 dígitos; clase, origen, modalidad de facturación solo EPS), `sedes` (UNIQUE `reps_code` de 12 dígitos y `hospital_id`; una principal por cuenta; lat/lng los dos o ninguno y dentro de Colombia), `medicos` (UNIQUE tipo + número de documento; especialidades de la lista, al menos una), `medico_sedes` (PK médico + sede; rol consultorio/atiende; una principal por médico), `medico_visitantes` (ejecutiva + línea + ciudad opcional; un vigente por combinación; se terminan con `hasta`), `contactos` (13 roles; la sede, si la hay, de la misma cuenta por disparador) y `subtipos_institucionales` (semilla de 5, vigente desde 2026-10-12). Constraint triggers diferidos: un médico activo sin sede se rechaza al cerrar la transacción. Funciones `terceros_crear_medico(p_medico, p_sedes, p_user)` (médico + sedes en una transacción; sin sedes → 23514) y `terceros_sincronizar_hospitals(p_hospital_id DEFAULT NULL)` (idempotente; toda IPS activa de `hospitals` con su sede en la cuenta de su NIT) con el disparador `hospitals_terceros_sync` (AFTER INSERT OR UPDATE OF active, name, code, reps_code, lat, lng, address, municipality_id, municipality_name). Carga inicial: una cuenta por NIT y una sede por IPS activa (foto del contrato: 703 cuentas, 783 sedes, 47 cuentas con más de una sede; principal = la de más camas). RLS sin políticas, sin privilegios para anon/authenticated/PUBLIC, GRANT a `service_role`. Bloque DO final que comprueba conteos derivados de `hospitals`, principal única, idempotencia, restricciones, médico sin sede, privilegios y el disparador con filas de prueba que se deshacen | No |
+| — | `2026-10-12_9940_visitas_terceros_rollback.sql` | Quita el disparador de `hospitals`, los disparadores de las tablas nuevas, las 5 funciones y las 7 tablas (sin CASCADE). No toca `update_updated_at_column()` ni `hospitals` | Sí (médicos con su documento, visitantes, contactos, cuentas y sedes creadas a mano; las cuentas y sedes cargadas desde `hospitals` vuelven re-aplicando 0800) |
+
+- Orden: después de 0100 (`executives`, `business_lines`) y 0600 (`hospitals.nit`, `hospitals.reps_code`,
+  `reps_sedes`); no depende de las de SECOP. Tras aplicar: `NOTIFY pgrst, 'reload schema';`. Costo Google: 0;
+  no recalcula asignaciones.
+- Los conteos de la carga se comprueban contra `hospitals` (no contra constantes): cuentas = NIT distintos de
+  IPS activas, sedes = IPS activas con NIT, cuentas con más de una sede = NIT con más de una IPS activa. Si no
+  dan 703 / 783 / 47 sale un WARNING (no aborta).
+- Las sedes con `hospital_id` copian de la IPS nombre, dirección, municipio, ciudad, coordenadas, código de
+  habilitación y activo: se editan en la ficha de la IPS. Datos que no caben (coordenadas fuera de Colombia,
+  municipio que no es de 5 dígitos, código que ya tiene otra sede) quedan en NULL con WARNING y nunca hacen
+  fallar una escritura en `hospitals`. Si una IPS cambia de NIT, su sede pasa a la cuenta del NIT nuevo.
+- Re-ejecutable (`IF NOT EXISTS`, `CREATE OR REPLACE`, `DROP TRIGGER IF EXISTS` + `CREATE CONSTRAINT TRIGGER`,
+  `ON CONFLICT DO NOTHING`; la sincronización es idempotente).
+- Rollback: antes de deshacer, volver a desplegar el código sin `/terceros`; si ya hay fases posteriores de la
+  app de visita que usan estas tablas, deshacerlas primero (el rollback aborta si algo depende de ellas).

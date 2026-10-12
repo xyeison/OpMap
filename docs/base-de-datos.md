@@ -185,6 +185,24 @@ funciones:              secop_nits_ips() (publica = marca manual del NIT → REP
                         (+0730: clave est), secop_marcar_atipicos(); solo service_role
 ```
 
+#### Fase 6: app de visita · F1 Terceros (migración 0800)
+Contrato en `docs/fases/fase6-visitas-f1-terceros.md`. Las 7 tablas con RLS sin políticas (solo `service_role`); `hospitals` no cambia.
+```sql
+cuentas:                  terceros-organización, una por identificación (UNIQUE tipo_identificacion + numero_identificacion; NIT 9 dígitos);
+                          clase clinica|consultorio|eps|operador_logistico|otra, es_cliente, modalidad_facturacion (solo eps), origen hospitals|manual
+sedes:                    lugares de cada cuenta (una es_principal por cuenta); reps_code UNIQUE (12 dígitos), hospital_id UNIQUE (IPS de OpMap),
+                          lat/lng en Colombia, ubicacion_confirmada, origen hospitals|manual|gps_app; las de hospitals las mantiene el disparador
+medicos:                  documento (UNIQUE tipo + número, protegido: solo terceros:manage), nombre, especialidades text[] (≥ 1), municipality_id;
+                          un médico activo sin sede se rechaza al cerrar la transacción (constraint trigger diferido)
+medico_sedes:             PK (medico_id, sede_id), rol consultorio|atiende, una principal por médico
+medico_visitantes:        ejecutiva + línea + ciudad opcional por médico, desde/hasta (se terminan, no se borran); un vigente por combinación
+contactos:                personas de una cuenta (y de una de sus sedes, misma cuenta por disparador), cargo_texto, rol (13 roles, default otro)
+subtipos_institucionales: subtipos de visita institucional con roles_sugeridos y vigencia; semilla compras, quimico_farmaceutico,
+                          autorizaciones, programacion, otro (desde 2026-10-12)
+funciones:                terceros_crear_medico(p_medico, p_sedes, p_user) → uuid (médico + sedes en una transacción);
+                          terceros_sincronizar_hospitals(p_hospital_id DEFAULT NULL) → jsonb (idempotente; disparador hospitals_terceros_sync)
+```
+
 ### Vistas
 
 #### 1. `kam_statistics`

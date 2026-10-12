@@ -79,6 +79,20 @@
 | Diagnósticos | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Gestión Usuarios | ✅ | ❌ | ❌ | ❌ | ❌ |
 
+### Fase 6 · F1 Terceros (`web/lib/permissions.ts`; contrato `docs/fases/fase6-visitas-f1-terceros.md`)
+
+| Permiso | Para qué | Roles |
+|---------|----------|-------|
+| `terceros:view` | Ver cuentas, sedes, médicos (sin documento) y contactos; menú "Terceros" (`/terceros`) | admin, commercial_director, line_leader, sales_manager, data_manager, viewer |
+| `terceros:create` | Crear cuentas (con su sede principal), sedes, médicos (verificar documento) y contactos; vincular sedes a un médico | admin, commercial_director, line_leader, sales_manager, data_manager |
+| `terceros:manage` | Editar o desactivar, ver el documento del médico y la identificación de personas, confirmar ubicación de sedes, marcar cliente y modalidad (solo EPS), desvincular sedes de un médico | admin, commercial_director, data_manager |
+| `visitantes:manage` | Asignar y terminar visitantes de un médico | admin, commercial_director, line_leader (solo en las líneas donde `business_lines.leader_user_id` es su usuario; lo exige la API) |
+
+El documento del médico nunca sale en listas; en el detalle, solo con `terceros:manage` (sin ese permiso ni
+siquiera se pide a la base). Buscar por un documento de persona (cédula del médico, CC/CE/PA de una cuenta) también
+es de `terceros:manage` y solo por `POST /api/terceros/{cuentas,medicos}/buscar` (el documento va en el cuerpo, nunca
+en la URL ni en los logs de peticiones); por GET un número solo busca NIT.
+
 ## Navegación por Rol
 
 ### Admin
