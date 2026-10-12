@@ -6,8 +6,10 @@ entregárselo a sus desarrolladores para pegarlo a Odoo. **Odoo queda fuera de e
 ausencias). Modelo confirmado por el dueño: **dos tipos de visita**, **visita médica** (que el médico ordene)
 y **visita institucional** (lo que hay que lograr dentro de una cuenta para que lo ordenado termine en
 cirugía y factura), con **subtipos**: compras, químico farmacéutico, autorizaciones, programación y otro.
-"Cuenta" es la organización que se visita (clínica, EPS, operador logístico, otra). A quién se le factura
-depende de cómo trabaja cada EPS con VG (directo a la EPS o a través de la clínica), no de la visita. Nada se
+"Cuenta" es la organización que se visita: puede ser **clínica**, **cliente** o las dos cosas (dueño,
+2026-10-12). Los **consultorios son IPS** y un médico tiene varios lugares: su consultorio y las clínicas
+donde atiende. A quién se le factura depende de cómo trabaja cada EPS con VG (directo a la EPS o a través de
+la clínica), no de la visita. Nada se
 trae de VMO; los médicos se crean siempre con tipo y número de identificación; telefónica por persona.
 
 Documento de referencia de VMO: `docs/referencias/2026-10-11-vmo-2026-documentacion-funcional.md`.
@@ -60,7 +62,7 @@ médicos, cuentas y contactos propia, que en este piloto vive en OpMap.
    semana; la cuota del periodo la calcula el sistema con días hábiles menos ausencias aprobadas.
 5. **Presencial solo en el sitio y el mismo día**; lejos del lugar, telefónica si la persona la tiene
    habilitada, evaluada aparte.
-6. **La información se organiza aquí**: médicos, cuentas, contactos y direcciones son tablas de OpMap,
+6. **La información se organiza aquí**: médicos, cuentas, contactos e IPS (incluidos los consultorios) son tablas de OpMap,
    editables y creadas a mano desde la app o la web, sin bandeja de aprobación. Odoo, después.
 
 Restricciones del repo: cero Google Maps (GPS del teléfono, Haversine), estética del mapa intocable,
@@ -69,11 +71,15 @@ terminología visible "Ejecutivo Comercial", "Zona", "IPS", "Médico", "Cuenta",
 
 ## 3. Vocabulario (confirmado por el dueño)
 
-- **Médico**: persona que ordena. Tiene especialidad, identificación y una o varias **direcciones**
-  (consultorio, clínicas donde opera).
-- **Cuenta**: cualquier organización donde se trabaja la venta: clínica u hospital (IPS, con su sede REPS),
-  EPS, operador logístico, otra. "Institución" y "cliente" no son entidades: "cliente" depende de cada
-  negocio y "institucional" es el tipo de visita.
+- **IPS**: lugar habilitado donde se atiende. Hay dos clases: **clínicas y hospitales** (las 783 de hoy, que
+  reparten las zonas) y **consultorios** (IPS de un médico o de un grupo pequeño, casi siempre habilitados en el
+  REPS como profesional independiente).
+- **Médico**: persona que ordena. Tiene especialidad, identificación y **varias IPS**: su consultorio (uno o
+  más) y las clínicas donde atiende.
+- **Cuenta**: organización con la que se trabaja la venta. Puede ser **clínica** (una IPS donde se opera),
+  **cliente** (VG le factura: EPS, operador logístico, la clínica misma u otra) o **las dos**. Ejemplos: Proteger
+  es cliente; una clínica que nos compra es clínica y cliente; una clínica donde solo se opera a pacientes de
+  Proteger es clínica. "Institucional" es el tipo de visita, no una entidad.
 - **Contacto**: persona dentro de una cuenta, con **cargo** (compras, gerencia, químico farmacéutico,
   almacén, autorizaciones, programación de cirugía, quirófano, cartera…).
 - **Visita**: lo que se reporta. **Médica** (a un médico) o **institucional** (a una cuenta, con subtipo).
@@ -98,8 +104,9 @@ terminología visible "Ejecutivo Comercial", "Zona", "IPS", "Médico", "Cuenta",
   médico se crea **siempre con tipo y número de identificación** (cédula, cédula de extranjería, pasaporte),
   nombre, especialidad y ciudad: si el documento ya existe, la app muestra al médico existente y no crea
   otro. Esto se digita, nunca se dicta. Un contacto se crea con cuenta, nombre y cargo (documento opcional).
-- Presencial solo a menos del radio de una dirección conocida; lejos, telefónica si la tiene habilitada o
-  "guardar este punto como dirección nueva" cuando es un consultorio.
+- Presencial solo a menos del radio de una IPS conocida del médico (consultorio o clínica donde atiende) o de
+  la cuenta; lejos, telefónica si la tiene habilitada, o "crear este consultorio" cuando el médico atiende en
+  uno que no está (con su código de habilitación del REPS si lo tiene).
 - Solicita ausencias desde la app; ve su meta ajustada y "Mis números".
 
 **Directora comercial (web)**: subtipos institucionales y cuáles cuentan para la meta; modalidad de
@@ -145,13 +152,15 @@ visitas faltan en cada cuenta.
    efectiva o no, conclusión, compromisos, próxima reunión) → tarjetas de confirmación → un toque. Nada se
    guarda sin confirmar. Audio 12 meses en bucket privado; transcripción con el registro.
 3. **Reporte por toques** (respaldo) con los mismos campos.
-4. **Médicos, cuentas, contactos y direcciones en OpMap**, creados a mano por el equipo (app y web), bien
+4. **Médicos, cuentas, contactos y consultorios en OpMap**, creados a mano por el equipo (app y web), bien
    organizados: las 783 IPS entran como cuentas automáticamente (vinculadas a `hospitals`); los médicos
    se crean uno a uno con tipo y número de identificación (único en el sistema), nombre, especialidad,
-   ciudad y, si se sabe, dirección; los contactos con cuenta, nombre y cargo. **Nada se importa de VMO.**
+   ciudad y sus IPS (consultorio y clínicas donde atiende); los contactos con cuenta, nombre y cargo. **Nada se importa de VMO.**
    No hay carga masiva por archivo en el MVP (decisión del dueño: se crean a mano, bien organizados).
    Asignación de médicos y cuentas a cada ejecutiva desde el territorio o a mano.
-5. **Direcciones con GPS**: consultorio nuevo o clínica donde atiende, guardadas desde la app.
+5. **Consultorios**: se crean como IPS de clase consultorio, con su código de habilitación del REPS cuando lo
+   tienen (llave contra duplicados) o con dirección y GPS tomados en el sitio; se vinculan al médico como
+   "consultorio" o "atiende aquí". Las clínicas donde atiende se eligen de las IPS que ya existen.
 6. **Visita médica e institucional con subtipos** configurables (sección 5), sugerencia del subtipo por
    cargo y **modalidad de facturación** en las cuentas EPS.
 7. **Radio con bloqueo** (500 m, único) y **telefónica por persona**.
@@ -176,7 +185,7 @@ en voz alta, visitas en el mapa (requiere autorización: estética).
 | Visitas a médicos y a compras con GPS; presencial o telefónica; efectiva o no con motivo | Visita médica e institucional con subtipos; por voz o toques |
 | Metas (6 médicos + 1 institución al día) | Metas por tipo y subtipo, zona y persona; cuota calculada con días hábiles y ausencias |
 | Solicitud y aprobación de ausencias | Con aprobación masiva, directora o recursos humanos |
-| Médicos con varias direcciones; clientes con contactos | Médicos, cuentas, contactos y direcciones en OpMap |
+| Médicos con varias direcciones; clientes con contactos | Médicos con varias IPS (consultorio y clínicas), cuentas clínica o cliente, contactos |
 | Reporte el mismo día | Mismo día, en el sitio, en tiempo real |
 | Supervisores ven el equipo; exportar | Dirección todo; líder su línea; CSV |
 
@@ -192,22 +201,26 @@ en voz alta, visitas en el mapa (requiere autorización: estética).
 ## 7. Modelo de datos
 
 ### IPS, cuentas, médicos y consultorios
-- `hospitals` **sigue siendo la tabla de IPS** (sedes REPS, puntos de interés de las zonas): no se le meten
-  consultorios ni cuentas que no sean IPS. Cada IPS activa tiene su **cuenta** (`cuentas.hospital_id`).
-- Las **cuentas** que no son IPS (operadores logísticos, EPS, otras) viven solo en `cuentas`.
-- Los **consultorios son direcciones del médico** (`direcciones` con `medico_id`), con GPS. Si el
-  consultorio es además una sede del REPS, la dirección puede apuntar a `reps_code`, sin obligación.
-- Razón: las IPS mueven asignación, territorio y gasto en Google; las direcciones de médicos son muchas,
-  cambian y se capturan con GPS.
+- **Los consultorios son IPS** (decisión del dueño, 2026-10-12). En OpMap hay una sola noción de IPS con dos
+  clases: **clínicas y hospitales** en `hospitals` (las 783 de hoy, que reparten zonas, mueven el algoritmo de
+  asignación, el territorio y las rutas de Google) y **consultorios** en `consultorios` (IPS de clase
+  consultorio). Para la ejecutiva son la misma lista de "lugares del médico"; por dentro, los consultorios
+  **no entran** al reparto de zonas, al mapa ni a la cola de rutas, para no cambiar territorios ni gastar
+  Google cada vez que se crea uno. Si más adelante el dueño quiere que cuenten para las zonas, se promueven.
+- Un médico tiene **varias IPS** (`medico_ips`): su consultorio (uno o más) y las clínicas donde atiende.
+- Cada clínica activa tiene su **cuenta** (`cuentas.hospital_id`, `es_clinica = true`); las EPS, operadores
+  logísticos y otros clientes viven solo en `cuentas` (`es_cliente = true`); una clínica que nos compra tiene
+  las dos marcas.
 
 ### Tablas nuevas (RLS sin políticas; solo `service_role` desde `lib/supabase-admin.ts`)
 
 | Tabla | Columnas clave | Para qué |
 | --- | --- | --- |
 | `medicos` | `id`, `tipo_documento` ('CC' \| 'CE' \| 'PA' \| 'PEP' \| 'otro') NOT NULL, `numero_documento` NOT NULL, **UNIQUE (tipo_documento, numero_documento)**, `nombre`, `especialidades` text[] (ortopedia, neurocirugía, columna, deportiva, maxilofacial, fisiatría, cirugía general, otra), `ciudad`, `municipality_id`, `executive_id` (asignada), `telefono`, `email`, `origen` ('app' \| 'web'), `created_by`, `activo`, `notas` | Base de médicos propia; la identificación es la llave contra duplicados (regla del dueño); aviso adicional por nombre normalizado + ciudad |
-| `cuentas` | `id`, `nombre`, `tipo` ('ips' \| 'eps' \| 'operador_logistico' \| 'otra'), `nit` NULL (UNIQUE si existe), `hospital_id` NULL UNIQUE, `modalidad_facturacion` NULL ('directa' \| 'via_clinica', solo EPS), `municipality_id`, `executive_id` NULL, `origen`, `activo` | Organizaciones; las IPS se crean solas desde `hospitals`; el NIT evita cuentas repetidas |
+| `cuentas` | `id`, `nombre`, `es_clinica` bool, `es_cliente` bool (al menos una), `tipo_cliente` NULL ('eps' \| 'operador_logistico' \| 'clinica' \| 'otro'), `nit` NULL (UNIQUE si existe), `hospital_id` NULL UNIQUE (si es clínica), `modalidad_facturacion` NULL ('directa' \| 'via_clinica', solo EPS), `municipality_id`, `executive_id` NULL, `origen`, `activo` | Organización clínica, cliente o las dos; las clínicas se crean solas desde `hospitals`; el NIT evita cuentas repetidas |
 | `contactos` | `id`, `cuenta_id`, `nombre`, `cargo_texto`, `rol` ('compras' \| 'gerencia' \| 'direccion_medica' \| 'quimico_farmaceutico' \| 'almacen_farmacia' \| 'programacion_cirugia' \| 'quirofano' \| 'esterilizacion' \| 'instrumentacion' \| 'cartera_facturacion' \| 'autorizaciones' \| 'otro'), `tipo_documento` NULL, `numero_documento` NULL (UNIQUE si existe), `telefono`, `email`, `origen`, `activo` | Personas de la cuenta; el cargo sugiere el subtipo; aviso de duplicado por nombre + cuenta |
-| `direcciones` | `id`, `medico_id` NULL, `cuenta_id` NULL (una de las dos), `etiqueta` ('consultorio' \| 'clinica' \| 'sede' \| 'otra'), `hospital_id` NULL, `reps_code` NULL, `direccion`, `ciudad`, `lat`, `lng`, `origen` ('manual' \| 'gps_app' \| 'hospitals'), `created_by` | Dónde se visita; las de `gps_app` las crea la ejecutiva |
+| `consultorios` | `id`, `nombre`, `reps_code` NULL (UNIQUE si existe: código de habilitación del REPS), `direccion`, `municipality_id`, `ciudad`, `lat`, `lng`, `ubicacion_confirmada` bool, `origen` ('manual' \| 'gps_app'), `created_by`, `activo` | IPS de clase consultorio; no entran a zonas, mapa ni rutas |
+| `medico_ips` | `medico_id`, `hospital_id` NULL, `consultorio_id` NULL (una de las dos), `rol` ('consultorio' \| 'atiende'), `principal` bool, `created_by`; UNIQUE por médico y lugar | Las IPS de cada médico: su consultorio y las clínicas donde atiende |
 | `subtipos_institucionales` | `id`, `codigo`, `nombre`, `para_que` (texto corto), `roles_sugeridos` text[], `cuenta_para_meta` bool, `activo`, `orden` | Los cinco de la sección 5; editable por la directora |
 | `metas` | `scope` ('zona' \| 'ejecutiva'), `kam_id` NULL, `executive_id` NULL, `tipo` ('medica' \| 'institucional'), `subtipo_id` NULL (meta propia de un subtipo), `periodo` ('dia' \| 'semana'), `cantidad` numeric, `vigente_desde`, `set_by` | La de persona manda sobre la de zona; sin fila = sin meta (solo seguimiento) |
 | `perfiles_visita` | `executive_id` PK, `telefonica_habilitada` bool, `radio_m` NULL | Telefónica por persona; radio distinto solo con autorización escrita |
@@ -218,7 +231,7 @@ en voz alta, visitas en el mapa (requiere autorización: estética).
 **`visits` (existente) — columnas nuevas**: `source` ('vmo_import' | 'app'), `executive_id`, `client_id`
 UNIQUE, `tipo` ('medica' | 'institucional'), `subtipo_id` NULL (obligatorio si institucional), `subtipo_codigo`
 (copia, para que el histórico no cambie si se renombra), `medico_id` NULL, `cuenta_id` NULL, `contacto_id`
-NULL, `direccion_id` NULL, `place_name`,
+NULL, `consultorio_id` NULL, `place_name`,
 `checked_in_at`, `distance_m`, `gps_accuracy_m`, `failure_reason`, `retry_date`, `conclusion`,
 `compromisos`, `next_step_date`, `transcript`, `audio_path`, `input_mode` ('voz' | 'toques' | 'importada'),
 `out_of_territory`, `created_by`, `updated_by`, `updated_at`, `deleted_at`. `hospital_id` sigue siendo la IPS
@@ -226,7 +239,7 @@ donde ocurrió si aplica. `visit_type` y `contact_type` conservan sus valores ('
 efectiva'; 'Visita presencial' | 'Visita virtual' = telefónica). `visit_lines` (`visit_id`, `line_id`).
 
 CHECKs: médica exige `medico_id`; institucional exige `cuenta_id` y `subtipo_id`; presencial exige `lat/lng`,
-una dirección o IPS y `distance_m <= radio` (la API rechaza si no). Columna nueva en `executives`:
+una IPS (clínica o consultorio) y `distance_m <= radio` (la API rechaza si no). Columna nueva en `executives`:
 `visits_source` ('vmo' | 'app'). Rol nuevo de usuario: `hr`.
 
 Migración `2026-10-XX_0800_visitas_app.sql` + rollback `9940` (Fase 1), aplicadas con autorización. Incluye la
@@ -253,7 +266,7 @@ de VMO (sin tipo ni subtipo: el histórico solo alimenta el mapa de calor).
 | 2 | **Cobertura** | médicos asignados con ≥ 1 visita médica efectiva en el trimestre ÷ asignados; cuentas IPS del Anexo A con ≥ 1 visita institucional efectiva en el mes ÷ Anexo A | `medicos.executive_id`, `territory_snapshots` |
 | 3 | **Mezcla** | visitas médicas frente a institucionales, y las institucionales por subtipo (compras, químico, autorizaciones, programación, otro), por persona y mes, con alerta configurable | `visits.tipo`, `visits.subtipo_codigo` |
 | 4 | **Sin contacto reciente** | médicos asignados sin visita en 60 días; cuentas del Anexo A sin visita institucional en 90 días, ordenadas por camas, quirófanos y compras SECOP | `visits`, `hospitals`, SECOP |
-| 5 | **Calidad del reporte** | % telefónicas, % no efectivas, % fuera de territorio, % por toques frente a voz, % con dirección o médico nuevos | `visits` |
+| 5 | **Calidad del reporte** | % telefónicas, % no efectivas, % fuera de territorio, % por toques frente a voz, % con consultorio o médico nuevos | `visits` |
 | 6 | **Actividad → resultado** | cuentas IPS visitadas frente a compras SECOP y giros ADRES ("visitadas sin compra", "compran sin visita") | `visits`, SECOP, ADRES |
 
 ## 9. Reglas de negocio no deducibles del código
@@ -268,12 +281,15 @@ de VMO (sin tipo ni subtipo: el histórico solo alimenta el mapa de calor).
 - La modalidad de facturación de la EPS no cambia el reporte; solo se usa para leer los tableros.
 - Solo la actividad efectiva suma a metas y cobertura; la no efectiva se guarda con motivo.
 - Presencial solo en el sitio: la API rechaza si `distance_m` supera el radio (500 m, único; excepción por
-  persona solo con autorización escrita). Sin dirección conocida, la ejecutiva guarda el punto como
-  dirección nueva antes de reportar, o reporta telefónica si la tiene habilitada.
+  persona solo con autorización escrita). Si el médico atiende en un consultorio que no está, la ejecutiva lo
+  crea (con código de habilitación si lo tiene, y el GPS del sitio) antes de reportar, o reporta telefónica
+  si la tiene habilitada.
 - Mismo día y tiempo real: fecha y hora del teléfono al confirmar; no se reportan días anteriores desde la
   app; dirección corrige con rastro.
-- Médicos, cuentas y contactos se crean sin aprobación (app o web). **Un médico no existe sin tipo y
-  número de identificación**; la base rechaza un segundo médico con el mismo documento y la app muestra el
+- Médicos, cuentas y contactos se crean sin aprobación (app o web). **Un médico se crea completo desde el
+  inicio o no se crea** (decisión del dueño, 2026-10-12): tipo y número de identificación, nombre, especialidad,
+  ciudad y al menos una IPS (consultorio o clínica donde atiende). No hay médicos "en espera" ni visitas en
+  espera de completar al médico: sin médico creado no se reporta visita médica; la base rechaza un segundo médico con el mismo documento y la app muestra el
   existente. El documento se digita (nunca se dicta ni se extrae del audio), se guarda solo para quien tenga
   `contacts:manage` y no sale en listas, exportaciones ni tarjetas. Data manager revisa "creados esta
   semana" y fusiona duplicados por nombre.
@@ -314,7 +330,7 @@ de VMO (sin tipo ni subtipo: el histórico solo alimenta el mapa de calor).
 - [ ] Dado una cuenta EPS con modalidad "directa", entonces el tablero lo muestra junto a sus visitas y la
       modalidad no cambia ningún cálculo de metas.
 - [ ] Dado una presencial a 800 m del lugar elegido, entonces la API la rechaza y la app ofrece telefónica (si
-      está habilitada) o dirección nueva.
+      está habilitada) o crear el consultorio.
 - [ ] Dado meta de zona 6 visitas médicas y 1 institucional por día, excepción de 4 y 1 para una persona, 20
       días hábiles y 2 ausencias aprobadas, entonces su cuota del mes es 72 y 18 y el ritmo al día hábil 10 es
       50 %.
@@ -322,11 +338,17 @@ de VMO (sin tipo ni subtipo: el histórico solo alimenta el mapa de calor).
 - [ ] Dado la transcripción del ejemplo de la sección 4, entonces la función pura devuelve tres visitas (médica;
       institucional Compras; institucional Químico farmacéutico) y nada se guarda sin confirmar; dado un
       médico que no cruza, propone crearlo y no lo crea solo.
-- [ ] Dado "guardar este punto como dirección del médico", entonces existe `direcciones` con `origen='gps_app'`
-      y la próxima visita lo ofrece como lugar.
+- [ ] Dado "crear este consultorio" para un médico, entonces existe `consultorios` con `origen='gps_app'` y su
+      vínculo en `medico_ips` (`rol='consultorio'`), la próxima visita lo ofrece como lugar y no aparece en el
+      mapa ni en la cola de rutas.
+- [ ] Dado un consultorio con código de habilitación 0800100118 ya creado, cuando otra ejecutiva intenta
+      crearlo, entonces la base lo rechaza y la app ofrece vincular el existente.
+- [ ] Dado una cuenta marcada clínica y cliente, entonces aparece en el mapa como su IPS y en el tablero como
+      cliente; dado una EPS, solo como cliente.
 - [ ] Dado un médico con cédula 12345678 ya creado, cuando otra ejecutiva intenta crear uno con la misma
       cédula, entonces la base lo rechaza y la app le muestra el existente para usarlo.
-- [ ] Dado un intento de crear un médico sin tipo o número de identificación, entonces la API devuelve 400.
+- [ ] Dado un intento de crear un médico sin tipo o número de identificación, nombre, especialidad, ciudad o al
+      menos una IPS, entonces la API devuelve 400 y no queda nada guardado.
 - [ ] Dado un dictado que menciona a un médico, entonces nunca produce ni muestra un número de documento.
 - [ ] Dado el mismo `client_id` dos veces, entonces hay una sola fila.
 - [ ] Dado una visita de la app en octubre y una importación de VMO de octubre, entonces la visita de la app
@@ -349,10 +371,10 @@ dueño; estética del mapa sin cambios; permisos nuevos `visits:report`, `visits
 | Fase | Entrega | Evidencia |
 | --- | --- | --- |
 | **F0 Decisiones y prerrequisitos** | Respuestas del dueño en `docs/decisiones/`; `Permissions-Policy`; importador por fuente; cuentas enlazadas; cuentas de Apple, Google, OpenAI y Anthropic | `npm run check`; prueba del importador |
-| **F1 Información** | Migración 0800 + rollback; tablas de médicos, cuentas (con modalidad de facturación), contactos, direcciones, subtipos; cuenta por IPS; creación con identificación única; pantallas web de médicos, cuentas y contactos | `contactos-check.ts` puro |
+| **F1 Información** | Migración 0800 + rollback; tablas de médicos, cuentas (clínica o cliente, con modalidad de facturación), contactos, consultorios y `medico_ips`, subtipos; cuenta por IPS; creación con identificación única; pantallas web de médicos, cuentas y contactos | `contactos-check.ts` puro |
 | **F2 Reglas y metas** | `holidays.ts`; `visits-rules.ts` (subtipo por cargo, cuota por periodo, Haversine y bloqueo, esquema del dictado); metas, perfiles, ausencias; API y permisos | `visits-check.ts` puro; pruebas de alcance |
 | **F3 Voz** | `/api/me/voz/transcribir` y `/voz/proponer`; esquema y validación; bucket | dictado real de prueba |
-| **F4 App móvil (piloto)** | Expo: sesión, Hoy, Reportar por voz con tarjetas, respaldo por toques, crear médico o contacto, dirección nueva, ausencias; TestFlight y Play interno; migración aplicada; 2 ejecutivas | capturas en iPhone y Android con un dictado real |
+| **F4 App móvil (piloto)** | Expo: sesión, Hoy, Reportar por voz con tarjetas, respaldo por toques, crear médico, contacto o consultorio, ausencias; TestFlight y Play interno; migración aplicada; 2 ejecutivas | capturas en iPhone y Android con un dictado real |
 | **F5 Web de dirección** | Mis números, Equipo, Metas, Subtipos, bandeja de ausencias, ficha de IPS, filtros del mapa de calor | capturas; pruebas de KPIs |
 | **F6 Corte de VMO** | Última importación; todas en 'app'; nota de decisión | conteo por fuente |
 
@@ -366,9 +388,9 @@ Ya decididas el 2026-10-12: Odoo fuera del piloto; **visita médica y visita ins
 (compras, químico farmacéutico, autorizaciones, programación, otro); la facturación (directa a la EPS o a
 través de la clínica) es un dato de la EPS, no de la visita; metas por tipo, zona y persona calculadas por el
 sistema, con meta opcional por subtipo; bloqueo por distancia; mismo día y tiempo real; app móvil; voz con
-Whisper o similar y confirmación breve; consultorios como direcciones; ausencias en OpMap con aprobación
-masiva (directora y recursos humanos); **"Cuenta"** como nombre; **nada se trae de VMO**; **médicos con tipo y
-número de identificación**; telefónica por persona.
+Whisper o similar y confirmación breve; **consultorios como IPS** de clase consultorio, con varios lugares por médico; **cuenta clínica, cliente o las dos**; ausencias en OpMap con aprobación
+masiva (directora y recursos humanos); **"Cuenta"** como nombre; **nada se trae de VMO**; **médicos completos desde el
+inicio (identificación, nombre, especialidad, ciudad y al menos una IPS) o no se crean**; telefónica por persona.
 
 Las preguntas que siguen abiertas, con su recomendación, están en la sección 14.
 
@@ -382,26 +404,25 @@ el dueño; 36 hallazgos depurados en estas preguntas. Las demás ya estaban resu
 | # | Pregunta | Recomendación |
 | --- | --- | --- |
 | 1 | Sin señal (sótano, quirófano, municipio): ¿la app guarda la visita con el punto y la hora tomados en el sitio y la envía sola cuando vuelve la señal, el mismo día? | **Sí**, versión mínima en el MVP: la distancia se mide con el punto tomado en el sitio; vale si llega antes de medianoche; queda marcada "enviada después". |
-| 2 | Dirección nueva creada por la ejecutiva (consultorio): ¿la visita ahí suma de inmediato o cuando data manager confirma el punto? | **Cuando data manager la confirma** en su revisión semanal; y vale como lugar cualquier IPS o cuenta ubicada a menos de 500 m, para que crear direcciones sea la excepción. Sin esto, el bloqueo se esquiva desde la casa. |
-| 3 | Si el médico no da la cédula en el momento o no autoriza sus datos, ¿la visita queda "en espera" y suma cuando se complete, o no se puede reportar? | **En espera 7 días**: la visita se guarda con nombre, especialidad y lugar; suma cuando se completan documento y autorización (el médico acepta en pantalla o por enlace). El médico sigue sin existir sin documento. |
-| 4 | ¿Cada médico tiene una ejecutiva responsable **por línea** (no una sola), y si otra ejecutiva lo visita, le suma a quien lo visita? | **Sí**: responsable por médico y línea, tomada de la cobertura que OpMap ya calcula; la directora resuelve choques; la visita de otra suma a su meta, no a la cobertura de la responsable. |
-| 5 | Al arrancar, ¿qué subtipos suman a la meta institucional? | **Cambio la recomendación anterior: solo Compras** (y Autorizaciones si la directora la considera apertura de venta); químico, programación y otro se ven en la mezcla sin sumar. Si todo suma, quien solo programa sale al 100 % y una parada en una clínica cumple tres días. |
-| 6 | Día o medio día sin visitas no previsto (acompañar una cirugía, incapacidad, día cívico de su ciudad): ¿se puede registrar el mismo día o hasta 5 días después para descontarlo de la cuota? | **Sí**, con aprobación en bloque de la directora; mientras tanto se ve "por aprobar" y no en rojo; los días no hábiles se pueden marcar por ciudad. |
-| 7 | ¿Cada médico suma como máximo **una visita al día**, y las telefónicas suman solo hasta un tope por persona? | **Sí**: una por médico al día (si van dos personas, una visita "acompañada por"); telefónicas con tope (sugerido 1 de las 6) y solo llamada o videollamada, nunca chat ni audio de WhatsApp. |
-| 8 | ¿La cuenta es la **empresa (un NIT)** con sus sedes como direcciones, en lugar de una cuenta por sede? | **Sí**: compras es de la empresa y vale en cualquier sede; químico y programación son de su sede; una visita a compras cubre todas las sedes de esa empresa en el Anexo A. |
-| 9 | ¿El audio se borra a los **30 días** de confirmada la visita (no a los 12 meses) y se enseña a no dictar datos de pacientes? | **Sí**; antes del piloto legal revisa los términos de OpenAI y Anthropic (cuentas a nombre de VG, sin uso para entrenar) y cada ejecutiva firma una autorización corta para su voz y su GPS. |
+| 2 | Consultorio nuevo creado por la ejecutiva: ¿la visita ahí suma de inmediato o cuando data manager confirma el punto (`ubicacion_confirmada`)? | **Al instante si trae código de habilitación del REPS** que cruza con el municipio; **si no, cuando data manager lo confirma** en su revisión semanal. Sin esto, el bloqueo se esquiva creando un "consultorio" desde la casa. |
+| 3 | ¿Cada médico tiene una ejecutiva responsable **por línea** (no una sola), y si otra ejecutiva lo visita, le suma a quien lo visita? | **Sí**: responsable por médico y línea, tomada de la cobertura que OpMap ya calcula; la directora resuelve choques; la visita de otra suma a su meta, no a la cobertura de la responsable. |
+| 4 | Al arrancar, ¿qué subtipos suman a la meta institucional? | **Cambio la recomendación anterior: solo Compras** (y Autorizaciones si la directora la considera apertura de venta); químico, programación y otro se ven en la mezcla sin sumar. Si todo suma, quien solo programa sale al 100 % y una parada en una clínica cumple tres días. |
+| 5 | Día o medio día sin visitas no previsto (acompañar una cirugía, incapacidad, día cívico de su ciudad): ¿se puede registrar el mismo día o hasta 5 días después para descontarlo de la cuota? | **Sí**, con aprobación en bloque de la directora; mientras tanto se ve "por aprobar" y no en rojo; los días no hábiles se pueden marcar por ciudad. |
+| 6 | ¿Cada médico suma como máximo **una visita al día**, y las telefónicas suman solo hasta un tope por persona? | **Sí**: una por médico al día (si van dos personas, una visita "acompañada por"); telefónicas con tope (sugerido 1 de las 6) y solo llamada o videollamada, nunca chat ni audio de WhatsApp. |
+| 7 | ¿La cuenta es la **empresa (un NIT)** con sus sedes, en lugar de una cuenta por sede? | **Sí**: compras es de la empresa y vale en cualquier sede; químico y programación son de su sede; una visita a compras cubre todas las sedes de esa empresa en el Anexo A. |
+| 8 | ¿El audio se borra a los **30 días** de confirmada la visita (no a los 12 meses) y se enseña a no dictar datos de pacientes? | **Sí**; antes del piloto legal revisa los términos de OpenAI y Anthropic (cuentas a nombre de VG, sin uso para entrenar) y cada ejecutiva firma una autorización corta para su voz y su GPS. |
 
 **Decidir durante el piloto**
 
 | # | Pregunta | Recomendación |
 | --- | --- | --- |
-| 10 | ¿La cuota se calcula solo de lunes a viernes, y quien entra, sale o cambia de zona a mitad de mes se mide por sus días activos? | **Sí**; el sábado no genera cuota pero sus visitas suman; el primer mes de alguien nuevo, al 50 %. |
-| 11 | Con 1 institucional al día (unas 20 al mes), ¿la cobertura de cuentas se mide sobre 15 a 20 **cuentas objetivo** por ejecutiva y por trimestre, no sobre todo el Anexo A cada mes? | **Sí**: la directora marca las cuentas objetivo (por defecto las primeras del Anexo A por camas, quirófanos y compras SECOP). |
-| 12 | Antes de apagar VMO, ¿se exporta y archiva fuera de OpMap lo que vive solo allá (médicos, comentarios, solicitudes de días, soportes de Hábeas Data, transferencias de valor)? | **Sí**, archivo de VG con acceso restringido, sin cargarlo en OpMap; confirmar con legal si el reporte de transferencias de valor a médicos (Resolución 2881 de 2018) sale hoy de VMO. |
+| 9 | ¿La cuota se calcula solo de lunes a viernes, y quien entra, sale o cambia de zona a mitad de mes se mide por sus días activos? | **Sí**; el sábado no genera cuota pero sus visitas suman; el primer mes de alguien nuevo, al 50 %. |
+| 10 | Con 1 institucional al día (unas 20 al mes), ¿la cobertura de cuentas se mide sobre 15 a 20 **cuentas objetivo** por ejecutiva y por trimestre, no sobre todo el Anexo A cada mes? | **Sí**: la directora marca las cuentas objetivo (por defecto las primeras del Anexo A por camas, quirófanos y compras SECOP). |
+| 11 | Antes de apagar VMO, ¿se exporta y archiva fuera de OpMap lo que vive solo allá (médicos, comentarios, solicitudes de días, soportes de Hábeas Data, transferencias de valor)? | **Sí**, archivo de VG con acceso restringido, sin cargarlo en OpMap; confirmar con legal si el reporte de transferencias de valor a médicos (Resolución 2881 de 2018) sale hoy de VMO. |
 
 Siguen abiertas de la v6: **paso de VMO a OpMap** (A: piloto con dos ejecutivas un mes; B: todas el mismo
 día; recomendación A) y **aviso de tratamiento de datos** de legal antes del piloto (recomendación sí;
-ampliado por las preguntas 3 y 9).
+ampliado por la pregunta 8).
 
 Correcciones menores incorporadas: el costo de la voz para las 20 personas es de unos 30 a 45 USD al mes (no
 "menos de 10", que vale para las 2 del piloto); las ausencias las aprueban la directora y recursos humanos,
