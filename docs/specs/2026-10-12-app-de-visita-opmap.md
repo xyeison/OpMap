@@ -1,6 +1,7 @@
 # Spec: app de visita de OpMap  (2026-10-12, v7)
 
-**Estado**: borrador v7 en revisión con el dueño (2026-10-12). Producto mínimo viable que se construye en
+**Estado**: **aprobada por el dueño (2026-10-12)**, v7 con la regla de vigencias por rango de fechas. Decisiones
+en `docs/decisiones/2026-10-12-app-de-visita.md`. Producto mínimo viable que se construye en
 OpMap para organizar la información de visitas; cuando funcione, los desarrolladores del dueño lo pegarán a
 Odoo. **Fuera de alcance: Odoo y VMO** (VMO se apaga; no hay convivencia, piloto ni importación).
 
@@ -131,8 +132,14 @@ vienen precargados; la directora añade, renombra o apaga):
 | **Subtipos y cargos** | Subtipos, sus cargos sugeridos y su orden | La semilla de la sección 5 |
 | **Alertas de mezcla** | Umbral por subtipo o por tipo | Sin umbral al arrancar |
 
-Las reglas leen la configuración vigente en la fecha de la visita, para que cambiar una meta no reescriba
-meses cerrados.
+**Vigencias por rango de fechas (regla del dueño, 2026-10-12)**: toda configuración que pueda cambiar un
+resultado pasado (qué cuenta y con qué peso, metas, perfiles, radio, telefónica, topes, plazo de gracia, días
+hábiles de la semana, subtipos y sus cargos, alertas) se guarda como una **línea de tiempo**: cada valor tiene
+`vigente_desde` y `vigente_hasta` (abierta mientras rige), sin rangos superpuestos. Cambiar algo **no edita**
+el valor anterior: cierra su rango y abre uno nuevo. Los cálculos de cualquier periodo usan el valor que regía
+en la fecha de cada visita o de cada día, así que hasta una fecha rige una condición y desde ahí otra, y el
+pasado no cambia por un cambio de hoy. Si la directora necesita corregir el pasado a propósito, crea un rango
+que empieza en una fecha anterior; queda quién, cuándo y por qué, y la pantalla avisa qué meses se recalculan.
 
 ## 7. Calendario
 
@@ -206,11 +213,11 @@ varias pestañas; ubicación en tiempo real cada 5 minutos.
 | `medico_sedes` | `medico_id`, `sede_id`, `rol` ('consultorio' \| 'atiende'), `principal` bool; al menos una por médico | Dónde atiende cada médico |
 | `medico_visitantes` | `medico_id`, `executive_id`, `line_id`, `municipality_id` NULL, `desde`, `hasta` NULL; UNIQUE (médico, ejecutiva, línea, ciudad) | Quién lo visita y por qué línea |
 | `contactos` | `id`, `cuenta_id`, `sede_id` NULL, `nombre`, `cargo_texto`, `rol` (lista de la sección 5 más gerencia, cartera, otro), `telefono`, `email`, `activo` | Personas de la cuenta; el cargo sugiere el subtipo |
-| `subtipos_institucionales` | `id`, `codigo`, `nombre`, `para_que`, `roles_sugeridos` text[], `activo`, `orden` | Semilla de la sección 5 |
-| `config_metas` | `scope` ('zona' \| 'ejecutiva'), `kam_id` NULL, `executive_id` NULL, `tipo`, `subtipo_id` NULL, `periodo` ('dia' \| 'semana'), `cantidad`, `vigente_desde` | Metas |
-| `config_conteo` | `subtipo_id`, `modo` ('suma_institucional' \| 'meta_propia' \| 'seguimiento'), `peso` numeric, `vigente_desde` | Qué cuenta y cuánto |
-| `config_general` | `clave`, `valor` jsonb, `vigente_desde`, `set_by` | Radio, plazo de gracia, días hábiles de la semana, tope por médico, alertas, aprobación |
-| `config_personas` | `executive_id`, `perfil` (metas que aplican), `telefonica_habilitada`, `tope_telefonicas_dia`, `radio_m` NULL | Excepciones por persona |
+| `subtipos_institucionales` | `id`, `codigo`, `nombre`, `para_que`, `roles_sugeridos` text[], `orden`, `vigente_desde`, `vigente_hasta` NULL | Semilla de la sección 5; un subtipo se apaga cerrando su rango, nunca se borra |
+| `config_metas` | `scope` ('zona' \| 'ejecutiva'), `kam_id` NULL, `executive_id` NULL, `tipo`, `subtipo_id` NULL, `periodo` ('dia' \| 'semana'), `cantidad`, `vigente_desde`, `vigente_hasta` NULL, `set_by`, `motivo` | Metas, como línea de tiempo |
+| `config_conteo` | `subtipo_id`, `modo` ('suma_institucional' \| 'meta_propia' \| 'seguimiento'), `peso` numeric, `vigente_desde`, `vigente_hasta` NULL, `set_by`, `motivo` | Qué cuenta y cuánto, como línea de tiempo |
+| `config_general` | `clave`, `valor` jsonb, `vigente_desde`, `vigente_hasta` NULL, `set_by`, `motivo` | Radio, plazo de gracia, días hábiles de la semana, tope por médico, alertas, aprobación |
+| `config_personas` | `executive_id`, `perfil` (metas que aplican), `telefonica_habilitada`, `tope_telefonicas_dia`, `radio_m` NULL, `vigente_desde`, `vigente_hasta` NULL, `set_by`, `motivo` | Excepciones por persona, como línea de tiempo |
 | `calendario` | `fecha`, `alcance` ('nacional' \| 'empresa' \| 'ciudad'), `municipality_id` NULL, `tipo` ('no_habil' \| 'habil'), `nombre`, `origen` ('calculado' \| 'manual') | Festivos y días de empresa y ciudad |
 | `dias_libres` | `executive_id`, `fecha`, `fraccion` (1 \| 0,5), `motivo`, `estado` ('registrado' \| 'por_aprobar' \| 'aprobado' \| 'rechazado'), `registrado_at`, `aprobado_por`, `aprobado_at` | Días libres de cada persona, con el plazo de gracia |
 
@@ -223,7 +230,9 @@ UNIQUE, `tipo` ('medica' | 'institucional'), `subtipo_id`, `subtipo_codigo` (cop
 quedan como `source='vmo_import'` solo como histórico del mapa. `visit_lines` (`visit_id`, `line_id`).
 
 CHECKs: médica exige `medico_id` y `sede_id`; institucional exige `cuenta_id`, `sede_id` y `subtipo_id`;
-presencial exige `lat/lng` y `distance_m <= radio` vigente (la API rechaza si no). Rol nuevo de usuario: `hr`.
+presencial exige `lat/lng` y `distance_m <= radio` vigente (la API rechaza si no). En las tablas de
+configuración, una restricción de exclusión impide rangos superpuestos para la misma clave, zona o persona.
+Rol nuevo de usuario: `hr`.
 
 Migración `2026-10-XX_0800_visitas_app.sql` + rollback `9940`, aplicadas con autorización. Incluye: carga de
 las 783 IPS como sedes agrupadas en cuentas por NIT (la sede con más camas como principal, editable),
@@ -255,6 +264,9 @@ semilla de subtipos, configuración inicial y festivos 2026-2027.
 
 - Una visita es médica o institucional; la institucional siempre lleva subtipo. Qué suma y cuánto lo decide
   `config_conteo` vigente en la fecha de la visita.
+- **Nada que cambie hoy reescribe el pasado**: toda configuración es una línea de tiempo con rangos de
+  fechas; los cálculos usan el valor que regía en cada fecha. Corregir el pasado exige crear un rango con
+  fecha anterior, con motivo y rastro.
 - La app sugiere el subtipo por el cargo del contacto; la ejecutiva puede cambiarlo.
 - Una llegada a una clínica puede dejar varias visitas (médico, compras, químico, programación).
 - Solo la visita efectiva suma; la no efectiva se guarda con motivo.
@@ -287,6 +299,11 @@ semilla de subtipos, configuración inicial y festivos 2026-2027.
 - [ ] Dado que la directora configura Programación como "solo seguimiento" desde el día 15, entonces las de
       antes del 15 siguen sumando y las de después solo aparecen en la mezcla.
 - [ ] Dado Programación con peso 0,5 en la meta institucional, entonces dos visitas de programación suman 1.
+- [ ] Dado Compras con peso 1 hasta el 31 de octubre y peso 0,5 desde el 1 de noviembre, entonces el
+      cumplimiento de octubre no cambia al registrar el nuevo valor y el de noviembre usa 0,5; dado un intento de
+      crear un rango que se superpone con otro, la base lo rechaza.
+- [ ] Dado que la directora crea un rango con fecha anterior para corregir el pasado, entonces queda su motivo
+      y la pantalla lista los meses que se recalculan antes de guardar.
 - [ ] Dado una persona con perfil solo institucional, entonces "Hoy" y "Mis números" no le muestran meta médica.
 - [ ] Dado una presencial a 800 m de la sede elegida, entonces la API la rechaza y la app ofrece telefónica (si
       está habilitada) o crear la sede.
@@ -343,31 +360,28 @@ prueba de que el audio no queda guardado; rollback de 0800 probado; nada importa
 
 ## 14. Decisiones
 
-**Ya decididas por el dueño (2026-10-12)**: piloto de desarrollo en OpMap, sin Odoo ni VMO; app móvil nativa;
-voz con Whisper o similar, audio desechado al transcribir, confirmación breve; visita médica e institucional
-con subtipos (compras, químico farmacéutico, autorizaciones, programación, otro); facturación como dato de la
-EPS; todo lo que mide configurable; calendario con festivos, días de empresa y por ciudad, y días libres con
-plazo de gracia configurable (24 horas); una sola tabla de cuentas con sede principal y sedes, clínica,
-cliente o las dos; consultorios como IPS; médicos completos o no se crean; visitantes del médico por línea y
-ciudad; presencial bloqueada lejos de la sede; mismo día y tiempo real; telefónica por persona; nada de VMO
-ni pruebas piloto.
+Todas tomadas por el dueño el 2026-10-12 (detalle y citas en `docs/decisiones/2026-10-12-app-de-visita.md`):
 
-**Preguntas abiertas**
-
-| # | Pregunta | Recomendación |
-| --- | --- | --- |
-| 1 | **Configuración inicial de conteo**: ¿con qué valores arranca? (todo se puede cambiar después) | Compras y Autorizaciones suman a la meta institucional con peso 1; Químico farmacéutico y Programación, solo seguimiento; Otro, solo seguimiento. Así nadie cumple su meta solo programando, y la directora lo ajusta con datos. |
-| 2 | **Sin señal** (sótano, quirófano, municipio): ¿la app guarda la visita con el punto y la hora del sitio y la envía sola al volver la señal, el mismo día? | **Sí**, versión mínima: la distancia se mide con el punto tomado en el sitio y la visita vale si llega antes de medianoche. Sin esto, el bloqueo hace perder visitas reales. |
-| 3 | **Sede nueva creada por la ejecutiva** (consultorio): ¿la visita suma de inmediato o cuando data manager confirma el punto? | **Al instante si trae código de habilitación del REPS** que cruza con el municipio; si no, cuando data manager la confirma. Sin esto, el bloqueo se esquiva creando un "consultorio" desde la casa. |
-| 4 | **Topes iniciales**: ¿cada médico suma una visita al día como máximo, y las telefónicas tienen tope por persona? | **Sí**, configurables: 1 por médico al día; telefónicas hasta 1 de las 6 diarias, solo llamada o videollamada. |
-| 5 | ¿Legal entrega el **aviso de tratamiento de datos** de médicos y contactos (identificación y transcripciones) y revisa los términos de OpenAI y Anthropic antes de usar la app? | **Sí**, con cuentas a nombre de VG y sin uso de los datos para entrenar. |
-
-**Con datos de los primeros meses**
-
-| # | Pregunta | Recomendación |
-| --- | --- | --- |
-| 6 | ¿Quien entra, sale o cambia de zona a mitad de mes se mide por sus días activos? | **Sí**; el primer mes de alguien nuevo, al 50 %, configurable. |
-| 7 | ¿La cobertura de cuentas se mide sobre 15 a 20 cuentas objetivo por ejecutiva por trimestre, en lugar de todo su territorio cada mes? | **Sí**: la directora marca las cuentas objetivo; por defecto las primeras por camas, quirófanos y compras SECOP. |
-
-Las respuestas van a `docs/decisiones/2026-10-XX-app-de-visita.md` y la spec pasa a "aprobada por el dueño"
-antes de abrir la Fase 0.
+- Piloto de desarrollo en OpMap, sin Odoo ni VMO; sin pruebas piloto; el importador de VMO se deshabilita.
+- App móvil nativa; voz con Whisper o similar; el audio se desecha al transcribir; confirmación breve.
+- Visita médica e institucional con subtipos (compras, químico farmacéutico, autorizaciones, programación,
+  otro); la facturación es un dato de la EPS.
+- Todo lo que mide es configurable y **con rangos de fechas**: un cambio no reescribe el pasado.
+- Valores iniciales de conteo: Compras y Autorizaciones suman a la meta institucional con peso 1; Químico
+  farmacéutico, Programación y Otro, solo seguimiento.
+- Calendario con festivos de Colombia, días de empresa y por ciudad; días libres antes o hasta 24 horas
+  después (plazo configurable), con aprobación en bloque de la directora o recursos humanos.
+- Una sola tabla de cuentas con sede principal y sedes; clínica, cliente o las dos; consultorios como IPS.
+- Médicos completos o no se crean; visitantes del médico por línea y ciudad.
+- Presencial bloqueada lejos de la sede; mismo día y tiempo real; telefónica por persona.
+- Sin señal: la app guarda la visita con el punto y la hora del sitio y la envía sola al volver la señal,
+  antes de medianoche.
+- Sede nueva creada por la ejecutiva: suma al instante si trae código de habilitación del REPS que cruza con
+  el municipio; si no, cuando data manager la confirma.
+- Topes iniciales (configurables): una visita por médico al día; telefónicas hasta 1 de las 6 diarias, solo
+  llamada o videollamada.
+- Legal entrega el aviso de tratamiento de datos de médicos y contactos y revisa los términos de OpenAI y
+  Anthropic, con cuentas a nombre de VG y sin uso de los datos para entrenar.
+- Quien entra, sale o cambia de zona a mitad de mes se mide por sus días activos (el primer mes de alguien
+  nuevo al 50 %, configurable); la cobertura de cuentas se mide sobre cuentas objetivo que marca la directora
+  (por defecto las primeras por camas, quirófanos y compras SECOP).
