@@ -1,12 +1,10 @@
-# Spec: app de visita de OpMap (reemplazo de VMO)  (2026-10-12)
+# Spec: app de visita de OpMap (reemplazo de VMO)  (2026-10-12, v2)
 
-**Estado**: borrador para el dueño (2026-10-12)
+**Estado**: borrador v2 en revisión con el dueño (2026-10-12). La v1 asumía que "la unidad de visita es la
+llegada a una IPS con sus interlocutores"; el dueño la corrigió el mismo día y esta v2 parte de su modelo:
+se visitan **médicos**, **compras** de clínicas y clientes (EPS, operadores logísticos) y, aparte, se hacen
+**gestiones** sobre negocios ya ganados (programación de cirugía, quirófano, cartera), que no son visitas.
 
-Base: propuesta "Campo" (la Ejecutiva Comercial con el celular en la mano), la mejor valorada por los dos
-jueces (64 puntos sobre 80, frente a 59 de "Dirección" y 54 de "Datos"). Se le injertan las piezas que los
-jueces rescatan de las otras dos: de "Dirección", medir contra la versión vigente del Anexo A y cruzar
-visita con compras SECOP y giros ADRES; de "Datos", los dos arreglos técnicos previos obligatorios, los
-festivos calculados en código, la tabla de equivalencias con VMO y el alcance por persona en la API.
 Documento de referencia de VMO: `docs/referencias/2026-10-11-vmo-2026-documentacion-funcional.md`.
 
 ---
@@ -20,485 +18,325 @@ farmacéuticos. El dueño, el 2026-10-12:
 > laboratorios y como tienen muchos clientes todo el tiempo lo están actualizando según la necesidad de
 > cada cliente."
 
-Tres cifras del recorrido de VMO del 2026-10-11 lo muestran:
+Tres cifras del recorrido de VMO del 2026-10-11: **25 módulos de configuración**, **28 reportes** y **153
+solicitudes de alta y baja más unas 800 solicitudes de días sin resolver** desde agosto de 2025 (los dos
+circuitos de aprobación están muertos y la cuota nunca se ajusta por ausencias).
 
-| Cifra | Qué significa para VG |
-| --- | --- |
-| **25 módulos de configuración** (radio por usuario, parrilla promocional, inventario de muestras, campos dinámicos, bricks, menús por rol...) | Nadie en VG sabe hoy si el radio de 500 m bloquea o solo advierte; dos ejecutivas no tienen validación, una tiene 200 m y dos tienen cuota 0. |
-| **28 reportes** y listas de 36 columnas | Los indicadores que importan quedan enterrados; el "cumplimiento de frecuencia" da 3,5 % porque la frecuencia por defecto es 10 visitas por médico al mes. |
-| **153 solicitudes de alta/baja y unas 800 solicitudes de días autorizados sin resolver** desde agosto de 2025 | Los dos circuitos de aprobación están muertos: el panel está desactualizado y la cuota nunca se ajusta por ausencias. |
+Lo que VMO no distingue y VG necesita medir (dueño, 2026-10-12):
 
-Además, VMO modela la visita del laboratorio: una fila por médico. En VG, una llegada a una clínica donde se
-ve a compras, al ortopedista y a instrumentación serían tres visitas distintas. Y VMO no sabe nada de lo que
-OpMap ya sabe: cuál es el territorio de cada Ejecutiva Comercial (Anexo A), qué líneas lleva, cuántas camas
-y quirófanos tiene cada IPS, qué compra por SECOP y cuánto recibe de la ADRES.
+- **Generar demanda es visitar al médico** para que ordene el producto al paciente, y **visitar a compras**
+  para que la clínica o el cliente nos compre a nosotros. Eso es una visita.
+- **Gestionar un negocio ya ganado** es otra cosa: ir a hablar con la jefe que programa, con quirófano, con
+  cartera, para que el paciente se opere y la venta se materialice. Es necesario, pero no es una visita, y
+  hay que saber cuánto del tiempo de cada ejecutiva se va en eso ("99 % visitando a la jefe de central").
+- Las metas son **por tipo de tercero** (hoy: 6 médicos y 1 institución por día) y tienen que poder
+  fijarse **por zona y por ejecutiva**: a una zona pequeña no se le puede exigir lo mismo que a Bogotá.
+- Las ausencias **sí se solicitan**, y quien aprueba necesita **aprobación masiva**: la directora gestiona
+  cerca de 20 personas.
 
-OpMap tiene hoy un módulo `/visits` que solo importa el Excel mensual de VMO (7.033 visitas de enero a
-octubre de 2025, 11 ejecutivas) y lo pinta en un mapa de calor. Esta spec lo convierte en la app de visita
-propia.
+La base de contactos ya existe y es una sola: **Odoo**. Allí están 2.359 profesionales de la salud (1.325
+ortopedistas, 192 neurocirujanos, 310 cirujanos generales, 163 fisiatras…) con especialidad, validación
+ReTHUS y **ejecutiva asignada**; 516 IPS; 315 clientes; 13 EPS; y las personas de contacto de cada empresa
+con su cargo (jefe de compras, programador de cirugía, coordinadora de sala de cirugía, jefe de almacén,
+central de esterilización…). Odoo también lleva las **ausencias del personal** (módulo Ausencias: en 2026 van
+más de 270 solicitudes aprobadas de vacaciones, citas médicas, día de familia, sufragio…), con solicitud de
+la empleada y aprobación, incluida la masiva.
 
-## 2. Principios de diseño
+OpMap tiene hoy un módulo `/visits` que solo importa el Excel mensual de VMO (7.033 visitas de 2025) y lo
+pinta en un mapa de calor. Esta spec lo convierte en la app de visita propia.
 
-1. **Una visita se reporta en una sola hoja y en 4 toques** en el caso normal: IPS preseleccionada por GPS,
-   "Llegué", interlocutores, Guardar. Todo lo demás es opcional. **O se dicta por voz al salir**: la
-   ejecutiva habla, la app transcribe, propone los campos y ella confirma en un toque (requisito del dueño,
-   2026-10-12: "Recuerda lo de reportar con voz").
-2. **La unidad es la llegada a una IPS**, con los interlocutores vistos (compras, cirujano, instrumentación...)
-   y las líneas tratadas. No una visita por médico.
-3. **El territorio ya existe**: "mi territorio" es el Anexo A vigente de la ejecutiva. No hay panel que
-   construir, ni altas, ni bajas, ni reasignaciones que aprobar.
-4. **Sin aprobaciones.** Los días no laborados los anota dirección y descuentan de inmediato. Lo único que
-   requiere revisión es una lista semanal de avisos (visitas fuera de territorio, lejos de la IPS, tardías),
-   que no bloquea nada.
-5. **Medir, no castigar.** El radio de 500 m, la visita virtual, el reporte tardío y la visita fuera de
-   territorio se guardan siempre y se ven como indicadores de calidad; nunca impiden reportar.
+## 2. Principios
 
-Y tres restricciones del repo que no se negocian: cero llamadas a Google Maps (distancias por Haversine),
-estética del mapa intocable (el flujo de visita es una lista, no un mapa) y terminología visible "Ejecutivo
-Comercial", "Zona", "IPS", "Interlocutor" (nunca "KAM", "representante" ni "panel").
+1. **Tres cosas distintas, tres registros**: visita a médico, visita a institución (compras) y gestión de
+   negocio. La app decide cuál es según a quién se vio; la ejecutiva no puede registrar una "visita" con la
+   jefe de quirófano.
+2. **Odoo es el maestro de terceros**. Médicos, IPS, clientes, EPS, operadores logísticos y sus personas de
+   contacto se leen de Odoo; OpMap no crea ni duplica terceros. Lo que OpMap añade es lo que sabe de cada
+   IPS (REPS, compras SECOP, giros ADRES, territorio).
+3. **Reportar en pocos toques o dictando**. Una hoja: ¿a quién viste?, ¿dónde?, ¿cómo fue?, ¿qué sigue? Y
+   "Dictar": la ejecutiva habla, la app transcribe, propone los campos y ella confirma en un toque.
+4. **Metas por tipo de tercero, por zona y por ejecutiva**, ajustadas por ausencias aprobadas. Sin "cuota
+   de frecuencia" ni categorías A/B/C.
+5. **Medir, no castigar.** Radio, virtual, tardía y fuera de territorio se guardan siempre y se ven como
+   calidad del reporte; nada bloquea el registro.
+
+Restricciones del repo que no se negocian: cero llamadas a Google Maps (distancias por Haversine, GPS solo
+del teléfono), estética del mapa intocable, terminología visible "Ejecutivo Comercial", "Zona", "IPS",
+"Médico", "Cliente", "Contacto" (nunca "KAM", "representante" ni "panel").
 
 ## 3. Resultado esperado por rol
 
-**Ejecutiva Comercial (celular, también funciona en escritorio)**
-- Abre OpMap en el celular y ve "Hoy": sus IPS del Anexo A ordenadas por distancia, cuántas visitas lleva en
-  el día y un botón grande "Reportar visita".
-- Reporta una visita presencial en 4 toques; una virtual sin GPS; una no efectiva con motivo y fecha de
-  reintento; todo en la misma hoja.
-- O la **dicta al salir**: toca "Dictar", cuenta qué pasó ("estuve con compras y con el ortopedista, les
-  mostré PerOssal, quieren cotización la otra semana"), y la app le muestra la visita ya armada
-  (interlocutores, líneas, efectiva, nota y próximo paso) para confirmarla en un toque o corregir un chip.
-- Ve "Mi territorio" (IPS sin visitar este mes primero, con último contacto y tamaño) y "Mis números"
-  (cobertura del Anexo A, efectivas vs cuota, ritmo del mes).
-- Puede visitar una IPS fuera de su territorio o un lugar que no es sede REPS (consultorio privado) sin
-  pedir permiso: queda marcado y cuenta como visita, no como cobertura.
-- Edita o borra sus propias visitas solo el mismo día.
+**Ejecutiva Comercial (celular; también en escritorio)**
+- Abre "Hoy": sus médicos e instituciones cerca (GPS, Haversine), cuántas visitas a médico y a institución
+  lleva en el día frente a su meta, los próximos pasos vencidos y el botón "Reportar".
+- Reporta en una hoja: busca al médico o a la institución (la lista prioriza lo cercano y lo asignado a
+  ella), elige dónde fue (consultorio, IPS, otro lugar con GPS), presencial o virtual, efectiva o no, líneas,
+  nota o dictado, próximo paso. Si la persona es de quirófano, programación, cartera o almacén, la app lo
+  registra como **gestión**, con su propio tipo (programación de cirugía, acompañamiento en sala, cartera,
+  entrega, capacitación, autorización, otro).
+- Si el médico no tiene dirección o está en un sitio nuevo, puede **guardar su GPS como dirección del
+  médico** (consultorio, IPS). Así el directorio se completa sin Google.
+- Pide sus ausencias donde ya lo hace (ver decisión 2) y ve su meta ajustada.
+- Ve "Mis números": médicos del mes frente a meta, instituciones frente a meta, cobertura de sus médicos
+  asignados, mezcla visita/gestión, médicos sin ver en 60 días.
 
-**Líder de línea**
-- Ve en escritorio la tabla "Equipo" de las ejecutivas de su línea: cobertura del Anexo A de la línea,
-  efectivas vs cuota, profundidad de cuenta, indicadores de calidad.
-- Ve en la ficha de cada IPS las visitas de su línea junto a las compras SECOP y giros ADRES del mismo
-  periodo.
+**Líder de línea**: tabla "Equipo" de su línea (metas, cumplimiento, cobertura, mezcla, calidad) y, en la
+ficha de cada IPS, visitas y gestiones de su línea junto a compras SECOP y giros ADRES.
 
-**Directora comercial**
-- Todo lo del líder, para todas las líneas y ejecutivas.
-- Fija la cuota mensual por ejecutiva y registra los días no laborados (sin solicitud ni aprobación).
-- Recibe la lista semanal de avisos y puede crear o corregir visitas de días anteriores dejando rastro.
+**Directora comercial**: todo lo anterior para todas; fija metas por zona y excepciones por ejecutiva;
+aprueba ausencias en bloque (ver decisión 2); corrige visitas de días anteriores dejando rastro; lista
+semanal de avisos (fuera de territorio, lejos, tardías, mezcla desbalanceada).
 
-**Data manager**
-- Sigue importando el Excel de VMO durante la transición para las ejecutivas que aún reportan allí.
-- Mantiene la tabla de equivalencias "nombre en VMO → Ejecutiva Comercial" y marca en qué sistema reporta
-  cada persona.
-- Puede vincular a una sede REPS un "lugar no listado" que una ejecutiva reportó.
+**Data manager**: mantiene la sincronización con Odoo (estado, errores, terceros sin cruce con IPS de OpMap),
+sigue importando el Excel de VMO durante la transición, mantiene la tabla de equivalencias de nombres de VMO.
 
 ## 4. Alcance del MVP (lista cerrada)
 
-1. Pantalla **Hoy** (celular): con el GPS del teléfono, IPS del Anexo A ordenadas por distancia (Haversine en
-   el cliente), contador del día, pendientes de la semana y botón "Reportar visita".
-2. **Reportar visita presencial** en una hoja: IPS preseleccionada (la más cercana, cambiable con búsqueda),
-   "Llegué" captura GPS y hora, chips de interlocutor (Compras, Cirujano, Instrumentación, Dirección/Gerencia,
-   Almacén/Farmacia, Otro), chips de mis líneas (preseleccionadas si llevo una sola), Efectiva/No efectiva,
-   nota opcional, Guardar.
-3. **Reportar visita virtual**: misma hoja, sin GPS, buscando la IPS en mi territorio; queda marcada
-   "virtual".
-4. **Visita no efectiva** con 4 motivos (no estaba, no me atendió, cerrado, reprogramada) y fecha opcional de
-   reintento.
-5. **Cirujano como interlocutor con especialidad** (ortopedia, neurocirugía, columna, deportiva, otra). Sin
-   nombre en el MVP (ver decisión 6), sin directorio, sin aprobación.
-6. **Acompañamiento en cirugía** como un chip más en la misma hoja (soporte técnico en sala): cuenta como
-   visita efectiva con sus interlocutores; no es una pantalla aparte.
-7. **Mi territorio**: IPS del Anexo A agrupadas en "Sin visitar este mes", "Visitadas" y búsqueda por nombre
-   y municipio; ordenadas por camas y quirófanos del REPS (grande primero) y, si hay, compras SECOP de mis
-   líneas. Toque para reportar.
-8. **Mis números**: cobertura del Anexo A, efectivas vs cuota ajustada, ritmo ("vas al día" / "te faltan n"),
-   % virtual, IPS sin visitar en más de 60 días.
-9. **Otra IPS** (cualquier sede activa de `hospitals`, marcada fuera de territorio) y **Lugar no listado**
-   (nombre + GPS, para consultorios privados y sitios que no son sede REPS; no crea IPS ni entra en la cola de
-   pendientes).
-10. **Equipo** (escritorio, dirección y líderes): tabla por ejecutiva y línea con los 6 KPIs, filtro de mes y
-    línea, lista semanal de avisos, exportación CSV.
-11. **Metas** (dirección): cuota mensual por ejecutiva con "copiar del mes anterior" y días no laborados.
-12. **Ficha de IPS** (existente): pestaña "Visitas" con historial de visitas de la app junto a compras SECOP
-    por línea y giros ADRES del mismo periodo.
-13. **Mapa de calor existente**: filtro de fuente "App" | "VMO histórico" y por ejecutiva. Sin capas,
-    marcadores ni colores nuevos.
-14. **Convivencia con VMO**: importador conservado, corregido para no borrar visitas de la app, con tabla de
-    equivalencias y marca de sistema por ejecutiva.
-15. **Reporte por voz** (primer nivel, no "después del MVP"): botón "Dictar" en la misma hoja. La app graba
-    (MediaRecorder), transcribe en el navegador (Web Speech API: Chrome en Android, Safari en iOS; costo 0)
-    y, con la transcripción, un modelo de lenguaje (API de Claude, `claude-haiku-5-5`) propone los campos
-    de la visita: interlocutores con especialidad, líneas tratadas, efectiva/no efectiva y motivo, nota
-    resumida y próximo paso con fecha. La ejecutiva ve la propuesta como chips ya marcados y confirma en un
-    toque o corrige. **Nada se guarda sin confirmar.** Se guardan la transcripción (`visits.transcript`) y
-    el audio en un bucket privado de Supabase Storage (`visit-audio`, 12 meses). Si el navegador no soporta
-    dictado o no hay conexión, el botón se oculta y queda la hoja de toques.
+1. **Terceros desde Odoo** (lectura, diaria y "Actualizar ahora", en el panel "Fuentes de datos"): médicos
+   (nombre, especialidades, ReTHUS vigente, ciudad, ejecutiva asignada, direcciones), IPS y clientes
+   (NIT, nombre, cruce con `hospitals` por NIT), EPS y operadores logísticos, y personas de contacto con
+   cargo. Nunca se sincroniza la cédula de una persona ni datos de pacientes.
+2. **Hoy** (celular): cercanos por GPS, contadores del día frente a meta, próximos pasos, "Reportar".
+3. **Reportar visita a médico**: médico (buscador con cercanos y asignados primero), lugar (dirección
+   conocida o nueva con GPS), presencial/virtual, efectiva/no efectiva con motivo, líneas, nota o dictado,
+   próximo paso.
+4. **Reportar visita a institución**: cliente o IPS, persona de compras o dirección (o "sin contacto"),
+   mismos campos.
+5. **Registrar gestión**: IPS o cliente, contacto (quirófano, programación, esterilización, almacén,
+   cartera, facturación, autorizaciones), tipo de gestión, nota o dictado, próximo paso. Cuenta aparte.
+6. **Dictar** (voz) en los tres registros: graba, transcribe en el navegador, propone campos con la API de
+   Claude, confirmación en un toque; audio y transcripción guardados.
+7. **Guardar GPS como dirección** del médico o del contacto (propuesta a Odoo: se escribe en OpMap y se
+   envía a Odoo como dirección nueva del tercero, si el dueño lo autoriza; si no, queda solo en OpMap).
+8. **Mis números** y **Equipo** (escritorio): 6 KPIs (sección 6), filtros por mes, línea y zona, CSV.
+9. **Metas**: por zona (valor por defecto) y por ejecutiva (excepción), para médicos/día e instituciones/día;
+   "copiar del mes anterior".
+10. **Ausencias**: lectura de las aprobadas (decisión 2) y ajuste de la meta; la directora ve pendientes y
+    aprueba en bloque desde donde se decida.
+11. **Ficha de IPS**: pestaña "Visitas y gestiones" junto a compras SECOP y giros ADRES.
+12. **Mapa de calor existente**: filtro de fuente (App | VMO histórico), tipo (médico | institución |
+    gestión) y ejecutiva. Sin capas, marcadores ni colores nuevos.
+13. **Convivencia con VMO**: importador conservado y corregido (no borra visitas de la app), equivalencias
+    de nombres, marca de sistema por ejecutiva.
 
-### Después del MVP (se decide con datos del piloto)
+### Después del MVP
+Modo sin señal (PWA), "Mi semana" (repartir pendientes en los días), vínculo de cada gestión con el caso de
+paciente de Odoo (GCP) para cerrar gestión → cirugía → venta, ventas de Odoo por médico, priorización
+automática de a quién visitar, visitas en el mapa por ejecutiva (requiere autorización: estética del mapa).
 
-- **Sin señal** (PWA instalable, cola local, sincronización idempotente): el MVP exige conexión; el
-  `client_id` ya queda preparado para la cola.
-- **Mi semana**: repartir IPS pendientes en los días L-V (sin horas). Planear nunca será requisito.
-- **Directorio de cirujanos**: nombre y vínculo a IPS, con aviso de privacidad del área legal; sugerencias
-  desde SECOP (851 médicos con especialidad, fuente pública, por hash).
-- **Ventas Odoo** por NIT de IPS y línea para cerrar visita → venta en IPS privadas.
-- **Priorización automática** de a quién visitar (camas, giros ADRES, compras SECOP, días sin visita).
-- Visitas por ejecutiva en el mapa: solo con autorización explícita del dueño (estética del mapa).
+### Qué se conserva de VMO y qué se descarta
 
-### Qué se conserva de VMO / qué se descarta y por qué
-
-| Se conserva | Cómo queda en OpMap |
+| Se conserva | Cómo queda |
 | --- | --- |
-| Reporte con GPS del dispositivo y distancia al punto visible para dirección | "Llegué" captura GPS y hora; `distance_m` por Haversine contra `hospitals.lat/lng` |
-| Presencial / virtual; la virtual no valida ubicación | Igual; la virtual se mide aparte como indicador de calidad |
-| Efectiva / no efectiva con motivo y fecha de reintento | 4 motivos (VMO tiene 15) |
-| Reportar sin agendar | La agenda no existe en el MVP; nunca será requisito |
-| Mes como periodo, días hábiles con festivos descontados, cuota mensual | Festivos calculados en código (VMO los carga a mano y le falta el 2 de noviembre) |
-| Cobertura = visitados ÷ miembros del panel | Misma fórmula sobre el Anexo A vigente, que sí es la meta real |
-| Días autorizados que ajustan la cuota | Días no laborados que anota dirección, sin solicitud ni aprobación |
-| Reportar el mismo día | Igual; el día siguiente queda marcado "tardío"; después solo dirección |
-| Supervisores ven las visitas del equipo | Dirección todo; líder de línea solo su línea |
-| Una sola hoja de reporte | Igual, con los chips en lugar de pestañas |
-| Exportar CSV | Visitas y tabla Equipo |
+| Visita a médico y a institución con GPS, presencial o virtual, efectiva o no con motivo | Igual, en una hoja; la virtual no valida ubicación y se mide aparte |
+| Metas por tipo de tercero (hoy 6 médicos + 1 institución al día) | Metas por zona y por ejecutiva, ajustadas por ausencias aprobadas |
+| Solicitud y aprobación de ausencias | Se conserva, con aprobación masiva (decisión 2) |
+| Médicos con varias direcciones | Direcciones de Odoo más las que la ejecutiva guarde con GPS |
+| Reportar sin agendar; reportar el mismo día | Igual; el día siguiente queda "tardío"; después solo dirección |
+| Supervisores ven el equipo | Dirección todo; líder solo su línea |
+| Exportar CSV | Visitas, gestiones y tabla Equipo |
 
 | Se descarta | Por qué |
 | --- | --- |
-| Una visita por médico, frecuencia 10 por médico, categorías A/B/C, cuota de frecuencia | En VG la unidad es la IPS con sus interlocutores; el indicador de frecuencia da 3,5 % y no gestiona nada |
-| Material promocional, muestras, inventario, despachos, "Entrega de material" | Vacíos hoy y ajenos a implantes |
-| Parrilla promocional, ayudas visuales, productos por marca | Las líneas de negocio ya son el catálogo |
-| Operaciones (altas, bajas, reasignaciones, reactivaciones) | 153 pendientes demuestran que no se usa; la IPS viene del REPS y la cobertura la decide OpMap |
-| Solicitud y aprobación de días autorizados con 14 motivos | 800 sin resolver; dirección anota y descuenta |
-| Agenda a 30 días en medias horas, ruteros, modo planeación, "Visita rápida" como vista aparte | Todo cabe en "Hoy", "Mi territorio" y, después, "Mi semana" |
-| Panel potencial, farmacias, pacientes, farmacovigilancia, cartera, transferencia de valor, cumpleaños, e-learning, cronómetro, "Solicitar asistencia" | No son el negocio de VG |
-| Hábeas Data con foto en cada visita | La IPS es persona jurídica; para cirujanos, aviso único fuera de la visita cuando legal lo entregue |
-| 28 reportes, 25 módulos de configuración, parámetros por país y por usuario | Un tablero de 6 KPIs y un radio único para todas |
-| Ubicación en tiempo real, envío cada 5 minutos, "Reportar ubicación" | Solo se captura GPS al tocar "Llegué" (confianza del equipo) |
-| Comentario obligatorio, tope del 30 % de virtuales, nota obligatoria en virtual | Castigan en vez de medir; empujan a subreportar |
-| 33 especialidades, "Visita Médica / Comercial" como tipo de actividad | 5 especialidades; la actividad se deduce de los interlocutores y el chip de cirugía |
+| Frecuencia 10 por médico, categorías A/B/C, "cumplimiento de frecuencia" | Da 3,5 % y no gestiona; las metas son por tipo de tercero y por persona |
+| Operaciones de altas, bajas, reasignaciones | El maestro es Odoo; 153 pendientes muestran que la bandeja no se usa |
+| Material y muestras, inventario, parrilla, ayudas visuales, productos por marca | Vacíos hoy y ajenos a implantes; las líneas ya son el catálogo |
+| Agenda a 30 días en medias horas, ruteros, "visita rápida" aparte | Cabe en "Hoy" y, después, en "Mi semana" |
+| Farmacias, pacientes, farmacovigilancia, cartera de crédito, transferencia de valor, cumpleaños, e-learning, cronómetro | No son el negocio de VG; pacientes y cartera viven en Odoo |
+| 28 reportes y 25 módulos de configuración | 6 KPIs, metas y un radio único |
+| Ubicación en tiempo real cada 5 minutos | Solo GPS al reportar |
+| Comentario obligatorio, tope duro de virtuales | Castigan; se miden como calidad |
 
 ## 5. Modelo de datos
 
 ### Qué se reutiliza tal cual
-- `hospitals` (783 sedes REPS activas con `lat/lng`, `reps_beds`, `quirofanos`, `service_flags`): la IPS de la
-  visita siempre es una fila de aquí.
-- `executives` (la persona), `executive_lines` (sus líneas), `business_lines`.
-- `kams` (la zona; `visits.kam_id` sigue siendo la zona de la IPS, derivada de `assignments`), `coverage`.
-- `territory_snapshots` (por `line_id`, `executive_id`, `version_label`; `annex_a` jsonb): "mi territorio"
-  es la unión de los `annex_a` de la última versión de cada línea de la ejecutiva. Se resuelve en
-  TypeScript reutilizando `web/lib/territory.ts`, no en una vista SQL sobre jsonb. Si una línea no tiene
-  snapshot, se usa la asignación en vivo y se avisa en pantalla.
-- SECOP (`secop_contratos` y vistas por línea) y giros ADRES para la pestaña "Visitas" de la ficha.
-- `visits` y `visit_imports`: se amplían, no se reemplazan, para que el mapa de calor,
-  `/api/visits/filtered`, `/api/visits/stats` y el histórico sigan funcionando.
+`hospitals` (IPS con REPS, servicios, capacidad, SECOP, ADRES), `executives` (+ `odoo_employee_id`, ya
+existe), `executive_lines`, `business_lines`, `kams` (zonas), `territory_snapshots` (Anexo A),
+`fuentes_estado`, `visits` y `visit_imports` (se amplían, no se reemplazan).
 
-### `visits` (existente) — columnas nuevas
+### Terceros (espejo de Odoo, solo lectura; RLS sin políticas, solo `service_role`)
 
-| Columna | Tipo | Para qué |
+| Tabla | Columnas clave | Origen en Odoo |
 | --- | --- | --- |
-| `source` | text NOT NULL DEFAULT 'vmo_import' CHECK ('vmo_import' \| 'app') | Separar el histórico de VMO de las visitas nativas en todo cálculo |
-| `executive_id` | uuid NULL FK `executives` | La persona que visitó (hoy solo existe `kam_id` = zona) |
-| `client_id` | uuid NULL UNIQUE | Idempotencia: el teléfono genera el id; reenviar no duplica |
-| `checked_in_at` | timestamptz NULL | Hora de "Llegué" en el teléfono (no la de envío) |
-| `distance_m` | integer NULL | Haversine servidor entre GPS y `hospitals.lat/lng`; NULL en virtual o sin coordenadas de la IPS |
-| `gps_accuracy_m` | numeric NULL | Precisión que reportó el GPS; explica los falsos "lejos" dentro de edificios |
-| `hospital_match` | text NOT NULL DEFAULT 'nearest' CHECK ('declared' \| 'nearest' \| 'none') | 'declared' en la app (la ejecutiva eligió la IPS); 'nearest' en el histórico (IPS más cercana a 5 km) |
-| `activity_kind` | text NOT NULL DEFAULT 'visita' CHECK ('visita' \| 'acompanamiento_cirugia') | El chip de acompañamiento en cirugía |
-| `failure_reason` | text NULL CHECK ('no_estaba' \| 'no_atendio' \| 'cerrado' \| 'reprogramada') | Motivo de la no efectiva |
-| `retry_date` | date NULL | Fecha de reintento |
-| `note` | text NULL (≤ 500) | Nota opcional |
-| `out_of_territory` | boolean NOT NULL DEFAULT false | Calculado al guardar contra el Anexo A vigente |
-| `place_name` | text NULL | "Lugar no listado": nombre libre cuando `hospital_id` es NULL |
-| `reported_late` | boolean NOT NULL DEFAULT false | Guardada después del día de la llegada |
-| `input_mode` | text NOT NULL DEFAULT 'toques' CHECK ('toques' \| 'voz' \| 'importada') | Cómo se reportó; sirve para medir la adopción del dictado |
-| `transcript` | text NULL (≤ 4000) | Transcripción del dictado tal como la entendió el navegador |
-| `audio_path` | text NULL | Ruta del audio en el bucket privado `visit-audio` (12 meses; se borra después) |
-| `next_step` | text NULL (≤ 300) | Próximo paso que propuso el dictado o escribió la ejecutiva |
-| `next_step_date` | date NULL | Fecha del próximo paso (alimenta "pendientes de la semana" en Hoy) |
-| `created_by`, `updated_by` | uuid NULL FK `users` | Quién creó y quién corrigió |
-| `updated_at`, `deleted_at` | timestamptz NULL | Corrección y borrado lógico (nunca borrado físico de visitas de la app) |
+| `terceros` | `odoo_id` PK, `tipo` CHECK ('medico' \| 'ips' \| 'cliente' \| 'eps' \| 'operador_logistico' \| 'otro'), `nombre`, `nit` (solo empresas), `hospital_id` FK `hospitals` (cruce por NIT y sede), `especialidades` text[], `rethus_vigente` bool, `prescribe` bool, `ciudad`, `executive_id` FK (desde `user_id` de Odoo → `executives`), `activo`, `odoo_write_date`, `synced_at` | `res.partner`: `health_professional`, `health_provider_institution`, `customer`, `health_insurance_provider`, tags, `specialization_ids`, `rethus_status`, `user_id`, `vat` (solo `is_company`) |
+| `tercero_contactos` | `odoo_id` PK, `tercero_id` FK, `nombre`, `cargo_texto` (como está en Odoo), `rol` CHECK ('compras' \| 'direccion' \| 'direccion_medica' \| 'programacion_quirofano' \| 'esterilizacion' \| 'instrumentacion' \| 'almacen_farmacia' \| 'cartera_facturacion' \| 'autorizaciones' \| 'otro') normalizado por reglas desde `cargo_texto` (editable en OpMap) | personas con `parent_id` y `function` |
+| `tercero_direcciones` | `id`, `tercero_id`, `odoo_id` NULL, `etiqueta` ('consultorio' \| 'ips' \| 'sede' \| 'otra'), `hospital_id` NULL, `direccion`, `ciudad`, `lat`, `lng`, `origen` ('odoo' \| 'gps_visita'), `created_by` | dirección principal y contactos tipo `delivery`/`other`; las de `gps_visita` las crea la ejecutiva |
 
-Cambios de restricciones: `lat`/`lng` pasan a NULL permitido con CHECK (si `source='app'` y
-`contact_type='Visita presencial'` entonces `lat` y `lng` NOT NULL); `hospital_id` NULL solo si
-`place_name` no es NULL. Índice UNIQUE parcial `(executive_id, hospital_id, visit_date) WHERE source='app'
-AND hospital_id IS NOT NULL AND deleted_at IS NULL`: una visita por ejecutiva, IPS y día; si vuelve a la
-misma IPS el mismo día, la app abre la visita existente y añade interlocutores (el segundo envío edita, no
-duplica). `visit_type` y `contact_type` conservan sus valores actuales; la app escribe 'Visita efectiva' o
-'Visita no efectiva' y 'Visita presencial' o 'Visita virtual'; 'Visita extra' solo llega por importación.
+Lo que **no** se sincroniza: cédula ni documento de personas, pacientes (`patient`), pagarés, cartera,
+datos de afiliación. El cruce IPS ↔ `hospitals` es por NIT (9 dígitos) y, si hay varias sedes, por la sede
+REPS vinculada; lo que no cruce aparece en "Fuentes de datos" para resolver a mano.
 
-### Tablas nuevas (todas con RLS activa sin políticas; acceso solo con `service_role` desde `lib/supabase-admin.ts`, patrón de Fase 2b)
+### Registros de la app
+
+**`visits` (existente) — columnas nuevas**: `source` ('vmo_import' | 'app'), `executive_id`, `client_id`
+UNIQUE (idempotencia), `kind` CHECK ('medico' | 'institucion' | 'gestion'), `tercero_id` FK `terceros`
+NULL, `contacto_id` FK `tercero_contactos` NULL, `direccion_id` FK `tercero_direcciones` NULL, `place_name`
+(lugar no listado), `gestion_tipo` CHECK ('programacion_cirugia' | 'acompanamiento_sala' | 'entrega' |
+'cartera' | 'capacitacion' | 'autorizacion' | 'otro') NULL, `checked_in_at`, `distance_m`,
+`gps_accuracy_m`, `failure_reason` ('no_estaba' | 'no_atendio' | 'cerrado' | 'reprogramada'),
+`retry_date`, `note`, `transcript`, `audio_path`, `input_mode` ('toques' | 'voz' | 'importada'),
+`next_step`, `next_step_date`, `out_of_territory`, `reported_late`, `created_by`, `updated_by`,
+`updated_at`, `deleted_at`. `hospital_id` sigue siendo la IPS donde ocurrió (si aplica).
+`visit_type` ('Visita efectiva' | 'Visita no efectiva') y `contact_type` ('Visita presencial' | 'Visita
+virtual') conservan sus valores para no romper el mapa de calor ni el histórico.
+
+CHECKs: `kind='medico'` exige `tercero_id` de tipo médico; `kind='institucion'` exige tercero IPS/cliente/EPS/
+operador; `kind='gestion'` exige `gestion_tipo`; presencial de la app exige `lat/lng`. `visit_lines`
+(`visit_id`, `line_id`) para las líneas tratadas.
 
 | Tabla | Columnas clave | Para qué |
 | --- | --- | --- |
-| `visit_lines` | `visit_id` FK ON DELETE CASCADE, `line_id` FK `business_lines`, PK ambas | Líneas tratadas en la visita; sustituye "productos promocionados"; necesaria para cobertura por línea y para el líder de línea |
-| `visit_contacts` | `visit_id` FK, `role` CHECK ('compras' \| 'cirujano' \| 'instrumentacion' \| 'direccion' \| 'almacen' \| 'otro'), `specialty` text NULL CHECK ('ortopedia' \| 'neurocirugia' \| 'columna' \| 'deportiva' \| 'otra') | Interlocutores vistos; sin nombre ni documento en el MVP (decisión 6) |
-| `executive_quotas` | `executive_id`, `year`, `month`, `quota` int ≥ 0, `set_by`, `set_at`; UNIQUE (ejecutiva, año, mes) | Cuota mensual fijada por dirección; la cuota ajustada no se guarda, se calcula |
-| `executive_non_working_days` | `executive_id`, `date`, `fraction` numeric CHECK (0.5 \| 1), `reason` CHECK ('vacaciones' \| 'incapacidad' \| 'capacitacion' \| 'congreso' \| 'administrativo' \| 'otro'), `note`, `created_by`; UNIQUE (ejecutiva, fecha) | Días no laborados que anota dirección; descuentan cuota de inmediato |
-| `company_calendar_exceptions` | `date` PK, `kind` CHECK ('non_working' \| 'working'), `label` | Solo días de empresa (24 y 31 de diciembre, día de la familia). Los festivos nacionales NO van en tabla |
-| `vmo_representantes` | `vmo_name` text PK (columna "Representante" del Excel, normalizada), `executive_id` FK NULL, `kam_id` FK NULL, `valid_from`, `valid_to` | Equivalencias para el importador y el backfill; reemplaza la búsqueda difusa actual |
+| `metas` | `scope` ('zona' \| 'ejecutiva'), `kam_id` NULL, `executive_id` NULL, `year`, `month`, `medicos_por_dia` numeric, `instituciones_por_dia` numeric, `set_by`; UNIQUE por ámbito y mes | Meta diaria por tipo; la de ejecutiva manda sobre la de su zona |
+| `ausencias` | `executive_id`, `fecha`, `fraccion` (1 \| 0,5), `motivo`, `origen` ('odoo' \| 'opmap'), `odoo_leave_id` NULL, `estado` ('pendiente' \| 'aprobada' \| 'rechazada'), `aprobada_por`, `aprobada_at` | Ajuste de la meta; ver decisión 2 |
+| `company_calendar_exceptions` | `date` PK, `kind` ('non_working' \| 'working'), `label` | Días de empresa; los festivos nacionales van en código (`holidays.ts`) |
+| `vmo_representantes` | `vmo_name` PK, `executive_id`, `kam_id`, vigencia | Equivalencias para el importador y el histórico |
 
-Columna nueva en `executives`: `visits_source` text NOT NULL DEFAULT 'vmo' CHECK ('vmo' | 'app'): en qué
-sistema reporta hoy cada persona. El importador ignora filas de ejecutivas en 'app'.
+Columna nueva en `executives`: `visits_source` ('vmo' | 'app').
 
-Festivos de Colombia: `web/lib/holidays.ts` (Ley 51 de 1983: fijos, trasladados al lunes y los que dependen
-de Pascua) con pruebas puras para 2026 y 2027 en `scripts/visits-check.ts`. Evita repetir el error de VMO
-(2 de noviembre ausente, 13 de julio sobrante) y no exige que nadie cargue 2027 a tiempo.
-
-Migración: `database/migrations/2026-10-XX_0800_visitas_app.sql` con rollback
-`2026-10-XX_9940_visitas_app_rollback.sql`. Se escribe en la Fase 1 y se aplica solo con autorización del
-dueño, en la misma ventana que el código. Incluye el backfill del histórico (ver sección 8).
-
-### Cómo nace el panel de médicos
-
-En el MVP **no hay panel de médicos**. El cirujano se registra como interlocutor con rol y especialidad, que
-es lo que necesita el KPI de profundidad de cuenta (¿vimos a compras y a un cirujano en esta IPS este
-trimestre?). Razones: el nombre de un médico ya es dato personal (Ley 1581 de 2012) y VMO tenía las 6
-plantillas de Hábeas Data vacías; el directorio de VMO trae 2.178 médicos con 166 duplicados y 99 sin
-representante; y la bandeja de altas y bajas es justo lo que el dueño quiere dejar atrás.
-
-Cuando el dueño decida añadir nombres (después del MVP y con el aviso de privacidad del área legal), el
-directorio nacería así, en este orden y sin bandeja de aprobación:
-1. **Sugerencias desde SECOP**: 851 médicos contratados por IPS públicas con especialidad, identificados por
-   el hash que ya existe (`proveedor_hash`), fuente pública. Se ofrecen como autocompletar al escribir el
-   interlocutor cirujano en esa IPS; nunca se copia el documento.
-2. **Texto libre `hospitals.doctors`**: la columna existe en la base y la usa la ficha de la IPS, pero no
-   aparece en las migraciones del repo; hay que verificarla antes de usarla como semilla. Si sirve, un
-   script `--dry-run` propone nombres por IPS para que la ejecutiva confirme o descarte.
-3. **Export de VMO**: solo si el dueño lo decide; el cruce con IPS es por nombre y ciudad, y lo que no cruce
-   no entra.
-Deduplicación por nombre normalizado + IPS, con aviso en pantalla; sin pedir cédula a la ejecutiva (digitarla
-para hashearla sigue siendo capturar el dato en el dispositivo).
+Migración `2026-10-XX_0800_visitas_app.sql` con rollback `9940`, escrita en la Fase 1 y aplicada solo con
+autorización del dueño en la misma ventana que el código. Incluye el backfill del histórico de VMO
+(`source='vmo_import'`, `kind` según la columna de tipo de panel del Excel si existe; si no, 'institucion').
 
 ## 6. KPIs (6)
 
-| # | KPI | Fórmula | De dónde sale |
+| # | KPI | Fórmula | Datos |
 | --- | --- | --- | --- |
-| 1 | **Cobertura del Anexo A** (mes, por ejecutiva y por línea) | IPS del Anexo A vigente con ≥ 1 visita efectiva en el mes ÷ IPS del Anexo A | `visits` (source 'app', efectiva, `hospital_id`), `visit_lines`, `territory_snapshots.annex_a` de la última versión de cada línea |
-| 2 | **Cumplimiento de cuota ajustada** y ritmo | efectivas ÷ (cuota × (días hábiles − días no laborados) ÷ días hábiles); ritmo esperado = hábiles transcurridos ÷ hábiles del mes | `executive_quotas`, `executive_non_working_days`, `holidays.ts`, `company_calendar_exceptions` |
-| 3 | **Profundidad de cuenta** (trimestre móvil) | IPS del Anexo A donde se vio a Compras Y a un Cirujano ÷ IPS del Anexo A | `visit_contacts.role` |
-| 4 | **IPS sin visita en más de 60 días** | Lista del Anexo A sin visita efectiva en 60 días, ordenada por camas, quirófanos y compras SECOP de la línea | `visits`, `hospitals.reps_beds`, `hospitals.quirofanos`, SECOP por línea |
-| 5 | **Calidad del reporte** (alertas, no castigos) | % virtuales; % presenciales con `distance_m` > 500 m; % tardías; % fuera de territorio. Alerta si virtuales > 30 % o lejanas > 10 % | `visits.contact_type`, `distance_m`, `reported_late`, `out_of_territory` |
-| 6 | **Visita → resultado** (trimestre, por IPS del Anexo A) | Visitas efectivas frente a compras SECOP de la línea y giros ADRES; dos listas: "visitadas sin compra" y "compran sin visita" | `visits`, `secop_contratos` por línea, giros ADRES |
-
-La cuota (KPI 2) es la segunda métrica, no la primera: VMO midió 140 visitas al mes por inercia y la
-cobertura quedó de adorno. En OpMap la primera pregunta es "¿qué parte de mi territorio he visto?".
+| 1 | **Cumplimiento de metas** (médicos y instituciones, por ejecutiva, mes) | visitas efectivas del tipo ÷ (meta diaria × días hábiles − ausencias aprobadas) y ritmo esperado = hábiles transcurridos ÷ hábiles del mes | `visits.kind`, `metas`, `ausencias`, `holidays.ts` |
+| 2 | **Cobertura** | médicos asignados a la ejecutiva (Odoo) con ≥ 1 visita efectiva en el trimestre ÷ asignados; IPS del Anexo A con ≥ 1 visita a compras en el mes ÷ Anexo A | `terceros.executive_id`, `territory_snapshots` |
+| 3 | **Mezcla visita / gestión** | registros de gestión ÷ (visitas + gestiones), por ejecutiva y mes, con alerta configurable (p. ej. > 50 %) | `visits.kind` |
+| 4 | **Sin contacto reciente** | médicos asignados sin visita efectiva en 60 días e IPS del Anexo A sin visita a compras en 90 días, ordenados por camas, quirófanos y compras SECOP de la línea | `visits`, `hospitals`, SECOP |
+| 5 | **Calidad del reporte** | % virtual, % presenciales a > 500 m, % tardías, % fuera de territorio (avisos, no castigos) | `visits` |
+| 6 | **Visita → resultado** | IPS del Anexo A visitadas en el trimestre frente a compras SECOP de la línea y giros ADRES: "visitadas sin compra" y "compran sin visita"; después del MVP, médicos visitados frente a casos de paciente en Odoo | `visits`, `secop_contratos`, giros ADRES, Odoo |
 
 ## 7. Reglas de negocio no deducibles del código
 
-**La visita**
-- Una visita = una Ejecutiva Comercial + una IPS (o lugar no listado) + un día, con 1..n interlocutores y
-  1..n líneas. Si vuelve a la misma IPS el mismo día, se edita la visita existente (se añaden
-  interlocutores); no hay "visita extra" para visitas nuevas.
-- La IPS siempre es una sede activa de `hospitals` (REPS). La ejecutiva no crea IPS: "Lugar no listado"
-  guarda nombre y GPS en la propia visita, cuenta como visita, no como cobertura, y no entra en la cola de
-  IPS pendientes (que se deriva de `hospitals` y dispararía gasto de Google). Data manager puede vincularla
-  después a una sede.
-- "Otra IPS" (sede activa fuera de mi Anexo A) se permite, se marca `out_of_territory`, cuenta como visita y
-  no suma cobertura.
-- Solo la visita efectiva suma a cuota y cobertura; la no efectiva se guarda con motivo y no suma.
+**Qué es visita y qué es gestión**
+- Visita a médico: tercero de tipo médico, en cualquiera de sus direcciones (consultorio, IPS) o en un
+  lugar nuevo con GPS. Cuenta para "médicos/día".
+- Visita a institución: IPS, cliente, EPS u operador logístico, con un contacto de rol compras, dirección,
+  dirección médica (o sin contacto). Cuenta para "instituciones/día".
+- Gestión: contacto de rol programación/quirófano, esterilización, instrumentación, almacén/farmacia,
+  cartera/facturación o autorizaciones, o cualquier registro marcado "gestión". **No cuenta como visita**;
+  se mide en el KPI 3 y en su propia lista. Si la ejecutiva elige un contacto de esos roles, la app pasa el
+  registro a gestión y lo dice en pantalla.
+- Una misma llegada a una clínica puede dejar dos registros (visita a compras y gestión con programación):
+  son dos cosas y se miden aparte.
+- Solo la visita efectiva suma a metas y cobertura; la no efectiva se guarda con motivo.
 
-**GPS y radio**
-- Presencial exige GPS al tocar "Llegué" (`enableHighAccuracy`, 15 s); se guardan `checked_in_at`,
-  `lat/lng`, `gps_accuracy_m` y `distance_m` por Haversine contra `hospitals.lat/lng`.
-- Radio único de 500 m para todas: más de 500 m **no bloquea**; marca "lejos de la IPS" y entra al KPI 5. El
-  GPS dentro de hospitales y sótanos da errores de 50-300 m; bloquear haría que dejaran de reportar en sitio.
-- Si la IPS no tiene coordenadas (sedes "sin ubicar"), `distance_m` queda NULL y no genera alerta.
-- Ninguna captura de ubicación fuera del toque "Llegué". No hay rastreo continuo.
+**Terceros**
+- OpMap no crea médicos, IPS ni clientes: si falta uno, se crea en Odoo (quien tenga permiso) y aparece en
+  la siguiente sincronización. "Lugar no listado" solo guarda nombre y GPS en el registro.
+- La ejecutiva ve primero sus médicos asignados y las IPS de su Anexo A, pero puede visitar cualquier
+  tercero: el registro queda `out_of_territory` y cuenta en metas, no en cobertura.
+- La dirección nueva con GPS se guarda como `gps_visita` y queda como propuesta para Odoo (decisión 1).
 
-**Visita virtual**
-- Sin GPS ni validación de distancia; se marca y cuenta aparte. Cuenta para la cuota (ver decisión 2) y se
-  vigila con el KPI 5. Sin nota obligatoria ni tope duro.
+**GPS y radio**: presencial exige GPS al reportar (`enableHighAccuracy`, 15 s); radio único de 500 m que
+solo avisa; sin coordenadas conocidas del lugar no hay alerta; ninguna captura fuera del toque de reportar.
 
-**Plazo para reportar**
-- La fecha válida es la de "Llegué" en el teléfono (`visit_date` en hora de Bogotá). Se reporta el mismo
-  día. Hasta las 23:59 del día siguiente se guarda marcada `reported_late`. Después solo dirección puede
-  crearla o corregirla, y queda `updated_by`.
+**Virtual**: sin GPS; cuenta igual para metas; se vigila en el KPI 5. Sin nota obligatoria ni tope.
 
-**Días no laborados y cuota**
-- La cuota mensual la fija dirección en visitas efectivas por ejecutiva; nunca 0 para una ejecutiva activa;
-  las vacantes (`placeholder`) no se miden.
+**Plazo**: la fecha válida es la del teléfono al reportar; mismo día; hasta las 23:59 del siguiente queda
+`reported_late`; después solo dirección (`updated_by`).
+
+**Metas y ausencias**
+- Meta diaria por tipo (médicos, instituciones) por zona, con excepción por ejecutiva; nunca 0 para una
+  ejecutiva activa; las vacantes no se miden.
 - Días hábiles = lunes a viernes menos festivos de Colombia (código) menos `company_calendar_exceptions`.
-  El sábado no cuenta (VMO lo contaba al 50 %).
-- El día no laborado lo registra dirección sin solicitud ni aprobación y descuenta cuota de inmediato
-  (`fraction` 1 o 0,5). Los ~800 "días autorizados" sin resolver de VMO no se migran: el histórico 2025 se
-  conserva tal como está, sin ajuste.
+- Ausencia aprobada descuenta `fraccion` de día de la meta del mes. La solicitud la hace la ejecutiva y la
+  aprueba la directora, en bloque (decisión 2).
 
-**Quién edita qué**
-- La ejecutiva crea, edita y borra (lógicamente) solo sus visitas y solo el mismo día.
-- Dirección (`commercial_director`, `admin`) crea y corrige cualquier visita de cualquier fecha; queda quién
-  y cuándo.
-- Líder de línea ve las visitas de las ejecutivas de su línea; no edita.
-- Data manager importa VMO, mantiene `vmo_representantes` y `executives.visits_source`, vincula lugares no
-  listados.
-- Las ejecutivas no ven las visitas de sus compañeras (salvo decisión 7 del dueño).
+**Reporte por voz**: igual que en v1: transcripción en el navegador, campos propuestos con la API de Claude
+contra el esquema de la visita (tipo de registro, tercero por nombre con búsqueda en `terceros`, contacto,
+líneas, resultado, próximo paso), confirmación obligatoria, audio 12 meses en bucket privado, texto en
+`transcript`. Si el dictado menciona un médico que no está en Odoo, la app lo dice y ofrece "lugar/persona
+no listada" sin crear el tercero.
 
-**Reporte por voz**
-- El dictado nunca guarda solo: la propuesta de campos siempre pasa por la confirmación de la ejecutiva.
-- La transcripción se hace en el navegador (Web Speech API); al servidor viaja solo el texto. La
-  extracción de campos usa la API de Claude con un prompt fijo y salida estructurada contra el mismo
-  esquema de la visita (interlocutores, especialidad, líneas, resultado, motivo, próximo paso); si el modelo
-  no responde en 8 s, la hoja se muestra vacía con la transcripción en la nota y se reporta por toques.
-- El audio se guarda en el bucket privado `visit-audio` (solo `service_role`; lo oye la ejecutiva y
-  dirección) y se borra a los 12 meses; la transcripción se conserva con la visita.
-- Si el dictado menciona nombres de médicos, quedan solo en la transcripción y la nota (texto interno,
-  visible para la ejecutiva, su líder y dirección); los campos estructurados siguen sin nombre (decisión 6).
+**Quién edita qué**: la ejecutiva sus registros del mismo día; dirección cualquier registro con rastro; el
+líder de línea ve su línea; data manager sincroniza e importa. Las ejecutivas no ven los registros de sus
+compañeras.
 
-**Privacidad**
-- Sin nombre ni documento de cirujano en el MVP. Nunca cédula, ni en claro ni digitada para hashear.
+**Privacidad**: nunca cédula ni documento de personas en OpMap; nada de pacientes. Los nombres de médicos y
+contactos vienen de Odoo, que ya los trata con su política; el audio y la transcripción son internos.
 
 ## 8. Migración y convivencia con VMO
 
-**Dos arreglos previos obligatorios (verificados en el repo, Fase 0)**
-1. `web/next.config.js` línea 8 envía `Permissions-Policy: camera=(), microphone=(), geolocation=()`: el
-   navegador niega el GPS y el micrófono en toda la app (verificado el 2026-10-12). Pasar a
-   `geolocation=(self), microphone=(self)` (la cámara sigue cerrada): sin esto no hay "Llegué" ni dictado.
-2. `web/app/api/visits/import/route.ts` líneas 82-86 borra TODAS las visitas del mes por `visit_date`, sin
-   filtrar por fuente. Con una sola visita de la app guardada, la siguiente importación de VMO la destruiría.
-   Cambiar a `DELETE ... WHERE source='vmo_import' AND visit_date en el mes`.
-
-**Backfill del histórico (en la migración 0800, solo SQL, sin Google)**
-- Las 7.033 filas actuales quedan `source='vmo_import'`, `hospital_match='nearest'` (o 'none' si
-  `hospital_id` es NULL), `distance_m` por Haversine SQL contra la IPS asignada.
-- `executive_id` se rellena desde `vmo_representantes` por `kam_name`; segunda pasada: zonas con exactamente
-  una ejecutiva cuyo `base_kam_id` es ese `kam_id`. Lo que no cruce queda NULL y se lista en `/visits` como
-  "sin ejecutiva" para mapear a mano. No bloquea el MVP: el histórico no entra en cobertura ni ritmo (se
-  separa por `source`), solo en el mapa de calor.
-- No se recalcula `hospital_id` ni se tocan `visit_imports`.
-
-**Convivencia**
-- Cada ejecutiva reporta en un solo sistema a la vez (`executives.visits_source`). El importador descarta
-  las filas de ejecutivas en 'app' y las reporta como "ya en OpMap".
-- El importador resuelve la ejecutiva por `vmo_representantes` y deja de adivinar por nombre.
-- La cobertura por radio de 5 km (`/visits/coverage`, `unvisited-zones`) se mantiene solo para
-  `source='vmo_import'`; para 'app' se usa el `hospital_id` declarado.
-
-**Apagado**
-- Piloto: 2 ejecutivas en 'app' durante un mes, el resto sigue en VMO con importación mensual.
-- Corte: fecha fijada por el dueño (decisión 8). Ese mes se hace la última importación de VMO, todas pasan a
-  'app', el importador queda en modo histórico (sigue sirviendo 2025) y se anota en `docs/decisiones/`.
+- Arreglos previos verificados (Fase 0): `web/next.config.js` línea 8 bloquea GPS y micrófono
+  (`geolocation=(self), microphone=(self)`); `web/app/api/visits/import/route.ts` líneas 82-86 borra todas
+  las visitas del mes sin filtrar por fuente (`WHERE source='vmo_import'`).
+- Sincronización de terceros desde Odoo antes del piloto; las 11 ejecutivas con cuenta enlazada
+  (`executives.user_id`) y empleado de Odoo (`odoo_employee_id`).
+- Histórico de VMO conservado con `source='vmo_import'`; `executive_id` por `vmo_representantes`.
+- Piloto con 2 ejecutivas un mes; corte con última importación del Excel; fecha en `docs/decisiones/`.
 
 ## 9. Criterios de aceptación
 
-- [ ] Dado una ejecutiva con cuenta enlazada (`executives.user_id`) y GPS activo, cuando abre "Hoy", entonces
-      ve sus IPS del Anexo A vigente ordenadas por distancia Haversine y ninguna llamada a Google.
-- [ ] Dado la hoja de reporte con la IPS más cercana preseleccionada, cuando toca "Llegué", elige "Compras" y
-      "Cirujano · Ortopedia" y toca Guardar, entonces queda una fila en `visits` (source 'app',
-      `hospital_match` 'declared', `checked_in_at`, `distance_m`) con dos filas en `visit_contacts` y sus
-      líneas en `visit_lines`, en 4 toques.
-- [ ] Dado una visita presencial a 800 m de la IPS, cuando se guarda, entonces se guarda igual, marcada
-      "lejos de la IPS", y aparece en el KPI de calidad; nunca se bloquea.
-- [ ] Dado una visita virtual, cuando se guarda sin GPS, entonces `lat/lng` y `distance_m` quedan NULL,
-      `contact_type` = 'Visita virtual' y cuenta aparte en el KPI 5.
-- [ ] Dado "No efectiva" con motivo "no me atendió" y fecha de reintento, cuando se guarda, entonces
-      `visit_type` = 'Visita no efectiva', `failure_reason` y `retry_date` quedan guardados y no suma cuota ni
-      cobertura.
-- [ ] Dado el mismo `client_id` enviado dos veces, cuando llega el segundo POST, entonces no se crea una
-      segunda fila (idempotencia).
-- [ ] Dado una segunda visita efectiva a la misma IPS el mismo día, cuando la ejecutiva la reporta, entonces la
-      app abre la existente y añade interlocutores; en la base sigue habiendo una sola fila.
-- [ ] Dado una visita a una sede activa fuera del Anexo A vigente, cuando se guarda, entonces
-      `out_of_territory` = true, cuenta en "visitas del mes" y no en "cobertura".
-- [ ] Dado "Lugar no listado" con nombre y GPS, cuando se guarda, entonces `hospital_id` es NULL,
-      `place_name` tiene el nombre, no se crea ninguna fila en `hospitals` y la cola de IPS pendientes no
-      cambia.
-- [ ] Dado una ejecutiva con cuota 100, un mes de 20 días hábiles y 2 días no laborados, cuando se calculan
-      sus números, entonces la cuota ajustada es 90 y el ritmo esperado al día hábil 10 es 50 %; los festivos
-      de 2026 y 2027 (incluido el 2 de noviembre y excluido el 13 de julio) salen de `holidays.ts` y están
-      cubiertos por pruebas puras.
-- [ ] Dado un líder de línea, cuando llama a `GET /api/visits/filtered` o abre "Equipo", entonces solo recibe
-      visitas de ejecutivas de su línea; un `viewer` o `user` recibe 403 (hoy `requireUser` deja pasar a
-      cualquiera).
-- [ ] Dado una visita de la app en octubre y una importación del Excel de VMO de octubre, cuando corre la
-      importación, entonces la visita de la app sigue existiendo, solo se reemplazan filas
-      `source='vmo_import'` y las filas de ejecutivas con `visits_source='app'` se descartan con aviso.
-- [ ] Dado la transcripción "estuve con compras y con el ortopedista, les mostré PerOssal y reemplazo,
-      quieren cotización el martes", cuando se pide la propuesta de campos, entonces la función pura que
-      arma el esquema devuelve interlocutores Compras y Cirujano · Ortopedia, líneas PerOssal y Reemplazo,
-      efectiva, próximo paso "cotización" con la fecha del martes siguiente; y la respuesta del modelo se
-      valida contra el esquema (cualquier valor fuera de las listas se descarta, nunca se inventa una IPS).
-- [ ] Dado una propuesta por voz, cuando la ejecutiva cierra la hoja sin confirmar, entonces no queda ninguna
-      fila en `visits` ni archivo en `visit-audio`.
+- [ ] Dado un contacto de Odoo con cargo "Programador de cirugía", cuando la ejecutiva lo elige, entonces el
+      registro queda `kind='gestion'`, no suma a metas y aparece en la lista de gestiones.
+- [ ] Dado un contacto con cargo "Jefe de Compras" de una IPS, cuando se reporta efectiva, entonces suma 1 a
+      "instituciones" del día y a la cobertura del Anexo A si la IPS está en él.
+- [ ] Dado un médico asignado a otra ejecutiva, cuando la ejecutiva lo visita, entonces se guarda, suma a su
+      meta de médicos, queda `out_of_territory` y no suma a su cobertura.
+- [ ] Dado una meta de zona de 6 médicos y 1 institución, y una excepción de 4 y 1 para una ejecutiva, cuando
+      se calculan sus números, entonces manda la excepción.
+- [ ] Dado 20 días hábiles, 2 ausencias aprobadas y meta de 6 médicos/día, entonces la meta ajustada del mes
+      es 108 y el ritmo esperado al día hábil 10 es 50 %.
+- [ ] Dado la sincronización de Odoo, cuando corre, entonces ningún campo de documento de persona ni
+      registro con `patient=true` llega a OpMap (prueba del mapeo puro).
+- [ ] Dado una IPS de Odoo con NIT 800014918, cuando se sincroniza, entonces queda cruzada con la sede de
+      `hospitals` del mismo NIT (y si hay varias, con la sede REPS vinculada o sin cruce con aviso).
+- [ ] Dado "Guardar GPS como dirección", cuando se confirma, entonces existe una fila en
+      `tercero_direcciones` con `origen='gps_visita'` y la próxima visita a ese médico la ofrece como lugar.
+- [ ] Dado la transcripción "estuve con el doctor Pérez en su consultorio, le mostré PerOssal, quiere
+      cotización el martes", cuando se pide la propuesta, entonces la función pura devuelve `kind='medico'`,
+      candidato "Pérez" buscado en `terceros`, línea PerOssal, efectiva, próximo paso "cotización" el martes;
+      y nada se guarda sin confirmación.
+- [ ] Dado una visita presencial a 800 m, cuando se guarda, entonces se guarda con aviso, sin bloqueo.
+- [ ] Dado el mismo `client_id` dos veces, entonces hay una sola fila.
+- [ ] Dado una visita de la app en octubre y una importación de VMO de octubre, entonces la visita de la app
+      sigue existiendo.
+- [ ] Dado un líder de línea, cuando abre "Equipo" o llama a la API, entonces solo ve su línea; `viewer`
+      recibe 403.
 
 ## 10. Fuera de alcance, impacto, plan y verificación
 
-### Fuera de alcance
-- Modo sin señal (PWA, service worker, IndexedDB), "Mi semana", directorio de cirujanos con nombre,
-  ventas Odoo, priorización automática, visitas en el mapa por ejecutiva, app nativa en tiendas.
-- Cualquier módulo de VMO de la tabla "se descarta".
-- Crear IPS desde la app de visita; recalcular asignaciones; llamar a Google.
-- Cambiar `web/components/mapStyles.ts` o añadir capas o marcadores.
+**Fuera de alcance**: modo sin señal, "Mi semana", vínculo con casos de paciente (GCP) de Odoo, ventas por
+médico, priorización automática, crear terceros desde OpMap, app nativa, cualquier módulo descartado de VMO,
+cambios de estética del mapa, llamadas a Google.
 
-### Impacto
-- **Datos / migración**: sí. `2026-10-XX_0800_visitas_app.sql` (amplía `visits`, crea `visit_lines`,
-  `visit_contacts`, `executive_quotas`, `executive_non_working_days`, `company_calendar_exceptions`,
-  `vmo_representantes`, `executives.visits_source`; backfill del histórico) y rollback
-  `2026-10-XX_9940_visitas_app_rollback.sql`. Se aplica solo con autorización del dueño, en la misma ventana
-  que el código; el rollback se prueba antes.
-- **Costo Google Maps**: 0 elementos × 0,005 USD = 0 USD. Ninguna pantalla geocodifica, autocompleta ni pide
-  rutas. "Optimizar la ruta del día" queda fuera y exigiría dry-run y autorización.
-- **Costo del dictado**: transcripción en el navegador, 0 USD. Extracción de campos con la API de Claude
-  (`claude-haiku-5-5`, unas 600 palabras por visita): del orden de 0,001 USD por visita, menos de 1 USD al
-  mes para todo el equipo. Variable nueva `ANTHROPIC_API_KEY` en Vercel (la crea el dueño). Bucket privado
-  `visit-audio` en Supabase Storage (≈ 1 MB por minuto de audio; 12 meses de retención).
-- **Estética del mapa**: no cambia. El flujo de visita es una lista. El mapa de calor existente solo gana un
-  filtro de fuente y de ejecutiva.
-- **Permisos / roles** (`web/lib/permissions.ts`):
-  - Nuevo `visits:report` (crear/editar visitas propias): `sales_manager`, `line_leader`,
-    `commercial_director`, `admin`; la API limita a la ejecutiva enlazada por `executives.user_id`.
-  - Nuevo `visits:team` (ver visitas y KPIs del equipo): `admin`, `commercial_director`, `data_manager`
-    (todas), `line_leader` (solo su línea, reutilizando `resolveUserLines`).
-  - Nuevo `visits:targets` (cuotas y días no laborados): `admin`, `commercial_director`.
-  - `visits:view` y `visits:manage` existentes se conservan. `GET /api/visits/filtered`, `stats` y
-    `unvisited-zones` pasan de `requireUser` a `resolveVisitScope(user)` (propias / líneas que lidera / todas).
-  - Menú: entrada "Visitar" (`/visitar`) para quien tenga `visits:report`; "Visitas" sigue para `visits:view`.
-- **Prerrequisito de cuentas**: las 11 ejecutivas activas necesitan `users` con rol `sales_manager` enlazado
-  en `executives.user_id`. Es criterio de salida de la Fase 0, no un riesgo.
-- **Celular**: OpMap es web; el GPS exige HTTPS y permiso del navegador. Los previews de Vercel por rama
-  piden login SSO, así que el piloto de campo se hace en producción. Captura en celular obligatoria en cada
-  PR con pantalla nueva.
+**Impacto**: migración 0800 + rollback 9940 (escritas en Fase 1, aplicadas con autorización); Google 0 USD;
+dictado del orden de 0,001 USD por visita con `ANTHROPIC_API_KEY` en Vercel (la crea el dueño); Odoo solo
+lectura con la cuenta de integración que ya usa el MCP (más escritura de direcciones si se aprueba la
+decisión 1); estética del mapa sin cambios; permisos nuevos `visits:report`, `visits:team`, `visits:targets`;
+las ejecutivas necesitan cuenta `sales_manager` enlazada.
 
-### Plan por fases (un PR pequeño por fase, rama `feat/visitas-<fase>` desde `master`, revisor antes de `/entregar`)
-
-| Fase | Entrega | Pruebas / evidencia |
+| Fase | Entrega | Evidencia |
 | --- | --- | --- |
-| **F0 Decisiones y prerrequisitos** | Esta spec aprobada; respuestas del dueño en `docs/decisiones/2026-10-XX-app-de-visita.md`; `geolocation=(self)` en `next.config.js`; importador borra solo `source='vmo_import'`; 11 cuentas enlazadas | `npm run check`; prueba del importador con una visita 'app' sembrada que sobrevive |
-| **F1 Modelo** | Migración 0800 + rollback escritos (no aplicados); `web/lib/holidays.ts`; `web/lib/visits-rules.ts` (Haversine, cuota ajustada, fuera de territorio, tardía, fusión del mismo día) | `scripts/visits-check.ts` puro, sin red: festivos 2026-2027, días hábiles, cuota ajustada, distancia con coordenadas nulas, idempotencia |
-| **F2 API y permisos** | `resolveVisitScope`; `GET /api/me/territory`, `POST/GET /api/me/visits` (idempotente por `client_id`), `GET /api/me/kpis`; `GET /api/visits/team`; `GET/PUT /api/visits/quotas`, `/api/visits/days-off`, `/api/visits/vmo-representantes`; permisos nuevos | `npm run check`; pruebas de alcance por rol |
-| **F3 Piloto de campo** | Pantallas `/visitar` (Hoy) y hoja "Reportar visita" (presencial, virtual, no efectiva, Otra IPS, Lugar no listado, acompañamiento) **con "Dictar"** (`web/lib/visit-voice.ts`: esquema de salida, validación y prompt; `POST /api/me/visits/propose` con la API de Claude; bucket `visit-audio`); misma hoja en escritorio. Migración aplicada con autorización. 2 ejecutivas en 'app' | Captura en celular (Android e iOS) y escritorio, incluida una visita dictada; `npm run check` con pruebas puras de la validación del esquema |
-| **F4 Territorio, números y equipo** | "Mi territorio", "Mis números", tabla "Equipo" con los 6 KPIs, "Metas" (cuotas, días no laborados), lista semanal de avisos, CSV | Capturas; pruebas de KPIs en `visits-check.ts` |
-| **F5 Ficha y mapa** | Pestaña "Visitas" en `/hospitals/[id]` con SECOP y ADRES; filtro de fuente y ejecutiva en el mapa de calor existente; `unvisited-zones` por `hospital_id` para 'app' | Captura del mapa sin cambios de estilo |
-| **F6 Corte de VMO** | Última importación, todas en 'app', importador en modo histórico, nota de decisión | Conteo de visitas por fuente antes y después |
-| **Después** | PWA sin señal (su propia spec), "Mi semana", directorio de cirujanos con aviso legal, Odoo, priorización | Specs propias |
+| **F0 Decisiones y prerrequisitos** | Respuestas del dueño en `docs/decisiones/`; `Permissions-Policy`; importador por fuente; cuentas enlazadas | `npm run check`; prueba del importador |
+| **F1 Terceros desde Odoo** | `web/lib/odoo-terceros.ts` (mapeo puro, con pruebas), sincronización en "Fuentes de datos", cruce con `hospitals`, roles de contacto por reglas | `odoo-terceros-check.ts`; conteos antes/después |
+| **F2 Modelo y reglas** | Migración 0800 + rollback; `holidays.ts`; `visits-rules.ts` (tipo de registro por rol, metas ajustadas, Haversine, tardía, fuera de territorio) | `visits-check.ts` puro |
+| **F3 API y permisos** | `/api/me/*` (terceros cercanos, registros idempotentes, propuesta por voz), `/api/visits/{team,metas,ausencias}`, alcance por rol | pruebas de alcance |
+| **F4 Piloto de campo** | "Hoy" y hoja de reporte (médico, institución, gestión, dictado, GPS como dirección); migración aplicada; 2 ejecutivas | capturas en celular (Android e iOS) y escritorio |
+| **F5 Números, equipo, metas, ficha, mapa** | "Mis números", "Equipo", "Metas", ausencias, pestaña en la ficha de IPS, filtros del mapa de calor | capturas; pruebas de KPIs |
+| **F6 Corte de VMO** | Última importación; todas en 'app'; nota de decisión | conteo por fuente |
 
-Archivos previstos: `web/lib/holidays.ts`, `web/lib/visits-rules.ts`, `web/lib/visit-scope.ts`,
-`web/app/api/me/*`, `web/app/api/visits/{team,quotas,days-off,vmo-representantes}/route.ts`,
-`web/app/visitar/**`, `web/app/visits/metas/page.tsx`, cambios en `web/lib/permissions.ts`,
-`web/app/api/visits/{filtered,stats,unvisited-zones}/route.ts`, `web/app/api/visits/import/route.ts`,
-`web/next.config.js`, `web/scripts/visits-check.ts` (añadir a `npm run test`), `database/migrations/*0800*`
-y `*9940*`, `docs/fases/fase6-visitas.md`.
-
-### Verificación final
-- `npm run check` en verde en cada PR, con la salida pegada.
-- `npm run test` incluye `visits-check` (puras, sin red): festivos, días hábiles, cuota ajustada, Haversine
-  con nulos, fuera de territorio, tardía, fusión del mismo día, alcance por rol.
-- Captura en celular real de: Hoy, hoja de reporte con GPS capturado y distancia, visita virtual, no
-  efectiva, Mis números. Captura en escritorio de Equipo y Metas.
-- Prueba de convivencia: visita 'app' sembrada en el mes + importación del Excel de VMO del mismo mes → la
-  visita 'app' sigue.
-- Rollback de la migración 0800 probado en la base antes de aplicarla en producción.
-- Ninguna línea nueva importa `lib/google-distance.ts`; `GOOGLE_ROUTES_DISABLED=true` no cambia nada en el
-  flujo de visita.
+**Verificación final**: `npm run check` en cada PR; pruebas puras de mapeo de Odoo, tipo de registro por
+rol, metas ajustadas, festivos 2026-2027, Haversine con nulos, idempotencia, esquema del dictado; capturas en
+celular real de Hoy, reporte a médico, a institución, gestión y dictado; prueba de convivencia con el
+importador; rollback de 0800 probado antes de producción; ninguna línea nueva importa `google-distance.ts`.
 
 ## 11. Decisiones que debe tomar el dueño
 
-| # | Pregunta (sí / no) | Recomendación |
+| # | Pregunta | Recomendación |
 | --- | --- | --- |
-| 1 | ¿La unidad de visita es la **llegada a una IPS** con sus interlocutores (compras, cirujano, instrumentación...), y no una visita por médico como en VMO? | **Sí.** Tres personas vistas en una clínica son una visita con tres interlocutores; es lo que permite medir profundidad de cuenta. |
-| 2 | ¿La cuota es **una cifra mensual de visitas efectivas por ejecutiva** fijada por dirección, y las **virtuales cuentan igual** (vigiladas con alerta si pasan del 30 %)? | **Sí a ambas**, pero la cobertura del Anexo A va primero en el tablero; la cuota de 140 de VMO se revisa por ejecutiva antes del piloto. |
-| 3 | ¿Una visita presencial a **más de 500 m** de la IPS se guarda con aviso (y no se bloquea)? | **Sí, solo advierte.** El GPS dentro de hospitales falla 50-300 m; bloquear hace que no reporten en sitio. Radio único para todas. |
-| 4 | ¿El plazo de reporte es **el mismo día, con el día siguiente marcado "tardío"** y después solo dirección? | **Sí.** Conserva la hora y el GPS reales sin perder visitas por un olvido de una noche. |
-| 5 | ¿Se permite **"Lugar no listado"** (consultorios privados y sitios que no son sede REPS) guardando nombre y GPS en la visita, sin crear IPS, contando como visita pero no como cobertura? | **Sí.** Es la única forma de registrar la visita al ortopedista en su consultorio sin ensuciar `hospitals` ni gastar Google. |
-| 6 | ¿En el MVP el cirujano se registra **solo con rol y especialidad, sin nombre**, hasta que el área legal entregue el aviso de privacidad? | **Sí.** El nombre ya es dato personal (Ley 1581) y VMO tenía el Hábeas Data vacío; el directorio nace después, con SECOP como primera fuente. |
-| 7 | ¿Los **días no laborados los registra directamente la directora** (sin solicitud ni aprobación), el líder de línea ve solo su línea y las ejecutivas no ven las visitas de sus compañeras? | **Sí a las tres.** Elimina las 800 solicitudes sin resolver; la auditoría es `created_by`. |
-| 8 | ¿**Piloto con 2 ejecutivas un mes** en paralelo con VMO (en producción, app web en el celular, sin tienda), y **fecha de corte** al cierre del mes siguiente con última importación del Excel? | **Sí.** Permite medir adopción y calidad del GPS antes de mover a las 11; la fecha exacta la fija el dueño en `docs/decisiones/`. |
-| 9 | ¿El **dictado por voz** transcribe en el navegador (costo 0, exige Chrome en Android o Safari en iOS y conexión), arma la visita con la API de Claude y **guarda el audio 12 meses** en un bucket privado? | **Sí.** Es lo que pediste ("reportar con voz"); la confirmación en un toque evita errores del modelo y el audio permite revisar una visita dudosa. Si prefieres no guardar audio, se conserva solo la transcripción. |
+| 1 | ¿**Odoo es el maestro de terceros** (médicos con su ejecutiva asignada, IPS, clientes, EPS, operadores, contactos con cargo) y OpMap solo lo lee? ¿Y las direcciones nuevas con GPS se devuelven a Odoo? | **Sí a lo primero**; lo segundo también, como dirección adicional del tercero, para que la base única siga siendo única. |
+| 2 | ¿Las **ausencias** se piden y aprueban en el módulo Ausencias de Odoo (ya en uso en 2026, con aprobación masiva) y OpMap solo lee las aprobadas para ajustar la meta? ¿O se hacen en OpMap con su propia bandeja y aprobación en bloque? | **Odoo.** Ya existe, ya lo usan y evita dos sitios para lo mismo; OpMap muestra a la directora las pendientes con enlace. Si prefieres todo en OpMap, se hace la bandeja con selección múltiple. |
+| 3 | ¿Qué **cargos cuentan como visita a institución** y cuáles como **gestión**? Propuesta: institución = compras, gerencia o dirección, dirección médica o científica, jefe de almacén o farmacia cuando decide la compra; gestión = programación o quirófano, esterilización, instrumentación, cartera o facturación, autorizaciones. | **Sí**, con la lista editable en OpMap por la directora (los cargos de Odoo vienen en texto libre y se normalizan por reglas). |
+| 4 | ¿Las **metas** se fijan por zona con excepción por ejecutiva, en médicos/día e instituciones/día (hoy 6 y 1)? | **Sí.** Mes a mes, con "copiar del anterior". |
+| 5 | ¿Las **gestiones** tienen meta o solo se miden (número por día y mezcla frente a visitas, con alerta)? | **Solo medir** en el MVP; cuando haya dos meses de datos se decide si se limitan. |
+| 6 | ¿**EPS y operadores logísticos** cuentan como instituciones (meta de 1/día) y entran en la cobertura? | **Cuentan como instituciones**, pero no en la cobertura del Anexo A (que es de IPS); se listan aparte. |
+| 7 | ¿**Más de 500 m** solo advierte; plazo del mismo día con el siguiente "tardío"; ejecutivas no ven a sus compañeras; líder solo su línea? | **Sí** a todo. |
+| 8 | ¿**Piloto** con 2 ejecutivas un mes en producción y fecha de corte con última importación de VMO? | **Sí.** |
+| 9 | ¿**Dictado** con transcripción en el navegador, campos con la API de Claude y audio 12 meses en bucket privado? | **Sí.** |
 
-Las respuestas se anotan en `docs/decisiones/2026-10-XX-app-de-visita.md` (plantilla en `docs/decisiones/TEMPLATE.md`)
-y esta spec pasa a "aprobada por el dueño" antes de abrir la rama de la Fase 0.
+Las respuestas van a `docs/decisiones/2026-10-XX-app-de-visita.md` y la spec pasa a "aprobada por el dueño"
+antes de abrir la Fase 0.
