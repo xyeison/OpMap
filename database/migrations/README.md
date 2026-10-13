@@ -560,3 +560,38 @@ tablas tienen FKs hacia `business_lines`, `executives` y `users`.
   `ON CONFLICT DO NOTHING`; la sincronización es idempotente).
 - Rollback: antes de deshacer, volver a desplegar el código sin `/terceros`; si ya hay fases posteriores de la
   app de visita que usan estas tablas, deshacerlas primero (el rollback aborta si algo depende de ellas).
+
+# Migraciones — App de visita · F2 Configuración y calendario (metas, conteo, parámetros, calendario, días libres, rol hr)
+
+> **ESTADO: APLICADA el 2026-10-12** con autorización del dueño, en la misma ventana que el despliegue (PR #14): su
+> bloque DO pasó entero; quedaron 2 metas, 5 conteos, 9 parámetros, 36 festivos 2026-2027 y el rol hr; las 6
+> funciones guardadas son idénticas a las del archivo (md5). Antes se probó el 2026-10-12 contra la base real en una transacción que se deshace (sin
+> `BEGIN/COMMIT` y con un `RAISE` final): la migración completa, incluido su bloque DO de comprobaciones, terminó en
+> `DRYRUN_OK`, y migración + rollback + comprobación terminaron en `DRYRUN_ROLLBACK_OK`; después de cada intento
+> `to_regclass('public.config_metas')` siguió en NULL, `btree_gist` sin instalar y `users_role_check` con los 8 roles.
+> Se aplica solo con autorización del dueño y en la misma ventana que el despliegue de `/configuracion` y
+> `/calendario`. Contrato: `docs/fases/fase7-visitas-f2-config-calendario.md`; spec:
+> `docs/specs/2026-10-12-app-de-visita-opmap.md` (secciones 6, 7, 9, 11 y 12); decisiones:
+> `docs/decisiones/2026-10-12-app-de-visita.md`.
+
+| # | Archivo | Qué hace | Destructivo |
+|---|---|---|---|
+| 17 | `2026-10-12_0810_visitas_config_calendario.sql` | Instala `btree_gist` en `extensions`. Crea 4 tablas de configuración con vigencias (`vigente_desde`/`vigente_hasta` inclusive, `motivo`, `set_by` y `anulado_por` hacia `users` sin `ON DELETE`, `anulado_*`, `anterior_id`/`anterior_hasta` —el valor que cada fila cortó o reemplazó al registrarse— y `clave` GENERADA): `config_metas` (scope general/zona/ejecutiva, tipo médica/institucional, subtipo solo institucional, periodo día/semana, cantidad 0..100), `config_conteo` (por subtipo: suma_institucional/meta_propia/seguimiento, peso >0..10), `config_general` (9 parámetros con tipo jsonb y rangos numéricos) y `config_personas` (perfil, telefónica, tope 0..20, radio 50..5000); en cada una `EXCLUDE ... <tabla>_sin_superposicion` (sin rangos activos superpuestos por clave, 23P01) y el disparador `config_inmutable` (no se borra; solo se cierra o se anula). Crea `calendario` (nacional/empresa/ciudad, `municipality_id` con FK a `municipalities`, uno activo por fecha + alcance + municipio, se anula y no se borra) y `dias_libres` (día o medio día, uno vigente por persona y fecha, `fuera_de_plazo` exige justificación, se anula y no se borra). Funciones `calendario_festivos_colombia(año)` (Ley 51 de 1983), `calendario_cargar_festivos(año, user)` (no revive anulados), `config_registrar(...)` (pasos 1 a 7 del contrato: corte, anulación del mismo día, continuación de un valor temporal, 23514/23P01; guarda `anterior_id`/`anterior_hasta`) y `config_cerrar(...)` (al cancelar o acortar un valor vuelve a regir el que ese había cortado o reemplazado: alarga la fila o copia sus valores con motivo "Vuelve a regir el valor anterior"; decisión 12 del contrato). Amplía `users_role_check` con `hr` (9 roles). Semillas desde 2026-10-12: metas generales médica 6 e institucional 1 al día; compras y autorizaciones suman con peso 1, el resto solo seguimiento; 9 parámetros generales. Carga los festivos de 2026 y 2027. RLS sin políticas; solo `service_role` (SELECT, INSERT, UPDATE; sin DELETE ni TRUNCATE). Bloque DO final con todas las comprobaciones (festivos contra la lista literal del contrato) y pruebas que se deshacen | No (solo cambia `users_role_check`, que acepta un rol más) |
+| — | `2026-10-12_9941_visitas_config_calendario_rollback.sql` | Pasa a `viewer` a quien tenga `hr` (NOTICE por usuario) y restaura `users_role_check` con los 8 roles; quita los 7 disparadores, las 6 funciones y las 6 tablas (sin CASCADE). No borra `btree_gist` ni `update_updated_at_column()`. Comprueba al final que no queda nada | Sí (configuración registrada después de la semilla, días de empresa y de ciudad, correcciones de festivos, días libres y el rol `hr`; los festivos calculados y las semillas vuelven re-aplicando 0810) |
+
+- Orden: después de 0800 (`subtipos_institucionales`, ya aplicada). Tras aplicar: `NOTIFY pgrst, 'reload schema';`.
+  Costo Google: 0; no recalcula asignaciones.
+- Las escrituras de la API en `config_*` pasan siempre por `config_registrar` / `config_cerrar` (atómicas, con candado
+  por clave). Errores: 22023 tabla o parámetro no válido; 23514 motivo que falta ("Para cambiar el pasado hace falta
+  un motivo"), hasta < desde, CHECK, `config_inmutable` y borrado prohibido; 23P01 "El rango se superpone con un valor
+  que empieza el AAAA-MM-DD" (o la restricción `<tabla>_sin_superposicion`); P0002 cerrar una fila anulada o
+  inexistente; 23505 `calendario_dia_activo_uidx` y `dias_libres_vigente_uidx`; 23503 al borrar un usuario que registró
+  o anuló configuración (`set_by`/`anulado_por` sin `ON DELETE`: la app solo desactiva usuarios).
+- En un año con dos festivos el mismo lunes (2038-07-05: San Pedro y San Pablo trasladado y Sagrado Corazón),
+  `calendario_festivos_colombia` devuelve las 18 filas y `calendario_cargar_festivos` guarda una sola fila con los dos
+  nombres unidos por " y ".
+- Re-ejecutable (`IF NOT EXISTS`, `CREATE OR REPLACE`, semillas con `NOT EXISTS` por clave, `users_role_check` con
+  `DROP IF EXISTS` + `ADD`, carga de festivos idempotente).
+- Rollback: antes de deshacer, volver a desplegar el código sin `/configuracion`, `/calendario` ni sus rutas de API; si
+  ya hay fases posteriores de la app de visita que usan estas tablas, deshacerlas primero (el rollback aborta si algo
+  depende de ellas).

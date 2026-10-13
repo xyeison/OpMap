@@ -186,7 +186,8 @@ export default function UsersPage() {
     viewer: 'Visualizador',
     user: 'Usuario',
     line_leader: 'Líder de línea',
-    commercial_director: 'Dirección comercial'
+    commercial_director: 'Dirección comercial',
+    hr: 'Recursos humanos'
   }
 
   const roleColors: Record<Role, string> = {
@@ -197,7 +198,8 @@ export default function UsersPage() {
     viewer: 'from-gray-500 to-gray-600',
     user: 'from-gray-400 to-gray-500',
     line_leader: 'from-teal-600 to-teal-700',
-    commercial_director: 'from-indigo-600 to-indigo-700'
+    commercial_director: 'from-indigo-600 to-indigo-700',
+    hr: 'from-rose-600 to-rose-700'
   }
 
   const filteredUsers = users.filter(user => 
@@ -437,6 +439,7 @@ export default function UsersPage() {
                           <option value="sales_manager">Gestor de Ventas</option>
                           <option value="line_leader">Líder de línea</option>
                           <option value="commercial_director">Dirección comercial</option>
+                          <option value="hr">Recursos humanos</option>
                           <option value="admin">Administrador</option>
                         </select>
                       </div>
@@ -689,6 +692,7 @@ export default function UsersPage() {
                               <option value="sales_manager">Gestor de Ventas</option>
                           <option value="line_leader">Líder de línea</option>
                           <option value="commercial_director">Dirección comercial</option>
+                          <option value="hr">Recursos humanos</option>
                               <option value="admin">Administrador</option>
                             </select>
                           )}
@@ -801,6 +805,7 @@ export default function UsersPage() {
                             <option value="sales_manager">Ventas</option>
                             <option value="line_leader">Líder de línea</option>
                             <option value="commercial_director">Dir. comercial</option>
+                            <option value="hr">Recursos humanos</option>
                             <option value="admin">Admin</option>
                           </select>
                         )}

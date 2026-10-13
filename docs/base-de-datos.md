@@ -110,7 +110,7 @@ Usuarios del sistema.
 - email: text (único)
 - password: text (hash)
 - full_name: text
-- role: text (CHECK: 'admin', 'sales_manager', 'contract_manager', 'data_manager', 'viewer', 'user'; permisos por rol en web/lib/permissions.ts)
+- role: text (CHECK: 'admin', 'user', 'viewer', 'sales_manager', 'contract_manager', 'data_manager', 'line_leader', 'commercial_director'; la migración 0810 (aplicada 2026-10-12) añade 'hr' = recursos humanos; permisos por rol en web/lib/permissions.ts)
 - active: boolean
 - created_at: timestamp
 ```
@@ -201,6 +201,27 @@ subtipos_institucionales: subtipos de visita institucional con roles_sugeridos y
                           autorizaciones, programacion, otro (desde 2026-10-12)
 funciones:                terceros_crear_medico(p_medico, p_sedes, p_user) → uuid (médico + sedes en una transacción);
                           terceros_sincronizar_hospitals(p_hospital_id DEFAULT NULL) → jsonb (idempotente; disparador hospitals_terceros_sync)
+```
+
+#### Fase 7: app de visita · F2 Configuración y calendario (migración 0810, aplicada 2026-10-12)
+Contrato en `docs/fases/fase7-visitas-f2-config-calendario.md`. Las 6 tablas con RLS sin políticas (solo `service_role`: SELECT, INSERT, UPDATE; nunca se borran).
+Las 4 config_* tienen vigente_desde/vigente_hasta (inclusive; NULL = abierto), motivo, set_by, anulado_at/por/motivo (set_by y anulado_por
+hacia users sin ON DELETE), anterior_id/anterior_hasta (el valor que la fila cortó o reemplazó al registrarse: vuelve a regir si se cancela o
+se acorta), clave GENERADA, EXCLUDE <tabla>_sin_superposicion (sin rangos activos superpuestos por clave) y el disparador config_inmutable
+(solo se cierran o se anulan).
+```sql
+config_metas:    metas por tipo (medica|institucional) y subtipo; scope general|zona (kam_id)|ejecutiva (executive_id); periodo dia|semana; cantidad 0..100
+config_conteo:   por subtipo institucional: modo suma_institucional|meta_propia|seguimiento y peso >0..10 (clave = subtipo_id)
+config_general:  9 parámetros (radio_presencial_m, plazo_gracia_horas, dias_habiles_semana, tope_visitas_medico_dia, telefonicas,
+                 aprobacion_dias_libres, motivos_dia_libre, primer_mes_factor, alertas_mezcla) con valor jsonb (clave = parametro)
+config_personas: por Ejecutivo Comercial: perfil text[] (medica, institucional), telefonica_habilitada, tope_telefonicas_dia, radio_m
+calendario:      festivos nacionales (calculados, Ley 51 de 1983) y días de empresa o ciudad (municipality_id → municipalities); tipo no_habil|habil;
+                 uno activo por fecha + alcance + municipio; se anula con motivo
+dias_libres:     día (1) o medio día (0.5) por persona y fecha, motivo, estado registrado|por_aprobar|aprobado|rechazado|anulado; uno vigente por
+                 persona y fecha; fuera_de_plazo exige justificación; se anula, no se borra
+funciones:       config_registrar(...) → uuid y config_cerrar(...) (únicas escrituras de config_*), calendario_festivos_colombia(año),
+                 calendario_cargar_festivos(año, user) → int; extensión btree_gist (schema extensions)
+users (+0810):   rol 'hr' (recursos humanos) en users_role_check: calendario y días libres
 ```
 
 ### Vistas

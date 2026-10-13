@@ -253,6 +253,8 @@ function getIconForRoute(href: string) {
     '/executives': ExecutivesIcon,
     '/inteligencia': IntelligenceIcon,
     '/terceros': TercerosIcon, // Fase 6 F1: cuentas, sedes, médicos y contactos
+    '/calendario': CalendarioIcon, // Fase 7 F2: festivos, días de empresa y de ciudad, días libres
+    '/configuracion': ConfiguracionIcon, // Fase 7 F2: configuración de visitas
     '/contracts': DocumentIcon,
     '/providers': ProvidersIcon,
     '/visits': CalendarIcon,
@@ -265,6 +267,21 @@ function getIconForRoute(href: string) {
 }
 
 // Iconos SVG como componentes
+
+// Fase 7 F2: calendario con un día marcado (festivos, días de empresa y de ciudad, días libres)
+const CalendarioIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2zM3 11h18" />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 16l2 2 4-4" />
+  </svg>
+)
+
+// Fase 7 F2: controles deslizantes (configuración de visitas: metas, qué cuenta, personas, general)
+const ConfiguracionIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+  </svg>
+)
 
 // Fase 6 F1: tarjeta de identificación (terceros: cuentas y médicos)
 const TercerosIcon: React.FC<{ className?: string }> = ({ className }) => (
