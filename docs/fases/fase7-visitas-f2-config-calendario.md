@@ -62,7 +62,7 @@ pero ninguna visita la usa todavía.
    La ciudad para los días por ciudad es el municipio de esa zona (`left(kams.area_id, 5)`; las celdas de
    Bogotá son 11001).
 8. **Valores semilla** vigentes desde 2026-10-12 (fecha de las decisiones). 24 y 31 de diciembre no se
-   siembran: los declara recursos humanos o la directora si aplican.
+   siembran: los declara recursos humanos o la directora si aplican. (Decisión del dueño 2026-10-13: los decide la dirección comercial o recursos humanos.)
 9. **Sin configuración de una persona**: perfil médica e institucional, telefónica no habilitada, radio y
    tope de telefónicas los generales.
 
@@ -451,8 +451,9 @@ Verificado con la base real: la cuota de octubre de una ejecutiva de Barranquill
 13. **Quien aprueba no se aprueba a sí misma**: `POST /api/dias-libres` responde 403 si la persona es la ejecutiva
     enlazada con quien registra (no hay registro tardío ni aprobado de una vez de lo propio), y `/revisar` deja en
     `omitidos` los días de la ejecutiva enlazada con quien revisa (aprobar, rechazar o anular). Aplica también a
-    admin (pendiente del dueño si admin queda exento). Sus días los registra en "Mis días libres" y los aprueba otra
-    persona que apruebe.
+    admin solo hasta el 2026-10-13: el dueño decidió que **admin sí** se registra y se aprueba lo suyo
+    (`puedeAprobarseASiMismo`, `docs/decisiones/2026-10-13-dias-libres-admin-y-dias-de-empresa.md`). Los demás registran
+    sus días en "Mis días libres" y los aprueba otra persona que apruebe.
 14. **Listas y lotes**: "Mis días libres" pide desde 90 días atrás y sin fin (`consultaMisDiasLibres`), así sale todo
     lo que se puede registrar (hasta 366 días adelante) y se puede anular; la revisión en bloque de más de 200 días se
     manda en lotes de 200 (`enLotes`), uno tras otro, sumando actualizados y omitidos (si falla un lote posterior, los
@@ -508,8 +509,8 @@ Verificado con la base real: la cuota de octubre de una ejecutiva de Barranquill
 - Capturas de `/configuracion` y `/calendario` en escritorio y celular **con la base migrada** (hasta entonces
   las pantallas muestran el 503). Las de datos de demostración (arriba) ya muestran la interfaz; falta repetirlas
   contra la base real después de aplicar 0810.
-- Decisión del dueño (decisión 13): si admin, cuando su usuario esté enlazado a un Ejecutivo Comercial, puede aprobarse
-  o registrarse sus propios días libres (hoy no: aplica a todos).
+- ~~Decisión del dueño (decisión 13)~~ resuelta el 2026-10-13: admin sí puede aprobarse y registrarse sus propios días
+  libres; los días de empresa (24 y 31 de diciembre) los decide la dirección comercial o recursos humanos en Calendario.
 - Decisión del dueño: `config_cerrar` exige motivo al cerrar en el pasado, pero si cierra sin anular no hay
   columna donde guardar ese motivo ni quién cerró (`config_inmutable` solo deja cambiar `vigente_hasta` y
   `anulado_*`). Si debe quedar rastro, hace falta `cerrado_por`, `cerrado_at` y `cerrado_motivo` en una migración

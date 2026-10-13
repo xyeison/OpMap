@@ -15,7 +15,13 @@ import { requirePermission } from '@/lib/require-role'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { fetchAllRows, jsonError, readJson, zodMessage } from '@/app/api/kams/_lib/kam-shared'
 import { consultaDiasLibresSchema, diaLibrePorOtraSchema } from '@/lib/visits-config-schemas'
-import { MENSAJE_PROPIO_POR_OTRA, generalVigente, type DiaLibre, type DiasLibresResponse } from '@/lib/visits-rules'
+import {
+  MENSAJE_PROPIO_POR_OTRA,
+  generalVigente,
+  puedeAprobarseASiMismo,
+  type DiaLibre,
+  type DiasLibresResponse,
+} from '@/lib/visits-rules'
 import { leerPorIds } from '@/app/api/terceros/_lib/terceros-server'
 import {
   COLUMNAS_DIA_LIBRE,
@@ -105,8 +111,11 @@ export async function POST(request: NextRequest) {
 
     const persona = await cargarPersona(datos.executive_id)
     if (!persona) return jsonError('El Ejecutivo Comercial elegido no existe', 400)
-    // Separación entre quien pide y quien aprueba: sus propios días no se registran aprobados ni fuera de plazo.
-    if (persona.userId === auth.user.id) return jsonError(MENSAJE_PROPIO_POR_OTRA, 403)
+    // Separación entre quien pide y quien aprueba: sus propios días no se registran aprobados ni fuera de plazo,
+    // salvo el administrador (decisión del dueño 2026-10-13).
+    if (persona.userId === auth.user.id && !puedeAprobarseASiMismo(auth.user.role)) {
+      return jsonError(MENSAJE_PROPIO_POR_OTRA, 403)
+    }
 
     return registrarDiaLibre({
       user: auth.user,

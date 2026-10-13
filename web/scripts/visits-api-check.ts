@@ -1739,6 +1739,55 @@ async function main() {
       if (dora) dora.user_id = null // la directora vuelve a quedar sin ejecutiva enlazada
     }
 
+    print('\n9c. El administrador sí registra y aprueba sus propios días libres (decisión del dueño 2026-10-13)')
+    {
+      // El administrador queda enlazado con una ejecutiva, como si también llevara una zona.
+      const dora = tablas.executives.find(e => e.id === EJEC_4)
+      if (dora) dora.user_id = ADMIN_ID
+      const enPlazo = await pedir(registrarPorOtra, '/api/dias-libres', {
+        method: 'POST',
+        userId: ADMIN_ID,
+        body: { ...diaLibre('2027-02-16'), executive_id: EJEC_4 },
+      })
+      check('admin se registra su propio día "por otra persona" → 201 aprobado', enPlazo.status === 201 && enPlazo.body?.dia?.estado === 'aprobado', enPlazo)
+      const tarde = await pedir(registrarPorOtra, '/api/dias-libres', {
+        method: 'POST',
+        userId: ADMIN_ID,
+        body: { ...diaLibre('2027-01-21'), executive_id: EJEC_4, justificacion: 'Lo registro tarde' },
+      })
+      check(
+        '…también fuera de plazo con justificación → 201 aprobado y fuera_de_plazo',
+        tarde.status === 201 && tarde.body?.dia?.estado === 'aprobado' && tarde.body?.dia?.fuera_de_plazo === true,
+        tarde
+      )
+      const DIA_ADMIN = randomUUID()
+      tablas.dias_libres.push({
+        id: DIA_ADMIN,
+        executive_id: EJEC_4,
+        fecha: '2027-03-10',
+        fraccion: 1,
+        motivo: 'vacaciones',
+        nota: null,
+        estado: 'por_aprobar',
+        registrado_por: null,
+        registrado_at: ahoraIso(),
+        fuera_de_plazo: false,
+        justificacion: null,
+        revisado_por: null,
+        revisado_at: null,
+        motivo_revision: null,
+        created_at: ahoraIso(),
+        updated_at: ahoraIso(),
+      })
+      const bloque = await pedir(revisarDias, '/api/dias-libres/revisar', { method: 'POST', userId: ADMIN_ID, body: { ids: [DIA_ADMIN], accion: 'aprobar' } })
+      check(
+        '…y aprueba su propio día por la revisión en bloque → 1 actualizado, sin omitidos',
+        bloque.status === 200 && bloque.body.actualizados === 1 && bloque.body.omitidos.length === 0 && porId('dias_libres', DIA_ADMIN)?.estado === 'aprobado',
+        bloque
+      )
+      if (dora) dora.user_id = null
+    }
+
     print('\n10. La ejecutiva anula lo suyo')
     {
       const nuevo = await pedir(registrarMio, '/api/me/dias-libres', { method: 'POST', userId: VENTAS_ID, body: diaLibre('2027-03-08') })

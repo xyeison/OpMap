@@ -8,6 +8,7 @@
  */
 import type { z } from 'zod'
 import {
+  puedeAprobarseASiMismo,
   CONTEO_SEMILLA,
   DIAS_ADELANTE_DIA_LIBRE,
   DIAS_ATRAS_MIS_DIAS_LIBRES,
@@ -973,6 +974,12 @@ eq('getRoleTitle(hr) = "Recursos humanos"', getRoleTitle('hr'), 'Recursos humano
 check('el rol hr se acepta al crear o editar usuarios', roleSchema.safeParse('hr').success)
 check('un rol inventado no', !roleSchema.safeParse('rrhh').success)
 check('ningún texto visible del menú dice "KAM"', (['admin', 'commercial_director', 'hr', 'line_leader', 'sales_manager'] as Role[]).every(rol => getNavigationMenu(rol).every(item => !/kam/i.test(item.name))))
+
+// Decisión del dueño 2026-10-13: el administrador sí puede aprobarse sus propios días libres; los demás no.
+check('admin puede aprobarse sus propios días libres', puedeAprobarseASiMismo('admin'))
+for (const rol of ['commercial_director', 'hr', 'line_leader', 'sales_manager', 'data_manager', 'viewer', 'user', null, undefined]) {
+  check(`${String(rol)} no se aprueba a sí mismo`, !puedeAprobarseASiMismo(rol as string | null | undefined))
+}
 
 // ---------------------------------------------------------------------------------------------
 console.log(`\n${passed} pruebas bien, ${failed} con falla`)

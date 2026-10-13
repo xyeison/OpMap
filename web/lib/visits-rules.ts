@@ -207,6 +207,14 @@ export const MENSAJE_PROPIO_POR_OTRA =
 /** Razón en `omitidos` de /api/dias-libres/revisar para un día de la ejecutiva enlazada con quien revisa. */
 export const RAZON_DIA_PROPIO = 'Es tu propio día libre: lo revisa otra persona que apruebe'
 
+/**
+ * Quien aprueba no se aprueba a sí misma (decisión 13 del contrato F2), salvo el administrador: el dueño decidió el
+ * 2026-10-13 que admin sí puede registrarse y aprobarse sus propios días libres.
+ */
+export function puedeAprobarseASiMismo(role: string | null | undefined): boolean {
+  return role === 'admin'
+}
+
 /** Mensaje del 23P01 de config_registrar (el rango choca con un valor que empieza después). */
 export function mensajeSuperposicion(fecha: string): string {
   return `El rango se superpone con un valor que empieza el ${fecha}`
