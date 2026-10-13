@@ -224,6 +224,23 @@ funciones:       config_registrar(...) → uuid y config_cerrar(...) (únicas es
 users (+0810):   rol 'hr' (recursos humanos) en users_role_check: calendario y días libres
 ```
 
+#### Traspaso de Ejecutivos Comerciales (migración 0820, aplicada 2026-10-12)
+Spec en `docs/specs/2026-10-12-traspaso-ejecutivo-comercial.md`. RLS sin políticas (solo `service_role`).
+```sql
+ejecutivas_traspasos:  historial INMUTABLE de traspasos (disparadores impiden UPDATE, DELETE y TRUNCATE; service_role solo SELECT e INSERT):
+                       id, origen_id → executives, destino_id → executives NULL, destino_tipo existente|nueva|vacante|nadie
+                       (nadie ⇔ destino_id NULL), lineas uuid[] (≥ 1), fecha, dar_de_baja, desactivar_usuario (true solo si se
+                       desactivó: con baja, usuario activo de Ejecutivo Comercial sales_manager|user y distinto de quien lo hizo),
+                       copiar_excepciones, motivo (≤ 500), resumen jsonb, created_by → users, created_at
+medico_visitantes (+0820): fin_motivo manual|traspaso|baja|linea_quitada (NULL en las abiertas; manual por defecto al terminar sin motivo),
+                       traspaso_id → ejecutivas_traspasos (llave diferida; el traspaso que la terminó o la creó)
+funciones:             ejecutivas_traspasar(p jsonb, p_user uuid) → jsonb (traspaso atómico: líneas, zona de la persona nueva o vacante
+                       (y su color si hay baja), ajustes manuales, nombre del territorio, visitantes (desde greatest(fecha, desde)),
+                       excepciones opcionales, baja, usuario e historial)
+disparadores:          executive_lines_termina_visitantes (AFTER DELETE ON executive_lines → visitantes de esa línea terminan, linea_quitada);
+                       executives_baja_termina_visitantes (AFTER UPDATE OF status a inactive → todos sus visitantes terminan, baja)
+```
+
 ### Vistas
 
 #### 1. `kam_statistics`

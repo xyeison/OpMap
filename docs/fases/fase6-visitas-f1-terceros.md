@@ -183,11 +183,13 @@ Decisiones de implementación que el contrato no fijaba:
   con `busquedaCuentasSchema` / `busquedaMedicosSchema`.
 - **Parecidos de verificar sin tope**: `POST /api/terceros/medicos/verificar` lee todos los candidatos de cada palabra
   en páginas de 1.000 (antes se cortaba en 1.000 por id y el parecido de verdad podía quedar fuera en silencio).
-- **Visitantes que dejan de cumplir la regla**: la ejecutiva debe llevar la línea y estar activa al asignar; si después
-  le quitan la línea, la dan de baja o la línea se desactiva, la asignación vigente NO se cierra sola: listas y detalle
-  la traen con `aviso` ("El Ejecutivo Comercial ya no lleva esta línea", "... está inactivo", "La línea está
-  inactiva"; `avisoVisitante` en `web/lib/terceros.ts`) y la interfaz la marca "Revisar" para que quien tiene
-  `visitantes:manage` la termine. `visitante=me` la sigue mostrando, marcada.
+- **Visitantes que dejan de cumplir la regla**: la ejecutiva debe llevar la línea y estar activa al asignar. Desde la
+  migración 0820 (decisión del dueño del 2026-10-12, ver abajo) quitarle la línea o darla de baja **termina sola** la
+  asignación vigente (disparadores `executive_lines_termina_visitantes` y `executives_baja_termina_visitantes`,
+  `fin_motivo` 'linea_quitada' o 'baja'), y `visitante=me` ignora al Ejecutivo Comercial inactivo. Queda como red de
+  seguridad el `aviso` en listas y detalle ("El Ejecutivo Comercial ya no lleva esta línea", "... está inactivo", "La
+  línea está inactiva"; `avisoVisitante` en `web/lib/terceros.ts`) que la interfaz marca "Revisar": hoy solo puede
+  salir por una línea desactivada o por datos de antes de la 0820.
 - Marcar cliente o modalidad al crear una cuenta sin `terceros:manage` responde 403. `PATCH` de cuenta también acepta
   `codigo_prestador`.
 - Una sede que es una IPS de OpMap (`hospital_id`) solo admite `es_principal` por `PATCH /api/terceros/sedes/[id]`:
@@ -202,6 +204,8 @@ Decisiones de implementación que el contrato no fijaba:
 - Cambiar el cargo de un contacto no recalcula su rol. El municipio es obligatorio en toda sede nueva.
 
 Pendiente: aplicar 0800 (dueño), revisión con el subagente `revisor`, preview con sesión y la base migrada
-(escritorio y celular) y el PR. **Decisión del dueño pendiente**: al quitarle una línea a una ejecutiva o darla de
-baja (`/api/executives`), ¿se terminan solas sus asignaciones vigentes de esa línea (hasta = hoy) o se sigue solo
-avisando? Importa antes de F2 (metas y cobertura cuentan visitantes vigentes).
+(escritorio y celular) y el PR. **Decisión del dueño (RESUELTA el 2026-10-12)**: al quitarle una línea a una
+ejecutiva o darla de baja, sus asignaciones vigentes de esa línea se terminan solas ("si alguien se va o se le quita,
+pues ya no está") y lo suyo se pasa a otra persona con el traspaso en un paso: ver
+[`docs/decisiones/2026-10-12-traspaso-de-ejecutivas.md`](../decisiones/2026-10-12-traspaso-de-ejecutivas.md) y la spec
+`docs/specs/2026-10-12-traspaso-ejecutivo-comercial.md` (migración 0820, escrita y sin aplicar).

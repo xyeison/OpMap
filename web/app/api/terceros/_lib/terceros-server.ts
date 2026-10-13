@@ -545,9 +545,18 @@ export async function leerMedico(id: string): Promise<{ id: string; nombre: stri
   return data && data.length > 0 ? (data[0] as { id: string; nombre: string; activo: boolean }) : null
 }
 
-/** Ids de los Ejecutivos Comerciales enlazados con el usuario (executives.user_id). */
+/**
+ * Ids de los Ejecutivos Comerciales enlazados con el usuario (executives.user_id) que no están inactivos. Quien se
+ * dio de baja "ya no está" (decisión del dueño 2026-10-12, docs/decisiones/2026-10-12-traspaso-de-ejecutivas.md):
+ * "mis médicos" deja de mostrarle los de su etapa anterior.
+ */
 export async function ejecutivosDelUsuario(userId: string): Promise<string[]> {
-  const { data, error } = await supabaseAdmin.from('executives').select('id').eq('user_id', userId).limit(50)
+  const { data, error } = await supabaseAdmin
+    .from('executives')
+    .select('id')
+    .eq('user_id', userId)
+    .neq('status', 'inactive')
+    .limit(50)
   if (error) throw error
   return (data || []).map(fila => String((fila as { id: string }).id))
 }

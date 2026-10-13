@@ -5,9 +5,11 @@ import { jsonError, readJson, zodMessage } from '@/app/api/kams/_lib/kam-shared'
 import { UUID_RE, executiveUpdateSchema } from '@/lib/fase1-schemas'
 import type { ExecutiveResponse, ExecutiveStatus } from '@/lib/types/lines'
 import {
+  AVISO_COBERTURA_SIN_RECALCULAR,
   allLinesExist,
   kamExists,
   loadExecutives,
+  recalcularCobertura,
   replaceExecutiveLines,
   resolveUserIdByEmail,
   todayInBogota,
@@ -16,9 +18,28 @@ import {
 
 type Params = { params: { id: string } }
 
+/** { executive } y, si el cambio decidía la cobertura, si se recalculó (y el aviso cuando falló). */
+type ExecutiveChangeResponse = ExecutiveResponse & { cobertura_recalculada?: boolean; aviso?: string }
+
+function respuestaConCobertura(executive: ExecutiveResponse['executive'], recalculada: boolean | null): ExecutiveChangeResponse {
+  if (recalculada === null) return { executive }
+  return recalculada
+    ? { executive, cobertura_recalculada: true }
+    : { executive, cobertura_recalculada: false, aviso: AVISO_COBERTURA_SIN_RECALCULAR }
+}
+
+function mismasLineas(antes: string[], despues: string[]): boolean {
+  const a = new Set(antes)
+  const b = new Set(despues)
+  return a.size === b.size && Array.from(a).every(id => b.has(id))
+}
+
 // PATCH /api/executives/[id] — actualiza campos de la ejecutiva. Si viene "lines", reemplaza sus líneas.
 // Si cambia el email, user_id se vuelve a enlazar con el usuario de OpMap de ese email (o null).
 // Pasar a 'inactive' fija left_at = hoy; volver a 'active'/'placeholder' lo limpia.
+// Si cambia el estado o las líneas, recalcula la cobertura (global, sin Google Maps): quien se va o pierde una línea
+// "ya no está" (los visitantes de esas líneas los termina la base, migración 0820). La interfaz manda la baja y el
+// quitar líneas al traspaso (/api/executives/[id]/traspaso); esto cubre la API vieja.
 export async function PATCH(request: NextRequest, { params }: Params) {
   const auth = await requirePermission(request, 'executives:edit')
   if (!auth.ok) return auth.response
@@ -51,6 +72,22 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       return jsonError('Alguna de las líneas indicadas no existe', 400)
     }
 
+    // Líneas actuales, para saber si de verdad cambian (el formulario siempre manda todas)
+    let lineasCambian = false
+    if (input.lines !== undefined) {
+      const { data: currentLines, error: currentLinesError } = await supabaseAdmin
+        .from('executive_lines')
+        .select('line_id')
+        .eq('executive_id', executiveId)
+        .range(0, 9999)
+      if (currentLinesError) throw currentLinesError
+      lineasCambian = !mismasLineas(
+        ((currentLines || []) as Array<{ line_id: string }>).map(row => row.line_id),
+        input.lines
+      )
+    }
+    const estadoCambia = input.status !== undefined && input.status !== current.status
+
     const update: Record<string, unknown> = {}
     if (input.full_name !== undefined) update.full_name = input.full_name
     if (input.company !== undefined) update.company = input.company
@@ -67,7 +104,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       const userId = await resolveUserIdByEmail(current.email, executiveId)
       if (userId) update.user_id = userId
     }
-    if (input.status !== undefined && input.status !== current.status) {
+    if (estadoCambia && input.status !== undefined) {
       update.status = input.status
       update.left_at = input.status === 'inactive' ? todayInBogota() : null
     }
@@ -106,10 +143,13 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       }
     }
 
+    const coberturaRecalculada =
+      estadoCambia || lineasCambian ? await recalcularCobertura('PATCH /api/executives/[id]') : null
+
     const [executive] = await loadExecutives(executiveId)
     if (!executive) return jsonError('Ejecutiva no encontrada', 404)
 
-    const body: ExecutiveResponse = { executive }
+    const body = respuestaConCobertura(executive, coberturaRecalculada)
     return NextResponse.json(body)
   } catch (error) {
     console.error('Error en PATCH /api/executives/[id]:', error)
@@ -117,8 +157,9 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   }
 }
 
-// DELETE /api/executives/[id] — baja lógica: status = 'inactive' y left_at = hoy.
-// Nunca se borra la fila (la historia de cobertura y visitas la referencia).
+// DELETE /api/executives/[id] — baja lógica: status = 'inactive' y left_at = hoy, y recalcula la cobertura (global,
+// sin Google Maps): "ya no está". Nunca se borra la fila (la historia de cobertura y visitas la referencia). La
+// interfaz manda la baja al traspaso (/api/executives/[id]/traspaso), que además pasa lo suyo a otra persona.
 export async function DELETE(request: NextRequest, { params }: Params) {
   const auth = await requirePermission(request, 'executives:edit')
   if (!auth.ok) return auth.response
@@ -136,7 +177,8 @@ export async function DELETE(request: NextRequest, { params }: Params) {
     const current = currentData && currentData.length > 0 ? (currentData[0] as { id: string; status: ExecutiveStatus }) : null
     if (!current) return jsonError('Ejecutiva no encontrada', 404)
 
-    // Si ya estaba inactiva no se toca left_at (conserva la fecha de baja original)
+    // Si ya estaba inactiva no se toca left_at (conserva la fecha de baja original) ni se recalcula nada
+    let coberturaRecalculada: boolean | null = null
     if (current.status !== 'inactive') {
       const { data, error } = await supabaseAdmin
         .from('executives')
@@ -151,12 +193,13 @@ export async function DELETE(request: NextRequest, { params }: Params) {
       if (!data || data.length === 0) {
         return jsonError('Ejecutiva no encontrada', 404)
       }
+      coberturaRecalculada = await recalcularCobertura('DELETE /api/executives/[id]')
     }
 
     const [executive] = await loadExecutives(executiveId)
     if (!executive) return jsonError('Ejecutiva no encontrada', 404)
 
-    const body: ExecutiveResponse = { executive }
+    const body = respuestaConCobertura(executive, coberturaRecalculada)
     return NextResponse.json(body)
   } catch (error) {
     console.error('Error en DELETE /api/executives/[id]:', error)

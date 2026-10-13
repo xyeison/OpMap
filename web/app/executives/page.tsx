@@ -3,12 +3,24 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
+import { CAPA_MODAL } from '@/components/terceros/comun'
 import { usePermissions } from '@/hooks/usePermissions'
 import type { BusinessLine, Executive, ExecutiveStatus } from '@/lib/types/lines'
+import ContratarDialog from './ContratarDialog'
 import ExecutiveModal from './ExecutiveModal'
+import HistorialTraspasos from './HistorialTraspasos'
 import { executiveColor, readError, STATUS_BADGE, STATUS_LABELS, zoneLabel, type ZoneOption } from './shared'
+import { avisoCoberturaDe } from './traspaso-ui'
+import TraspasoWizard, { type ModoTraspaso } from './TraspasoWizard'
 
 type StatusFilter = 'current' | ExecutiveStatus | 'all'
+
+/** Asistente "Traspasar" abierto: quién entrega, con qué modo y (desde Editar) qué líneas. */
+interface TraspasoAbierto {
+  origen: Executive
+  modo: ModoTraspaso | null
+  lineas?: string[]
+}
 
 export default function ExecutivesPage() {
   return (
@@ -33,6 +45,9 @@ export default function ExecutivesPage() {
 function ExecutivesContent() {
   const { can } = usePermissions()
   const canEdit = can('executives:edit')
+  // Traspaso (spec 2026-10-12): pasar lo de una persona a otra, a una nueva o a una vacante (admin, director comercial)
+  const canTransfer = can('executives:transfer')
+  const showActions = canEdit || canTransfer
 
   const [executives, setExecutives] = useState<Executive[]>([])
   const [lines, setLines] = useState<BusinessLine[]>([])
@@ -45,10 +60,20 @@ function ExecutivesContent() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<Executive | null>(null)
   const [deactivating, setDeactivating] = useState<Executive | null>(null)
+  const [traspaso, setTraspaso] = useState<TraspasoAbierto | null>(null)
+  const [contratando, setContratando] = useState<Executive | null>(null)
+  const [historialKey, setHistorialKey] = useState(0)
   const [notice, setNotice] = useState('')
+  // El cambio se guardó pero la cobertura no se pudo recalcular (PATCH o DELETE): sigue dándole zonas a quien se fue
+  const [warning, setWarning] = useState('')
+  const avisar = (texto: string, aviso: string | null = null) => {
+    setNotice(texto)
+    setWarning(aviso ?? '')
+  }
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  // silencioso = sin la pantalla de carga (tras un traspaso o una contratación, con una ventana abierta)
+  const load = useCallback(async (silencioso = false) => {
+    if (!silencioso) setLoading(true)
     setLoadError('')
     setLinesError('')
     try {
@@ -79,7 +104,7 @@ function ExecutivesContent() {
       console.error('Error cargando ejecutivas:', error)
       setLoadError(error instanceof Error ? error.message : 'Error al cargar las ejecutivas')
     } finally {
-      setLoading(false)
+      if (!silencioso) setLoading(false)
     }
   }, [])
 
@@ -129,30 +154,128 @@ function ExecutivesContent() {
 
   const openCreate = () => {
     setEditing(null)
-    setNotice('')
+    avisar('')
     setModalOpen(true)
   }
 
   const openEdit = (executive: Executive) => {
     setEditing(executive)
-    setNotice('')
+    avisar('')
     setModalOpen(true)
   }
 
-  const handleSaved = (saved: Executive) => {
+  const handleSaved = (saved: Executive, aviso: string | null) => {
     const wasEdit = editing !== null
     setExecutives(prev =>
       prev.some(e => e.id === saved.id) ? prev.map(e => (e.id === saved.id ? saved : e)) : [...prev, saved]
     )
     setModalOpen(false)
     setEditing(null)
-    setNotice(wasEdit ? `Se guardaron los cambios de ${saved.full_name}.` : `Se creó ${saved.full_name}.`)
+    avisar(wasEdit ? `Se guardaron los cambios de ${saved.full_name}.` : `Se creó ${saved.full_name}.`, aviso)
   }
 
-  const handleDeactivated = (saved: Executive) => {
+  const handleDeactivated = (saved: Executive, aviso: string | null) => {
     setExecutives(prev => prev.map(e => (e.id === saved.id ? saved : e)))
     setDeactivating(null)
-    setNotice(`${saved.full_name} quedó inactiva.`)
+    avisar(`${saved.full_name} quedó inactiva.`, aviso)
+  }
+
+  const openTraspaso = (executive: Executive, modo: ModoTraspaso | null, lineas?: string[]) => {
+    avisar('')
+    setTraspaso({ origen: executive, modo, lineas })
+  }
+
+  // "Dar de baja": con permiso de traspaso y líneas, abre el asistente como baja (lo suyo pasa a alguien); si no lleva
+  // líneas o solo se puede editar, la baja simple de siempre (la API termina sus visitantes y recalcula la cobertura).
+  const canTransferFrom = (executive: Executive) =>
+    canTransfer && executive.status !== 'inactive' && executive.lines.length > 0
+  const startDeactivate = (executive: Executive) => {
+    if (canTransferFrom(executive)) {
+      openTraspaso(executive, 'baja')
+      return
+    }
+    avisar('')
+    setDeactivating(executive)
+  }
+
+  const handleTraspasoHecho = () => {
+    if (traspaso) avisar(`Traspaso de ${traspaso.origen.full_name} hecho. Está en el historial de traspasos.`)
+    setHistorialKey(value => value + 1)
+    void load(true)
+  }
+
+  const handleContratado = (saved: Executive | null, name: string, linkedUser: boolean | null) => {
+    if (saved) setExecutives(prev => prev.map(e => (e.id === saved.id ? saved : e)))
+    else void load(true)
+    setContratando(null)
+    avisar(
+      `Se contrató a ${name} en la vacante: conserva su zona, sus líneas, sus médicos y sus ajustes manuales.${
+        linkedUser ? ' Quedó enlazada a su usuario de OpMap.' : ''
+      }`
+    )
+  }
+
+  const renderActions = (executive: Executive, layout: 'table' | 'card') => {
+    const base =
+      layout === 'table'
+        ? 'px-3 py-1.5 text-sm rounded-lg font-medium disabled:opacity-40 disabled:cursor-not-allowed'
+        : 'flex-1 min-w-[7rem] px-3 py-2 text-sm rounded-lg font-medium border disabled:opacity-40 disabled:cursor-not-allowed'
+    const neutral =
+      layout === 'table' ? 'text-gray-700 hover:text-gray-900 hover:bg-gray-100' : 'text-gray-700 border-gray-300 bg-white hover:bg-gray-50'
+    const active = executive.status !== 'inactive'
+    const canDeactivate = active && (canTransferFrom(executive) || canEdit)
+    return (
+      <div className={layout === 'table' ? 'flex flex-wrap items-center justify-center gap-1' : 'flex flex-wrap gap-2'}>
+        {canEdit && (
+          <button
+            onClick={() => openEdit(executive)}
+            disabled={Boolean(linesError)}
+            className={`${base} ${neutral}`}
+            title={linesError ? 'No se puede editar sin cargar las líneas' : 'Editar ejecutiva'}
+          >
+            Editar
+          </button>
+        )}
+        {canEdit && executive.status === 'placeholder' && (
+          <button
+            onClick={() => {
+              avisar('')
+              setContratando(executive)
+            }}
+            disabled={Boolean(linesError)}
+            className={`${base} ${
+              layout === 'table' ? 'text-green-700 hover:text-green-800 hover:bg-green-50' : 'text-green-700 border-green-300 bg-white hover:bg-green-50'
+            }`}
+            title="La vacante pasa a ser la persona contratada y conserva todo lo que tenía"
+          >
+            Contratar
+          </button>
+        )}
+        {canTransferFrom(executive) && (
+          <button
+            onClick={() => openTraspaso(executive, null)}
+            disabled={Boolean(linesError)}
+            className={`${base} ${
+              layout === 'table' ? 'text-blue-700 hover:text-blue-800 hover:bg-blue-50' : 'text-blue-700 border-blue-300 bg-white hover:bg-blue-50'
+            }`}
+            title={linesError ? 'No se puede traspasar sin cargar las líneas' : 'Pasar sus líneas, zonas, ajustes y médicos a otra persona'}
+          >
+            Traspasar
+          </button>
+        )}
+        {canDeactivate && (
+          <button
+            onClick={() => startDeactivate(executive)}
+            disabled={canTransferFrom(executive) && Boolean(linesError)}
+            className={`${base} ${
+              layout === 'table' ? 'text-red-600 hover:text-red-700 hover:bg-red-50' : 'text-red-600 border-red-200 bg-white hover:bg-red-50'
+            }`}
+          >
+            Dar de baja
+          </button>
+        )}
+      </div>
+    )
   }
 
   if (loading) {
@@ -171,7 +294,7 @@ function ExecutivesContent() {
 
   const statCards: { key: ExecutiveStatus; label: string; value: number; color: string }[] = [
     { key: 'active', label: 'Activas', value: counts.active, color: 'from-green-600 to-green-700' },
-    { key: 'placeholder', label: 'Por contratar', value: counts.placeholder, color: 'from-amber-500 to-amber-600' },
+    { key: 'placeholder', label: 'Vacantes', value: counts.placeholder, color: 'from-amber-500 to-amber-600' },
     { key: 'inactive', label: 'Inactivas', value: counts.inactive, color: 'from-gray-500 to-gray-600' },
   ]
 
@@ -201,7 +324,7 @@ function ExecutivesContent() {
       {loadError ? (
         <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <span>{loadError}</span>
-          <button onClick={load} className="px-4 py-2 bg-white border border-red-300 rounded-lg text-sm font-medium hover:bg-red-100">
+          <button onClick={() => load()} className="px-4 py-2 bg-white border border-red-300 rounded-lg text-sm font-medium hover:bg-red-100">
             Reintentar
           </button>
         </div>
@@ -214,6 +337,11 @@ function ExecutivesContent() {
           )}
           {notice && (
             <div className="mb-4 p-4 bg-green-50 border border-green-200 text-green-700 rounded-xl text-sm">{notice}</div>
+          )}
+          {warning && (
+            <div className="mb-4 p-4 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl text-sm" role="alert">
+              {warning}
+            </div>
           )}
 
           {/* Totales por estado (clic = filtrar) */}
@@ -254,16 +382,16 @@ function ExecutivesContent() {
               className="px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700"
               aria-label="Filtrar por estado"
             >
-              <option value="current">Activas y por contratar</option>
+              <option value="current">Activas y vacantes</option>
               <option value="active">Solo activas</option>
-              <option value="placeholder">Solo por contratar</option>
+              <option value="placeholder">Solo vacantes</option>
               <option value="inactive">Solo inactivas</option>
               <option value="all">Todas</option>
             </select>
           </div>
 
-          {/* Tabla */}
-          <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-x-auto">
+          {/* Tabla (escritorio) */}
+          <div className="hidden md:block bg-white rounded-2xl shadow-xl border border-gray-100 overflow-x-auto">
             <table className="min-w-full">
               <thead>
                 <tr className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
@@ -273,7 +401,7 @@ function ExecutivesContent() {
                   <th className="px-6 py-4 text-center text-xs font-bold text-gray-700 uppercase tracking-wider">Estado</th>
                   <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Correo</th>
                   <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Empresa</th>
-                  {canEdit && (
+                  {showActions && (
                     <th className="px-6 py-4 text-center text-xs font-bold text-gray-700 uppercase tracking-wider">Acciones</th>
                   )}
                 </tr>
@@ -285,11 +413,7 @@ function ExecutivesContent() {
                     <tr key={executive.id} className="hover:bg-gray-50 transition-colors align-top">
                       <td className="px-6 py-4">
                         <div className={`flex items-center gap-2 text-sm font-semibold ${executive.status === 'inactive' ? 'text-gray-400' : 'text-gray-900'}`}>
-                          <span
-                            className={`w-3.5 h-3.5 rounded-full shrink-0 border ${executiveColor(executive) ? 'border-gray-300' : 'border-dashed border-gray-400'}`}
-                            style={{ backgroundColor: executiveColor(executive) ?? 'transparent' }}
-                            title={executiveColor(executive) ? `Color en el mapa: ${executiveColor(executive)}` : 'Sin color asignado'}
-                          />
+                          <ColorDot executive={executive} />
                           {executive.full_name}
                         </div>
                         {executive.notes && (
@@ -311,23 +435,7 @@ function ExecutivesContent() {
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        {executive.lines.length === 0 ? (
-                          <span className="text-sm text-gray-400">Sin líneas</span>
-                        ) : (
-                          <div className="flex flex-wrap gap-1.5 max-w-xs">
-                            {executive.lines.map(lineId => {
-                              const line = lineById.get(lineId)
-                              return (
-                                <span
-                                  key={lineId}
-                                  className="px-2 py-0.5 bg-gray-100 border border-gray-200 text-gray-700 rounded-full text-xs font-medium"
-                                >
-                                  {line ? line.name : 'Línea desconocida'}
-                                </span>
-                              )
-                            })}
-                          </div>
-                        )}
+                        <LineChips executive={executive} lineById={lineById} />
                       </td>
                       <td className="px-6 py-4 text-center">
                         <span className={`inline-flex items-center px-3 py-1 rounded-lg text-xs font-bold border ${STATUS_BADGE[executive.status]}`}>
@@ -338,47 +446,60 @@ function ExecutivesContent() {
                         {executive.email || <span className="text-gray-400">Sin correo</span>}
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-700 whitespace-nowrap">{executive.company}</td>
-                      {canEdit && (
-                        <td className="px-6 py-4">
-                          <div className="flex items-center justify-center gap-1">
-                            <button
-                              onClick={() => openEdit(executive)}
-                              disabled={Boolean(linesError)}
-                              className="px-3 py-1.5 text-sm text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-lg font-medium disabled:opacity-40 disabled:cursor-not-allowed"
-                              title={linesError ? 'No se puede editar sin cargar las líneas' : 'Editar ejecutiva'}
-                            >
-                              Editar
-                            </button>
-                            {executive.status !== 'inactive' && (
-                              <button
-                                onClick={() => {
-                                  setNotice('')
-                                  setDeactivating(executive)
-                                }}
-                                className="px-3 py-1.5 text-sm text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg font-medium"
-                              >
-                                Dar de baja
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      )}
+                      {showActions && <td className="px-4 py-4">{renderActions(executive, 'table')}</td>}
                     </tr>
                   )
                 })}
               </tbody>
             </table>
+            {filtered.length === 0 && <EmptyState filtering={Boolean(searchTerm) || statusFilter !== 'current'} />}
+          </div>
+
+          {/* Tarjetas (celular) */}
+          <div className="md:hidden space-y-3">
+            {filtered.map(executive => {
+              const zone = executive.base_kam_id ? zoneById.get(executive.base_kam_id) : undefined
+              return (
+                <div key={executive.id} className="bg-white rounded-xl shadow-md border border-gray-100 p-4 min-w-0">
+                  <div className="flex items-start justify-between gap-3 min-w-0">
+                    <div
+                      className={`flex items-center gap-2 text-sm font-semibold min-w-0 ${
+                        executive.status === 'inactive' ? 'text-gray-400' : 'text-gray-900'
+                      }`}
+                    >
+                      <ColorDot executive={executive} />
+                      <span className="break-words min-w-0">{executive.full_name}</span>
+                    </div>
+                    <span className={`shrink-0 inline-flex items-center px-2 py-0.5 rounded-md text-xs font-bold border ${STATUS_BADGE[executive.status]}`}>
+                      {STATUS_LABELS[executive.status]}
+                    </span>
+                  </div>
+                  <div className="mt-2 flex items-center gap-2 text-sm text-gray-700 min-w-0">
+                    {zone && (
+                      <span className="w-3 h-3 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: zone.color || '#9CA3AF' }} />
+                    )}
+                    <span className={`truncate ${executive.base_kam_id ? '' : 'text-gray-400'}`}>Zona: {baseZoneName(executive)}</span>
+                    {zone && !zone.active && <span className="text-xs text-gray-400 shrink-0">(inactiva)</span>}
+                  </div>
+                  <div className="mt-2">
+                    <LineChips executive={executive} lineById={lineById} />
+                  </div>
+                  <div className="mt-2 text-xs text-gray-500 break-all">
+                    {executive.email || 'Sin correo'} · {executive.company}
+                  </div>
+                  {executive.notes && <div className="mt-1 text-xs text-gray-500 break-words">{executive.notes}</div>}
+                  {showActions && <div className="mt-3 pt-3 border-t border-gray-100">{renderActions(executive, 'card')}</div>}
+                </div>
+              )
+            })}
             {filtered.length === 0 && (
-              <div className="text-center py-12">
-                <h3 className="text-sm font-medium text-gray-900">No se encontraron ejecutivas</h3>
-                <p className="mt-1 text-sm text-gray-500">
-                  {searchTerm || statusFilter !== 'current'
-                    ? 'Prueba con otros términos de búsqueda o con otro filtro de estado'
-                    : 'Agrega la primera ejecutiva para comenzar'}
-                </p>
+              <div className="bg-white rounded-xl shadow-md border border-gray-100">
+                <EmptyState filtering={Boolean(searchTerm) || statusFilter !== 'current'} />
               </div>
             )}
           </div>
+
+          <HistorialTraspasos refrescar={historialKey} lines={lines} executives={executives} />
         </>
       )}
 
@@ -392,14 +513,48 @@ function ExecutivesContent() {
             setEditing(null)
           }}
           onSaved={handleSaved}
+          onTraspasar={
+            canTransfer
+              ? (executive, removedLines) => {
+                  setModalOpen(false)
+                  setEditing(null)
+                  openTraspaso(executive, 'quitar', removedLines)
+                }
+              : undefined
+          }
         />
       )}
 
       {deactivating && (
         <DeactivateDialog
           executive={deactivating}
+          canTransfer={canTransfer}
           onCancel={() => setDeactivating(null)}
           onDone={handleDeactivated}
+        />
+      )}
+
+      {traspaso && (
+        <TraspasoWizard
+          origen={traspaso.origen}
+          modoInicial={traspaso.modo}
+          lineasIniciales={traspaso.lineas}
+          executives={executives}
+          lines={lines}
+          zones={zones}
+          onCerrar={() => setTraspaso(null)}
+          onHecho={handleTraspasoHecho}
+        />
+      )}
+
+      {contratando && (
+        <ContratarDialog
+          vacante={contratando}
+          executives={executives}
+          lines={lines}
+          zones={zones}
+          onCerrar={() => setContratando(null)}
+          onHecho={handleContratado}
         />
       )}
     </div>
@@ -407,16 +562,62 @@ function ExecutivesContent() {
 }
 
 // ---------------------------------------------------------------------------
-// Confirmación de baja lógica (DELETE /api/executives/[id] → status 'inactive' + left_at)
+// Piezas de la lista
+// ---------------------------------------------------------------------------
+
+function ColorDot({ executive }: { executive: Executive }) {
+  const color = executiveColor(executive)
+  return (
+    <span
+      className={`w-3.5 h-3.5 rounded-full shrink-0 border ${color ? 'border-gray-300' : 'border-dashed border-gray-400'}`}
+      style={{ backgroundColor: color ?? 'transparent' }}
+      title={color ? `Color en el mapa: ${color}` : 'Sin color asignado'}
+    />
+  )
+}
+
+function LineChips({ executive, lineById }: { executive: Executive; lineById: Map<string, BusinessLine> }) {
+  if (executive.lines.length === 0) return <span className="text-sm text-gray-400">Sin líneas</span>
+  return (
+    <div className="flex flex-wrap gap-1.5 md:max-w-xs">
+      {executive.lines.map(lineId => {
+        const line = lineById.get(lineId)
+        return (
+          <span key={lineId} className="px-2 py-0.5 bg-gray-100 border border-gray-200 text-gray-700 rounded-full text-xs font-medium">
+            {line ? line.name : 'Línea desconocida'}
+          </span>
+        )
+      })}
+    </div>
+  )
+}
+
+function EmptyState({ filtering }: { filtering: boolean }) {
+  return (
+    <div className="text-center py-12 px-4">
+      <h3 className="text-sm font-medium text-gray-900">No se encontraron ejecutivas</h3>
+      <p className="mt-1 text-sm text-gray-500">
+        {filtering ? 'Prueba con otros términos de búsqueda o con otro filtro de estado' : 'Agrega la primera ejecutiva para comenzar'}
+      </p>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Baja simple (DELETE /api/executives/[id] → status 'inactive' + left_at). Se usa cuando la persona no lleva líneas
+// (no hay nada que traspasar) o cuando quien administra no tiene permiso de traspaso. La API termina sus visitantes y
+// recalcula la cobertura: "si alguien se va, ya no está" (decisión del dueño 2026-10-12).
 // ---------------------------------------------------------------------------
 
 interface DeactivateDialogProps {
   executive: Executive
+  canTransfer: boolean
   onCancel: () => void
-  onDone: (executive: Executive) => void
+  /** aviso: la baja quedó guardada pero la cobertura no se pudo recalcular. */
+  onDone: (executive: Executive, aviso: string | null) => void
 }
 
-function DeactivateDialog({ executive, onCancel, onDone }: DeactivateDialogProps) {
+function DeactivateDialog({ executive, canTransfer, onCancel, onDone }: DeactivateDialogProps) {
   const [working, setWorking] = useState(false)
   const [error, setError] = useState('')
 
@@ -430,7 +631,7 @@ function DeactivateDialog({ executive, onCancel, onDone }: DeactivateDialogProps
       if (!data || !data.executive || typeof data.executive.id !== 'string') {
         throw new Error('Respuesta inesperada del servidor')
       }
-      onDone(data.executive as Executive)
+      onDone(data.executive as Executive, avisoCoberturaDe(data))
     } catch (err: unknown) {
       console.error('Error dando de baja a la ejecutiva:', err)
       setError(err instanceof Error ? err.message : 'No se pudo dar de baja a la ejecutiva')
@@ -438,21 +639,35 @@ function DeactivateDialog({ executive, onCancel, onDone }: DeactivateDialogProps
     }
   }
 
+  const hasLines = executive.lines.length > 0
+
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
+    <div className={`fixed inset-0 bg-black bg-opacity-50 ${CAPA_MODAL} flex items-center justify-center p-4`} role="dialog" aria-modal="true">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
         <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-orange-100 flex items-center justify-center">
           <svg className="w-7 h-7 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
         </div>
         <h3 className="text-xl font-bold text-gray-900 text-center mb-2">Dar de baja</h3>
-        <p className="text-center text-gray-600 mb-4">
+        <p className="text-center text-gray-600 mb-4 break-words">
           ¿Dar de baja a <strong>{executive.full_name}</strong>?
         </p>
-        <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 mb-5 text-sm text-orange-800">
-          Quedará como inactiva con la fecha de salida de hoy. No se borra: su historial se conserva y se puede
-          reactivar después desde Editar.
+        <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 mb-5 text-sm text-orange-800 space-y-2">
+          <p>
+            Quedará como inactiva con la fecha de salida de hoy. No se borra: su historial se conserva y se puede
+            reactivar después desde Editar.
+          </p>
+          {hasLines ? (
+            <p>
+              <strong>Ya no está:</strong> sus médicos quedan sin visitante y la cobertura deja de darle zonas.
+              {canTransfer
+                ? ' Para pasar lo suyo a otra persona, cancela y usa «Traspasar».'
+                : ' Para pasar lo suyo a otra persona, pide a un administrador o al director comercial que use «Traspasar».'}
+            </p>
+          ) : (
+            <p>No lleva líneas: no hay médicos ni zonas que traspasar.</p>
+          )}
         </div>
         {error && <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>}
         <div className="flex gap-3">

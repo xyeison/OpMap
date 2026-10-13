@@ -352,12 +352,17 @@ export async function cargarPersona(executiveId: string): Promise<PersonaVisitas
   return (await personasPorId([executiveId])).get(executiveId) ?? null
 }
 
-/** El Ejecutivo Comercial enlazado con el usuario (executives.user_id es único), o null. */
+/**
+ * El Ejecutivo Comercial enlazado con el usuario (executives.user_id es único) que no está inactivo, o null. Quien
+ * se dio de baja "ya no está" (decisión del dueño 2026-10-12): sus rutas /api/me/* responden como a un usuario sin
+ * Ejecutivo Comercial enlazado.
+ */
 export async function personaDelUsuario(userId: string): Promise<PersonaVisitas | null> {
   const { data, error } = await supabaseAdmin
     .from('executives')
     .select(COLUMNAS_EJECUTIVA)
     .eq('user_id', userId)
+    .neq('status', 'inactive')
     .order('full_name')
     .limit(5)
   if (error) throw error

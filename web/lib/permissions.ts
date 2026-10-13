@@ -36,6 +36,10 @@ export type Permission =
   | 'lines:edit'
   | 'executives:view'  // Fase 1: ejecutivas comerciales (personas)
   | 'executives:edit'
+  // Traspaso (spec 2026-10-12): pasar en un paso las líneas, la zona, los ajustes manuales, el nombre del territorio
+  // y los médicos de un Ejecutivo Comercial a otra persona, a una nueva o a una vacante (y darlo de baja). Solo admin
+  // y commercial_director: son los únicos que tienen a la vez equipo, cobertura y visitantes.
+  | 'executives:transfer'
   | 'coverage:view'    // Fase 2: cobertura por línea (la API limita a las líneas del usuario)
   | 'coverage:edit'    // Fase 2: recalcular y ajustes manuales (line_leader solo en SU línea)
   | 'map:all-lines'    // Fase 2: ver el mapa de cualquier línea y la vista "Zonas"
@@ -82,6 +86,7 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'lines:edit',
     'executives:view',
     'executives:edit',
+    'executives:transfer',
     'coverage:view',
     'coverage:edit',
     'map:all-lines',
@@ -158,6 +163,7 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'lines:edit',
     'executives:view',
     'executives:edit',
+    'executives:transfer', // Traspaso de un Ejecutivo Comercial a otra persona, una nueva o una vacante
     'coverage:view',
     'coverage:edit',
     'map:all-lines',

@@ -18,7 +18,7 @@ export function zoneLabel(name: string): string {
 
 export const STATUS_LABELS: Record<ExecutiveStatus, string> = {
   active: 'Activa',
-  placeholder: 'Por contratar',
+  placeholder: 'Vacante', // Traspaso (spec 2026-10-12): la vacante guarda lo de quien se fue hasta "Contratar"
   inactive: 'Inactiva',
 }
 

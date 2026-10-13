@@ -110,6 +110,23 @@ Menú "Calendario" (`/calendario`) con cualquiera de `calendar:manage`, `daysoff
 `visits:report` (`PERMISOS_CALENDARIO`); cada pestaña pide el suyo. `viewer` no tiene ninguno de los cinco
 (403 en configuración y días libres).
 
+### Traspaso de Ejecutivos Comerciales (`web/lib/permissions.ts`; spec `docs/specs/2026-10-12-traspaso-ejecutivo-comercial.md`)
+
+| Permiso | Para qué | Roles |
+|---------|----------|-------|
+| `executives:transfer` | Botón "Traspasar" (y "Dar de baja", que abre lo mismo) en Ejecutivos Comerciales: vista previa y traspaso en un paso de las líneas, la zona, los ajustes manuales de cobertura, el nombre del territorio y los médicos (visitantes) a otra persona, a una persona nueva o a una vacante; con la cobertura recalculada (`POST /api/executives/[id]/traspaso` y `/traspaso/vista-previa`) | admin, commercial_director |
+
+Solo esos dos roles tienen a la vez equipo (`executives:edit`), cobertura (`coverage:edit`) y visitantes
+(`visitantes:manage`); `data_manager`, `line_leader`, `viewer` y los demás reciben 403. "Contratar" una vacante
+(`POST /api/executives/[id]/contratar`) pide `executives:edit` y el historial (`GET /api/executives/traspasos`),
+`executives:view`; el **motivo** de cada traspaso (texto libre de la salida) solo lo reciben quienes tienen
+`executives:edit` o `executives:transfer` (para los demás va en `null`).
+
+**El traspaso no reemplaza a `users:manage`**: al dar de baja, "Desactivar su usuario" solo desactiva un usuario
+activo de Ejecutivo Comercial (rol `sales_manager` o `user`) y nunca el de quien hace el traspaso. Un admin, un líder
+de línea o cualquier otro rol enlazado a esa ficha sigue activo (la vista previa lo avisa) y se desactiva, si hace
+falta, desde Usuarios, con sus guardas (nadie se desactiva a sí mismo; nunca el último admin).
+
 ## Navegación por Rol
 
 ### Admin

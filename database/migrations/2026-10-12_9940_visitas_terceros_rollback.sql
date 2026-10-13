@@ -6,7 +6,8 @@
 --   código nuevo lee y escribe estas tablas y llama a terceros_crear_medico(); con el esquema viejo fallaría.
 --   Si ya se aplicaron fases posteriores de la app de visita que referencian estas tablas (visitas con
 --   medico_id, sede_id, cuenta_id, contacto_id o subtipo_id), deshacerlas antes: los DROP TABLE van SIN
---   CASCADE a propósito y abortan si algo más depende de ellas.
+--   CASCADE a propósito y abortan si algo más depende de ellas. 0820 (traspaso) usa medico_visitantes dentro de
+--   funciones, que el DROP no detecta: este rollback aborta al inicio si 0820 sigue aplicada (correr antes 9942).
 --
 -- Qué deshace (una sola transacción, todo o nada), en orden inverso a 0800:
 --   1. Disparadores: hospitals_terceros_sync (sobre hospitals), contactos_sede_de_la_cuenta, los constraint
@@ -30,6 +31,27 @@
 -- =====================================================================================
 
 BEGIN;
+
+-- -------------------------------------------------------------------------------------
+-- Guarda: si 0820 (traspaso de Ejecutivos Comerciales) sigue aplicada, aborta antes de tocar nada. Sus funciones y
+-- disparadores usan medico_visitantes dentro de cuerpos PL/pgSQL, que no crean dependencias: el DROP sin CASCADE no lo
+-- detectaría y quedarían disparadores rotos en executives y executive_lines (toda baja o línea quitada fallaría).
+-- Orden obligatorio: 9942 (rollback de 0820) antes que este.
+-- -------------------------------------------------------------------------------------
+
+-- [guarda 0820: inicio]
+DO $$
+BEGIN
+  IF to_regprocedure('public.ejecutivas_traspasar(jsonb, uuid)') IS NOT NULL
+     OR to_regclass('public.ejecutivas_traspasos') IS NOT NULL
+     OR EXISTS (SELECT 1 FROM pg_trigger t
+                WHERE NOT t.tgisinternal
+                  AND t.tgname IN ('executive_lines_termina_visitantes', 'executives_baja_termina_visitantes')) THEN
+    RAISE EXCEPTION 'Rollback 0800: 0820 (traspaso de Ejecutivos Comerciales) sigue aplicada; deshazla antes con 2026-10-12_9942_traspaso_ejecutivas_rollback.sql (usa medico_visitantes)';
+  END IF;
+END;
+$$;
+-- [guarda 0820: fin]
 
 -- Aviso de lo que se pierde
 DO $$

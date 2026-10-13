@@ -1367,8 +1367,11 @@ async function main() {
       )
       check('tras terminarla, se puede volver a asignar (nueva fila, la vieja queda como historia)', deNuevo.status === 201 && tablas.medico_visitantes.length === 4, deNuevo)
 
-      // La regla "la ejecutiva lleva esa línea" se comprueba al asignar; si después pierde la línea o la dan de baja,
-      // la asignación vigente sale con aviso en listas y detalle. NADA se cierra solo (eso lo decide el dueño).
+      // La regla "la ejecutiva lleva esa línea" se comprueba al asignar. Desde la 0820 (decisión del dueño del
+      // 2026-10-12, docs/decisiones/2026-10-12-traspaso-de-ejecutivas.md) los disparadores de la base terminan las
+      // asignaciones al quitar la línea o dar de baja; este Supabase falso no tiene disparadores, así que aquí se
+      // prueba la red de seguridad: si una asignación vigente quedara así, sale con aviso en listas y detalle, y las
+      // rutas de lectura no cierran nada por su cuenta.
       const sinAvisos = await leer(await verMedico(apiRequest(`/api/terceros/medicos/${medicoId}`), params(medicoId)))
       check(
         'con todo en regla, ningún visitante trae aviso',
@@ -1414,14 +1417,25 @@ async function main() {
       const miosInactiva = await leer(
         await buscarMedicos(apiRequest('/api/terceros/medicos/buscar', { method: 'POST', userId: VENTAS_ID, body: { visitante: 'me' } }))
       )
+      // "Ya no está" (decisión del dueño 2026-10-12): un Ejecutivo Comercial inactivo deja de ser "mi ejecutiva"
+      // para su usuario, así que visitante=me no devuelve nada aunque quedara una asignación vigente.
       check(
-        'visitante=me (por POST /medicos/buscar) la sigue mostrando, marcada para revisar',
+        'visitante=me (por POST /medicos/buscar) con su Ejecutivo Comercial inactivo → lista vacía (ya no está)',
         miosInactiva.status === 200 &&
-          miosInactiva.body.total === 1 &&
-          miosInactiva.body.items[0].visitantes.some((visitante: any) => visitante.executive_id === EJEC_1 && visitante.aviso === 'El Ejecutivo Comercial está inactivo'),
+          miosInactiva.body.total === 0 &&
+          Array.isArray(miosInactiva.body.items) &&
+          miosInactiva.body.items.length === 0,
         miosInactiva.body
       )
       ana.status = 'active'
+      const miosReactivada = await leer(
+        await buscarMedicos(apiRequest('/api/terceros/medicos/buscar', { method: 'POST', userId: VENTAS_ID, body: { visitante: 'me' } }))
+      )
+      check(
+        'visitante=me (por POST /medicos/buscar) con Ana activa de nuevo → vuelve a ver a su médico (el filtro es por estado, no por la fila)',
+        miosReactivada.status === 200 && miosReactivada.body.total === 1 && miosReactivada.body.items[0].id === medicoId,
+        miosReactivada.body
+      )
       const lineaA = tablas.business_lines.find(linea => linea.id === LINEA_A) as Fila
       lineaA.active = false
       const lineaInactiva = await leer(await verMedico(apiRequest(`/api/terceros/medicos/${medicoId}`), params(medicoId)))

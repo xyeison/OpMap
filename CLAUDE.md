@@ -9,7 +9,7 @@ Python de la raíz son el motor original; hoy la fuente de verdad es `web/`. Idi
 npm run dev          # servidor local (o preview "opmap-web" en .claude/launch.json)
 npm run check        # typecheck + lint + pruebas sin red  ← correr SIEMPRE antes de dar algo por terminado
 npm run typecheck    # tsc --noEmit (≈3 s)
-npm run test         # 12 suites sin red (Supabase falso, sin Google): ips-routes, reps, adres, población, bogotá, secop, terceros…
+npm run test         # 16 suites sin red (Supabase falso, sin Google): ips-routes, reps, adres, población, bogotá, secop, terceros, visitas, traspaso…
 npm run fase2:check  # reglas de cobertura vs documento de producto (NECESITA Supabase real, solo lectura)
 npm run fase1:simulate   # simulación de zonas, solo lectura
 npm run reps:check   # cruce IPS ↔ sedes del REPS: pruebas puras sin red
@@ -72,6 +72,10 @@ nada llama a Google.
 - **Caché de Next.js**: el cliente de `lib/supabase-admin.ts` hace todas sus consultas con
   `cache: 'no-store'`. No quitarlo: en Next 14 las rutas GET con `dynamic = 'force-dynamic'` guardaban
   el fetch de supabase-js para siempre en la Data Cache (datos y sesión de usuario viejos).
+- **Si un Ejecutivo Comercial se va o pierde una línea, ya no está** (dueño, 2026-10-12): lo suyo (líneas, zona,
+  médicos, ajustes de cobertura, nombre del territorio) pasa en un paso con "Traspasar" en `/executives` a otra
+  persona, una persona nueva o una vacante; una vacante se convierte en la persona con "Contratar"
+  (`docs/decisiones/2026-10-12-traspaso-de-ejecutivas.md`).
 - **Territorio y contratos**: el anexo de territorio (Anexo A IPS, Anexo B municipios) va al contrato de
   cada Ejecutivo Comercial; las versiones (`territory_snapshots`) son inmutables.
 - **SECOP I** se cuenta por el valor ADJUDICADO a cada contratista desde `f789-7hwg` (`fuente = 'secop1'`); el
@@ -114,6 +118,7 @@ nada llama a Google.
 - `docs/fases/fase7-visitas-f2-config-calendario.md` – app de visita F2: configuración con vigencias (escrituras solo
   por `config_registrar`/`config_cerrar`), calendario y festivos, días libres con aprobación en bloque, rol `hr`,
   cuota del periodo; `/configuracion` y `/calendario` (migración 0810 aplicada 2026-10-12).
+- `docs/specs/2026-10-12-traspaso-ejecutivo-comercial.md` – traspaso de un Ejecutivo Comercial y "Contratar" (0820 aplicada 2026-10-12).
 - `docs/arquitectura-y-scripts.md` – scripts Python, estructura de carpetas, archivos clave.
 - `docs/historico-resultados.md` – cifras de 2025 y colores originales (histórico, no vigente).
 - `docs/FLUJO_DE_TRABAJO_IA.md` – cómo trabajamos con Claude Code en este repo y por qué.
