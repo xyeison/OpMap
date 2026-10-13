@@ -1,9 +1,11 @@
 # Spec: traspaso de lo de un Ejecutivo Comercial a otra persona  (2026-10-12)
 
-**Estado**: implementada (PR pendiente). Aprobada por el dueño en su pedido ("una solución para que todo eso pase
+**Estado**: implementada y en producción (PR #15). Aprobada por el dueño en su pedido ("una solución para que todo eso pase
 fácilmente a uno nuevo"; decisión en `docs/decisiones/2026-10-12-traspaso-de-ejecutivas.md`). Las decisiones menores
 las tomó Claude y están en "Decisiones de implementación" y, las que surgieron al implementar, en "Estado" al final.
-La migración 0820 está escrita y probada con prueba real deshecha, **sin aplicar**.
+La migración 0820 está **aplicada** (2026-10-12, con autorización del dueño y en la misma ventana que el despliegue):
+su bloque DO pasó entero (11 casos con datos que se deshacen) y las 5 funciones guardadas son idénticas al archivo
+(md5). La vista previa se comprobó con datos reales sin confirmar ningún traspaso (0 en el historial).
 
 ## Problema
 
@@ -142,7 +144,7 @@ de la vista previa en escritorio y celular con la base real (sin confirmar un tr
 
 ## Estado (2026-10-12)
 
-Implementada en la rama `feat/traspaso-ejecutivas`; PR pendiente. Los 10 criterios de aceptación tienen prueba:
+Implementada en la rama `feat/traspaso-ejecutivas` (PR #15). Los 10 criterios de aceptación tienen prueba:
 puras en `web/scripts/traspaso-check.ts`, de rutas con Supabase falso en `web/scripts/traspaso-api-check.ts` (su
 `ejecutivas_traspasar` falsa replica la 0820 paso a paso) y en el bloque DO de la 0820 contra la base real, en una
 transacción que se deshace (disparadores, atomicidad con email repetido, historial inmutable como `service_role`).

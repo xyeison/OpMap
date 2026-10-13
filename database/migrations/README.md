@@ -601,7 +601,8 @@ tablas tienen FKs hacia `business_lines`, `executives` y `users`.
 
 # Migraciones — Traspaso de Ejecutivos Comerciales (historial, visitantes que terminan solos, traspaso en un paso)
 
-> **ESTADO: NO APLICADA.** Se aplica solo con autorización del dueño y en la misma ventana que el despliegue del
+> **ESTADO: APLICADA el 2026-10-12** (PR #15): bloque DO completo (11 casos) y las 5 funciones idénticas al archivo
+> (md5); en producción no cambió ningún dato (11 activas, 2 vacantes, 26 líneas, 0 traspasos). Se aplicó con autorización del dueño y en la misma ventana que el despliegue del
 > traspaso en `/executives` (rutas `/api/executives/[id]/traspaso`, `/api/executives/[id]/contratar` y
 > `/api/executives/traspasos`). Probada el 2026-10-12 contra la base real en una transacción que se deshace (sin
 > `BEGIN/COMMIT` y con un `RAISE` final, más una comprobación md5 de que la base recibió el texto idéntico al archivo):

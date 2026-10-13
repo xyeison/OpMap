@@ -1,6 +1,6 @@
 -- =====================================================================================
 -- OpMap · feat/traspaso-ejecutivas (traspaso de lo de un Ejecutivo Comercial a otra persona) · 0820
--- Proyecto: norvxqgohddgsdkggqzq · Generado: 2026-10-12 · ESTADO: NO APLICADA
+-- Proyecto: norvxqgohddgsdkggqzq · Generado: 2026-10-12 · ESTADO: APLICADA 2026-10-12 (PR #15)
 --
 -- Spec (fuente de verdad de nombres): docs/specs/2026-10-12-traspaso-ejecutivo-comercial.md ("Impacto · Datos" y
 --   "Plan · SQL"). Decisión del dueño: docs/decisiones/2026-10-12-traspaso-de-ejecutivas.md ("si alguien se va o se

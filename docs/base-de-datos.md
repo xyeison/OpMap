@@ -224,7 +224,7 @@ funciones:       config_registrar(...) → uuid y config_cerrar(...) (únicas es
 users (+0810):   rol 'hr' (recursos humanos) en users_role_check: calendario y días libres
 ```
 
-#### Traspaso de Ejecutivos Comerciales (migración 0820, NO aplicada)
+#### Traspaso de Ejecutivos Comerciales (migración 0820, aplicada 2026-10-12)
 Spec en `docs/specs/2026-10-12-traspaso-ejecutivo-comercial.md`. RLS sin políticas (solo `service_role`).
 ```sql
 ejecutivas_traspasos:  historial INMUTABLE de traspasos (disparadores impiden UPDATE, DELETE y TRUNCATE; service_role solo SELECT e INSERT):
