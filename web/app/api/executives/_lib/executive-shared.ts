@@ -1,5 +1,6 @@
 // Utilidades de servidor para /api/executives/** (carpeta "_lib": Next.js no la expone como ruta).
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { recomputeAndSaveCoverage } from '@/lib/coverage'
 import type { Executive, ExecutiveLineRow, ExecutiveRow } from '@/lib/types/lines'
 
 const EXECUTIVE_COLUMNS =
@@ -202,4 +203,25 @@ export function uniqueViolationMessage(details: string | null | undefined): stri
   if (text.includes('email')) return 'Ya existe una ejecutiva con ese email'
   if (text.includes('user_id')) return 'Ese usuario ya está enlazado con otra ejecutiva'
   return 'Ya existe una ejecutiva con esos datos'
+}
+
+/** Aviso cuando el cambio quedó guardado pero el recálculo de la cobertura falló. */
+export const AVISO_COBERTURA_SIN_RECALCULAR =
+  'Se guardó, pero no se pudo recalcular la cobertura. Usa "Recalcular cobertura" en la cobertura de la línea.'
+
+/**
+ * Recalcula la cobertura de TODAS las líneas y zonas (global, idempotente, sin Google Maps: solo distancias ya
+ * guardadas) después de un cambio que la decide: el estado o las líneas de un Ejecutivo Comercial, o un traspaso.
+ * "Si alguien se va o se le quita una línea, ya no está" (docs/decisiones/2026-10-12-traspaso-de-ejecutivas.md;
+ * spec docs/specs/2026-10-12-traspaso-ejecutivo-comercial.md, decisión 12). Nunca lanza: el cambio ya quedó
+ * guardado, así que devuelve false si falló y la ruta lo avisa.
+ */
+export async function recalcularCobertura(contexto: string): Promise<boolean> {
+  try {
+    await recomputeAndSaveCoverage()
+    return true
+  } catch (error) {
+    console.error(`${contexto}: el cambio se guardó, pero falló el recálculo de la cobertura:`, error)
+    return false
+  }
 }

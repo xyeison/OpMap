@@ -224,7 +224,8 @@ export default function TerritoryPanel({ lineCode, refreshKey = 0 }: TerritoryPa
   if (!lineCode) return null
 
   return (
-    <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-4 sm:p-6 mb-8">
+    // id="anexo": destino del enlace "Ver anexo" del resumen del traspaso (/lines?line=<código>#anexo)
+    <div id="anexo" className="bg-white rounded-2xl shadow-xl border border-gray-100 p-4 sm:p-6 mb-8">
       <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4 mb-4">
         <div>
           <h2 className="text-xl font-bold text-gray-900">

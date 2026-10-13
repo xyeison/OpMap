@@ -7,6 +7,8 @@
 --   estas tablas y llama a config_registrar(), config_cerrar() y calendario_cargar_festivos(); con el esquema viejo
 --   fallaría. Si ya se aplicaron fases posteriores de la app de visita que referencian estas tablas o funciones
 --   (visitas, KPIs), deshacerlas antes: los DROP van SIN CASCADE a propósito y abortan si algo más depende de ellos.
+--   0820 (traspaso) usa config_registrar y las tablas config_* dentro de funciones, que el DROP no detecta: este
+--   rollback aborta al inicio si 0820 sigue aplicada (correr antes 9942).
 --
 -- Qué deshace (una sola transacción, todo o nada), en orden inverso a 0810:
 --   1. Rol hr: quien lo tenga pasa a 'viewer' (NOTICE con cada usuario) y users_role_check vuelve a los 8 roles
@@ -32,6 +34,27 @@
 -- =====================================================================================
 
 BEGIN;
+
+-- -------------------------------------------------------------------------------------
+-- Guarda: si 0820 (traspaso de Ejecutivos Comerciales) sigue aplicada, aborta antes de tocar nada. Sus funciones y
+-- disparadores usan config_registrar, config_personas y config_metas dentro de cuerpos PL/pgSQL, que no crean dependencias: el DROP sin CASCADE no lo
+-- detectaría y quedarían disparadores rotos en executives y executive_lines (toda baja o línea quitada fallaría).
+-- Orden obligatorio: 9942 (rollback de 0820) antes que este.
+-- -------------------------------------------------------------------------------------
+
+-- [guarda 0820: inicio]
+DO $$
+BEGIN
+  IF to_regprocedure('public.ejecutivas_traspasar(jsonb, uuid)') IS NOT NULL
+     OR to_regclass('public.ejecutivas_traspasos') IS NOT NULL
+     OR EXISTS (SELECT 1 FROM pg_trigger t
+                WHERE NOT t.tgisinternal
+                  AND t.tgname IN ('executive_lines_termina_visitantes', 'executives_baja_termina_visitantes')) THEN
+    RAISE EXCEPTION 'Rollback 0810: 0820 (traspaso de Ejecutivos Comerciales) sigue aplicada; deshazla antes con 2026-10-12_9942_traspaso_ejecutivas_rollback.sql (usa config_registrar, config_personas y config_metas)';
+  END IF;
+END;
+$$;
+-- [guarda 0820: fin]
 
 -- -------------------------------------------------------------------------------------
 -- 0. Aviso de lo que se pierde

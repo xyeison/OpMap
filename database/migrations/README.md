@@ -559,7 +559,9 @@ tablas tienen FKs hacia `business_lines`, `executives` y `users`.
 - Re-ejecutable (`IF NOT EXISTS`, `CREATE OR REPLACE`, `DROP TRIGGER IF EXISTS` + `CREATE CONSTRAINT TRIGGER`,
   `ON CONFLICT DO NOTHING`; la sincronización es idempotente).
 - Rollback: antes de deshacer, volver a desplegar el código sin `/terceros`; si ya hay fases posteriores de la
-  app de visita que usan estas tablas, deshacerlas primero (el rollback aborta si algo depende de ellas).
+  app de visita que usan estas tablas, deshacerlas primero (el rollback aborta si algo depende de ellas). **0820
+  (traspaso) usa `medico_visitantes` dentro de funciones, que el DROP no detecta: 9940 aborta al inicio si 0820 sigue
+  aplicada; correr antes `9942`.**
 
 # Migraciones — App de visita · F2 Configuración y calendario (metas, conteo, parámetros, calendario, días libres, rol hr)
 
@@ -594,4 +596,65 @@ tablas tienen FKs hacia `business_lines`, `executives` y `users`.
   `DROP IF EXISTS` + `ADD`, carga de festivos idempotente).
 - Rollback: antes de deshacer, volver a desplegar el código sin `/configuracion`, `/calendario` ni sus rutas de API; si
   ya hay fases posteriores de la app de visita que usan estas tablas, deshacerlas primero (el rollback aborta si algo
-  depende de ellas).
+  depende de ellas). **0820 (traspaso) usa `config_registrar` y las tablas `config_*` dentro de funciones, que el DROP no
+  detecta: 9941 aborta al inicio si 0820 sigue aplicada; correr antes `9942`.**
+
+# Migraciones — Traspaso de Ejecutivos Comerciales (historial, visitantes que terminan solos, traspaso en un paso)
+
+> **ESTADO: NO APLICADA.** Se aplica solo con autorización del dueño y en la misma ventana que el despliegue del
+> traspaso en `/executives` (rutas `/api/executives/[id]/traspaso`, `/api/executives/[id]/contratar` y
+> `/api/executives/traspasos`). Probada el 2026-10-12 contra la base real en una transacción que se deshace (sin
+> `BEGIN/COMMIT` y con un `RAISE` final, más una comprobación md5 de que la base recibió el texto idéntico al archivo):
+> la migración completa, incluido su bloque DO con 10 casos (baja a persona nueva, quitar una línea a quien se queda
+> con duplicado y médico inactivo omitidos, quitar una línea sin que nadie la reciba, email repetido sin dejar nada a
+> medias, baja a una vacante con fecha de hace 90 días, disparadores de línea quitada y de baja, `fin_motivo`, 24
+> validaciones con su SQLSTATE y el traspaso ejecutado como `service_role`), terminó en `DRYRUN_OK`; migración +
+> rollback + comprobación terminaron en `DRYRUN_ROLLBACK_OK`. Después de cada intento
+> `to_regclass('public.ejecutivas_traspasos')` siguió en NULL y `medico_visitantes` sin `fin_motivo` ni `traspaso_id`.
+> Spec: `docs/specs/2026-10-12-traspaso-ejecutivo-comercial.md`; decisión del dueño:
+> `docs/decisiones/2026-10-12-traspaso-de-ejecutivas.md`.
+
+| # | Archivo | Qué hace | Destructivo |
+|---|---|---|---|
+| 18 | `2026-10-12_0820_traspaso_ejecutivas.sql` | Crea `ejecutivas_traspasos` (historial inmutable: origen, destino o NULL, `destino_tipo` existente/nueva/vacante/nadie, `lineas uuid[]` no vacío, `fecha`, `dar_de_baja`, `desactivar_usuario`, `copiar_excepciones`, `motivo` ≤ 500, `resumen jsonb`, `created_by`; CHECK de coherencia; disparadores que impiden UPDATE, DELETE y TRUNCATE; RLS sin políticas; `service_role` solo SELECT e INSERT). Añade a `medico_visitantes` `fin_motivo` (manual/traspaso/baja/linea_quitada; NULL en las abiertas; disparador que deja `manual` si se termina sin motivo; las ya terminadas pasan a `manual`) y `traspaso_id` (llave diferida a `ejecutivas_traspasos`). Función `ejecutivas_traspasar(p jsonb, p_user uuid) → jsonb`: el traspaso completo y atómico (valida; bloquea origen y destino; crea la persona nueva o la vacante "Vacante · <zona>" con la zona base de quien entrega; suma líneas; pasa ajustes manuales de cobertura, nombre del territorio y visitantes; copia excepciones con `config_registrar` si se pide; quita las líneas; da de baja con `left_at = fecha − 1`; desactiva el usuario si se pide y hay baja; guarda el historial y devuelve el resumen). Disparadores `executive_lines_termina_visitantes` (AFTER DELETE: termina los visitantes de esa línea, `linea_quitada`) y `executives_baja_termina_visitantes` (AFTER UPDATE OF status a inactive: termina todos, `baja`). Bloque DO final con pruebas que se deshacen | No (solo `fin_motivo = 'manual'` en visitantes ya terminados; hoy 0) |
+| — | `2026-10-12_9942_traspaso_ejecutivas_rollback.sql` | Quita los 5 disparadores, las 5 funciones, el CHECK, la llave, el índice y las columnas `fin_motivo`/`traspaso_id` de `medico_visitantes` y la tabla `ejecutivas_traspasos` (sin CASCADE). No toca 0800 ni 0810. Comprueba al final que no queda nada | Sí (historial de traspasos y el motivo de fin de cada visitante; lo que hicieron los traspasos NO se deshace) |
+
+- Orden: después de 0800 y 0810 (ya aplicadas). Tras aplicar: `NOTIFY pgrst, 'reload schema';`. Costo Google: 0; no
+  recalcula asignaciones ni cobertura (lo hace la ruta de la API después de llamar a la función, con distancias guardadas).
+- Forma de `p`: `{ origen_id, destino: { tipo: 'existente'|'nueva'|'vacante'|'nadie', id?, full_name?, email? },
+  lineas: uuid[] | null (null = todas), fecha: 'AAAA-MM-DD' | null (null = hoy en Bogotá), dar_de_baja,
+  desactivar_usuario, copiar_excepciones, motivo }`. Resumen: `{ traspaso_id, destino_id, lineas, ajustes_movidos,
+  ajustes_desactivados, nombres_copiados, visitantes_movidos, visitantes_terminados, omitidos: [{ medico_id, razon }],
+  excepciones_copiadas }` con `razon` = `ya_lo_visita` (quien recibe ya tiene esa asignación abierta) o `medico_inactivo`.
+- Errores (la API los traduce): 22023 parámetro no válido; 23514 regla (origen o destino inactivo, destino igual al
+  origen, origen sin líneas, líneas que no lleva, baja sin todas las líneas o con "nadie", fecha fuera de
+  [hoy − 90, hoy], historial inmutable, CHECK de `fin_motivo`); 23505 email de la persona nueva repetido
+  (`executives_email_key`); P0002 origen o destino inexistente; 23503 `p_user` inexistente. Cualquier error deshace todo.
+- Fechas: quien entrega termina sus visitantes en `greatest(desde, fecha − 1)` (el CHECK `hasta >= desde`); quien
+  recibe los tiene desde `greatest(fecha, desde)` (con una fecha pasada, nunca desde antes de que existiera la
+  asignación). Con baja, `left_at = fecha − 1`.
+- Color: con baja, la persona nueva o la vacante heredan `executives.color` de quien entrega (el mapa por línea no
+  cambia de color; quien entrega queda inactiva, así que no hay dos activos con el mismo color); sin baja, sin color.
+- Conteo (el mismo de la vista previa de `web/lib/traspaso.ts`, orden de `lineas` y `omitidos` incluido): `visitantes_movidos` = terminados y
+  creados para quien recibe; `visitantes_terminados` = quedan sin visitante ("nadie" o médico inactivo y, con baja, los
+  de líneas que ya no llevaba); los `ya_lo_visita` no cuentan en ninguno (el médico sigue con quien recibe) y solo salen
+  en `omitidos`. Los `medico_inactivo` cuentan en `visitantes_terminados` y además salen en `omitidos` con su razón.
+- Nombre de la vacante: "Vacante · <zona>" con la zona como la muestra la app (sin el prefijo "KAM ", igual que
+  `zoneDisplayName`), o "Vacante" si quien entrega no tiene zona.
+- `desactivar_usuario` solo tiene efecto con `dar_de_baja` (sin baja se ignora: a quien se queda no se le quita el
+  acceso) y solo sobre un usuario **activo de Ejecutivo Comercial** (rol `sales_manager` o `user`) que **no sea quien
+  hace el traspaso** (`p_user`): un admin, un líder de línea o cualquier otro rol se desactiva solo desde Usuarios
+  (`users:manage`, con sus guardas de "no a sí mismo" y "no el último admin"). `copiar_excepciones` con "nadie" se
+  ignora. El historial guarda lo que de verdad se hizo (`desactivar_usuario = true` solo si se desactivó).
+- La función no enlaza un usuario de OpMap a la persona nueva por email: lo hace la API después (como al crear una
+  ejecutiva). Tampoco guarda versiones del anexo (la ruta lo hace antes de llamarla, si se pidió).
+- Re-ejecutable (`IF NOT EXISTS`, `CREATE OR REPLACE`, `DROP CONSTRAINT IF EXISTS` + `ADD`; el relleno de `fin_motivo`
+  solo toca filas sin motivo).
+- Rollback: antes de deshacer, volver a desplegar el código sin el traspaso; desde ahí quitar una línea o dar de baja ya
+  no termina los visitantes solos. **Orden: 9942 antes que 9940 y 9941** (esos dos abortan al inicio si 0820 sigue
+  aplicada).
+- Repetida el 2026-10-12 tras la revisión (usuario solo de Ejecutivo Comercial y nunca el propio, color heredado con
+  baja, `desde` de quien recibe con `greatest`, comprobación de excepciones sin depender de datos vivos): migración
+  completa con su bloque DO (12 casos) → `DRYRUN_OK`; migración + guardas de 9940/9941 (abortan con 0820 aplicada) +
+  9942 + guardas (dejan pasar) + comprobación → `DRYRUN_ROLLBACK_OK`; después, sin `ejecutivas_traspasos` ni
+  `fin_motivo`.

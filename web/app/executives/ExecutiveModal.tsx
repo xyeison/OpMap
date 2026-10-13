@@ -1,7 +1,9 @@
 'use client'
 
 import { useState } from 'react'
+import { CAPA_MODAL } from '@/components/terceros/comun'
 import type { BusinessLine, Executive, ExecutiveStatus } from '@/lib/types/lines'
+import { avisoCoberturaDe } from './traspaso-ui'
 import {
   EXECUTIVE_PALETTE,
   executiveColor,
@@ -19,10 +21,16 @@ interface ExecutiveModalProps {
   zones: ZoneOption[] // todas las zonas (activas e inactivas)
   lines: BusinessLine[]
   onClose: () => void
-  onSaved: (executive: Executive) => void
+  /** aviso: el cambio se guardó pero la cobertura no se pudo recalcular (la página lo muestra). */
+  onSaved: (executive: Executive, aviso: string | null) => void
+  /**
+   * Traspaso (spec 2026-10-12): si al editar se desmarca una línea, se ofrece abrir el asistente "Traspasar" con esas
+   * líneas para pasar sus médicos y zonas. Sin esto (sin permiso executives:transfer) solo se avisa.
+   */
+  onTraspasar?: (executive: Executive, lineasQuitadas: string[]) => void
 }
 
-export default function ExecutiveModal({ executive, zones, lines, onClose, onSaved }: ExecutiveModalProps) {
+export default function ExecutiveModal({ executive, zones, lines, onClose, onSaved, onTraspasar }: ExecutiveModalProps) {
   const isEdit = executive !== null
   const [fullName, setFullName] = useState(executive?.full_name ?? '')
   const [email, setEmail] = useState(executive?.email ?? '')
@@ -46,6 +54,11 @@ export default function ExecutiveModal({ executive, zones, lines, onClose, onSav
   // Estados elegibles: "inactiva" solo aparece si ya lo está (la baja se hace con "Dar de baja")
   const statusOptions: ExecutiveStatus[] =
     executive?.status === 'inactive' ? ['active', 'placeholder', 'inactive'] : ['active', 'placeholder']
+
+  // Líneas que llevaba y se desmarcaron: al guardar, sus médicos de esas líneas quedan sin visitante ("ya no está")
+  const removedLines =
+    executive && executive.status !== 'inactive' ? executive.lines.filter(lineId => !selectedLines.includes(lineId)) : []
+  const removedLineNames = removedLines.map(lineId => lines.find(line => line.id === lineId)?.name ?? 'una línea')
 
   const toggleLine = (lineId: string) => {
     setSelectedLines(prev => (prev.includes(lineId) ? prev.filter(id => id !== lineId) : [...prev, lineId]))
@@ -107,7 +120,7 @@ export default function ExecutiveModal({ executive, zones, lines, onClose, onSav
       if (!data || !data.executive || typeof data.executive.id !== 'string') {
         throw new Error('Respuesta inesperada del servidor')
       }
-      onSaved(data.executive as Executive)
+      onSaved(data.executive as Executive, avisoCoberturaDe(data))
     } catch (err: unknown) {
       console.error('Error guardando la ejecutiva:', err)
       setError(err instanceof Error ? err.message : 'Error al guardar la ejecutiva')
@@ -120,7 +133,7 @@ export default function ExecutiveModal({ executive, zones, lines, onClose, onSav
     'w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent'
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+    <div className={`fixed inset-0 bg-black bg-opacity-50 ${CAPA_MODAL} flex items-center justify-center p-4`}>
       <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
         <div className="sticky top-0 bg-gradient-to-r from-gray-800 to-gray-900 px-6 py-4 rounded-t-2xl flex justify-between items-center z-10">
           <h2 className="text-xl font-bold text-white">{isEdit ? 'Editar ejecutiva' : 'Nueva ejecutiva'}</h2>
@@ -159,7 +172,7 @@ export default function ExecutiveModal({ executive, zones, lines, onClose, onSav
                 placeholder="nombre@vgmedical.com.co"
                 className={inputClass}
               />
-              <p className="text-xs text-gray-500 mt-1">Opcional para cargos por contratar.</p>
+              <p className="text-xs text-gray-500 mt-1">Opcional para vacantes.</p>
             </div>
 
             <div>
@@ -243,6 +256,27 @@ export default function ExecutiveModal({ executive, zones, lines, onClose, onSav
                     </span>
                   </label>
                 ))}
+              </div>
+            )}
+            {removedLines.length > 0 && executive && (
+              <div className="mt-3 p-3 bg-amber-50 border border-amber-200 text-amber-900 rounded-lg text-sm flex flex-col sm:flex-row sm:items-center gap-3">
+                <p className="min-w-0 break-words">
+                  Le quitas {removedLineNames.join(', ')}. Si guardas así, sus médicos de{' '}
+                  {removedLines.length === 1 ? 'esa línea' : 'esas líneas'} quedan sin visitante y la cobertura deja de
+                  darle esas zonas. <strong>Para pasar sus médicos y zonas usa Traspasar.</strong>
+                  {!onTraspasar && ' (Lo puede hacer un administrador o el director comercial.)'}
+                </p>
+                {onTraspasar && (
+                  <button
+                    type="button"
+                    onClick={() => onTraspasar(executive, removedLines)}
+                    disabled={saving}
+                    className="shrink-0 px-3 py-1.5 bg-gray-900 text-white rounded-lg hover:bg-gray-800 font-medium disabled:opacity-50"
+                    title="Abre el asistente con estas líneas; los demás cambios de este formulario no se guardan"
+                  >
+                    Traspasar
+                  </button>
+                )}
               </div>
             )}
           </div>
