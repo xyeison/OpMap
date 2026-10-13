@@ -113,7 +113,7 @@ nada llama a Google.
   aplicada 2026-10-12), permisos `terceros:*` y `visitantes:manage`, API `/api/terceros/**` y página `/terceros`.
 - `docs/fases/fase7-visitas-f2-config-calendario.md` – app de visita F2: configuración con vigencias (escrituras solo
   por `config_registrar`/`config_cerrar`), calendario y festivos, días libres con aprobación en bloque, rol `hr`,
-  cuota del periodo; `/configuracion` y `/calendario` (migración 0810 SIN APLICAR: hasta aplicarla, la API da 503).
+  cuota del periodo; `/configuracion` y `/calendario` (migración 0810 aplicada 2026-10-12).
 - `docs/arquitectura-y-scripts.md` – scripts Python, estructura de carpetas, archivos clave.
 - `docs/historico-resultados.md` – cifras de 2025 y colores originales (histórico, no vigente).
 - `docs/FLUJO_DE_TRABAJO_IA.md` – cómo trabajamos con Claude Code en este repo y por qué.

@@ -110,7 +110,7 @@ Usuarios del sistema.
 - email: text (único)
 - password: text (hash)
 - full_name: text
-- role: text (CHECK: 'admin', 'user', 'viewer', 'sales_manager', 'contract_manager', 'data_manager', 'line_leader', 'commercial_director'; la migración 0810, aún no aplicada, añade 'hr' = recursos humanos; permisos por rol en web/lib/permissions.ts)
+- role: text (CHECK: 'admin', 'user', 'viewer', 'sales_manager', 'contract_manager', 'data_manager', 'line_leader', 'commercial_director'; la migración 0810 (aplicada 2026-10-12) añade 'hr' = recursos humanos; permisos por rol en web/lib/permissions.ts)
 - active: boolean
 - created_at: timestamp
 ```
@@ -203,7 +203,7 @@ funciones:                terceros_crear_medico(p_medico, p_sedes, p_user) → u
                           terceros_sincronizar_hospitals(p_hospital_id DEFAULT NULL) → jsonb (idempotente; disparador hospitals_terceros_sync)
 ```
 
-#### Fase 7: app de visita · F2 Configuración y calendario (migración 0810, NO APLICADA)
+#### Fase 7: app de visita · F2 Configuración y calendario (migración 0810, aplicada 2026-10-12)
 Contrato en `docs/fases/fase7-visitas-f2-config-calendario.md`. Las 6 tablas con RLS sin políticas (solo `service_role`: SELECT, INSERT, UPDATE; nunca se borran).
 Las 4 config_* tienen vigente_desde/vigente_hasta (inclusive; NULL = abierto), motivo, set_by, anulado_at/por/motivo (set_by y anulado_por
 hacia users sin ON DELETE), anterior_id/anterior_hasta (el valor que la fila cortó o reemplazó al registrarse: vuelve a regir si se cancela o

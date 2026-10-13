@@ -563,7 +563,9 @@ tablas tienen FKs hacia `business_lines`, `executives` y `users`.
 
 # Migraciones — App de visita · F2 Configuración y calendario (metas, conteo, parámetros, calendario, días libres, rol hr)
 
-> **ESTADO: NO APLICADA.** Probada el 2026-10-12 contra la base real en una transacción que se deshace (sin
+> **ESTADO: APLICADA el 2026-10-12** con autorización del dueño, en la misma ventana que el despliegue (PR #14): su
+> bloque DO pasó entero; quedaron 2 metas, 5 conteos, 9 parámetros, 36 festivos 2026-2027 y el rol hr; las 6
+> funciones guardadas son idénticas a las del archivo (md5). Antes se probó el 2026-10-12 contra la base real en una transacción que se deshace (sin
 > `BEGIN/COMMIT` y con un `RAISE` final): la migración completa, incluido su bloque DO de comprobaciones, terminó en
 > `DRYRUN_OK`, y migración + rollback + comprobación terminaron en `DRYRUN_ROLLBACK_OK`; después de cada intento
 > `to_regclass('public.config_metas')` siguió en NULL, `btree_gist` sin instalar y `users_role_check` con los 8 roles.

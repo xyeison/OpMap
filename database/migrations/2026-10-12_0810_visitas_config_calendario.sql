@@ -1,6 +1,6 @@
 -- =====================================================================================
 -- OpMap · feat/visitas-f2-config-calendario (app de visita · F2 Configuración y calendario) · 0810
--- Proyecto: norvxqgohddgsdkggqzq · Generado: 2026-10-12 · ESTADO: NO APLICADA
+-- Proyecto: norvxqgohddgsdkggqzq · Generado: 2026-10-12 · ESTADO: APLICADA 2026-10-12 (PR #14)
 --
 -- Contrato: docs/fases/fase7-visitas-f2-config-calendario.md (sección "Base de datos"; fuente de verdad de
 --   nombres). Spec aprobada: docs/specs/2026-10-12-app-de-visita-opmap.md (secciones 6, 7, 9, 11 y 12).

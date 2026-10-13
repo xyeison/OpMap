@@ -368,11 +368,14 @@ Ninguna ruta llama a Google ni recalcula asignaciones. PostgREST corta en 1.000 
 - La migración se prueba antes contra la base real en una transacción que se deshace (todas sus
   comprobaciones deben pasar) y se aplica con autorización del dueño, en la misma ventana que el despliegue.
 
-## Estado: implementado (PR pendiente)
+## Estado: implementado y en producción (PR #14)
 
-Rama `feat/visitas-f2-config-calendario`, sin commit. **La migración 0810 NO está aplicada**: se aplica con
-autorización del dueño, en la misma ventana que el despliegue, y después `NOTIFY pgrst, 'reload schema';`. Hasta
-entonces todas las rutas de F2 responden 503 ("falta aplicar la migración 0810").
+Rama `feat/visitas-f2-config-calendario`. **La migración 0810 está aplicada** (2026-10-12, con autorización del dueño
+y en la misma ventana que el despliegue), seguida de `NOTIFY pgrst, 'reload schema';`. Su bloque DO pasó entero.
+Resultado en producción: 2 metas generales (médica 6 y institucional 1 al día), 5 reglas de conteo, 9 parámetros, 36
+festivos nacionales de 2026 y 2027 y el rol `hr`; las 6 funciones guardadas son idénticas a las del archivo (md5).
+Verificado con la base real: la cuota de octubre de una ejecutiva de Barranquilla da 84 médica y 14 institucional
+(21 días hábiles, metas desde el 12), ritmo 33 %. Si la base no tuviera la 0810, las rutas responden 503.
 
 ### Archivos
 
