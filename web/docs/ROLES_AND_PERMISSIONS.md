@@ -93,6 +93,23 @@ siquiera se pide a la base). Buscar por un documento de persona (cédula del mé
 es de `terceros:manage` y solo por `POST /api/terceros/{cuentas,medicos}/buscar` (el documento va en el cuerpo, nunca
 en la URL ni en los logs de peticiones); por GET un número solo busca NIT.
 
+### Fase 7 · F2 Configuración y calendario (`web/lib/permissions.ts`; contrato `docs/fases/fase7-visitas-f2-config-calendario.md`)
+
+Rol nuevo **`hr`** ("Recursos humanos"; migración 0810 lo añade a `users_role_check`): `lines:view`,
+`executives:view`, `calendar:manage`, `daysoff:approve`. Sin mapa ni dashboard.
+
+| Permiso | Para qué | Roles |
+|---------|----------|-------|
+| `visits:config` | Ver y cambiar la configuración de visitas (metas, qué cuenta, personas, general, subtipos) y la cuota de cualquier persona; menú "Configuración" (`/configuracion`) | admin, commercial_director |
+| `calendar:manage` | Días de empresa y de ciudad, cargar festivos, anular días del calendario | admin, commercial_director, hr |
+| `daysoff:approve` | Ver todos los días libres, aprobar o rechazar en bloque, registrar o anular por otra persona | admin, commercial_director, hr (además, el rol debe estar en `aprobacion_dias_libres.aprueban`, salvo admin; lo exige la API). Nunca sobre sus propios días: si su usuario está enlazado a un Ejecutivo Comercial, no se registra "por otra persona" (403) y la revisión en bloque omite los suyos; los registra en "Mis días libres" y los aprueba otra persona |
+| `daysoff:view` | Ver, sin aprobar, los días libres de las ejecutivas de sus líneas (`executive_lines` en líneas con `business_lines.leader_user_id` = él) | line_leader |
+| `visits:report` | Lo propio de un Ejecutivo Comercial: sus días libres y su cuota. Requiere usuario enlazado a una ejecutiva (si no, 403 "Tu usuario no está enlazado con un Ejecutivo Comercial") | admin, commercial_director, line_leader, sales_manager |
+
+Menú "Calendario" (`/calendario`) con cualquiera de `calendar:manage`, `daysoff:approve`, `daysoff:view` o
+`visits:report` (`PERMISOS_CALENDARIO`); cada pestaña pide el suyo. `viewer` no tiene ninguno de los cinco
+(403 en configuración y días libres).
+
 ## Navegación por Rol
 
 ### Admin

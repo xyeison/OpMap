@@ -9,6 +9,7 @@ export type Role =
   | 'user'
   | 'line_leader'          // Fase 2: líder de una línea de negocio (ajusta la cobertura de SU línea)
   | 'commercial_director'  // Fase 2: dirección comercial (ve y ajusta todas las líneas)
+  | 'hr'                   // Fase 7 F2: recursos humanos (calendario y días libres; aprueba en bloque)
 
 export type Permission =
   | 'dashboard:view'
@@ -48,6 +49,11 @@ export type Permission =
   | 'terceros:create'          // Fase 6 F1: crear cuentas, sedes, médicos y contactos
   | 'terceros:manage'          // Fase 6 F1: editar o desactivar, ver documentos, confirmar sedes, marcar cliente y modalidad
   | 'visitantes:manage'        // Fase 6 F1: asignar y terminar visitantes de un médico (line_leader solo SUS líneas; lo limita la API)
+  | 'visits:config'            // Fase 7 F2: ver y cambiar la configuración de visitas, subtipos y la cuota de cualquiera (/configuracion)
+  | 'calendar:manage'          // Fase 7 F2: días de empresa y de ciudad, cargar festivos, anular días del calendario
+  | 'daysoff:approve'          // Fase 7 F2: ver todos los días libres, aprobar o rechazar en bloque, registrar o anular por otra persona
+  | 'daysoff:view'             // Fase 7 F2: ver, sin aprobar, los días libres de las ejecutivas de SUS líneas (lo limita la API)
+  | 'visits:report'            // Fase 7 F2: lo propio de un Ejecutivo Comercial: sus días libres y su cuota (usuario enlazado a una ejecutiva)
 
 // Definición de permisos por rol
 export const rolePermissions: Record<Role, Permission[]> = {
@@ -88,7 +94,12 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'terceros:view',
     'terceros:create',
     'terceros:manage',
-    'visitantes:manage'
+    'visitantes:manage',
+    'visits:config',
+    'calendar:manage',
+    'daysoff:approve',
+    'daysoff:view',
+    'visits:report'
   ],
   sales_manager: [
     'dashboard:view',
@@ -103,7 +114,8 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'coverage:view',     // Solo las líneas que lleva como ejecutiva (GET /api/me/lines)
     'territory:view',    // Solo el anexo de su(s) ejecutivo(s) enlazado(s)
     'terceros:view',     // Fase 6 F1: terceros (cuentas, sedes, médicos sin documento, contactos)
-    'terceros:create'
+    'terceros:create',
+    'visits:report'      // Fase 7 F2: sus días libres y su cuota (si su usuario está enlazado a una ejecutiva)
   ],
   // Líder de línea: lo de sales_manager + editar su línea y su cobertura.
   // Las rutas /api/business-lines/** y /api/coverage/** restringen la edición a las líneas
@@ -126,7 +138,9 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'intelligence:view',
     'terceros:view',
     'terceros:create',
-    'visitantes:manage'  // Solo en las líneas donde business_lines.leader_user_id = el usuario (lo limita la API)
+    'visitantes:manage', // Solo en las líneas donde business_lines.leader_user_id = el usuario (lo limita la API)
+    'daysoff:view',      // Fase 7 F2: ve (sin aprobar) los días libres de las ejecutivas de SUS líneas
+    'visits:report'      // Fase 7 F2: sus días libres y su cuota (si también es ejecutiva)
   ],
   // Dirección comercial: todo lo de ver + gestionar líneas, equipo y cobertura de todas las líneas.
   // Sin users:manage ni recalculate:complete.
@@ -153,7 +167,19 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'terceros:view',
     'terceros:create',
     'terceros:manage',
-    'visitantes:manage'
+    'visitantes:manage',
+    'visits:config',     // Fase 7 F2: configuración de visitas (metas, conteo, personas, general, subtipos)
+    'calendar:manage',
+    'daysoff:approve',   // además su rol debe estar en aprobacion_dias_libres.aprueban (lo exige la API)
+    'visits:report'
+  ],
+  // Fase 7 F2: recursos humanos. Calendario (festivos, días de empresa y de ciudad) y días libres de todos
+  // (aprueba en bloque si su rol está en aprobacion_dias_libres.aprueban). Sin mapa ni dashboard.
+  hr: [
+    'lines:view',
+    'executives:view',
+    'calendar:manage',
+    'daysoff:approve'
   ],
   contract_manager: [
     'map:view',
@@ -210,6 +236,14 @@ export const rolePermissions: Record<Role, Permission[]> = {
   ]
 }
 
+// Fase 7 F2: cualquiera de estos permisos abre /calendario (cada pestaña pide el suyo)
+export const PERMISOS_CALENDARIO: readonly Permission[] = [
+  'calendar:manage',
+  'daysoff:approve',
+  'daysoff:view',
+  'visits:report'
+]
+
 // Función para verificar si un rol tiene un permiso específico
 export function hasPermission(role: Role | undefined, permission: Permission): boolean {
   if (!role) return false
@@ -245,6 +279,8 @@ export function getAllowedRoutes(role: Role | undefined): string[] {
   if (permissions.includes('executives:view')) routes.push('/executives')  // Fase 1
   if (permissions.includes('intelligence:view')) routes.push('/inteligencia') // Fase 3: giros ADRES
   if (permissions.includes('terceros:view')) routes.push('/terceros')        // Fase 6 F1: cuentas y médicos
+  if (permissions.includes('visits:config')) routes.push('/configuracion')   // Fase 7 F2: configuración de visitas
+  if (PERMISOS_CALENDARIO.some(permiso => permissions.includes(permiso))) routes.push('/calendario') // Fase 7 F2
   
   return routes
 }
@@ -277,6 +313,11 @@ export function getNavigationMenu(role: Role | undefined) {
   if (permissions.includes('terceros:view')) {
     menu.push({ name: 'Terceros', href: '/terceros', icon: 'users' })
   }
+
+  // Fase 7 F2: calendario (festivos, días de empresa y de ciudad) y días libres
+  if (PERMISOS_CALENDARIO.some(permiso => permissions.includes(permiso))) {
+    menu.push({ name: 'Calendario', href: '/calendario', icon: 'calendar' })
+  }
   
   if (permissions.includes('kams:view')) {
     menu.push({ name: 'Zonas', href: '/kams', icon: 'users' })
@@ -300,6 +341,11 @@ export function getNavigationMenu(role: Role | undefined) {
     menu.push({ name: 'Proveedores', href: '/providers', icon: 'providers' })
   }
   
+  // Fase 7 F2: configuración de visitas (metas, qué cuenta, personas, general, subtipos)
+  if (permissions.includes('visits:config')) {
+    menu.push({ name: 'Configuración', href: '/configuracion', icon: 'settings' })
+  }
+
   if (permissions.includes('users:manage')) {
     menu.push({ name: 'Usuarios', href: '/users', icon: 'user-group' })
   }
@@ -321,7 +367,8 @@ export function getRoleTitle(role: Role): string {
     viewer: 'Visualizador',
     user: 'Usuario',
     line_leader: 'Líder de línea',
-    commercial_director: 'Dirección comercial'
+    commercial_director: 'Dirección comercial',
+    hr: 'Recursos humanos'
   }
   
   return titles[role] || 'Usuario'

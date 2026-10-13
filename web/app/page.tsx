@@ -10,7 +10,15 @@ import { useQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 
 export default function HomePage() {
-  const { can } = usePermissions()
+  const { can, navigationMenu } = usePermissions()
+  // Sin dashboard: al mapa; quien tampoco tiene mapa (recursos humanos, Fase 7 F2) va a su primera pantalla.
+  const destino = can('map:view')
+    ? { href: '/map', texto: 'Ir al mapa' }
+    : navigationMenu.some(item => item.href === '/calendario')
+      ? { href: '/calendario', texto: 'Ir al calendario' }
+      : navigationMenu[0]
+        ? { href: navigationMenu[0].href, texto: `Ir a ${navigationMenu[0].name}` }
+        : { href: '/map', texto: 'Ir al mapa' }
   const [stats, setStats] = useState({
     totalKams: 0,
     totalHospitals: 0,
@@ -49,8 +57,8 @@ export default function HomePage() {
           <div className="min-h-screen bg-white flex items-center justify-center">
             <div className="max-w-md w-full p-8 border border-gray-200 rounded-none">
               <p className="text-gray-900 font-light">Acceso limitado</p>
-              <Link href="/map" className="mt-4 inline-block text-black underline underline-offset-4 hover:no-underline">
-                → Ir al mapa
+              <Link href={destino.href} className="mt-4 inline-block text-black underline underline-offset-4 hover:no-underline">
+                → {destino.texto}
               </Link>
             </div>
           </div>
