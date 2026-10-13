@@ -10,7 +10,13 @@ import { requirePermission } from '@/lib/require-role'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { jsonError, readJson, zodMessage } from '@/app/api/kams/_lib/kam-shared'
 import { revisarDiasLibresSchema } from '@/lib/visits-config-schemas'
-import { RAZON_DIA_PROPIO, revisarDiaLibre, type EstadoDiaLibre, type RevisarDiasLibresResponse } from '@/lib/visits-rules'
+import {
+  RAZON_DIA_PROPIO,
+  puedeAprobarseASiMismo,
+  revisarDiaLibre,
+  type EstadoDiaLibre,
+  type RevisarDiasLibresResponse,
+} from '@/lib/visits-rules'
 import { leerPorIds } from '@/app/api/terceros/_lib/terceros-server'
 import {
   MENSAJE_ROL_NO_APRUEBA,
@@ -55,7 +61,8 @@ export async function POST(request: NextRequest) {
         omitidos.push({ id, razon: 'No existe ese día libre' })
         continue
       }
-      if (propias.has(fila.executive_id)) {
+      // Sus propios días los revisa otra persona que apruebe, salvo el administrador (decisión del dueño 2026-10-13).
+      if (propias.has(fila.executive_id) && !puedeAprobarseASiMismo(auth.user.role)) {
         omitidos.push({ id, razon: RAZON_DIA_PROPIO })
         continue
       }
