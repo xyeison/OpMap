@@ -29,3 +29,20 @@ jobs:
         run: npm run lint
       - name: Pruebas sin red (Supabase falso, sin Google)
         run: npm run test
+
+  movil:
+    name: app movil · typecheck · pruebas
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci
+      - name: Typecheck y pruebas puras (sin red)
+        run: npm run check

@@ -1,0 +1,322 @@
+/**
+ * Nuevo médico, completo o no se crea (regla del dueño): tipo y número de documento (se DIGITA, nunca se dicta ni lo
+ * propone la IA), nombre, ciudad, especialidad y al menos una sede donde atiende. Primero se verifica el documento
+ * (POST /api/terceros/medicos/verificar): si ya existe se muestra el existente y se usa ese; si hay nombres
+ * parecidos se ofrecen. Las sedes salen de las cercanas, del buscador de sedes o de "Crear consultorio" (una cuenta
+ * consultorio con el GPS del sitio). Al crear, vuelve a Reportar con el médico puesto en la tarjeta que lo pidió.
+ * El documento solo viaja en el cuerpo de las peticiones y nunca se muestra en listas.
+ */
+import { useRouter } from 'expo-router'
+import { useState } from 'react'
+import { View } from 'react-native'
+import { Buscador } from '../../../components/reporte/Buscador'
+import { SelectorMunicipio } from '../../../components/reporte/SelectorMunicipio'
+import * as api from '../../../lib/api'
+import { ApiError, mensajeDeError } from '../../../lib/errores'
+import { textoDistancia } from '../../../lib/geo'
+import { medicoParaReportar, sedeConsultorio } from '../../../lib/propuesta'
+import { sinCortes } from '../../../lib/reglas'
+import { SoloEnFoco } from '../../../lib/montaje'
+import { avisarRetorno, leerPedido } from '../../../lib/retorno'
+import {
+  ESPECIALIDADES,
+  ROLES_MEDICO_SEDE,
+  TIPOS_DOC_MEDICO,
+  limpiarNombre,
+  tipoIdCuentaDeMedico,
+  validarDocumentoMedico,
+} from '../../../lib/terceros'
+import type { EspecialidadMedico, MedicoPublico, MedicoVerificarRespuesta, RolMedicoSede, SedeBusquedaItem, TipoDocMedico } from '../../../lib/tipos'
+import { Aviso, Boton, Campo, Chip, Grupo, Pantalla, Subtitulo, Tarjeta, Texto } from '../../../lib/ui'
+
+interface SedeElegida {
+  sede_id: string
+  nombre: string
+  cuenta_nombre: string | null
+  rol: RolMedicoSede
+  distancia_m: number | null
+}
+
+/** Pestaña oculta: se monta de cero cada vez que se abre (pedido, formulario y sedes nuevos). */
+export default function PantallaNuevoMedico() {
+  return (
+    <SoloEnFoco>
+      <NuevoMedico />
+    </SoloEnFoco>
+  )
+}
+
+function NuevoMedico() {
+  const router = useRouter()
+  const [pedido] = useState(() => leerPedido())
+  const clave = pedido?.clave ?? null
+  const cercanas = (pedido?.sedes ?? []).filter(s => s.distancia_m !== null).slice(0, 6)
+  const distancias = new Map((pedido?.sedes ?? []).map(s => [s.id, s.distancia_m]))
+
+  const [tipo, setTipo] = useState<TipoDocMedico>('CC')
+  const [numero, setNumero] = useState('')
+  const [nombre, setNombre] = useState(pedido?.nombre ?? '')
+  const [municipio, setMunicipio] = useState<string | null>(pedido?.municipio ? pedido.municipio.slice(0, 5) : null)
+  const [verificacion, setVerificacion] = useState<MedicoVerificarRespuesta | null>(null)
+  const [paso, setPaso] = useState<'documento' | 'datos'>('documento')
+  const [especialidades, setEspecialidades] = useState<EspecialidadMedico[]>([])
+  const [sedes, setSedes] = useState<SedeElegida[]>([])
+  const [error, setError] = useState<string | null>(null)
+  const [ocupado, setOcupado] = useState(false)
+
+  const documento = validarDocumentoMedico(tipo, numero)
+  const nombreLimpio = limpiarNombre(nombre)
+
+  const terminar = (medico: MedicoPublico) => {
+    // Lo que se sabe de cada sede: las cercanas del pedido y las elegidas aquí (el consultorio recién creado con el
+    // GPS de aquí está a 0 m). Las demás quedan "desconocidas" y decide el servidor.
+    const conocidas = new Map(distancias)
+    for (const sede of sedes) if (sede.distancia_m !== null) conocidas.set(sede.sede_id, sede.distancia_m)
+    avisarRetorno({ tipo: 'medico', clave, medico: medicoParaReportar(medico, conocidas) })
+    setNumero('')
+    if (router.canGoBack()) router.back()
+    else router.replace('/reportar')
+  }
+
+  const usarExistente = async (id: string) => {
+    setOcupado(true)
+    setError(null)
+    try {
+      terminar((await api.medico(id)).medico)
+    } catch (lanzado) {
+      setError(mensajeDeError(lanzado))
+    } finally {
+      setOcupado(false)
+    }
+  }
+
+  const verificar = async () => {
+    if (!documento.ok) return setError(documento.error)
+    if (nombreLimpio.length < 3) return setError('Escribe el nombre completo del médico')
+    if (!municipio) return setError('Elige la ciudad del médico')
+    setOcupado(true)
+    setError(null)
+    try {
+      const respuesta = await api.verificarMedico({ tipo_documento: tipo, numero_documento: documento.valor, nombre: nombreLimpio, municipality_id: municipio })
+      setVerificacion(respuesta)
+      if (!respuesta.existente && respuesta.parecidos.length === 0) setPaso('datos')
+    } catch (lanzado) {
+      setError(mensajeDeError(lanzado))
+    } finally {
+      setOcupado(false)
+    }
+  }
+
+  const agregarSede = (sede: Omit<SedeElegida, 'rol'>, rol: RolMedicoSede = 'atiende') =>
+    setSedes(prev => (prev.some(s => s.sede_id === sede.sede_id) ? prev : [...prev, { ...sede, rol }]))
+
+  const crearConsultorio = async () => {
+    if (!documento.ok || !municipio) return setError('Primero el documento y la ciudad del médico')
+    setOcupado(true)
+    setError(null)
+    const nombreConsultorio = `Consultorio ${nombreLimpio}`.slice(0, 200)
+    try {
+      const respuesta = await api.crearCuenta({
+        nombre: nombreConsultorio,
+        clase: 'consultorio',
+        tipo_identificacion: tipoIdCuentaDeMedico(tipo),
+        numero_identificacion: documento.valor,
+        sede: { nombre: nombreConsultorio, municipality_id: municipio, lat: pedido?.punto?.lat ?? null, lng: pedido?.punto?.lng ?? null },
+      })
+      agregarSede({ sede_id: respuesta.sede.id, nombre: respuesta.sede.nombre, cuenta_nombre: respuesta.cuenta.nombre, distancia_m: pedido?.punto ? 0 : null }, 'consultorio')
+    } catch (lanzado) {
+      // Ya hay una cuenta con esa identificación: se usa su sede principal como consultorio.
+      const existente = lanzado instanceof ApiError && lanzado.status === 409 ? (lanzado.cuerpo as { existente?: { id?: string } } | null)?.existente : undefined
+      if (existente?.id) {
+        try {
+          const detalle = await api.cuenta(existente.id)
+          // Solo una sede ACTIVA sirve de consultorio (la inactiva la rechazaría el servidor al crear el médico).
+          const principal = detalle.cuenta.activo === false ? null : sedeConsultorio(detalle.sedes)
+          if (principal) agregarSede({ sede_id: principal.id, nombre: principal.nombre, cuenta_nombre: detalle.cuenta.nombre, distancia_m: null }, 'consultorio')
+          else setError('Ya hay una cuenta con ese documento, pero no tiene sedes activas: búscala o pide a data manager que la revise.')
+        } catch (otro) {
+          setError(mensajeDeError(otro))
+        }
+      } else {
+        setError(mensajeDeError(lanzado))
+      }
+    } finally {
+      setOcupado(false)
+    }
+  }
+
+  const crear = async () => {
+    if (!documento.ok) return setError(documento.error)
+    if (!municipio) return setError('Elige la ciudad del médico')
+    if (especialidades.length === 0) return setError('Elige al menos una especialidad')
+    if (sedes.length === 0) return setError('Elige al menos una sede donde atiende')
+    setOcupado(true)
+    setError(null)
+    try {
+      const respuesta = await api.crearMedico({
+        tipo_documento: tipo,
+        numero_documento: documento.valor,
+        nombre: nombreLimpio,
+        especialidades,
+        municipality_id: municipio,
+        sedes: sedes.map((sede, indice) => ({ sede_id: sede.sede_id, rol: sede.rol, principal: indice === 0 })),
+      })
+      terminar(
+        respuesta.medico ?? {
+          id: respuesta.id,
+          nombre: nombreLimpio,
+          especialidades,
+          municipality_id: municipio,
+          sedes: sedes.map(s => ({ id: s.sede_id, nombre: s.nombre, rol: s.rol, cuenta_nombre: s.cuenta_nombre ?? undefined })),
+        }
+      )
+    } catch (lanzado) {
+      const existente = lanzado instanceof ApiError && lanzado.status === 409 ? (lanzado.cuerpo as { existente?: { id: string; nombre: string } } | null)?.existente : undefined
+      if (existente) setVerificacion({ existente: { id: existente.id, nombre: existente.nombre }, parecidos: [] })
+      setError(mensajeDeError(lanzado))
+    } finally {
+      setOcupado(false)
+    }
+  }
+
+  return (
+    <Pantalla>
+      <Texto suave>Un médico se crea completo: documento, nombre, ciudad, especialidad y dónde atiende.</Texto>
+
+      <Tarjeta estilo={{ gap: 12 }}>
+        <Subtitulo>1. Documento y nombre</Subtitulo>
+        <Grupo>
+          {TIPOS_DOC_MEDICO.map(opcion => (
+            <Chip
+              key={opcion.valor}
+              texto={opcion.valor === 'otro' ? 'Otro' : opcion.valor === 'PA' ? 'Pasaporte' : opcion.valor}
+              activo={tipo === opcion.valor}
+              alPresionar={() => {
+                setTipo(opcion.valor)
+                setVerificacion(null)
+                setPaso('documento')
+              }}
+            />
+          ))}
+        </Grupo>
+        <Campo
+          etiqueta="Número de documento (se digita)"
+          valor={numero}
+          alCambiar={texto => {
+            setNumero(texto)
+            setVerificacion(null)
+            setPaso('documento')
+          }}
+          keyboardType={tipo === 'CC' ? 'number-pad' : 'default'}
+          autoCapitalize="characters"
+          autoCorrect={false}
+          autoComplete="off"
+          importantForAutofill="no"
+          maxLength={24}
+          error={numero && !documento.ok ? documento.error : null}
+          ayuda="No se muestra en listas ni se dicta."
+        />
+        <Campo etiqueta="Nombre completo" valor={nombre} alCambiar={setNombre} autoCapitalize="words" placeholder="Dra. Ana María Gómez" maxLength={200} />
+        <SelectorMunicipio etiqueta="Ciudad del médico" valor={municipio} alCambiar={id => setMunicipio(id)} />
+        {paso === 'documento' && !verificacion ? <Boton titulo="Verificar" grande cargando={ocupado} alPresionar={() => void verificar()} /> : null}
+
+        {verificacion?.existente ? (
+          <Aviso tono="info" titulo="Ese documento ya está en OpMap">
+            <View style={{ gap: 8 }}>
+              <Texto>{verificacion.existente.nombre}</Texto>
+              <Boton titulo="Usar este médico" cargando={ocupado} alPresionar={() => void usarExistente(verificacion.existente!.id)} />
+            </View>
+          </Aviso>
+        ) : null}
+        {verificacion && !verificacion.existente && verificacion.parecidos.length > 0 && paso === 'documento' ? (
+          <Aviso tono="alerta" titulo="¿Es alguno de estos?">
+            <View style={{ gap: 8 }}>
+              {verificacion.parecidos.map(p => (
+                <Boton key={p.id} titulo={p.nombre} detalle={p.ciudad ?? undefined} variante="secundario" alPresionar={() => void usarExistente(p.id)} />
+              ))}
+              <Boton titulo="No, es otro médico: seguir" alPresionar={() => setPaso('datos')} />
+            </View>
+          </Aviso>
+        ) : null}
+      </Tarjeta>
+
+      {paso === 'datos' ? (
+        <Tarjeta estilo={{ gap: 12 }}>
+          <Subtitulo>2. Especialidad y dónde atiende</Subtitulo>
+          <Grupo>
+            {ESPECIALIDADES.map(opcion => (
+              <Chip
+                key={opcion.valor}
+                texto={opcion.etiqueta}
+                activo={especialidades.includes(opcion.valor)}
+                alPresionar={() =>
+                  setEspecialidades(prev => (prev.includes(opcion.valor) ? prev.filter(e => e !== opcion.valor) : [...prev, opcion.valor]))
+                }
+              />
+            ))}
+          </Grupo>
+
+          {sedes.length > 0 ? (
+            <View style={{ gap: 8 }}>
+              <Texto negrita>Sedes elegidas</Texto>
+              {sedes.map(sede => (
+                <Tarjeta key={sede.sede_id} estilo={{ padding: 12, gap: 8 }}>
+                  <Texto negrita>{sede.nombre}</Texto>
+                  {sede.cuenta_nombre && sede.cuenta_nombre !== sede.nombre ? (
+                    <Texto peque suave>
+                      {sede.cuenta_nombre}
+                    </Texto>
+                  ) : null}
+                  <Grupo>
+                    {ROLES_MEDICO_SEDE.map(rol => (
+                      <Chip
+                        key={rol.valor}
+                        texto={rol.etiqueta}
+                        activo={sede.rol === rol.valor}
+                        alPresionar={() => setSedes(prev => prev.map(s => (s.sede_id === sede.sede_id ? { ...s, rol: rol.valor } : s)))}
+                      />
+                    ))}
+                    <Chip texto="Quitar" activo={false} alPresionar={() => setSedes(prev => prev.filter(s => s.sede_id !== sede.sede_id))} />
+                  </Grupo>
+                </Tarjeta>
+              ))}
+            </View>
+          ) : null}
+
+          {cercanas.length > 0 ? (
+            <View style={{ gap: 8 }}>
+              <Texto negrita>Sedes cerca de ti</Texto>
+              {cercanas
+                .filter(s => !sedes.some(e => e.sede_id === s.id))
+                .map(s => (
+                  <Boton
+                    key={s.id}
+                    titulo={s.nombre}
+                    detalle={[s.cuenta_nombre !== s.nombre ? s.cuenta_nombre : null, s.distancia_m !== null ? sinCortes(textoDistancia(s.distancia_m)) : null].filter(Boolean).join(' · ') || undefined}
+                    variante="secundario"
+                    alPresionar={() => agregarSede({ sede_id: s.id, nombre: s.nombre, cuenta_nombre: s.cuenta_nombre, distancia_m: s.distancia_m })}
+                  />
+                ))}
+            </View>
+          ) : null}
+
+          <Buscador<SedeBusquedaItem>
+            etiqueta="Buscar otra sede"
+            placeholder="Nombre de la sede o de la clínica"
+            buscar={async q => (await api.buscarSedes(q)).items}
+            clave={item => item.id}
+            titulo={item => item.nombre}
+            detalle={item => [item.cuenta_nombre !== item.nombre ? item.cuenta_nombre : null, item.ciudad].filter(Boolean).join(' · ') || null}
+            textoElegir="Atiende aquí"
+            alElegir={item => agregarSede({ sede_id: item.id, nombre: item.nombre, cuenta_nombre: item.cuenta_nombre, distancia_m: null })}
+          />
+          <Boton titulo="Crear consultorio" detalle="Cuenta consultorio del médico con el GPS de aquí" variante="secundario" cargando={ocupado} alPresionar={() => void crearConsultorio()} />
+        </Tarjeta>
+      ) : null}
+
+      {error ? <Aviso tono="peligro">{error}</Aviso> : null}
+
+      {paso === 'datos' ? <Boton titulo="Crear médico" grande cargando={ocupado} alPresionar={() => void crear()} /> : null}
+    </Pantalla>
+  )
+}

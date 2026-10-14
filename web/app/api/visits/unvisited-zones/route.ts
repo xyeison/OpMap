@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin'
 import { requireUser } from '@/lib/require-role'
 import { fetchAllRows, isUuid, serverError } from '../../_lib/api-error'
+import { sinAnuladas } from '../_lib/visitas-mapa'
 
 // Cobertura: IPS asignadas sin visitas a menos de 5 km en el período. Requiere sesión.
 // Lecturas paginadas con .range() (M-01).
@@ -68,11 +69,13 @@ export async function GET(request: NextRequest) {
     const { data: hospitals, error: hospitalsError } = await fetchAllRows<any>(buildHospitalsQuery)
     if (hospitalsError) return serverError('visits/unvisited-zones (hospitales)', hospitalsError)
 
-    // 2. Obtener visitas del período (la columna deleted_at ya no existe en visits)
-    const buildVisitsQuery = (from: number, to: number) => {
+    // 2. Obtener visitas del período, sin las anuladas de la app (deleted_at, migración 0830): una visita anulada no
+    //    marca como visitadas las IPS cercanas. Antes de la 0830 la columna no existe y se consulta sin ese filtro.
+    const buildVisitsQuery = (filtrarAnuladas: boolean) => (from: number, to: number) => {
     let visitsQuery = supabase
       .from('visits')
       .select('id, lat, lng, kam_id, visit_type')
+    if (filtrarAnuladas) visitsQuery = visitsQuery.is('deleted_at', null)
 
     if (dateFilter.start && dateFilter.end) {
       visitsQuery = visitsQuery
@@ -86,7 +89,7 @@ export async function GET(request: NextRequest) {
     return visitsQuery.order('id').range(from, to)
     }
 
-    const { data: visits, error: visitsError } = await fetchAllRows<any>(buildVisitsQuery)
+    const { data: visits, error: visitsError } = await sinAnuladas(filtrar => fetchAllRows<any>(buildVisitsQuery(filtrar)))
     if (visitsError) return serverError('visits/unvisited-zones (visitas)', visitsError)
 
     // 3. Analizar hospitales no visitados

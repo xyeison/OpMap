@@ -221,14 +221,49 @@ const sedePrincipalSchema = z
   )
   .superRefine(revisarCoordenadas)
 
-/** POST /api/terceros/sedes (la API pone origen 'manual' y ubicacion_confirmada false). */
+/** Origen de una sede que el cuerpo puede pedir: solo la app de visita con el GPS del sitio (lo demás es 'manual'). */
+export const ORIGEN_SEDE_APP = 'gps_app' as const
+
+const MENSAJE_PRECISION_GPS = 'Precisión del GPS no válida (metros, 0 a 100000)'
+
+/**
+ * POST /api/terceros/sedes. Sin origen (o con cualquier otro valor, que se descarta como antes): 'manual'. Con
+ * origen 'gps_app' (app de visita, decisión 14 de docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md) la
+ * ubicación del teléfono (lat y lng) es obligatoria y gps_accuracy_m es la precisión que reporta el GPS.
+ * ubicacion_confirmada la decide la API (nunca el cuerpo): false, salvo una sede 'gps_app' cuyo código de
+ * habilitación cruce con el municipio en el REPS. La salida solo trae `origen` cuando es 'gps_app'.
+ */
 export const sedeCreateSchema = cuerpo({
     cuenta_id: idSchema('Elige la cuenta de la sede'),
     nombre: nombreSedeSchema,
     municipality_id: municipioSchema('Elige el municipio de la sede'),
     ...sedeCampos,
+    origen: z
+      .unknown()
+      .optional()
+      .transform(valor => (valor === ORIGEN_SEDE_APP ? ORIGEN_SEDE_APP : undefined)),
+    gps_accuracy_m: z
+      .number({ invalid_type_error: MENSAJE_PRECISION_GPS })
+      .finite(MENSAJE_PRECISION_GPS)
+      .min(0, MENSAJE_PRECISION_GPS)
+      .max(100000, MENSAJE_PRECISION_GPS)
+      .nullish()
+      .transform(valor => (valor === undefined || valor === null ? null : Math.round(valor))),
   })
-  .superRefine(revisarCoordenadas)
+  .superRefine((datos, ctx) => {
+    revisarCoordenadas(datos, ctx)
+    if (datos.origen === 'gps_app' && (datos.lat === undefined || datos.lat === null || datos.lng === undefined || datos.lng === null)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['lat'],
+        message: 'Para crear la sede desde la app hace falta la ubicación del teléfono (latitud y longitud)',
+      })
+    }
+  })
+  .transform((datos): Omit<typeof datos, 'origen'> & { origen?: typeof ORIGEN_SEDE_APP } => {
+    const { origen, ...resto } = datos
+    return origen ? { ...resto, origen } : resto
+  })
 
 export type SedeCreate = z.infer<typeof sedeCreateSchema>
 

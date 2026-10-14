@@ -1,0 +1,478 @@
+# Fase 8 · App de visita · F3 reporte de visitas y voz + F4 app móvil (contrato de implementación)  (2026-10-13)
+
+Spec aprobada: `docs/specs/2026-10-12-app-de-visita-opmap.md` (secciones 2, 4, 5, 8, 9 "Voz", 10, 11 y 12).
+Decisiones del dueño: `docs/decisiones/2026-10-12-app-de-visita.md` y
+`docs/decisiones/2026-10-13-dias-libres-admin-y-dias-de-empresa.md`. F1 (terceros, 0800), F2 (configuración y
+calendario, 0810) y el traspaso (0820) ya están en producción. Este documento fija nombres de tablas, funciones,
+rutas, formas JSON, permisos y pantallas para que base de datos, código puro, API y app se construyan en paralelo.
+
+Alcance: **F3** = la visita como dato (`visits` ampliada, `visit_lines`), las reglas que la validan (radio, mismo
+día, topes, perfil, telefónica), la API de la ejecutiva (`/api/me/*`: contexto, visitas, voz), la **sesión para el
+teléfono** (token de portador) y la voz (transcribir con OpenAI y proponer con Claude, **sin guardar audio**).
+**F4** = la app móvil (Expo / React Native, iPhone y Android) en `mobile/`: sesión, Hoy, Reportar por voz con
+respaldo por toques, crear médico completo o sede nueva, Mis días libres, Mis números. No incluye el tablero de
+dirección ni los KPIs 2 a 6 (F5).
+
+## Reglas del dueño que F3 y F4 deben cumplir
+
+- **La voz primero**: la ejecutiva pulsa un botón, dice qué pasó, la app transcribe, propone una o varias visitas
+  y muestra una confirmación corta; un toque. Corrige hablando o cambia el subtipo. El respaldo por toques tiene
+  los mismos campos.
+- **El audio no se guarda**: se transcribe en el servidor y se desecha; en el teléfono se conserva solo hasta que
+  la transcripción llega. Se guarda la transcripción con la visita.
+- **Dos tipos de visita**: médica (médico + sede donde atiende) e institucional (cuenta + sede + subtipo).
+  Una llegada a una clínica puede dejar varias visitas.
+- **Presencial solo en el sitio y el mismo día**: a menos del radio vigente (500 m por defecto, excepción por
+  persona) de la sede elegida; la API rechaza si no. Lejos: telefónica si la persona la tiene habilitada (tope
+  diario, solo llamada o videollamada) o crear la sede nueva con el GPS del sitio antes de reportar.
+- **Mismo día, tiempo real**: fecha y hora del teléfono al confirmar; sin señal, la app guarda con el punto y la
+  hora del sitio y envía sola al volver la señal, antes de medianoche; no se reportan días anteriores desde la app.
+- **Médicos completos o no se crean**: tipo y número de documento (se digita, nunca se dicta), nombre,
+  especialidad, ciudad y al menos una sede. Si el documento existe, se muestra el existente. La IA nunca inventa
+  un tercero ni produce un número de documento.
+- **Topes iniciales** (configurables en Configuración): una visita por médico al día; telefónicas hasta 1 de las 6.
+- **Solo la visita efectiva suma**; la no efectiva se guarda con motivo. Qué suma y con qué peso lo decide la
+  configuración vigente en la fecha (F2: `valorVisita`).
+- **Sede nueva desde la app**: suma al instante si trae código de habilitación del REPS que cruza con el
+  municipio; si no, cuando data manager la confirma (`ubicacion_confirmada`). La visita se guarda igual y NO suma
+  mientras la sede esté por confirmar; al confirmarla suma sola (la API mira la sede al contar: decisión 29).
+- **Visita a un médico del que no es visitante**: suma a su meta, queda marcada `out_of_territory` y la app
+  ofrece "pedir ser su visitante" (en F3 queda la marca; la asignación la hace quien tiene visitantes:manage).
+- **Privacidad**: nada de pacientes; documento del médico fuera de listas, voz y tarjetas; la transcripción es
+  interna (ejecutiva, su líder, dirección). Cuentas de OpenAI y Anthropic a nombre de VG, sin uso de los datos
+  para entrenar (el dueño las crea hoy; hasta entonces la voz responde 503 con mensaje claro y el respaldo por
+  toques funciona).
+- Terminología visible: "Ejecutivo Comercial", "Zona", "IPS", "Médico", "Cuenta", "Sede", "Contacto", "Visita".
+  Nunca "KAM", "representante" ni "panel". Nada llama a Google Maps.
+
+## Decisiones de implementación (Claude; el dueño puede cambiarlas)
+
+1. **Sesión del teléfono**: el mismo token firmado de la web (`signSession`, 7 días) pero entregado en el cuerpo
+   de `POST /api/auth/login` cuando la petición trae `cliente: 'movil'`, sin cookie; la app lo guarda en el
+   almacén seguro del teléfono y lo manda en `Authorization: Bearer`. El servidor acepta el portador **solo en
+   rutas `/api/`** (cookie para las páginas). Cambiar la contraseña revoca el token (claim `pv`). Cerrar sesión en
+   la app = olvidar el token.
+2. **CORS solo en desarrollo**: para verificar la app en el navegador (React Native Web en `localhost:8081`), el
+   middleware responde CORS a ese origen únicamente cuando `NODE_ENV !== 'production'`. En producción no hay CORS
+   (las apps nativas no lo necesitan).
+3. **La visita vive en `visits`** (tabla existente del mapa de calor) con columnas nuevas; las 7.033 importadas de
+   VMO quedan `source = 'vmo_import'` sin tocar. Para que el mapa de calor siga igual, las de la app también llenan
+   `kam_id` (zona base de la ejecutiva), `kam_name` (nombre de la ejecutiva), `visit_type` ('Visita efectiva' |
+   'Visita no efectiva'), `contact_type` ('Visita presencial' | 'Visita virtual' para telefónica), `lat/lng`,
+   `visit_date` y `hospital_id` (si la sede es una IPS de OpMap).
+4. **Idempotencia por `client_id`**: la app genera un uuid por visita; el mismo `client_id` dos veces devuelve la
+   misma fila (`repetida: true`), nunca duplica. Así el reintento sin señal es seguro.
+5. **Fecha y hora**: la app manda `checked_in_at` (instante del sitio, ISO con zona) y `reported_at` (al
+   confirmar). `visit_date` = fecha de `checked_in_at` en Bogotá y debe ser hoy (Bogotá) al llegar al servidor;
+   la cola sin señal reintenta hasta las 23:59 de ese día; después queda "no enviada" con aviso en la app.
+6. **Radio y distancia**: la distancia se calcula con Haversine en el servidor contra la sede elegida (nunca se
+   confía en la que manda el teléfono; esa se guarda como `gps_accuracy_m` y referencia). Presencial exige
+   `distance_m <= radio efectivo` (config_personas.radio_m vigente o config_general.radio_presencial_m vigente).
+   Sede sin coordenadas: presencial rechazada con mensaje "esta sede no tiene ubicación: confírmala o crea la
+   sede"; telefónica sí.
+7. **Médica**: `medico_id` activo y `sede_id` entre sus sedes (`medico_sedes`); si no es visitante del médico →
+   `out_of_territory = true`. **Institucional**: `cuenta_id` + `sede_id` de esa cuenta + `subtipo_id` vigente;
+   `contacto_id` opcional (de la cuenta). Compras vale en cualquier sede de la cuenta; las demás son de su sede
+   (solo informativo en F3; no se rechaza).
+8. **Topes**: presencial o telefónica cuentan igual para el tope por médico (`tope_visitas_medico_dia`, solo
+   efectivas); telefónicas al día por persona (`telefonicas.tope_dia` o `config_personas.tope_telefonicas_dia`),
+   solo si `telefonica_habilitada` vigente; `medio` ∈ `telefonicas.medios`. Rechazo con mensaje claro (400).
+9. **Perfil**: si el tipo no está en el perfil vigente de la persona → 400 "Tu perfil no incluye visitas médicas".
+10. **Edición**: la ejecutiva corrige **solo el mismo día** (conclusión, compromisos, próxima reunión, efectiva y
+    motivo, líneas) y anula con motivo el mismo día (`deleted_at`); no cambia tipo, médico ni sede (anula y vuelve a
+    reportar). La directora corrige después con rastro (F5).
+11. **Transcripción**: OpenAI `gpt-4o-transcribe` (respaldo `whisper-1` si el modelo no está disponible), idioma
+    `es`, con un prompt de vocabulario de VG (líneas, subtipos, "PerOssal", "tornillo canulado", "reemplazo",
+    "codificar"). Audio m4a/webm/mp4 ≤ 3 minutos y ≤ 25 MB, leído a memoria y enviado; nunca escrito en disco ni en
+    bucket; no se registra en logs. 503 `{ error: 'La transcripción no está configurada (falta OPENAI_API_KEY)' }`
+    si falta la llave; 502 si OpenAI falla, con el respaldo por toques sugerido.
+12. **Propuesta**: Claude `claude-sonnet-5-5` con salida estructurada (herramienta `proponer_visitas` con esquema
+    cerrado), temperatura baja, contexto = la respuesta de `/api/me/contexto` (sedes a menos de 1 km con sus
+    cuentas, los médicos que ella visita y sus sedes, contactos de esas cuentas, subtipos vigentes, sus líneas).
+    Solo puede elegir ids que estén en el contexto; un nombre que no cruza sale como `medico_nombre_dicho` con
+    `medico_id: null` y `sugerir_crear: true`. Nunca recibe ni devuelve documentos. 503 si falta
+    `ANTHROPIC_API_KEY`. Costo estimado por dictado ≈ 0,005 USD.
+13. **Compromisos vencidos** en Hoy: visitas de ella con `next_step_date < hoy` sin una visita posterior al mismo
+    médico o cuenta.
+14. **Sede nueva desde la app**: `POST /api/terceros/sedes` acepta `origen: 'gps_app'` con `lat`, `lng` y
+    `gps_accuracy_m` (la sede nace `ubicacion_confirmada = false` salvo que traiga `reps_code` válido que cruce
+    con el municipio de la cuenta principal o de la sede, **que sea del mismo prestador** (`reps_sedes.nit` =
+    `cuentas.numero_identificacion`, `mismoPrestador`; corrección 38) **y** que el GPS quede a menos de 20 km del centro
+    de ese municipio —`sedeAppConfirmada`, `MAX_M_SEDE_APP_AL_MUNICIPIO`; las 783 IPS de OpMap están a menos de 26 km
+    del suyo, el 99 % a menos de 16 km—: entonces `true`); el permiso sigue siendo `terceros:create` (las ejecutivas lo
+    tienen). Sin la distancia, un código público del REPS de otra ciudad confirmaba una sede creada desde la casa; sin
+    el NIT, lo hacía el de cualquier IPS de la misma ciudad.
+15. **Permiso**: `visits:report` (ya existe: admin, commercial_director, line_leader, sales_manager) exige usuario
+    enlazado a un Ejecutivo Comercial activo; si no, 403 con el mensaje de F2.
+16. **Mis números en F3**: solo KPI 1 (cumplimiento médica, institucional y subtipos con meta propia = visitas
+    efectivas × peso ÷ cuota del periodo) y "días hábiles sin visitas"; el resto en F5.
+17. **App**: Expo SDK 57 con TypeScript estricto y `expo-router`; sin mapa (lista de sedes cercanas con
+    distancia); `expo-location`, `expo-audio` (grabación), `expo-secure-store` (token), AsyncStorage (cola sin
+    señal). URL del servidor: `EXPO_PUBLIC_API_URL` (producción `https://op-map-umber.vercel.app`; en desarrollo
+    `http://localhost:3000`). Distribución: hoy Expo Go (QR); TestFlight y Play cuando el dueño cree las cuentas
+    (EAS). Verificación en este repo: React Native Web en `localhost:8081` contra el servidor local.
+18. **CI**: trabajo nuevo `app movil · typecheck · pruebas` en `.github/workflows/ci.yml` (`npm ci` y
+    `npm run check` en `mobile/`).
+
+## Base de datos (migración `database/migrations/2026-10-13_0830_visitas_app.sql`, rollback `2026-10-13_9943_visitas_app_rollback.sql`)
+
+Patrón de 0810/0820: `BEGIN/COMMIT`, precondiciones (0800, 0810, 0820 aplicadas; columnas reales de `visits`),
+re-ejecutable, comentarios, privilegios, bloque `DO` con pruebas que se deshacen (`RAISE SQLSTATE 'P0830'`),
+prueba real deshecha antes de aplicar.
+
+### `visits` (columnas nuevas; las filas importadas no cambian)
+
+| Columna | Tipo | Regla |
+| --- | --- | --- |
+| `source` | text not null default 'vmo_import' | IN ('vmo_import','app'); las 7.033 filas quedan 'vmo_import' |
+| `executive_id` | uuid null → executives | not null si source = 'app' |
+| `client_id` | uuid null | UNIQUE (índice parcial `WHERE client_id IS NOT NULL`); not null si app |
+| `tipo` | text null | IN ('medica','institucional'); not null si app |
+| `subtipo_id` | uuid null → subtipos_institucionales | institucional ⇒ not null; médica ⇒ null |
+| `subtipo_codigo` | text null | copia de `subtipos_institucionales.codigo` al registrar |
+| `medico_id` | uuid null → medicos | médica ⇒ not null; institucional ⇒ null |
+| `cuenta_id` | uuid null → cuentas | institucional ⇒ not null |
+| `sede_id` | uuid null → sedes | app ⇒ not null |
+| `contacto_id` | uuid null → contactos | solo institucional |
+| `modalidad` | text null | IN ('presencial','telefonica'); app ⇒ not null |
+| `medio` | text null | telefónica ⇒ IN ('llamada','videollamada'); presencial ⇒ null |
+| `efectiva` | boolean null | app ⇒ not null |
+| `failure_reason` | text null | no efectiva ⇒ not null (≤ 300) |
+| `retry_date` | date null | |
+| `checked_in_at` | timestamptz null | app ⇒ not null; `visit_date` = su fecha en Bogotá |
+| `reported_at` | timestamptz null | app ⇒ not null |
+| `distance_m` | int null | presencial ⇒ not null ≥ 0 |
+| `gps_accuracy_m` | int null | |
+| `conclusion` | text null | ≤ 2000 |
+| `compromisos` | text null | ≤ 2000 |
+| `next_step_date` | date null | |
+| `transcript` | text null | ≤ 8000; **no hay columna de audio** |
+| `input_mode` | text null | IN ('voz','toques'); app ⇒ not null |
+| `out_of_territory` | boolean not null default false | |
+| `created_by`, `updated_by` | uuid null → users | |
+| `updated_at` | ya existe | disparador `update_updated_at_column` si no lo tiene |
+| `deleted_at` | timestamptz null | anulada |
+| `deleted_reason` | text null | deleted_at ⇒ not null |
+
+CHECK con nombre `visits_app_check` que reúne las reglas "app ⇒ …" de la tabla; índices
+`visits_executive_date_idx (executive_id, visit_date) WHERE source = 'app'`, `visits_medico_idx (medico_id,
+visit_date)`, `visits_cuenta_idx (cuenta_id, visit_date)`, `visits_next_step_idx (executive_id, next_step_date)
+WHERE deleted_at IS NULL`. `visit_lines (visit_id uuid → visits ON DELETE CASCADE, line_id uuid →
+business_lines, PRIMARY KEY)`, RLS sin políticas, solo service_role.
+
+### Funciones
+
+- `visitas_registrar(p jsonb, p_user uuid) RETURNS jsonb`, SECURITY INVOKER, solo service_role, atómica:
+  `p = { client_id, executive_id, tipo, subtipo_id?, medico_id?, cuenta_id?, sede_id, contacto_id?, modalidad,
+  medio?, efectiva, failure_reason?, retry_date?, checked_in_at, reported_at, lat?, lng?, gps_accuracy_m?,
+  conclusion?, compromisos?, next_step_date?, transcript?, input_mode, lineas: uuid[] }`.
+  1. Si ya existe `client_id` → devuelve `{ visita_id, repetida: true }` sin tocar nada.
+  2. Ejecutiva activa con zona; `visit_date` = `checked_in_at` en Bogotá = hoy Bogotá (23514 "Solo se reportan
+     visitas del mismo día"); `reported_at >= checked_in_at`.
+  3. Perfil vigente incluye el tipo (config_personas o por defecto).
+  4. Médica: médico activo, sede ∈ `medico_sedes`; `out_of_territory` = no hay `medico_visitantes` vigente de ella
+     para ese médico (cualquier línea). Institucional: sede de la cuenta, subtipo vigente en la fecha (copia
+     `subtipo_codigo`), contacto de la cuenta si viene.
+  5. Presencial: lat/lng obligatorios; sede con coordenadas (si no, 23514 con el mensaje de la decisión 6);
+     `distance_m` = Haversine (metros, entero) ≤ radio efectivo (23514 "Estás a N m de <sede>; el radio es R m").
+     Telefónica: `telefonica_habilitada` vigente (23514 "No tienes habilitada la visita telefónica"), `medio` en
+     los medios vigentes, telefónicas efectivas de hoy < tope (23514).
+  6. Tope por médico: efectivas de ella a ese médico hoy (no anuladas) < `tope_visitas_medico_dia` (23514 "Ya
+     reportaste una visita a este médico hoy"). Solo si `efectiva`.
+  7. Líneas: al menos una, todas de la ejecutiva (`executive_lines`); se insertan en `visit_lines`.
+  8. Inserta en `visits` con los campos del mapa de calor (decisión 3) y devuelve
+     `{ visita_id, repetida: false, out_of_territory, distance_m, visit_date }`.
+- `visitas_editar(p_id uuid, p jsonb, p_user uuid) RETURNS void`: solo `source = 'app'`, de esa ejecutiva
+  (`p ->> 'executive_id'`), no anulada, `visit_date` = hoy; cambia conclusion, compromisos, next_step_date,
+  efectiva, failure_reason, retry_date, lineas; al cambiar `efectiva` a true revalida los topes.
+- `visitas_anular(p_id uuid, p_motivo text, p_user uuid) RETURNS void`: mismas condiciones; `deleted_at`,
+  `deleted_reason` (5..300), `updated_by`.
+- Bloque DO: estructura y privilegios; filas importadas intactas (count y checksum de `visit_type` antes y
+  después); con una ejecutiva real y médicos/sedes/visitantes de prueba: registrar médica presencial dentro del
+  radio, repetida por `client_id`, lejos (rechazo con la distancia), sede sin coordenadas, telefónica sin
+  habilitar y con tope, tope por médico, perfil sin médica, institucional con subtipo y contacto, out_of_territory,
+  líneas ajenas, ayer rechazado, editar y anular el mismo día, anular dos veces, importada no editable.
+
+## Código puro (`web/lib/reporte-visitas.ts` y `web/lib/reporte-visitas-schemas.ts`)
+
+- `haversineM(a, b)` → metros enteros (misma fórmula que el SQL; radio 6371008.8 m).
+- `fechaBogota(iso)` → `AAAA-MM-DD`; `esHoyBogota(iso, ahora)`.
+- `radioEfectivo(general, persona)`, `telefonicaEfectiva(general, persona)` → `{ habilitada, tope_dia, medios }`.
+- `validarVisita({ datos, contexto, config, hoy, ahora, visitasDeHoy })` → `{ ok, errores: [{ campo, mensaje }],
+  distance_m, out_of_territory }`: espejo de los pasos 2 a 7 de `visitas_registrar` (misma tabla de casos).
+- `compromisosVencidos(visitas, hoy)`; `resumenHoy(visitas, metasDia)`; `cumplimientoMes({ visitas, conteo,
+  cuota })` (usa `valorVisita` de F2) → `{ medica, institucional, subtipos: [...], dias_sin_visitas }`.
+- `sedesCercanas(sedes, punto, maxM = 1000, max = 20)`; `contextoDictado(...)` → el JSON compacto que recibe
+  Claude (sin documentos ni teléfonos).
+- `vocabularioVG(lineas, subtipos)` → prompt de transcripción; `PROMPT_PROPUESTA` (sistema) y
+  `esquemaPropuesta` (zod) con `propuestaSchema` para validar lo que devuelve Claude; `normalizarPropuesta`
+  (descarta ids que no estén en el contexto).
+- Esquemas zod: `loginMovilSchema`, `contextoQuerySchema`, `visitaCreateSchema` (client_id uuid, tipo discriminado,
+  modalidad discriminada, lineas 1..10 uuid sin repetir, textos con tope, fechas ISO), `visitaUpdateSchema`,
+  `anularSchema`, `proponerSchema` (transcript 1..8000, lat/lng opcionales, hora ISO), `numerosQuerySchema`.
+- Pruebas `web/scripts/reporte-check.ts` (puras) y `web/scripts/reporte-api-check.ts` (rutas con Supabase falso y
+  OpenAI/Claude falsos inyectados), en `npm run test`.
+
+## Sesión del teléfono y CORS (`web/lib/auth-server.ts`, `web/middleware.ts`, `web/app/api/auth/login/route.ts`)
+
+- `getUserFromRequest`: sin cookie, lee `Authorization: Bearer <token>` solo si la ruta empieza por `/api/`
+  (mismo `verifySession` + `pv`). El middleware acepta el portador en `/api/*` con `verifySessionEdge`.
+- `POST /api/auth/login` con `{ email, password, cliente: 'movil' }` → 200 `{ token, expira_at, usuario: { id,
+  full_name, role }, ejecutiva: { id, full_name, zona } | null }` sin `Set-Cookie`; mismos límites de intentos.
+  Sin `cliente` sigue igual que hoy (cookie). `POST /api/auth/logout` con portador → 200.
+- `GET /api/auth/me` con portador → el usuario y su ejecutiva enlazada (lo que la app necesita al abrir).
+- CORS solo con `NODE_ENV !== 'production'` para `http://localhost:8081` y `http://127.0.0.1:8081`:
+  `Access-Control-Allow-Origin` (el origen pedido, si está en la lista), `-Headers: authorization, content-type`,
+  `-Methods: GET, POST, PATCH, DELETE, OPTIONS`, `OPTIONS` → 204. Pruebas: en producción ninguna cabecera CORS.
+
+## API (todas con `requirePermission('visits:report')` salvo auth; `getSupabaseAdmin`; errores `{ error }`; 503 si falta la migración)
+
+| Ruta | Respuesta |
+| --- | --- |
+| `POST /api/me/contexto` `{ lat, lng, precision }` (con el punto: la app usa esta; la ubicación va en el cuerpo y no en la URL, que queda en los logs de peticiones del proveedor) · `GET /api/me/contexto` (sin punto; por compatibilidad acepta aún `?lat=&lng=&precision=`) | `{ ejecutiva: { id, nombre, zona, municipio, lineas: [{ id, code, name }] }, hoy: { fecha, meta: { medica, institucional }, hechas: { medicas, institucionales, telefonicas, no_efectivas }, cuota_dia_ok }, config: { radio_m, telefonica: { habilitada, tope_dia, medios }, tope_visitas_medico_dia, perfil }, sedes_cerca: [{ id, nombre, cuenta_id, cuenta_nombre, cuenta_clase, ciudad, lat, lng, distancia_m, hospital_id, ubicacion_confirmada }], mis_medicos: [{ id, nombre, especialidades, municipality_id, lineas: [id], sedes: [{ id, nombre, cuenta_nombre, distancia_m }] }], contactos: [{ id, cuenta_id, sede_id, nombre, cargo_texto, rol }], subtipos: [{ id, codigo, nombre, roles_sugeridos }], compromisos_vencidos: [{ visita_id, fecha, con, next_step_date }], voz: { transcribir: bool, proponer: bool } }` (sin lat/lng: `sedes_cerca` vacío y `mis_medicos` sin distancias; nunca documentos ni teléfonos) |
+| `GET /api/me/visitas?fecha=` | `{ fecha, items: [{ id, client_id, tipo, subtipo, medico: { id, nombre } \| null, cuenta: { id, nombre } \| null, sede: { id, nombre }, contacto, modalidad, medio, efectiva, failure_reason, checked_in_at, distance_m, conclusion, compromisos, next_step_date, lineas: [id], input_mode, out_of_territory, cuenta_para: 'medica' \| 'institucional' \| 'subtipo' \| null, peso, sede_por_confirmar, editable }] }` (`peso` con el de la telefónica; `sede_por_confirmar`: efectiva en una sede aún sin confirmar, `cuenta_para` null y `peso` 0 hasta que la confirmen) |
+| `POST /api/me/visitas` | `visitaCreateSchema` → pre-validación pura (`validarVisita`, 400 con `errores`) → RPC `visitas_registrar` → 201 `{ visita, repetida }`; 23514 → 400 con el mensaje de la base |
+| `PATCH /api/me/visitas/[id]` | `visitaUpdateSchema` → RPC `visitas_editar` → `{ visita }`; 400 / 404 |
+| `POST /api/me/visitas/[id]/anular` | `{ motivo }` → RPC `visitas_anular` → 200 |
+| `POST /api/me/voz/transcribir` | multipart `audio` (campo `audio`, ≤ 25 MB, ≤ 180 s **leídos del propio archivo**: m4a/mp4 `mvhd`, webm `Duration` o el último bloque; si no se deja leer, la declarada `duracion_s`) → `{ transcript, duracion_s, modelo }`; 400 formato o sin duración legible ni declarada; 413 tamaño o duración; 429 más de 6 por minuto o 40 por hora por persona; 503 sin llave; 502 fallo del proveedor |
+| `POST /api/me/voz/proponer` | `proponerSchema` → contexto (como `/contexto`) → Claude → `{ visitas: [{ tipo, subtipo_codigo, subtipo_id, medico_id, medico_nombre_dicho, sugerir_crear_medico, cuenta_id, sede_id, contacto_id, contacto_nombre_dicho, lineas, efectiva, failure_reason, conclusion, compromisos, next_step_date, modalidad_sugerida, confianza, preguntas: [string] }], aviso }`; 429 más de 10 por minuto o 60 por hora por persona; 503 sin llave; 502 fallo |
+| `GET /api/me/numeros?mes=AAAA-MM` | `{ mes, cuota: (de /api/me/cuota), hechas: { medica, institucional, subtipos: [...] }, cumplimiento: { medica, institucional, subtipos: [...] }, dias_habiles_sin_visitas, telefonicas, no_efectivas, fuera_de_territorio, sede_por_confirmar }` |
+| `POST /api/terceros/sedes` | además: `origen: 'gps_app'`, `lat`, `lng`, `gps_accuracy_m` (decisión 14) |
+
+Ninguna ruta escribe el audio en disco ni lo registra; `transcript` no sale en logs. PostgREST corta en 1.000
+filas: `fetchAllRows` donde haga falta.
+
+## App móvil (`mobile/`)
+
+- Expo SDK 57, TypeScript estricto, `expo-router`, `react-native-web` para verificación; `app.json` con nombre
+  "OpMap Visitas", `slug opmap-visitas`, `scheme opmap`, permisos de ubicación y micrófono con textos en español
+  (iOS `NSLocationWhenInUseUsageDescription`, `NSMicrophoneUsageDescription`; Android `ACCESS_FINE_LOCATION`,
+  `RECORD_AUDIO`), `userInterfaceStyle automatic`, ícono y splash sencillos (sin marca de terceros).
+- `mobile/lib/api.ts` (cliente con `EXPO_PUBLIC_API_URL`, token de SecureStore, 401 → cerrar sesión, errores
+  `{ error }` legibles), `mobile/lib/sesion.ts`, `mobile/lib/cola.ts` (cola sin señal: AsyncStorage, `client_id`
+  por visita, reintento al volver a primer plano o al reconectar, descarte avisado pasada la medianoche),
+  `mobile/lib/geo.ts` (Haversine, formato de distancia), `mobile/lib/fechas.ts` (Bogotá), `mobile/lib/tipos.ts`
+  (formas JSON de la API, copiadas del contrato).
+- Pantallas (`app/`): `(auth)/login` (email y contraseña; nunca guarda la contraseña), `(app)/hoy` (meta del día
+  frente a hechas, visitas de hoy, compromisos vencidos, cola pendiente, botón grande **Reportar**),
+  `(app)/reportar` (1. ubicación y sedes cercanas; 2. **Hablar** (grabar hasta 3 min, nivel visible, cancelar) →
+  transcribiendo → tarjetas propuestas editables (tipo, subtipo, médico/cuenta, sede, contacto, líneas, efectiva,
+  conclusión, compromisos, próxima reunión) → "Confirmar" por tarjeta; o **Por toques** con los mismos campos; 3.
+  resultado con lo que se guardó y lo que quedó en cola), `(app)/visita/[id]` (ver, corregir o anular el mismo
+  día), `(app)/medico/nuevo` (documento → verificar → datos completos → sedes donde atiende con el buscador de
+  sedes y "crear consultorio"), `(app)/sede/nueva` (nombre, cuenta, código de habilitación opcional, GPS del sitio),
+  `(app)/dias-libres` (registrar con la fecha límite visible, lista, anular), `(app)/numeros` (cuota y cumplimiento
+  del mes), `(app)/ajustes` (quién soy, servidor, cerrar sesión, versión).
+- Reglas visibles: presencial bloqueada si la sede elegida está más lejos que el radio (mensaje con la distancia
+  y las opciones telefónica o crear sede); telefónica solo si está habilitada; médico inexistente → "crear
+  completo" (documento digitado); nada se guarda sin confirmar; el audio se borra del teléfono al recibir la
+  transcripción (o si se cancela).
+- Pruebas: `mobile/scripts/movil-check.ts` (puras: Haversine igual que el servidor con los mismos casos, cola
+  (reintento, descarte a medianoche, idempotencia por client_id), fechas en Bogotá, mapeo de errores de la API) con
+  `tsx`; `npm run check` en `mobile/` = `tsc --noEmit` + pruebas. `mobile/README.md`: cómo correr (`npx expo start`,
+  Expo Go, `--tunnel`), variables, cómo verificar en web, cómo compilar con EAS cuando existan las cuentas.
+- Verificación en este repo: servidor local (`npm run dev` en `web/`, con la 0830 aplicada) + `npx expo start --web
+  --port 8081`; sesión de prueba inyectada en el almacén web (nunca se digitan contraseñas); capturas a 390 px de
+  Hoy, Reportar (lista de sedes, grabación, tarjetas), Nuevo médico, Mis días libres y Mis números.
+
+## Verificación
+
+- `web/scripts/reporte-check.ts` y `web/scripts/reporte-api-check.ts` con los criterios de la spec que caben en F3:
+  subtipo sugerido por cargo y suma según `valorVisita`; presencial a 800 m rechazada con las opciones; mismo
+  `client_id` dos veces → una fila; médico sin documento → 400 y nada guardado; documento repetido → existente;
+  transcripción de ejemplo → tres visitas propuestas (con Claude falso) y nada guardado sin confirmar; médico que
+  no cruza → `sugerir_crear_medico` y no se crea; audio no persiste (el falso de OpenAI comprueba que no hay
+  escritura en disco); 503 sin llaves; perfil solo institucional → médica 400; tope por médico; telefónica sin
+  habilitar; ayer rechazado; usuario sin ejecutiva 403; portador en páginas no vale; CORS ausente en producción.
+- `npm run check` (web) y `npm run check` (mobile) en verde; `next build` en verde; prueba real deshecha de 0830 y
+  9943; capturas de la app a 390 px con la base migrada; `grep` de "KAM|representante|panel" sin textos visibles.
+
+## Estado: implementado (PR pendiente)
+
+Rama `feat/visitas-f3-f4-app-movil` (2026-10-13/14). **La migración 0830 está escrita y probada con una prueba real
+deshecha, pero NO está aplicada**: se aplica solo con autorización del dueño, en la misma ventana que el despliegue,
+y después `NOTIFY pgrst, 'reload schema';`. Mientras no se aplique, `/api/me/contexto`, `/api/me/visitas` y
+`/api/me/numeros` responden 503 con "falta aplicar la migración 0830" y el resto de la web y de la app (días libres,
+cuota) sigue igual.
+
+### Archivos
+
+- Base de datos: `database/migrations/2026-10-13_0830_visitas_app.sql` (md5 `57aaafce5dbfb36e26c49a98a4eef4f2`) y
+  `2026-10-13_9943_visitas_app_rollback.sql` (md5 `409da3aec7b0fc5e25fcfa793182e1f1`), `database/migrations/README.md`,
+  `docs/base-de-datos.md`. Además de lo del contrato: `visitas_distancia_m` (Haversine igual a `haversineM`) y
+  `visitas_config_vigente(executive_id, fecha)`; disparador `visits_app_sin_borrar` (una visita de la app no se
+  borra). El rollback 9943 va antes de 9942/9941/9940 (9941 no tiene guarda propia para la 0830).
+- Código puro: `web/lib/reporte-visitas.ts`, `web/lib/reporte-visitas-schemas.ts`; pruebas
+  `web/scripts/reporte-check.ts` (284) y `web/scripts/reporte-api-check.ts` (194), las dos en `npm run test` (18 suites).
+- Sesión y CORS: `web/lib/auth-server.ts`, `web/middleware.ts`, `web/app/api/auth/{login,logout,me}/route.ts`.
+- API: `web/app/api/me/_lib/reporte-server.ts`, `web/app/api/me/{contexto,numeros}/route.ts` (contexto: POST con el
+  punto en el cuerpo; GET sin punto),
+  `web/app/api/me/visitas/route.ts`, `.../visitas/[id]/route.ts`, `.../visitas/[id]/anular/route.ts`,
+  `web/app/api/me/voz/{transcribir,proponer}/route.ts`; `calcularCuotaDetallada` en
+  `web/app/api/config-visitas/_lib/visitas-server.ts`; `origen: 'gps_app'` y la confirmación por REPS a menos de 20 km del municipio en `web/app/api/terceros/sedes/route.ts` y
+  `web/lib/terceros-schemas.ts`; dependencias `openai` y `@anthropic-ai/sdk` en `web/package.json`.
+- Rutas viejas que tocan `visits` (para convivir con las visitas de la app): `web/app/api/visits/filtered/route.ts`
+  (solo las 14 columnas originales, sin anuladas), `web/app/api/visits/stats/route.ts` y
+  `web/app/api/visits/unvisited-zones/route.ts` (sin anuladas; ayuda común en `web/app/api/visits/_lib/visitas-mapa.ts`)
+  y `web/app/api/visits/import/route.ts` (sigue deshabilitado; si se reactiva, borra solo `source = 'vmo_import'` y no
+  inserta si el borrado falla). Las cuatro funcionan antes y después de la 0830.
+- App: `mobile/` completo (Expo SDK 57); pantallas `app/(app)/{hoy,reportar,visita/[id],medico/nuevo,sede/nueva,
+  dias-libres,numeros,ajustes}.tsx`; `components/reporte/*` (TarjetaBorrador, Grabador, Selector, Buscador,
+  ListaSedes, SelectorMunicipio, CamposVisita); `lib/{tipos,claves-api,propuesta,terceros,grabacion,audio,retorno,
+  api,cola,contexto-guardado,…}.ts` y `lib/montaje.tsx` (`SoloEnFoco`); pruebas `mobile/scripts/movil-check.ts` (199); `mobile/README.md`. CI: trabajo
+  `app movil · typecheck · pruebas` en `.github/workflows/ci.yml`.
+
+### Decisiones de implementación que se sumaron (el dueño puede cambiarlas)
+
+19. **Llegada en el futuro**: `visitas_registrar` rechaza un `checked_in_at` más de 5 minutos por delante del reloj del
+    servidor ("La hora de llegada está en el futuro"); `validarVisita` lo repite (`TOLERANCIA_RELOJ_SEGUNDOS = 300`).
+20. **Punto del mapa de calor**: presencial = el punto del teléfono (ya validado contra el radio); telefónica = la sede,
+    o el municipio de la sede, o la ciudad base de la zona — **nunca el GPS del teléfono** (en una telefónica la
+    ejecutiva no está en la sede, puede estar en su casa): ni la app lo manda
+    ni la API ni `visitas_registrar` lo guardan (`lat`, `lng` y `gps_accuracy_m` en null) (`visits.lat/lng` son NOT
+    NULL). `kam_name` de las visitas de la app = el nombre de la ejecutiva. Las visitas de la app solo las ve en el mapa
+    quien tiene `visits:view` (corrección 39).
+21. **Propuesta tolerante y cerrada**: el esquema de la herramienta escribe las uniones con null como `anyOf` y sin
+    límites (los vuelve a aplicar zod); `propuestaSchema` completa con valores seguros lo que falte; `normalizarPropuesta`
+    arma cada visita campo a campo (nunca copia claves desconocidas), descarta ids fuera del contexto y cambia
+    números de 7 dígitos o más por "[número omitido]". Claude Sonnet 5.5: `tool_choice: auto` + herramienta estricta +
+    un reintento si no la llama, `thinking: between_tools` con `effort: low`, `fallbacks: 'default'` (beta
+    `server-side-fallback-2026-07-01`; si cae a Sonnet 5 corre sin razonamiento), sin temperatura.
+22. **Tope de telefónicas en la app**: con la lista de hoy (servidor + cola) se cuentan ahí; nunca contexto + lista.
+23. **Crear desde Reportar**: Reportar pasa a Nuevo médico / Nueva sede un "pedido" en memoria (nombre dicho,
+    municipio, sedes cercanas, punto), nunca en la URL; al volver, lo creado queda puesto en la tarjeta que lo pidió.
+    "Crear consultorio" crea una cuenta `consultorio` con el documento del médico como identificación (si ya existe,
+    usa su sede principal). "Atiende en <sede>" vincula una sede cercana al médico (`terceros:create`).
+24. **Corregir hablando**: la nueva grabación se suma a la transcripción anterior ("Corrección: …") y la propuesta
+    reemplaza las tarjetas de voz aún sin confirmar.
+25. **Rechazo del servidor al confirmar**: la visita sale de la cola (no quedó guardada), la tarjeta sigue con el
+    mensaje y las salidas (telefónica si hay cupo, crear la sede aquí) y toma un `client_id` nuevo.
+26. **Visita de otro día** (desde un compromiso vencido): `visita/[id]?fecha=AAAA-MM-DD` (no hay GET por id).
+27. **Claves de las formas JSON**: una sola lista (`mobile/lib/claves-api.ts`) verificada al compilar contra los tipos
+    de la app, en `movil-check` contra este contrato y en `reporte-api-check` contra las respuestas reales; además
+    `reporte-api-check` comprueba al compilar que los tipos de `web/lib/reporte-visitas.ts` y `mobile/lib/tipos.ts`
+    se asignan entre sí (`modalidad_sugerida` quedó sin null en los dos lados; `Role` es más amplio en la app a
+    propósito).
+28. `gps_accuracy_m` de una sede nueva se valida pero no se guarda (`sedes` no tiene esa columna).
+
+### Correcciones del 2026-10-14 (hallazgos del verificador; el dueño puede cambiarlas)
+
+29. **Sede por confirmar**: una visita en una sede con `ubicacion_confirmada = false` (sede nueva de la app sin REPS
+    que cruce) se registra (la regla del radio la mide contra el GPS con el que se creó) pero **no suma** a la meta
+    ni a la del día hasta que data manager la confirme: `valorReporte` (web/lib/reporte-visitas.ts) mira la sede al
+    contar, en Hoy (`cuota_dia_ok`), Mis números (`sede_por_confirmar`) y `GET /api/me/visitas` (`sede_por_confirmar`,
+    `cuenta_para` null, `peso` 0). Al confirmarla, sus visitas suman solas (no se toca la visita). La app lo muestra:
+    "Sede por confirmar: aún no suma" / "Suma cuando data manager confirme la sede". Hoy las 783 sedes están
+    confirmadas: nada cambia en lo que ya existe.
+30. **Peso de la telefónica**: una telefónica efectiva suma `peso del conteo × config_general.telefonicas.peso` vigente
+    en su fecha (sin configuración, 1), en Hoy, Mis números y `GET /api/me/visitas`. Con 0,5, 120 presenciales y 20
+    telefónicas = 130, no 140.
+31. **Fechas de la visita**: `next_step_date` y `retry_date` no pueden ser anteriores a `visit_date` (si no, la visita
+    nacía como compromiso vencido): 400/23514 "La próxima reunión no puede ser anterior a la fecha de la visita" /
+    "La fecha para reintentar…" en `validarVisita`, `visitas_registrar`, `visitas_editar` y `visits_app_check`; la app
+    lo avisa en la tarjeta y al corregir; `normalizarPropuesta` y la app descartan una fecha propuesta anterior a hoy.
+32. **Cuenta y contacto activos**: la cuenta de la sede debe estar activa (médica e institucional: "La cuenta de esa sede
+    está inactiva"; desactivar una cuenta no desactiva sus sedes) y el contacto también ("Ese contacto está inactivo"),
+    en `validarVisita` y `visitas_registrar`. La app solo ofrece las sedes activas de una cuenta buscada y del
+    consultorio existente.
+33. **Hora del reporte**: `reported_at` tampoco puede ir más de 5 minutos por delante del reloj del servidor ("La hora
+    del reporte está en el futuro"), como `checked_in_at`.
+34. **Costo de la voz**: además del tope de 3 minutos leído del archivo, cada Ejecutivo Comercial tiene un límite de
+    llamadas (`LIMITES_VOZ`: transcribir 6 por minuto y 40 por hora; proponer 10 por minuto y 60 por hora), en la
+    memoria de cada instancia como el del login; solo cuentan las llamadas que llegan al proveedor; 429 con
+    Retry-After. Riesgo que queda: un audio con la cabecera falsificada y sin duración legible pasa con la declarada
+    (acotado por el límite).
+35. **Rutas viejas de /visits**: `GET /api/visits/stats` y `GET /api/visits/unvisited-zones` excluyen las anuladas
+    (`web/app/api/visits/_lib/visitas-mapa.ts`), antes y después de la 0830 (stats pregunta antes si existe
+    `deleted_at`, porque un HEAD que falla no trae el código del error).
+36. **App: pantallas que no se desmontan**. Nuevo médico, Nueva sede y Visita (pestañas ocultas) se montan de cero cada
+    vez que se abren (`SoloEnFoco`, mobile/lib/montaje.tsx): ya no arrastran el pedido, el GPS ni el formulario de la
+    vez anterior ni el "Visita anulada" de otra visita. Reportar sigue montada (vuelve de crear un médico o una sede
+    con las tarjetas), pero al recibir el foco decide con `debeReiniciarReporte` si es una llegada nueva (sin tarjetas
+    pendientes, o con tarjetas de hace más de 10 minutos, o de otro día) o el mismo reporte (grabando, volviendo de
+    crear, o tarjetas recientes).
+37. **App: sin señal y la cola**. Hoy y Reportar guardan el último contexto del día (mobile/lib/contexto-guardado.ts,
+    solo esa persona y ese día; se olvida al cerrar sesión): si Reportar abre sin señal, arma las tarjetas con él y la
+    visita queda en la cola con el punto y la hora del sitio (las distancias a las sedes de los médicos quedan
+    "desconocidas" y decide el servidor). Pasada la medianoche una pendiente pasa a "por confirmar" y se pregunta una
+    vez al servidor (que busca el `client_id` antes de la regla del día): si ya estaba, queda enviada; si no, "no
+    enviada" con el aviso. Una visita de la cola que el servidor rechazó hoy se puede "Reportar de nuevo" (vuelve
+    como tarjeta con lo escrito y un `client_id` nuevo). "Corregir hablando" ya no vuelve a proponer lo confirmado
+    (`descartarYaConfirmadas`: mismo médico o nombre dicho, o misma cuenta y subtipo). Las sedes de un médico traído
+    del buscador, recién creado o vinculado sin distancia conocida no se bloquean con el falso "esta sede no tiene
+    ubicación": decide el servidor (el consultorio recién creado con el GPS de aquí cuenta a 0 m).
+
+### Correcciones del 2026-10-14 (revisor del proyecto)
+
+38. **El código del REPS es del prestador de la cuenta**: una sede `gps_app` nace confirmada solo si además
+    `reps_sedes.nit` coincide con `cuentas.numero_identificacion` (solo dígitos, sin ceros a la izquierda:
+    `mismoPrestador`). Sin eso, una ejecutiva podía crear una sede con el GPS de su casa y el código público de
+    cualquier IPS de su ciudad, vincular a sus médicos y sumar presenciales desde la casa. Medido el 2026-10-14: las 727
+    sedes de OpMap con código del REPS tienen el mismo NIT que su cuenta (ningún caso legítimo queda por fuera).
+39. **Mapa de calor sin las visitas de los demás**: `GET /api/visits/filtered` devuelve las visitas de la app solo a
+    quien tiene `visits:view` (admin, commercial_director, data_manager). Los demás (Ejecutivos Comerciales, visor) ven
+    el histórico de VMO como antes de la 0830: las visitas de la app llevan el nombre y el GPS de cada ejecutiva y entre
+    ellas no se ven (spec, sección 11). Lo suyo lo ven en la app.
+40. **No se borran importaciones de VMO por la ruta vieja**: `DELETE /api/visits/import` responde 410, con el mismo
+    interruptor que `DELETE /api/visits/imports` (con el importador apagado, el histórico no se puede volver a cargar).
+
+**Abierto para el dueño (no cambiado)**: la precisión del GPS (`gps_accuracy_m`) es solo referencia (decisión 6).
+Con la ubicación aproximada del teléfono (1 a 3 km de error) una presencial puede pasar el radio de 500 m, y una sede
+`gps_app` puede nacer con coordenadas imprecisas. Opción: rechazar la presencial, o dejar la sede por confirmar,
+cuando la precisión pase de unos 100 m o del radio.
+
+### validarVisita (TS) frente a visitas_registrar (SQL)
+
+| Paso | Caso | SQL (23514 salvo que se diga) | TS (`validarVisita` / esquema) |
+| --- | --- | --- | --- |
+| 0 | forma, no efectiva sin motivo | 22023 / "Indica el motivo…" | `visitaCreateSchema` (400 con `errores`) |
+| 1 | mismo `client_id` | devuelve la fila (`repetida`); de otra ejecutiva 23505 | la API la busca antes y no valida; 409 |
+| 2 | ejecutiva inactiva / sin zona | mensajes de F2 | iguales |
+| 2 | fecha en Bogotá ≠ hoy | "Solo se reportan visitas del mismo día" | igual |
+| 2 | llegada > ahora + 5 min | "La hora de llegada está en el futuro" | igual (**corregido**: el TS lo había quitado) |
+| 2 | reporte antes de la llegada | "La hora del reporte no puede ser anterior…" | igual |
+| 2 | reporte > ahora + 5 min | "La hora del reporte está en el futuro" | igual |
+| 2 | próxima reunión o reintento antes de la visita | "La próxima reunión no puede ser anterior…" / "La fecha para reintentar…" (también `visitas_editar` y CHECK) | igual |
+| 3 | perfil sin el tipo | "Tu perfil no incluye visitas médicas/institucionales" | igual |
+| 4 | sede inexistente o inactiva | "Esa sede no existe" | igual |
+| 4 | cuenta de la sede inactiva | "La cuenta de esa sede está inactiva" | igual |
+| 4 | contacto inactivo | "Ese contacto está inactivo" | igual |
+| 4 | sede por confirmar | se acepta (suma al confirmarla: lo decide la API al contar) | igual (`valorReporte`) |
+| 4 | médico inexistente o inactivo / sede no suya | mismos mensajes | iguales |
+| 4 | `out_of_territory` | sin `medico_visitantes` vigente en la fecha | igual |
+| 4 | institucional: sede de otra cuenta, subtipo no vigente, contacto ajeno | mismos mensajes | iguales |
+| 5 | presencial sin ubicación / sede sin coordenadas / fuera del radio | mismos mensajes; Haversine 6371008.8, entero | iguales (mismos casos de distancia probados en los dos) |
+| 5 | telefónica sin habilitar / medio / tope (aunque la nueva no sea efectiva) | mismos mensajes | iguales |
+| 0/8 | telefónica: ubicación del teléfono | se descarta (lat, lng, gps_accuracy_m NULL); punto = sede, municipio o zona | `normalizarVisita` la descarta |
+| 6 | tope por médico (solo efectivas, presencial y telefónica igual) | "Ya reportaste una visita a este médico hoy" | igual |
+| 7 | sin líneas / líneas ajenas | mismos mensajes | iguales |
+
+### Verificación (2026-10-14)
+
+- `web`: `GOOGLE_ROUTES_DISABLED=true npm run check` → typecheck y lint sin errores (solo las advertencias viejas de
+  `react-hooks/exhaustive-deps`) y las 18 suites en verde (ips-routes 130, reps 58, reps-import 90, adres 192,
+  poblacion-api 95, poblacion 89, bogota 63, corredores-config 56, secop-api 154, secop 241, terceros 298,
+  terceros-api 129, visits 415, visits-api 165, traspaso 282, traspaso-api 127, reporte 284, reporte-api 194).
+  `GOOGLE_ROUTES_DISABLED=true npx next build` → compilado sin errores.
+- `mobile`: `npm run check` → `tsc` limpio y 199/199; `npx expo export --platform web` → 886 módulos.
+- En el navegador, sin tocar producción: PostgREST falso + OpenAI y Claude falsos, copia de `web/` sin `.env*`, app en
+  `localhost:8081`, Chrome sin ventana a 390 px con GPS y micrófono falsos. Recorrido completo sin errores en la
+  consola ni desbordes: Hoy, Reportar (sedes cercanas; por toques con la tarjeta llena y guardada; grabación real de
+  4 s → transcripción → dos tarjetas propuestas), Visita (corregir y anular), Nuevo médico (documento → verificar →
+  especialidad y sedes), Nueva sede, Mis días libres y Mis números. El tope por médico se vio en vivo al repetir.
+  Ese recorrido es del 2026-10-13: las correcciones del 2026-10-14 (29 a 37) están probadas en `reporte-check`,
+  `reporte-api-check`, `movil-check` y el bloque DO de la 0830, pero el recorrido en el navegador no se repitió.
+- 0830 y 9943: prueba real deshecha (`DRYRUN_OK` y `DRYRUN_ROLLBACK_OK`, repetida el 2026-10-14 con la 0830 corregida:
+  35 rechazos de `visitas_registrar` y los nuevos casos de editar, del CHECK y de la telefónica con GPS); después,
+  `visits` con 14 columnas y 7.033 filas, sin `visit_lines` ni funciones de la 0830.
+- Audio: la duración leída del contenedor se probó con un m4a real de macOS (5,06 s; `afinfo` 4,94 s) y un webm real
+  de MediaRecorder de Chrome (6,36 s de 6,5 s grabados), sin guardar el audio en el repositorio.
+
+### Pendiente
+
+- Del dueño: autorizar y aplicar la 0830 (y `NOTIFY pgrst`); crear `OPENAI_API_KEY` y `ANTHROPIC_API_KEY` en Vercel;
+  confirmar el identificador `co.vg.opmap.visitas` y crear las cuentas de Expo, Apple y Google para EAS; probar en un
+  teléfono con Expo Go (GPS, micrófono y almacén seguro reales: aquí no hay simulador).
+- Con la 0830 aplicada: la vista `visit_summary` (sin uso en la web) contará también las visitas de la app, anuladas
+  incluidas; una guarda en el rollback 9941 contra la 0830 sería prudente.
+- F5: tablero de dirección, KPIs 2 a 6, corrección con rastro por la directora, "pedir ser su visitante".

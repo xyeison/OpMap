@@ -11,7 +11,7 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "tsx scripts/ips-routes-check.ts && tsx scripts/reps-check.ts && tsx scripts/reps-import-check.ts && tsx scripts/adres-check.ts && tsx scripts/poblacion-api-check.ts && tsx scripts/poblacion-check.ts && tsx scripts/bogota-check.ts && tsx scripts/corredores-config-check.ts && tsx scripts/secop-api-check.ts && tsx scripts/secop-check.ts && tsx scripts/terceros-check.ts && tsx scripts/terceros-api-check.ts && tsx scripts/visits-check.ts && tsx scripts/visits-api-check.ts && tsx scripts/traspaso-check.ts && tsx scripts/traspaso-api-check.ts",
+    "test": "tsx scripts/ips-routes-check.ts && tsx scripts/reps-check.ts && tsx scripts/reps-import-check.ts && tsx scripts/adres-check.ts && tsx scripts/poblacion-api-check.ts && tsx scripts/poblacion-check.ts && tsx scripts/bogota-check.ts && tsx scripts/corredores-config-check.ts && tsx scripts/secop-api-check.ts && tsx scripts/secop-check.ts && tsx scripts/terceros-check.ts && tsx scripts/terceros-api-check.ts && tsx scripts/visits-check.ts && tsx scripts/visits-api-check.ts && tsx scripts/traspaso-check.ts && tsx scripts/traspaso-api-check.ts && tsx scripts/reporte-check.ts && tsx scripts/reporte-api-check.ts",
     "check": "npm run typecheck && npm run lint && npm run test",
     "fase1:simulate": "tsx scripts/fase1-simulate.ts",
     "fase2:check": "tsx scripts/fase2-check.ts",
@@ -32,9 +32,12 @@
     "visits:check": "tsx scripts/visits-check.ts",
     "visits-api:check": "tsx scripts/visits-api-check.ts",
     "traspaso:check": "tsx scripts/traspaso-check.ts",
-    "traspaso-api:check": "tsx scripts/traspaso-api-check.ts"
+    "traspaso-api:check": "tsx scripts/traspaso-api-check.ts",
+    "reporte:check": "tsx scripts/reporte-check.ts",
+    "reporte-api:check": "tsx scripts/reporte-api-check.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.133.0",
     "@supabase/supabase-js": "^2.53.0",
     "@tanstack/react-query": "^5.0.0",
     "autoprefixer": "^10.0.1",
@@ -44,6 +47,7 @@
     "leaflet": "^1.9.4",
     "leaflet.heat": "^0.2.0",
     "next": "14.2.35",
+    "openai": "^7.32.0",
     "pdfjs-dist": "^4.10.38",
     "postcss": "^8.0.0",
     "react": "^18.2.0",

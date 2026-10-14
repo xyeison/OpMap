@@ -1,0 +1,72 @@
+{
+  "expo": {
+    "name": "OpMap Visitas",
+    "slug": "opmap-visitas",
+    "scheme": "opmap",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "co.vg.opmap.visitas",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "OpMap Visitas usa tu ubicación al reportar una visita para mostrarte las sedes cercanas y confirmar que estás en el sitio.",
+        "NSMicrophoneUsageDescription": "OpMap Visitas usa el micrófono para que dictes la visita. El audio se transcribe y no se guarda."
+      }
+    },
+    "android": {
+      "package": "co.vg.opmap.visitas",
+      "adaptiveIcon": {
+        "backgroundColor": "#111827",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "RECORD_AUDIO"
+      ],
+      "blockedPermissions": [
+        "ACCESS_BACKGROUND_LOCATION"
+      ],
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "OpMap Visitas usa tu ubicación al reportar una visita para mostrarte las sedes cercanas y confirmar que estás en el sitio.",
+          "isIosBackgroundLocationEnabled": false,
+          "isAndroidBackgroundLocationEnabled": false
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "OpMap Visitas usa el micrófono para que dictes la visita. El audio se transcribe y no se guarda.",
+          "recordAudioAndroid": true,
+          "enableBackgroundRecording": false,
+          "enableBackgroundPlayback": false
+        }
+      ],
+      "expo-secure-store",
+      "expo-status-bar"
+    ],
+    "experiments": {
+      "typedRoutes": false
+    }
+  }
+}
