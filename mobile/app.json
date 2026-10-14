@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "OpMap Visitas",
-    "slug": "opmap-visitas",
+    "slug": "op-map",
     "scheme": "opmap",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -67,6 +67,12 @@
     ],
     "experiments": {
       "typedRoutes": false
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "493cb950-95c9-4fc9-823c-c4a5506a1b5b"
+      }
+    },
+    "owner": "yjxms-team"
   }
 }
