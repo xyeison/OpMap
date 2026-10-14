@@ -9,12 +9,13 @@ Python de la raíz son el motor original; hoy la fuente de verdad es `web/`. Idi
 npm run dev          # servidor local (o preview "opmap-web" en .claude/launch.json)
 npm run check        # typecheck + lint + pruebas sin red  ← correr SIEMPRE antes de dar algo por terminado
 npm run typecheck    # tsc --noEmit (≈3 s)
-npm run test         # 16 suites sin red (Supabase falso, sin Google): ips-routes, reps, adres, población, bogotá, secop, terceros, visitas, traspaso…
+npm run test         # 18 suites sin red (Supabase falso, sin Google ni OpenAI/Claude): ips-routes, reps, adres, población, bogotá, secop, terceros, visitas, traspaso, reporte…
 npm run fase2:check  # reglas de cobertura vs documento de producto (NECESITA Supabase real, solo lectura)
 npm run fase1:simulate   # simulación de zonas, solo lectura
 npm run reps:check   # cruce IPS ↔ sedes del REPS: pruebas puras sin red
 npm run adres:check  # giros ADRES: lectura del reporte y agregación, pruebas puras sin red
 npm run reps-import:check  # importador de servicios/capacidad del REPS (Excel, CSV, PDF): puras sin red
+# App móvil (Expo, en mobile/): npm run check (tsc + pruebas puras) · npx expo start (Expo Go) · npx expo start --web --port 8081
 ```
 
 Variables en `web/.env.local` (ver `web/VERCEL_ENV_VARS.md`): `NEXT_PUBLIC_SUPABASE_URL`,
@@ -119,6 +120,7 @@ nada llama a Google.
   por `config_registrar`/`config_cerrar`), calendario y festivos, días libres con aprobación en bloque, rol `hr`,
   cuota del periodo; `/configuracion` y `/calendario` (migración 0810 aplicada 2026-10-12).
 - `docs/specs/2026-10-12-traspaso-ejecutivo-comercial.md` – traspaso de un Ejecutivo Comercial y "Contratar" (0820 aplicada 2026-10-12).
+- `docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md` – app de visita F3+F4: visitas de la app en `visits` + `visit_lines`, `visitas_registrar/editar/anular`, `/api/me/*` (contexto, visitas, voz, números), token de portador, app Expo en `mobile/` (migración 0830 aplicada 2026-10-14).
 - `docs/arquitectura-y-scripts.md` – scripts Python, estructura de carpetas, archivos clave.
 - `docs/historico-resultados.md` – cifras de 2025 y colores originales (histórico, no vigente).
 - `docs/FLUJO_DE_TRABAJO_IA.md` – cómo trabajamos con Claude Code en este repo y por qué.

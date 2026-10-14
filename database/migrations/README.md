@@ -659,3 +659,71 @@ tablas tienen FKs hacia `business_lines`, `executives` y `users`.
   completa con su bloque DO (12 casos) → `DRYRUN_OK`; migración + guardas de 9940/9941 (abortan con 0820 aplicada) +
   9942 + guardas (dejan pasar) + comprobación → `DRYRUN_ROLLBACK_OK`; después, sin `ejecutivas_traspasos` ni
   `fin_motivo`.
+
+# Migraciones — App de visita · F3 visitas de la app (visits ampliada, visit_lines, registrar / editar / anular)
+
+> **ESTADO: NO APLICADA.** Se aplica solo con autorización del dueño y en la misma ventana que el despliegue de
+> `/api/me/*` (contexto, visitas, voz, números) y de la app móvil. Contrato:
+> `docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md` (sección "Base de datos"); spec:
+> `docs/specs/2026-10-12-app-de-visita-opmap.md` (secciones 9, 11 y 12). Probada el 2026-10-13 contra la base real en
+> una transacción que se deshace (sin `BEGIN/COMMIT` y con un `RAISE` final): la migración completa, incluido su
+> bloque DO (7 grupos de casos con datos de prueba, 29 rechazos con su SQLSTATE y su mensaje, y la ronda como
+> `service_role`), más una comprobación md5 de que las 5 funciones guardadas son idénticas al archivo, terminó en
+> `DRYRUN_OK`; migración + 9943 + comprobación (14 columnas, sin `visit_lines` ni funciones, 7.033 filas con la misma
+> huella, comentario original) terminó en `DRYRUN_ROLLBACK_OK`. Después de cada intento `visits` siguió con 14
+> columnas y 7.033 filas (huella `280c99e2dfc816f7c13149eac7336d1b`) y sin `public.visit_lines`.
+
+| # | Archivo | Qué hace | Destructivo |
+|---|---|---|---|
+| 19 | `2026-10-13_0830_visitas_app.sql` | Añade a `visits` 29 columnas (todas NULL o con valor por defecto; las 7.033 de VMO quedan `source = 'vmo_import'` sin otro cambio): `source`, `executive_id`, `client_id` (UNIQUE parcial), `tipo`, `subtipo_id` + `subtipo_codigo` (copia), `medico_id`, `cuenta_id`, `sede_id`, `contacto_id`, `modalidad`, `medio`, `efectiva`, `failure_reason`, `retry_date`, `checked_in_at`, `reported_at`, `distance_m`, `gps_accuracy_m`, `conclusion`, `compromisos`, `next_step_date`, `transcript` (no hay columna de audio), `input_mode`, `out_of_territory`, `created_by`, `updated_by`, `deleted_at`, `deleted_reason`. CHECK `visits_source_check` y `visits_app_check` (dominios, longitudes, anulación con motivo y todas las reglas "app ⇒ …", incluida la coherencia con `visit_type`/`contact_type` del mapa); 5 índices; disparadores `update_visits_updated_at` y `visits_app_sin_borrar` (una de la app no se borra: se anula). Crea `visit_lines` (PK, CASCADE desde `visits`, RLS sin políticas). Funciones `visitas_distancia_m` (Haversine 6371008.8 m, metros enteros, igual que `haversineM`), `visitas_config_vigente` (perfil, radio, topes y medios vigentes en una fecha, con los valores por defecto de `GENERAL_POR_DEFECTO`), `visitas_registrar`, `visitas_editar`, `visitas_anular`. Bloque DO final con pruebas que se deshacen | No (las filas existentes no cambian; se comprueba con conteo y dos huellas md5) |
+| — | `2026-10-13_9943_visitas_app_rollback.sql` | Quita los 2 disparadores, **borra las visitas de la app** (NOTICE con cuántas, y cuántas anuladas), quita las 5 funciones, `visit_lines`, los 2 CHECK, los 5 índices, las 29 columnas y devuelve el comentario original de `visits`. No toca 0800, 0810 ni 0820. Comprueba al final las 14 columnas y que las importadas siguen con la misma huella | Sí (todas las visitas reportadas desde la app) |
+
+- **Aplicada en producción el 2026-10-14** (`visitas_app_0830`): las 5 funciones con el mismo md5 que el archivo y
+  las 7.033 importadas con la misma huella de antes.
+- Orden: después de 0800, 0810 y 0820 (aplicadas). Tras aplicar: `NOTIFY pgrst, 'reload schema';`. Costo Google: 0;
+  no recalcula asignaciones ni cobertura. La base nunca recibe audio (la voz vive en la API).
+- `visitas_registrar(p jsonb, p_user uuid) → jsonb` con `p = { client_id, executive_id, tipo, subtipo_id?, medico_id?,
+  cuenta_id?, sede_id, contacto_id?, modalidad, medio?, efectiva, failure_reason?, retry_date?, checked_in_at,
+  reported_at, lat?, lng?, gps_accuracy_m?, conclusion?, compromisos?, next_step_date?, transcript?, input_mode,
+  lineas }`. Pasos del contrato: forma (22023) → candado por ejecutiva → mismo `client_id` devuelve
+  `{ visita_id, repetida: true, out_of_territory, distance_m, visit_date }` sin tocar nada (de otra ejecutiva: 23505)
+  → ejecutiva activa con zona, `visit_date` = fecha de `checked_in_at` en Bogotá = hoy, llegada no más de 5 minutos en
+  el futuro, reporte no antes de la llegada → perfil → sede, médico y sede del médico (`out_of_territory` si no hay
+  visitante vigente de ella) o cuenta, subtipo vigente y contacto → presencial con Haversine contra la sede ≤ radio
+  efectivo, o telefónica habilitada, medio vigente y tope del día → tope por médico (solo efectivas) → líneas suyas →
+  inserta y devuelve `{ visita_id, repetida: false, out_of_territory, distance_m, visit_date }`. Los mensajes 23514 son
+  los de `web/lib/reporte-visitas.ts` ("Estás a N m de <sede>; el radio es R m", "Solo se reportan visitas del mismo
+  día", "Ya reportaste una visita a este médico hoy", …).
+- Mapa de calor: las de la app llenan `kam_id` (zona base), `kam_name` (nombre de la ejecutiva), `visit_type`
+  ('Visita efectiva' | 'Visita no efectiva'), `contact_type` ('Visita presencial' | 'Visita virtual'), `visit_date`,
+  `hospital_id` (si la sede es una IPS de OpMap) y `lat/lng` (`numeric(10,6)`): presencial = el punto del teléfono;
+  telefónica = la sede, o el teléfono, o el municipio de la sede, o la ciudad base de la zona.
+- `visitas_editar(p_id, p, p_user)`: `p = { executive_id, conclusion?, compromisos?, next_step_date?, efectiva?,
+  failure_reason?, retry_date?, lineas? }` (clave presente = cambia). Pasar a efectiva revalida los topes; a no
+  efectiva exige motivo. `visitas_anular(p_id, p_motivo, p_user)`: la ejecutiva sale de `p_user`
+  (`executives.user_id`, activa), motivo 5..300. Las dos: solo visitas de la app, suyas, no anuladas y de hoy.
+- Errores (la API los traduce): 22023 forma; 23514 regla (400 con el mensaje); P0002 "Esa visita no existe"
+  (inexistente o de otra ejecutiva, 404); 23505 `client_id` de otra ejecutiva o `visits_client_id_uidx`; 23503
+  `p_user` inexistente.
+- Privilegios: `visits` no cambia (service_role todo: la importación de VMO borra por mes y por `import_id`;
+  anon/authenticated nada). `visit_lines`: service_role SELECT, INSERT, UPDATE y DELETE (corregir líneas las
+  reemplaza), sin TRUNCATE. EXECUTE de las 5 funciones solo para service_role.
+- **Código a ajustar en la misma ventana** (fuera de la migración; ya ajustado en la rama): `web/app/api/visits/import/route.ts`
+  borra las visitas del mes sin mirar `source` → filtra `source = 'vmo_import'` (con visitas de la app en el mes, el
+  disparador hace fallar ese DELETE); `web/app/api/visits/filtered/route.ts` hacía `select('*')` → excluye las
+  anuladas (`deleted_at`) y no devuelve `transcript`, `conclusion` ni `compromisos` (la transcripción es interna);
+  `web/app/api/visits/stats/route.ts` y `web/app/api/visits/unvisited-zones/route.ts` también excluyen las anuladas
+  (si no, una anulada seguía sumando en "Visitas efectivas" y marcaba como visitadas las IPS a menos de 5 km). Las
+  cuatro funcionan antes y después de la 0830. La vista `visit_summary` (sin uso en la web) cuenta también las de la
+  app, anuladas incluidas.
+- Reglas sumadas el 2026-10-14 (hallazgos del verificador): `reported_at` no más de 5 minutos en el futuro;
+  `next_step_date` y `retry_date` no antes de `visit_date` (también en `visits_app_check` y en `visitas_editar`); la
+  cuenta de la sede debe estar activa y el contacto también; en una telefónica la ubicación del teléfono no se usa ni
+  se guarda (el punto del mapa es la sede, su municipio o la zona). Una sede por confirmar (`ubicacion_confirmada =
+  false`) SÍ recibe visitas: la API no las suma hasta que data manager la confirme (se mira al contar).
+- Re-ejecutable (`ADD COLUMN IF NOT EXISTS`, `DROP CONSTRAINT IF EXISTS` + `ADD`, `IF NOT EXISTS`, `CREATE OR
+  REPLACE`; la huella de las importadas se toma de las `vmo_import`).
+- Rollback: antes de deshacer, volver a desplegar el código sin `/api/me/*` ni la app. **Orden: 9943 antes que 9942,
+  9941 y 9940** (las funciones de 0830 usan tablas de 0800 y 0810 en su cuerpo; las llaves de `visits` hacia
+  `medicos`, `sedes`, `cuentas`, `contactos` y `subtipos_institucionales` detienen un 9940 prematuro, pero 9941 no
+  tiene cómo saberlo).

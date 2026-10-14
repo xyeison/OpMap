@@ -50,6 +50,7 @@ import {
   type ConfigPersona,
   type CuotaResponse,
   type CuotaSubtipo,
+  type DiaCuota,
   type DiaLibre,
   type DiaLibreItem,
   type EstadoEjecutiva,
@@ -647,12 +648,31 @@ export const MENSAJE_ROL_NO_APRUEBA =
 // Cuota del periodo
 // ---------------------------------------------------------------------------------------------
 
+/** La cuota del mes con el detalle día a día y la configuración que se leyó para calcularla. */
+export interface CuotaDetallada {
+  cuota: CuotaResponse
+  /** Día a día (cuotaPeriodo.porDia) de la cuota médica y de la institucional. */
+  porDia: { medica: DiaCuota[]; institucional: DiaCuota[] }
+  /** Filas activas leídas (las mismas que usó la cuota): quien las necesite no vuelve a leerlas. */
+  general: GeneralVigencia[]
+  personas: ConfigPersona[]
+  conteo: ConfigConteo[]
+}
+
 /**
  * Cuota de un mes para una persona con las filas reales: metas, configuración de la persona, parámetros generales,
  * conteo (subtipos con meta propia), calendario de ese mes (nacional + empresa + su ciudad) y sus días libres. Todo
  * el cálculo es cuotaPeriodo (lógica pura); aquí solo se arma la respuesta.
  */
 export async function calcularCuota(persona: PersonaVisitas, mes: string, hoy: string): Promise<CuotaResponse> {
+  return (await calcularCuotaDetallada(persona, mes, hoy)).cuota
+}
+
+/**
+ * calcularCuota con el detalle día a día (meta de hoy, días hábiles sin visitas) y la configuración leída. La usan
+ * /api/me/cuota, /api/me/contexto (meta del día) y /api/me/numeros (cumplimiento del mes): un solo cálculo.
+ */
+export async function calcularCuotaDetallada(persona: PersonaVisitas, mes: string, hoy: string): Promise<CuotaDetallada> {
   const { desde, hasta } = limitesMes(mes)
   const [metas, personas, general, conteo, calendario, diasLibres, ciudad] = await Promise.all([
     leerConfig('config_metas', { soloActivas: true }),
@@ -701,7 +721,7 @@ export async function calcularCuota(persona: PersonaVisitas, mes: string, hoy: s
     ...resumenCuotaTipo(cuotaPeriodo({ ...base, tipo: 'institucional', subtipoId, conteo })),
   }))
 
-  return {
+  const cuota: CuotaResponse = {
     mes,
     ejecutiva: { id: persona.id, nombre: persona.nombre },
     zona: persona.kamId ? { id: persona.kamId, nombre: persona.zona ?? 'Zona' } : null,
@@ -717,6 +737,7 @@ export async function calcularCuota(persona: PersonaVisitas, mes: string, hoy: s
     dias_por_aprobar: medica.diasPorAprobar,
     ritmo: ritmo(medica.diasHabilesTranscurridos, medica.diasHabiles),
   }
+  return { cuota, porDia: { medica: medica.porDia, institucional: institucional.porDia }, general, personas, conteo }
 }
 
 // ---------------------------------------------------------------------------------------------

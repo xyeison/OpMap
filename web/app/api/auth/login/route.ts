@@ -1,13 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
-import { SESSION_COOKIE_NAME, passwordVersion, sessionCookieOptions, signSession } from '@/lib/session'
+import { SESSION_COOKIE_NAME, SESSION_MAX_AGE_SECONDS, passwordVersion, sessionCookieOptions, signSession } from '@/lib/session'
 import { burnPasswordCheck, hashPassword, verifyPassword } from '@/lib/passwords'
+import { ejecutivaEnlazada } from '@/lib/auth-server'
+import type { LoginMovilResponse } from '@/lib/reporte-visitas'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 const INVALID_CREDENTIALS = 'Email o contraseña incorrectos'
 const TOO_MANY_ATTEMPTS = 'Demasiados intentos de inicio de sesión. Intenta de nuevo más tarde.'
+
+// Sesión del teléfono (decisión 1 de docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md): con
+// { cliente: 'movil' } el MISMO token firmado se entrega en el cuerpo, sin Set-Cookie; la app lo guarda en
+// el almacén seguro y lo manda en "Authorization: Bearer" (solo vale en /api/*). Mismos límites de intentos.
+const CLIENTE_MOVIL = 'movil'
+
+/** Instante ISO en que expira un token recién firmado (exp del payload, que es iat + 7 días). */
+function expiraAt(token: string): string {
+  try {
+    const payload = JSON.parse(Buffer.from(token.split('.')[0], 'base64url').toString('utf8')) as { exp?: unknown }
+    if (typeof payload.exp === 'number' && Number.isFinite(payload.exp)) return new Date(payload.exp * 1000).toISOString()
+  } catch {
+    // se calcula abajo
+  }
+  return new Date(Date.now() + SESSION_MAX_AGE_SECONDS * 1000).toISOString()
+}
 
 // ---------------------------------------------------------------------------
 // Rate limit en memoria.
@@ -96,10 +114,11 @@ export async function POST(request: NextRequest) {
     } catch {
       return NextResponse.json({ error: 'Email y contraseña son requeridos' }, { status: 400 })
     }
-    const { email: rawEmail, password } = (body || {}) as { email?: unknown; password?: unknown }
+    const { email: rawEmail, password, cliente } = (body || {}) as { email?: unknown; password?: unknown; cliente?: unknown }
     if (typeof rawEmail !== 'string' || typeof password !== 'string' || !rawEmail.trim() || !password) {
       return NextResponse.json({ error: 'Email y contraseña son requeridos' }, { status: 400 })
     }
+    const esMovil = cliente === CLIENTE_MOVIL
     if (rawEmail.length > 320 || password.length > 1024) {
       return invalidCredentials()
     }
@@ -169,10 +188,30 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 7. Emitir la cookie de sesión firmada (DESPUÉS del re-hash, con el hash definitivo)
+    // 7. Emitir la sesión firmada (DESPUÉS del re-hash, con el hash definitivo)
     const token = signSession(user.id, passwordVersion(storedPassword))
     const { password: _password, ...userWithoutPassword } = user
 
+    // 7a. App móvil: el token va en el cuerpo, sin cookie, con el Ejecutivo Comercial enlazado (si lo hay).
+    // Si la base falla al buscar la ejecutiva, el login no se cae: ejecutiva null y la app vuelve a preguntar
+    // en /api/auth/me.
+    if (esMovil) {
+      let ejecutiva: LoginMovilResponse['ejecutiva'] = null
+      try {
+        ejecutiva = await ejecutivaEnlazada(user.id)
+      } catch (ejecutivaError) {
+        console.error('No se pudo cargar el Ejecutivo Comercial enlazado en el login móvil:', ejecutivaError)
+      }
+      const respuesta: LoginMovilResponse = {
+        token,
+        expira_at: expiraAt(token),
+        usuario: { id: user.id, full_name: user.full_name, role: user.role },
+        ejecutiva,
+      }
+      return NextResponse.json(respuesta, { headers: { 'Cache-Control': 'no-store' } })
+    }
+
+    // 7b. Web: cookie de sesión
     const response = NextResponse.json({
       user: userWithoutPassword,
       message: 'Login exitoso',

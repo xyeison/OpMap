@@ -2,14 +2,20 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { requireUser } from '@/lib/require-role'
 import { serverError } from '../../_lib/api-error'
+import { visitsTieneAnulacion } from '../_lib/visitas-mapa'
 
-// Estadísticas de visitas agregadas con count exacto (sin traer filas: no se trunca a 1.000).
+// Estadísticas de visitas agregadas con count exacto (sin traer filas: no se trunca a 1.000). Las visitas anuladas de
+// la app (deleted_at, migración 0830) no cuentan; antes de la 0830 la columna no existe y se cuenta sin ese filtro.
 export async function GET(request: NextRequest) {
   const auth = await requireUser(request)
   if (!auth.ok) return auth.response
 
   try {
-    const count = () => supabaseAdmin.from('visits').select('id', { count: 'exact', head: true })
+    const filtrarAnuladas = await visitsTieneAnulacion()
+    const count = () => {
+      const consulta = supabaseAdmin.from('visits').select('id', { count: 'exact', head: true })
+      return filtrarAnuladas ? consulta.is('deleted_at', null) : consulta
+    }
 
     const [total, effective, inPerson, virtual] = await Promise.all([
       count(),

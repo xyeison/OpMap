@@ -241,6 +241,33 @@ disparadores:          executive_lines_termina_visitantes (AFTER DELETE ON execu
                        executives_baja_termina_visitantes (AFTER UPDATE OF status a inactive → todos sus visitantes terminan, baja)
 ```
 
+#### App de visita · F3 visitas de la app (migración 0830, aplicada 2026-10-14)
+Contrato en `docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md` (sección "Base de datos"). `visits` (tabla del mapa de calor, 14
+columnas originales; `lat/lng` numeric(10,6) NOT NULL) recibe 29 columnas; las 7.033 importadas de VMO quedan `source = 'vmo_import'` sin otro
+cambio. RLS sin políticas (solo `service_role`); no hay columna de audio.
+```sql
+visits (+0830):    source vmo_import|app (default vmo_import), executive_id → executives, client_id uuid (UNIQUE parcial: idempotencia de la app),
+                   tipo medica|institucional, subtipo_id → subtipos_institucionales + subtipo_codigo (copia), medico_id → medicos,
+                   cuenta_id → cuentas, sede_id → sedes, contacto_id → contactos, modalidad presencial|telefonica, medio llamada|videollamada,
+                   efectiva, failure_reason (≤ 300), retry_date, checked_in_at, reported_at, distance_m (Haversine en el servidor),
+                   gps_accuracy_m, conclusion (≤ 2000), compromisos (≤ 2000), next_step_date, transcript (≤ 8000, interna),
+                   input_mode voz|toques, out_of_territory (default false), created_by/updated_by → users, deleted_at + deleted_reason (anulada).
+                   CHECK visits_source_check y visits_app_check (app ⇒ ejecutiva, client_id, tipo, sede, modalidad, efectiva, horas, input_mode,
+                   kam_id; visit_date = fecha de checked_in_at en Bogotá; médica ⇒ médico y sin subtipo ni contacto; institucional ⇒ cuenta y
+                   subtipo; presencial ⇒ distance_m y sin medio; telefónica ⇒ medio; no efectiva ⇒ motivo; next_step_date y retry_date ≥
+                   visit_date; visit_type y contact_type coherentes)
+                   Las de la app llenan kam_id (zona base), kam_name (ejecutiva), visit_type, contact_type, lat/lng, visit_date y hospital_id.
+                   Telefónica: lat/lng = la sede, su municipio o la zona (nunca el GPS del teléfono; gps_accuracy_m NULL).
+                   Una visita en una sede con ubicacion_confirmada = false se guarda pero no suma hasta que la confirmen (lo decide la API).
+                   Índices visits_client_id_uidx, visits_executive_date_idx, visits_medico_idx, visits_cuenta_idx, visits_next_step_idx.
+                   Disparadores update_visits_updated_at y visits_app_sin_borrar (una de la app no se borra: se anula)
+visit_lines:       PK (visit_id → visits ON DELETE CASCADE, line_id → business_lines); service_role SELECT, INSERT, UPDATE, DELETE
+funciones:         visitas_registrar(p jsonb, p_user uuid) → jsonb (una visita en una transacción: idempotente por client_id, mismo día, perfil,
+                   radio, telefónica, topes, líneas); visitas_editar(p_id, p, p_user) y visitas_anular(p_id, p_motivo, p_user) (solo las suyas
+                   del mismo día); visitas_config_vigente(executive_id, fecha) → jsonb { perfil, radio_m, tope_visitas_medico_dia,
+                   telefonica }; visitas_distancia_m(lat1, lng1, lat2, lng2) → int (Haversine, radio 6371008.8 m)
+```
+
 ### Vistas
 
 #### 1. `kam_statistics`
