@@ -241,7 +241,7 @@ disparadores:          executive_lines_termina_visitantes (AFTER DELETE ON execu
                        executives_baja_termina_visitantes (AFTER UPDATE OF status a inactive → todos sus visitantes terminan, baja)
 ```
 
-#### App de visita · F3 visitas de la app (migración 0830, NO aplicada)
+#### App de visita · F3 visitas de la app (migración 0830, aplicada 2026-10-14)
 Contrato en `docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md` (sección "Base de datos"). `visits` (tabla del mapa de calor, 14
 columnas originales; `lat/lng` numeric(10,6) NOT NULL) recibe 29 columnas; las 7.033 importadas de VMO quedan `source = 'vmo_import'` sin otro
 cambio. RLS sin políticas (solo `service_role`); no hay columna de audio.

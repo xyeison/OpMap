@@ -470,7 +470,9 @@ cuando la precisión pase de unos 100 m o del radio.
 
 ### Pendiente
 
-- Del dueño: autorizar y aplicar la 0830 (y `NOTIFY pgrst`); crear `OPENAI_API_KEY` y `ANTHROPIC_API_KEY` en Vercel;
+- Hecho el 2026-10-14: 0830 aplicada en producción (`visitas_app_0830`), las 5 funciones con el mismo md5 que el
+  archivo, `NOTIFY pgrst` y las 7.033 importadas con la misma huella de antes.
+- Del dueño: crear `OPENAI_API_KEY` y `ANTHROPIC_API_KEY` en Vercel;
   confirmar el identificador `co.vg.opmap.visitas` y crear las cuentas de Expo, Apple y Google para EAS; probar en un
   teléfono con Expo Go (GPS, micrófono y almacén seguro reales: aquí no hay simulador).
 - Con la 0830 aplicada: la vista `visit_summary` (sin uso en la web) contará también las visitas de la app, anuladas
