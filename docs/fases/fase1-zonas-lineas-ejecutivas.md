@@ -7,7 +7,9 @@ Rama `fase1/zonas-y-equipo`. Migraciones en `database/migrations/2026-10-10_*` (
   - La tabla `kams` NO se renombra: **cada fila de `kams` es una ZONA** (ciudad base = `area_id`).
     En la UI "KAM" se muestra como "Zona" y la tabla `zones` como "Región"; en código siguen
     `kam_id`/`kams`, rutas `/kams` y `/zones` sin cambios. (2026-10-14: la página `/zones` "Regiones" se quitó
-    por ser de una versión anterior; la tabla `zones` y `/api/zones` siguen.)
+    por ser de una versión anterior; ese mismo día el dueño pidió quitar las Regiones del todo: sin `/api/zones`,
+    sin modo Regiones en el mapa ni permisos `zones:*`. La tabla `zones` queda sin uso;
+    `docs/specs/2026-10-14-quitar-regiones.md`.)
   - `business_lines`: PerOssal, Reemplazo articular, Medicina deportiva, Columna, Trauma
     (líder opcional, `max_reach_minutes` = 240 por defecto).
   - `executives`: personas (status `active` | `placeholder` = vacante por contratar | `inactive`;

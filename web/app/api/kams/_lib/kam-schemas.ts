@@ -1,5 +1,6 @@
 // Validación (allow-list) de los cuerpos de /api/kams/**. Cualquier campo no listado se descarta
-// (id, active, created_at, zone_id...): active solo cambia por /activate y /deactivate, zone_id por /zone.
+// (id, active, created_at, zone_id...): active solo cambia por /activate y /deactivate; zone_id (Región) ya no cambia
+// desde la web (las Regiones se quitaron el 2026-10-14).
 import { z } from 'zod'
 import { areaIdSchema, colorSchema, uuidSchema } from './kam-shared'
 

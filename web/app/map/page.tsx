@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
+import { useEffect, useCallback, useMemo, Suspense } from 'react'
 import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import dynamic from 'next/dynamic'
@@ -78,14 +78,6 @@ function MapPageContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const pathname = usePathname()
-  const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null)
-
-  useEffect(() => {
-    const zoneId = searchParams.get('zoneId')
-    if (zoneId) {
-      setSelectedZoneId(zoneId)
-    }
-  }, [searchParams])
 
   // Líneas de negocio que el usuario puede ver en el mapa
   const { data: myLines, isLoading: linesLoading, isError: linesError, error: linesErrorObj, refetch: refetchLines } = useQuery<MyLinesResponse>({
@@ -114,12 +106,8 @@ function MapPageContent() {
   const selectedLine = lines.find(l => l.code === lineParam) ?? null
   // Vista "Zonas" (colores por zona, ?mode=zones): todo el que ve el mapa (spec 2026-10-14; antes solo quien ve
   // todas las líneas). A quien no ve todas, /api/map/data no le trae nada de las personas ni de la cobertura de
-  // las líneas que no ve. El modo Regiones (&viewMode=zones) sigue siendo solo de quien ve todas (lib/map-view.ts).
-  const { mapMode, viewMode } = resolveMapView({
-    mode: searchParams.get('mode'),
-    viewMode: searchParams.get('viewMode'),
-    canSeeAllLines: canSeeAll,
-  })
+  // las líneas que no ve. Sin modo Regiones desde el 2026-10-14 (lib/map-view.ts).
+  const { mapMode } = resolveMapView({ mode: searchParams.get('mode') })
 
   // Actualiza la URL (?line=code&mode=zones) conservando el resto de parámetros
   const updateParams = useCallback((changes: Record<string, string | null>) => {
@@ -238,8 +226,6 @@ function MapPageContent() {
 
     return (
       <MapComponent
-        viewMode={viewMode}
-        selectedZoneId={selectedZoneId}
         lines={lines}
         selectedLineCode={selectedLine?.code ?? null}
         onLineChange={selectLine}

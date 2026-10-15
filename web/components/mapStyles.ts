@@ -78,7 +78,7 @@ export const CLUSTER_NEUTRAL_COLOR = '#334155'
 // ---------- Tonos por zona dentro de un mismo Ejecutivo Comercial (solo vista por línea) ----------
 // Si un Ejecutivo Comercial cubre varias zonas en la línea, cada zona usa un tono de su color: misma
 // tonalidad, luminosidad desplazada según su posición (zonas ordenadas por ciudad base). La primera
-// zona conserva el color base. La vista de zonas y la de regiones no usan tonos.
+// zona conserva el color base. La vista de zonas no usa tonos.
 const ZONE_TINT_L_SHIFTS = [0, 18, -16, 32, -26, 40, -34]
 const ZONE_TINT_L_MIN = 26
 const ZONE_TINT_L_MAX = 78

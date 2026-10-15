@@ -2,23 +2,15 @@
 // las prueba scripts/mapa-zonas-api-check.ts.
 
 export type MapPageMode = 'line' | 'zones'
-export type MapPageViewMode = 'kams' | 'zones'
 
 /**
- * Vista del mapa a partir de la URL.
- *  - mapMode: "Ver por" de la leyenda. ?mode=zones (colores de kams.color) la abre todo el que ve el mapa desde el
- *    2026-10-14; si no, la vista por Ejecutivos Comerciales (por línea).
- *  - viewMode: el modo Regiones (?mode=zones&viewMode=zones, color de la región) sigue siendo solo de quien ve todas
- *    las líneas, como antes: la spec lo deja fuera de alcance. A los demás ?viewMode=zones no les cambia nada.
+ * Vista del mapa a partir de la URL: "Ver por" de la leyenda. ?mode=zones (colores de kams.color) la abre todo el
+ * que ve el mapa desde el 2026-10-14; si no, la vista por Ejecutivos Comerciales (por línea).
+ * Sin modo Regiones: se quitó por pedido del dueño del 2026-10-14 (spec docs/specs/2026-10-14-quitar-regiones.md);
+ * un ?viewMode=zones viejo en la URL no hace nada.
  */
-export function resolveMapView(input: { mode: string | null; viewMode: string | null; canSeeAllLines: boolean }): {
-  mapMode: MapPageMode
-  viewMode: MapPageViewMode
-} {
-  return {
-    mapMode: input.mode === 'zones' ? 'zones' : 'line',
-    viewMode: input.canSeeAllLines && input.viewMode === 'zones' ? 'zones' : 'kams',
-  }
+export function resolveMapView(input: { mode: string | null }): { mapMode: MapPageMode } {
+  return { mapMode: input.mode === 'zones' ? 'zones' : 'line' }
 }
 
 /**

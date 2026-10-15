@@ -97,7 +97,7 @@ interface HospitalMarkerProps {
   lng: number
   name: string
   beds: unknown
-  // Color de la vista activa (Ejecutivo Comercial en la línea, zona o región), ya validado
+  // Color de la vista activa (Ejecutivo Comercial en la línea o zona), ya validado
   color: string
   // Atenuado mientras se resalta otro Ejecutivo Comercial / zona en la leyenda
   dimmed?: boolean

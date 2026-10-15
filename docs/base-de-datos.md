@@ -43,8 +43,18 @@ Key Account Managers (vendedores) del sistema.
 - priority: integer (prioridad en caso de empate)
 - color: varchar (color para visualización)
 - active: boolean
+- zone_id: uuid (FK → zones, ON DELETE SET NULL) — Región; SIN USO en la web desde el 2026-10-14
 - created_at, updated_at: timestamp
 ```
+
+#### Regiones: tabla `zones` (sin uso en la web desde el 2026-10-14)
+Agrupación de zonas de una versión anterior (5 filas; ninguna zona tiene una asignada). Por pedido del dueño del
+2026-10-14 (`docs/decisiones/2026-10-14-quitar-regiones.md`, spec `docs/specs/2026-10-14-quitar-regiones.md`) la web ya
+no la lee ni la escribe: sin página `/zones`, sin "Por Regiones" ni columna Región en Zonas, sin modo Regiones en el
+mapa, sin `/api/zones/**` ni `/api/kams/zone`, y `/api/kams/stats` y `/api/map/data` ya no leen `zones` ni
+`kams.zone_id`; los permisos `zones:view` y `zones:edit` salieron. La tabla `zones`, la columna `kams.zone_id` y las
+vistas `zone_statistics` y `zone_territory_assignments` siguen en la base, sin uso. Borrarlas sería una migración
+aparte, con su rollback, y solo si el dueño lo pide.
 
 #### 3. `assignments`
 Asignaciones de hospitales a KAMs.

@@ -10,9 +10,13 @@ Estilo autorizado por el dueño el 2026-10-11 (rama `ui/mapa-estetica`; constant
 
 - **Una sola fuente de color por vista**: `colorForZone` (`web/components/MapComponent.tsx`). Vista por
   línea: color del Ejecutivo Comercial que cubre la zona (`executives.color`), con un tono por zona si
-  cubre varias (ver "Tonos por zona"); vista de zonas: color de la zona (`kams.color`); vista de
-  regiones: color de la región. Polígonos, puntos de IPS, insignias, tooltips y tarjetas usan siempre
-  ese mismo color.
+  cubre varias (ver "Tonos por zona"); vista de zonas: color de la zona (`kams.color`). Polígonos,
+  puntos de IPS, insignias, tooltips y tarjetas usan siempre ese mismo color.
+- **Sin modo Regiones** (quitado por pedido del dueño del 2026-10-14: "Eso de región deberíamos quitarlo al fin";
+  spec `docs/specs/2026-10-14-quitar-regiones.md`): ya no existe la vista de regiones (`?viewMode=zones`, color de la
+  región de cada zona, leyenda "Regiones", título "Vista de regiones"); un `?viewMode=zones` viejo en la URL no hace
+  nada y el mapa ya no llama a `/api/zones`. La vista por línea y la vista de zonas (`?mode=zones`, colores de
+  `kams.color`) no cambiaron en nada: ni colores, ni opacidades, ni capas, ni marcadores.
 - **"Ver por" en la leyenda** (autorizado por el dueño el 2026-10-14: "vista por zonas o por ejecutivos
   comerciales, y que pueda cambiar el plano"; spec `docs/specs/2026-10-14-mapa-vista-de-zonas-para-todos.md`):
   arriba de la leyenda (tarjeta de escritorio y hoja inferior de celular), un selector segmentado "Ver por"
@@ -25,9 +29,9 @@ Estilo autorizado por el dueño el 2026-10-11 (rama `ui/mapa-estetica`; constant
   `map:all-lines`, `/api/map/data` no le trae la cobertura ni las personas de las líneas que no ve. Quien no tiene
   líneas ve en "No tienes líneas asignadas" el botón "Ver el mapa por zonas"; en la leyenda "Ejecutivos
   Comerciales" queda desactivado (`aria-disabled`, sigue recibiendo foco) con el motivo visible debajo: "Sin líneas
-  de negocio asignadas: solo puedes ver el mapa por zonas." El modo Regiones (`&viewMode=zones`) sigue siendo solo de
-  `map:all-lines`. Colores, opacidades, polígonos, puntos, insignias, racimos, filtros y la vista por línea no
-  cambiaron.
+  de negocio asignadas: solo puedes ver el mapa por zonas." (El modo Regiones, `&viewMode=zones`, se quitó el
+  2026-10-14: ver "Sin modo Regiones".) Colores, opacidades, polígonos, puntos, insignias, racimos, filtros y la vista
+  por línea no cambiaron.
   - **Textos de tarjetas y tooltips en la vista de zonas sin `map:all-lines` (PENDIENTE de confirmar por el
     dueño)**: el dueño autorizó el selector, no estos textos. Son consecuencia de la regla de la spec (no mostrar
     personas de líneas que no ve): como solo llegan las personas de SUS líneas, el texto de siempre ("Ejecutivo
@@ -48,7 +52,7 @@ Estilo autorizado por el dueño el 2026-10-11 (rama `ui/mapa-estetica`; constant
   de la zona entre las del Ejecutivo Comercial ordenadas por ciudad base (`localeCompare` 'es'); la
   primera conserva el color base. Ej. PerOssal: Yineth (#d62728) → Chapinero #d62728, Engativá #e85c5d,
   Kennedy #a21e1e, San Cristóbal #f09293; María Isabel (#8c564b) → Ibagué #8c564b, Pereira #b87467. NO
-  aplica a la vista de zonas ni a la de regiones, ni al chip e iniciales del Ejecutivo Comercial en la
+  aplica a la vista de zonas, ni al chip e iniciales del Ejecutivo Comercial en la
   leyenda ni a su racimo (color base). En la leyenda, bajo "n zonas · m IPS", una mini-muestra por zona
   (12 px, iniciales de la ciudad base, `title` = ciudad): tocarla resalta solo esa zona; tocar la fila
   resalta todas. La tarjeta de la zona dice "(zona 2 de 4)" junto al nombre del Ejecutivo Comercial.

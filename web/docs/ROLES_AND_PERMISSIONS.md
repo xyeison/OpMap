@@ -17,8 +17,13 @@
 - **Municipios** sale del menú principal y queda dentro de **Configuración** (pestaña "Municipios", con
   `territories:view`, el permiso de siempre). `/territories` y `/territories/[id]` siguen funcionando; sus
   "Volver" llevan a `/configuracion?seccion=municipios`.
-- **Regiones** (`/zones`, de una versión anterior) sale del menú y su página se quitó. La tabla `zones` y
-  `/api/zones` (que usan el mapa y Zonas) no cambian.
+- **Regiones** (`/zones`, tabla `zones`, de una versión anterior) se quitaron de la web por pedido del dueño del
+  2026-10-14 (spec `docs/specs/2026-10-14-quitar-regiones.md`): ni página, ni botón "Por Regiones" ni columna Región
+  en Zonas (`/kams`), ni modo Regiones en el mapa, ni `/api/zones/**` ni `/api/kams/zone`; `/api/kams/stats` y
+  `/api/map/data` ya no leen Regiones. Los permisos **`zones:view` y `zones:edit` salieron** de `lib/permissions.ts`
+  y de todos los roles que los tenían (admin, sales_manager, line_leader, commercial_director y data_manager);
+  ningún otro permiso cambió. La tabla `zones` y la columna `kams.zone_id` quedan en la base, sin uso (borrarlas
+  sería otra migración, solo si el dueño lo pide). Lo prueba `scripts/menu-check.ts` (sección 8).
 - **Configuración** (`/configuracion`) se muestra con cualquiera de `PERMISOS_CONFIGURACION` (`visits:config`,
   `territories:view`, `recalculate:simple`, `recalculate:complete`) y cada sección pide el suyo
   (`seccionesConfiguracion`); con una sola sección no sale la barra de secciones. La sección va en `?seccion=`.
@@ -66,7 +71,7 @@ Spec `docs/specs/2026-10-14-mapa-vista-de-zonas-para-todos.md`; pruebas en `scri
 | Vista de zonas (`?mode=zones`: todas las zonas activas con su color) | `map:view` (antes solo `map:all-lines`); también quien no tiene líneas | Pedido del dueño: que las líderes vean cómo se distribuyen todas las zonas |
 | En la vista de zonas, quién vive en cada zona (`kams[].executives`) | Con `map:all-lines`, todos; si no, solo quienes llevan alguna de sus líneas | Sin la cobertura ni las personas de las líneas que no ve; sin `?line` no hay cobertura |
 | Contratos activos por IPS en `/api/map/data` (valor y proveedor, también en `territoryStats`) | Quien ya los recibía: `map:all-lines` o alguna línea; y quien tiene `contracts:view`. Sin líneas y sin `contracts:view` (rol `user`), no (`contractsIncluded: false`) | La vista de zonas no amplía lo que cada uno ve de las IPS. Pendiente del dueño: hoy `viewer`, `data_manager` y un `user` con línea reciben contratos sin `contracts:view` (hueco anterior al 2026-10-14, no se tocó) |
-| Modo Regiones del mapa (`?mode=zones&viewMode=zones`) | Solo `map:all-lines`, como antes | Fuera de alcance de la spec (`lib/map-view.ts`) |
+| Modo Regiones del mapa (antes `?viewMode=zones`) | Nadie: se quitó el 2026-10-14; un `?viewMode=zones` viejo no hace nada | Pedido del dueño (spec `docs/specs/2026-10-14-quitar-regiones.md`); la vista de zonas (`?mode=zones`) no cambió |
 
 ## Roles Definidos (histórico)
 

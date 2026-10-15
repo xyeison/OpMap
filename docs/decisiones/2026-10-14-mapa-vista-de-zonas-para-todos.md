@@ -16,7 +16,8 @@ ejecutivos comerciales".
   de zonas, sus tarjetas dicen "Ejecutivo Comercial (tus líneas)". Ese texto está pendiente de que el dueño lo
   confirme.
 - Los contratos solo los recibe quien ya los recibía.
-- El modo Regiones sigue solo para `map:all-lines`.
+- El modo Regiones sigue solo para `map:all-lines`. *(Superado el mismo día: el modo Regiones se quitó del todo, ver
+  `docs/decisiones/2026-10-14-quitar-regiones.md`.)*
 - RR. HH., que no tiene mapa, recibe 403 también en la API.
 
 **Dónde vive en el código**:

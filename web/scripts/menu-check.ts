@@ -7,12 +7,13 @@
  * Hospitales, Terceros, Calendario, Zonas (/kams), Líneas, Ejecutivos Comerciales, Inteligencia, Contratos, Mi
  * Empresa, Cumplimiento, Proveedores, Usuarios y Visitas; Configuración al final. Municipios sale del menú y queda
  * dentro de Configuración (territories:view); Regiones (/zones) se quitó. "/" lleva a la primera opción del menú.
- * Los permisos de cada rol NO cambian.
+ * Los permisos de cada rol NO cambian, salvo zones:view y zones:edit, que salieron el 2026-10-14 con las Regiones
+ * (spec docs/specs/2026-10-14-quitar-regiones.md): sección 8.
  *
  * Uso (desde web/): npx tsx scripts/menu-check.ts   (va dentro de npm run test)
  * Código de salida 1 si alguna prueba falla.
  */
-import { existsSync } from 'fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'fs'
 import path from 'path'
 import {
   PERMISOS_CONFIGURACION,
@@ -190,7 +191,49 @@ check('/territories sigue existiendo', existsSync(path.join(APP, 'territories', 
 check('"/" sigue existiendo (lleva al inicio)', existsSync(path.join(APP, 'page.tsx')))
 check('la página /zones (Regiones) ya no existe', !existsSync(path.join(APP, 'zones', 'page.tsx')))
 check('/api/dashboard/stats ya no existe', !existsSync(path.join(APP, 'api', 'dashboard', 'stats', 'route.ts')))
-check('/api/zones sigue (lo usan el mapa y Zonas)', existsSync(path.join(APP, 'api', 'zones', 'route.ts')))
+
+// ---------------------------------------------------------------------------------------------
+console.log('8. Regiones quitadas de la web (dueño, 2026-10-14)')
+const WEB = path.join(__dirname, '..')
+// Archivos de código de una carpeta (recursivo, sin copias "archivo 2.ts" que deja el Finder)
+function archivosDe(carpeta: string): string[] {
+  const out: string[] = []
+  for (const nombre of readdirSync(carpeta)) {
+    const ruta = path.join(carpeta, nombre)
+    if (statSync(ruta).isDirectory()) out.push(...archivosDe(ruta))
+    else if (/\.(ts|tsx)$/.test(nombre) && !/ \d+\.(ts|tsx)$/.test(nombre)) out.push(ruta)
+  }
+  return out
+}
+const CODIGO = ['app', 'components', 'lib'].flatMap(carpeta => archivosDe(path.join(WEB, carpeta)))
+const relativo = (ruta: string) => path.relative(WEB, ruta)
+// Rutas de la API: app/api/<...>/route.ts → /api/<...>
+const rutasApi = CODIGO.filter(ruta => /[\\/]route\.ts$/.test(ruta) && relativo(ruta).startsWith(`app${path.sep}api${path.sep}`))
+  .map(ruta => '/' + path.dirname(relativo(ruta)).split(path.sep).slice(1).join('/'))
+check('hay rutas de la API para revisar', rutasApi.length > 20, rutasApi.length)
+check('ninguna ruta /api/zones ni /api/zones/** existe', !rutasApi.some(ruta => ruta === '/api/zones' || ruta.startsWith('/api/zones/')), rutasApi.filter(ruta => ruta.startsWith('/api/zones')))
+check('la carpeta app/api/zones ya no existe', !existsSync(path.join(APP, 'api', 'zones')))
+check('/api/kams/zone ya no existe', !rutasApi.includes('/api/kams/zone'))
+check('/api/business-lines/[id]/zones (zonas de una línea) sigue: no es de Regiones', rutasApi.includes('/api/business-lines/[id]/zones'))
+for (const rol of ROLES) {
+  const deRegiones = (rolePermissions[rol] as string[]).filter(permiso => permiso.startsWith('zones:'))
+  check(`${rol}: ningún permiso zones:*`, deRegiones.length === 0, deRegiones)
+}
+const conCodigo = (patron: RegExp) => CODIGO.filter(ruta => patron.test(readFileSync(ruta, 'utf8'))).map(relativo)
+eq('ningún archivo pide zones:view ni zones:edit', conCodigo(/['"`]zones:(view|edit)['"`]/), [])
+eq('nadie llama a /api/zones ni a /api/kams/zone', conCodigo(/\/api\/zones\b|\/api\/kams\/zone\b/), [])
+eq('nadie lee la tabla zones', conCodigo(/\.from\(\s*['"`]zones['"`]\s*\)/), [])
+// Texto visible: sin comentarios, ninguna "Región" ni "Regiones". Primero los de línea (// al inicio o tras un
+// espacio: un "// /geo/*.json" abriría si no un falso /* */) y luego los de bloque (/* */ y {/* */}).
+const sinComentarios = (texto: string) =>
+  texto.split('\n').map(linea => linea.replace(/(^|\s)\/\/.*$/, '')).join('\n').replace(/\/\*[\s\S]*?\*\//g, '')
+const pantallas = CODIGO.filter(ruta => ruta.endsWith('.tsx') && !relativo(ruta).startsWith(`lib${path.sep}`))
+eq(
+  'ninguna pantalla de app/ ni components/ dice "Región" ni "Regiones"',
+  pantallas.filter(ruta => /regi[oó]n(es)?\b/i.test(sinComentarios(readFileSync(ruta, 'utf8')))).map(relativo),
+  []
+)
+eq('Zonas (/kams) sin "Por Regiones"', /Por Regiones/.test(readFileSync(path.join(APP, 'kams', 'page.tsx'), 'utf8')), false)
 
 // ---------------------------------------------------------------------------------------------
 console.log(`\n${passed} pruebas bien, ${failed} con falla`)
