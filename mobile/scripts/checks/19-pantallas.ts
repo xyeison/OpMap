@@ -310,6 +310,18 @@ export async function pruebas(t: Probador): Promise<void> {
         /alPresionar=\{cita\.estado === 'pendiente' \? \(\) => alReportarCita\(cita\) : cita\.visita_id \?/.test(agendaDeHoy) &&
         /alReportarCita=\{reportarCita\}/.test(hoy)
     )
+    // Revisión del estilo Uber (2026-10-15): "solo presentación". "Agendar" pasó junto al saludo, pero sigue saliendo
+    // solo con el contexto del día (antes estaba dentro de "Tu agenda de hoy"), y "x de y hechas" vuelve a verde al
+    // completarlas.
+    t.check(
+      'Hoy: "Agendar" junto al saludo solo con el contexto (no sin él ni sin Ejecutivo Comercial enlazado)',
+      /\{contexto \? <Boton titulo="Agendar" variante="secundario" compacto icono="agregar" alPresionar=\{\(\) => router\.push\('\/agenda\/nueva'\)\} \/> : null\}/.test(hoy) &&
+        (hoy.match(/titulo="Agendar"/g) ?? []).length === 1
+    )
+    t.check(
+      'Hoy: "x de y hechas" en verde (Insignia de éxito) cuando están todas; si no, en gris',
+      /hechas === ordenadas\.length \? \(\s*<Insignia texto=\{`\$\{numeroTexto\(hechas\)\} de \$\{numeroTexto\(ordenadas\.length\)\} hechas`\} tono="exito" \/>/.test(agendaDeHoy)
+    )
     t.check(
       'Hoy: arriba de la agenda, "Siguiente: …" (citaDeAhora) que también lleva a reportarla; "Atrasada" en las de hora pasada',
       /const deAhora = citaDeAhora\(ordenadas, ahora\)/.test(agendaDeHoy) &&

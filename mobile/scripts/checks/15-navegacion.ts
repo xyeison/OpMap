@@ -188,8 +188,8 @@ export async function pruebas(t: Probador): Promise<void> {
   t.check('PESTANAS: cada ícono, relleno y contorno, existe en el glyphmap de Ionicons instalado', usaEseMapa && faltanPestanas.length === 0, faltanPestanas)
   const nombres = Object.keys(GLIFOS_ICONOS) as NombreIcono[]
   const faltanTodos = nombres.flatMap(n => [GLIFOS_ICONOS[n].relleno, GLIFOS_ICONOS[n].contorno]).filter(g => !(g in glifos))
-  // Estilo Uber (2026-10-15): 14 + ubicación, compromiso, buscar y agregar.
-  t.check('íconos: los 18 nombres tienen relleno y contorno en ese glyphmap', nombres.length === 18 && faltanTodos.length === 0, { nombres: nombres.length, faltanTodos })
+  // Estilo Uber (2026-10-15): 14 + compromiso y agregar (la revisión quitó ubicación y buscar, que no se usaban).
+  t.check('íconos: los 16 nombres tienen relleno y contorno en ese glyphmap', nombres.length === 16 && faltanTodos.length === 0, { nombres: nombres.length, faltanTodos })
   t.check('íconos: cada pestaña tiene un ícono distinto', new Set(PESTANAS.map(p => GLIFOS_ICONOS[p.icono].relleno)).size === PESTANAS.length)
 
   // -------------------------------------------------------------------------

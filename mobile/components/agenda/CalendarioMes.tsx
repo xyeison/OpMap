@@ -10,9 +10,12 @@
  * afuera, el calendario va a su mes o su semana. Las reglas puras están en lib/calendario.ts.
  *
  * Revisión 2026-10-15: con `conHoy` (Mi agenda), un "Hoy" en la cabecera vuelve a hoy (lo elige) cuando se ve otro día
- * u otra semana. La leyenda de las citas es una insignia sin cifra ("número de citas del día"; con un "2" fijo se leía
- * como un total). Los números no crecen más de 1,3 veces con el texto grande del sistema (círculos de 38 pt e insignias
- * de 17).
+ * u otra semana. La leyenda de las citas no lleva una cifra de muestra (con un "2" fijo se leía como un total). Los
+ * números no crecen más de 1,3 veces con el texto grande del sistema.
+ *
+ * Revisión del estilo (2026-10-15): los días van a SEPARACION_DIAS (2 pt), no a 4: así miden ≥ 44 pt de ancho también
+ * en un Android de 360 dp con los márgenes de 20 de la pantalla (lib/calendario.ts, anchoDia). La leyenda dice "Bajo
+ * cada día, en pequeño: cuántas citas tienes".
  */
 import { useEffect, useMemo, useState, type JSX } from 'react'
 import { Pressable, Text, View } from 'react-native'
@@ -27,6 +30,7 @@ import {
   mesesDeRango,
   mesSiguiente,
   rangoDeMes,
+  SEPARACION_DIAS,
   semanasVisibles,
   tituloMes,
   tituloSemana,
@@ -166,7 +170,7 @@ export function CalendarioMes({ valor, alCambiar, hoy, desde, hasta, marcas, vis
         {flecha('adelante', puedeSiguiente, siguiente)}
       </View>
 
-      <View style={{ flexDirection: 'row', gap: 4 }}>
+      <View style={{ flexDirection: 'row', gap: SEPARACION_DIAS }}>
         {LETRAS_SEMANA.map((letra, i) => (
           <Text key={i} importantForAccessibility="no" style={[{ flex: 1, textAlign: 'center', color: c.textoSuave, fontSize: 13 }, fuente('media')]}>
             {letra}
@@ -175,7 +179,7 @@ export function CalendarioMes({ valor, alCambiar, hoy, desde, hasta, marcas, vis
       </View>
 
       {semanas.map(semana => (
-        <View key={semana[0].fecha} style={{ flexDirection: 'row', gap: 4 }}>
+        <View key={semana[0].fecha} style={{ flexDirection: 'row', gap: SEPARACION_DIAS }}>
           {semana.map(dia => {
             const marca = marcas?.[dia.fecha]
             const elegido = dia.fecha === valor
@@ -230,7 +234,7 @@ export function CalendarioMes({ valor, alCambiar, hoy, desde, hasta, marcas, vis
         <View importantForAccessibility="no-hide-descendants" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 14, paddingHorizontal: 4 }}>
           {hayCitas ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', minHeight: 22 }}>
-              <Text style={[{ color: c.textoSuave, fontSize: 13 }, fuente('regular')]}>Debajo del día, en pequeño: número de citas del día</Text>
+              <Text style={[{ color: c.textoSuave, fontSize: 13 }, fuente('regular')]}>Bajo cada día, en pequeño: cuántas citas tienes</Text>
             </View>
           ) : null}
           {hayLibres ? (

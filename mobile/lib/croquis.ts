@@ -63,6 +63,18 @@ export const MAXIMO_CROQUIS_M = 3000
 export const HALO_MINIMO = 14
 /** Sedes que se dibujan como mucho (además de la del foco). */
 export const MAX_SEDES_CROQUIS = 12
+/** Alto del croquis (pt, debajo de la hora y la batería) y el que lleva en pantallas de menos de 700 pt de alto. */
+export const ALTO_CROQUIS = 170
+export const ALTO_CROQUIS_BAJO = 120
+export const PANTALLA_BAJA = 700
+
+/**
+ * Alto del croquis según el alto de la ventana. Revisión 2026-10-15: en un teléfono bajo (iPhone SE u 8, 667 pt) el
+ * croquis de 170 empujaba fuera de la vista lo que sigue (en Reportar, "Por toques" después de elegir la cita).
+ */
+export function altoCroquis(altoVentana: number): number {
+  return Number.isFinite(altoVentana) && altoVentana > 0 && altoVentana < PANTALLA_BAJA ? ALTO_CROQUIS_BAJO : ALTO_CROQUIS
+}
 
 const rad = (grados: number) => (grados * Math.PI) / 180
 
@@ -167,6 +179,86 @@ export function etiquetaYoALaIzquierda(plan: PlanCroquis, ancho: number): boolea
 /** Alto de las etiquetas del croquis (pt) y lo que se separan de su marca. */
 export const ALTO_ETIQUETA_CROQUIS = 28
 export const SEPARACION_ETIQUETA = 12
+/** Lo que deja libre una etiqueta en los bordes del croquis (pt). */
+export const BORDE_ETIQUETA = 8
+/** Ancho de la caja donde va centrado el nombre de la sede del foco (la pastilla mide como mucho eso). */
+export const ANCHO_NOMBRE_SEDE = 180
+/** De tu punto al borde de "Estás aquí" cuando va a un lado (el punto mide 16 pt). */
+const LADO_ETIQUETA_YO = 16
+
+/** Un rectángulo en pt del croquis (sin el área segura de arriba). */
+export interface CajaCroquis {
+  x: number
+  y: number
+  ancho: number
+  alto: number
+}
+
+const entre = (valor: number, minimo: number, maximo: number) => Math.min(Math.max(valor, minimo), Math.max(minimo, maximo))
+/** Lo que se tapan dos cajas (pt²). Rozarse hasta TOLERANCIA_ROCE pt (la sombra de una contra el borde de la otra) no cuenta. */
+const TOLERANCIA_ROCE = 2
+const solape = (a: CajaCroquis, b: CajaCroquis) =>
+  Math.max(0, Math.min(a.x + a.ancho, b.x + b.ancho) - Math.max(a.x, b.x) - TOLERANCIA_ROCE) *
+  Math.max(0, Math.min(a.y + a.alto, b.y + b.alto) - Math.max(a.y, b.y) - TOLERANCIA_ROCE)
+
+/** Borde izquierdo de la caja (de ANCHO_NOMBRE_SEDE) donde va centrado el nombre de una sede en `x`: no se sale. */
+export function izquierdaNombreSede(x: number, ancho: number): number {
+  return entre(x - ANCHO_NOMBRE_SEDE / 2, BORDE_ETIQUETA, ancho - ANCHO_NOMBRE_SEDE - BORDE_ETIQUETA)
+}
+
+/** Dónde queda la pastilla con el nombre de la sede del foco (de `anchoPastilla`, centrada en su caja); null sin foco. */
+export function cajaNombreSede(plan: PlanCroquis, ancho: number, anchoPastilla = ANCHO_NOMBRE_SEDE): CajaCroquis | null {
+  const foco = plan.sedes.find(s => s.foco)
+  if (!foco) return null
+  const w = Math.min(anchoPastilla, ANCHO_NOMBRE_SEDE)
+  const centro = izquierdaNombreSede(foco.x, ancho) + ANCHO_NOMBRE_SEDE / 2
+  const y = etiquetaSedeArriba(plan) ? foco.y - SEPARACION_ETIQUETA - ALTO_ETIQUETA_CROQUIS : foco.y + SEPARACION_ETIQUETA
+  return { x: centro - w / 2, y, ancho: w, alto: ALTO_ETIQUETA_CROQUIS }
+}
+
+/**
+ * Dónde va "Estás aquí · ±12 m" (esquina de arriba a la izquierda, en pt del croquis). Revisión 2026-10-15: antes iba
+ * siempre a un lado de tu punto y, como el encuadre te deja cerca del borde cuando la sede está lejos, se salía del
+ * croquis. Ahora prueba, en orden, al lado que no tapa la sede (etiquetaYoALaIzquierda), al otro lado, encima, debajo
+ * y en diagonal, cada una metida en el croquis (a BORDE_ETIQUETA de los lados); se queda con la primera que no tapa tu
+ * punto, la marca de la sede (con 4 pt de aire) ni lo de `evitar` (el logotipo de Hoy, el nombre de la sede) y, si
+ * todas tapan algo (tu punto debajo del logotipo), con la que menos tapa.
+ */
+export function posicionEtiquetaYo(
+  plan: PlanCroquis,
+  medidas: { ancho: number; alto: number; anchoEtiqueta: number; evitar?: readonly (CajaCroquis | null)[] }
+): { x: number; y: number } | null {
+  const yo = plan.yo
+  if (!yo) return null
+  const { ancho, alto } = medidas
+  const w = Math.min(medidas.anchoEtiqueta, ancho - 2 * BORDE_ETIQUETA)
+  const h = ALTO_ETIQUETA_CROQUIS
+  const foco = plan.sedes.find(s => s.foco)
+  // Tu punto (16 pt) y la marca de la sede (14 pt); con `aire`, 4 pt más alrededor para que la etiqueta no se les pegue.
+  const evitar = (aire: number): CajaCroquis[] => [
+    ...(medidas.evitar ?? []).filter((c): c is CajaCroquis => c !== null),
+    { x: yo.x - 8 - aire, y: yo.y - 8 - aire, ancho: 16 + 2 * aire, alto: 16 + 2 * aire },
+    ...(foco ? [{ x: foco.x - 7 - aire, y: foco.y - 7 - aire, ancho: 14 + 2 * aire, alto: 14 + 2 * aire }] : []),
+  ]
+  const conAire = evitar(4)
+  const justo = evitar(0)
+  const izquierda = { x: yo.x - LADO_ETIQUETA_YO - w, y: yo.y - h / 2 }
+  const derecha = { x: yo.x + LADO_ETIQUETA_YO, y: yo.y - h / 2 }
+  const opciones = [
+    ...(etiquetaYoALaIzquierda(plan, ancho) ? [izquierda, derecha] : [derecha, izquierda]),
+    { x: yo.x - w / 2, y: yo.y - SEPARACION_ETIQUETA - h },
+    { x: yo.x - w / 2, y: yo.y + SEPARACION_ETIQUETA },
+    // En diagonal (en un croquis bajo, con el logotipo y el nombre de la sede cerca, a veces es lo único libre).
+    { x: derecha.x - 6, y: yo.y - 8 - h },
+    { x: izquierda.x + 6, y: yo.y - 8 - h },
+    { x: derecha.x - 6, y: yo.y + 8 },
+    { x: izquierda.x + 6, y: yo.y + 8 },
+  ].map(p => ({ x: entre(p.x, BORDE_ETIQUETA, ancho - BORDE_ETIQUETA - w), y: entre(p.y, 0, alto - h) }))
+  const tapa = (p: { x: number; y: number }, cajas: CajaCroquis[]) => cajas.reduce((total, caja) => total + solape({ x: p.x, y: p.y, ancho: w, alto: h }, caja), 0)
+  // La primera que no tapa nada (con aire; si no hay, sin él); si todas tapan algo, la que menos (en un empate, la que
+  // va antes).
+  return opciones.find(p => tapa(p, conAire) === 0) ?? opciones.reduce((mejor, p) => (tapa(p, justo) < tapa(mejor, justo) ? p : mejor))
+}
 
 /**
  * ¿El nombre de la sede del foco va encima de su marca o debajo? Encima, salvo que ahí tape tu punto (o se salga por

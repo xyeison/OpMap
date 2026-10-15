@@ -4,7 +4,8 @@
  * `contorno` para el resto. lib/iconos.tsx dibuja el ícono con este mapa (spec 2026-10-15, decisión 10).
  *
  * Estilo Uber (2026-10-15): las pestañas siguen los artboards (sol para Hoy, micrófono para Reportar, controles para
- * Ajustes) y se suman ubicación (centrar el croquis), compromiso (portapapeles), buscar y agregar ("+ Agendar").
+ * Ajustes) y se suman compromiso (portapapeles) y agregar ("+ Agendar"). La revisión quitó ubicación y buscar, que
+ * no usaba ninguna pantalla (el croquis no se desplaza: no hay nada que centrar).
  */
 
 export type NombreIcono =
@@ -22,9 +23,7 @@ export type NombreIcono =
   | 'check'
   | 'cerrar'
   | 'alerta'
-  | 'ubicacion'
   | 'compromiso'
-  | 'buscar'
   | 'agregar'
 
 export interface GlifosIcono {
@@ -51,9 +50,7 @@ export const GLIFOS_ICONOS: Readonly<Record<NombreIcono, GlifosIcono>> = {
   check: glifos('checkmark-circle'),
   cerrar: glifos('close'),
   alerta: glifos('alert-circle'),
-  ubicacion: glifos('locate'),
   compromiso: glifos('clipboard'),
-  buscar: glifos('search'),
   agregar: glifos('add'),
 }
 

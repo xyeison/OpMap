@@ -247,7 +247,9 @@ export default function Hoy() {
             </Texto>
           ) : null}
         </View>
-        <Boton titulo="Agendar" variante="secundario" compacto icono="agregar" alPresionar={() => router.push('/agenda/nueva')} />
+        {/* Como antes del estilo Uber (estaba en "Tu agenda de hoy"): solo con el contexto del día, no sin él ni sin
+            Ejecutivo Comercial enlazado. */}
+        {contexto ? <Boton titulo="Agendar" variante="secundario" compacto icono="agregar" alPresionar={() => router.push('/agenda/nueva')} /> : null}
       </View>
 
       {sinEjecutiva ? (
@@ -433,7 +435,17 @@ function AgendaDeHoy({
   const deAhora = citaDeAhora(ordenadas, ahora)
   return (
     <View style={{ gap: 10 }}>
-      <Seccion titulo="Tu agenda de hoy" derecha={ordenadas.length > 0 ? `${numeroTexto(hechas)} de ${numeroTexto(ordenadas.length)} hechas` : undefined} />
+      {/* "x de y hechas" en gris; en verde (insignia de éxito) cuando están todas, como antes. */}
+      <Seccion
+        titulo="Tu agenda de hoy"
+        derecha={
+          ordenadas.length === 0 ? undefined : hechas === ordenadas.length ? (
+            <Insignia texto={`${numeroTexto(hechas)} de ${numeroTexto(ordenadas.length)} hechas`} tono="exito" />
+          ) : (
+            `${numeroTexto(hechas)} de ${numeroTexto(ordenadas.length)} hechas`
+          )
+        }
+      />
       {deAhora ? <SiguienteCita cita={deAhora} titulo={textoSiguienteCita(deAhora, ahora)} alPresionar={() => alReportarCita(deAhora)} /> : null}
       {ordenadas.length === 0 ? (
         <Vacio texto="No tienes citas para hoy." />

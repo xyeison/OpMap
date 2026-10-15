@@ -388,7 +388,7 @@ export async function pruebas(t: Probador): Promise<void> {
     const nueva = leer('mobile/app/(app)/agenda/nueva.tsx')
     const selectorHora = leer('mobile/components/agenda/SelectorHora.tsx')
     check('Agendar: no quedan el chip "Sin hora" ni el campo "Hora (opcional)"', !sinComentarios(nueva).includes('Sin hora') && !sinComentarios(nueva).includes('Hora (opcional)') && !sinComentarios(selectorHora).includes('Sin hora'))
-    const cuando = nueva.indexOf('<Subtitulo estilo={{ paddingHorizontal: 8 }}>¿Cuándo?</Subtitulo>')
+    const cuando = nueva.indexOf('<Subtitulo>¿Cuándo?</Subtitulo>')
     const aQueHora = nueva.indexOf('<Subtitulo>¿A qué hora?</Subtitulo>')
     const conQuien = nueva.indexOf('<Subtitulo>¿Con quién?</Subtitulo>')
     const nota = nueva.indexOf('etiqueta="Nota (opcional)"')
@@ -534,8 +534,8 @@ export async function pruebas(t: Probador): Promise<void> {
       /const MAX_ESCALA_TEXTO = 1\.3/.test(selectorHora) && /maxFontSizeMultiplier=\{MAX_ESCALA_TEXTO\}/.test(selectorHora) && (calendario.match(/maxFontSizeMultiplier=\{MAX_ESCALA_TEXTO\}/g) ?? []).length >= 3 && /maxFontSizeMultiplier=\{1\.3\}/.test(leer('mobile/lib/ui.tsx'))
     )
     check(
-      'CalendarioMes: la leyenda de citas sin cifra fija ("número de citas del día") y "Hoy" con conHoy',
-      !/>2<\/Text>/.test(calendario) && calendario.includes('número de citas del día') && /accessibilityLabel="Ir a hoy"/.test(calendario) && /const verHoy = !!conHoy && hoyElegible/.test(calendario)
+      'CalendarioMes: la leyenda de citas sin cifra fija ("Bajo cada día, en pequeño: cuántas citas tienes") y "Hoy" con conHoy',
+      !/>2<\/Text>/.test(calendario) && calendario.includes('Bajo cada día, en pequeño: cuántas citas tienes') && /accessibilityLabel="Ir a hoy"/.test(calendario) && /const verHoy = !!conHoy && hoyElegible/.test(calendario)
     )
     const linea = leer('mobile/components/agenda/LineaDelDia.tsx')
     check('LineaDelDia: pliega las libres seguidas (plegarLibres) cortando en "Ahora"', /plegarLibres\(filas, \{ cortes: indiceAhora >= 0 \? \[indiceAhora\] : \[\], desplegados: abiertos \}\)/.test(linea) && /Libre de \$\{tramo\.desde\} a \$\{tramo\.hasta\}/.test(linea))

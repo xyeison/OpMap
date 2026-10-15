@@ -1055,7 +1055,6 @@ export default function Reportar() {
           sedes={[...catalogo.sedes, ...citasHoy.map(c => c.sede)]}
           foco={cita?.sede.id ?? sede?.id ?? null}
           radioM={radioM}
-          alto={eligio ? 200 : 170}
           etiquetaYo={punto ? `Estás aquí${punto.precision != null ? ` · ${textoPrecision(punto.precision)}` : ''}` : null}
         />
       ) : null}

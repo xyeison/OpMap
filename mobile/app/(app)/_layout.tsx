@@ -26,8 +26,17 @@ import { ALTO_TOQUE_MIN, Cargando, LETRA, TAMANO, useColores, useFuente } from '
 
 /** Alto de la caja del ícono de cada pestaña (y tamaño máximo del ícono): 24 pt, como el ícono de Material. */
 const ALTO_ICONO_PESTANA = 24
-/** La raya de la pestaña elegida: 28 × 3 pt pegada al borde de arriba de la barra (la pestaña tiene 5 pt de relleno). */
-const RAYA_PESTANA = { ancho: 28, alto: 3, arriba: -6 } as const
+/**
+ * Relleno de arriba de cada pestaña: el de la pestaña 'uikit' con el nombre debajo del ícono en expo-router
+ * (BottomTabItem, `tabVerticalUiKit: { padding: 5 }`; lo comprueba scripts/checks/20-estilo.ts contra node_modules).
+ */
+const RELLENO_PESTANA = 5
+/**
+ * La raya de la pestaña elegida: 28 × 3 pt pegada al borde de arriba de la barra, por DENTRO (como el artboard). Va
+ * dentro de la caja del ícono, que empieza RELLENO_PESTANA pt debajo del borde: sube justo eso. Revisión 2026-10-15:
+ * antes subía 6 desde la caja del glifo, cuyo alto depende de la letra del ícono, y quedaba a caballo sobre el borde.
+ */
+const RAYA_PESTANA = { ancho: 28, alto: 3, arriba: -RELLENO_PESTANA } as const
 
 function BotonVolver() {
   const router = useRouter()
@@ -135,7 +144,8 @@ export default function AppLayout() {
               headerTitle: p.encabezado ?? p.titulo,
               headerShown: !SIN_ENCABEZADO.includes(p.ruta),
               tabBarIcon: ({ focused, size }) => (
-                <View style={{ alignItems: 'center' }}>
+                // Alto fijo (el de la caja del ícono): su borde de arriba es el de la caja, mida lo que mida el glifo.
+                <View style={{ height: ALTO_ICONO_PESTANA, alignItems: 'center', justifyContent: 'center' }}>
                   {focused ? (
                     <View
                       style={{

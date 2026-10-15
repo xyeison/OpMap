@@ -30,13 +30,35 @@ el diseño).
 - La etiqueta de las pestañas sigue en 11 pt (el artboard dice 12): la revisión del 2026-10-15 midió que con más alto
   el nombre queda pegado al borde en un iPhone sin margen inferior.
 - El calendario muestra la cantidad de citas como una cifra pequeña debajo del día (antes, una insignia azul encima).
+- **Croquis de Hoy con la cita lejos**: el croquis dibuja el radio de la sede de la cita "de ahora" solo si queda a
+  3 km o menos de ti; más lejos (otra zona u otra ciudad), a esa escala no se verían ni tu punto ni el radio, así que
+  muestra el radio de la sede más cercana a ti. El bloque "Siguiente: …" de debajo dice la sede de la cita y a cuántos
+  km está (decidido en la revisión del 2026-10-15; se prueba en `20-estilo`).
+- **"Agendar" en Hoy** va junto al saludo, pero sale solo con el contexto del día, como antes (cuando estaba dentro de
+  "Tu agenda de hoy"); sin contexto o sin Ejecutivo Comercial enlazado no se ofrece. "x de y hechas" va en gris y en
+  verde (insignia de éxito) cuando están todas, como antes.
+
+## Revisión (2026-10-15)
+- "Estás aquí · ±12 m" ya no se sale del croquis ni tapa el logotipo o la sede (`posicionEtiquetaYo`: a un lado, al
+  otro, encima, debajo o en diagonal, siempre dentro; barrido de 3.168 posiciones en las pruebas).
+- La raya de la pestaña elegida va por dentro de la barra, pegada al borde (sube el relleno de 5 pt de la pestaña desde
+  una caja de alto fijo; antes quedaba a caballo sobre el borde).
+- Los días del calendario van a 2 pt entre sí (no a 4): miden 44 pt de ancho también en un Android de 360 dp; Agendar
+  deja el calendario al margen de 20, como lo demás.
+- El croquis mide 120 pt en pantallas de menos de 700 de alto (170 en las demás) y Reportar ya no lo agranda al elegir:
+  en un iPhone SE u 8, "Hablar" y "Por toques" quedan a la vista después de elegir la cita.
+- Se quitó lo que no se usaba (íconos de ubicación y buscar, `radioRelleno`, `LETRA.pestana`, `arribaDerecha`) y la
+  leyenda del calendario dice "Bajo cada día, en pequeño: cuántas citas tienes". No se añadieron calles, parque, río
+  ni botón de centrar del artboard: el croquis no se desplaza (siempre encuadra tu punto y la sede) y una geografía
+  inventada junto a posiciones reales confundiría; si el dueño lo quiere, es otro cambio.
 
 ## Criterios de aceptación
 - [x] Tokens en `lib/paleta.ts` (colores claro/oscuro, croquis, `TAMANO`, `LETRA`, `SOMBRA`) con contrastes ≥ 4,5:1
       para todo texto sobre su fondo y ≥ 3:1 para lo que no es texto, en los dos modos (`scripts/checks/20-estilo.ts`).
 - [x] Todo lo que se toca ≥ 44 pt; botón de 52; tope de texto grande 1,3 donde ya estaba.
 - [x] Hoy y Reportar sin encabezado, con croquis y hoja; las demás pestañas con el encabezado blanco y el título grande.
-- [x] Las 805 pruebas que había siguen en verde (4 ajustadas al rediseño sin bajar lo que cuidan) + las nuevas.
+- [x] Las 805 pruebas que había siguen en verde (4 ajustadas al rediseño sin bajar lo que cuidan) + las nuevas
+      (879 tras la revisión).
 
 ## Fuera de alcance
 Lógica, flujos, servidor, base de datos. Nada llama a Google.

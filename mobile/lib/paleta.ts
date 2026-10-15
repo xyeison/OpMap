@@ -104,16 +104,17 @@ export const COLORES_OSCUROS: Colores = {
   agarradera: '#4A4A4A',
 }
 
-/** Colores del croquis (components/Croquis.tsx): suelo, manzanas decorativas y el radio de la sede. */
+/**
+ * Colores del croquis (components/Croquis.tsx): suelo y manzanas decorativas. El círculo del radio usa `exito` (borde)
+ * y el mismo color al 8 % (relleno), para que se vean las manzanas debajo.
+ */
 export interface ColoresMapa {
   suelo: string
   manzana: string
-  /** Relleno del círculo del radio (el verde de "dentro", muy suave). */
-  radioRelleno: string
 }
 
-export const MAPA_CLARO: ColoresMapa = { suelo: '#FFFFFF', manzana: '#ECEEF1', radioRelleno: '#EDF6F1' }
-export const MAPA_OSCURO: ColoresMapa = { suelo: '#0B0B0C', manzana: '#1B1C1F', radioRelleno: '#0C1F18' }
+export const MAPA_CLARO: ColoresMapa = { suelo: '#FFFFFF', manzana: '#ECEEF1' }
+export const MAPA_OSCURO: ColoresMapa = { suelo: '#0B0B0C', manzana: '#1B1C1F' }
 
 /**
  * Tamaños (en pt). Botón principal de 52 a ancho completo, todo lo que se toca ≥ 44 (ALTO_TOQUE_MIN), márgenes de
@@ -155,7 +156,6 @@ export const LETRA = {
   peque: { fontSize: 14, lineHeight: 20, letterSpacing: 0 },
   etiqueta: { fontSize: 13, lineHeight: 16, letterSpacing: 0 },
   boton: { fontSize: 17, lineHeight: 22, letterSpacing: 0 },
-  pestana: { fontSize: 12, lineHeight: 14, letterSpacing: 0 },
 } as const
 
 /** Alto mínimo de todo lo que se toca (botón, chip, "Volver"): 44 pt, la guía de Apple. */

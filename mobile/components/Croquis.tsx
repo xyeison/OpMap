@@ -5,11 +5,27 @@
  *
  * Va como PRIMER hijo de <Pantalla> en una pantalla sin encabezado: sube por detrás de la hora y la batería (recupera
  * el margen de arriba que deja Pantalla) y ocupa todo el ancho. Después va <BordeHoja />: lo que sigue queda en la hoja.
+ *
+ * Revisión 2026-10-15: "Estás aquí" ya no se sale del croquis ni tapa el logotipo (posicionEtiquetaYo) y el croquis
+ * mide 120 pt en pantallas de menos de 700 (altoCroquis); Reportar ya no lo agranda al elegir.
  */
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Text, View, useColorScheme, useWindowDimensions } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { ALTO_ETIQUETA_CROQUIS, SEPARACION_ETIQUETA, descripcionCroquis, etiquetaSedeArriba, etiquetaYoALaIzquierda, planCroquis, type SedeCroquis } from '../lib/croquis'
+import {
+  ALTO_ETIQUETA_CROQUIS,
+  ANCHO_NOMBRE_SEDE,
+  BORDE_ETIQUETA,
+  SEPARACION_ETIQUETA,
+  altoCroquis,
+  cajaNombreSede,
+  descripcionCroquis,
+  etiquetaSedeArriba,
+  izquierdaNombreSede,
+  planCroquis,
+  posicionEtiquetaYo,
+  type SedeCroquis,
+} from '../lib/croquis'
 import { textoDistancia, type Punto } from '../lib/geo'
 import { MAPA_CLARO, MAPA_OSCURO } from '../lib/paleta'
 import { SOMBRA, TAMANO, useColores, useFuente, useMargenArribaPantalla } from '../lib/ui'
@@ -20,14 +36,12 @@ interface Props {
   /** La sede de la cita elegida o de la siguiente (con su radio); si no, la más cercana. */
   foco: string | null
   radioM: number | null
-  /** Alto visible debajo de la hora y la batería (pt). */
+  /** Alto visible debajo de la hora y la batería (pt); sin él, 170 (120 en una pantalla de menos de 700 pt). */
   alto?: number
   /** "Estás aquí · ±12 m". */
   etiquetaYo?: string | null
   /** Encima del croquis, arriba a la izquierda (el logotipo en Hoy). */
   arribaIzquierda?: ReactNode
-  /** Encima del croquis, arriba a la derecha. */
-  arribaDerecha?: ReactNode
 }
 
 /** Manzanas decorativas: 70 × 50 cada 80 × 60, corridas como en los artboards. */
@@ -35,21 +49,36 @@ const MANZANA = { ancho: 70, alto: 50, pasoX: 80, pasoY: 60, desdeX: -26, desdeY
 /** Lo que el croquis deja para la hoja que sube encima (no se dibuja nada importante ahí). */
 const BAJO_LA_HOJA = 20
 
-export function Croquis({ yo, sedes, foco, radioM, alto = 170, etiquetaYo, arribaIzquierda, arribaDerecha }: Props) {
+/** Lo que se calcula que mide "Estás aquí · ±12 m" antes de medirla (13 pt en negrita, 10 de relleno a cada lado). */
+const anchoEstimado = (texto: string) => Math.ceil(texto.length * 7.4) + 20
+/** El logotipo de arriba a la izquierda (left 16, top 8) antes de medirlo: la pastilla de Hoy (82 + 2 × 12) × 40. */
+const LOGO_ESTIMADO = { ancho: 106, alto: 40 }
+
+export function Croquis({ yo, sedes, foco, radioM, alto: altoPedido, etiquetaYo, arribaIzquierda }: Props) {
   const c = useColores()
   const fuente = useFuente()
   const oscuro = useColorScheme() === 'dark'
   const mapa = oscuro ? MAPA_OSCURO : MAPA_CLARO
-  const { width: ancho } = useWindowDimensions()
+  const { width: ancho, height: altoVentana } = useWindowDimensions()
   const insets = useSafeAreaInsets()
   const margenArriba = useMargenArribaPantalla()
+  // Lo que miden de verdad la etiqueta de tu punto, el nombre de la sede y el logotipo (onLayout); antes, lo estimado.
+  const [anchoYo, setAnchoYo] = useState<number | null>(null)
+  const [anchoNombre, setAnchoNombre] = useState<number | null>(null)
+  const [logo, setLogo] = useState<{ ancho: number; alto: number } | null>(null)
+  const alto = altoPedido ?? altoCroquis(altoVentana)
   const arriba = insets.top
   const altoTotal = arriba + alto + BAJO_LA_HOJA
   // El dibujo útil: debajo de la hora y encima de la hoja.
   const plan = planCroquis({ yo, sedes, foco, radioM, ancho, alto })
   const desplazar = (y: number) => y + arriba
-  const izquierdaYo = plan ? etiquetaYoALaIzquierda(plan, ancho) : false
   const sedeArriba = plan ? etiquetaSedeArriba(plan) : true
+  // "Estás aquí": dentro del croquis y sin tapar la sede, su nombre ni el logotipo (lib/croquis.ts).
+  const cajaLogo = arribaIzquierda ? { x: 16, y: 8, ...(logo ?? LOGO_ESTIMADO) } : null
+  const posicionYo =
+    plan && etiquetaYo
+      ? posicionEtiquetaYo(plan, { ancho, alto, anchoEtiqueta: anchoYo ?? anchoEstimado(etiquetaYo), evitar: [cajaLogo, cajaNombreSede(plan, ancho, anchoNombre ?? ANCHO_NOMBRE_SEDE)] })
+      : null
 
   const manzanas: ReactNode[] = []
   for (let y = MANZANA.desdeY; y < altoTotal; y += MANZANA.pasoY) {
@@ -159,13 +188,16 @@ export function Croquis({ yo, sedes, foco, radioM, alto = 170, etiquetaYo, arrib
             key={`nombre-${s.id}`}
             style={{
               position: 'absolute',
-              left: Math.min(Math.max(s.x - 90, 8), ancho - 188),
+              left: izquierdaNombreSede(s.x, ancho),
               top: sedeArriba ? desplazar(s.y) - SEPARACION_ETIQUETA - ALTO_ETIQUETA_CROQUIS : desplazar(s.y) + SEPARACION_ETIQUETA,
-              width: 180,
+              width: ANCHO_NOMBRE_SEDE,
               alignItems: 'center',
             }}
           >
-            <View style={{ maxWidth: 180, paddingHorizontal: 10, height: ALTO_ETIQUETA_CROQUIS, borderRadius: 6, justifyContent: 'center', backgroundColor: c.superficie, boxShadow: SOMBRA.flotante }}>
+            <View
+              onLayout={e => setAnchoNombre(e.nativeEvent.layout.width)}
+              style={{ maxWidth: ANCHO_NOMBRE_SEDE, paddingHorizontal: 10, height: ALTO_ETIQUETA_CROQUIS, borderRadius: 6, justifyContent: 'center', backgroundColor: c.superficie, boxShadow: SOMBRA.flotante }}
+            >
               <Text numberOfLines={1} maxFontSizeMultiplier={1.2} style={[{ color: c.texto, fontSize: 13, lineHeight: 16 }, fuente('negrita')]}>
                 {s.nombre}
               </Text>
@@ -173,14 +205,19 @@ export function Croquis({ yo, sedes, foco, radioM, alto = 170, etiquetaYo, arrib
           </View>
         ))}
 
-      {/* "Estás aquí · ±12 m" junto a tu punto, del lado que no tapa la sede. */}
-      {plan?.yo && etiquetaYo ? (
+      {/* "Estás aquí · ±12 m" junto a tu punto (del lado que no tapa la sede) o, si ahí no cabe, encima, debajo o en
+          diagonal. Se mueve con translateX y no con left: así su ancho es el natural (onLayout) y no el que le deja el
+          borde. */}
+      {posicionYo && etiquetaYo ? (
         <View
+          onLayout={e => setAnchoYo(e.nativeEvent.layout.width)}
           style={{
             position: 'absolute',
-            top: desplazar(plan.yo.y) - 14,
-            ...(izquierdaYo ? { right: Math.max(8, ancho - plan.yo.x + 16) } : { left: Math.max(8, plan.yo.x + 16) }),
-            height: 28,
+            left: 0,
+            top: desplazar(posicionYo.y),
+            maxWidth: ancho - 2 * BORDE_ETIQUETA,
+            transform: [{ translateX: posicionYo.x }],
+            height: ALTO_ETIQUETA_CROQUIS,
             paddingHorizontal: 10,
             borderRadius: 6,
             justifyContent: 'center',
@@ -193,8 +230,11 @@ export function Croquis({ yo, sedes, foco, radioM, alto = 170, etiquetaYo, arrib
         </View>
       ) : null}
 
-      {arribaIzquierda ? <View style={{ position: 'absolute', top: arriba + 8, left: 16 }}>{arribaIzquierda}</View> : null}
-      {arribaDerecha ? <View style={{ position: 'absolute', top: arriba + 8, right: 16 }}>{arribaDerecha}</View> : null}
+      {arribaIzquierda ? (
+        <View onLayout={e => setLogo({ ancho: e.nativeEvent.layout.width, alto: e.nativeEvent.layout.height })} style={{ position: 'absolute', top: arriba + 8, left: 16 }}>
+          {arribaIzquierda}
+        </View>
+      ) : null}
     </View>
   )
 }

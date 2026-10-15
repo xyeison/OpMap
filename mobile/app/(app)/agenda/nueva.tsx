@@ -366,9 +366,10 @@ function NuevaCita({ fechaPedida, horaPedida, pedido }: { fechaPedida?: string; 
 
   return (
     <Pantalla pie={pie}>
-      {/* ¿Cuándo? (estilo Uber: los pasos sin caja, separados por una raya fina) */}
-      <View style={{ gap: 8, marginHorizontal: -8 }}>
-        <Subtitulo estilo={{ paddingHorizontal: 8 }}>¿Cuándo?</Subtitulo>
+      {/* ¿Cuándo? (estilo Uber: los pasos sin caja, separados por una raya fina; el calendario al margen de 20, como lo
+          demás: sus días miden ≥ 44 pt de ancho también en 360 dp) */}
+      <View style={{ gap: 8 }}>
+        <Subtitulo>¿Cuándo?</Subtitulo>
         <CalendarioMes valor={formulario.fecha} alCambiar={elegirFecha} hoy={hoy} desde={ventana.desde} hasta={ventana.hasta} marcas={marcas} vista={vistaCalendario} />
         {vistaInicial === 'semana' ? (
           <Boton
@@ -379,17 +380,17 @@ function NuevaCita({ fechaPedida, horaPedida, pedido }: { fechaPedida?: string; 
           />
         ) : null}
         {paraHoy ? (
-          <Texto peque color={c.alerta} estilo={{ paddingHorizontal: 8 }}>
+          <Texto peque color={c.alerta}>
             {paraHoy}
           </Texto>
         ) : null}
         {error('fecha') ? (
-          <Texto peque color={c.peligro} estilo={{ paddingHorizontal: 8 }}>
+          <Texto peque color={c.peligro}>
             {error('fecha')}
           </Texto>
         ) : null}
         {sinAgenda ? (
-          <Texto suave peque estilo={{ paddingHorizontal: 8 }}>
+          <Texto suave peque>
             No pude traer tus citas de esos días: no se avisan los choques.
           </Texto>
         ) : null}
