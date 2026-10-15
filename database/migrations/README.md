@@ -727,3 +727,56 @@ tablas tienen FKs hacia `business_lines`, `executives` y `users`.
   9941 y 9940** (las funciones de 0830 usan tablas de 0800 y 0810 en su cuerpo; las llaves de `visits` hacia
   `medicos`, `sedes`, `cuentas`, `contactos` y `subtipos_institucionales` detienen un 9940 prematuro, pero 9941 no
   tiene cómo saberlo).
+
+# Migraciones — App de visita · F4.1 agenda de visitas (visitas_agenda, vínculo con la visita, "agendada")
+
+> **ESTADO: ESCRITA, SIN APLICAR.** Se aplica solo con autorización del dueño y en la misma ventana que el despliegue
+> de `/api/me/agenda*`, `/api/me/voz/campos` y la app. Contrato: `docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md`
+> (sección "F4.1"); spec: `docs/specs/2026-10-14-agenda-dictado-y-marca.md` (decisiones 1 a 8); decisión del dueño:
+> `docs/decisiones/2026-10-14-agenda-de-visitas.md`. Probada el 2026-10-14 contra la base real en transacciones que se
+> deshacen (sin `BEGIN/COMMIT` y con un `RAISE` final): (a) la 0840 completa, con su bloque DO (6 grupos de casos con
+> datos de prueba, incluida la ronda como `service_role`), terminó en `DRYRUN_OK` con las 7.033 importadas intactas
+> (huella `280c99e2dfc816f7c13149eac7336d1b`); (b) la 0840 (sin repetir su bloque de pruebas, ya probado en (a)) más
+> datos reales de ensayo (una cita pendiente y otra cumplida por una visita institucional registrada con
+> `visitas_registrar`, vínculo automático y `agendada = true`) más la 9944 completa terminó en `DRYRUN_OK`: la 9944
+> quitó las 2 citas y el vínculo, dejó `visits` con 43 columnas y las 5 funciones con el md5 de la 0830. Después de
+> cada intento la base siguió sin `visitas_agenda`, con `visits` de 43 columnas y las funciones de la 0830.
+> **Tras los arreglos del verificador (2026-10-14)**: relevo de la no efectiva por la efectiva y anular que pasa la
+> cita a otra visita (cuerpos nuevos, md5 abajo), la 0840 aborta si no encuentra persona para sus pruebas (antes solo
+> avisaba y confirmaba sin probar la agenda), sus datos de prueba se reconocen por `PRUEBA0840M…`/`PRUEBA0840C…`/
+> `prueba_0840_…` (los médicos de la simulación ya no impiden re-ejecutarla) y se quitó un `$$` que había quedado en un
+> comentario del primer bloque DO (al aplicar el archivo tal cual cerraba el bloque antes de tiempo; los ensayos
+> anteriores no lo vieron porque quitaban los comentarios de los DO). Ensayo nuevo en la base real, en una transacción
+> que se deshace: la 0840 completa (con su bloque DO de pruebas, incluidas las del relevo y de anular) seguida de la
+> 9944 completa terminó en `DRYRUN_OK`; el texto del ensayo quitó comentarios y sangrías también dentro de las
+> funciones, así que las huellas que comprobó la base fueron las de ese texto compacto (la de los cuerpos del archivo
+> se comprueba sobre el archivo). Después, la base siguió sin `visitas_agenda`, con `visits` de 43 columnas, las
+> funciones con el md5 de la 0830 y las 7.033 importadas.
+
+| # | Archivo | Qué hace | Destructivo |
+|---|---|---|---|
+| 20 | `2026-10-14_0840_visitas_agenda.sql` | Crea `visitas_agenda` (una fila por cita: persona, fecha, hora opcional, médica con médico o institucional con cuenta y subtipo, sede, nota ≤ 300, estado pendiente/hecha/cancelada, `visita_id`, cancelación con fecha y motivo), con CHECK por tipo y por estado, índices únicos parciales contra duplicados, `visitas_agenda_executive_fecha_idx`, disparadores de `updated_at` y de borrado prohibido, RLS sin políticas y solo `service_role` (SELECT, INSERT, UPDATE). Añade a `visits` `agenda_id` (UNIQUE parcial sin anuladas) y `agendada boolean NOT NULL DEFAULT false` con `visits_agenda_check`. Funciones nuevas `agenda_crear` y `agenda_cancelar`; reemplaza `visitas_registrar` (copia exacta de la 0830 + `agenda_id`, paso 7b de vínculo —con el relevo: una efectiva toma la cita que cumplió una no efectiva suya— y `agendada` en la respuesta, también la idempotente) y `visitas_anular` (copia exacta + la cita pasa a otra visita suya de ese día con el mismo médico o cuenta, o vuelve a pendiente). Bloque DO final con pruebas que se deshacen y la huella de las VMO | No (las filas existentes no cambian; conteo y dos huellas md5) |
+| — | `2026-10-14_9944_visitas_agenda_rollback.sql` | Devuelve `visitas_registrar` y `visitas_anular` EXACTAMENTE a la 0830 (md5 `0e43cd1432a3c933b820bdf815a02566` y `9f4389cca280e89af80afdebc3f57ea9`, comprobado), quita `agenda_crear`/`agenda_cancelar`, el índice, el CHECK y las 2 columnas de `visits`, y la tabla `visitas_agenda`. NOTICE con lo que se pierde; al final comprueba 43 columnas, el md5 de las 5 funciones de la 0830 y la huella de las VMO | Sí (toda la agenda y el vínculo de cada visita con su cita; las visitas se quedan) |
+
+- md5 de los cuerpos de la 0840: `visitas_registrar` `eeae55de7196179daa686cc9bd11da7c`, `visitas_anular`
+  `462a121cfde8802c4a830bd3c61c05e4` (la propia migración los comprueba; las precondiciones exigen que las que
+  reemplaza sean las de la 0830 o las de la 0840 si se re-ejecuta, y que `visitas_editar`, `visitas_config_vigente` y
+  `visitas_distancia_m` sigan con el md5 de la 0830).
+- Orden: después de la 0830 (aplicada). Tras aplicar: `NOTIFY pgrst, 'reload schema';`. Costo Google: 0; no recalcula
+  asignaciones ni cobertura.
+- `agenda_crear(p jsonb, p_user uuid) → jsonb { cita_id }` con `p = { fecha, hora?, tipo, medico_id?, cuenta_id?,
+  subtipo_id?, sede_id, nota? }`: forma (22023) → persona de `p_user` activa con zona y candado por persona (el mismo de
+  las visitas) → de hoy a hoy + 30 en Bogotá, no en un día libre de día completo registrado o aprobado (medio día no
+  bloquea; festivos sí se agendan) → perfil vigente en la fecha de la cita → sede activa de cuenta activa; médico activo
+  que atiende ahí, o sede de la cuenta y subtipo vigente en la fecha → sin duplicado (23505: "Ya tienes una cita con ese
+  médico ese día" / "… con esa cuenta y ese subtipo ese día").
+- `agenda_cancelar(p_id, p_motivo, p_user)`: la propia, pendiente y de hoy en adelante; motivo opcional ≤ 300. P0002
+  "Esa cita no existe" (inexistente o ajena); 23514 cancelada, hecha o pasada.
+- Vínculo (paso 7b de `visitas_registrar`, después de las líneas): con `agenda_id`, la cita debe ser suya, ni cancelada
+  ni hecha, del mismo día, del mismo tipo y con el mismo médico o cuenta (23514 con su mensaje); sin él, la pendiente
+  suya de ese día y del mismo tipo con el mismo médico o la misma cuenta (prefiere el mismo subtipo; luego hora, fecha de
+  creación e id). `agendada` = la cita se creó antes del día de la visita en Bogotá. La cita pasa a hecha;
+  `visitas_anular` la devuelve a pendiente.
+- Re-ejecutable (`IF NOT EXISTS`, `DROP CONSTRAINT IF EXISTS` + `ADD`, `CREATE OR REPLACE`).
+- Rollback: **9944 antes que 9943** (la 9943 borra las visitas de la app, que `visitas_agenda.visita_id` referencia, y
+  quita columnas de `visits` que usa el cuerpo de la 0840) y, por tanto, antes que 9942, 9941 y 9940.

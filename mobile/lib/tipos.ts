@@ -202,6 +202,11 @@ export interface ContextoResponse {
   subtipos: SubtipoContexto[]
   compromisos_vencidos: CompromisoVencido[]
   voz: VozDisponible
+  /**
+   * Citas de hoy (pendientes y hechas; sin las canceladas), con la distancia a su sede si se mandó el punto: con punto,
+   * la más cercana primero; sin punto, por hora. Sin la 0840 aplicada: [] (el resto del contexto sigue igual).
+   */
+  agenda_hoy: CitaItem[]
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -238,6 +243,10 @@ export interface VisitaItem {
   sede_por_confirmar: boolean
   /** La ejecutiva puede corregirla o anularla (mismo día). */
   editable: boolean
+  /** Cita de la agenda que cumplió (0840); null si fue una visita no agendada. */
+  agenda_id: string | null
+  /** Agendada: vinculada a una cita creada ANTES del día de la visita (Bogotá). */
+  agendada: boolean
 }
 
 /** GET /api/me/visitas?fecha= */
@@ -265,6 +274,12 @@ export interface VisitaCreateBase {
   transcript: string | null
   input_mode: ModoEntrada
   lineas: string[]
+  /**
+   * Cita de la agenda que se cumple con esta visita (0840; null si no se eligió). Sin ella, el servidor vincula sola la
+   * cita pendiente de ese día con el mismo médico o la misma cuenta. Una cita ajena, de otro día, de otro médico o
+   * cuenta, cancelada o ya hecha → 400 con el mensaje.
+   */
+  agenda_id: string | null
 }
 
 export type VisitaCreateTipo =
@@ -391,6 +406,129 @@ export interface NumerosResponse {
   fuera_de_territorio: number
   /** Efectivas en sedes por confirmar (aún no suman). */
   sede_por_confirmar: number
+  /** Indicador de la agenda del mes; null si la agenda aún no está disponible (falta la 0840). */
+  agenda: NumerosAgenda | null
+}
+
+// ---------------------------------------------------------------------------------------------
+// Agenda (F4.1, migración 0840): GET/POST /api/me/agenda, POST /api/me/agenda/[id]/cancelar, contexto.agenda_hoy,
+// el bloque `agenda` de Mis números y el dictado por campo (POST /api/me/voz/campos). Copia de web/lib/reporte-visitas.ts.
+// ---------------------------------------------------------------------------------------------
+
+export type EstadoCita = 'pendiente' | 'hecha' | 'cancelada'
+
+export const ETIQUETA_ESTADO_CITA: Record<EstadoCita, string> = { pendiente: 'Pendiente', hecha: 'Hecha', cancelada: 'Cancelada' }
+
+/** Límites del servidor: nota de la cita y motivo de cancelación (300), de hoy a 30 días, consulta de 31 días. */
+export const MAX_NOTA_CITA = 300
+export const MAX_MOTIVO_CANCELACION_CITA = 300
+export const DIAS_AGENDA_ADELANTE = 30
+export const MAX_DIAS_CONSULTA_AGENDA = 31
+
+/** Sede de una cita, con lo que Reportar necesita para medir la distancia y el radio. */
+export interface SedeCita {
+  id: string
+  nombre: string
+  cuenta_id: string | null
+  cuenta_nombre: string | null
+  lat: number | null
+  lng: number | null
+  /** false: sede nueva de la app que data manager aún no confirma (la visita se guarda pero no suma). */
+  ubicacion_confirmada: boolean
+}
+
+/** Una cita de la agenda (GET /api/me/agenda, POST /api/me/agenda, cancelar y contexto.agenda_hoy). */
+export interface CitaItem {
+  id: string
+  fecha: string
+  /** HH:MM o null (sin hora). */
+  hora: string | null
+  tipo: TipoVisita
+  /** Médica: el médico (sin documento). */
+  medico: { id: string; nombre: string } | null
+  /** Institucional: la cuenta. */
+  cuenta: { id: string; nombre: string } | null
+  /** Institucional: el subtipo. */
+  subtipo: { id: string; codigo: string; nombre: string } | null
+  sede: SedeCita
+  nota: string | null
+  estado: EstadoCita
+  /** La visita que la cumplió (estado hecha). */
+  visita_id: string | null
+  /** Metros del punto del teléfono a la sede (solo en el contexto con punto); null sin punto o sede sin coordenadas. */
+  distancia_m: number | null
+  /** distancia_m ≤ radio presencial vigente; null si no hay distancia. */
+  dentro_del_radio: boolean | null
+  /** Creada antes de su día (Bogotá): la visita que la cumpla cuenta como agendada. */
+  anticipada: boolean
+  /** Ella la puede cancelar: pendiente y de hoy en adelante. */
+  cancelable: boolean
+}
+
+/** GET /api/me/agenda?desde=&hasta=&canceladas= (sin fechas: hoy a hoy + 7; como mucho 31 días; sin canceladas). */
+export interface AgendaResponse {
+  desde: string
+  hasta: string
+  hoy: string
+  /** Última fecha en la que se puede agendar hoy (hoy + 30). */
+  max_fecha: string
+  items: CitaItem[]
+}
+
+/** POST /api/me/agenda → 201 y POST /api/me/agenda/[id]/cancelar → 200. */
+export interface CitaResponse {
+  cita: CitaItem
+}
+
+/** Cuerpo de POST /api/me/agenda: tipo discriminado como la visita. */
+export interface CitaCreateBase {
+  /** AAAA-MM-DD, de hoy a hoy + 30 (Bogotá); no en un día libre aprobado. */
+  fecha: string
+  /** HH:MM (opcional). */
+  hora: string | null
+  sede_id: string
+  /** Hasta 300 caracteres (opcional). */
+  nota: string | null
+}
+
+export type CitaCreateTipo =
+  | { tipo: 'medica'; medico_id: string; cuenta_id: null; subtipo_id: null }
+  | { tipo: 'institucional'; medico_id: null; cuenta_id: string; subtipo_id: string }
+
+export type CitaCreate = CitaCreateBase & CitaCreateTipo
+
+/** Cuerpo de POST /api/me/agenda/[id]/cancelar (el motivo es opcional, hasta 300 caracteres). */
+export interface CitaCancelar {
+  motivo: string | null
+}
+
+/** Indicador de la agenda en Mis números, por mes. Las razones van de 0 a 1 con 2 decimales (× 100 para el %). */
+export interface NumerosAgenda {
+  /** Visitas efectivas del mes (no anuladas). */
+  efectivas: number
+  /** De ellas, las agendadas (vinculadas a una cita creada antes del día de la visita). */
+  efectivas_agendadas: number
+  /** efectivas_agendadas ÷ efectivas; null si no hay efectivas. */
+  porcentaje_agendadas: number | null
+  /** Citas del mes de días ya pasados o de hoy, sin las canceladas. */
+  citas_hasta_hoy: number
+  /** De ellas, las hechas (con su visita, efectiva o no). */
+  citas_hechas: number
+  /** citas_hechas ÷ citas_hasta_hoy; null si no hay citas. */
+  cumplimiento: number | null
+}
+
+/** Cuerpo de POST /api/me/voz/campos: lo dictado para UNA visita y su tipo. */
+export interface CamposDictado {
+  transcript: string
+  tipo: TipoVisita
+}
+
+/** POST /api/me/voz/campos: el dictado repartido (todo editable antes de confirmar; la app añade, no borra). */
+export interface CamposDictadoResponse {
+  conclusion: string | null
+  compromisos: string | null
+  next_step_date: string | null
 }
 
 // ---------------------------------------------------------------------------------------------

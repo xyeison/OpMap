@@ -478,3 +478,168 @@ cuando la precisión pase de unos 100 m o del radio.
 - Con la 0830 aplicada: la vista `visit_summary` (sin uso en la web) contará también las visitas de la app, anuladas
   incluidas; una guarda en el rollback 9941 contra la 0830 sería prudente.
 - F5: tablero de dirección, KPIs 2 a 6, corrección con rastro por la directora, "pedir ser su visitante".
+
+## F4.1 Agenda, dictado por campo y marca (2026-10-14)
+
+Spec aprobada: `docs/specs/2026-10-14-agenda-dictado-y-marca.md` (sus decisiones 1 a 11 mandan). Decisión del dueño:
+`docs/decisiones/2026-10-14-agenda-de-visitas.md` (la agenda reemplaza la línea "agenda en medias horas y ruteros" de lo
+que no se hace; "visita agendada" es un indicador). Migración `database/migrations/2026-10-14_0840_visitas_agenda.sql`,
+rollback `2026-10-14_9944_visitas_agenda_rollback.sql` (**ESCRITA, SIN APLICAR**; ensayada en la base real con
+`DRYRUN_OK`, ver `database/migrations/README.md`).
+
+### Decisiones de la spec (resumen)
+
+1. **La cita** (`visitas_agenda`): una fila por cita con persona, fecha, hora opcional, tipo (médica con médico;
+   institucional con cuenta y subtipo), sede, nota ≤ 300 y estado `pendiente` | `hecha` | `cancelada`. La hecha guarda
+   `visita_id`. No se borra: se cancela.
+2. **Quién agenda**: la propia persona en la app (`visits:report`). Dirección y líder la verán en F5.
+3. **Ventana**: de hoy a hoy + 30 en Bogotá; no en el pasado ni en un día libre aprobado; los festivos sí.
+4. **Sin duplicados**: una cita no cancelada por persona, fecha y médico; en las institucionales por persona, fecha,
+   cuenta y subtipo.
+5. **Validaciones al agendar**: persona activa con zona; perfil vigente en la fecha con el tipo; médico activo que
+   atiende en la sede, o sede de la cuenta; cuenta activa; subtipo vigente en la fecha; sede activa.
+6. **Agendada**: la visita se vincula a una cita de la misma persona, fecha y médico o cuenta, creada **antes del día de
+   la visita** (Bogotá). La creada el mismo día vincula pero la visita cuenta como no agendada.
+7. **Vínculo**: `visitas_registrar` acepta `agenda_id` opcional y lo valida; sin él busca la pendiente de ese día con el
+   mismo médico (institucionales: la misma cuenta, prefiriendo el mismo subtipo). La cita pasa a `hecha`; si la visita
+   se anula, pasa a otra visita suya de ese día con el mismo médico o cuenta o vuelve a `pendiente` (decisión 54). La
+   no efectiva también cumple la cita (no suma a las efectivas); si luego llega la efectiva, esta la toma (decisión 53).
+8. **Indicador** (Mis números, por mes): `porcentaje_agendadas` = efectivas agendadas ÷ efectivas; `cumplimiento` =
+   citas hechas ÷ citas de días pasados o de hoy sin canceladas; con las cantidades.
+9. **Dictado por campo**: `POST /api/me/voz/campos` `{ transcript, tipo }` → `{ conclusion, compromisos,
+   next_step_date }` con el mismo proveedor que proponer (Claude, salida forzada por herramienta); mismos límites; 503
+   sin llave; nunca el texto en los registros.
+10. **Marca VG Medical** en la app (nombre "VG Visitas", logo, paleta monocromática, DM Sans): parte de la app, ver la
+    spec. La web de OpMap no cambia.
+11. **Datos simulados** de Carmen: `web/scripts/simulacion-carmen.ts` (plan, `--aplicar`, `--borrar`), ver la spec.
+    `--borrar` solo anula las visitas a los médicos de prueba o con un contacto de prueba: una visita real que se
+    vinculó sola a una cita simulada (las institucionales simuladas son con cuentas reales) no se anula, y esa cita se
+    deja hecha y se muestra.
+
+### Decisiones de implementación que se sumaron (Claude; el dueño puede cambiarlas)
+
+41. **Día libre que bloquea**: el que la cuota ya cuenta como libre (`ESTADOS_DIA_LIBRE_LIBRES`: `registrado` cuando no
+    se exige aprobación, o `aprobado`) y de **día completo** (`fraccion` 1). Medio día, por aprobar, rechazado o anulado
+    no bloquean.
+42. **Orden del vínculo automático**: mismo subtipo primero (institucional), luego hora más temprana (sin hora al
+    final), luego la creada primero y por id. La cita puede ser de otra sede del mismo médico o cuenta (el médico atiende
+    en varias); el `agenda_id` explícito tampoco exige la misma sede. El subtipo de la visita puede ser otro que el de la
+    cita (se planeó compras y se habló con el químico).
+43. **Paso 7b**: el vínculo se revisa después de las líneas (paso 7), así todos los rechazos de la 0830 salen igual y en
+    el mismo orden. Rechazos con `agenda_id` (23514 → 400): "Esa cita no existe o no es tuya", "Esa cita está
+    cancelada", "Esa cita ya tiene su visita", "Esa cita es de otro día", "Esa cita es de otro tipo de visita", "Esa cita
+    es con otro médico", "Esa cita es con otra cuenta".
+44. **La visita anulada conserva su `agenda_id`** como rastro; el índice único `visits_agenda_id_uidx` no cuenta las
+    anuladas, así otra visita vuelve a cumplir la cita.
+45. **Candado**: `agenda_crear`, `agenda_cancelar` y `visitas_registrar` usan el mismo candado por persona
+    (`'visitas_app:' || executive_id`): cancelar y vincular no se cruzan.
+46. **Cancelar**: motivo opcional (≤ 300). Inexistente o ajena → 404 "Esa cita no existe"; ya cancelada, hecha o de ayer
+    → 400.
+47. **API sin la 0840**: `/api/me/agenda*` responden 503 "La agenda de visitas aún no está disponible: falta aplicar la
+    migración 0840 en la base de datos"; contexto, visitas y números siguen como antes (las lecturas de `visits`
+    reintentan sin `agenda_id`/`agendada`): `agenda_hoy: []`, `agenda_id: null`, `agendada: false`, `agenda: null` en Mis
+    números; `POST /api/me/visitas` registra igual (la función de la 0830 ignora `agenda_id`). `POST /api/me/voz/campos`
+    no usa la base: funciona con o sin la 0840 (su 503 es el de la llave).
+48. **Ventana en la API**: el pasado y más de 30 días se responden 400 sin ir a la base (`mensajeFechaCita`); el día libre,
+    el perfil, el médico, la cuenta, el subtipo y los repetidos los decide `agenda_crear`.
+49. **`porcentaje_agendadas` y `cumplimiento`** van como razón de 0 a 1 con 2 decimales (como `cumplimiento` de la cuota);
+    null si no hay efectivas o citas (no "0 %").
+50. **`agenda_hoy`** trae las de hoy pendientes y hechas (sin canceladas): Hoy muestra el día; Reportar filtra las
+    pendientes. Con punto, la más cercana primero; sin punto, por hora.
+51. **Proponer con la agenda**: el contexto de Claude trae las citas **pendientes** de hoy (`agenda`: id, hora, tipo, con
+    quién, médico o cuenta, subtipo, sede; nunca la nota) y `cita_elegida` si la app manda `cita_id` (solo si es una de
+    esas). `normalizarPropuesta` acepta también los ids del médico, la cuenta y la sede de esas citas (el médico de una
+    cita puede no estar entre "mis médicos"; la sede puede quedar a más de 1 km). La propuesta no devuelve `agenda_id`:
+    la app lo pone en el borrador de la cita elegida y la base vincula sola las demás.
+52. **Dictado por campo**: herramienta estricta `repartir_campos` (esquema cerrado de 3 campos), el mismo modelo y
+    parámetros que proponer (`pedirHerramienta`), con la fecha de hoy y su día de la semana; `normalizarCampos` oculta
+    números de 7 dígitos o más y descarta una próxima reunión anterior a hoy. **Comparte el contador de proponer**
+    (10 por minuto y 60 por hora entre los dos, por persona). 502 "No se pudo repartir el dictado. Escribe la conclusión
+    y los compromisos a mano." si Claude falla o no cumple el esquema.
+
+53. **Relevo de la no efectiva** (hallazgo del verificador; antes "abierto para el dueño"): si una visita **no
+    efectiva** cumplió la cita y después, el mismo día, la persona logra la **efectiva** con el mismo médico (o la
+    misma cuenta), la efectiva toma la cita: queda vinculada y `agendada` si la cita se creó antes del día, y la no
+    efectiva queda sin cita (`agenda_id` NULL, `agendada` false; no suma a las efectivas de todos modos). Vale sin
+    `agenda_id` (vínculo automático: el mismo subtipo primero y, a igual subtipo, la pendiente antes que el relevo) y con
+    `agenda_id` de esa cita. Otra no efectiva no la toma ("Esa cita ya tiene su visita"), ni nadie la que cumplió una
+    efectiva. El cumplimiento de la agenda no cambia (la cita sigue hecha). Espejo puro: `citaRelevable`,
+    `citaParaVincular` y `vinculoDeVisita` (`relevo`) en `web/lib/reporte-visitas.ts`.
+54. **Anular pasa la cita a otra visita**: al anular la visita que cumplía una cita, la cita pasa a otra visita suya no
+    anulada de ese día, del mismo tipo y con el mismo médico o cuenta, que no tenga cita (la efectiva primero, luego el
+    mismo subtipo, la llegada más temprana y por id: p. ej. la no efectiva de antes de un relevo, otra vez `agendada`
+    si la cita se creó antes); si no hay, vuelve a `pendiente`. Espejo puro: `visitaQueRetomaCita`.
+55. **Sin persona para las pruebas, la 0840 no se aplica**: si ninguna persona activa cumple el filtro de su bloque de
+    pruebas (zona, usuario, líneas, sin visitas de la app hoy, sin días libres en las fechas de prueba ni
+    configuración que empiece después de hoy), la migración aborta en vez de avisar y confirmar sin probar la agenda.
+    Sus datos de prueba se reconocen por `PRUEBA0840M…` (médicos), `PRUEBA0840C…` (cuentas) y `prueba_0840_…`
+    (subtipos), así los médicos de la simulación (`PRUEBA0840` + dos dígitos) no impiden re-ejecutarla.
+
+### Base de datos (0840)
+
+- `visitas_agenda` (17 columnas): `id`, `executive_id`, `fecha`, `hora` (time NULL), `tipo`, `medico_id`, `cuenta_id`,
+  `subtipo_id`, `sede_id` NOT NULL, `nota`, `estado`, `visita_id`, `cancelada_at`, `cancelada_motivo`, `created_by`,
+  `created_at`, `updated_at`. CHECK `visitas_agenda_tipo_check`, `_estado_check`, `_nota_check`, `_motivo_check`,
+  `_tipo_datos_check`, `_estado_datos_check`. Índices `visitas_agenda_medico_uidx`, `visitas_agenda_cuenta_uidx`,
+  `visitas_agenda_visita_uidx` (únicos parciales) y `visitas_agenda_executive_fecha_idx`. Disparadores
+  `update_visitas_agenda_updated_at` y `visitas_agenda_sin_borrar`. RLS sin políticas; `service_role` SELECT, INSERT,
+  UPDATE.
+- `visits`: `agenda_id` (→ `visitas_agenda`, `visits_agenda_id_uidx` único sin anuladas) y `agendada` (NOT NULL DEFAULT
+  false); `visits_agenda_check` (agendada ⇒ agenda_id; agenda_id solo en las de la app). 45 columnas.
+- Funciones (SECURITY INVOKER, `search_path = public, pg_temp`, solo `service_role`): `agenda_crear(p jsonb, p_user
+  uuid) → { cita_id }`, `agenda_cancelar(p_id uuid, p_motivo text, p_user uuid)`; `visitas_registrar` (md5
+  `eeae55de7196179daa686cc9bd11da7c`) y `visitas_anular` (md5 `462a121cfde8802c4a830bd3c61c05e4`) = la 0830 + el vínculo.
+  Errores: 22023 forma, 23514 regla, 23505 cita repetida, P0002 inexistente o ajena (al cancelar).
+
+### API (todas con `requireEjecutiva` / `visits:report`; errores `{ error }`)
+
+| Ruta | Cuerpo / consulta | Respuesta |
+| --- | --- | --- |
+| `GET /api/me/agenda` | `?desde=AAAA-MM-DD&hasta=AAAA-MM-DD&canceladas=true` (sin fechas: hoy a hoy + 7; solo desde: desde + 7; como mucho 31 días; sin las canceladas salvo `canceladas=true`) | 200 `AgendaResponse { desde, hasta, hoy, max_fecha, items: CitaItem[] }` · 400 rango · 503 sin la 0840 |
+| `POST /api/me/agenda` | `CitaCreate { fecha, hora, tipo, medico_id, cuenta_id, subtipo_id, sede_id, nota }` (médica: `medico_id`; institucional: `cuenta_id` y `subtipo_id`; lo que no aplica, null) | 201 `{ cita: CitaItem }` · 400 `{ error, errores? }` (forma, ventana, día libre, perfil, médico, cuenta, subtipo) · 409 repetida · 503 |
+| `POST /api/me/agenda/[id]/cancelar` | `{ motivo: string \| null }` (cuerpo vacío = sin motivo) | 200 `{ cita: CitaItem }` · 400 cancelada, hecha, de ayer o motivo largo · 404 inexistente o ajena · 503 |
+| `POST /api/me/visitas` | además `agenda_id: uuid \| null` | `VisitaItem` con `agenda_id` y `agendada` (también la repetida) · 400 con los mensajes del vínculo |
+| `GET /api/me/visitas` | — | cada `VisitaItem` con `agenda_id` y `agendada` |
+| `POST/GET /api/me/contexto` | — | además `agenda_hoy: CitaItem[]` (con punto: `distancia_m` y `dentro_del_radio`) |
+| `GET /api/me/numeros` | — | además `agenda: NumerosAgenda \| null` |
+| `POST /api/me/voz/proponer` | además `cita_id: uuid \| null` | igual |
+| `POST /api/me/voz/campos` | `CamposDictado { transcript (1..8000), tipo }` | 200 `CamposDictadoResponse { conclusion, compromisos, next_step_date }` · 400 vacío o tipo · 429 (límites de proponer) · 502 · 503 sin `ANTHROPIC_API_KEY` |
+
+- `CitaItem { id, fecha, hora (HH:MM | null), tipo, medico { id, nombre } | null, cuenta { id, nombre } | null, subtipo
+  { id, codigo, nombre } | null, sede: SedeCita { id, nombre, cuenta_id, cuenta_nombre, lat, lng, ubicacion_confirmada },
+  nota, estado, visita_id, distancia_m, dentro_del_radio, anticipada, cancelable }` (`anticipada`: creada antes de su día;
+  `cancelable`: pendiente de hoy en adelante). Nunca documentos ni teléfonos.
+- `NumerosAgenda { efectivas, efectivas_agendadas, porcentaje_agendadas, citas_hasta_hoy, citas_hechas, cumplimiento }`.
+- Tipos de la app en `mobile/lib/tipos.ts` (copia exacta, comprobada al compilar por `web/scripts/reporte-api-check.ts`):
+  `EstadoCita`, `ETIQUETA_ESTADO_CITA`, `SedeCita`, `CitaItem`, `AgendaResponse`, `CitaResponse`, `CitaCreateBase`,
+  `CitaCreateTipo`, `CitaCreate`, `CitaCancelar`, `NumerosAgenda`, `CamposDictado`, `CamposDictadoResponse`, más
+  `agenda_hoy` en `ContextoResponse`, `agenda_id`/`agendada` en `VisitaItem`, `agenda_id` en `VisitaCreateBase` y
+  `agenda` en `NumerosResponse`. Claves en `mobile/lib/claves-api.ts`: `cita`, `sedeCita`, `agenda`, `citaResponse`,
+  `citaCreate`, `numerosAgenda`, `campos` y las listas ampliadas de `contexto`, `visitaItem`, `visitaCreate` y `numeros`.
+
+### Código (servidor)
+
+- Puro (`web/lib/reporte-visitas.ts`, sección 9): `ESTADOS_CITA`, límites y mensajes; `horaCorta`, `ventanaAgenda`,
+  `esDiaLibreCompleto`, `mensajeFechaCita`, `citaCancelable`, `citaAnticipada`, `citaParaVincular`,
+  `revisarCitaElegida`, `vinculoDeVisita` (espejo del paso 7b), `cuentasAgenda`, `distanciaACita`, `ordenarCitas`,
+  `rangoConsultaAgenda`, `PROMPT_CAMPOS`, `esquemaCampos`, `HERRAMIENTA_CAMPOS`, `normalizarCampos`, `mensajeCampos`; y
+  `contextoDictado(contexto, hora, citaId)` y `normalizarPropuesta` con la agenda. Esquemas (`reporte-visitas-schemas.ts`):
+  `citaCreateSchema`, `citaCancelarSchema`, `agendaQuerySchema`, `camposDictadoSchema`, `camposSchema`; `agenda_id` en
+  `visitaCreateSchema` y `cita_id` en `proponerSchema`.
+- Servidor (`web/app/api/me/_lib/reporte-server.ts`): `MENSAJE_FALTA_MIGRACION_0840`, `faltaMigracion0840`,
+  `respuestaErrorAgenda`, lecturas de `visits` con reintento sin las columnas de la 0840, `leerCitas`, `leerCita`,
+  `citasSinMigracion`, `armarCitaItems`, `cargarCitaItem`, `jsonbCita`, `numerosDeAgenda`, `repartirCampos` y
+  `pedirHerramienta` (la llamada a Claude que comparten proponer y campos).
+- Rutas: `web/app/api/me/agenda/route.ts`, `web/app/api/me/agenda/[id]/cancelar/route.ts`,
+  `web/app/api/me/voz/campos/route.ts`; cambios en `contexto` (por `cargarContexto`), `visitas` (por `jsonbRegistrar` y
+  las lecturas), `numeros` y `voz/proponer`.
+- Pruebas: `web/scripts/reporte-check.ts` (secciones 10 a 10f: ventana, días libres, cancelable, hora, vínculo y
+  "agendada" con el borde de medianoche, indicador, distancia y orden, esquemas, reparto del dictado y contexto de
+  proponer con la agenda) y `web/scripts/reporte-api-check.ts` (sección 14 con `agenda_crear`, `agenda_cancelar` y el
+  paso 7b emulados en el Supabase falso, Claude falso para campos y la ronda sin la 0840).
+
+### Verificación (2026-10-14)
+
+- `web`: `GOOGLE_ROUTES_DISABLED=true npm run check` → typecheck y lint sin errores y las 18 suites en verde
+  (`reporte-check` 349, `reporte-api-check` 271).
+- 0840 y 9944: ensayo real deshecho (`DRYRUN_OK` en los dos; ver `database/migrations/README.md`).

@@ -1,12 +1,17 @@
 /**
  * Campos que la persona escribe o corrige de una visita (iguales en Reportar y en Visita para corregir el mismo
  * día): efectiva o no con su motivo, conclusión, compromisos, próxima reunión y líneas. Nunca documentos.
+ *
+ * F4.1: con `dictado`, junto a "Conclusión" va el micrófono (DictarCampo): lo que se dice se reparte entre conclusión,
+ * compromisos y próxima reunión y se AÑADE a lo escrito (unirCamposDictados); todo queda editable antes de confirmar.
  */
+import { useRef } from 'react'
 import { View } from 'react-native'
 import { sumarDias, fechaCorta, hoyBogota } from '../../lib/fechas'
-import { MAX_COMPROMISOS, MAX_CONCLUSION, MAX_FAILURE_REASON } from '../../lib/propuesta'
-import type { LineaEjecutiva } from '../../lib/tipos'
+import { MAX_COMPROMISOS, MAX_CONCLUSION, MAX_FAILURE_REASON, textoResultadoDictado, unirCamposDictados } from '../../lib/propuesta'
+import type { CamposDictadoResponse, LineaEjecutiva, TipoVisita } from '../../lib/tipos'
 import { Campo, Chip, Grupo, Texto, useColores } from '../../lib/ui'
+import { DictarCampo } from './DictarCampo'
 
 export interface ValoresCampos {
   efectiva: boolean
@@ -24,11 +29,22 @@ interface Props {
   alCambiar: (cambios: Partial<ValoresCampos>) => void
   /** Mensaje de error por campo (failure_reason, conclusion, compromisos, next_step_date, lineas). */
   errorDe?: (campo: string) => string | null
+  /** Micrófono junto a Conclusión (F4.1): el tipo de la visita y si la voz está disponible (configurada y con señal). */
+  dictado?: { tipo: TipoVisita | null; disponible: boolean }
 }
 
-export function CamposVisita({ valores, lineas, alCambiar, errorDe }: Props) {
+export function CamposVisita({ valores, lineas, alCambiar, errorDe, dictado }: Props) {
   const c = useColores()
   const hoy = hoyBogota()
+  // Lo dictado llega tarde (tras grabar y transcribir): se une con lo que haya escrito EN ESE MOMENTO.
+  const ultimos = useRef(valores)
+  ultimos.current = valores
+  const alDictar = (campos: CamposDictadoResponse): string => {
+    const actual = ultimos.current
+    const unido = unirCamposDictados(actual, campos, hoyBogota())
+    if (unido.agregados.length > 0) alCambiar({ conclusion: unido.conclusion, compromisos: unido.compromisos, next_step_date: unido.next_step_date })
+    return textoResultadoDictado(unido)
+  }
   const atajos = [
     { texto: 'Mañana', fecha: sumarDias(hoy, 1) },
     { texto: 'En 1 semana', fecha: sumarDias(hoy, 7) },
@@ -36,6 +52,18 @@ export function CamposVisita({ valores, lineas, alCambiar, errorDe }: Props) {
     { texto: 'En 1 mes', fecha: sumarDias(hoy, 30) },
   ]
   const error = (campo: string) => (errorDe ? errorDe(campo) : null)
+
+  const campoConclusion = (
+    <Campo
+      etiqueta="Conclusión"
+      valor={valores.conclusion}
+      alCambiar={texto => alCambiar({ conclusion: texto })}
+      varias
+      maxLength={MAX_CONCLUSION}
+      placeholder={dictado ? 'Qué pasó en la visita (sin datos de pacientes). Escríbelo o toca Dictar.' : 'Qué pasó en la visita (sin datos de pacientes)'}
+      error={error('conclusion')}
+    />
+  )
 
   const alternarLinea = (id: string) => {
     const tiene = valores.lineas.includes(id)
@@ -63,15 +91,13 @@ export function CamposVisita({ valores, lineas, alCambiar, errorDe }: Props) {
         ) : null}
       </View>
 
-      <Campo
-        etiqueta="Conclusión"
-        valor={valores.conclusion}
-        alCambiar={texto => alCambiar({ conclusion: texto })}
-        varias
-        maxLength={MAX_CONCLUSION}
-        placeholder="Qué pasó en la visita (sin datos de pacientes)"
-        error={error('conclusion')}
-      />
+      {dictado ? (
+        <DictarCampo tipo={dictado.tipo} disponible={dictado.disponible} alDictar={alDictar}>
+          {campoConclusion}
+        </DictarCampo>
+      ) : (
+        campoConclusion
+      )}
       <Campo
         etiqueta="Compromisos"
         valor={valores.compromisos}

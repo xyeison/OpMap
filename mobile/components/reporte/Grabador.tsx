@@ -18,14 +18,30 @@ interface Props {
   alCancelar: () => void
   /** No se pudo grabar (sin permiso, micrófono ocupado…). */
   alError: (mensaje: string) => void
+  /** Texto arriba del reloj mientras graba (por defecto, el del dictado de toda la visita). */
+  textoGrabando?: string
+  /** Qué decir (debajo del nivel). */
+  indicacion?: string
+  /** Detalle del botón "Listo, enviar". */
+  detalleListo?: string
 }
+
+const INDICACION_VISITA =
+  'Di con quién estuviste, en qué sede, qué se habló, qué quedó pendiente y cuándo vuelves. No digas documentos ni datos de pacientes.'
 
 export const MENSAJE_SIN_PERMISO_MICROFONO =
   'La app no tiene permiso para usar el micrófono. Actívalo en los ajustes del teléfono, o reporta por toques.'
 
 type Estado = 'preparando' | 'grabando' | 'parando'
 
-export function Grabador({ alTerminar, alCancelar, alError }: Props) {
+export function Grabador({
+  alTerminar,
+  alCancelar,
+  alError,
+  textoGrabando = 'Grabando: cuenta qué pasó',
+  indicacion = INDICACION_VISITA,
+  detalleListo = 'Se transcribe y el audio se borra',
+}: Props) {
   const grabadora = useAudioRecorder(OPCIONES_GRABACION)
   const estadoGrabadora = useAudioRecorderState(grabadora, 200)
   const [estado, setEstado] = useState<Estado>('preparando')
@@ -122,7 +138,7 @@ export function Grabador({ alTerminar, alCancelar, alError }: Props) {
   return (
     <Tarjeta estilo={{ gap: 14, alignItems: 'stretch' }}>
       <View style={{ alignItems: 'center', gap: 4 }}>
-        <Texto suave>{estado === 'preparando' ? 'Preparando el micrófono…' : estado === 'parando' ? 'Cerrando la grabación…' : 'Grabando: cuenta qué pasó'}</Texto>
+        <Texto suave>{estado === 'preparando' ? 'Preparando el micrófono…' : estado === 'parando' ? 'Cerrando la grabación…' : textoGrabando}</Texto>
         <Titulo estilo={{ fontSize: 44, lineHeight: 52, fontVariant: ['tabular-nums'] }}>{formatoDuracion(duracion)}</Titulo>
         <Texto suave peque>
           de {formatoDuracion(MAX_GRABACION_MS)} como máximo
@@ -136,10 +152,9 @@ export function Grabador({ alTerminar, alCancelar, alError }: Props) {
       </View>
       {porAcabar ? <Aviso tono="alerta">Quedan {formatoDuracion(MAX_GRABACION_MS - duracion)}: a los 3 minutos se envía sola.</Aviso> : null}
       <Texto peque suave>
-        Di con quién estuviste, en qué sede, qué se habló, qué quedó pendiente y cuándo vuelves. No digas documentos ni
-        datos de pacientes.
+        {indicacion}
       </Texto>
-      <Boton titulo="Listo, enviar" detalle="Se transcribe y el audio se borra" grande alPresionar={() => void terminar()} deshabilitado={estado !== 'grabando'} />
+      <Boton titulo="Listo, enviar" detalle={detalleListo} grande alPresionar={() => void terminar()} deshabilitado={estado !== 'grabando'} />
       <Boton titulo="Cancelar" variante="secundario" alPresionar={() => void cancelar()} deshabilitado={estado === 'parando'} />
     </Tarjeta>
   )

@@ -8,6 +8,10 @@
  * PURO: sin React Native (lo importa también la prueba de la web).
  */
 import type {
+  AgendaResponse,
+  CamposDictadoResponse,
+  CitaItem,
+  CitaResponse,
   CompromisoVencido,
   ConfigContexto,
   ContactoContexto,
@@ -20,14 +24,17 @@ import type {
   LoginMovilResponse,
   MedicoContexto,
   MeResponse,
+  NumerosAgenda,
   NumerosResponse,
   PropuestaResponse,
   SedeCerca,
+  SedeCita,
   SedeDeMedico,
   SubtipoContexto,
   TelefonicaEfectiva,
   TranscripcionResponse,
   UsuarioMovil,
+  CitaCreateBase,
   VisitaCreateBase,
   VisitaCreateResponse,
   VisitaItem,
@@ -51,13 +58,17 @@ const exactas =
 /** Cuerpo de POST /api/me/visitas: todas las claves, en las dos variantes de tipo y de modalidad. */
 type ClavesVisitaCreate = keyof VisitaCreateBase | 'tipo' | 'medico_id' | 'cuenta_id' | 'subtipo_id' | 'contacto_id' | 'modalidad' | 'medio'
 type ObjetoVisitaCreate = Record<ClavesVisitaCreate, unknown>
+/** Cuerpo de POST /api/me/agenda: todas las claves de las dos variantes (médica e institucional). */
+type ObjetoCitaCreate = Record<keyof CitaCreateBase | 'tipo' | 'medico_id' | 'cuenta_id' | 'subtipo_id', unknown>
 
 export const CLAVES_API = {
   login: exactas<LoginMovilResponse>()(['token', 'expira_at', 'usuario', 'ejecutiva']),
   usuario: exactas<UsuarioMovil>()(['id', 'full_name', 'role']),
   ejecutivaMovil: exactas<EjecutivaMovil>()(['id', 'full_name', 'zona']),
   me: exactas<MeResponse>()(['user', 'ejecutiva']),
-  contexto: exactas<ContextoResponse>()(['ejecutiva', 'hoy', 'config', 'sedes_cerca', 'mis_medicos', 'contactos', 'subtipos', 'compromisos_vencidos', 'voz']),
+  contexto: exactas<ContextoResponse>()([
+    'ejecutiva', 'hoy', 'config', 'sedes_cerca', 'mis_medicos', 'contactos', 'subtipos', 'compromisos_vencidos', 'voz', 'agenda_hoy',
+  ]),
   contextoEjecutiva: exactas<EjecutivaContexto>()(['id', 'nombre', 'zona', 'municipio', 'lineas']),
   linea: exactas<LineaEjecutiva>()(['id', 'code', 'name']),
   hoy: exactas<HoyContexto>()(['fecha', 'meta', 'hechas', 'cuota_dia_ok']),
@@ -75,12 +86,12 @@ export const CLAVES_API = {
   visitaItem: exactas<VisitaItem>()([
     'id', 'client_id', 'tipo', 'subtipo', 'medico', 'cuenta', 'sede', 'contacto', 'modalidad', 'medio', 'efectiva', 'failure_reason',
     'checked_in_at', 'distance_m', 'conclusion', 'compromisos', 'next_step_date', 'lineas', 'input_mode', 'out_of_territory', 'cuenta_para',
-    'peso', 'sede_por_confirmar', 'editable',
+    'peso', 'sede_por_confirmar', 'editable', 'agenda_id', 'agendada',
   ]),
   visitaCreate: exactas<ObjetoVisitaCreate>()([
     'client_id', 'tipo', 'subtipo_id', 'medico_id', 'cuenta_id', 'sede_id', 'contacto_id', 'modalidad', 'medio', 'efectiva', 'failure_reason',
     'retry_date', 'checked_in_at', 'reported_at', 'lat', 'lng', 'gps_accuracy_m', 'conclusion', 'compromisos', 'next_step_date', 'transcript',
-    'input_mode', 'lineas',
+    'input_mode', 'lineas', 'agenda_id',
   ]),
   visitaCreateResponse: exactas<VisitaCreateResponse>()(['visita', 'repetida']),
   transcripcion: exactas<TranscripcionResponse>()(['transcript', 'duracion_s', 'modelo']),
@@ -92,7 +103,19 @@ export const CLAVES_API = {
   ]),
   numeros: exactas<NumerosResponse>()([
     'mes', 'cuota', 'hechas', 'cumplimiento', 'dias_habiles_sin_visitas', 'telefonicas', 'no_efectivas', 'fuera_de_territorio', 'sede_por_confirmar',
+    'agenda',
   ]),
+  // Agenda (F4.1, migración 0840)
+  numerosAgenda: exactas<NumerosAgenda>()(['efectivas', 'efectivas_agendadas', 'porcentaje_agendadas', 'citas_hasta_hoy', 'citas_hechas', 'cumplimiento']),
+  cita: exactas<CitaItem>()([
+    'id', 'fecha', 'hora', 'tipo', 'medico', 'cuenta', 'subtipo', 'sede', 'nota', 'estado', 'visita_id', 'distancia_m', 'dentro_del_radio',
+    'anticipada', 'cancelable',
+  ]),
+  sedeCita: exactas<SedeCita>()(['id', 'nombre', 'cuenta_id', 'cuenta_nombre', 'lat', 'lng', 'ubicacion_confirmada']),
+  agenda: exactas<AgendaResponse>()(['desde', 'hasta', 'hoy', 'max_fecha', 'items']),
+  citaResponse: exactas<CitaResponse>()(['cita']),
+  citaCreate: exactas<ObjetoCitaCreate>()(['fecha', 'hora', 'tipo', 'medico_id', 'cuenta_id', 'subtipo_id', 'sede_id', 'nota']),
+  campos: exactas<CamposDictadoResponse>()(['conclusion', 'compromisos', 'next_step_date']),
 } as const
 
 export type FormaApi = keyof typeof CLAVES_API

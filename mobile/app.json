@@ -1,29 +1,24 @@
 {
   "expo": {
-    "name": "OpMap Visitas",
+    "name": "VG Visitas",
     "slug": "op-map",
     "scheme": "opmap",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "co.vg.opmap.visitas",
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "OpMap Visitas usa tu ubicación al reportar una visita para mostrarte las sedes cercanas y confirmar que estás en el sitio.",
-        "NSMicrophoneUsageDescription": "OpMap Visitas usa el micrófono para que dictes la visita. El audio se transcribe y no se guarda."
+        "NSLocationWhenInUseUsageDescription": "VG Visitas usa tu ubicación al reportar una visita para mostrarte las sedes cercanas y confirmar que estás en el sitio.",
+        "NSMicrophoneUsageDescription": "VG Visitas usa el micrófono para que dictes la visita. El audio se transcribe y no se guarda."
       }
     },
     "android": {
       "package": "co.vg.opmap.visitas",
       "adaptiveIcon": {
-        "backgroundColor": "#111827",
+        "backgroundColor": "#000000",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -48,7 +43,7 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "OpMap Visitas usa tu ubicación al reportar una visita para mostrarte las sedes cercanas y confirmar que estás en el sitio.",
+          "locationWhenInUsePermission": "VG Visitas usa tu ubicación al reportar una visita para mostrarte las sedes cercanas y confirmar que estás en el sitio.",
           "isIosBackgroundLocationEnabled": false,
           "isAndroidBackgroundLocationEnabled": false
         }
@@ -56,14 +51,23 @@
       [
         "expo-audio",
         {
-          "microphonePermission": "OpMap Visitas usa el micrófono para que dictes la visita. El audio se transcribe y no se guarda.",
+          "microphonePermission": "VG Visitas usa el micrófono para que dictes la visita. El audio se transcribe y no se guarda.",
           "recordAudioAndroid": true,
           "enableBackgroundRecording": false,
           "enableBackgroundPlayback": false
         }
       ],
       "expo-secure-store",
-      "expo-status-bar"
+      "expo-status-bar",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 180,
+          "resizeMode": "contain",
+          "backgroundColor": "#000000"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": false

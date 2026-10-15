@@ -1,4 +1,4 @@
-# OpMap Visitas (app móvil)
+# VG Visitas (app móvil)
 
 App del Ejecutivo Comercial para reportar visitas desde el teléfono (iPhone y Android): Hoy, Reportar (por voz o
 por toques), Mis días libres, Mis números y Ajustes. Expo SDK 57, React Native, TypeScript estricto y
@@ -6,6 +6,11 @@ por toques), Mis días libres, Mis números y Ajustes. Expo SDK 57, React Native
 
 Habla solo con la API de OpMap (`web/`). No usa ningún SDK de Google ni mapa: las sedes cercanas salen en lista con
 su distancia. El audio de los dictados no se guarda: se sube, el servidor lo transcribe y la app lo borra.
+
+Marca VG Medical (F4.1): nombre visible "VG Visitas", logo en el ingreso y en el encabezado (`components/Logo.tsx`),
+paleta monocromática y letra DM Sans (`lib/ui.tsx`). El ícono, el ícono adaptable de Android y la pantalla de inicio
+(plugin `expo-splash-screen` en `app.json`: el símbolo "vg" blanco sobre negro, `assets/splash-icon.png`) salen de los
+SVG de `assets/marca/`. En Expo Go la pantalla de inicio nativa es la de Expo Go; la propia se ve en un build de EAS.
 
 ## Requisitos
 

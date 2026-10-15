@@ -44,6 +44,8 @@ function Visita({ id, fecha }: { id: string; fecha: string }) {
   const router = useRouter()
   const [visita, setVisita] = useState<VisitaItem | null>(null)
   const [lineas, setLineas] = useState<LineaEjecutiva[]>([])
+  // Micrófono junto a Conclusión (F4.1): solo si el servidor tiene la voz configurada (contexto.voz).
+  const [vozDisponible, setVozDisponible] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
   const [cargando, setCargando] = useState(true)
   const [valores, setValores] = useState<ValoresCampos | null>(null)
@@ -61,6 +63,7 @@ function Visita({ id, fecha }: { id: string; fecha: string }) {
       setVisita(encontrada)
       setValores(encontrada ? valoresDeVisita(encontrada) : null)
       if (contexto) setLineas(contexto.ejecutiva.lineas)
+      setVozDisponible(Boolean(contexto && contexto.voz.transcribir && contexto.voz.proponer))
       setError(null)
     } catch (lanzado) {
       setError(aApiError(lanzado))
@@ -189,7 +192,12 @@ function Visita({ id, fecha }: { id: string; fecha: string }) {
         <>
           <Tarjeta estilo={{ gap: 14 }}>
             <Subtitulo>Corregir (solo hoy)</Subtitulo>
-            <CamposVisita valores={valores} lineas={lineas} alCambiar={c => setValores(prev => (prev ? { ...prev, ...c } : prev))} />
+            <CamposVisita
+              valores={valores}
+              lineas={lineas}
+              alCambiar={c => setValores(prev => (prev ? { ...prev, ...c } : prev))}
+              dictado={{ tipo: visita.tipo, disponible: vozDisponible }}
+            />
             <Boton titulo="Guardar corrección" grande cargando={guardando} deshabilitado={!hayCambios} alPresionar={() => void guardar()} />
             <Texto peque suave>
               Para cambiar el médico, la cuenta o la sede, anúlala y vuelve a reportarla.

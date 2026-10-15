@@ -17,16 +17,23 @@
  *   7. Voz: vocabulario para la transcripción, prompt del sistema, esquema de la herramienta `proponer_visitas`
  *      y normalización de la propuesta (solo ids del contexto; nunca documentos ni teléfonos).
  *   8. Tipos de las respuestas de la API, para que API y app hablen igual.
+ *   9. Agenda (F4.1, migración 0840): la cita, la ventana de fechas, el vínculo con la visita ("agendada"), el
+ *      indicador de Mis números y el dictado por campo (conclusión, compromisos y próxima reunión).
+ *      Contrato: sección "F4.1" de docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md y la spec
+ *      docs/specs/2026-10-14-agenda-dictado-y-marca.md.
  *
  * Lo que valida la forma de los cuerpos (zod) está en lib/reporte-visitas-schemas.ts.
  */
 import type { Role } from './permissions'
 import { etiquetaDe, valoresDe, type Opcion } from './terceros'
 import {
+  ESTADOS_DIA_LIBRE_LIBRES,
   MENSAJE_SIN_EJECUTIVA,
+  diaSemanaIso,
   esFechaIso,
   generalVigente,
   hoyBogota,
+  sumarDias,
   valorVisita,
   type ConfigTelefonicas,
   type ConteoVigencia,
@@ -282,6 +289,12 @@ export interface VisitaCreateBase {
   transcript: string | null
   input_mode: ModoEntrada
   lineas: string[]
+  /**
+   * Cita de la agenda que se cumple con esta visita (0840; opcional: null). Sin ella, la base vincula sola la cita
+   * pendiente de ese día con el mismo médico o la misma cuenta. Una cita ajena, de otro día, de otro médico o cuenta,
+   * cancelada o ya hecha se rechaza (23514 → 400).
+   */
+  agenda_id: string | null
 }
 
 export type VisitaCreateTipo =
@@ -1044,10 +1057,44 @@ export interface ContextoDictado {
   medicos: { id: string; nombre: string; especialidades: string[]; sedes: { id: string; nombre: string }[] }[]
   contactos: { id: string; cuenta_id: string; sede_id: string | null; nombre: string; cargo: string | null; rol: string }[]
   subtipos: { id: string; codigo: string; nombre: string; roles_sugeridos: string[] }[]
+  /** Citas PENDIENTES de hoy (0840): con quién, en qué sede y a qué hora. */
+  agenda: CitaDictado[]
+  /** La cita que la ejecutiva eligió antes de dictar (una de `agenda`), o null. */
+  cita_elegida: string | null
 }
 
-/** El JSON compacto que recibe Claude. `hora` es la del dictado en Bogotá (HH:MM) si se conoce. */
-export function contextoDictado(contexto: ContextoResponse, hora: string | null = null): ContextoDictado {
+/** Una cita pendiente de hoy, como la recibe Claude (sin documentos ni teléfonos). */
+export interface CitaDictado {
+  id: string
+  hora: string | null
+  tipo: TipoVisita
+  /** Nombre del médico o de la cuenta. */
+  con: string
+  medico_id: string | null
+  cuenta_id: string | null
+  subtipo_codigo: string | null
+  sede_id: string
+  sede: string
+}
+
+/**
+ * El JSON compacto que recibe Claude. `hora` es la del dictado en Bogotá (HH:MM) si se conoce. `citaId`: la cita que
+ * la ejecutiva eligió en Reportar (solo cuenta si es una de las pendientes de hoy).
+ */
+export function contextoDictado(contexto: ContextoResponse, hora: string | null = null, citaId: string | null = null): ContextoDictado {
+  const agenda: CitaDictado[] = (contexto.agenda_hoy ?? [])
+    .filter(cita => cita.estado === 'pendiente')
+    .map(cita => ({
+      id: cita.id,
+      hora: cita.hora,
+      tipo: cita.tipo,
+      con: cita.medico?.nombre ?? cita.cuenta?.nombre ?? 'Cita',
+      medico_id: cita.medico?.id ?? null,
+      cuenta_id: cita.cuenta?.id ?? null,
+      subtipo_codigo: cita.subtipo?.codigo ?? null,
+      sede_id: cita.sede.id,
+      sede: cita.sede.nombre,
+    }))
   return {
     fecha: contexto.hoy.fecha,
     hora,
@@ -1085,6 +1132,8 @@ export function contextoDictado(contexto: ContextoResponse, hora: string | null 
       nombre: subtipo.nombre,
       roles_sugeridos: [...subtipo.roles_sugeridos],
     })),
+    agenda,
+    cita_elegida: citaId && agenda.some(cita => cita.id === citaId) ? citaId : null,
   }
 }
 
@@ -1101,7 +1150,8 @@ Reglas:
 7. next_step_date solo si dio una fecha o un plazo claro, en AAAA-MM-DD a partir de la fecha de hoy del contexto; si no, null.
 8. modalidad_sugerida es telefonica solo si dice que llamó o hizo videollamada; si no, presencial.
 9. confianza entre 0 y 1 según lo bien que cruzaron los nombres. Haz como mucho una pregunta por visita y solo ante una ambigüedad real (dos médicos con el mismo apellido, sede no clara).
-10. Responde en español, sin saludos ni explicaciones fuera de la herramienta.`
+10. Responde en español, sin saludos ni explicaciones fuera de la herramienta.
+11. Agenda: el contexto trae las citas pendientes de hoy (agenda), con el médico o la cuenta, el subtipo y la sede. Puedes usar sus ids aunque no estén en las otras listas. Si cita_elegida no es null, la ejecutiva está en esa cita: la primera visita es la de esa cita (su médico, o su cuenta y subtipo, y su sede) salvo que el dictado diga claramente otra cosa.`
 
 /** Esquema JSON (entrada de la herramienta proponer_visitas): lo mismo que propuestaSchema valida después. */
 export const esquemaPropuesta = {
@@ -1246,8 +1296,23 @@ const nombrePropuesta = (valor: unknown): string | null => {
  */
 export function normalizarPropuesta(propuesta: PropuestaCruda, contexto: ContextoResponse): PropuestaResponse {
   const lineasEjecutiva = new Set(contexto.ejecutiva.lineas.map(linea => linea.id))
-  const sedesCerca = new Map(contexto.sedes_cerca.map(sede => [sede.id, sede]))
-  const medicos = new Map(contexto.mis_medicos.map(medico => [medico.id, medico]))
+  // Ids permitidos: los de las sedes cercanas y los médicos que visita, MÁS los de sus citas pendientes de hoy (0840: el
+  // médico de una cita puede no estar entre "sus médicos"; la sede de una cita puede quedar a más de 1 km del punto).
+  const citasPendientes = (contexto.agenda_hoy ?? []).filter(cita => cita.estado === 'pendiente')
+  const sedesPermitidas: { id: string; cuenta_id: string | null }[] = contexto.sedes_cerca.map(sede => ({ id: sede.id, cuenta_id: sede.cuenta_id }))
+  for (const cita of citasPendientes) {
+    if (!sedesPermitidas.some(sede => sede.id === cita.sede.id)) sedesPermitidas.push({ id: cita.sede.id, cuenta_id: cita.sede.cuenta_id })
+  }
+  const sedesCerca = new Map(sedesPermitidas.map(sede => [sede.id, sede]))
+  const medicos = new Map<string, { id: string; sedes: { id: string }[] }>(
+    contexto.mis_medicos.map(medico => [medico.id, { id: medico.id, sedes: medico.sedes.map(sede => ({ id: sede.id })) }])
+  )
+  for (const cita of citasPendientes) {
+    if (cita.tipo !== 'medica' || !cita.medico) continue
+    const medico = medicos.get(cita.medico.id) ?? { id: cita.medico.id, sedes: [] }
+    if (!medico.sedes.some(sede => sede.id === cita.sede.id)) medico.sedes.push({ id: cita.sede.id })
+    medicos.set(medico.id, medico)
+  }
   const contactos = new Map(contexto.contactos.map(contacto => [contacto.id, contacto]))
   const subtiposPorCodigo = new Map(contexto.subtipos.map(subtipo => [subtipo.codigo, subtipo]))
 
@@ -1434,6 +1499,11 @@ export interface ContextoResponse {
   subtipos: SubtipoContexto[]
   compromisos_vencidos: CompromisoVencido[]
   voz: VozDisponible
+  /**
+   * Citas de hoy (pendientes y hechas; sin las canceladas), con la distancia a su sede si se mandó el punto: con punto,
+   * la más cercana primero; sin punto, por hora. Sin la 0840 aplicada: [] (el resto del contexto sigue igual).
+   */
+  agenda_hoy: CitaItem[]
 }
 
 /** Una visita de la ejecutiva en GET /api/me/visitas (nunca el documento del médico). */
@@ -1466,6 +1536,10 @@ export interface VisitaItem {
   sede_por_confirmar: boolean
   /** La ejecutiva puede corregirla o anularla (mismo día). */
   editable: boolean
+  /** Cita de la agenda que cumplió (0840); null si fue una visita no agendada. */
+  agenda_id: string | null
+  /** Agendada (decisión 6 de F4.1): vinculada a una cita creada ANTES del día de la visita (Bogotá). */
+  agendada: boolean
 }
 
 /** GET /api/me/visitas?fecha= */
@@ -1507,10 +1581,17 @@ export interface NumerosResponse {
   fuera_de_territorio: number
   /** Efectivas en sedes por confirmar (aún no suman). */
   sede_por_confirmar: number
+  /** Indicador de la agenda del mes (decisión 8 de F4.1); null si la agenda aún no está disponible (falta la 0840). */
+  agenda: NumerosAgenda | null
 }
 
-/** Pasa el resultado puro de cumplimientoMes a la forma de NumerosResponse. */
-export function numerosDesdeCumplimiento(mes: string, cuota: CuotaResponse, resultado: ResultadoCumplimiento): NumerosResponse {
+/** Pasa el resultado puro de cumplimientoMes (y el de cuentasAgenda) a la forma de NumerosResponse. */
+export function numerosDesdeCumplimiento(
+  mes: string,
+  cuota: CuotaResponse,
+  resultado: ResultadoCumplimiento,
+  agenda: NumerosAgenda | null = null
+): NumerosResponse {
   return {
     mes,
     cuota,
@@ -1529,6 +1610,7 @@ export function numerosDesdeCumplimiento(mes: string, cuota: CuotaResponse, resu
     no_efectivas: resultado.no_efectivas,
     fuera_de_territorio: resultado.fuera_de_territorio,
     sede_por_confirmar: resultado.sede_por_confirmar,
+    agenda,
   }
 }
 
@@ -1565,4 +1647,522 @@ export interface MeResponse {
 export interface ErrorResponse {
   error: string
   errores?: ErrorVisita[]
+}
+
+// ---------------------------------------------------------------------------------------------
+// 9. Agenda (F4.1, migración 0840): la cita, la ventana de fechas, el vínculo con la visita, el indicador y el
+//    dictado por campo. Contrato: sección "F4.1" de docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md.
+//    Las reglas que escriben están en agenda_crear, agenda_cancelar y visitas_registrar (0840); aquí está su espejo
+//    puro (para las pruebas, la API y lo que la app copia).
+// ---------------------------------------------------------------------------------------------
+
+/** Estado de una cita (visitas_agenda.estado). Una cita no se borra: se cancela. */
+export const ESTADOS_CITA = [
+  { valor: 'pendiente', etiqueta: 'Pendiente' },
+  { valor: 'hecha', etiqueta: 'Hecha' },
+  { valor: 'cancelada', etiqueta: 'Cancelada' },
+] as const satisfies readonly Opcion[]
+export type EstadoCita = (typeof ESTADOS_CITA)[number]['valor']
+export const VALORES_ESTADO_CITA = valoresDe<EstadoCita>(ESTADOS_CITA)
+
+/** Límites (mismos CHECK de la 0840). */
+export const MAX_NOTA_CITA = 300
+export const MAX_MOTIVO_CANCELACION_CITA = 300
+/** Decisión 3: se agenda de hoy a 30 días adelante, en hora de Bogotá. */
+export const DIAS_AGENDA_ADELANTE = 30
+/** GET /api/me/agenda sin fechas: de hoy a hoy + 7. */
+export const DIAS_AGENDA_POR_DEFECTO = 7
+/** GET /api/me/agenda: como mucho 31 días por consulta (desde y hasta incluidos). */
+export const MAX_DIAS_CONSULTA_AGENDA = 31
+
+/** Mensajes de agenda_crear y agenda_cancelar (23514, salvo los repetidos: 23505 → 409; inexistente: P0002 → 404). */
+export const MENSAJE_CITA_PASADA = 'No se agenda en el pasado: elige hoy o una fecha posterior'
+export const MENSAJE_CITA_LEJANA = `Solo se agenda hasta ${DIAS_AGENDA_ADELANTE} días adelante`
+export const MENSAJE_CITA_DIA_LIBRE = 'Ese día lo tienes libre (día libre aprobado): no se agenda'
+export const MENSAJE_CITA_REPETIDA_MEDICO = 'Ya tienes una cita con ese médico ese día'
+export const MENSAJE_CITA_REPETIDA_CUENTA = 'Ya tienes una cita con esa cuenta y ese subtipo ese día'
+export const MENSAJE_CITA_NO_EXISTE = 'Esa cita no existe'
+export const MENSAJE_CITA_YA_CANCELADA = 'Esa cita ya está cancelada'
+export const MENSAJE_CITA_HECHA_NO_SE_CANCELA = 'Esa cita ya tiene su visita: no se cancela'
+export const MENSAJE_CITA_PASADA_NO_SE_CANCELA = 'Solo se cancelan las citas de hoy en adelante'
+
+/** Mensajes de visitas_registrar (23514) cuando la visita trae un agenda_id que no sirve (decisión 7). */
+export const MENSAJE_CITA_AJENA = 'Esa cita no existe o no es tuya'
+export const MENSAJE_CITA_CANCELADA = 'Esa cita está cancelada'
+export const MENSAJE_CITA_YA_HECHA = 'Esa cita ya tiene su visita'
+export const MENSAJE_CITA_OTRO_DIA = 'Esa cita es de otro día'
+export const MENSAJE_CITA_OTRO_TIPO = 'Esa cita es de otro tipo de visita'
+export const MENSAJE_CITA_OTRO_MEDICO = 'Esa cita es con otro médico'
+export const MENSAJE_CITA_OTRA_CUENTA = 'Esa cita es con otra cuenta'
+
+const HORA_RE = /^([01]\d|2[0-3]):([0-5]\d)(:[0-5]\d(\.\d+)?)?$/
+
+/** Hora HH:MM de un texto "HH:MM" o "HH:MM:SS" (lo que devuelve PostgreSQL para time), o null. */
+export function horaCorta(valor: unknown): string | null {
+  if (typeof valor !== 'string') return null
+  const coincide = HORA_RE.exec(valor.trim())
+  return coincide ? `${coincide[1]}:${coincide[2]}` : null
+}
+
+/** Cuerpo de POST /api/me/agenda (ya validado por citaCreateSchema): tipo discriminado como la visita. */
+export interface CitaCreateBase {
+  /** AAAA-MM-DD, de hoy a hoy + 30 (Bogotá); no en un día libre aprobado. */
+  fecha: string
+  /** HH:MM (opcional). */
+  hora: string | null
+  sede_id: string
+  /** Hasta 300 caracteres (opcional). */
+  nota: string | null
+}
+
+export type CitaCreateTipo =
+  | { tipo: 'medica'; medico_id: string; cuenta_id: null; subtipo_id: null }
+  | { tipo: 'institucional'; medico_id: null; cuenta_id: string; subtipo_id: string }
+
+export type CitaCreate = CitaCreateBase & CitaCreateTipo
+
+/** Cuerpo de POST /api/me/agenda/[id]/cancelar (el motivo es opcional, hasta 300 caracteres). */
+export interface CitaCancelar {
+  motivo: string | null
+}
+
+/** Sede de una cita, con lo que Reportar necesita para medir la distancia y el radio. */
+export interface SedeCita {
+  id: string
+  nombre: string
+  cuenta_id: string | null
+  cuenta_nombre: string | null
+  lat: number | null
+  lng: number | null
+  /** false: sede nueva de la app que data manager aún no confirma (la visita se guarda pero no suma). */
+  ubicacion_confirmada: boolean
+}
+
+/** Una cita de la agenda (GET /api/me/agenda, POST /api/me/agenda, cancelar y contexto.agenda_hoy). */
+export interface CitaItem {
+  id: string
+  fecha: string
+  /** HH:MM o null (sin hora). */
+  hora: string | null
+  tipo: TipoVisita
+  /** Médica: el médico (sin documento). */
+  medico: { id: string; nombre: string } | null
+  /** Institucional: la cuenta. */
+  cuenta: { id: string; nombre: string } | null
+  /** Institucional: el subtipo. */
+  subtipo: { id: string; codigo: string; nombre: string } | null
+  sede: SedeCita
+  nota: string | null
+  estado: EstadoCita
+  /** La visita que la cumplió (estado hecha). */
+  visita_id: string | null
+  /** Metros del punto del teléfono a la sede (solo en el contexto con punto); null sin punto o sede sin coordenadas. */
+  distancia_m: number | null
+  /** distancia_m ≤ radio presencial vigente; null si no hay distancia. */
+  dentro_del_radio: boolean | null
+  /** Creada antes de su día (Bogotá): la visita que la cumpla cuenta como agendada (decisión 6). */
+  anticipada: boolean
+  /** Ella la puede cancelar: pendiente y de hoy en adelante. */
+  cancelable: boolean
+}
+
+/** GET /api/me/agenda?desde=&hasta= (sin fechas: hoy a hoy + 7; como mucho 31 días). */
+export interface AgendaResponse {
+  desde: string
+  hasta: string
+  hoy: string
+  /** Última fecha en la que se puede agendar hoy (hoy + 30). */
+  max_fecha: string
+  items: CitaItem[]
+}
+
+/** POST /api/me/agenda → 201 y POST /api/me/agenda/[id]/cancelar → 200. */
+export interface CitaResponse {
+  cita: CitaItem
+}
+
+/** Indicador de la agenda en Mis números (decisión 8), por mes. Las razones van de 0 a 1 con 2 decimales. */
+export interface NumerosAgenda {
+  /** Visitas efectivas del mes (no anuladas). */
+  efectivas: number
+  /** De ellas, las agendadas (vinculadas a una cita creada antes del día de la visita). */
+  efectivas_agendadas: number
+  /** efectivas_agendadas ÷ efectivas; null si no hay efectivas. */
+  porcentaje_agendadas: number | null
+  /** Citas del mes de días ya pasados o de hoy, sin las canceladas. */
+  citas_hasta_hoy: number
+  /** De ellas, las hechas (con su visita, efectiva o no). */
+  citas_hechas: number
+  /** citas_hechas ÷ citas_hasta_hoy; null si no hay citas. */
+  cumplimiento: number | null
+}
+
+/** Cuerpo de POST /api/me/voz/campos: lo dictado para UNA visita y su tipo. */
+export interface CamposDictado {
+  transcript: string
+  tipo: TipoVisita
+}
+
+/** POST /api/me/voz/campos: el dictado repartido (todo editable en la app antes de confirmar). */
+export interface CamposDictadoResponse {
+  conclusion: string | null
+  compromisos: string | null
+  next_step_date: string | null
+}
+
+// --- Ventana de fechas (decisión 3) ---------------------------------------------------------------------------
+
+/** Desde hoy hasta hoy + 30 (Bogotá). */
+export function ventanaAgenda(hoy: string): { desde: string; hasta: string } {
+  return { desde: hoy, hasta: sumarDias(hoy, DIAS_AGENDA_ADELANTE) }
+}
+
+/** Un día libre de la persona (dias_libres), con lo mínimo para la agenda. */
+export interface DiaLibreAgenda {
+  fecha: string
+  fraccion: number
+  estado: string
+}
+
+/**
+ * ¿Ese día está libre completo? Cuenta como "día libre aprobado" lo que la cuota ya cuenta como libre
+ * (ESTADOS_DIA_LIBRE_LIBRES: registrado sin exigir aprobación, o aprobado) y de día completo; medio día no bloquea
+ * (la persona trabaja la otra mitad). Lo por aprobar, rechazado o anulado tampoco bloquea.
+ */
+export function esDiaLibreCompleto(dias: readonly DiaLibreAgenda[], fecha: string): boolean {
+  return dias.some(dia => dia.fecha === fecha && (ESTADOS_DIA_LIBRE_LIBRES as readonly string[]).includes(dia.estado) && Number(dia.fraccion) >= 1)
+}
+
+/**
+ * Espejo de la ventana de agenda_crear: el mensaje si en esa fecha no se agenda (pasado, más de 30 días o día libre
+ * completo), o null. Los festivos sí se permiten: la persona sabe si trabaja.
+ */
+export function mensajeFechaCita(fecha: string, hoy: string, dias: readonly DiaLibreAgenda[] = []): string | null {
+  if (!esFechaIso(fecha)) return 'Fecha no válida: usa AAAA-MM-DD'
+  if (fecha < hoy) return MENSAJE_CITA_PASADA
+  if (fecha > sumarDias(hoy, DIAS_AGENDA_ADELANTE)) return MENSAJE_CITA_LEJANA
+  if (esDiaLibreCompleto(dias, fecha)) return MENSAJE_CITA_DIA_LIBRE
+  return null
+}
+
+/** La persona puede cancelarla: pendiente y de hoy en adelante (espejo de agenda_cancelar). */
+export function citaCancelable(cita: { estado: EstadoCita; fecha: string }, hoy: string): boolean {
+  return cita.estado === 'pendiente' && cita.fecha >= hoy
+}
+
+// --- Vínculo con la visita (decisiones 6 y 7) ------------------------------------------------------------------
+
+/**
+ * Decisión 6: la visita cuenta como AGENDADA si su cita se creó antes del día de la visita en Bogotá. Una cita creada
+ * el mismo día sirve para organizarse y para vincular, pero la visita cuenta como no agendada.
+ */
+export function citaAnticipada(creadaAt: string, fechaVisita: string): boolean {
+  try {
+    return fechaBogota(creadaAt) < fechaVisita
+  } catch {
+    return false
+  }
+}
+
+/** Una cita con lo que el vínculo necesita (filas de visitas_agenda). */
+export interface CitaVinculo {
+  id: string
+  executive_id: string
+  fecha: string
+  hora: string | null
+  tipo: TipoVisita
+  medico_id: string | null
+  cuenta_id: string | null
+  subtipo_id: string | null
+  estado: EstadoCita
+  created_at: string
+  /** La visita que la cumplió (estado hecha). */
+  visita_id?: string | null
+  /** La cumplió una visita NO efectiva suya y no anulada: una efectiva de ese día la puede tomar (relevo). */
+  cumplida_por_no_efectiva?: boolean
+}
+
+/** La visita que se va a registrar, con lo que el vínculo mira. */
+export interface VisitaParaVinculo {
+  executive_id: string
+  /** visit_date (Bogotá). */
+  fecha: string
+  tipo: TipoVisita
+  medico_id: string | null
+  cuenta_id: string | null
+  subtipo_id: string | null
+  /** Solo una efectiva puede tomar la cita que cumplió una no efectiva (relevo). Sin el dato, no hay relevo. */
+  efectiva?: boolean
+}
+
+/** ¿Esta visita puede tomar esa cita hecha? Solo una efectiva, y solo si la cumplió una no efectiva suya (relevo). */
+export function citaRelevable(cita: Pick<CitaVinculo, 'estado' | 'cumplida_por_no_efectiva'>, visita: Pick<VisitaParaVinculo, 'efectiva'>): boolean {
+  return cita.estado === 'hecha' && cita.cumplida_por_no_efectiva === true && visita.efectiva === true
+}
+
+const compararHora = (a: string | null, b: string | null) => (a === b ? 0 : a === null ? 1 : b === null ? -1 : a < b ? -1 : 1)
+
+/**
+ * Vínculo automático (decisión 7, espejo de visitas_registrar): la cita PENDIENTE de ella, de ese día y del mismo
+ * tipo, con el mismo médico; en las institucionales con la misma cuenta, prefiriendo el mismo subtipo. Si la visita es
+ * efectiva, también la cita que cumplió una no efectiva suya ese día (relevo: la efectiva planeada cuenta como
+ * agendada). Entre varias: el mismo subtipo, la pendiente antes que el relevo, la de hora más temprana (sin hora al
+ * final), luego la creada primero y luego por id (el mismo ORDER BY de la base).
+ */
+export function citaParaVincular(citas: readonly CitaVinculo[], visita: VisitaParaVinculo): CitaVinculo | null {
+  const candidatas = citas.filter(
+    cita =>
+      cita.executive_id === visita.executive_id &&
+      cita.fecha === visita.fecha &&
+      (cita.estado === 'pendiente' || citaRelevable(cita, visita)) &&
+      cita.tipo === visita.tipo &&
+      (visita.tipo === 'medica' ? cita.medico_id !== null && cita.medico_id === visita.medico_id : cita.cuenta_id !== null && cita.cuenta_id === visita.cuenta_id)
+  )
+  const mismoSubtipo = (cita: CitaVinculo) => (cita.subtipo_id === visita.subtipo_id ? 0 : 1)
+  const pendienteAntes = (cita: CitaVinculo) => (cita.estado === 'pendiente' ? 0 : 1)
+  const ordenadas = [...candidatas].sort(
+    (a, b) =>
+      mismoSubtipo(a) - mismoSubtipo(b) ||
+      pendienteAntes(a) - pendienteAntes(b) ||
+      compararHora(a.hora, b.hora) ||
+      Date.parse(a.created_at) - Date.parse(b.created_at) ||
+      (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+  )
+  return ordenadas[0] ?? null
+}
+
+/**
+ * La cita que la visita trae en agenda_id, revisada como visitas_registrar (decisión 7): de ella (si no, "no existe o no
+ * es tuya"), no cancelada, no hecha (salvo el relevo: la cumplió una no efectiva suya y esta es efectiva), del mismo
+ * día, del mismo tipo y con el mismo médico o la misma cuenta (el subtipo puede cambiar: se planeó compras y se habló
+ * con el químico). null = sirve.
+ */
+export function revisarCitaElegida(cita: CitaVinculo | null | undefined, visita: VisitaParaVinculo): string | null {
+  if (!cita || cita.executive_id !== visita.executive_id) return MENSAJE_CITA_AJENA
+  if (cita.estado === 'cancelada') return MENSAJE_CITA_CANCELADA
+  if (cita.estado === 'hecha' && !citaRelevable(cita, visita)) return MENSAJE_CITA_YA_HECHA
+  if (cita.fecha !== visita.fecha) return MENSAJE_CITA_OTRO_DIA
+  if (cita.tipo !== visita.tipo) return MENSAJE_CITA_OTRO_TIPO
+  if (visita.tipo === 'medica' && cita.medico_id !== visita.medico_id) return MENSAJE_CITA_OTRO_MEDICO
+  if (visita.tipo === 'institucional' && cita.cuenta_id !== visita.cuenta_id) return MENSAJE_CITA_OTRA_CUENTA
+  return null
+}
+
+/**
+ * Vínculo completo (espejo del paso 7b de visitas_registrar): con agenda_id, esa cita (o el error); sin él, la del
+ * vínculo automático (o ninguna). `agendada` = la cita es anticipada respecto de la fecha de la visita. `relevo` = la
+ * no efectiva que suelta la cita porque esta efectiva la toma (queda sin cita y no agendada), o null.
+ */
+export function vinculoDeVisita(entrada: {
+  citas: readonly CitaVinculo[]
+  visita: VisitaParaVinculo
+  agenda_id: string | null
+}): { cita: CitaVinculo | null; agendada: boolean; error: string | null; relevo: string | null } {
+  const relevoDe = (cita: CitaVinculo | null) => (cita && cita.estado === 'hecha' ? (cita.visita_id ?? null) : null)
+  if (entrada.agenda_id) {
+    const cita = entrada.citas.find(c => c.id === entrada.agenda_id) ?? null
+    const error = revisarCitaElegida(cita, entrada.visita)
+    if (error) return { cita: null, agendada: false, error, relevo: null }
+    return { cita, agendada: citaAnticipada((cita as CitaVinculo).created_at, entrada.visita.fecha), error: null, relevo: relevoDe(cita) }
+  }
+  const cita = citaParaVincular(entrada.citas, entrada.visita)
+  return { cita, agendada: cita ? citaAnticipada(cita.created_at, entrada.visita.fecha) : false, error: null, relevo: relevoDe(cita) }
+}
+
+/** Una visita del día con lo que mira visitas_anular para pasarle la cita de la anulada. */
+export interface VisitaParaRetomar {
+  id: string
+  executive_id: string
+  fecha: string
+  tipo: TipoVisita
+  medico_id: string | null
+  cuenta_id: string | null
+  subtipo_id: string | null
+  efectiva: boolean
+  checked_in_at: string
+  agenda_id: string | null
+  anulada: boolean
+}
+
+/**
+ * Espejo del final de visitas_anular: al anular la visita que cumplía `cita`, la cita pasa a otra visita suya no
+ * anulada de ese día, del mismo tipo y con el mismo médico o cuenta, que no tenga cita (la efectiva primero, luego el
+ * mismo subtipo, la llegada más temprana y por id; p. ej. la no efectiva de antes de un relevo). null = no hay: la cita
+ * vuelve a pendiente.
+ */
+export function visitaQueRetomaCita(
+  cita: Pick<CitaVinculo, 'executive_id' | 'fecha' | 'tipo' | 'medico_id' | 'cuenta_id' | 'subtipo_id'>,
+  anuladaId: string,
+  visitas: readonly VisitaParaRetomar[]
+): VisitaParaRetomar | null {
+  const candidatas = visitas.filter(
+    v =>
+      v.id !== anuladaId &&
+      !v.anulada &&
+      v.agenda_id === null &&
+      v.executive_id === cita.executive_id &&
+      v.fecha === cita.fecha &&
+      v.tipo === cita.tipo &&
+      (cita.tipo === 'medica' ? cita.medico_id !== null && v.medico_id === cita.medico_id : cita.cuenta_id !== null && v.cuenta_id === cita.cuenta_id)
+  )
+  const ordenadas = [...candidatas].sort(
+    (a, b) =>
+      Number(b.efectiva) - Number(a.efectiva) ||
+      Number(b.subtipo_id === cita.subtipo_id) - Number(a.subtipo_id === cita.subtipo_id) ||
+      Date.parse(a.checked_in_at) - Date.parse(b.checked_in_at) ||
+      (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+  )
+  return ordenadas[0] ?? null
+}
+
+// --- Indicador de Mis números (decisión 8) ---------------------------------------------------------------------
+
+/**
+ * Cuentas de la agenda del mes: porcentaje de efectivas agendadas (agendadas ÷ efectivas) y cumplimiento de la agenda
+ * (citas hechas ÷ citas de días ya pasados o de hoy, sin las canceladas). `visitas`: las del mes sin anuladas; la no
+ * efectiva cumple su cita pero no suma a las efectivas. `citas`: las del mes (todas: aquí se quitan las canceladas).
+ */
+export function cuentasAgenda(entrada: {
+  visitas: readonly { efectiva: boolean; agendada: boolean }[]
+  citas: readonly { fecha: string; estado: EstadoCita }[]
+  hoy: string
+}): NumerosAgenda {
+  const efectivas = entrada.visitas.filter(visita => visita.efectiva)
+  const efectivas_agendadas = efectivas.filter(visita => visita.agendada).length
+  const hastaHoy = entrada.citas.filter(cita => cita.estado !== 'cancelada' && cita.fecha <= entrada.hoy)
+  const citas_hechas = hastaHoy.filter(cita => cita.estado === 'hecha').length
+  return {
+    efectivas: efectivas.length,
+    efectivas_agendadas,
+    porcentaje_agendadas: efectivas.length > 0 ? redondear2(efectivas_agendadas / efectivas.length) : null,
+    citas_hasta_hoy: hastaHoy.length,
+    citas_hechas,
+    cumplimiento: hastaHoy.length > 0 ? redondear2(citas_hechas / hastaHoy.length) : null,
+  }
+}
+
+// --- Distancia y orden de las citas (Reportar: la más cercana primero) ------------------------------------------
+
+/** Distancia del punto a la sede de la cita y si queda dentro del radio (null sin punto o sede sin coordenadas). */
+export function distanciaACita(
+  sede: { lat: number | null; lng: number | null },
+  punto: Punto | null,
+  radioM: number
+): { distancia_m: number | null; dentro_del_radio: boolean | null } {
+  if (!punto || !esPunto(punto.lat, punto.lng) || !esPunto(sede.lat, sede.lng)) return { distancia_m: null, dentro_del_radio: null }
+  const distancia_m = haversineM(punto, { lat: sede.lat as number, lng: sede.lng as number })
+  return { distancia_m, dentro_del_radio: distancia_m <= radioM }
+}
+
+/**
+ * Orden de las citas: por fecha; con distancia (contexto con punto), la más cercana primero (sin distancia al final);
+ * luego por hora (sin hora al final), por con quién y por id.
+ */
+export function ordenarCitas<T extends Pick<CitaItem, 'id' | 'fecha' | 'hora' | 'distancia_m' | 'medico' | 'cuenta'>>(
+  citas: readonly T[],
+  opciones: { porDistancia?: boolean } = {}
+): T[] {
+  const distancia = (cita: T) => (cita.distancia_m === null ? Number.POSITIVE_INFINITY : cita.distancia_m)
+  const con = (cita: T) => cita.medico?.nombre ?? cita.cuenta?.nombre ?? ''
+  return [...citas].sort(
+    (a, b) =>
+      a.fecha.localeCompare(b.fecha) ||
+      (opciones.porDistancia ? distancia(a) - distancia(b) : 0) ||
+      compararHora(a.hora, b.hora) ||
+      con(a).localeCompare(con(b), 'es', { sensitivity: 'base' }) ||
+      (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+  )
+}
+
+// --- Dictado por campo (decisión 9): conclusión, compromisos y próxima reunión ----------------------------------
+
+const DIAS_SEMANA = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'] as const
+
+/** Nombre del día de la semana de una fecha (para que Claude resuelva "el jueves"). */
+export function nombreDiaSemana(fecha: string): string {
+  return DIAS_SEMANA[diaSemanaIso(fecha) - 1] ?? ''
+}
+
+/** Prompt del sistema para repartir el dictado de UNA visita entre sus campos (salida solo por la herramienta). */
+export const PROMPT_CAMPOS = `Eres el asistente de reporte de visitas de VG (dispositivos médicos, Colombia). Un Ejecutivo Comercial dictó lo que pasó en UNA visita que ya eligió. Reparte lo dicho SOLO con la herramienta repartir_campos.
+
+Reglas:
+1. conclusion: lo que pasó y lo que se concluyó, en frases cortas y con sus palabras. No agregues nada que no haya dicho.
+2. compromisos: lo que quedó en hacer alguna de las partes (enviar, llevar, cotizar, llamar, volver), separados por punto y coma. Si no dijo ninguno, null.
+3. next_step_date: solo si dio una fecha o un plazo claro para la próxima reunión o el siguiente paso, en AAAA-MM-DD a partir de la fecha de hoy que se te da; si no, null.
+4. Un mismo dato no va en dos campos. Si no dijo nada que sirva para un campo, ese campo va en null.
+5. Nunca escribas números de documento ni teléfonos.
+6. Responde en español, sin saludos ni explicaciones fuera de la herramienta.`
+
+/** Esquema JSON (entrada de la herramienta repartir_campos): lo mismo que camposSchema valida después. */
+export const esquemaCampos = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    conclusion: { type: ['string', 'null'], maxLength: MAX_CONCLUSION, description: 'Lo que pasó y se concluyó; null si no lo dijo' },
+    compromisos: { type: ['string', 'null'], maxLength: MAX_COMPROMISOS, description: 'Lo que quedó en hacer cada parte; null si no lo dijo' },
+    next_step_date: { type: ['string', 'null'], pattern: '^\\d{4}-\\d{2}-\\d{2}$', description: 'Próxima reunión AAAA-MM-DD; null si no dio fecha' },
+  },
+  required: ['conclusion', 'compromisos', 'next_step_date'],
+} as const
+
+/** Nombre y descripción de la herramienta (la API arma la definición con esquemaCampos). */
+export const HERRAMIENTA_CAMPOS = {
+  name: 'repartir_campos',
+  description: 'Reparte el dictado de una visita entre la conclusión, los compromisos y la fecha de la próxima reunión.',
+} as const
+
+/** Lo que devuelve Claude por la herramienta (antes de normalizar). Lo valida camposSchema (zod). */
+export interface CamposCrudos {
+  conclusion: string | null
+  compromisos: string | null
+  next_step_date: string | null
+}
+
+/**
+ * Deja el reparto usable por la app: textos limpios, acotados y sin números largos (documentos o teléfonos), y la
+ * próxima reunión solo si es una fecha válida desde hoy (una anterior nacería como compromiso vencido).
+ */
+export function normalizarCampos(crudos: Partial<CamposCrudos> | null | undefined, hoy: string): CamposDictadoResponse {
+  const fecha = crudos?.next_step_date
+  return {
+    conclusion: textoPropuesta(crudos?.conclusion, MAX_CONCLUSION),
+    compromisos: textoPropuesta(crudos?.compromisos, MAX_COMPROMISOS),
+    next_step_date: esFechaIso(fecha) && fecha >= hoy ? fecha : null,
+  }
+}
+
+/** Mensaje del usuario para repartir_campos: la fecha de hoy (con su día), el tipo de visita y lo dictado. */
+export function mensajeCampos(entrada: { transcript: string; tipo: TipoVisita; hoy: string }): string {
+  return [
+    `HOY: ${entrada.hoy} (${nombreDiaSemana(entrada.hoy)})`,
+    `VISITA: ${entrada.tipo === 'medica' ? 'médica (a un médico)' : 'institucional (a una cuenta)'}`,
+    '',
+    'DICTADO:',
+    '"""',
+    entrada.transcript,
+    '"""',
+    '',
+    `Reparte lo dictado llamando a la herramienta ${HERRAMIENTA_CAMPOS.name}.`,
+  ].join('\n')
+}
+
+/** 502 del dictado por campo (la app deja escribir a mano). */
+export const MENSAJE_FALLO_CAMPOS = 'No se pudo repartir el dictado. Escribe la conclusión y los compromisos a mano.'
+
+/**
+ * Rango de GET /api/me/agenda con los valores por defecto: sin fechas, de hoy a hoy + 7; solo desde, desde + 7; solo
+ * hasta, de hoy a hasta. Como mucho MAX_DIAS_CONSULTA_AGENDA días (ambos incluidos) y hasta no antes que desde.
+ */
+export function rangoConsultaAgenda(
+  consulta: { desde: string | null; hasta: string | null },
+  hoy: string
+): { desde: string; hasta: string; error: null } | { desde: null; hasta: null; error: string } {
+  const desde = consulta.desde ?? hoy
+  const hasta = consulta.hasta ?? sumarDias(desde, DIAS_AGENDA_POR_DEFECTO)
+  if (hasta < desde) return { desde: null, hasta: null, error: 'La fecha final no puede ser anterior a la inicial' }
+  if (sumarDias(desde, MAX_DIAS_CONSULTA_AGENDA - 1) < hasta) {
+    return { desde: null, hasta: null, error: `Como mucho ${MAX_DIAS_CONSULTA_AGENDA} días por consulta` }
+  }
+  return { desde, hasta, error: null }
 }

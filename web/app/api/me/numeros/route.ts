@@ -5,14 +5,16 @@
 // (calcularCuotaDetallada de F2: un solo cálculo). La telefónica suma con su peso vigente (config_general.telefonicas)
 // y una visita en una sede que data manager aún no confirma no suma hasta que la confirme (decisión 9 del dueño):
 // sale en sede_por_confirmar. El resto de KPIs llega en F5.
-// Contrato: docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md (sección "API").
+// F4.1 (0840): bloque `agenda` del mes (decisión 8): efectivas agendadas ÷ efectivas y citas hechas ÷ citas de días ya
+// pasados o de hoy (sin canceladas); null si la 0840 aún no está aplicada (el resto responde igual).
+// Contrato: docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md (secciones "API" y "F4.1").
 import { NextRequest, NextResponse } from 'next/server'
 import { jsonError, zodMessage } from '@/app/api/kams/_lib/kam-shared'
 import { numerosQuerySchema } from '@/lib/reporte-visitas-schemas'
 import { cumplimientoMes, numerosDesdeCumplimiento } from '@/lib/reporte-visitas'
 import { hoyBogota, limitesMes, mesDe, sumarDias } from '@/lib/visits-rules'
 import { ahora, calcularCuotaDetallada, requireEjecutiva } from '../../config-visitas/_lib/visitas-server'
-import { confirmacionDeSedes, errorReporte, leerVisitas } from '../_lib/reporte-server'
+import { confirmacionDeSedes, errorReporte, leerVisitas, numerosDeAgenda } from '../_lib/reporte-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -28,7 +30,10 @@ export async function GET(request: NextRequest) {
     const mes = consulta.data.mes ?? mesDe(hoy)
     const { desde, hasta } = limitesMes(mes)
     const [detalle, visitas] = await Promise.all([calcularCuotaDetallada(auth.persona, mes, hoy), leerVisitas(auth.persona.id, desde, hasta)])
-    const confirmadas = await confirmacionDeSedes(visitas.map(visita => visita.sede_id))
+    const [confirmadas, agenda] = await Promise.all([
+      confirmacionDeSedes(visitas.map(visita => visita.sede_id)),
+      numerosDeAgenda(auth.persona.id, { desde, hasta }, visitas, hoy),
+    ])
     const resultado = cumplimientoMes({
       visitas: visitas.map(visita => ({
         fecha: visita.visit_date,
@@ -46,7 +51,7 @@ export async function GET(request: NextRequest) {
       // Días hábiles YA CERRADOS sin visitas: hoy aún no termina, así que cuenta hasta ayer.
       hoy: sumarDias(hoy, -1),
     })
-    return NextResponse.json(numerosDesdeCumplimiento(mes, detalle.cuota, resultado), { headers: { 'Cache-Control': 'no-store' } })
+    return NextResponse.json(numerosDesdeCumplimiento(mes, detalle.cuota, resultado, agenda), { headers: { 'Cache-Control': 'no-store' } })
   } catch (error) {
     return errorReporte('GET /api/me/numeros', error, 'Error al calcular tus números')
   }

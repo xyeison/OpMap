@@ -1,7 +1,12 @@
 // Utilidades de servidor de la F3 de visitas (el reporte de la ejecutiva y la voz): /api/me/contexto,
-// /api/me/visitas/**, /api/me/voz/** y /api/me/numeros. La carpeta empieza por "_" para que Next.js no la exponga
-// como ruta. Contrato: docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md (secciones "API" y decisiones 3 a 16).
+// /api/me/visitas/**, /api/me/voz/**, /api/me/numeros y, desde la F4.1 (migración 0840), /api/me/agenda/** y
+// /api/me/voz/campos. La carpeta empieza por "_" para que Next.js no la exponga como ruta. Contrato:
+// docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md (secciones "API", decisiones 3 a 16 y "F4.1").
 // Todo con supabaseAdmin (service_role).
+//
+// Sin la 0840 aplicada: las rutas de la agenda y el dictado por campo responden 503 con MENSAJE_FALTA_MIGRACION_0840
+// (o sin llave, el de la voz); las demás siguen como antes (contexto con agenda_hoy [], visitas sin vínculo, Mis
+// números con agenda null): las lecturas de visits reintentan sin agenda_id ni agendada.
 //
 // Aquí solo se LEEN filas y se pasan a la lógica pura (lib/reporte-visitas.ts, lib/visits-rules.ts): las reglas de la
 // visita (radio, mismo día, topes, perfil, líneas) están en validarVisita y, como última palabra, en
@@ -26,6 +31,7 @@ import {
   type PersonaVisitas,
 } from '@/app/api/config-visitas/_lib/visitas-server'
 import {
+  HERRAMIENTA_CAMPOS,
   HERRAMIENTA_PROPUESTA,
   IDIOMA_TRANSCRIPCION,
   LIMITES_VOZ,
@@ -36,27 +42,42 @@ import {
   MODELO_TRANSCRIPCION_RESPALDO,
   MENSAJE_SIN_ANTHROPIC,
   MENSAJE_SIN_OPENAI,
+  MENSAJE_CITA_NO_EXISTE,
+  PROMPT_CAMPOS,
   PROMPT_PROPUESTA,
+  citaAnticipada,
+  citaCancelable,
   compromisosVencidos,
+  cuentasAgenda,
+  distanciaACita,
   esPunto,
+  esquemaCampos,
   esquemaPropuesta,
   haversineM,
+  horaCorta,
+  mensajeCampos,
+  ordenarCitas,
   resumenHoy,
   revisarLimite,
   sedesCercanas,
   valorReporte,
   visitaEditable,
+  type CitaCreate,
+  type CitaItem,
   type ConfigContexto,
   type ContactoContexto,
   type ContextoDictado,
   type ContextoResponse,
   type ContextoValidacion,
+  type EstadoCita,
   type LineaEjecutiva,
   type MedicoContexto,
   type Modalidad,
   type ModoEntrada,
+  type NumerosAgenda,
   type Punto,
   type SedeCerca,
+  type SedeCita,
   type SedeDeMedico,
   type SubtipoContexto,
   type ValorReporte,
@@ -102,6 +123,24 @@ export function faltaMigracion0830(error: unknown): boolean {
   return /Could not find the (table|function)|relation .* does not exist|function .* does not exist/i.test(texto)
 }
 
+/** Mensaje del 503 de la agenda y del dictado por campo cuando la migración 0840 no está aplicada. */
+export const MENSAJE_FALTA_MIGRACION_0840 =
+  'La agenda de visitas aún no está disponible: falta aplicar la migración 0840 en la base de datos'
+
+/**
+ * ¿El error dice que falta algo de la 0840? La tabla visitas_agenda, las funciones agenda_crear / agenda_cancelar o las
+ * columnas visits.agenda_id / visits.agendada (42P01, 42883, 42703 y sus equivalentes de PostgREST; fetchAllRows
+ * conserva solo el mensaje). Se mira ANTES que faltaMigracion0830, que toma por suyo cualquier columna que no existe.
+ */
+export function faltaMigracion0840(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const { code, message, details } = error as ErrorBase
+  const texto = `${message ?? ''} ${details ?? ''}`
+  if (!/visitas_agenda|agenda_crear|agenda_cancelar|agenda_id|agendada/.test(texto)) return false
+  if (code && ['42P01', '42883', '42703', 'PGRST202', 'PGRST204', 'PGRST205'].includes(code)) return true
+  return /Could not find the (table|function)|Could not find the '[^']+' column|relation .* does not exist|function .* does not exist|column [\w."]+ does not exist/i.test(texto)
+}
+
 /** Lo que reemplaza en el log un texto de la visita que apareciera en el mensaje del error. */
 export const TEXTO_OMITIDO_EN_LOG = '[texto de la visita omitido]'
 const MAX_MENSAJE_LOG = 300
@@ -136,6 +175,10 @@ export function errorReporte(
   mensaje = 'Error interno del servidor',
   ocultar: readonly (string | null | undefined)[] = []
 ): NextResponse {
+  if (faltaMigracion0840(error)) {
+    console.error(`Error en ${contexto}: falta la migración 0840`)
+    return jsonError(MENSAJE_FALTA_MIGRACION_0840, 503)
+  }
   if (faltaMigracion0830(error)) {
     console.error(`Error en ${contexto}: falta la migración 0830`)
     return jsonError(MENSAJE_FALTA_MIGRACION_0830, 503)
@@ -150,6 +193,7 @@ export function errorReporte(
  */
 export function respuestaErrorVisita(error: ErrorBase | null | undefined, porDefecto: string): NextResponse | null {
   if (!error) return null
+  if (faltaMigracion0840(error)) return jsonError(MENSAJE_FALTA_MIGRACION_0840, 503)
   if (faltaMigracion0830(error)) return jsonError(MENSAJE_FALTA_MIGRACION_0830, 503)
   const texto = (error.message ?? '').trim()
   switch (error.code) {
@@ -163,6 +207,35 @@ export function respuestaErrorVisita(error: ErrorBase | null | undefined, porDef
       return jsonError(mensajeRegla(error, 'Ese client_id ya se usó en otra visita'), 409)
     case '23503':
       return jsonError('Un dato relacionado no existe (sede, médico, cuenta, contacto, subtipo o línea)', 400)
+    case '22P02':
+    case '22007':
+    case '22008':
+      return jsonError(porDefecto, 400)
+    default:
+      return null
+  }
+}
+
+/**
+ * Traduce el error de agenda_crear / agenda_cancelar (0840): 23514 (regla) → 400 con el mensaje de la base · 22023
+ * (forma) → 400 · 23505 (cita repetida) → 409 · P0002 (inexistente o ajena) → 404 · 23503 / 22P02 → 400 · falta la
+ * 0840 → 503. null si no es uno que la API sepa explicar.
+ */
+export function respuestaErrorAgenda(error: ErrorBase | null | undefined, porDefecto: string): NextResponse | null {
+  if (!error) return null
+  if (faltaMigracion0840(error)) return jsonError(MENSAJE_FALTA_MIGRACION_0840, 503)
+  const texto = (error.message ?? '').trim()
+  switch (error.code) {
+    case '23514':
+      return jsonError(mensajeRegla(error, porDefecto), 400)
+    case '22023':
+      return jsonError(texto || porDefecto, 400)
+    case '23505':
+      return jsonError(mensajeRegla(error, 'Ya tienes una cita igual ese día'), 409)
+    case 'P0002':
+      return jsonError(texto || MENSAJE_CITA_NO_EXISTE, 404)
+    case '23503':
+      return jsonError('Un dato relacionado no existe (sede, médico, cuenta o subtipo)', 400)
     case '22P02':
     case '22007':
     case '22008':
@@ -262,10 +335,30 @@ export interface FilaVisita {
   out_of_territory: boolean
   visit_date: string
   deleted_at: string | null
+  /** Cita que cumplió (0840; null sin cita o sin la 0840). */
+  agenda_id: string | null
+  /** Agendada: cita creada antes del día de la visita (0840; false sin la 0840). */
+  agendada: boolean
 }
 
-export const COLUMNAS_VISITA =
+const COLUMNAS_VISITA_0830 =
   'id, client_id, source, executive_id, tipo, subtipo_id, subtipo_codigo, medico_id, cuenta_id, sede_id, contacto_id, modalidad, medio, efectiva, failure_reason, checked_in_at, distance_m, conclusion, compromisos, next_step_date, input_mode, out_of_territory, visit_date, deleted_at'
+
+export const COLUMNAS_VISITA = `${COLUMNAS_VISITA_0830}, agenda_id, agendada`
+
+/**
+ * Lee visitas con las columnas de la 0840 y, si la base aún no las tiene, otra vez sin ellas (agenda_id null, agendada
+ * false): así contexto, visitas y números siguen funcionando antes de aplicar la 0840.
+ */
+async function conColumnasDeAgenda(leer: (columnas: string) => Promise<FilaVisita[]>): Promise<FilaVisita[]> {
+  try {
+    return await leer(COLUMNAS_VISITA)
+  } catch (error) {
+    if (!faltaMigracion0840(error)) throw error
+    const filas = await leer(COLUMNAS_VISITA_0830)
+    return filas.map(fila => ({ ...fila, agenda_id: null, agendada: false }))
+  }
+}
 
 /** Visitas de la app de una ejecutiva entre dos fechas (visit_date), sin las anuladas salvo `conAnuladas`. */
 export async function leerVisitas(
@@ -274,31 +367,39 @@ export async function leerVisitas(
   hasta: string,
   opciones: { conAnuladas?: boolean } = {}
 ): Promise<FilaVisita[]> {
-  return fetchAllRows<FilaVisita>((from, to) => {
-    let consulta = supabaseAdmin
-      .from('visits')
-      .select(COLUMNAS_VISITA)
-      .eq('source', 'app')
-      .eq('executive_id', executiveId)
-      .gte('visit_date', desde)
-      .lte('visit_date', hasta)
-    if (!opciones.conAnuladas) consulta = consulta.is('deleted_at', null)
-    return consulta.order('checked_in_at').order('id').range(from, to)
+  return conColumnasDeAgenda(columnas =>
+    fetchAllRows<FilaVisita>((from, to) => {
+      let consulta = supabaseAdmin
+        .from('visits')
+        .select(columnas)
+        .eq('source', 'app')
+        .eq('executive_id', executiveId)
+        .gte('visit_date', desde)
+        .lte('visit_date', hasta)
+      if (!opciones.conAnuladas) consulta = consulta.is('deleted_at', null)
+      return consulta.order('checked_in_at').order('id').range(from, to) as unknown as PromiseLike<{ data: FilaVisita[] | null; error: { message: string } | null }>
+    })
+  )
+}
+
+/** Una visita por un campo único (id o client_id), o null. */
+async function visitaPor(campo: 'id' | 'client_id', valor: string): Promise<FilaVisita | null> {
+  const filas = await conColumnasDeAgenda(async columnas => {
+    const { data, error } = await supabaseAdmin.from('visits').select(columnas).eq(campo, valor).limit(1)
+    if (error) throw error
+    return (data ?? []) as unknown as FilaVisita[]
   })
+  return filas[0] ?? null
 }
 
 /** Una visita por id (o null). */
 export async function leerVisita(id: string): Promise<FilaVisita | null> {
-  const { data, error } = await supabaseAdmin.from('visits').select(COLUMNAS_VISITA).eq('id', id).limit(1)
-  if (error) throw error
-  return data && data.length > 0 ? (data[0] as unknown as FilaVisita) : null
+  return visitaPor('id', id)
 }
 
 /** La visita con ese client_id (idempotencia), o null. */
 export async function visitaPorClientId(clientId: string): Promise<FilaVisita | null> {
-  const { data, error } = await supabaseAdmin.from('visits').select(COLUMNAS_VISITA).eq('client_id', clientId).limit(1)
-  if (error) throw error
-  return data && data.length > 0 ? (data[0] as unknown as FilaVisita) : null
+  return visitaPor('client_id', clientId)
 }
 
 /** Conteo activo (config_conteo) para valorVisita. */
@@ -427,6 +528,8 @@ export async function armarVisitaItems(
       peso: valor.peso,
       sede_por_confirmar: valor.sede_por_confirmar,
       editable: activa && visitaEditable(fila, entrada.persona.id, entrada.hoy),
+      agenda_id: fila.agenda_id ?? null,
+      agendada: fila.agendada === true,
     }
   })
 }
@@ -641,7 +744,7 @@ export function vozDisponible(): ContextoResponse['voz'] {
  * aporte de hoy de la cuota del mes (calcularCuotaDetallada de F2: un solo cálculo); la configuración, la vigente hoy.
  */
 export async function cargarContexto(persona: PersonaVisitas, punto: Punto | null, hoy: string): Promise<ContextoResponse> {
-  const [detalle, lineas, subtipos, visitasHoy, medicos, sedes, compromisos] = await Promise.all([
+  const [detalle, lineas, subtipos, visitasHoy, medicos, sedes, compromisos, citasHoy] = await Promise.all([
     calcularCuotaDetallada(persona, mesDe(hoy), hoy),
     lineasDeEjecutiva(persona.id),
     subtiposVigentes(hoy),
@@ -649,10 +752,13 @@ export async function cargarContexto(persona: PersonaVisitas, punto: Punto | nul
     misMedicos(persona.id, hoy, punto),
     punto ? sedesCercaDe(punto) : Promise.resolve([] as SedeCerca[]),
     compromisosDe(persona.id, hoy),
+    citasSinMigracion(() => leerCitas(persona.id, hoy, hoy)),
   ])
-  const [contactos, confirmadas] = await Promise.all([
+  const config = configDeHoy(detalle.general, detalle.personas, persona.id, hoy)
+  const [contactos, confirmadas, agendaHoy] = await Promise.all([
     contactosDeCuentas(sedes.map(sede => sede.cuenta_id)),
     confirmacionDeSedes(visitasHoy.map(visita => visita.sede_id)),
+    citasHoy ? armarCitaItems(citasHoy, { hoy, punto, radio_m: config.radio_m }) : Promise.resolve([] as CitaItem[]),
   ])
   const meta = metaDelDia(detalle, hoy)
   // La meta del día solo se cumple con lo que suma: las de sedes por confirmar no (aún) y la telefónica con su peso.
@@ -666,13 +772,14 @@ export async function cargarContexto(persona: PersonaVisitas, punto: Punto | nul
   return {
     ejecutiva: { id: persona.id, nombre: persona.nombre, zona: persona.zona, municipio: persona.municipio, lineas },
     hoy: { fecha: hoy, meta: resumen.meta, hechas: resumen.hechas, cuota_dia_ok: resumen.cuota_dia_ok },
-    config: configDeHoy(detalle.general, detalle.personas, persona.id, hoy),
+    config,
     sedes_cerca: sedes,
     mis_medicos: medicos,
     contactos,
     subtipos,
     compromisos_vencidos: compromisos,
     voz: vozDisponible(),
+    agenda_hoy: agendaHoy,
   }
 }
 
@@ -803,7 +910,173 @@ export function jsonbRegistrar(datos: VisitaCreate, executiveId: string): Record
     transcript: datos.transcript,
     input_mode: datos.input_mode,
     lineas: [...datos.lineas],
+    // 0840: la cita que se cumple (null = que la base busque la del mismo médico o cuenta). La 0830 ignora la clave.
+    agenda_id: datos.agenda_id,
   }
+}
+
+// ---------------------------------------------------------------------------------------------
+// 4b. Agenda (F4.1, migración 0840): lecturas, CitaItem y el indicador de Mis números
+// ---------------------------------------------------------------------------------------------
+
+/** Fila de visitas_agenda que lee la API. */
+export interface FilaCita {
+  id: string
+  executive_id: string
+  fecha: string
+  hora: string | null
+  tipo: TipoVisita
+  medico_id: string | null
+  cuenta_id: string | null
+  subtipo_id: string | null
+  sede_id: string
+  nota: string | null
+  estado: EstadoCita
+  visita_id: string | null
+  cancelada_at: string | null
+  cancelada_motivo: string | null
+  created_at: string
+}
+
+export const COLUMNAS_CITA =
+  'id, executive_id, fecha, hora, tipo, medico_id, cuenta_id, subtipo_id, sede_id, nota, estado, visita_id, cancelada_at, cancelada_motivo, created_at'
+
+/** Citas de una persona entre dos fechas (sin las canceladas salvo `conCanceladas`), por fecha y hora. */
+export async function leerCitas(
+  executiveId: string,
+  desde: string,
+  hasta: string,
+  opciones: { conCanceladas?: boolean } = {}
+): Promise<FilaCita[]> {
+  return fetchAllRows<FilaCita>((from, to) => {
+    let consulta = supabaseAdmin
+      .from('visitas_agenda')
+      .select(COLUMNAS_CITA)
+      .eq('executive_id', executiveId)
+      .gte('fecha', desde)
+      .lte('fecha', hasta)
+    if (!opciones.conCanceladas) consulta = consulta.neq('estado', 'cancelada')
+    return consulta.order('fecha').order('hora').order('id').range(from, to)
+  })
+}
+
+/** Una cita por id (o null). */
+export async function leerCita(id: string): Promise<FilaCita | null> {
+  const { data, error } = await supabaseAdmin.from('visitas_agenda').select(COLUMNAS_CITA).eq('id', id).limit(1)
+  if (error) throw error
+  return data && data.length > 0 ? (data[0] as unknown as FilaCita) : null
+}
+
+/** Corre una lectura de la agenda; si falta la 0840 devuelve null (quien llama sigue sin agenda). */
+export async function citasSinMigracion<T>(leer: () => Promise<T>): Promise<T | null> {
+  try {
+    return await leer()
+  } catch (error) {
+    if (faltaMigracion0840(error)) return null
+    throw error
+  }
+}
+
+/**
+ * Filas de visitas_agenda → CitaItem: nombres del médico, la cuenta y el subtipo; la sede con su cuenta, coordenadas
+ * y si está confirmada; la distancia al punto y si queda dentro del radio (solo con punto); anticipada y cancelable.
+ * Orden: con punto, la más cercana primero; sin punto, por fecha y hora. Nunca documentos ni teléfonos.
+ */
+export async function armarCitaItems(
+  filas: readonly FilaCita[],
+  entrada: { hoy: string; punto?: Punto | null; radio_m?: number }
+): Promise<CitaItem[]> {
+  if (filas.length === 0) return []
+  type SedeFilaCita = { id: string; nombre: string; cuenta_id: string | null; lat: number | string | null; lng: number | string | null; ubicacion_confirmada: boolean | null }
+  const [medicos, sedes, subtipos] = await Promise.all([
+    nombresPorId('medicos', filas.map(fila => fila.medico_id)),
+    leerPorIds<SedeFilaCita>(filas.map(fila => fila.sede_id), (trozo, from, to) =>
+      supabaseAdmin.from('sedes').select('id, nombre, cuenta_id, lat, lng, ubicacion_confirmada').in('id', trozo).order('id').range(from, to)
+    ),
+    leerPorIds<{ id: string; codigo: string; nombre: string }>(
+      filas.map(fila => fila.subtipo_id).filter((id): id is string => Boolean(id)),
+      (trozo, from, to) => supabaseAdmin.from('subtipos_institucionales').select('id, codigo, nombre').in('id', trozo).order('id').range(from, to)
+    ),
+  ])
+  const sedePorId = new Map(sedes.map(sede => [sede.id, sede]))
+  const cuentas = await nombresPorId('cuentas', [...filas.map(fila => fila.cuenta_id), ...sedes.map(sede => sede.cuenta_id)])
+  const subtipoPorId = new Map(subtipos.map(subtipo => [subtipo.id, subtipo]))
+  const punto = entrada.punto ?? null
+  const radio = Number(entrada.radio_m ?? 0)
+
+  const items: CitaItem[] = filas.map(fila => {
+    const sedeFila = sedePorId.get(fila.sede_id)
+    const sede: SedeCita = {
+      id: fila.sede_id,
+      nombre: sedeFila?.nombre ?? 'Sede',
+      cuenta_id: sedeFila?.cuenta_id ?? null,
+      cuenta_nombre: sedeFila?.cuenta_id ? cuentas.get(sedeFila.cuenta_id) ?? null : null,
+      lat: sedeFila ? aNumero(sedeFila.lat) : null,
+      lng: sedeFila ? aNumero(sedeFila.lng) : null,
+      ubicacion_confirmada: sedeFila?.ubicacion_confirmada === true,
+    }
+    const subtipo = fila.subtipo_id ? subtipoPorId.get(fila.subtipo_id) : undefined
+    const distancia = distanciaACita(sede, punto, radio)
+    return {
+      id: fila.id,
+      fecha: fila.fecha,
+      hora: horaCorta(fila.hora),
+      tipo: fila.tipo,
+      medico: fila.medico_id ? { id: fila.medico_id, nombre: medicos.get(fila.medico_id) ?? 'Médico' } : null,
+      cuenta: fila.tipo === 'institucional' && fila.cuenta_id ? { id: fila.cuenta_id, nombre: cuentas.get(fila.cuenta_id) ?? 'Cuenta' } : null,
+      subtipo: fila.subtipo_id ? { id: fila.subtipo_id, codigo: subtipo?.codigo ?? '', nombre: subtipo?.nombre ?? 'Subtipo' } : null,
+      sede,
+      nota: fila.nota,
+      estado: fila.estado,
+      visita_id: fila.visita_id,
+      distancia_m: distancia.distancia_m,
+      dentro_del_radio: distancia.dentro_del_radio,
+      anticipada: citaAnticipada(fila.created_at, fila.fecha),
+      cancelable: citaCancelable(fila, entrada.hoy),
+    }
+  })
+  return ordenarCitas(items, { porDistancia: punto !== null })
+}
+
+/** Una cita armada como CitaItem (o null si no existe). */
+export async function cargarCitaItem(id: string, hoy: string): Promise<CitaItem | null> {
+  const fila = await leerCita(id)
+  if (!fila) return null
+  const [item] = await armarCitaItems([fila], { hoy })
+  return item ?? null
+}
+
+/** El jsonb de agenda_crear, campo a campo (allow-list: nunca el body entero). */
+export function jsonbCita(datos: CitaCreate): Record<string, unknown> {
+  return {
+    fecha: datos.fecha,
+    hora: datos.hora,
+    tipo: datos.tipo,
+    medico_id: datos.medico_id,
+    cuenta_id: datos.cuenta_id,
+    subtipo_id: datos.subtipo_id,
+    sede_id: datos.sede_id,
+    nota: datos.nota,
+  }
+}
+
+/**
+ * Indicador de la agenda del mes (decisión 8) con las visitas del mes ya leídas (sin anuladas, con agendada) y las
+ * citas del mes; null si la 0840 no está aplicada.
+ */
+export async function numerosDeAgenda(
+  executiveId: string,
+  rango: { desde: string; hasta: string },
+  visitas: readonly Pick<FilaVisita, 'efectiva' | 'agendada'>[],
+  hoy: string
+): Promise<NumerosAgenda | null> {
+  const citas = await citasSinMigracion(() => leerCitas(executiveId, rango.desde, rango.hasta, { conCanceladas: true }))
+  if (!citas) return null
+  return cuentasAgenda({
+    visitas: visitas.map(visita => ({ efectiva: Boolean(visita.efectiva), agendada: visita.agendada === true })),
+    citas: citas.map(cita => ({ fecha: cita.fecha, estado: cita.estado })),
+    hoy,
+  })
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1014,30 +1287,74 @@ export function mensajeDictado(contexto: ContextoDictado, transcript: string): s
  * server-side-fallback-2026-07-01). Una respuesta 'refusal' o cortada por max_tokens es un fallo (502).
  */
 export async function proponerVisitas(entrada: { contexto: ContextoDictado; transcript: string }): Promise<unknown> {
+  return pedirHerramienta({
+    sistema: PROMPT_PROPUESTA,
+    herramienta: HERRAMIENTA_PROPONER,
+    maxTokens: MAX_TOKENS_PROPUESTA,
+    mensaje: mensajeDictado(entrada.contexto, entrada.transcript),
+  })
+}
+
+/**
+ * Una llamada a Claude que debe responder SOLO con una herramienta (proponer_visitas o repartir_campos): los mismos
+ * parámetros para las dos (ver proponerVisitas) y un reintento si no la llama. Devuelve la entrada cruda de la
+ * herramienta; 'refusal' o max_tokens son un fallo del proveedor (502).
+ */
+async function pedirHerramienta(entrada: {
+  sistema: string
+  herramienta: Anthropic.Beta.Messages.BetaTool
+  maxTokens: number
+  mensaje: string
+}): Promise<unknown> {
   const apiKey = llave('ANTHROPIC_API_KEY')
   if (!apiKey) throw new ErrorProveedorVoz('anthropic', 'sin llave')
   const cliente = fabricas.anthropic(apiKey)
   const peticion: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming = {
     model: MODELO_PROPUESTA,
-    max_tokens: MAX_TOKENS_PROPUESTA,
+    max_tokens: entrada.maxTokens,
     betas: ['server-side-fallback-2026-07-01'],
     fallbacks: 'default',
     thinking: { type: 'between_tools' },
     output_config: { effort: 'low' },
-    system: [{ type: 'text', text: PROMPT_PROPUESTA, cache_control: { type: 'ephemeral' } }],
-    tools: [HERRAMIENTA_PROPONER],
+    system: [{ type: 'text', text: entrada.sistema, cache_control: { type: 'ephemeral' } }],
+    tools: [entrada.herramienta],
     tool_choice: { type: 'auto', disable_parallel_tool_use: true },
-    messages: [{ role: 'user', content: mensajeDictado(entrada.contexto, entrada.transcript) }],
+    messages: [{ role: 'user', content: entrada.mensaje }],
   }
   for (let intento = 1; intento <= 2; intento++) {
     const respuesta = await cliente.beta.messages.create(peticion)
     if (respuesta.stop_reason === 'refusal') throw new ErrorProveedorVoz('anthropic', 'rechazo')
     const bloque = respuesta.content.find(
       (contenido): contenido is Anthropic.Beta.Messages.BetaToolUseBlock =>
-        contenido.type === 'tool_use' && contenido.name === HERRAMIENTA_PROPUESTA.name
+        contenido.type === 'tool_use' && contenido.name === entrada.herramienta.name
     )
     if (respuesta.stop_reason === 'max_tokens') throw new ErrorProveedorVoz('anthropic', 'respuesta cortada (max_tokens)')
     if (bloque) return bloque.input
   }
-  throw new ErrorProveedorVoz('anthropic', 'no usó la herramienta proponer_visitas')
+  throw new ErrorProveedorVoz('anthropic', `no usó la herramienta ${entrada.herramienta.name}`)
+}
+
+/** Tope de tokens del reparto de un dictado (tres campos cortos). */
+export const MAX_TOKENS_CAMPOS = 2048
+
+/** La definición de la herramienta repartir_campos (estricta, con el esquema cerrado de esquemaCampos). */
+export const HERRAMIENTA_REPARTIR: Anthropic.Beta.Messages.BetaTool = {
+  name: HERRAMIENTA_CAMPOS.name,
+  description: HERRAMIENTA_CAMPOS.description,
+  strict: true,
+  input_schema: esquemaParaHerramienta(esquemaCampos) as Anthropic.Beta.Messages.BetaTool.InputSchema,
+}
+
+/**
+ * Decisión 9 de F4.1 (POST /api/me/voz/campos): pide a Claude que reparta lo dictado para UNA visita entre conclusión,
+ * compromisos y próxima reunión. Mismo proveedor y parámetros que proponer. Devuelve la entrada cruda de la
+ * herramienta (la ruta la valida con camposSchema y la normaliza con normalizarCampos). El texto nunca va a los logs.
+ */
+export async function repartirCampos(entrada: { transcript: string; tipo: TipoVisita; hoy: string }): Promise<unknown> {
+  return pedirHerramienta({
+    sistema: PROMPT_CAMPOS,
+    herramienta: HERRAMIENTA_REPARTIR,
+    maxTokens: MAX_TOKENS_CAMPOS,
+    mensaje: mensajeCampos(entrada),
+  })
 }

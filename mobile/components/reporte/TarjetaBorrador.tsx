@@ -25,6 +25,7 @@ import {
   sedesDeCuentaBuscada,
   sedesParaBorrador,
   subtipoParaContacto,
+  textoRechazoCita,
   textoRechazoRadio,
   validarBorrador,
   type Borrador,
@@ -34,9 +35,9 @@ import {
   type SedeOpcion,
   type VisitaHoyTope,
 } from '../../lib/propuesta'
-import { sinCortes } from '../../lib/reglas'
+import { sinCortes, textoHoraCita } from '../../lib/reglas'
 import { etiquetaClaseCuenta, etiquetaEspecialidad } from '../../lib/terceros'
-import { ETIQUETA_MEDIO, ETIQUETA_TIPO_VISITA, type CuentaListItem, type MedicoPublico, type TipoVisita } from '../../lib/tipos'
+import { ETIQUETA_MEDIO, ETIQUETA_TIPO_VISITA, type CitaItem, type CuentaListItem, type MedicoPublico, type TipoVisita } from '../../lib/tipos'
 import { Aviso, Boton, Chip, Grupo, Insignia, Separador, Tarjeta, Texto, useColores } from '../../lib/ui'
 import { Buscador } from './Buscador'
 import { CamposVisita } from './CamposVisita'
@@ -72,6 +73,10 @@ interface Props {
   alAgregarSedes: (sedes: SedeOpcion[]) => void
   /** El médico también atiende en esta sede cercana: se vincula en OpMap. */
   alVincularSede: (sedeId: string) => Promise<void>
+  /** La cita de la agenda que cumple (borrador.agenda_id), para mostrarla. */
+  cita?: CitaItem | null
+  /** Micrófono junto a Conclusión (F4.1): la voz está configurada y hay señal. */
+  dictadoDisponible?: boolean
 }
 
 export function TarjetaBorrador(props: Props) {
@@ -125,15 +130,23 @@ export function TarjetaBorrador(props: Props) {
           Visita {props.numero} de {props.total}
         </Texto>
         <Grupo>
+          {borrador.agenda_id ? <Insignia texto="De tu agenda" tono="info" /> : null}
           <Insignia texto={borrador.origen === 'voz' ? 'Por voz' : 'Por toques'} tono="neutro" />
           {borrador.confianza !== null && borrador.confianza < 0.6 ? <Insignia texto="Revisa" tono="alerta" /> : null}
         </Grupo>
       </View>
+      {borrador.agenda_id && props.cita && props.cita.id === borrador.agenda_id ? (
+        <Texto peque suave>
+          {`Cita ${props.cita.hora ? `de las ${textoHoraCita(props.cita.hora)}` : 'de hoy'} en ${props.cita.sede.nombre}${props.cita.anticipada ? '' : ' (agendada hoy: contará como no agendada)'}`}
+        </Texto>
+      ) : null}
 
       {rechazo ? (
         <Aviso tono="peligro" titulo="No se guardó">
           <View style={{ gap: 8 }}>
-            <Texto>{rechazo.clase === 'radio' ? textoRechazoRadio(rechazo, sedeTexto) : rechazo.mensaje}</Texto>
+            <Texto>
+              {rechazo.clase === 'radio' ? textoRechazoRadio(rechazo, sedeTexto) : rechazo.clase === 'cita' ? textoRechazoCita(rechazo.mensaje) : rechazo.mensaje}
+            </Texto>
             {rechazo.clase === 'radio' || rechazo.clase === 'sede_sin_ubicacion' ? salidas : null}
           </View>
         </Aviso>
@@ -371,6 +384,7 @@ export function TarjetaBorrador(props: Props) {
         lineas={catalogo.lineas}
         alCambiar={props.alCambiar}
         errorDe={campo => error(campo)}
+        dictado={{ tipo: borrador.tipo, disponible: !!props.dictadoDisponible }}
       />
 
       {estado.intentado && !resultado.ok ? (

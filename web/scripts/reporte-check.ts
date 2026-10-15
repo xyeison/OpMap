@@ -34,6 +34,43 @@ import { GET as me } from '../app/api/auth/me/route'
 import { GENERAL_POR_DEFECTO, MENSAJE_SIN_EJECUTIVA, type ConteoVigencia, type GeneralVigencia } from '../lib/visits-rules'
 import { haversineM as haversineMovil } from '../../mobile/lib/geo'
 import {
+  DIAS_AGENDA_ADELANTE,
+  ESTADOS_CITA,
+  HERRAMIENTA_CAMPOS,
+  MAX_DIAS_CONSULTA_AGENDA,
+  MENSAJE_CITA_AJENA,
+  MENSAJE_CITA_CANCELADA,
+  MENSAJE_CITA_DIA_LIBRE,
+  MENSAJE_CITA_LEJANA,
+  MENSAJE_CITA_OTRA_CUENTA,
+  MENSAJE_CITA_OTRO_DIA,
+  MENSAJE_CITA_OTRO_MEDICO,
+  MENSAJE_CITA_OTRO_TIPO,
+  MENSAJE_CITA_PASADA,
+  MENSAJE_CITA_YA_HECHA,
+  PROMPT_CAMPOS,
+  citaAnticipada,
+  citaCancelable,
+  citaParaVincular,
+  cuentasAgenda,
+  distanciaACita,
+  esDiaLibreCompleto,
+  esquemaCampos,
+  horaCorta,
+  mensajeCampos,
+  mensajeFechaCita,
+  nombreDiaSemana,
+  normalizarCampos,
+  ordenarCitas,
+  rangoConsultaAgenda,
+  revisarCitaElegida,
+  visitaQueRetomaCita,
+  type VisitaParaRetomar,
+  ventanaAgenda,
+  vinculoDeVisita,
+  type CitaItem,
+  type CitaVinculo,
+  type VisitaParaVinculo,
   AUDIO_MAX_BYTES,
   MENSAJE_CONTACTO_OTRA_CUENTA,
   MENSAJE_LINEAS_AJENAS,
@@ -99,6 +136,11 @@ import {
   type VisitaDeHoy,
 } from '../lib/reporte-visitas'
 import {
+  agendaQuerySchema,
+  camposDictadoSchema,
+  camposSchema,
+  citaCancelarSchema,
+  citaCreateSchema,
   anularSchema,
   audioMetaSchema,
   contextoQuerySchema,
@@ -697,6 +739,7 @@ const contextoRespuesta = (): ContextoResponse => ({
   ],
   compromisos_vencidos: [],
   voz: { transcribir: false, proponer: false },
+  agenda_hoy: [],
 })
 
 seccion('7. Voz: vocabularioVG, PROMPT_PROPUESTA, contextoDictado, normalizarPropuesta')
@@ -1013,6 +1056,280 @@ seccion('8c. duracionAudioSegundos (m4a/mp4 y webm) y revisarLimite (voz por per
   check('proponer: 60 por hora → la 61.ª no, y vuelve en 600 s (3600 − 3000)', !proponerLleno.permitido && proponerLleno.reintentar_en_s === 600, proponerLleno)
   check('proponer: una hora después de la primera, sí', revisarLimite(sesenta, t0 + 3_600_000, LIMITES_VOZ.proponer).permitido)
   check('LIMITES_VOZ: los del contrato (transcribir 6/min y 40/h; proponer 10/min y 60/h)', JSON.stringify(LIMITES_VOZ) === JSON.stringify({ transcribir: [{ ventana_ms: 60_000, maximo: 6 }, { ventana_ms: 3_600_000, maximo: 40 }], proponer: [{ ventana_ms: 60_000, maximo: 10 }, { ventana_ms: 3_600_000, maximo: 60 }] }))
+}
+
+// ---------------------------------------------------------------------------
+// 10. Agenda (F4.1, migración 0840): ventana, vínculo, "agendada", indicador y dictado por campo
+// ---------------------------------------------------------------------------
+
+seccion('10. Agenda (F4.1): ventana de fechas, días libres, cancelable y hora')
+{
+  check('ESTADOS_CITA: pendiente, hecha y cancelada', ESTADOS_CITA.map(e => e.valor).join(',') === 'pendiente,hecha,cancelada')
+  check('ventanaAgenda: de hoy a hoy + 30 (decisión 3)', JSON.stringify(ventanaAgenda(HOY)) === JSON.stringify({ desde: HOY, hasta: '2026-11-12' }) && DIAS_AGENDA_ADELANTE === 30)
+  check('mensajeFechaCita: ayer no; hoy, mañana y hoy + 30 sí; hoy + 31 no', mensajeFechaCita('2026-10-12', HOY) === MENSAJE_CITA_PASADA && mensajeFechaCita(HOY, HOY) === null && mensajeFechaCita('2026-10-14', HOY) === null && mensajeFechaCita('2026-11-12', HOY) === null && mensajeFechaCita('2026-11-13', HOY) === MENSAJE_CITA_LEJANA)
+  check('mensajeFechaCita: fecha no válida', mensajeFechaCita('2026-13-40', HOY) !== null && mensajeFechaCita('mañana', HOY) !== null)
+  const libres = [
+    { fecha: '2026-10-20', fraccion: 1, estado: 'registrado' },
+    { fecha: '2026-10-21', fraccion: 1, estado: 'aprobado' },
+    { fecha: '2026-10-22', fraccion: 0.5, estado: 'registrado' },
+    { fecha: '2026-10-23', fraccion: 1, estado: 'por_aprobar' },
+    { fecha: '2026-10-26', fraccion: 1, estado: 'rechazado' },
+    { fecha: '2026-10-27', fraccion: 1, estado: 'anulado' },
+  ]
+  check('día libre de día completo registrado o aprobado: no se agenda', mensajeFechaCita('2026-10-20', HOY, libres) === MENSAJE_CITA_DIA_LIBRE && mensajeFechaCita('2026-10-21', HOY, libres) === MENSAJE_CITA_DIA_LIBRE)
+  check('medio día, por aprobar, rechazado o anulado: sí se agenda', ['2026-10-22', '2026-10-23', '2026-10-26', '2026-10-27'].every(fecha => mensajeFechaCita(fecha, HOY, libres) === null && !esDiaLibreCompleto(libres, fecha)))
+  check('festivo (el 12 de octubre es festivo en 2026 pero ya pasó; el 2 de noviembre lo es y está en la ventana): sí se agenda', mensajeFechaCita('2026-11-02', HOY, libres) === null)
+  check('citaCancelable: pendiente de hoy o futura sí; de ayer, hecha o cancelada no', citaCancelable({ estado: 'pendiente', fecha: HOY }, HOY) && citaCancelable({ estado: 'pendiente', fecha: '2026-10-30' }, HOY) && !citaCancelable({ estado: 'pendiente', fecha: '2026-10-12' }, HOY) && !citaCancelable({ estado: 'hecha', fecha: HOY }, HOY) && !citaCancelable({ estado: 'cancelada', fecha: '2026-10-30' }, HOY))
+  check('horaCorta: "09:30", "09:30:00" (PostgreSQL) → "09:30"; "9:30", "24:00" y texto no', horaCorta('09:30') === '09:30' && horaCorta('09:30:00') === '09:30' && horaCorta('23:59:59.5') === '23:59' && horaCorta('9:30') === null && horaCorta('24:00') === null && horaCorta('mañana') === null && horaCorta(null) === null)
+  const rango = (desde: string | null, hasta: string | null) => rangoConsultaAgenda({ desde, hasta }, HOY)
+  check('rangoConsultaAgenda: sin fechas hoy a hoy + 7; solo desde, desde + 7; solo hasta, de hoy a hasta', JSON.stringify(rango(null, null)) === JSON.stringify({ desde: HOY, hasta: '2026-10-20', error: null }) && rango('2026-10-15', null).hasta === '2026-10-22' && rango(null, '2026-10-30').desde === HOY)
+  check(`rangoConsultaAgenda: ${MAX_DIAS_CONSULTA_AGENDA} días sí, 32 no; hasta antes de desde no`, rango('2026-10-01', '2026-10-31').error === null && rango('2026-10-01', '2026-11-01').error !== null && rango('2026-10-20', '2026-10-19').error !== null && rango(null, '2026-10-12').error !== null)
+}
+
+seccion('10b. Vínculo con la visita y "agendada" (decisiones 6 y 7)')
+{
+  const EJEC_B = 'aaaaaaaa-0000-4000-8000-000000000002'
+  const cita = (extra: Partial<CitaVinculo>): CitaVinculo => ({
+    id: 'c0000000-0000-4000-8000-000000000000',
+    executive_id: EJEC,
+    fecha: HOY,
+    hora: null,
+    tipo: 'medica',
+    medico_id: MED1,
+    cuenta_id: null,
+    subtipo_id: null,
+    estado: 'pendiente',
+    created_at: '2026-10-12T15:00:00.000Z',
+    ...extra,
+  })
+  const medica: VisitaParaVinculo = { executive_id: EJEC, fecha: HOY, tipo: 'medica', medico_id: MED1, cuenta_id: null, subtipo_id: null }
+  const institucional: VisitaParaVinculo = { executive_id: EJEC, fecha: HOY, tipo: 'institucional', medico_id: null, cuenta_id: CUENTA1, subtipo_id: SUB_QUIMICO }
+
+  // Medianoche: Bogotá es UTC−5. 23:30 del 12 en Bogotá = 04:30Z del 13 (antes del día de la visita); 00:30 del 13 = 05:30Z.
+  check('citaAnticipada: creada ayer (Bogotá) → agendada; creada hoy → no', citaAnticipada('2026-10-12T15:00:00.000Z', HOY) && !citaAnticipada('2026-10-13T12:00:00.000Z', HOY))
+  check('citaAnticipada: a las 23:30 del día anterior en Bogotá (04:30Z del día) SÍ cuenta; a las 00:30 de ese día (05:30Z) NO', citaAnticipada('2026-10-13T04:30:00.000Z', HOY) && !citaAnticipada('2026-10-13T05:30:00.000Z', HOY) && !citaAnticipada('2026-10-13T00:30:00-05:00', HOY))
+  check('citaAnticipada: instante no válido → no', !citaAnticipada('ayer', HOY))
+
+  const una = cita({ id: 'c1' })
+  check('vínculo automático: la pendiente de ese día con el mismo médico', citaParaVincular([una], medica)?.id === 'c1')
+  const noSirven = [
+    cita({ id: 'otro-dia', fecha: '2026-10-14' }),
+    cita({ id: 'cancelada', estado: 'cancelada' }),
+    cita({ id: 'hecha', estado: 'hecha' }),
+    cita({ id: 'ajena', executive_id: EJEC_B }),
+    cita({ id: 'otro-medico', medico_id: MED_AJENO }),
+    cita({ id: 'institucional', tipo: 'institucional', medico_id: null, cuenta_id: CUENTA1, subtipo_id: SUB_COMPRAS }),
+  ]
+  check('vínculo automático: ni de otro día, ni cancelada, ni hecha, ni ajena, ni de otro médico, ni de otro tipo → no agendada', citaParaVincular(noSirven, medica) === null && vinculoDeVisita({ citas: noSirven, visita: medica, agenda_id: null }).agendada === false)
+  const inst = [
+    cita({ id: 'i-compras-8', tipo: 'institucional', medico_id: null, cuenta_id: CUENTA1, subtipo_id: SUB_COMPRAS, hora: '08:00' }),
+    cita({ id: 'i-quimico-10', tipo: 'institucional', medico_id: null, cuenta_id: CUENTA1, subtipo_id: SUB_QUIMICO, hora: '10:00' }),
+    cita({ id: 'i-otra-cuenta', tipo: 'institucional', medico_id: null, cuenta_id: CUENTA2, subtipo_id: SUB_QUIMICO, hora: '07:00' }),
+  ]
+  check('institucional: la misma cuenta, prefiriendo el mismo subtipo aunque su hora sea más tarde', citaParaVincular(inst, institucional)?.id === 'i-quimico-10')
+  check('institucional: con otro subtipo, la de la cuenta más temprana', citaParaVincular(inst, { ...institucional, subtipo_id: SUB_PROGRAMACION })?.id === 'i-compras-8')
+  const empates = [
+    cita({ id: 'b-sin-hora', hora: null, created_at: '2026-10-01T10:00:00Z' }),
+    cita({ id: 'b-10', hora: '10:00', created_at: '2026-10-05T10:00:00Z' }),
+    cita({ id: 'a-10', hora: '10:00', created_at: '2026-10-05T10:00:00Z' }),
+    cita({ id: 'c-10-antes', hora: '10:00', created_at: '2026-10-02T10:00:00Z' }),
+  ]
+  check('entre varias: hora más temprana (sin hora al final), luego la creada primero, luego por id (el ORDER BY de la 0840)', citaParaVincular(empates, medica)?.id === 'c-10-antes' && citaParaVincular(empates.slice(0, 3), medica)?.id === 'a-10' && citaParaVincular(empates.slice(0, 1), medica)?.id === 'b-sin-hora')
+
+  check('revisarCitaElegida: la buena sirve', revisarCitaElegida(una, medica) === null && revisarCitaElegida(inst[0], institucional) === null)
+  const casos: [string, CitaVinculo | null, VisitaParaVinculo, string][] = [
+    ['inexistente', null, medica, MENSAJE_CITA_AJENA],
+    ['de otra persona', cita({ executive_id: EJEC_B }), medica, MENSAJE_CITA_AJENA],
+    ['cancelada', cita({ estado: 'cancelada' }), medica, MENSAJE_CITA_CANCELADA],
+    ['ya hecha', cita({ estado: 'hecha' }), medica, MENSAJE_CITA_YA_HECHA],
+    ['de otro día', cita({ fecha: '2026-10-14' }), medica, MENSAJE_CITA_OTRO_DIA],
+    ['de otro tipo', cita({}), institucional, MENSAJE_CITA_OTRO_TIPO],
+    ['con otro médico', cita({ medico_id: MED_AJENO }), medica, MENSAJE_CITA_OTRO_MEDICO],
+    ['con otra cuenta', inst[2], institucional, MENSAJE_CITA_OTRA_CUENTA],
+  ]
+  for (const [nombre, laCita, visita, mensaje] of casos) check(`revisarCitaElegida: ${nombre} → "${mensaje}"`, revisarCitaElegida(laCita, visita) === mensaje)
+
+  const elegida = vinculoDeVisita({ citas: [una, cita({ id: 'hoy', created_at: '2026-10-13T14:00:00Z' })], visita: medica, agenda_id: 'hoy' })
+  check('vinculoDeVisita con agenda_id: esa cita; creada hoy → vinculada pero NO agendada', elegida.cita?.id === 'hoy' && elegida.agendada === false && elegida.error === null)
+  check('vinculoDeVisita con agenda_id creada ayer: agendada', vinculoDeVisita({ citas: [una], visita: medica, agenda_id: 'c1' }).agendada === true)
+  check('vinculoDeVisita con agenda_id que no sirve: el error y nada vinculado', JSON.stringify(vinculoDeVisita({ citas: [una], visita: medica, agenda_id: 'otra' })) === JSON.stringify({ cita: null, agendada: false, error: MENSAJE_CITA_AJENA, relevo: null }))
+  check('vinculoDeVisita sin agenda_id: la automática (creada ayer → agendada)', vinculoDeVisita({ citas: [una], visita: medica, agenda_id: null }).cita?.id === 'c1' && vinculoDeVisita({ citas: [una], visita: medica, agenda_id: null }).agendada)
+
+  // Relevo (hallazgo del verificador): cita creada ayer con el Dr. A; a las 9:15 una no efectiva la cumple; a las 14:00
+  // la efectiva con el mismo médico la toma y cuenta como agendada; la no efectiva la suelta.
+  const cumplidaNoEfectiva = cita({ id: 'c-ne', estado: 'hecha', visita_id: 'v-no-efectiva', cumplida_por_no_efectiva: true })
+  const efectiva: VisitaParaVinculo = { ...medica, efectiva: true }
+  const noEfectiva: VisitaParaVinculo = { ...medica, efectiva: false }
+  const relevo = vinculoDeVisita({ citas: [cumplidaNoEfectiva], visita: efectiva, agenda_id: null })
+  check('relevo automático: la efectiva toma la cita que cumplió la no efectiva y cuenta como agendada', relevo.cita?.id === 'c-ne' && relevo.agendada && relevo.relevo === 'v-no-efectiva', relevo)
+  check('relevo: otra no efectiva no la toma (queda no agendada)', vinculoDeVisita({ citas: [cumplidaNoEfectiva], visita: noEfectiva, agenda_id: null }).cita === null)
+  check('relevo: sin saber si es efectiva, no hay relevo', citaParaVincular([cumplidaNoEfectiva], medica) === null)
+  check('relevo: la que cumplió una EFECTIVA no se toma', citaParaVincular([cita({ id: 'c-ef', estado: 'hecha', visita_id: 'v-ef', cumplida_por_no_efectiva: false })], efectiva) === null)
+  check('relevo con agenda_id: la efectiva sí; la no efectiva → "ya tiene su visita"', revisarCitaElegida(cumplidaNoEfectiva, efectiva) === null && revisarCitaElegida(cumplidaNoEfectiva, noEfectiva) === MENSAJE_CITA_YA_HECHA)
+  const relevoElegido = vinculoDeVisita({ citas: [cumplidaNoEfectiva], visita: efectiva, agenda_id: 'c-ne' })
+  check('relevo con agenda_id: vinculada, agendada y suelta la no efectiva', relevoElegido.cita?.id === 'c-ne' && relevoElegido.agendada && relevoElegido.relevo === 'v-no-efectiva' && relevoElegido.error === null)
+  check('relevo institucional: a igual subtipo (aquí ninguno coincide), la pendiente va antes que el relevo aunque sea más tarde', citaParaVincular([
+    cita({ id: 'i-relevo', tipo: 'institucional', medico_id: null, cuenta_id: CUENTA1, subtipo_id: SUB_COMPRAS, hora: '07:00', estado: 'hecha', visita_id: 'v-ne', cumplida_por_no_efectiva: true }),
+    cita({ id: 'i-pendiente', tipo: 'institucional', medico_id: null, cuenta_id: CUENTA1, subtipo_id: SUB_QUIMICO, hora: '11:00' }),
+  ], { ...institucional, subtipo_id: SUB_PROGRAMACION, efectiva: true })?.id === 'i-pendiente')
+  check('relevo institucional: el mismo subtipo manda (toma la de compras que falló antes que la del químico pendiente)', citaParaVincular([
+    cita({ id: 'i-relevo', tipo: 'institucional', medico_id: null, cuenta_id: CUENTA1, subtipo_id: SUB_COMPRAS, estado: 'hecha', visita_id: 'v-ne', cumplida_por_no_efectiva: true }),
+    cita({ id: 'i-pendiente', tipo: 'institucional', medico_id: null, cuenta_id: CUENTA1, subtipo_id: SUB_QUIMICO }),
+  ], { ...institucional, subtipo_id: SUB_COMPRAS, efectiva: true })?.id === 'i-relevo')
+  check('pendiente sin relevo: la no efectiva también cumple la cita (decisión 7)', vinculoDeVisita({ citas: [una], visita: noEfectiva, agenda_id: null }).cita?.id === 'c1' && vinculoDeVisita({ citas: [una], visita: noEfectiva, agenda_id: null }).relevo === null)
+
+  // Anular (espejo de visitas_anular): la cita pasa a otra visita suya del día sin cita (la efectiva primero) o vuelve a pendiente.
+  const visitaDia = (extra: Partial<VisitaParaRetomar>): VisitaParaRetomar => ({
+    id: 'v', executive_id: EJEC, fecha: HOY, tipo: 'medica', medico_id: MED1, cuenta_id: null, subtipo_id: null, efectiva: false,
+    checked_in_at: '2026-10-13T14:15:00Z', agenda_id: null, anulada: false, ...extra,
+  })
+  const citaM = cita({ id: 'c-m', estado: 'hecha', visita_id: 'v-ef' })
+  const delDia = [
+    visitaDia({ id: 'v-ef', efectiva: true, agenda_id: 'c-m', checked_in_at: '2026-10-13T19:00:00Z' }),
+    visitaDia({ id: 'v-ne', efectiva: false, checked_in_at: '2026-10-13T14:15:00Z' }),
+    visitaDia({ id: 'v-otro-medico', efectiva: true, medico_id: MED_AJENO }),
+    visitaDia({ id: 'v-anulada', efectiva: true, anulada: true }),
+    visitaDia({ id: 'v-ajena', efectiva: true, executive_id: EJEC_B }),
+    visitaDia({ id: 'v-otro-dia', efectiva: true, fecha: '2026-10-12' }),
+  ]
+  check('anular la efectiva del relevo: la cita vuelve a la no efectiva', visitaQueRetomaCita(citaM, 'v-ef', delDia)?.id === 'v-ne')
+  check('anular: entre varias sin cita, la efectiva primero', visitaQueRetomaCita(citaM, 'v-ef', [...delDia, visitaDia({ id: 'v-ef2', efectiva: true, checked_in_at: '2026-10-13T20:00:00Z' })])?.id === 'v-ef2')
+  check('anular: sin otra visita del mismo médico, de ella, de ese día y sin anular → la cita vuelve a pendiente', visitaQueRetomaCita(citaM, 'v-ef', delDia.filter(v => v.id !== 'v-ne')) === null)
+  check('anular: una visita que ya cumple otra cita no la retoma', visitaQueRetomaCita(citaM, 'v-ef', [visitaDia({ id: 'v-con-cita', efectiva: true, agenda_id: 'otra-cita' })]) === null)
+}
+
+seccion('10c. Indicador de Mis números (decisión 8): porcentaje de agendadas y cumplimiento de la agenda')
+{
+  const visitas = [
+    { efectiva: true, agendada: true },
+    { efectiva: true, agendada: true },
+    { efectiva: true, agendada: true },
+    { efectiva: true, agendada: false },
+    // La no efectiva cumple su cita pero no suma a las efectivas.
+    { efectiva: false, agendada: true },
+  ]
+  const citas = [
+    { fecha: '2026-10-05', estado: 'hecha' as const },
+    { fecha: '2026-10-06', estado: 'hecha' as const },
+    { fecha: '2026-10-07', estado: 'pendiente' as const }, // no la cumplió
+    { fecha: '2026-10-08', estado: 'cancelada' as const }, // no cuenta
+    { fecha: HOY, estado: 'pendiente' as const }, // de hoy: cuenta
+    { fecha: '2026-10-20', estado: 'pendiente' as const }, // futura: no cuenta
+  ]
+  const r = cuentasAgenda({ visitas, citas, hoy: HOY })
+  check('efectivas 4, agendadas 3 → porcentaje 0,75', r.efectivas === 4 && r.efectivas_agendadas === 3 && r.porcentaje_agendadas === 0.75, r)
+  check('citas hasta hoy sin canceladas 4, hechas 2 → cumplimiento 0,5', r.citas_hasta_hoy === 4 && r.citas_hechas === 2 && r.cumplimiento === 0.5, r)
+  const vacio = cuentasAgenda({ visitas: [], citas: [], hoy: HOY })
+  check('sin visitas ni citas: razones en null (no 0 %)', vacio.porcentaje_agendadas === null && vacio.cumplimiento === null && vacio.efectivas === 0 && vacio.citas_hasta_hoy === 0)
+  check('redondeo a 2 decimales (1 de 3 → 0,33)', cuentasAgenda({ visitas: [{ efectiva: true, agendada: true }, { efectiva: true, agendada: false }, { efectiva: true, agendada: false }], citas: [], hoy: HOY }).porcentaje_agendadas === 0.33)
+  const cuotaVacia = { mes: '2026-10' } as unknown as Parameters<typeof numerosDesdeCumplimiento>[1]
+  const conAgenda = numerosDesdeCumplimiento('2026-10', cuotaVacia, cumplimientoMes({ visitas: [], conteo: [], cuota: { medica: { cuota: 0 }, institucional: { cuota: 0 }, subtipos: [] } }), r)
+  check('numerosDesdeCumplimiento: el bloque agenda (o null si no hay 0840)', conAgenda.agenda === r && numerosDesdeCumplimiento('2026-10', cuotaVacia, cumplimientoMes({ visitas: [], conteo: [], cuota: { medica: { cuota: 0 }, institucional: { cuota: 0 }, subtipos: [] } })).agenda === null)
+}
+
+seccion('10d. Distancia y orden de las citas (Reportar: la más cercana primero)')
+{
+  const lejos = aMetrosAlNorte(SEDE_PUNTO, 800)
+  check('distanciaACita: con punto, metros y si está en el radio', JSON.stringify(distanciaACita(SEDE_PUNTO, aMetrosAlNorte(SEDE_PUNTO, 120), 500)) === JSON.stringify({ distancia_m: 120, dentro_del_radio: true }) && distanciaACita(lejos, SEDE_PUNTO, 500).dentro_del_radio === false)
+  check('distanciaACita: sin punto o sede sin coordenadas → null', distanciaACita(SEDE_PUNTO, null, 500).distancia_m === null && distanciaACita({ lat: null, lng: null }, SEDE_PUNTO, 500).dentro_del_radio === null)
+  const item = (id: string, extra: Partial<CitaItem>): CitaItem => ({
+    id,
+    fecha: HOY,
+    hora: null,
+    tipo: 'medica',
+    medico: { id: MED1, nombre: 'Dr. Pérez' },
+    cuenta: null,
+    subtipo: null,
+    sede: { id: SEDE1, nombre: 'Clínica Norte', cuenta_id: CUENTA1, cuenta_nombre: 'Clínica X', lat: SEDE_PUNTO.lat, lng: SEDE_PUNTO.lng, ubicacion_confirmada: true },
+    nota: null,
+    estado: 'pendiente',
+    visita_id: null,
+    distancia_m: null,
+    dentro_del_radio: null,
+    anticipada: true,
+    cancelable: true,
+    ...extra,
+  })
+  const citas = [item('a', { distancia_m: 900, hora: '08:00' }), item('b', { distancia_m: 120, hora: '11:00' }), item('c', { distancia_m: null, hora: '07:00' }), item('d', { fecha: '2026-10-12', distancia_m: 5 })]
+  check('con punto: por fecha y la más cercana primero (sin distancia al final)', ordenarCitas(citas, { porDistancia: true }).map(c => c.id).join('') === 'dbac')
+  check('sin punto: por fecha y hora (sin hora al final)', ordenarCitas(citas).map(c => c.id).join('') === 'dcab')
+}
+
+seccion('10e. Esquemas de la agenda y del dictado por campo')
+{
+  const medica = { fecha: '2026-10-14', hora: '09:30', tipo: 'medica', medico_id: MED1, cuenta_id: CUENTA1, subtipo_id: SUB_COMPRAS, sede_id: SEDE1, nota: '  Llevar   muestras ' }
+  const r = citaCreateSchema.safeParse(medica)
+  check('citaCreateSchema: médica válida; lo que no aplica (cuenta, subtipo) queda en null; la nota limpia', r.success && r.data.tipo === 'medica' && r.data.medico_id === MED1 && r.data.cuenta_id === null && r.data.subtipo_id === null && r.data.nota === 'Llevar muestras' && r.data.hora === '09:30', r.success ? r.data : r.error.issues)
+  const inst = citaCreateSchema.safeParse({ fecha: '2026-10-14', tipo: 'institucional', cuenta_id: CUENTA1, subtipo_id: SUB_COMPRAS, medico_id: MED1, sede_id: SEDE1 })
+  check('citaCreateSchema: institucional sin hora ni nota → null; el médico no aplica', inst.success && inst.data.medico_id === null && inst.data.hora === null && inst.data.nota === null && inst.data.cuenta_id === CUENTA1)
+  check('citaCreateSchema: hora con segundos → HH:MM', citaCreateSchema.safeParse({ ...medica, hora: '14:05:00' }).success && (citaCreateSchema.parse({ ...medica, hora: '14:05:00' }) as { hora: string | null }).hora === '14:05')
+  check('citaCreateSchema rechaza: médica sin médico, institucional sin subtipo, hora 24:00 o 9:30, fecha no válida, sin sede, nota de 301', ['medico_id', 'subtipo_id', 'hora', 'hora', 'fecha', 'sede_id', 'nota'].every((campo, i) => {
+    const cuerpos = [
+      { ...medica, medico_id: null },
+      { fecha: '2026-10-14', tipo: 'institucional', cuenta_id: CUENTA1, sede_id: SEDE1 },
+      { ...medica, hora: '24:00' },
+      { ...medica, hora: '9:30' },
+      { ...medica, fecha: '14/10/2026' },
+      { ...medica, sede_id: undefined },
+      { ...medica, nota: 'x'.repeat(301) },
+    ]
+    return mensajeZod(citaCreateSchema.safeParse(cuerpos[i]), campo) !== null
+  }))
+  check('citaCancelarSchema: cuerpo vacío → sin motivo; motivo limpio; 301 caracteres no', citaCancelarSchema.safeParse({}).success && citaCancelarSchema.parse({}).motivo === null && citaCancelarSchema.parse({ motivo: '  Viaja  ' }).motivo === 'Viaja' && !citaCancelarSchema.safeParse({ motivo: 'x'.repeat(301) }).success)
+  check('agendaQuerySchema: fechas opcionales, canceladas=true; hasta antes de desde o 32 días no', agendaQuerySchema.safeParse({ desde: null, hasta: null, canceladas: null }).success && agendaQuerySchema.parse({ desde: '2026-10-13', hasta: null, canceladas: 'true' }).canceladas === true && !agendaQuerySchema.safeParse({ desde: '2026-10-20', hasta: '2026-10-13' }).success && !agendaQuerySchema.safeParse({ desde: '2026-10-01', hasta: '2026-11-01' }).success && !agendaQuerySchema.safeParse({ desde: 'ayer' }).success)
+  const conCita = visitaCreateSchema.safeParse(cuerpoMedica({ agenda_id: '  C0000000-0000-4000-8000-0000000000AA ' }))
+  check('visitaCreateSchema: agenda_id opcional (ausente → null; uuid en minúsculas; no uuid → error)', conCita.success && conCita.data.agenda_id === 'c0000000-0000-4000-8000-0000000000aa' && visitaCreateSchema.parse(cuerpoMedica()).agenda_id === null && mensajeZod(visitaCreateSchema.safeParse(cuerpoMedica({ agenda_id: 'xyz' })), 'agenda_id') !== null)
+  check('proponerSchema: cita_id opcional', proponerSchema.safeParse({ transcript: 'Hola', hora: '2026-10-13T10:41:00-05:00', cita_id: SEDE1 }).success && proponerSchema.parse({ transcript: 'Hola', hora: '2026-10-13T10:41:00-05:00' }).cita_id === null && !proponerSchema.safeParse({ transcript: 'Hola', hora: '2026-10-13T10:41:00-05:00', cita_id: 'x' }).success)
+  check('camposDictadoSchema: texto 1..8000 y tipo; vacío o tipo no válido → error', camposDictadoSchema.safeParse({ transcript: ' Le mostré la placa ', tipo: 'medica' }).success && !camposDictadoSchema.safeParse({ transcript: '   ', tipo: 'medica' }).success && !camposDictadoSchema.safeParse({ transcript: 'x', tipo: 'otra' }).success && !camposDictadoSchema.safeParse({ transcript: 'x'.repeat(8001), tipo: 'medica' }).success)
+  const crudos = camposSchema.safeParse({ conclusion: ' Le gustó ', compromisos: null, extra: 'x' })
+  check('camposSchema tolera nulos, ausentes y claves de más', crudos.success && crudos.data.conclusion === 'Le gustó' && crudos.data.compromisos === null && crudos.data.next_step_date === null && !('extra' in crudos.data), crudos.success ? crudos.data : crudos.error.issues)
+}
+
+seccion('10f. Dictado por campo (decisión 9): reparto normalizado, prompt y contexto de proponer con la agenda')
+{
+  const n = normalizarCampos({ conclusion: '  Le gustó   el tornillo canulado; su cédula es 79.123.456 ', compromisos: 'Enviar muestra;  llamarlo al 3001234567', next_step_date: '2026-10-20' }, HOY)
+  check('normalizarCampos: textos limpios y sin números largos (documentos ni teléfonos)', n.conclusion === `Le gustó el tornillo canulado; su cédula es ${NUMERO_OMITIDO}` && n.compromisos === `Enviar muestra; llamarlo al ${NUMERO_OMITIDO}` && n.next_step_date === '2026-10-20', n)
+  check('normalizarCampos: próxima reunión anterior a hoy o no válida → null; hoy sí', normalizarCampos({ conclusion: null, compromisos: null, next_step_date: '2026-10-12' }, HOY).next_step_date === null && normalizarCampos({ next_step_date: 'el jueves' }, HOY).next_step_date === null && normalizarCampos({ next_step_date: HOY }, HOY).next_step_date === HOY)
+  check('normalizarCampos: vacío o nulo → todo null', JSON.stringify(normalizarCampos(null, HOY)) === JSON.stringify({ conclusion: null, compromisos: null, next_step_date: null }) && normalizarCampos({ conclusion: '   ' }, HOY).conclusion === null)
+  check('normalizarCampos: textos acotados a 2000', (normalizarCampos({ conclusion: 'a'.repeat(2500) }, HOY).conclusion ?? '').length === 2000)
+  const mensaje = mensajeCampos({ transcript: 'Le gustó la placa', tipo: 'institucional', hoy: HOY })
+  check('mensajeCampos: la fecha de hoy con su día (martes), el tipo y el dictado', mensaje.includes(`HOY: ${HOY} (martes)`) && mensaje.includes('institucional') && mensaje.includes('Le gustó la placa') && mensaje.includes(HERRAMIENTA_CAMPOS.name) && nombreDiaSemana('2026-10-18') === 'domingo')
+  check('PROMPT_CAMPOS: solo la herramienta, no inventa, sin documentos ni teléfonos; sin "KAM", "representante" ni "panel"', PROMPT_CAMPOS.includes('repartir_campos') && /no agregues nada/i.test(PROMPT_CAMPOS) && /documento/i.test(PROMPT_CAMPOS) && !/KAM|representante|panel/i.test(PROMPT_CAMPOS))
+  check('esquemaCampos: objeto cerrado con los 3 campos requeridos', esquemaCampos.additionalProperties === false && esquemaCampos.required.join(',') === 'conclusion,compromisos,next_step_date' && Object.keys(esquemaCampos.properties).length === 3)
+  check('PROMPT_PROPUESTA: regla de la agenda (cita_elegida) sin "KAM", "representante" ni "panel"', PROMPT_PROPUESTA.includes('cita_elegida') && !/KAM|representante|panel/i.test(PROMPT_PROPUESTA))
+
+  // La agenda en el contexto de proponer: solo las pendientes; cita_elegida solo si es una de ellas.
+  const MED_CITA = 'eeeeeeee-0000-4000-8000-000000000077' // no está en "mis médicos"
+  const SEDE_LEJOS = 'cccccccc-0000-4000-8000-000000000077' // a más de 1 km (no está en sedes_cerca)
+  const citaBase = (id: string, extra: Partial<CitaItem>): CitaItem => ({
+    id, fecha: HOY, hora: '09:00', tipo: 'medica', medico: { id: MED_CITA, nombre: 'Dra. Ríos' }, cuenta: null, subtipo: null,
+    sede: { id: SEDE_LEJOS, nombre: 'Clínica Sur', cuenta_id: CUENTA2, cuenta_nombre: 'Clínica Sur S.A.', lat: 4.6, lng: -74.1, ubicacion_confirmada: true },
+    nota: 'Llevar muestras 3001234567', estado: 'pendiente', visita_id: null, distancia_m: 2400, dentro_del_radio: false, anticipada: true, cancelable: true, ...extra,
+  })
+  const agenda = [
+    citaBase('cita-1', {}),
+    citaBase('cita-hecha', { estado: 'hecha', visita_id: 'v1', medico: { id: MED1, nombre: 'Dr. Pérez' } }),
+    citaBase('cita-inst', { tipo: 'institucional', medico: null, cuenta: { id: CUENTA2, nombre: 'Clínica Sur S.A.' }, subtipo: { id: SUB_COMPRAS, codigo: 'compras', nombre: 'Compras' } }),
+  ]
+  const contexto = { ...contextoRespuesta(), agenda_hoy: agenda }
+  const dictado = contextoDictado(contexto, '10:42', 'cita-1')
+  check('contextoDictado: la agenda trae solo las pendientes, con quién, sede y subtipo; cita_elegida', dictado.agenda.map(c => c.id).join(',') === 'cita-1,cita-inst' && dictado.agenda[0].con === 'Dra. Ríos' && dictado.agenda[0].sede_id === SEDE_LEJOS && dictado.agenda[1].subtipo_codigo === 'compras' && dictado.cita_elegida === 'cita-1')
+  check('contextoDictado: cita_elegida que no es una pendiente de hoy → null; sin agenda → []', contextoDictado(contexto, null, 'cita-hecha').cita_elegida === null && contextoDictado(contextoRespuesta()).agenda.length === 0 && contextoDictado(contextoRespuesta()).cita_elegida === null)
+  check('contextoDictado: nunca la nota de la cita (ni el teléfono que traiga)', !JSON.stringify(dictado).includes('3001234567') && !JSON.stringify(dictado).includes('Llevar muestras'))
+  const propuesta = normalizarPropuesta(
+    {
+      visitas: [
+        { tipo: 'medica', subtipo_codigo: null, medico_id: MED_CITA, medico_nombre_dicho: null, sugerir_crear_medico: false, cuenta_id: null, sede_id: SEDE_LEJOS, contacto_id: null, contacto_nombre_dicho: null, lineas: [L1], efectiva: true, failure_reason: null, conclusion: 'Bien', compromisos: null, next_step_date: null, modalidad_sugerida: 'presencial', confianza: 0.9, preguntas: [] },
+        { tipo: 'institucional', subtipo_codigo: 'compras', medico_id: null, medico_nombre_dicho: null, sugerir_crear_medico: false, cuenta_id: CUENTA2, sede_id: SEDE_LEJOS, contacto_id: null, contacto_nombre_dicho: null, lineas: [L1], efectiva: true, failure_reason: null, conclusion: null, compromisos: null, next_step_date: null, modalidad_sugerida: 'presencial', confianza: 0.8, preguntas: [] },
+      ],
+      aviso: null,
+    },
+    contexto
+  )
+  check('normalizarPropuesta: el médico y la sede de una cita pendiente valen aunque no estén en "mis médicos" ni a menos de 1 km', propuesta.visitas[0].medico_id === MED_CITA && propuesta.visitas[0].sede_id === SEDE_LEJOS && !propuesta.visitas[0].sugerir_crear_medico, propuesta.visitas[0])
+  check('normalizarPropuesta: la cuenta y la sede de una cita institucional pendiente también', propuesta.visitas[1].cuenta_id === CUENTA2 && propuesta.visitas[1].sede_id === SEDE_LEJOS && propuesta.visitas[1].subtipo_id === SUB_COMPRAS, propuesta.visitas[1])
+  const sinAgenda = normalizarPropuesta({ visitas: [{ ...propuesta.visitas[0], medico_id: MED_CITA }], aviso: null }, contextoRespuesta())
+  check('normalizarPropuesta: sin la cita, ese médico no vale (como antes)', sinAgenda.visitas[0].medico_id === null)
 }
 
 // ---------------------------------------------------------------------------

@@ -4,8 +4,11 @@
  * sin señal (reintento, descarte a medianoche, idempotencia por client_id, envíos concurrentes), el mapeo de
  * errores de la API, el armado de URLs, la lectura del token, los textos de las pantallas, Reportar (tarjetas,
  * validación con los mismos mensajes del servidor, cuerpo de POST /api/me/visitas, corregir el mismo día), la
- * grabación, el médico completo y la sede nueva, y las claves de cada forma JSON frente al contrato.
- * Contrato: docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md (sección "App móvil", "Pruebas").
+ * grabación, el médico completo y la sede nueva, las claves de cada forma JSON frente al contrato y (F4.1) la agenda:
+ * las citas de Reportar por distancia, la tarjeta armada desde la cita con su agenda_id, el dictado de un campo que se
+ * añade sin borrar, el formulario de Agendar y los textos de la agenda; Reportar no abre tarjetas sin cita o sede
+ * elegida, Mi agenda muestra las canceladas; y la marca (app.json, pantalla de inicio, módulos de Expo Go y textos).
+ * Contrato: docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md (secciones "App móvil", "Pruebas" y "F4.1").
  *
  * Uso (desde mobile/): npx tsx scripts/movil-check.ts   (va dentro de npm run check)
  * Código de salida 1 si alguna prueba falla.
@@ -64,8 +67,11 @@ import {
 import { RADIO_TIERRA_M, dentroDelRadio, esPunto, haversineM, ordenarPorDistancia, textoDistancia, textoPrecision } from '../lib/geo'
 import { URL_PRODUCCION, construirUrl, esServidorDesarrollo, jsonSeguro, nombreServidor, normalizarBase } from '../lib/http'
 import {
+  agruparCitasPorDia,
   avance,
   conQuien,
+  conQuienCita,
+  cuentaDistinta,
   detalleModalidad,
   ejecutivaPuedeAnular,
   fraccionBarra,
@@ -76,13 +82,39 @@ import {
   plural,
   porcentaje,
   textoFraccion,
+  textoHoraCita,
+  textoTotalAgenda,
+  tituloDiaAgenda,
   tituloRol,
 } from '../lib/reglas'
 import { decodificarBase64Url, leerCargaToken, tokenVencido } from '../lib/token'
-import type { ContextoResponse, DiaLibreItem, MedicoPublico, PropuestaResponse, SedeCreada, VisitaCreate, VisitaItem } from '../lib/tipos'
+import type { CitaItem, ContextoResponse, DiaLibreItem, MedicoPublico, PropuestaResponse, SedeCreada, VisitaCreate, VisitaItem } from '../lib/tipos'
 import { CLAVES_API, clavesDe, tieneClaves } from '../lib/claves-api'
 import { MAX_GRABACION_MS, debeParar, formatoDuracion, nivelDesdeMetering, restanteGrabacion, segundosDe } from '../lib/grabacion'
 import {
+  MENSAJE_CITA_LEJANA,
+  MENSAJE_CITA_PASADA,
+  MENSAJE_DICTADO_NO_DISPONIBLE,
+  MENSAJE_HORA_CITA,
+  MENSAJES_RECHAZO_CITA,
+  aplicarCitaAPropuestas,
+  borradorDesdeCita,
+  cambiarFormularioCita,
+  citasParaReportar,
+  hayEleccion,
+  cuerpoCita,
+  esRechazoDeCita,
+  esVisitaDeLaCita,
+  formularioCitaVacio,
+  horaDeCita,
+  mensajeErrorDictado,
+  ordenarCitasPorDistancia,
+  textoRechazoCita,
+  textoResultadoDictado,
+  unirCamposDictados,
+  validarCita,
+  ventanaCita,
+  type FormularioCita,
   MENSAJE_LINEAS_AJENAS,
   MENSAJE_PROXIMA_ANTES_DE_VISITA,
   MENSAJE_SEDE_SIN_UBICACION,
@@ -119,6 +151,24 @@ import {
   valoresDeVisita,
 } from '../lib/propuesta'
 import { departamentoDe, municipioDe, tipoIdCuentaDeMedico, validarDocumentoMedico, validarRepsCode } from '../lib/terceros'
+
+// Este archivo corre en Node (tsx), pero el programa de tipos es el de la app (sin @types/node, que chocaría con los
+// tipos de React Native): fs y path con lo mínimo que se usa aquí.
+interface FsMinimo {
+  existsSync(ruta: string): boolean
+  readFileSync(ruta: string, codificacion: 'utf8'): string
+  readFileSync(ruta: string): { readUInt32BE(desde: number): number }
+  readdirSync(ruta: string): string[]
+  statSync(ruta: string): { isDirectory(): boolean }
+}
+interface PathMinimo {
+  resolve(...partes: string[]): string
+  join(...partes: string[]): string
+  relative(desde: string, hasta: string): string
+}
+declare const __dirname: string
+const { existsSync, readFileSync, readdirSync, statSync } = require('fs') as FsMinimo
+const path = require('path') as PathMinimo
 
 // ---------------------------------------------------------------------------
 // Mini marco de pruebas
@@ -210,6 +260,7 @@ function visita(extra: Partial<VisitaCreate> = {}): VisitaCreate {
     transcript: null,
     input_mode: 'toques',
     lineas: [L1],
+    agenda_id: null,
   }
   return { ...base, ...extra } as VisitaCreate
 }
@@ -623,6 +674,7 @@ async function main() {
       subtipos: [{ id: SUB_COMPRAS, codigo: 'compras', nombre: 'Compras', roles_sugeridos: ['compras'] }],
       compromisos_vencidos: [],
       voz: { transcribir: false, proponer: false },
+      agenda_hoy: [],
     }
     let n = 0
     const nuevoId = () => `00000000-0000-4000-8000-${String(++n).padStart(12, '0')}`
@@ -692,7 +744,7 @@ async function main() {
     check('rechazo del servidor por radio: se leen la distancia y el radio', radio.clase === 'radio' && radio.distancia_m === 801 && radio.radio_m === 500)
     check('rechazo por tope, perfil y sede sin ubicación', interpretarRechazo({ message: MENSAJE_TOPE_MEDICO }).clase === 'tope_medico' && interpretarRechazo({ message: mensajePerfil('institucional') }).clase === 'perfil' && interpretarRechazo({ message: MENSAJE_SEDE_SIN_UBICACION }).clase === 'sede_sin_ubicacion')
 
-    const visita: VisitaItem = { id: 'v1', client_id: 'c1', tipo: 'medica', subtipo: null, medico: { id: M1, nombre: 'Dra. Ana Gómez' }, cuenta: null, sede: { id: S1, nombre: 'Clínica Norte' }, contacto: null, modalidad: 'presencial', medio: null, efectiva: true, failure_reason: null, checked_in_at: llegada, distance_m: 120, conclusion: 'Bien', compromisos: null, next_step_date: null, lineas: [L1], input_mode: 'toques', out_of_territory: false, cuenta_para: 'medica', peso: 1, sede_por_confirmar: false, editable: true }
+    const visita: VisitaItem = { id: 'v1', client_id: 'c1', tipo: 'medica', subtipo: null, medico: { id: M1, nombre: 'Dra. Ana Gómez' }, cuenta: null, sede: { id: S1, nombre: 'Clínica Norte' }, contacto: null, modalidad: 'presencial', medio: null, efectiva: true, failure_reason: null, checked_in_at: llegada, distance_m: 120, conclusion: 'Bien', compromisos: null, next_step_date: null, lineas: [L1], input_mode: 'toques', out_of_territory: false, cuenta_para: 'medica', peso: 1, sede_por_confirmar: false, editable: true, agenda_id: null, agendada: false }
     check('corregir: sin cambios → cuerpo vacío', Object.keys(cambiosDeVisita(visita, valoresDeVisita(visita))).length === 0)
     check('corregir: pasar a no efectiva manda el motivo; textos vacíos → null', JSON.stringify(cambiosDeVisita(visita, { ...valoresDeVisita(visita), efectiva: false, failure_reason: ' No estaba ', conclusion: '  ' })) === JSON.stringify({ efectiva: false, failure_reason: 'No estaba', conclusion: null }))
     check('corregir: líneas en cualquier orden no cuentan como cambio', Object.keys(cambiosDeVisita({ ...visita, lineas: [L2, L1] }, { ...valoresDeVisita(visita), lineas: [L1, L2] })).length === 0)
@@ -808,7 +860,7 @@ async function main() {
       usuario: 'id full_name role',
       ejecutivaMovil: 'id full_name zona',
       me: 'user ejecutiva',
-      contexto: 'ejecutiva hoy config sedes_cerca mis_medicos contactos subtipos compromisos_vencidos voz',
+      contexto: 'ejecutiva hoy config sedes_cerca mis_medicos contactos subtipos compromisos_vencidos voz agenda_hoy',
       contextoEjecutiva: 'id nombre zona municipio lineas',
       linea: 'id code name',
       hoy: 'fecha meta hechas cuota_dia_ok',
@@ -824,15 +876,23 @@ async function main() {
       voz: 'transcribir proponer',
       visitas: 'fecha items',
       visitaItem:
-        'id client_id tipo subtipo medico cuenta sede contacto modalidad medio efectiva failure_reason checked_in_at distance_m conclusion compromisos next_step_date lineas input_mode out_of_territory cuenta_para peso sede_por_confirmar editable',
+        'id client_id tipo subtipo medico cuenta sede contacto modalidad medio efectiva failure_reason checked_in_at distance_m conclusion compromisos next_step_date lineas input_mode out_of_territory cuenta_para peso sede_por_confirmar editable agenda_id agendada',
       visitaCreate:
-        'client_id tipo subtipo_id medico_id cuenta_id sede_id contacto_id modalidad medio efectiva failure_reason retry_date checked_in_at reported_at lat lng gps_accuracy_m conclusion compromisos next_step_date transcript input_mode lineas',
+        'client_id tipo subtipo_id medico_id cuenta_id sede_id contacto_id modalidad medio efectiva failure_reason retry_date checked_in_at reported_at lat lng gps_accuracy_m conclusion compromisos next_step_date transcript input_mode lineas agenda_id',
       visitaCreateResponse: 'visita repetida',
       transcripcion: 'transcript duracion_s modelo',
       propuesta: 'visitas aviso',
       visitaPropuesta:
         'tipo subtipo_codigo subtipo_id medico_id medico_nombre_dicho sugerir_crear_medico cuenta_id sede_id contacto_id contacto_nombre_dicho lineas efectiva failure_reason conclusion compromisos next_step_date modalidad_sugerida confianza preguntas',
-      numeros: 'mes cuota hechas cumplimiento dias_habiles_sin_visitas telefonicas no_efectivas fuera_de_territorio sede_por_confirmar',
+      numeros: 'mes cuota hechas cumplimiento dias_habiles_sin_visitas telefonicas no_efectivas fuera_de_territorio sede_por_confirmar agenda',
+      // F4.1 (0840): agenda y dictado por campo (contrato, sección "F4.1")
+      numerosAgenda: 'efectivas efectivas_agendadas porcentaje_agendadas citas_hasta_hoy citas_hechas cumplimiento',
+      cita: 'id fecha hora tipo medico cuenta subtipo sede nota estado visita_id distancia_m dentro_del_radio anticipada cancelable',
+      sedeCita: 'id nombre cuenta_id cuenta_nombre lat lng ubicacion_confirmada',
+      agenda: 'desde hasta hoy max_fecha items',
+      citaResponse: 'cita',
+      citaCreate: 'fecha hora tipo medico_id cuenta_id subtipo_id sede_id nota',
+      campos: 'conclusion compromisos next_step_date',
     }
     for (const forma of Object.keys(CLAVES_API) as (keyof typeof CLAVES_API)[]) {
       const app = [...CLAVES_API[forma]].sort().join(' ')
@@ -840,6 +900,278 @@ async function main() {
       check(`${forma}: ${CLAVES_API[forma].length} claves, las del contrato`, app === contrato, { app, contrato })
     }
     check('tieneClaves detecta una clave de más o de menos', tieneClaves({ visitas: [], aviso: null }, 'propuesta') && !tieneClaves({ visitas: [] }, 'propuesta') && !tieneClaves({ visitas: [], aviso: null, extra: 1 }, 'propuesta'))
+  }
+
+  seccion('11. Agenda (F4.1): Reportar empieza por el sitio, la cita arma la visita, el dictado se añade y Agendar')
+  {
+    // Teléfono en la Clínica Portoazul (Puerto Colombia); Reina Catalina a ~9 km; una sede sin coordenadas.
+    const TEL = { lat: 11.0156, lng: -74.8526 }
+    const norte = (m: number) => ({ lat: Math.round((TEL.lat + m / 111_195) * 1e6) / 1e6, lng: TEL.lng })
+    const S_PORTO = 'aaaaaaaa-0000-4000-8000-0000000000p1'
+    const S_REINA = 'aaaaaaaa-0000-4000-8000-0000000000r1'
+    const S_SINGPS = 'aaaaaaaa-0000-4000-8000-0000000000s1'
+    const C_PORTO = 'cccccccc-0000-4000-8000-0000000000p1'
+    const C_REINA = 'cccccccc-0000-4000-8000-0000000000r1'
+    const M_PROPIO = 'dddddddd-0000-4000-8000-0000000000m1'
+    const M_AJENO = 'dddddddd-0000-4000-8000-0000000000m2'
+    const L1 = 'eeeeeeee-0000-4000-8000-0000000000l1'
+    const L2 = 'eeeeeeee-0000-4000-8000-0000000000l2'
+    const SUB_COMPRAS = 'ffffffff-0000-4000-8000-0000000000s1'
+    const SUB_QUIMICO = 'ffffffff-0000-4000-8000-0000000000s2'
+    const CONTACTO = '99999999-0000-4000-8000-0000000000c1'
+    const HOY_A = '2026-10-14'
+    const ahora = new Date('2026-10-14T15:00:00.000Z') // 10:00 en Bogotá
+    const llegada = '2026-10-14T09:55:00.000-05:00'
+    const porto = norte(80)
+    const reina = norte(9000)
+    let n = 0
+    const nuevoId = () => `00000000-0000-4000-8000-${String(++n).padStart(12, '0')}`
+    const cita = (id: string, extra: Partial<CitaItem> = {}): CitaItem => ({
+      id,
+      fecha: HOY_A,
+      hora: null,
+      tipo: 'medica',
+      medico: { id: M_PROPIO, nombre: 'Dr. Andrés Polo (prueba)' },
+      cuenta: null,
+      subtipo: null,
+      sede: { id: S_PORTO, nombre: 'Clínica Portoazul', cuenta_id: C_PORTO, cuenta_nombre: 'Clínica Portoazul S.A.', ...porto, ubicacion_confirmada: true },
+      nota: null,
+      estado: 'pendiente',
+      visita_id: null,
+      distancia_m: null,
+      dentro_del_radio: null,
+      anticipada: true,
+      cancelable: true,
+      ...extra,
+    })
+    const SEDE_REINA = { id: S_REINA, nombre: 'Clínica Reina Catalina', cuenta_id: C_REINA, cuenta_nombre: 'Clínica Reina Catalina', ...reina, ubicacion_confirmada: true }
+    const citaPorto = cita('11111111-0000-4000-8000-0000000000a1', { hora: '10:00' })
+    const citaPortoTemprano = cita('11111111-0000-4000-8000-0000000000a2', { hora: '08:00', medico: { id: M_PROPIO, nombre: 'Dr. Andrés Polo (prueba)' } })
+    const citaReina = cita('11111111-0000-4000-8000-0000000000a3', { hora: '09:00', medico: { id: M_AJENO, nombre: 'Dra. Lucía Mejía (prueba)' }, sede: SEDE_REINA })
+    const citaHecha = cita('11111111-0000-4000-8000-0000000000a4', { estado: 'hecha', visita_id: 'v-1', cancelable: false })
+    const citaManana = cita('11111111-0000-4000-8000-0000000000a5', { fecha: '2026-10-15' })
+    const citaSinGps = cita('11111111-0000-4000-8000-0000000000a6', { hora: '07:00', sede: { ...citaPorto.sede, id: S_SINGPS, nombre: 'Consultorio sin GPS', lat: null, lng: null } })
+    const citaInst = cita('11111111-0000-4000-8000-0000000000a7', {
+      hora: '11:00',
+      tipo: 'institucional',
+      medico: null,
+      cuenta: { id: C_PORTO, nombre: 'Clínica Portoazul S.A.' },
+      subtipo: { id: SUB_COMPRAS, codigo: 'compras', nombre: 'Compras' },
+      anticipada: false,
+    })
+    const contexto: ContextoResponse = {
+      ejecutiva: { id: 'e-carmen', nombre: 'Carmen Barrios', zona: 'Barranquilla', municipio: '08001', lineas: [{ id: L1, code: 'perossal', name: 'PerOssal' }, { id: L2, code: 'reemplazo', name: 'Reemplazo articular' }] },
+      hoy: { fecha: HOY_A, meta: { medica: 6, institucional: 1 }, hechas: { medicas: 0, institucionales: 0, telefonicas: 0, no_efectivas: 0 }, cuota_dia_ok: false },
+      config: { radio_m: 500, telefonica: { habilitada: true, tope_dia: 3, medios: ['llamada'] }, tope_visitas_medico_dia: 1, perfil: ['medica', 'institucional'] },
+      sedes_cerca: [
+        { id: S_PORTO, nombre: 'Clínica Portoazul', cuenta_id: C_PORTO, cuenta_nombre: 'Clínica Portoazul S.A.', cuenta_clase: 'clinica', ciudad: 'Puerto Colombia', ...porto, distancia_m: 80, hospital_id: null, ubicacion_confirmada: true },
+      ],
+      mis_medicos: [{ id: M_PROPIO, nombre: 'Dr. Andrés Polo (prueba)', especialidades: ['ortopedia'], municipality_id: '08573', lineas: [L1], sedes: [{ id: S_PORTO, nombre: 'Clínica Portoazul', cuenta_nombre: 'Clínica Portoazul S.A.', distancia_m: 80 }] }],
+      contactos: [{ id: CONTACTO, cuenta_id: C_PORTO, sede_id: S_PORTO, nombre: 'Jefe de compras (prueba)', cargo_texto: '(prueba)', rol: 'compras' }],
+      subtipos: [
+        { id: SUB_COMPRAS, codigo: 'compras', nombre: 'Compras', roles_sugeridos: ['compras'] },
+        { id: SUB_QUIMICO, codigo: 'quimico', nombre: 'Químico farmacéutico', roles_sugeridos: ['quimico'] },
+      ],
+      compromisos_vencidos: [],
+      voz: { transcribir: true, proponer: true },
+      agenda_hoy: [citaPorto, citaPortoTemprano, citaReina, citaHecha, citaSinGps, citaInst, cita('11111111-0000-4000-8000-0000000000a8', { estado: 'cancelada', sede: { ...SEDE_REINA, id: 'aaaaaaaa-0000-4000-8000-0000000000x9' } })],
+    }
+    const catalogo = catalogoDesdeContexto(contexto, {}, TEL)
+
+    // --- Catálogo con la agenda ---
+    const sedeReina = catalogo.sedes.find(x => x.id === S_REINA)
+    check('catálogo: la sede de una cita lejana entra (con su distancia) y queda marcada de_agenda (no es de las cercanas)', !!sedeReina && sedeReina.de_agenda === true && Math.abs((sedeReina.distancia_m ?? 0) - 9000) <= 2, sedeReina)
+    check('catálogo: la cercana del contexto NO queda marcada de_agenda', catalogo.sedes.find(x => x.id === S_PORTO)?.de_agenda === undefined)
+    check('catálogo: la sede de una cita cancelada no entra', !catalogo.sedes.some(x => x.id === 'aaaaaaaa-0000-4000-8000-0000000000x9'))
+    const ajeno = catalogo.medicos.find(m => m.id === M_AJENO)
+    check('catálogo: el médico de una cita que no es de "mis médicos" entra fuera de su territorio, con la sede de la cita', !!ajeno && !ajeno.propio && ajeno.sedes.some(x => x.id === S_REINA))
+    check('catálogo: el médico propio no se duplica', catalogo.medicos.filter(m => m.id === M_PROPIO).length === 1)
+    const sinAgenda = catalogoDesdeContexto({ ...contexto, agenda_hoy: undefined as unknown as CitaItem[] }, {}, TEL)
+    check('catálogo: un contexto guardado antes de la 0840 (sin agenda_hoy) sigue funcionando', sinAgenda.sedes.length === 1 && sinAgenda.medicos.length === 1)
+
+    // --- Citas para Reportar ---
+    const lista = citasParaReportar(contexto.agenda_hoy, TEL, 500, { hoy: HOY_A })
+    check(
+      'citas de Reportar: solo las pendientes de hoy (sin hecha, cancelada ni de mañana), la más cercana primero y las sin distancia al final',
+      lista.map(x => x.id).join() === [citaPortoTemprano.id, citaPorto.id, citaInst.id, citaReina.id, citaSinGps.id].join(),
+      lista.map(x => [x.hora, x.distancia_m])
+    )
+    check('citas de Reportar: a la misma distancia, por hora (08:00 antes que 10:00 y 11:00)', lista[0].hora === '08:00' && lista[1].hora === '10:00' && lista[2].hora === '11:00')
+    check('citas de Reportar: distancia medida desde el punto de ahora y si está dentro del radio', Math.abs((lista[0].distancia_m ?? 0) - 80) <= 1 && lista[0].dentro_del_radio === true && lista[3].dentro_del_radio === false)
+    check('citas de Reportar: la sede sin coordenadas no tiene distancia ni radio', lista[4].distancia_m === null && lista[4].dentro_del_radio === null)
+    check('citas de Reportar: no ofrece la que ya se usó en este reporte', !citasParaReportar(contexto.agenda_hoy, TEL, 500, { hoy: HOY_A, usadas: [citaPorto.id] }).some(x => x.id === citaPorto.id))
+    const sinPunto = citasParaReportar(contexto.agenda_hoy, null, 500, { hoy: HOY_A })
+    check('citas de Reportar sin ubicación: sin distancias y por hora (sin hora al final)', sinPunto.every(x => x.distancia_m === null) && sinPunto.map(x => x.hora).join() === '07:00,08:00,09:00,10:00,11:00', sinPunto.map(x => x.hora))
+    const guardadas = citasParaReportar([{ ...citaReina, distancia_m: 15, dentro_del_radio: true }], null, 500, { hoy: HOY_A, sinSenal: true })
+    check('citas de Reportar sin señal y sin punto: la distancia guardada (de otro sitio) no se usa', guardadas[0].distancia_m === null && guardadas[0].dentro_del_radio === null)
+    check('ordenarCitasPorDistancia: sin distancia al final aunque sea más temprano', ordenarCitasPorDistancia([{ ...citaPorto, distancia_m: null, hora: '06:00' }, { ...citaReina, distancia_m: 9000 }]).map(x => x.id).join() === `${citaReina.id},${citaPorto.id}`)
+
+    // --- Borrador desde la cita ---
+    const deCita = borradorDesdeCita(citaPorto, catalogo, { nuevoId })
+    check('cita médica → tarjeta armada: tipo, médico, sede de la cita, su agenda_id y las líneas del médico', deCita.tipo === 'medica' && deCita.medico_id === M_PROPIO && deCita.sede_id === S_PORTO && deCita.agenda_id === citaPorto.id && deCita.lineas.join() === L1 && deCita.origen === 'toques', deCita)
+    check('la tarjeta de la cita, a 80 m: lista para confirmar', validarBorrador(deCita, catalogo, { punto: TEL, checked_in_at: llegada, ahora }).ok, validarBorrador(deCita, catalogo, { punto: TEL, checked_in_at: llegada, ahora }).errores)
+    const cuerpoCitaVisita = cuerpoDesdeBorrador(deCita, { punto: TEL, checked_in_at: llegada, reported_at: llegada, transcript: null })
+    check('cuerpo de POST /api/me/visitas con agenda_id (y solo las claves del contrato)', cuerpoCitaVisita.agenda_id === citaPorto.id && tieneClaves(cuerpoCitaVisita, 'visitaCreate'), clavesDe(cuerpoCitaVisita))
+    const deCitaVoz = borradorDesdeCita(citaPorto, catalogo, { nuevoId, origen: 'voz' })
+    check('borradorDesdeCita respeta el origen pedido', deCitaVoz.origen === 'voz')
+    const deCitaAjena = borradorDesdeCita(citaReina, catalogo, { nuevoId })
+    const lejosDeReina = validarBorrador(deCitaAjena, catalogo, { punto: TEL, checked_in_at: llegada, ahora })
+    check('cita con un médico que no es suyo, en una sede a 9 km: tarjeta armada, fuera de su territorio y bloqueada por el radio', deCitaAjena.medico_id === M_AJENO && deCitaAjena.sede_id === S_REINA && lejosDeReina.fuera_de_territorio && lejosDeReina.errores.some(e => e.campo === 'lat'), lejosDeReina.errores)
+    const deInst = borradorDesdeCita(citaInst, catalogo, { nuevoId })
+    check('cita institucional → cuenta, subtipo, sede y el único contacto de compras de la cuenta', deInst.tipo === 'institucional' && deInst.cuenta_id === C_PORTO && deInst.subtipo_id === SUB_COMPRAS && deInst.sede_id === S_PORTO && deInst.contacto_id === CONTACTO && deInst.agenda_id === citaInst.id, deInst)
+    const cuerpoInst = cuerpoDesdeBorrador({ ...deInst, lineas: [L1] }, { punto: TEL, checked_in_at: llegada, reported_at: llegada, transcript: null })
+    check('cuerpo institucional de la cita: cuenta, subtipo, contacto y agenda_id', cuerpoInst.tipo === 'institucional' && cuerpoInst.cuenta_id === C_PORTO && cuerpoInst.subtipo_id === SUB_COMPRAS && cuerpoInst.agenda_id === citaInst.id && tieneClaves(cuerpoInst, 'visitaCreate'))
+    check('la visita no agendada (vacía o propuesta por la IA) va con agenda_id null', borradorVacio(catalogo, { nuevoId, sedeElegida: S_PORTO }).agenda_id === null && cuerpoDesdeBorrador(cambiarBorrador(borradorVacio(catalogo, { nuevoId, sedeElegida: S_PORTO }), { medico_id: M_PROPIO }, catalogo), { punto: TEL, checked_in_at: llegada, reported_at: llegada, transcript: null }).agenda_id === null)
+    check('esVisitaDeLaCita: mismo médico sí; otro médico u otro tipo no', esVisitaDeLaCita(deCita, citaPorto) && !esVisitaDeLaCita(deCita, citaReina) && !esVisitaDeLaCita(deInst, citaPorto) && esVisitaDeLaCita(deInst, citaInst))
+
+    // --- Cambiar la tarjeta suelta la cita si cambia con quién ---
+    check('cambiar el médico suelta la cita (el servidor diría "Esa cita es con otro médico")', cambiarBorrador(deCita, { medico_id: M_AJENO }, catalogo).agenda_id === null)
+    check('cambiar el tipo suelta la cita', cambiarBorrador(deCita, { tipo: 'institucional' }, catalogo).agenda_id === null)
+    check('cambiar la cuenta de la institucional suelta la cita', cambiarBorrador(deInst, { cuenta_id: C_REINA }, catalogo).agenda_id === null)
+    check(
+      'cambiar la sede, el subtipo, el resultado o la conclusión NO suelta la cita (decisión 42)',
+      cambiarBorrador(deCitaAjena, { sede_id: S_REINA }, catalogo).agenda_id === citaReina.id &&
+        cambiarBorrador(deInst, { subtipo_id: SUB_QUIMICO }, catalogo).agenda_id === citaInst.id &&
+        cambiarBorrador(deCita, { efectiva: false, failure_reason: 'No estaba' }, catalogo).agenda_id === citaPorto.id &&
+        cambiarBorrador(deCita, { conclusion: 'Bien' }, catalogo).agenda_id === citaPorto.id
+    )
+    check('elegir otra vez el mismo médico no suelta la cita', cambiarBorrador(deCita, { medico_id: M_PROPIO }, catalogo).agenda_id === citaPorto.id)
+
+    // --- Dictar con la cita elegida ---
+    const propuesta: PropuestaResponse = {
+      aviso: null,
+      visitas: [
+        { tipo: 'medica', subtipo_codigo: null, subtipo_id: null, medico_id: M_AJENO, medico_nombre_dicho: null, sugerir_crear_medico: false, cuenta_id: null, sede_id: S_REINA, contacto_id: null, contacto_nombre_dicho: null, lineas: [L2], efectiva: true, failure_reason: null, conclusion: 'Otra', compromisos: null, next_step_date: null, modalidad_sugerida: 'presencial', confianza: 0.9, preguntas: [] },
+        { tipo: 'medica', subtipo_codigo: null, subtipo_id: null, medico_id: M_PROPIO, medico_nombre_dicho: null, sugerir_crear_medico: false, cuenta_id: null, sede_id: S_PORTO, contacto_id: null, contacto_nombre_dicho: null, lineas: [L1], efectiva: true, failure_reason: null, conclusion: 'Le gustó el canulado', compromisos: 'Enviar muestra', next_step_date: null, modalidad_sugerida: 'presencial', confianza: 0.9, preguntas: [] },
+      ],
+    }
+    const tarjetas = aplicarCitaAPropuestas(borradoresDesdePropuesta(propuesta, catalogo, { nuevoId, sedeElegida: S_PORTO }), citaPorto, catalogo)
+    check('IA (proponer con cita_id): la tarjeta que es la visita de la cita lleva su agenda_id; la otra no (la base vincula sola)', tarjetas[0].agenda_id === null && tarjetas[1].agenda_id === citaPorto.id, tarjetas.map(t => [t.medico_id, t.agenda_id]))
+    check('IA: los ids del médico y la sede de la cita se aceptan aunque el médico no sea de "mis médicos" (decisión 51)', tarjetas[0].medico_id === M_AJENO && tarjetas[0].sede_id === S_REINA)
+    const huerfana: PropuestaResponse = { aviso: null, visitas: [{ ...propuesta.visitas[1], medico_id: null, sede_id: null, lineas: [] }] }
+    const completada = aplicarCitaAPropuestas(borradoresDesdePropuesta(huerfana, catalogo, { nuevoId }), citaPorto, catalogo)
+    check('IA: una sola tarjeta médica sin médico ni nombre dicho → es la de la cita (médico, sede, líneas y agenda_id)', completada[0].medico_id === M_PROPIO && completada[0].sede_id === S_PORTO && completada[0].agenda_id === citaPorto.id && completada[0].lineas.join() === L1 && completada[0].conclusion === 'Le gustó el canulado', completada[0])
+    const conNombre: PropuestaResponse = { aviso: null, visitas: [{ ...huerfana.visitas[0], medico_nombre_dicho: 'Dr. Ramírez', sugerir_crear_medico: true }] }
+    check('IA: si dijo OTRO nombre que no cruzó, no se le pone el médico de la cita', aplicarCitaAPropuestas(borradoresDesdePropuesta(conNombre, catalogo, { nuevoId }), citaPorto, catalogo)[0].agenda_id === null)
+    const dosHuerfanas: PropuestaResponse = { aviso: null, visitas: [huerfana.visitas[0], { ...huerfana.visitas[0], conclusion: 'otra' }] }
+    check('IA: con dos tarjetas sin médico no se adivina cuál es la de la cita', aplicarCitaAPropuestas(borradoresDesdePropuesta(dosHuerfanas, catalogo, { nuevoId }), citaPorto, catalogo).every(t => t.agenda_id === null))
+    const instHuerfana: PropuestaResponse = { aviso: null, visitas: [{ ...propuesta.visitas[1], tipo: 'institucional', medico_id: null, cuenta_id: null, sede_id: null, subtipo_codigo: null }] }
+    const instCompletada = aplicarCitaAPropuestas(borradoresDesdePropuesta(instHuerfana, catalogo, { nuevoId }), citaInst, catalogo)[0]
+    check('IA: una sola institucional sin cuenta → la cuenta, el subtipo y la sede de la cita', instCompletada.cuenta_id === C_PORTO && instCompletada.subtipo_id === SUB_COMPRAS && instCompletada.sede_id === S_PORTO && instCompletada.agenda_id === citaInst.id, instCompletada)
+
+    // --- Rechazo por la cita ---
+    check('los 7 mensajes del vínculo se reconocen como rechazo de la cita', MENSAJES_RECHAZO_CITA.length === 7 && MENSAJES_RECHAZO_CITA.every(m => esRechazoDeCita(m) && interpretarRechazo({ message: m }).clase === 'cita'))
+    check('un rechazo que no es de la cita no se confunde', !esRechazoDeCita(MENSAJE_TOPE_MEDICO) && interpretarRechazo({ message: MENSAJE_TOPE_MEDICO }).clase === 'tope_medico' && !esRechazoDeCita(null))
+    check('el texto del rechazo de la cita dice que se confirma como no agendada', textoRechazoCita('Esa cita ya tiene su visita').startsWith('Esa cita ya tiene su visita.') && textoRechazoCita('x').includes('no agendada'))
+    const deNuevo = borradorDesdeCuerpo(cuerpoCitaVisita, catalogo, { nuevoId })
+    check('reportar de nuevo desde la cola: conserva la cita', deNuevo.agenda_id === citaPorto.id)
+    check('reportar de nuevo tras un rechazo POR la cita: va sin ella', borradorDesdeCuerpo(cuerpoCitaVisita, catalogo, { nuevoId, motivo: 'Esa cita ya tiene su visita' }).agenda_id === null)
+    const viejo = { ...cuerpoCitaVisita } as Partial<VisitaCreate>
+    delete viejo.agenda_id
+    check('un cuerpo guardado en la cola antes de la agenda (sin agenda_id) → sin cita', borradorDesdeCuerpo(viejo as VisitaCreate, catalogo, { nuevoId }).agenda_id === null)
+
+    // --- Dictar un campo: se AÑADE, nunca se borra ---
+    const vacios = { conclusion: '', compromisos: '', next_step_date: '' }
+    const dictado = { conclusion: 'Le presenté PerOssal; quedó interesado.', compromisos: 'Enviarle la ficha técnica el jueves.', next_step_date: '2026-10-21' }
+    const primera = unirCamposDictados(vacios, dictado, HOY_A)
+    check('dictar con los campos vacíos: llena conclusión, compromisos y próxima reunión', primera.conclusion === dictado.conclusion && primera.compromisos === dictado.compromisos && primera.next_step_date === '2026-10-21' && primera.agregados.join() === 'conclusion,compromisos,next_step_date')
+    const escrito = { conclusion: 'Lo vi en consulta.  ', compromisos: 'Llamar a compras', next_step_date: '2026-10-30' }
+    const segunda = unirCamposDictados(escrito, dictado, HOY_A)
+    check('dictar con texto escrito: lo añade en una línea nueva sin borrar lo que había', segunda.conclusion === `Lo vi en consulta.\n${dictado.conclusion}` && segunda.compromisos === `Llamar a compras\n${dictado.compromisos}`, segunda)
+    check('la próxima reunión ya escrita no se cambia', segunda.next_step_date === '2026-10-30' && !segunda.agregados.includes('next_step_date'))
+    check('lo que ya estaba igual no se repite (dictar dos veces lo mismo)', unirCamposDictados(primera, dictado, HOY_A).conclusion === dictado.conclusion && unirCamposDictados(primera, dictado, HOY_A).agregados.length === 0)
+    check('una próxima reunión de ayer o que no es fecha no se pone', unirCamposDictados(vacios, { ...dictado, next_step_date: '2026-10-13' }, HOY_A).next_step_date === '' && unirCamposDictados(vacios, { ...dictado, next_step_date: 'jueves' }, HOY_A).next_step_date === '')
+    check('campos dictados vacíos (null) no tocan nada', JSON.stringify(unirCamposDictados(escrito, { conclusion: null, compromisos: '  ', next_step_date: null }, HOY_A)) === JSON.stringify({ ...escrito, agregados: [], recortado: false }))
+    const largo = unirCamposDictados({ ...vacios, conclusion: 'x'.repeat(1990) }, { conclusion: 'y'.repeat(50), compromisos: null, next_step_date: null }, HOY_A)
+    check('si al añadir se pasa de 2.000 caracteres, se recorta el final y se avisa', largo.conclusion.length === 2000 && largo.recortado && largo.conclusion.startsWith('x'.repeat(1990)) && textoResultadoDictado(largo).includes('recortó'))
+    check('textoResultadoDictado nombra dónde quedó', textoResultadoDictado(primera) === 'Agregué lo que dijiste en conclusión, compromisos y próxima reunión. Revísalo antes de confirmar.' && textoResultadoDictado({ agregados: [], recortado: false }).startsWith('No encontré'))
+    check('dictado sin llave (503) o sin la ruta (404): "El dictado no está disponible; escribe la conclusión"', mensajeErrorDictado(503, 'x') === MENSAJE_DICTADO_NO_DISPONIBLE && mensajeErrorDictado(404, 'x') === MENSAJE_DICTADO_NO_DISPONIBLE && MENSAJE_DICTADO_NO_DISPONIBLE === 'El dictado no está disponible; escribe la conclusión')
+    check('otros fallos del dictado (429, 502, sin señal) muestran el mensaje del servidor', mensajeErrorDictado(429, 'Demasiados dictados seguidos') === 'Demasiados dictados seguidos' && mensajeErrorDictado(0, 'Sin conexión') === 'Sin conexión')
+
+    // --- Agendar: ventana, forma y cuerpo de POST /api/me/agenda ---
+    const vacio = formularioCitaVacio(HOY_A, ['medica', 'institucional'])
+    check('formulario nuevo: hoy, sin hora, médica primero', vacio.fecha === HOY_A && vacio.hora === '' && vacio.tipo === 'medica' && formularioCitaVacio(HOY_A, ['institucional']).tipo === 'institucional' && formularioCitaVacio(HOY_A, []).tipo === null)
+    check('ventana: de hoy a hoy + 30', ventanaCita(HOY_A).desde === HOY_A && ventanaCita(HOY_A).hasta === '2026-11-13')
+    const completa: FormularioCita = { ...vacio, medico_id: M_PROPIO, sede_id: S_PORTO, hora: '9:30', nota: '  Llevar muestras  ' }
+    check('cita médica completa: sin errores', validarCita(completa, HOY_A, ['medica', 'institucional']).length === 0)
+    const errores = (f: Partial<FormularioCita>) => validarCita({ ...completa, ...f }, HOY_A, ['medica', 'institucional'])
+    check('ayer: el mismo mensaje del servidor', errores({ fecha: '2026-10-13' }).some(e => e.campo === 'fecha' && e.mensaje === MENSAJE_CITA_PASADA))
+    check('a 31 días: rechazada; a 30 días: sí', errores({ fecha: '2026-11-14' }).some(e => e.mensaje === MENSAJE_CITA_LEJANA) && errores({ fecha: '2026-11-13' }).length === 0)
+    check('hora no válida: el mensaje del servidor; "9:30" vale como 09:30 y vacía es sin hora', errores({ hora: '25:00' }).some(e => e.campo === 'hora' && e.mensaje === MENSAJE_HORA_CITA) && horaDeCita('9:30') === '09:30' && horaDeCita('') === null && horaDeCita('07.45') === '07:45' && horaDeCita('10:60') === undefined)
+    check('médica sin médico, sin sede: los dos errores a la vez', errores({ medico_id: null, sede_id: null }).map(e => e.campo).join() === 'medico_id,sede_id')
+    check('institucional sin cuenta ni subtipo: los mensajes del servidor', validarCita({ ...completa, tipo: 'institucional', medico_id: null }, HOY_A).map(e => e.mensaje).join(' | ') === 'Elige la cuenta | Elige el subtipo de la visita institucional')
+    check('tipo fuera del perfil: el mensaje del perfil', errores({}).length === 0 && validarCita(completa, HOY_A, ['institucional']).some(e => e.campo === 'tipo' && e.mensaje === mensajePerfil('medica')))
+    check('nota de más de 300: rechazada', errores({ nota: 'x'.repeat(301) }).some(e => e.campo === 'nota'))
+    const cuerpo = cuerpoCita(completa)
+    check('cuerpo médico de POST /api/me/agenda: las claves del contrato, hora normalizada, nota limpia, cuenta y subtipo null', tieneClaves(cuerpo, 'citaCreate') && cuerpo.hora === '09:30' && cuerpo.nota === 'Llevar muestras' && cuerpo.cuenta_id === null && cuerpo.subtipo_id === null && cuerpo.medico_id === M_PROPIO, cuerpo)
+    const cuerpoI = cuerpoCita({ ...completa, tipo: 'institucional', medico_id: null, cuenta_id: C_PORTO, subtipo_id: SUB_COMPRAS, hora: '', nota: '' })
+    check('cuerpo institucional: cuenta y subtipo, médico null, sin hora ni nota', tieneClaves(cuerpoI, 'citaCreate') && cuerpoI.tipo === 'institucional' && cuerpoI.medico_id === null && cuerpoI.cuenta_id === C_PORTO && cuerpoI.hora === null && cuerpoI.nota === null)
+    check('cuerpoCita lanza si falta algo', (() => { try { cuerpoCita({ ...completa, sede_id: null }); return false } catch { return true } })())
+    check('cambiar el tipo limpia el médico, la cuenta, el subtipo y la sede', JSON.stringify(cambiarFormularioCita(completa, { tipo: 'institucional' })) === JSON.stringify({ ...completa, tipo: 'institucional', medico_id: null, cuenta_id: null, subtipo_id: null, sede_id: null }))
+    check('cambiar el médico limpia la sede (salvo que venga con la nueva)', cambiarFormularioCita(completa, { medico_id: M_AJENO }).sede_id === null && cambiarFormularioCita(completa, { medico_id: M_AJENO, sede_id: S_REINA }).sede_id === S_REINA && cambiarFormularioCita(completa, { hora: '10:00' }).sede_id === S_PORTO)
+
+    // --- Textos de la agenda ---
+    check('conQuienCita: médica e institucional (sin documentos)', conQuienCita(citaPorto) === 'Dr. Andrés Polo (prueba)' && conQuienCita(citaInst) === 'Clínica Portoazul S.A. · Compras')
+    check('textoHoraCita: hora o "Sin hora"', textoHoraCita('08:00') === '08:00' && textoHoraCita(null) === 'Sin hora')
+    check(
+      'cuentaDistinta: la cuenta junto a la sede solo si dice algo más',
+      cuentaDistinta('Clínica Portoazul', 'Clínica Portoazul S.A.S.') === null &&
+        cuentaDistinta('Portoazul Torre Médica', 'Clínica Portoazul S.A.S.') === 'Clínica Portoazul S.A.S.' &&
+        cuentaDistinta('Clinica Norte', 'CLÍNICA NORTE') === null &&
+        cuentaDistinta('Sede', null) === null
+    )
+    const dias = agruparCitasPorDia([citaPorto, citaManana, citaPortoTemprano, cita('x-sinhora', { hora: null })], HOY_A, '2026-10-21')
+    check('agenda por día: los 8 días (hoy a hoy + 7), también los vacíos', dias.length === 8 && dias[0].fecha === HOY_A && dias[7].fecha === '2026-10-21' && dias[2].citas.length === 0)
+    check('agenda por día: cada día por hora y las sin hora al final', dias[0].citas.map(x => x.hora ?? 'sin').join() === '08:00,10:00,sin' && dias[1].citas.length === 1)
+    check('títulos de los días: Hoy, Mañana y la fecha larga con mayúscula', tituloDiaAgenda(HOY_A, HOY_A) === 'Hoy · miércoles 14 de octubre' && tituloDiaAgenda('2026-10-15', HOY_A) === 'Mañana · jueves 15 de octubre' && tituloDiaAgenda('2026-10-16', HOY_A) === 'Viernes 16 de octubre', [tituloDiaAgenda(HOY_A, HOY_A), tituloDiaAgenda('2026-10-16', HOY_A)])
+
+    // --- Mi agenda: la cancelada se sigue viendo (no se borra) y no suma al total ---
+    check('total de Mi agenda: cuenta pendientes y hechas', textoTotalAgenda([citaPorto, citaHecha]) === '2 citas' && textoTotalAgenda([citaPorto]) === '1 cita' && textoTotalAgenda([]) === '0 citas')
+    check('total de Mi agenda: la cancelada se muestra aparte ("· 1 cancelada")', textoTotalAgenda([citaPorto, cita('x-c1', { estado: 'cancelada' })]) === '1 cita · 1 cancelada' && textoTotalAgenda([cita('x-c1', { estado: 'cancelada' }), cita('x-c2', { estado: 'cancelada' })]) === '0 citas · 2 canceladas')
+    const pantallaAgenda = readFileSync(path.resolve(__dirname, '../app/(app)/agenda.tsx'), 'utf8')
+    check('Mi agenda pide las canceladas (la confirmación promete "Queda en tu agenda como cancelada")', /api\.agenda\(undefined, undefined, true\)/.test(pantallaAgenda) && pantallaAgenda.includes('Queda en tu agenda como cancelada'))
+
+    // --- Reportar: sin cita ni sede elegida no se graba ni se llena por toques ---
+    check('hayEleccion: con una cita sí', hayEleccion({ cita: citaPorto, sedeId: null, catalogo }))
+    check('hayEleccion: con una sede del catálogo sí', hayEleccion({ cita: null, sedeId: S_PORTO, catalogo }))
+    check('hayEleccion: sin cita ni sede, no', !hayEleccion({ cita: null, sedeId: null, catalogo }))
+    check('hayEleccion: con una sede que no está en el catálogo, no (p. ej. tras "Elegir otra cita o una sede")', !hayEleccion({ cita: null, sedeId: 'sede-que-no-esta', catalogo }) && !hayEleccion({ cita: null, sedeId: S_PORTO, catalogo: null }))
+    const pantallaReportar = readFileSync(path.resolve(__dirname, '../app/(app)/reportar.tsx'), 'utf8')
+    check('Reportar: porToques no abre tarjeta sin elección', /const porToques = \(\) => \{\s*if \(!catalogo \|\| !eligio\) return/.test(pantallaReportar))
+    check('Reportar: el aviso de la voz que falló solo ofrece "Reportar por toques" con elección', /accion=\{eligio \? <Boton titulo="Reportar por toques"/.test(pantallaReportar))
+    check('Reportar: "Elegir otra cita o una sede" quita el aviso de la voz', /const cambiarEleccion = \(\) => \{[^}]*setErrorVoz\(null\)/.test(pantallaReportar))
+  }
+
+  seccion('12. Marca VG Medical: nombre, pantalla de inicio y textos (spec F4.1)')
+  {
+    const raiz = path.resolve(__dirname, '..')
+    const app = JSON.parse(readFileSync(path.join(raiz, 'app.json'), 'utf8')).expo as Record<string, unknown>
+    check('app.json: el nombre visible es "VG Visitas"', app.name === 'VG Visitas')
+    check('app.json: sin la clave raíz "splash" (no existe en el esquema de SDK 57; la ignoraría el build)', !('splash' in app))
+    const plugins = (app.plugins ?? []) as unknown[]
+    const splash = plugins.find(p => Array.isArray(p) && p[0] === 'expo-splash-screen') as [string, Record<string, unknown>] | undefined
+    check('app.json: la pantalla de inicio va por el plugin expo-splash-screen, sobre negro', !!splash && splash[1].backgroundColor === '#000000' && typeof splash[1].image === 'string' && typeof splash[1].imageWidth === 'number', splash)
+    const imagen = splash ? path.join(raiz, String(splash[1].image)) : ''
+    const png = imagen && existsSync(imagen) ? readFileSync(imagen) : null
+    const ancho = png ? png.readUInt32BE(16) : 0
+    const alto = png ? png.readUInt32BE(20) : 0
+    check('la imagen de inicio existe y es cuadrada (el símbolo "vg", no el logotipo ancho)', !!png && ancho === alto && ancho >= 512, { ancho, alto })
+    const paquete = JSON.parse(readFileSync(path.join(raiz, 'package.json'), 'utf8')) as { dependencies: Record<string, string> }
+    const incluidos = JSON.parse(readFileSync(path.join(raiz, 'node_modules/expo/bundledNativeModules.json'), 'utf8')) as Record<string, string>
+    const nativos = Object.keys(paquete.dependencies).filter(nombre => nombre.startsWith('expo-'))
+    check('Expo Go: todo expo-* de package.json viene en Expo Go (bundledNativeModules), también expo-splash-screen', nativos.includes('expo-splash-screen') && nativos.every(nombre => nombre in incluidos), nativos.filter(nombre => !(nombre in incluidos)))
+    const archivos: string[] = []
+    const recorrer = (dir: string) => {
+      for (const nombre of readdirSync(dir)) {
+        const ruta = path.join(dir, nombre)
+        if (statSync(ruta).isDirectory()) recorrer(ruta)
+        else if (/\.(tsx?|json|md)$/.test(nombre)) archivos.push(ruta)
+      }
+    }
+    for (const dir of ['app', 'components', 'lib']) recorrer(path.join(raiz, dir))
+    archivos.push(path.join(raiz, 'app.json'), path.join(raiz, 'README.md'))
+    const prohibidos = archivos.filter(ruta => /OpMap Visitas|\bKAM\b|representante|\bpanel\b/i.test(readFileSync(ruta, 'utf8')))
+    check('no queda "OpMap Visitas", "KAM", "representante" ni "panel" en app/, components/, lib/, app.json ni README.md', prohibidos.length === 0, prohibidos.map(ruta => path.relative(raiz, ruta)))
   }
 
   console.log(`\n${total - fallas}/${total} pruebas pasaron`)
