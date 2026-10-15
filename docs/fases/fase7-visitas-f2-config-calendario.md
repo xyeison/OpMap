@@ -229,7 +229,8 @@ Rol nuevo **`hr`** ("Recursos humanos"): `lines:view`, `executives:view`, `calen
 | `daysoff:view` | Ver, sin aprobar, los días libres de las ejecutivas de sus líneas (`executive_lines` en líneas con `business_lines.leader_user_id` = él) | line_leader |
 | `visits:report` | Lo propio de una Ejecutiva Comercial: sus días libres y su cuota (requiere usuario enlazado a una ejecutiva; si no, 403 "Tu usuario no está enlazado con un Ejecutivo Comercial") | admin, commercial_director, line_leader, sales_manager |
 
-Menú: **"Configuración"** → `/configuracion` con `visits:config`; **"Calendario"** → `/calendario` con
+Menú: **"Configuración"** → `/configuracion` con `visits:config` (desde 2026-10-14 también con `territories:view`
+o `recalculate:*`: secciones Visitas, Municipios y Asignación; ver `web/docs/ROLES_AND_PERMISSIONS.md`); **"Calendario"** → `/calendario` con
 cualquiera de `calendar:manage`, `daysoff:approve`, `daysoff:view`, `visits:report`. `getAllowedRoutes`
 igual. `getRoleTitle('hr') = 'Recursos humanos'`; la página `/users` ofrece el rol en sus tres selectores y
 etiquetas. Íconos en `NavigationWithPermissions`.

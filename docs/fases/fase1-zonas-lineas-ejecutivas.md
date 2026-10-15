@@ -6,7 +6,8 @@ Rama `fase1/zonas-y-equipo`. Migraciones en `database/migrations/2026-10-10_*` (
 - **Modelo**: ZONA (geografía + ciudad base) ≠ PERSONA (ejecutiva) ≠ LÍNEA de negocio.
   - La tabla `kams` NO se renombra: **cada fila de `kams` es una ZONA** (ciudad base = `area_id`).
     En la UI "KAM" se muestra como "Zona" y la tabla `zones` como "Región"; en código siguen
-    `kam_id`/`kams`, rutas `/kams` y `/zones` sin cambios.
+    `kam_id`/`kams`, rutas `/kams` y `/zones` sin cambios. (2026-10-14: la página `/zones` "Regiones" se quitó
+    por ser de una versión anterior; la tabla `zones` y `/api/zones` siguen.)
   - `business_lines`: PerOssal, Reemplazo articular, Medicina deportiva, Columna, Trauma
     (líder opcional, `max_reach_minutes` = 240 por defecto).
   - `executives`: personas (status `active` | `placeholder` = vacante por contratar | `inactive`;

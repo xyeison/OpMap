@@ -94,6 +94,7 @@ import {
 } from '../lib/visits-config-schemas'
 import {
   PERMISOS_CALENDARIO,
+  PERMISOS_CONFIGURACION,
   getAllowedRoutes,
   getNavigationMenu,
   getRoleTitle,
@@ -958,7 +959,9 @@ for (const [rol, tiene, noTiene] of matriz) {
   check(`${rol}: no tiene ${noTiene.join(', ') || '(ninguno)'}`, noTiene.every(permiso => !hasPermission(rol, permiso)))
   const menu = getNavigationMenu(rol)
   const rutas = getAllowedRoutes(rol)
-  const config = hasPermission(rol, 'visits:config')
+  // Desde 2026-10-14 Configuración también agrupa Municipios (territories:view) y Asignación (recalculate:*);
+  // la sección Visitas sigue siendo solo de visits:config (scripts/menu-check.ts prueba las secciones).
+  const config = PERMISOS_CONFIGURACION.some(permiso => hasPermission(rol, permiso))
   const calendario = PERMISOS_CALENDARIO.some(permiso => hasPermission(rol, permiso))
   check(
     `${rol}: menú "Configuración" y ruta /configuracion ${config ? 'sí' : 'no'}`,

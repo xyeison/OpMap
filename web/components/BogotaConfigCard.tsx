@@ -370,10 +370,10 @@ export default function BogotaConfigCard() {
           <p>{savedMessage}</p>
           <p className="mt-1">
             Las asignaciones no se recalculan solas: usa{' '}
-            <Link href="/#recalcular" className="font-semibold underline">
+            <Link href="/configuracion?seccion=asignacion" className="font-semibold underline">
               Recalcular asignaciones
             </Link>{' '}
-            en la página principal cuando quieras aplicarla.
+            en Configuración → Asignación cuando quieras aplicarla.
           </p>
         </div>
       )}

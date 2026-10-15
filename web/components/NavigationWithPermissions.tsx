@@ -5,25 +5,12 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useUser } from '@/contexts/UserContext'
 import { usePermissions } from '@/hooks/usePermissions'
-import { getRoleTitle } from '@/lib/permissions'
+import { getHomeRoute, getRoleTitle, type NavigationItem } from '@/lib/permissions'
 import { useMapHeaderTitle } from '@/components/mapHeaderStore'
-
-interface MenuItem {
-  name: string
-  href: string
-  icon: string
-}
-
-// Fase 1: en la UI, cada fila de kams es una "Zona" y la tabla zones es una "Región".
-// Las rutas (/kams, /zones) no cambian; solo el texto visible del menú.
-const MENU_LABELS: Record<string, string> = {
-  '/kams': 'Zonas',
-  '/zones': 'Regiones',
-}
 
 export default function NavigationWithPermissions() {
   const { user, logout } = useUser()
-  const { role, navigationMenu, loading, can } = usePermissions()
+  const { role, navigationMenu, loading } = usePermissions()
   const [isOpen, setIsOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const pathname = usePathname()
@@ -51,28 +38,10 @@ export default function NavigationWithPermissions() {
     setIsOpen(false)
   }, [pathname])
   
-  // Menú visible: renombra Zonas/Regiones y agrega Líneas y Ejecutivas (cada una con su permiso)
-  // justo después de Regiones (o de Zonas, o al final si no hay ninguna de las dos).
-  const menuItems: MenuItem[] = navigationMenu.map(item => ({
-    ...item,
-    name: MENU_LABELS[item.href] ?? item.name,
-  }))
-  const extraItems: MenuItem[] = []
-  if (can('lines:view') && !menuItems.some(item => item.href === '/lines')) {
-    extraItems.push({ name: 'Líneas', href: '/lines', icon: 'lines' })
-  }
-  if (can('executives:view') && !menuItems.some(item => item.href === '/executives')) {
-    extraItems.push({ name: 'Ejecutivos Comerciales', href: '/executives', icon: 'executives' })
-  }
-  if (can('intelligence:view') && !menuItems.some(item => item.href === '/inteligencia')) {
-    extraItems.push({ name: 'Inteligencia', href: '/inteligencia', icon: 'intelligence' }) // Fase 3: giros ADRES
-  }
-  if (extraItems.length > 0) {
-    let anchor = menuItems.findIndex(item => item.href === '/zones')
-    if (anchor === -1) anchor = menuItems.findIndex(item => item.href === '/kams')
-    const insertAt = anchor === -1 ? menuItems.length : anchor + 1
-    menuItems.splice(insertAt, 0, ...extraItems)
-  }
+  // Menú visible: el orden y los textos salen de getNavigationMenu (lib/permissions.ts), cada ítem con su permiso.
+  // Mapa primero y Configuración al final (dueño, 2026-10-14). El logo lleva a la página de inicio del rol.
+  const menuItems: NavigationItem[] = navigationMenu
+  const inicio = getHomeRoute(role) ?? '/'
 
   if (!user) return null
   
@@ -116,7 +85,7 @@ export default function NavigationWithPermissions() {
               </svg>
             </button>
             <Link
-              href="/"
+              href={inicio}
               className={`font-bold text-gray-900 hover:text-gray-700 transition-colors ${isMap ? 'text-lg md:text-2xl flex-shrink-0' : 'text-2xl'}`}
             >
               OpMap
@@ -162,7 +131,7 @@ export default function NavigationWithPermissions() {
         }}
       >
         <div className="flex flex-col h-full">
-          <div className="p-6 flex-1 overflow-y-auto">
+          <div className="px-4 py-6 flex-1 min-h-0 overflow-y-auto">
             {/* Header del menú */}
             <div className="mb-6 pb-4 border-b border-gray-100">
               <h3 className="text-base font-semibold text-gray-900 mb-1">Navegación</h3>
@@ -180,9 +149,13 @@ export default function NavigationWithPermissions() {
               </svg>
             </div>
           ) : (
-            <nav className="space-y-1">
+            // Un <div> y no <nav>: globals.css fija todo <nav> (position: fixed) y la lista dejaba de desplazarse,
+            // así que en pantallas bajas las últimas opciones (Configuración) quedaban cortadas.
+            <div className="space-y-1" role="navigation" aria-label="Menú principal" data-menu-principal>
               {menuItems.map((item) => {
-                const isActive = pathname === item.href
+                // Municipios (/territories) vive dentro de Configuración: ahí se marca Configuración
+                const isActive =
+                  pathname === item.href || (item.href === '/configuracion' && !!pathname?.startsWith('/territories'))
                 const Icon = getIconForRoute(item.href)
                 
                 return (
@@ -205,7 +178,7 @@ export default function NavigationWithPermissions() {
                   </Link>
                 )
               })}
-            </nav>
+            </div>
           )}
           </div>
 
@@ -244,11 +217,9 @@ export default function NavigationWithPermissions() {
 // Función helper para obtener iconos según la ruta
 function getIconForRoute(href: string) {
   const icons: { [key: string]: React.FC<{ className?: string }> } = {
-    '/': HomeIcon,
     '/map': MapIcon,
     '/hospitals': HospitalIcon,
     '/kams': UsersIcon,
-    '/zones': ZonesIcon,
     '/lines': LinesIcon,
     '/executives': ExecutivesIcon,
     '/inteligencia': IntelligenceIcon,
@@ -289,11 +260,6 @@ const TercerosIcon: React.FC<{ className?: string }> = ({ className }) => (
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2" />
   </svg>
 )
-const HomeIcon: React.FC<{ className?: string }> = ({ className }) => (
-  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-  </svg>
-)
 
 const MapIcon: React.FC<{ className?: string }> = ({ className }) => (
   <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -310,13 +276,6 @@ const HospitalIcon: React.FC<{ className?: string }> = ({ className }) => (
 const UsersIcon: React.FC<{ className?: string }> = ({ className }) => (
   <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-  </svg>
-)
-
-const ZonesIcon: React.FC<{ className?: string }> = ({ className }) => (
-  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
   </svg>
 )
 

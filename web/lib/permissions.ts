@@ -32,7 +32,7 @@ export type Permission =
   | 'visits:manage'
   | 'territories:view'
   | 'territories:manage'
-  | 'lines:view'       // Fase 1: líneas de negocio (PerOssal, Reemplazo articular...)
+  | 'lines:view'       // Fase 1: líneas de negocio (Sustitutos óseos, Reemplazo articular...)
   | 'lines:edit'
   | 'executives:view'  // Fase 1: ejecutivas comerciales (personas)
   | 'executives:edit'
@@ -250,6 +250,39 @@ export const PERMISOS_CALENDARIO: readonly Permission[] = [
   'visits:report'
 ]
 
+// Menú de la web (dueño, 2026-10-14): Municipios ya no va en el menú principal sino dentro de Configuración.
+// Configuración se abre con cualquiera de estos permisos y cada sección pide el suyo (seccionesConfiguracion).
+// La sección "Asignación" (Recalcular asignaciones y Calcular rutas) vivía en el antiguo dashboard de "/", que pedía
+// dashboard:view además de recalculate:*: se piden los dos, para que nadie gane estas herramientas al mudarlas
+// (data_manager tiene recalculate:complete pero no dashboard:view y no las veía). Hoy todo rol con recalculate:*
+// tiene también territories:view.
+export const PERMISOS_CONFIGURACION: readonly Permission[] = [
+  'visits:config',
+  'territories:view',
+  'recalculate:simple',
+  'recalculate:complete'
+]
+
+export type SeccionConfiguracion = 'visitas' | 'municipios' | 'asignacion'
+
+/** Asignación: los mismos permisos que tenía en el antiguo dashboard (dashboard:view y recalculate:*). */
+export function puedeVerAsignacion(role: Role | undefined): boolean {
+  return (
+    hasPermission(role, 'dashboard:view') &&
+    (hasPermission(role, 'recalculate:simple') || hasPermission(role, 'recalculate:complete'))
+  )
+}
+
+/** Secciones de /configuracion que ve el rol, en el orden en que salen: Visitas, Municipios, Asignación. */
+export function seccionesConfiguracion(role: Role | undefined): SeccionConfiguracion[] {
+  if (!role) return []
+  const secciones: SeccionConfiguracion[] = []
+  if (hasPermission(role, 'visits:config')) secciones.push('visitas')
+  if (hasPermission(role, 'territories:view')) secciones.push('municipios')
+  if (puedeVerAsignacion(role)) secciones.push('asignacion')
+  return secciones
+}
+
 // Función para verificar si un rol tiene un permiso específico
 export function hasPermission(role: Role | undefined, permission: Permission): boolean {
   if (!role) return false
@@ -270,12 +303,11 @@ export function getAllowedRoutes(role: Role | undefined): string[] {
   // Siempre permitir logout y perfil
   routes.push('/logout', '/profile')
   
-  // Mapear permisos a rutas
-  if (permissions.includes('dashboard:view')) routes.push('/', '/dashboard')
+  // Mapear permisos a rutas. Sin dashboard (dueño, 2026-10-14): "/" solo lleva a getHomeRoute; dashboard:view
+  // sigue en los roles pero ya no abre nada. Sin /zones: la página de Regiones se quitó (la tabla zones sigue).
   if (permissions.includes('map:view')) routes.push('/map')
   if (permissions.includes('hospitals:view')) routes.push('/hospitals', '/hospitals/[id]')
   if (permissions.includes('kams:view')) routes.push('/kams')
-  if (permissions.includes('zones:view')) routes.push('/zones')
   if (permissions.includes('contracts:view')) routes.push('/contracts')
   if (permissions.includes('providers:view')) routes.push('/providers', '/providers/[id]')
   if (permissions.includes('users:manage')) routes.push('/users')
@@ -285,32 +317,33 @@ export function getAllowedRoutes(role: Role | undefined): string[] {
   if (permissions.includes('executives:view')) routes.push('/executives')  // Fase 1
   if (permissions.includes('intelligence:view')) routes.push('/inteligencia') // Fase 3: giros ADRES
   if (permissions.includes('terceros:view')) routes.push('/terceros')        // Fase 6 F1: cuentas y médicos
-  if (permissions.includes('visits:config')) routes.push('/configuracion')   // Fase 7 F2: configuración de visitas
+  if (PERMISOS_CONFIGURACION.some(permiso => permissions.includes(permiso))) routes.push('/configuracion') // visitas, municipios y asignación
   if (PERMISOS_CALENDARIO.some(permiso => permissions.includes(permiso))) routes.push('/calendario') // Fase 7 F2
-  
+
   return routes
 }
 
 // Función para obtener el menú de navegación según el rol
-export function getNavigationMenu(role: Role | undefined) {
+export interface NavigationItem {
+  name: string
+  href: string
+  icon: string
+}
+
+// Orden del menú (dueño, 2026-10-14): el Mapa es el menú principal y va primero; luego Hospitales, Terceros,
+// Calendario, Zonas, Líneas, Ejecutivos Comerciales, Inteligencia, Contratos y el resto; Configuración al final.
+// Sin Dashboard (los indicadores se generarán después), sin Municipios (está dentro de Configuración) y sin
+// Regiones (/zones, de una versión anterior). Cada ítem sale solo con su permiso; texto visible sin "KAM".
+export function getNavigationMenu(role: Role | undefined): NavigationItem[] {
   if (!role) return []
-  
-  const menu = []
+
+  const menu: NavigationItem[] = []
   const permissions = rolePermissions[role] || []
-  
-  if (permissions.includes('dashboard:view')) {
-    menu.push({ name: 'Dashboard', href: '/', icon: 'home' })
-  }
-  
-  // Municipios como segundo ítem después de Dashboard
-  if (permissions.includes('territories:view')) {
-    menu.push({ name: 'Municipios', href: '/territories', icon: 'map' })
-  }
-  
+
   if (permissions.includes('map:view')) {
     menu.push({ name: 'Mapa', href: '/map', icon: 'map' })
   }
-  
+
   if (permissions.includes('hospitals:view')) {
     menu.push({ name: 'Hospitales', href: '/hospitals', icon: 'building' })
   }
@@ -324,43 +357,61 @@ export function getNavigationMenu(role: Role | undefined) {
   if (PERMISOS_CALENDARIO.some(permiso => permissions.includes(permiso))) {
     menu.push({ name: 'Calendario', href: '/calendario', icon: 'calendar' })
   }
-  
+
+  // Cada fila de kams es una Zona (las rutas siguen siendo /kams)
   if (permissions.includes('kams:view')) {
     menu.push({ name: 'Zonas', href: '/kams', icon: 'users' })
   }
 
-  if (permissions.includes('zones:view')) {
-    menu.push({ name: 'Zonas', href: '/zones', icon: 'location' })
+  if (permissions.includes('lines:view')) {
+    menu.push({ name: 'Líneas', href: '/lines', icon: 'lines' })
+  }
+
+  if (permissions.includes('executives:view')) {
+    menu.push({ name: 'Ejecutivos Comerciales', href: '/executives', icon: 'executives' })
+  }
+
+  // Fase 3 y 5: giros ADRES y compras públicas
+  if (permissions.includes('intelligence:view')) {
+    menu.push({ name: 'Inteligencia', href: '/inteligencia', icon: 'intelligence' })
   }
 
   if (permissions.includes('contracts:view')) {
     menu.push({ name: 'Contratos', href: '/contracts', icon: 'document' })
   }
-  
+
   // Agregar Mi Empresa y Cumplimiento para roles que gestionan contratos
   if (permissions.includes('contracts:edit') || role === 'admin') {
     menu.push({ name: 'Mi Empresa', href: '/mi-empresa', icon: 'building' })
     menu.push({ name: 'Cumplimiento', href: '/compliance', icon: 'clipboard' })
   }
-  
+
   if (permissions.includes('providers:view')) {
     menu.push({ name: 'Proveedores', href: '/providers', icon: 'providers' })
-  }
-  
-  // Fase 7 F2: configuración de visitas (metas, qué cuenta, personas, general, subtipos)
-  if (permissions.includes('visits:config')) {
-    menu.push({ name: 'Configuración', href: '/configuracion', icon: 'settings' })
   }
 
   if (permissions.includes('users:manage')) {
     menu.push({ name: 'Usuarios', href: '/users', icon: 'user-group' })
   }
-  
+
   if (permissions.includes('visits:view')) {
     menu.push({ name: 'Visitas', href: '/visits', icon: 'location' })
   }
-  
+
+  // Al final: configuración de visitas, Municipios y Asignación (cada sección con su permiso)
+  if (PERMISOS_CONFIGURACION.some(permiso => permissions.includes(permiso))) {
+    menu.push({ name: 'Configuración', href: '/configuracion', icon: 'settings' })
+  }
+
   return menu
+}
+
+/**
+ * Página de inicio del rol: "/" (y el logo de OpMap) llevan a la primera opción de su menú, que para quien tiene
+ * map:view es /map; recursos humanos, sin mapa, va a /calendario. null si el rol no tiene ninguna opción.
+ */
+export function getHomeRoute(role: Role | undefined): string | null {
+  return getNavigationMenu(role)[0]?.href ?? null
 }
 
 // Función para obtener el título del rol en español

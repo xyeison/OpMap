@@ -383,7 +383,7 @@ hoy con SQL (no hay pantalla); la fila del municipio gana sobre la del departame
   frente a lo que daría su corredor. Por consola: `cd web && npm run bogota:simulate`.
 - **Guardar** → `PUT /api/kams/bogota-config` (valida k, tope y que cada corredor apunte a una celda activa
   de Bogotá con la agrupación de k). **No recalcula**: los cambios aplican al próximo "Recalcular
-  asignaciones" de la página principal.
+  asignaciones" de Configuración → Asignación (`/configuracion?seccion=asignacion`; antes en la página principal).
 - `kams.max_travel_time` de las celdas no se toca: hacia afuera deja de usarse y lo decide el dueño.
 
 ### Ficha de la IPS
