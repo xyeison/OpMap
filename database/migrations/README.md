@@ -730,8 +730,10 @@ tablas tienen FKs hacia `business_lines`, `executives` y `users`.
 
 # Migraciones — App de visita · F4.1 agenda de visitas (visitas_agenda, vínculo con la visita, "agendada")
 
-> **ESTADO: ESCRITA, SIN APLICAR.** Se aplica solo con autorización del dueño y en la misma ventana que el despliegue
-> de `/api/me/agenda*`, `/api/me/voz/campos` y la app. Contrato: `docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md`
+> **ESTADO: APLICADA en producción el 2026-10-14** (`visitas_agenda_0840`), en la misma ventana que el despliegue
+> de `/api/me/agenda*`, `/api/me/voz/campos` y la app: su bloque DO de pruebas pasó, las 4 funciones tienen el md5 del
+> archivo (`agenda_crear` 68e92a28…, `agenda_cancelar` cf3d768d…, `visitas_registrar` eeae55de…, `visitas_anular`
+> 462a121c…) y las 7.033 importadas conservan su huella. Contrato: `docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md`
 > (sección "F4.1"); spec: `docs/specs/2026-10-14-agenda-dictado-y-marca.md` (decisiones 1 a 8); decisión del dueño:
 > `docs/decisiones/2026-10-14-agenda-de-visitas.md`. Probada el 2026-10-14 contra la base real en transacciones que se
 > deshacen (sin `BEGIN/COMMIT` y con un `RAISE` final): (a) la 0840 completa, con su bloque DO (6 grupos de casos con

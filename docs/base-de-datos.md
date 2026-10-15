@@ -268,7 +268,7 @@ funciones:         visitas_registrar(p jsonb, p_user uuid) → jsonb (una visita
                    telefonica }; visitas_distancia_m(lat1, lng1, lat2, lng2) → int (Haversine, radio 6371008.8 m)
 ```
 
-#### App de visita · F4.1 agenda de visitas (migración 0840, ESCRITA, SIN APLICAR)
+#### App de visita · F4.1 agenda de visitas (migración 0840, aplicada 2026-10-14)
 Contrato en `docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md` (sección "F4.1"); spec
 `docs/specs/2026-10-14-agenda-dictado-y-marca.md`. Una fila por cita; no se borra (se cancela). RLS sin políticas (solo `service_role`:
 SELECT, INSERT, UPDATE; sin DELETE). Las escrituras pasan por `agenda_crear`, `agenda_cancelar` y `visitas_registrar` / `visitas_anular`.
