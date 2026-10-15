@@ -227,7 +227,7 @@ export default function MapLegend({
         </div>
       )}
 
-      {/* Ejecutivos Comerciales (o zonas / regiones): clic para resaltar su territorio */}
+      {/* Ejecutivos Comerciales (o zonas): clic para resaltar su territorio */}
       <div>
         <div className="flex items-center justify-between gap-2">
           <div className={SECTION_TITLE}>{entriesTitle}</div>

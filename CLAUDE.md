@@ -49,8 +49,9 @@ nada llama a Google.
 
 ## Reglas que no se deducen del código (IMPORTANTE)
 
-- **Terminología en la UI**: persona → "Ejecutivo Comercial", territorio → "Zona", tabla `zones` →
-  "Región". Nunca "KAM" en texto visible. En código siguen `kams`, `kam_id`, rutas `/kams`.
+- **Terminología en la UI**: persona → "Ejecutivo Comercial", territorio → "Zona". Las Regiones (tabla `zones`)
+  se quitaron de la interfaz el 2026-10-14; la tabla queda sin uso. Nunca "KAM" en texto visible. En código siguen
+  `kams`, `kam_id`, rutas `/kams`.
 - **Modelo**: cada fila de `kams` es una ZONA (ciudad base = `area_id`), no una persona. Personas =
   `executives`; líneas de negocio = `business_lines`; quién cubre cada zona por línea = `coverage`.
 - **Unidades**: `travel_time` en `assignments` y `hospital_kam_distances` está en SEGUNDOS. Minutos solo

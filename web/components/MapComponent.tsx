@@ -370,9 +370,6 @@ interface MapComponentProps {
   visits?: any[]
   showHeatmap?: boolean
   showMarkers?: boolean
-  viewMode?: 'kams' | 'zones'
-  selectedZoneId?: string | null
-  onViewModeChange?: (mode: 'kams' | 'zones') => void
   // Mapa por línea
   lines?: MapLine[]
   selectedLineCode?: string | null
@@ -390,7 +387,6 @@ export default function MapComponent({
   visits: initialVisits = [],
   showHeatmap: initialShowHeatmap = false,
   showMarkers: initialShowMarkers = false,
-  viewMode = 'kams',
   lines = [],
   selectedLineCode = null,
   onLineChange,
@@ -421,7 +417,6 @@ export default function MapComponent({
   // Leyenda de escritorio plegada: al acercar a un racimo no se reserva su ancho
   const [legendCollapsed, setLegendCollapsed] = useState(false)
 
-  const [zoneColors, setZoneColors] = useState<Record<string, string>>({})
   const [unassignedTravelTimes, setUnassignedTravelTimes] = useState<Record<string, any[]>>({})
   const [hospitalTypeFilter, setHospitalTypeFilter] = useState<string>('all') // 'all', 'Publico', 'Privada', 'Mixta'
   const [visits, setVisits] = useState(initialVisits)
@@ -430,7 +425,6 @@ export default function MapComponent({
   const [showContracts, setShowContracts] = useState(false)
   // Fase 3: bloque "IPS" de Filtros (quirófano, ortopedia, neurocirugía, columna, camas); solo oculta puntos
   const [ipsServiceFilter, setIpsServiceFilter] = useState<IpsServiceFilter>(EMPTY_IPS_FILTER)
-  const [zones, setZones] = useState<any[]>([])
   const [mapCenter, setMapCenter] = useState<[number, number] | undefined>(undefined)
   const [mapZoom, setMapZoom] = useState<number | undefined>(undefined)
 
@@ -438,7 +432,7 @@ export default function MapComponent({
   const [showIps, setShowIps] = useState(true)
   const [showReach, setShowReach] = useState(true)
   const [visitsEnabled, setVisitsEnabled] = useState(false)
-  // Resaltado desde la leyenda: un grupo (Ejecutivo Comercial, zona o región) o, dentro de un Ejecutivo
+  // Resaltado desde la leyenda: un grupo (Ejecutivo Comercial o zona) o, dentro de un Ejecutivo
   // Comercial con varias zonas, solo algunas de ellas (zoneIds = kam_ids)
   const [highlight, setHighlight] = useState<{ key: string; zoneIds: ReadonlySet<string> | null } | null>(null)
   const highlightKey = highlight?.key ?? null
@@ -506,36 +500,6 @@ export default function MapComponent({
     })
     return colors
   }, [mapData])
-
-  // Cargar regiones (tabla zones) y sus colores cuando viewMode es 'zones'
-  useEffect(() => {
-    if (viewMode !== 'zones' || !mapData) return
-
-    const loadZonesData = async () => {
-      try {
-        const zonesResponse = await fetch('/api/zones')
-        if (!zonesResponse.ok) {
-          throw new Error(`Error ${zonesResponse.status} al cargar zonas`)
-        }
-        const zonesData = await zonesResponse.json()
-        const zonesList: any[] = Array.isArray(zonesData) ? zonesData : []
-        setZones(zonesList)
-
-        // Asignar colores a regiones (solo #RRGGBB válidos)
-        const colors: Record<string, string> = {}
-        zonesList.forEach((zone: any) => {
-          if (isSafeColor(zone.color)) {
-            colors[zone.id] = zone.color
-          }
-        })
-        setZoneColors(colors)
-      } catch (error) {
-        console.error('Error loading zones data:', error)
-      }
-    }
-
-    loadZonesData()
-  }, [viewMode, mapData])
 
   // Cargar tiempos de viaje REALES para hospitales sin asignar (una sola vez: no dependen de la línea)
   const unassignedTimesRequested = useRef(false)
@@ -669,13 +633,11 @@ export default function MapComponent({
   const kamIndex = useMemo(() => {
     const byId: Record<string, any> = {}
     const residentByArea: Record<string, string> = {}
-    const toRegion: Record<string, string> = {}
     ;(mapData?.kams || []).forEach((k: any) => {
       byId[k.id] = k
       if (k.area_id && !residentByArea[k.area_id]) residentByArea[k.area_id] = k.id
-      if (k.zone_id) toRegion[k.id] = k.zone_id
     })
-    return { byId, residentByArea, toRegion }
+    return { byId, residentByArea }
   }, [mapData])
 
   // Nombre de departamento por código (sale de las IPS; solo para el encabezado de las tarjetas)
@@ -829,17 +791,12 @@ export default function MapComponent({
 
   // ---------- Color: una sola fuente de verdad por vista ----------
   // Vista por línea: Ejecutivo Comercial que cubre la zona (un tono por zona si cubre varias). Vista de
-  // zonas: color de la zona.
-  // Vista de regiones (?viewMode=zones): color de la región de la zona. Lo usan polígonos, puntos y pines.
+  // zonas: color de la zona. Lo usan polígonos, puntos y pines. (El modo Regiones se quitó el 2026-10-14.)
   const colorForZone = useCallback((kamId: string | null | undefined): string => {
     if (!kamId) return NO_COVERAGE_DATA_COLOR
     if (isLineMode) return zoneLineColor(kamId)
-    if (viewMode === 'zones') {
-      const regionId = kamIndex.toRegion[kamId]
-      return regionId ? (zoneColors[regionId] || NO_COVERAGE_DATA_COLOR) : NO_COVERAGE_DATA_COLOR
-    }
     return kamColors[kamId] || NO_COVERAGE_DATA_COLOR
-  }, [isLineMode, zoneLineColor, viewMode, kamIndex, zoneColors, kamColors])
+  }, [isLineMode, zoneLineColor, kamColors])
 
   // Grupo de la zona en la vista activa (lo que se resalta desde la leyenda)
   const groupKeyForZone = useCallback((kamId: string | null | undefined): string | null => {
@@ -851,9 +808,8 @@ export default function MapComponent({
       if (row.kind === 'conflict') return 'conflict'
       return row.executive?.id ?? null
     }
-    if (viewMode === 'zones') return kamIndex.toRegion[kamId] ?? null
     return kamId
-  }, [isLineMode, lineView, viewMode, kamIndex])
+  }, [isLineMode, lineView])
 
   // Atenuada: se resalta otro grupo o, dentro del mismo Ejecutivo Comercial, otra de sus zonas
   const isDimmedZone = useCallback((kamId: string | null | undefined): boolean => {
@@ -865,7 +821,7 @@ export default function MapComponent({
   // Al cambiar de línea o de vista se quita el resaltado
   useEffect(() => {
     setHighlight(null)
-  }, [isLineMode, selectedLineCode, viewMode])
+  }, [isLineMode, selectedLineCode])
 
   // ---------- Filtro por Ejecutivo Comercial (vista por línea) o por zona (vista de zonas) ----------
   // A diferencia del resaltado, el filtro OCULTA: los territorios de los demás quedan como contexto
@@ -892,12 +848,11 @@ export default function MapComponent({
     return !activeFilter || activeFilter.has(kamId)
   }, [isLineMode, lineView, activeFilter, showVacant])
 
-  // Con filtro, el resaltado de la leyenda solo puede quedar sobre un grupo filtrado (en la vista de
-  // regiones el resaltado es por región y el filtro por zona: no se cruzan)
+  // Con filtro, el resaltado de la leyenda solo puede quedar sobre un grupo filtrado
   useEffect(() => {
-    if (!activeFilter || (!isLineMode && viewMode === 'zones')) return
+    if (!activeFilter) return
     setHighlight(current => (current && !activeFilter.has(current.key) ? null : current))
-  }, [activeFilter, isLineMode, viewMode])
+  }, [activeFilter])
 
   // ---------- Estilo de la capa completa de municipios y localidades ----------
 
@@ -1799,7 +1754,7 @@ export default function MapComponent({
   const viewLabel = isLineMode && lineView
     ? lineView.line.name
     : mapMode === 'zones'
-      ? (viewMode === 'zones' ? 'Vista de regiones' : 'Vista de zonas')
+      ? 'Vista de zonas'
       : (selectedLineName || 'Mapa')
   // ---------- Filtro principal (opciones de la lista) ----------
   // Vista por línea: Ejecutivos Comerciales de la línea (mismo chip, iniciales y cuentas que la
@@ -1910,18 +1865,6 @@ export default function MapComponent({
               }
             })
           : undefined
-      }
-    })
-  } else if (viewMode === 'zones') {
-    entriesTitle = 'Regiones'
-    legendEntries = zones.map((region: any) => {
-      const zoneCount = kamStats.filter(k => k.zone_id === region.id).length
-      return {
-        key: region.id,
-        label: region.name,
-        color: safeColor(zoneColors[region.id], NO_COVERAGE_DATA_COLOR),
-        initials: initialsOf(region.name),
-        detail: `${zoneCount} ${zoneCount === 1 ? 'zona' : 'zonas'}`
       }
     })
   } else {

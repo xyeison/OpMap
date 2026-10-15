@@ -16,7 +16,8 @@ const HOSPITAL_COLUMNS =
 // (lib/hospital-service-filters.ts). Sin la migración 0620 se usa HOSPITAL_COLUMNS.
 const HOSPITAL_COLUMNS_WITH_REPS = `${HOSPITAL_COLUMNS}, service_flags, quirofanos, reps_beds`
 
-const KAM_COLUMNS = 'id, name, area_id, lat, lng, color, zone_id'
+// Sin zone_id: las Regiones (tabla zones) se quitaron de la web el 2026-10-14
+const KAM_COLUMNS = 'id, name, area_id, lat, lng, color'
 // base_city llega con la migración de la Fase 2; mientras no exista se usa KAM_COLUMNS
 const KAM_COLUMNS_WITH_CITY = `${KAM_COLUMNS}, base_city`
 

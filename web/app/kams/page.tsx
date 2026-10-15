@@ -10,8 +10,6 @@ import EditKamModal from '@/components/EditKamModal'
 import AddKamModal from '@/components/AddKamModal'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
-import ZoneView from '@/components/ZoneView'
-import KamZoneModal from '@/components/KamZoneModal'
 import BogotaConfigCard from '@/components/BogotaConfigCard'
 
 interface KamStats {
@@ -21,7 +19,6 @@ interface KamStats {
   contract_value_total: number
   avg_travel_time: number | null
   area_name: string | null
-  zone: { id: string; name: string; color: string | null } | null
 }
 
 // Lista de KAMs desde el servidor (service_role); activos primero y luego por nombre
@@ -53,9 +50,6 @@ interface KamWithData {
   municipalityCount?: number
   avgTravelTime?: number | null
   contractsValue?: number
-  zone_id?: string
-  zone_name?: string
-  zone_color?: string
 }
 
 export default function KamsPage() {
@@ -66,11 +60,6 @@ export default function KamsPage() {
   const [editingKam, setEditingKam] = useState<KamWithData | null>(null)
   const [showEditModal, setShowEditModal] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
-  const [viewMode, setViewMode] = useState<'kams' | 'zones'>('kams')
-  const [zones, setZones] = useState<any[]>([])
-  const [zonesLoading, setZonesLoading] = useState(true)
-  const [showZoneModal, setShowZoneModal] = useState(false)
-  const [selectedKamForZone, setSelectedKamForZone] = useState<any>(null)
   const queryClient = useQueryClient()
   const router = useRouter()
   
@@ -84,29 +73,6 @@ export default function KamsPage() {
       loadAdditionalData()
     }
   }, [kams])
-
-  // Cargar zonas disponibles
-  useEffect(() => {
-    const loadZones = async () => {
-      setZonesLoading(true)
-      try {
-        const response = await fetch('/api/zones')
-        if (response.ok) {
-          const data = await response.json()
-          setZones(Array.isArray(data) ? data : [])
-        } else {
-          console.error('Failed to load zones:', response.status)
-          setZones([])
-        }
-      } catch (error) {
-        console.error('Error loading zones:', error)
-        setZones([])
-      } finally {
-        setZonesLoading(false)
-      }
-    }
-    loadZones()
-  }, [])
 
   const loadAdditionalData = async () => {
     if (!kams) return
@@ -134,10 +100,7 @@ export default function KamsPage() {
         hospitalCount: stat?.hospital_count || 0,
         municipalityCount: stat?.municipality_count || 0,
         avgTravelTime: stat?.avg_travel_time ?? null,
-        contractsValue: stat?.contract_value_total || 0,
-        zone_id: stat?.zone?.id || kam.zone_id,
-        zone_name: stat?.zone?.name,
-        zone_color: stat?.zone?.color || undefined
+        contractsValue: stat?.contract_value_total || 0
       }
     })
 
@@ -157,28 +120,6 @@ export default function KamsPage() {
   const handleEditClose = () => {
     setEditingKam(null)
     setShowEditModal(false)
-  }
-
-  const openZoneModal = (kam: any) => {
-    setSelectedKamForZone(kam)
-    setShowZoneModal(true)
-  }
-
-  const handleZoneModalSuccess = async () => {
-    setShowZoneModal(false)
-    setSelectedKamForZone(null)
-
-    // Recargar datos
-    await loadAdditionalData()
-
-    // Recargar zonas
-    const response = await fetch('/api/zones')
-    if (response.ok) {
-      const data = await response.json()
-      setZones(Array.isArray(data) ? data : [])
-    }
-
-    queryClient.invalidateQueries({ queryKey: ['kams'] })
   }
 
   const formatCurrency = (value: number) => {
@@ -243,29 +184,6 @@ export default function KamsPage() {
                 <p className="text-gray-300 mt-2">Zonas geográficas con su ciudad base y tiempo máximo de viaje</p>
               </div>
               <div className="flex flex-wrap gap-3">
-                {/* Toggle para cambiar entre vistas */}
-                <div className="flex bg-white/10 backdrop-blur-sm rounded-lg p-1">
-                  <button
-                    onClick={() => setViewMode('kams')}
-                    className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
-                      viewMode === 'kams'
-                        ? 'bg-white text-gray-900 shadow-md'
-                        : 'text-white hover:bg-white/10'
-                    }`}
-                  >
-                    Por Zonas
-                  </button>
-                  <button
-                    onClick={() => setViewMode('zones')}
-                    className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
-                      viewMode === 'zones'
-                        ? 'bg-white text-gray-900 shadow-md'
-                        : 'text-white hover:bg-white/10'
-                    }`}
-                  >
-                    Por Regiones
-                  </button>
-                </div>
                 <button
                   onClick={() => router.push('/kams/colors')}
                   className="px-4 sm:px-6 py-2.5 sm:py-3 bg-white/10 backdrop-blur-sm text-white rounded-lg hover:bg-white/20 transform hover:-translate-y-0.5 transition-all duration-200 shadow-md hover:shadow-lg font-medium flex items-center gap-2 text-sm sm:text-base"
@@ -369,11 +287,8 @@ export default function KamsPage() {
             </div>
           </div>
 
-          {/* Contenido según el modo de vista */}
-          {viewMode === 'kams' ? (
-            <>
-              {/* Tabla responsive con vista de tarjetas en móvil para KAMs */}
-              <div className="hidden lg:block bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
+          {/* Tabla en escritorio y tarjetas en móvil */}
+          <div className="hidden lg:block bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
             <table className="min-w-full">
               <thead>
                 <tr className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
@@ -382,9 +297,6 @@ export default function KamsPage() {
                   </th>
                   <th className="px-6 py-5 text-left">
                     <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Ubicación</span>
-                  </th>
-                  <th className="px-6 py-5 text-left">
-                    <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Región</span>
                   </th>
                   <th className="px-6 py-5 text-center">
                     <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Hospitales</span>
@@ -448,33 +360,6 @@ export default function KamsPage() {
                           </div>
                         </div>
                       </div>
-                    </td>
-                    <td className="px-6 py-5">
-                      <button
-                        onClick={() => openZoneModal(kam)}
-                        disabled={!kam.active}
-                        className="w-full text-left"
-                      >
-                        {kam.zone_name ? (
-                          <div className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-                            <div
-                              className="w-4 h-4 rounded-full border border-gray-300"
-                              style={{ backgroundColor: kam.zone_color }}
-                            />
-                            <span className="text-sm font-medium text-gray-900">{kam.zone_name}</span>
-                            <svg className="w-4 h-4 ml-auto text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                            </svg>
-                          </div>
-                        ) : (
-                          <div className="px-3 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-                            <span className="text-sm text-gray-500">Sin región asignada</span>
-                            <svg className="w-4 h-4 ml-2 inline text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                            </svg>
-                          </div>
-                        )}
-                      </button>
                     </td>
                     <td className="px-6 py-5 text-center">
                       <div className="flex flex-col items-center">
@@ -604,35 +489,6 @@ export default function KamsPage() {
                   </div>
                 </div>
 
-                <div className="mb-3">
-                  <label className="text-xs text-gray-600 font-medium mb-1 block">Región:</label>
-                  <button
-                    onClick={() => openZoneModal(kam)}
-                    disabled={!kam.active}
-                    className="w-full text-left"
-                  >
-                    {kam.zone_name ? (
-                      <div className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-                        <div
-                          className="w-4 h-4 rounded-full border border-gray-300"
-                          style={{ backgroundColor: kam.zone_color }}
-                        />
-                        <span className="text-sm font-medium text-gray-900">{kam.zone_name}</span>
-                        <svg className="w-4 h-4 ml-auto text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
-                      </div>
-                    ) : (
-                      <div className="px-3 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-                        <span className="text-sm text-gray-500">Sin región asignada</span>
-                        <svg className="w-4 h-4 ml-2 inline text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                        </svg>
-                      </div>
-                    )}
-                  </button>
-                </div>
-
                 <div className="mb-4">
                   <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold ${
                     kam.enable_level2
@@ -668,26 +524,16 @@ export default function KamsPage() {
             ))}
           </div>
 
-              {filteredKams.length === 0 && (
-                <div className="text-center py-12 bg-white rounded-xl shadow-md border border-gray-100">
-                  <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
-                  </svg>
-                  <h3 className="mt-2 text-sm font-medium text-gray-900">No se encontraron zonas</h3>
-                  <p className="mt-1 text-sm text-gray-500">
-                    {searchTerm ? 'Intenta con otros términos de búsqueda' : 'Agrega la primera zona para comenzar'}
-                  </p>
-                </div>
-              )}
-            </>
-          ) : (
-            <ZoneView
-              searchTerm={searchTerm}
-              onZoneClick={(zoneId) => {
-                // Navegar al mapa con la zona seleccionada
-                router.push(`/map?viewMode=zones&zoneId=${zoneId}`)
-              }}
-            />
+          {filteredKams.length === 0 && (
+            <div className="text-center py-12 bg-white rounded-xl shadow-md border border-gray-100">
+              <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
+              </svg>
+              <h3 className="mt-2 text-sm font-medium text-gray-900">No se encontraron zonas</h3>
+              <p className="mt-1 text-sm text-gray-500">
+                {searchTerm ? 'Intenta con otros términos de búsqueda' : 'Agrega la primera zona para comenzar'}
+              </p>
+            </div>
           )}
 
           {/* Modal de edición */}
@@ -710,20 +556,6 @@ export default function KamsPage() {
               loadAdditionalData()
             }}
           />
-
-          {/* Modal de asignación de zona */}
-          {showZoneModal && selectedKamForZone && (
-            <KamZoneModal
-              kam={selectedKamForZone}
-              zones={zones}
-              isOpen={showZoneModal}
-              onClose={() => {
-                setShowZoneModal(false)
-                setSelectedKamForZone(null)
-              }}
-              onSuccess={handleZoneModalSuccess}
-            />
-          )}
         </div>
       </PermissionGuard>
     </ProtectedRoute>

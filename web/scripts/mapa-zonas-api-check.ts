@@ -14,12 +14,16 @@
  *   - Contratos (valor y proveedor por IPS): los sigue recibiendo quien ya los recibía (map:all-lines o alguna línea)
  *     y quien tiene contracts:view; quien solo entra por la vista de zonas (sin líneas) sin contracts:view, no
  *     (contractsIncluded: false; ni siquiera se lee hospital_contracts).
- *   - Reglas puras de la página (lib/map-view.ts): el modo Regiones sigue siendo de map:all-lines, la línea con que se
- *     vuelve a "Ejecutivos Comerciales" y qué datos se conservan mientras llega otra línea.
+ *   - Reglas puras de la página (lib/map-view.ts): ?mode=zones abre la vista de zonas, la línea con que se vuelve a
+ *     "Ejecutivos Comerciales" y qué datos se conservan mientras llega otra línea.
+ *   - Sin Regiones (spec docs/specs/2026-10-14-quitar-regiones.md): /api/map/data no lee la tabla zones ni manda
+ *     kams.zone_id, y ni la página /map ni MapComponent leen ?viewMode ni llaman a /api/zones.
  *
  * El patrón del Supabase falso viene de scripts/zona-estadisticas-api-check.ts (copiado y recortado).
  * Uso (desde web/): npx tsx scripts/mapa-zonas-api-check.ts      Código de salida 1 si alguna prueba falla.
  */
+import { readFileSync } from 'fs'
+import path from 'path'
 import { NextRequest } from 'next/server'
 import { passwordVersion, SESSION_COOKIE_NAME, signSession } from '../lib/session'
 import { hasPermission, rolePermissions, type Role } from '../lib/permissions'
@@ -523,13 +527,10 @@ async function main() {
 
   print('\nPágina /map: reglas puras (lib/map-view.ts)')
   {
-    const vista = (mode: string | null, viewMode: string | null, canSeeAllLines: boolean) => resolveMapView({ mode, viewMode, canSeeAllLines })
-    eq('sin parámetros: vista por Ejecutivos Comerciales', vista(null, null, false), { mapMode: 'line', viewMode: 'kams' })
-    eq('?mode=zones: vista de zonas también sin map:all-lines', vista('zones', null, false), { mapMode: 'zones', viewMode: 'kams' })
-    eq('?mode=zones&viewMode=zones sin map:all-lines: zonas, no Regiones (como antes)', vista('zones', 'zones', false), { mapMode: 'zones', viewMode: 'kams' })
-    eq('?mode=zones&viewMode=zones con map:all-lines: Regiones (como antes)', vista('zones', 'zones', true), { mapMode: 'zones', viewMode: 'zones' })
-    eq('?viewMode=zones solo, con map:all-lines: lo de antes (vista por línea, viewMode zones)', vista(null, 'zones', true), { mapMode: 'line', viewMode: 'zones' })
-    eq('otro valor de mode: vista por línea', vista('ZONES', null, true), { mapMode: 'line', viewMode: 'kams' })
+    const vista = (mode: string | null) => resolveMapView({ mode })
+    eq('sin parámetros: vista por Ejecutivos Comerciales', vista(null), { mapMode: 'line' })
+    eq('?mode=zones: vista de zonas (para todo el que ve el mapa)', vista('zones'), { mapMode: 'zones' })
+    eq('otro valor de mode: vista por línea', vista('ZONES'), { mapMode: 'line' })
 
     const lineas = [{ code: 'perossal' }, { code: 'reemplazo' }]
     eq('volver a Ejecutivos Comerciales: la línea elegida', lineForExecutivesView('reemplazo', lineas), 'reemplazo')
@@ -543,6 +544,31 @@ async function main() {
     eq('de una línea a otra: se conserva el mapa anterior (como siempre)', mapDataPlaceholder(deLinea, 'reemplazo'), deLinea)
     eq('de zonas sin línea a una línea: no se conserva (sale "Cargando mapa...")', mapDataPlaceholder(deZonas, 'perossal'), undefined)
     eq('a la vista de zonas sin línea: se conserva (las zonas no dependen de la línea)', mapDataPlaceholder(deLinea, null), deLinea)
+  }
+
+  print('\nSin Regiones (dueño, 2026-10-14)')
+  {
+    const admin = await pedir(ADMIN)
+    const lider = await pedir(LIDER)
+    for (const [quien, r] of [['admin', admin], ['line_leader', lider]] as const) {
+      check(`${quien}: 200`, r.status === 200, r.body)
+      check(`${quien}: no lee la tabla zones`, !r.requests.some(request => request.table === 'zones'), r.requests.map(request => request.table))
+      check(`${quien}: las zonas no traen zone_id (Región)`, ((r.body?.kams || []) as any[]).every(kam => !('zone_id' in kam)), r.body?.kams)
+    }
+    // Página y componente del mapa: sin modo Regiones (lectura del código, sin red)
+    const WEB = path.join(__dirname, '..')
+    const fuente = (archivo: string) => readFileSync(path.join(WEB, archivo), 'utf8')
+    const pagina = fuente('app/map/page.tsx')
+    const componente = fuente('components/MapComponent.tsx')
+    const leyenda = fuente('components/MapLegend.tsx')
+    check('/map no lee ?viewMode (un enlace viejo con ?viewMode=zones no hace nada)', !/viewMode/.test(pagina))
+    check('MapComponent no tiene viewMode', !/viewMode/.test(componente))
+    check('el mapa no llama a /api/zones', ![pagina, componente, leyenda].some(texto => /\/api\/zones\b/.test(texto)))
+    check(
+      'sin textos de Regiones en el mapa ("Vista de regiones", leyenda "Regiones")',
+      ![pagina, componente, leyenda].some(texto => /['"`]Vista de regiones['"`]|['"`]Regiones['"`]/i.test(texto))
+    )
+    check('la vista de zonas sigue con su título "Vista de zonas"', componente.includes("'Vista de zonas'"))
   }
 
   print('\nGenerales')

@@ -18,8 +18,7 @@ export type Permission =
   | 'hospitals:edit'
   | 'kams:view'
   | 'kams:edit'
-  | 'zones:view'
-  | 'zones:edit'
+  // Sin zones:view ni zones:edit: las Regiones (tabla zones) se quitaron de la web el 2026-10-14
   | 'contracts:view'
   | 'contracts:edit'
   | 'contracts:delete'
@@ -68,8 +67,6 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'hospitals:edit',
     'kams:view',
     'kams:edit',
-    'zones:view',
-    'zones:edit',
     'contracts:view',
     'contracts:edit',
     'contracts:delete',
@@ -111,7 +108,6 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'map:view',
     'hospitals:view',  // Solo ver hospitales, NO editar
     'kams:view',       // Puede ver KAMs
-    'zones:view',      // Puede ver zonas
     'contracts:view',  // Solo ver contratos, NO editar
     'territories:view',  // Solo ver territorios, NO gestionar
     'lines:view',        // lines:edit es del rol line_leader (restringido a su línea)
@@ -130,7 +126,6 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'map:view',
     'hospitals:view',
     'kams:view',
-    'zones:view',
     'contracts:view',
     'territories:view',
     'lines:view',
@@ -154,7 +149,6 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'map:view',
     'hospitals:view',
     'kams:view',
-    'zones:view',
     'contracts:view',
     'providers:view',
     'visits:view',
@@ -205,8 +199,6 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'hospitals:edit',
     'kams:view',
     'kams:edit',
-    'zones:view',
-    'zones:edit',      // Puede editar zonas
     'visits:view',
     'visits:manage',
     'territories:view',
@@ -304,7 +296,8 @@ export function getAllowedRoutes(role: Role | undefined): string[] {
   routes.push('/logout', '/profile')
   
   // Mapear permisos a rutas. Sin dashboard (dueño, 2026-10-14): "/" solo lleva a getHomeRoute; dashboard:view
-  // sigue en los roles pero ya no abre nada. Sin /zones: la página de Regiones se quitó (la tabla zones sigue).
+  // sigue en los roles pero ya no abre nada. Sin /zones: las Regiones se quitaron de la web el 2026-10-14 (la tabla
+  // zones sigue en la base, sin uso).
   if (permissions.includes('map:view')) routes.push('/map')
   if (permissions.includes('hospitals:view')) routes.push('/hospitals', '/hospitals/[id]')
   if (permissions.includes('kams:view')) routes.push('/kams')
@@ -333,7 +326,8 @@ export interface NavigationItem {
 // Orden del menú (dueño, 2026-10-14): el Mapa es el menú principal y va primero; luego Hospitales, Terceros,
 // Calendario, Zonas, Líneas, Ejecutivos Comerciales, Inteligencia, Contratos y el resto; Configuración al final.
 // Sin Dashboard (los indicadores se generarán después), sin Municipios (está dentro de Configuración) y sin
-// Regiones (/zones, de una versión anterior). Cada ítem sale solo con su permiso; texto visible sin "KAM".
+// Regiones (/zones, de una versión anterior; quitadas el 2026-10-14). Cada ítem sale solo con su permiso; texto
+// visible sin "KAM".
 export function getNavigationMenu(role: Role | undefined): NavigationItem[] {
   if (!role) return []
 

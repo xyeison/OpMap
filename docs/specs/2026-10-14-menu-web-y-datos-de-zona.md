@@ -24,7 +24,9 @@ El dueño va a mostrar OpMap a las líderes y pidió, con sus palabras:
 - **Configuración:** tiene las secciones Visitas, Municipios y Asignación, cada una con su permiso. Quien solo tiene
   una ve solo esa. `/territories` sigue funcionando.
 - **Regiones:** `/zones` sale del menú y su página se borra. La tabla `zones` y `/api/zones` siguen, porque Zonas y
-  el mapa las usan.
+  el mapa las usan. *(Superado el mismo día: la spec `docs/specs/2026-10-14-quitar-regiones.md` quitó también
+  `/api/zones/**`, `/api/kams/zone`, el botón "Por Regiones", el modo Regiones del mapa y los permisos `zones:*`. La
+  tabla `zones` queda en la base sin uso.)*
 - **Ventana "Datos de la zona":** en Ejecutivos Comerciales cada persona y cada vacante se abre en una ventana con dos
   niveles, su zona base y su territorio, que son las zonas que cubre por línea.
   - Cifras: municipios, población DANE, afiliados BDUA, IPS objetivo con camas y servicios, giros ADRES y compras
@@ -46,7 +48,8 @@ El dueño va a mostrar OpMap a las líderes y pidió, con sus palabras:
 ## Fuera de alcance
 
 El criterio común entre Contratos e Inteligencia, que el dueño lo decide. El botón "Por Regiones" de Zonas y el
-modo Regiones del mapa, porque cambiar el mapa necesita su autorización. Quitar el permiso `dashboard:view`.
+modo Regiones del mapa, porque cambiar el mapa necesita su autorización (el dueño lo autorizó después, en
+`docs/specs/2026-10-14-quitar-regiones.md`). Quitar el permiso `dashboard:view`.
 
 ## Impacto
 

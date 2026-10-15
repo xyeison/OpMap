@@ -11,18 +11,18 @@ interface KamStats {
   // Minutos, promedio de las asignaciones no forzadas con tiempo conocido (null si no hay)
   avg_travel_time: number | null
   area_name: string | null
-  zone: { id: string; name: string; color: string | null } | null
 }
 
-// GET /api/kams/stats — métricas por KAM leídas con service_role (A-10: con la anon key todo salía en cero)
+// GET /api/kams/stats — métricas por KAM leídas con service_role (A-10: con la anon key todo salía en cero).
+// Sin Región: las Regiones (tabla zones) se quitaron de la web el 2026-10-14 y aquí ya no se leen.
 export async function GET(request: NextRequest) {
   const auth = await requirePermission(request, 'kams:view')
   if (!auth.ok) return auth.response
 
   try {
-    const [kams, assignments, contracts, zonesResult] = await Promise.all([
-      fetchAllRows<{ id: string; area_id: string; zone_id: string | null }>((from, to) =>
-        supabaseAdmin.from('kams').select('id, area_id, zone_id').order('id').range(from, to)
+    const [kams, assignments, contracts] = await Promise.all([
+      fetchAllRows<{ id: string; area_id: string }>((from, to) =>
+        supabaseAdmin.from('kams').select('id, area_id').order('id').range(from, to)
       ),
       fetchAllRows<{
         id: string
@@ -46,10 +46,7 @@ export async function GET(request: NextRequest) {
           .order('id')
           .range(from, to)
       ),
-      supabaseAdmin.from('zones').select('id, name, color'),
     ])
-
-    if (zonesResult.error) throw zonesResult.error
 
     // Nombres de área: municipios (5 dígitos) y localidades de Bogotá (7 dígitos)
     const municipalityCodes = Array.from(new Set(kams.map(k => k.area_id).filter(a => a && a.length === 5)))
@@ -77,9 +74,6 @@ export async function GET(request: NextRequest) {
         }
       })
     }
-
-    const zones = new Map<string, { id: string; name: string; color: string | null }>()
-    zonesResult.data?.forEach(z => zones.set(z.id, { id: z.id, name: z.name, color: z.color }))
 
     const contractValueByHospital = new Map<string, number>()
     contracts.forEach(c => {
@@ -118,7 +112,6 @@ export async function GET(request: NextRequest) {
         contract_value_total: entry.value,
         avg_travel_time: entry.timeCount > 0 ? Math.round((entry.timeSum / entry.timeCount / 60) * 10) / 10 : null,
         area_name: areaNames.get(k.area_id) || null,
-        zone: k.zone_id ? zones.get(k.zone_id) || null : null,
       }
     })
 
