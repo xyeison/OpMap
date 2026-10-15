@@ -1,17 +1,19 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
 import { CAPA_MODAL } from '@/components/terceros/comun'
 import { usePermissions } from '@/hooks/usePermissions'
 import type { BusinessLine, Executive, ExecutiveStatus } from '@/lib/types/lines'
+import { puedeVerDatosDeZona } from '@/lib/zona-estadisticas'
 import ContratarDialog from './ContratarDialog'
 import ExecutiveModal from './ExecutiveModal'
 import HistorialTraspasos from './HistorialTraspasos'
 import { executiveColor, readError, STATUS_BADGE, STATUS_LABELS, zoneLabel, type ZoneOption } from './shared'
 import { avisoCoberturaDe } from './traspaso-ui'
 import TraspasoWizard, { type ModoTraspaso } from './TraspasoWizard'
+import ZonaEstadisticasModal from './ZonaEstadisticasModal'
 
 type StatusFilter = 'current' | ExecutiveStatus | 'all'
 
@@ -43,8 +45,10 @@ export default function ExecutivesPage() {
 }
 
 function ExecutivesContent() {
-  const { can } = usePermissions()
+  const { can, role } = usePermissions()
   const canEdit = can('executives:edit')
+  // "Datos de la zona": executives:view + hospitals:view (sus cifras salen de las IPS); la API exige lo mismo
+  const canVerDatos = puedeVerDatosDeZona(role)
   // Traspaso (spec 2026-10-12): pasar lo de una persona a otra, a una nueva o a una vacante (admin, director comercial)
   const canTransfer = can('executives:transfer')
   const showActions = canEdit || canTransfer
@@ -62,6 +66,8 @@ function ExecutivesContent() {
   const [deactivating, setDeactivating] = useState<Executive | null>(null)
   const [traspaso, setTraspaso] = useState<TraspasoAbierto | null>(null)
   const [contratando, setContratando] = useState<Executive | null>(null)
+  // Ventana "Datos de la zona" (clic en el nombre o en la fila): solo lectura
+  const [datosDe, setDatosDe] = useState<Executive | null>(null)
   const [historialKey, setHistorialKey] = useState(0)
   const [notice, setNotice] = useState('')
   // El cambio se guardó pero la cobertura no se pudo recalcular (PATCH o DELETE): sigue dándole zonas a quien se fue
@@ -151,6 +157,15 @@ function ExecutivesContent() {
       })
       .sort((a, b) => a.full_name.localeCompare(b.full_name, 'es'))
   }, [executives, statusFilter, searchTerm, zoneById])
+
+  // Clic en la fila (o tarjeta) abre "Datos de la zona", salvo que el clic sea en un botón o enlace de la fila
+  // (Editar, Traspasar, Dar de baja, Contratar…). Con teclado se abre con el botón del nombre.
+  const abrirDatosDesdeFila = (event: MouseEvent<HTMLElement>, executive: Executive) => {
+    if (!canVerDatos) return
+    const target = event.target as HTMLElement | null
+    if (target?.closest('button, a, input, select, textarea, label')) return
+    setDatosDe(executive)
+  }
 
   const openCreate = () => {
     setEditing(null)
@@ -306,6 +321,9 @@ function ExecutivesContent() {
           <div>
             <h1 className="text-3xl lg:text-4xl font-bold text-white">Ejecutivos Comerciales</h1>
             <p className="text-gray-300 mt-2">Equipo comercial: zona base, líneas que lleva, color en el mapa y estado</p>
+            {canVerDatos && (
+              <p className="text-gray-400 text-sm mt-1">Toca o haz clic en un nombre para ver los datos de su zona y de su territorio.</p>
+            )}
           </div>
           {canEdit && !loadError && !linesError && (
             <button
@@ -410,11 +428,15 @@ function ExecutivesContent() {
                 {filtered.map(executive => {
                   const zone = executive.base_kam_id ? zoneById.get(executive.base_kam_id) : undefined
                   return (
-                    <tr key={executive.id} className="hover:bg-gray-50 transition-colors align-top">
+                    <tr
+                      key={executive.id}
+                      className={`hover:bg-gray-50 transition-colors align-top ${canVerDatos ? 'cursor-pointer' : ''}`}
+                      onClick={event => abrirDatosDesdeFila(event, executive)}
+                    >
                       <td className="px-6 py-4">
                         <div className={`flex items-center gap-2 text-sm font-semibold ${executive.status === 'inactive' ? 'text-gray-400' : 'text-gray-900'}`}>
                           <ColorDot executive={executive} />
-                          {executive.full_name}
+                          <NombreBoton executive={executive} onAbrir={canVerDatos ? setDatosDe : null} />
                         </div>
                         {executive.notes && (
                           <div className="text-xs text-gray-500 max-w-xs mt-0.5" title={executive.notes}>
@@ -460,7 +482,11 @@ function ExecutivesContent() {
             {filtered.map(executive => {
               const zone = executive.base_kam_id ? zoneById.get(executive.base_kam_id) : undefined
               return (
-                <div key={executive.id} className="bg-white rounded-xl shadow-md border border-gray-100 p-4 min-w-0">
+                <div
+                  key={executive.id}
+                  className={`bg-white rounded-xl shadow-md border border-gray-100 p-4 min-w-0 ${canVerDatos ? 'cursor-pointer' : ''}`}
+                  onClick={event => abrirDatosDesdeFila(event, executive)}
+                >
                   <div className="flex items-start justify-between gap-3 min-w-0">
                     <div
                       className={`flex items-center gap-2 text-sm font-semibold min-w-0 ${
@@ -468,7 +494,7 @@ function ExecutivesContent() {
                       }`}
                     >
                       <ColorDot executive={executive} />
-                      <span className="break-words min-w-0">{executive.full_name}</span>
+                      <NombreBoton executive={executive} onAbrir={canVerDatos ? setDatosDe : null} className="break-words min-w-0" />
                     </div>
                     <span className={`shrink-0 inline-flex items-center px-2 py-0.5 rounded-md text-xs font-bold border ${STATUS_BADGE[executive.status]}`}>
                       {STATUS_LABELS[executive.status]}
@@ -547,6 +573,8 @@ function ExecutivesContent() {
         />
       )}
 
+      {datosDe && <ZonaEstadisticasModal executive={datosDe} onCerrar={() => setDatosDe(null)} />}
+
       {contratando && (
         <ContratarDialog
           vacante={contratando}
@@ -564,6 +592,29 @@ function ExecutivesContent() {
 // ---------------------------------------------------------------------------
 // Piezas de la lista
 // ---------------------------------------------------------------------------
+
+/** Nombre como botón: abre "Datos de la zona" (con teclado: Tab + Enter). Sin onAbrir (rol sin ese permiso), solo texto. */
+function NombreBoton({
+  executive,
+  onAbrir,
+  className = '',
+}: {
+  executive: Executive
+  onAbrir: ((executive: Executive) => void) | null
+  className?: string
+}) {
+  if (!onAbrir) return <span className={className}>{executive.full_name}</span>
+  return (
+    <button
+      type="button"
+      onClick={() => onAbrir(executive)}
+      className={`text-left underline decoration-gray-300 underline-offset-2 hover:decoration-gray-700 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-700 ${className}`}
+    >
+      {executive.full_name}
+      <span className="sr-only"> · ver los datos de su zona</span>
+    </button>
+  )
+}
 
 function ColorDot({ executive }: { executive: Executive }) {
   const color = executiveColor(executive)

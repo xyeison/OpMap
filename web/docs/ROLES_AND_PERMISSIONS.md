@@ -1,11 +1,65 @@
 # Sistema de Roles y Permisos - OpMap
 
-## Roles Definidos
+> La fuente de verdad es `web/lib/permissions.ts` (permisos por rol, menú, rutas e inicio) y sus pruebas
+> (`scripts/menu-check.ts`, `scripts/visits-check.ts`, `scripts/terceros-check.ts`). Las secciones "Roles
+> Definidos" y la matriz de abajo son históricas; el menú vigente es el de "Menú de la web".
+
+## Menú de la web (dueño, 2026-10-14)
+
+- **Sin Dashboard**: los indicadores (cobertura, oportunidades, hospitales, totales) no tenían sentido por ahora y
+  se generarán después. `"/"` ya no muestra tablero: lleva a la **página de inicio** del rol (`getHomeRoute`), que
+  es la primera opción de su menú: `/map` para todo rol con `map:view`; `/calendario` para `hr`. El logo "OpMap"
+  lleva al mismo sitio. El login sigue mandando a `?next=` o, sin él, a `"/"` y de ahí al inicio.
+  `dashboard:view` sigue en los roles pero ya no abre nada; `/api/dashboard/stats` se quitó.
+- **Orden** (`getNavigationMenu`; cada opción solo con su permiso): Mapa, Hospitales, Terceros, Calendario, Zonas
+  (`/kams`), Líneas, Ejecutivos Comerciales, Inteligencia, Contratos, Mi Empresa, Cumplimiento, Proveedores,
+  Usuarios, Visitas y, al final, Configuración.
+- **Municipios** sale del menú principal y queda dentro de **Configuración** (pestaña "Municipios", con
+  `territories:view`, el permiso de siempre). `/territories` y `/territories/[id]` siguen funcionando; sus
+  "Volver" llevan a `/configuracion?seccion=municipios`.
+- **Regiones** (`/zones`, de una versión anterior) sale del menú y su página se quitó. La tabla `zones` y
+  `/api/zones` (que usan el mapa y Zonas) no cambian.
+- **Configuración** (`/configuracion`) se muestra con cualquiera de `PERMISOS_CONFIGURACION` (`visits:config`,
+  `territories:view`, `recalculate:simple`, `recalculate:complete`) y cada sección pide el suyo
+  (`seccionesConfiguracion`); con una sola sección no sale la barra de secciones. La sección va en `?seccion=`.
+
+| Sección | Permiso | Qué tiene |
+|---------|---------|-----------|
+| Visitas | `visits:config` | Metas, Qué cuenta, Personas, General y Subtipos (Fase 7 F2) |
+| Municipios | `territories:view` | Lista de municipios y localidades; "Asignar" (forzada) con `territories:manage` |
+| Asignación | `dashboard:view` y `recalculate:simple` o `recalculate:complete` (los mismos que pedía el antiguo dashboard) | "Recalcular asignaciones" y, con `recalculate:complete`, "Calcular rutas" con Google Maps (antes en el dashboard; nada corre al abrir la página) |
+
+Menú por rol (lo prueba `scripts/menu-check.ts`):
+
+| Rol | Menú | Configuración |
+|-----|------|---------------|
+| admin | Mapa · Hospitales · Terceros · Calendario · Zonas · Líneas · Ejecutivos Comerciales · Inteligencia · Contratos · Mi Empresa · Cumplimiento · Proveedores · Usuarios · Visitas · Configuración | Visitas, Municipios, Asignación |
+| commercial_director | Mapa · Hospitales · Terceros · Calendario · Zonas · Líneas · Ejecutivos Comerciales · Inteligencia · Contratos · Proveedores · Visitas · Configuración | Visitas, Municipios |
+| line_leader | Mapa · Hospitales · Terceros · Calendario · Zonas · Líneas · Ejecutivos Comerciales · Inteligencia · Contratos · Configuración | Municipios |
+| sales_manager | Mapa · Hospitales · Terceros · Calendario · Zonas · Líneas · Ejecutivos Comerciales · Contratos · Configuración | Municipios |
+| data_manager | Mapa · Hospitales · Terceros · Zonas · Líneas · Ejecutivos Comerciales · Inteligencia · Visitas · Configuración | Municipios |
+| contract_manager | Mapa · Hospitales · Líneas · Ejecutivos Comerciales · Contratos · Mi Empresa · Cumplimiento · Proveedores | — |
+| viewer | Mapa · Hospitales · Terceros · Líneas · Ejecutivos Comerciales · Inteligencia | — |
+| user | Mapa · Hospitales · Líneas · Ejecutivos Comerciales | — |
+| hr | Calendario · Líneas · Ejecutivos Comerciales (inicio: Calendario) | — |
+
+## "Datos de la zona" (ventana de Ejecutivos Comerciales, 2026-10-14)
+
+Clic en una persona o vacante de `/executives` → `GET /api/executives/[id]/estadisticas` (solo lectura). Mismas
+reglas que las páginas de donde salen las cifras (`lib/zona-estadisticas.ts`; pruebas en
+`scripts/zona-estadisticas-check.ts` y `scripts/zona-estadisticas-api-check.ts`):
+
+| Qué | Quién lo ve | Por qué |
+|-----|-------------|---------|
+| La ventana (municipios, población, afiliados, IPS, giros, visitas de VMO, médicos) | `executives:view` + `hospitals:view`: todos menos `hr` (a `hr` el nombre no se le muestra como enlace y la API da 403) | Las cifras salen de las IPS, como la ficha de la IPS y sus tarjetas de giros y entorno |
+| Compras públicas (SECOP y la parte de VG Medical) | `intelligence:view`: admin, commercial_director, line_leader, data_manager, viewer | Igual que `/api/secop/*`; sin el permiso la tarjeta no sale y la ruta ni lee SECOP |
+| Cobertura por línea y territorio | Solo las líneas de `GET /api/me/lines` (`resolveUserLines`): todas con `map:all-lines`; si no, las que lidera o lleva | Igual que `/api/coverage?line=`, que da 403 en las demás; sin líneas, ni cobertura ni territorio |
+
+## Roles Definidos (histórico)
 
 ### 1. **Admin** (Administrador del Sistema)
 **Descripción**: Control total del sistema
 **Permisos**:
-- ✅ Ver Dashboard completo con estadísticas
 - ✅ Ver Mapa
 - ✅ Ver/Editar Hospitales
 - ✅ Ver/Editar KAMs
@@ -18,7 +72,6 @@
 ### 2. **Sales Manager** (Gerente de Ventas)
 **Descripción**: Gestiona el equipo comercial y territorios
 **Permisos**:
-- ✅ Ver Dashboard con estadísticas
 - ✅ Ver Mapa
 - ✅ Ver Hospitales (solo lectura)
 - ✅ Ver/Editar KAMs
@@ -62,11 +115,11 @@
 - ❌ Contratos
 - ❌ Recálculos
 
-## Matriz de Permisos
+## Matriz de Permisos (histórico)
 
 | Funcionalidad | Admin | Sales Manager | Contract Manager | Data Manager | Viewer |
 |--------------|-------|---------------|------------------|--------------|---------|
-| Dashboard | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Dashboard (quitado el 2026-10-14) | — | — | — | — | — |
 | Mapa | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Ver Hospitales | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Editar Hospitales | ✅ | ❌ | ❌ | ✅ | ❌ |
@@ -100,7 +153,7 @@ Rol nuevo **`hr`** ("Recursos humanos"; migración 0810 lo añade a `users_role_
 
 | Permiso | Para qué | Roles |
 |---------|----------|-------|
-| `visits:config` | Ver y cambiar la configuración de visitas (metas, qué cuenta, personas, general, subtipos) y la cuota de cualquier persona; menú "Configuración" (`/configuracion`) | admin, commercial_director |
+| `visits:config` | Ver y cambiar la configuración de visitas (metas, qué cuenta, personas, general, subtipos) y la cuota de cualquier persona; sección "Visitas" de "Configuración" (`/configuracion`) | admin, commercial_director |
 | `calendar:manage` | Días de empresa y de ciudad, cargar festivos, anular días del calendario | admin, commercial_director, hr |
 | `daysoff:approve` | Ver todos los días libres, aprobar o rechazar en bloque, registrar o anular por otra persona | admin, commercial_director, hr (además, el rol debe estar en `aprobacion_dias_libres.aprueban`, salvo admin; lo exige la API). Nunca sobre sus propios días: si su usuario está enlazado a un Ejecutivo Comercial, no se registra "por otra persona" (403) y la revisión en bloque omite los suyos; los registra en "Mis días libres" y los aprueba otra persona |
 | `daysoff:view` | Ver, sin aprobar, los días libres de las ejecutivas de sus líneas (`executive_lines` en líneas con `business_lines.leader_user_id` = él) | line_leader |
@@ -129,34 +182,8 @@ falta, desde Usuarios, con sus guardas (nadie se desactiva a sí mismo; nunca el
 
 ## Navegación por Rol
 
-### Admin
-- Dashboard
-- Mapa
-- Hospitales
-- KAMs
-- Contratos
-- Diagnóstico
-- Usuarios
-
-### Sales Manager
-- Dashboard
-- Mapa
-- Hospitales (lectura)
-- KAMs
-- Contratos (lectura)
-
-### Contract Manager
-- Mapa
-- Contratos
-- Hospitales (búsqueda)
-
-### Data Manager
-- Mapa
-- Hospitales
-- KAMs
-
-### Viewer
-- Mapa
+Ver "Menú de la web (dueño, 2026-10-14)" al principio: el menú sale de `getNavigationMenu` y lo prueba
+`scripts/menu-check.ts`. Ya no hay Dashboard, Municipios (está en Configuración) ni Regiones.
 
 ## Implementación Técnica
 

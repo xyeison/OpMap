@@ -685,7 +685,7 @@ export default function KamsPage() {
               searchTerm={searchTerm}
               onZoneClick={(zoneId) => {
                 // Navegar al mapa con la zona seleccionada
-                router.push(`/?viewMode=zones&zoneId=${zoneId}`)
+                router.push(`/map?viewMode=zones&zoneId=${zoneId}`)
               }}
             />
           )}

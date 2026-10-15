@@ -85,8 +85,8 @@ export default function TerritoryDetailPage() {
             <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
               {detailError instanceof Error ? detailError.message : 'Territorio no encontrado'}
             </div>
-            <Link href="/territories" className="mt-4 inline-block text-blue-600 hover:text-blue-800">
-              ← Volver a territorios
+            <Link href="/configuracion?seccion=municipios" className="mt-4 inline-block text-blue-600 hover:text-blue-800">
+              ← Volver a Municipios
             </Link>
           </div>
         </PermissionGuard>
@@ -100,11 +100,12 @@ export default function TerritoryDetailPage() {
         <div className="container mx-auto px-4 py-8 max-w-7xl">
           {/* Header */}
           <div className="mb-8">
-            <Link href="/territories" className="text-gray-600 hover:text-gray-800 mb-4 inline-flex items-center gap-2">
+            {/* Municipios está dentro de Configuración (dueño, 2026-10-14) */}
+            <Link href="/configuracion?seccion=municipios" className="text-gray-600 hover:text-gray-800 mb-4 inline-flex items-center gap-2">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
               </svg>
-              Volver a territorios
+              Volver a Municipios
             </Link>
             
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
