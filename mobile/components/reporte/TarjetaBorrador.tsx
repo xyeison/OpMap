@@ -124,7 +124,9 @@ export function TarjetaBorrador(props: Props) {
   )
 
   return (
-    <Tarjeta estilo={{ gap: 14 }}>
+    // Mientras se confirma (también mientras espera la ubicación final) la tarjeta no se toca: lo que se manda es lo
+    // que hay en ella.
+    <Tarjeta estilo={estado.enviando ? { gap: 14, pointerEvents: 'none', opacity: 0.7 } : { gap: 14 }}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
         <Texto negrita>
           Visita {props.numero} de {props.total}

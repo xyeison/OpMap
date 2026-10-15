@@ -453,6 +453,12 @@ cuota) sigue igual.
 Con la ubicación aproximada del teléfono (1 a 3 km de error) una presencial puede pasar el radio de 500 m, y una sede
 `gps_app` puede nacer con coordenadas imprecisas. Opción: rechazar la presencial, o dejar la sede por confirmar,
 cuando la precisión pase de unos 100 m o del radio.
+Ubicación en dos pasos de Reportar (2026-10-14, `docs/specs/2026-10-14-ubicacion-rapida-en-reportar.md`): la regla de la
+final no cambió (lectura precisa o, si no llega, la última conocida de menos de 2 minutos, marcada aproximada). La
+lectura rápida (~100 m) que ahora se toma solo para mostrar la lista queda en el teléfono como "última conocida"; la
+app registra sus propias lecturas rápidas y la final, el consultorio de "Nuevo médico" y "Crear sede aquí"
+(`pedirUbicacion`) no las aceptan de respaldo, así que el caso de la clínica sin lectura precisa termina como antes:
+sin punto.
 
 ### validarVisita (TS) frente a visitas_registrar (SQL)
 

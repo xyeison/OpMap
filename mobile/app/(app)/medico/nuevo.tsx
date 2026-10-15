@@ -116,14 +116,17 @@ function NuevoMedico() {
     setError(null)
     const nombreConsultorio = `Consultorio ${nombreLimpio}`.slice(0, 200)
     try {
+      // El consultorio queda con el punto que vale (la final de Reportar, que se espera si aún no llega), nunca con la
+      // primera ubicación que se mostró.
+      const punto = pedido?.puntoFinal ? await pedido.puntoFinal : (pedido?.punto ?? null)
       const respuesta = await api.crearCuenta({
         nombre: nombreConsultorio,
         clase: 'consultorio',
         tipo_identificacion: tipoIdCuentaDeMedico(tipo),
         numero_identificacion: documento.valor,
-        sede: { nombre: nombreConsultorio, municipality_id: municipio, lat: pedido?.punto?.lat ?? null, lng: pedido?.punto?.lng ?? null },
+        sede: { nombre: nombreConsultorio, municipality_id: municipio, lat: punto?.lat ?? null, lng: punto?.lng ?? null },
       })
-      agregarSede({ sede_id: respuesta.sede.id, nombre: respuesta.sede.nombre, cuenta_nombre: respuesta.cuenta.nombre, distancia_m: pedido?.punto ? 0 : null }, 'consultorio')
+      agregarSede({ sede_id: respuesta.sede.id, nombre: respuesta.sede.nombre, cuenta_nombre: respuesta.cuenta.nombre, distancia_m: punto ? 0 : null }, 'consultorio')
     } catch (lanzado) {
       // Ya hay una cuenta con esa identificación: se usa su sede principal como consultorio.
       const existente = lanzado instanceof ApiError && lanzado.status === 409 ? (lanzado.cuerpo as { existente?: { id?: string } } | null)?.existente : undefined

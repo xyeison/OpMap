@@ -20,7 +20,7 @@ import { fijarReintento } from '../../lib/retorno'
 import { useSesion } from '../../lib/sesion'
 import type { CitaItem, ContextoResponse, VisitaItem, VisitasResponse } from '../../lib/tipos'
 import { ETIQUETA_TIPO_VISITA } from '../../lib/tipos'
-import { pedirUbicacion, type ResultadoUbicacion } from '../../lib/ubicacion'
+import { pedirUbicacionEnDosPasos, type ResultadoUbicacion } from '../../lib/ubicacion'
 import { Aviso, Barra, Boton, Cargando, Fila, Grupo, Insignia, Pantalla, Subtitulo, Tarjeta, Texto, Titulo, Vacio } from '../../lib/ui'
 
 export default function Hoy() {
@@ -54,7 +54,10 @@ export default function Hoy() {
         },
         error => setErrorVisitas(aApiError(error))
       )
-      const resultado = await pedirUbicacion({ timeoutMs: 8_000 })
+      // Hoy solo muestra (meta, agenda y distancias): le basta la primera ubicación (la última conocida reciente o una
+      // lectura rápida) y no espera la de alta precisión, que sigue mientras la app está abierta y deja fresca la
+      // última conocida con que Reportar muestra su lista enseguida (lib/ubicacion-pasos.ts).
+      const resultado = (await pedirUbicacionEnDosPasos({ timeoutMs: 8_000 }).primera).resultado
       setUbicacion(resultado)
       const punto = resultado.ubicacion
       const pedidoContexto = api.contexto(punto ? { lat: punto.lat, lng: punto.lng, precision: punto.precision } : null).then(
