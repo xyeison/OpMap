@@ -130,6 +130,7 @@ import {
   parametroDelMensaje,
   reiniciarLimitesVoz,
   resumenErrorVoz,
+  cabecerasAnthropic,
   type ClientePropuesta,
   type ClienteTranscripcion,
 } from '../app/api/me/_lib/reporte-server'
@@ -2011,6 +2012,57 @@ async function main() {
         ms < 500 && logsEnormes.every(log => log.includes(MENSAJE_API_OMITIDO) && log.length < 400),
         { ms, logsEnormes }
       )
+    }
+
+    print('\n7d. Workspace de Anthropic (llave personal no asignada a un workspace: cabecera anthropic-workspace-id)')
+    {
+      const ID = 'wrkspc_01JwQvzr7rXLA5AGx3HKfFUJ'
+      check('cabecerasAnthropic: un ID wrkspc_… va como anthropic-workspace-id (sin espacios)', JSON.stringify(cabecerasAnthropic(`  ${ID} `)) === JSON.stringify({ 'anthropic-workspace-id': ID }))
+      check(
+        'cabecerasAnthropic: vacío, null, otra cosa o una llave pegada por error → no se manda nada',
+        [undefined, null, '', '   ', 'Default', 'wrkspc_', 'wrkspc_abc', 'sk-ant-api03-abcdefghijklmnop', `${ID} x`, 'wrkspc_01Jw-Qv'].every(v => cabecerasAnthropic(v) === undefined)
+      )
+
+      const cuerpo7d = { transcript: TRANSCRIPCION, lat: TEL.lat, lng: TEL.lng, precision: 12, hora: '2026-10-13T10:41:00.000-05:00' }
+      const vistas: (Record<string, string> | undefined)[] = []
+      fijarFabricasVoz({ openai: () => clienteOpenAI, anthropic: (_llave, cabeceras) => (vistas.push(cabeceras), clienteClaude) })
+      const respuestaAntes = respuestaClaude
+      respuestaClaude = () => mensajeClaude(entradaClaude())
+      const workspaceAntes = process.env.ANTHROPIC_WORKSPACE_ID
+      const avisos: string[] = []
+      const warnOriginal = console.warn
+      console.warn = (...args: unknown[]) => void avisos.push(args.map(String).join(' '))
+      try {
+        delete process.env.ANTHROPIC_WORKSPACE_ID
+        const sinVariable = await pedir(proponer, '/api/me/voz/proponer', { method: 'POST', body: cuerpo7d, portador: true })
+        check('sin ANTHROPIC_WORKSPACE_ID: 200 y el cliente sin cabecera de workspace (llave asignada a un workspace)', sinVariable.status === 200 && vistas.at(-1) === undefined, { status: sinVariable.status, vista: vistas.at(-1) })
+        process.env.ANTHROPIC_WORKSPACE_ID = ` ${ID}\n`
+        const conVariable = await pedir(proponer, '/api/me/voz/proponer', { method: 'POST', body: cuerpo7d, portador: true })
+        check('con ANTHROPIC_WORKSPACE_ID: el cliente de Claude lleva anthropic-workspace-id', conVariable.status === 200 && vistas.at(-1)?.['anthropic-workspace-id'] === ID, vistas.at(-1))
+        const llaveFalsa = 'sk-ant-api03-llave-pegada-por-error-0123456789'
+        process.env.ANTHROPIC_WORKSPACE_ID = llaveFalsa
+        const malVariable = await pedir(proponer, '/api/me/voz/proponer', { method: 'POST', body: cuerpo7d, portador: true })
+        check(
+          'ANTHROPIC_WORKSPACE_ID con otra cosa (una llave): no se manda, se avisa en el log sin el valor',
+          malVariable.status === 200 && vistas.at(-1) === undefined && avisos.some(a => a.includes('ANTHROPIC_WORKSPACE_ID') && a.includes('wrkspc_')) && !avisos.some(a => a.includes(llaveFalsa)),
+          { vista: vistas.at(-1), avisos }
+        )
+      } finally {
+        console.warn = warnOriginal
+        if (workspaceAntes === undefined) delete process.env.ANTHROPIC_WORKSPACE_ID
+        else process.env.ANTHROPIC_WORKSPACE_ID = workspaceAntes
+        respuestaClaude = respuestaAntes
+        fijarFabricasVoz({ openai: () => clienteOpenAI, anthropic: () => clienteClaude })
+      }
+
+      // El mensaje real de Anthropic para este caso se imprime entero (sin contenido): así el log dice qué hacer.
+      const OFICIAL = 'anthropic-workspace-id is required when authenticating with an identity-linked API key; send the id of the workspace this request acts in.'
+      const resumen7d = resumenErrorVoz(error400Claude(OFICIAL), [TRANSCRIPCION])
+      check('el log del 400 sin workspace trae el parámetro y el mensaje de Anthropic (no "omitido")', resumen7d.includes('parámetro anthropic-workspace-id') && resumen7d.includes('is required when authenticating with an identity-linked API key') && !resumen7d.includes(MENSAJE_API_OMITIDO), resumen7d)
+      const otraRedaccion = resumenErrorVoz(error400Claude('This API key is not scoped to a workspace, so this request must include the anthropic-workspace-id header with the ID of the workspace to use.'), [TRANSCRIPCION])
+      check('otra redacción del mismo 400 (la que se ha visto en la práctica) también se imprime', otraRedaccion.includes('parámetro anthropic-workspace-id') && otraRedaccion.includes('is not scoped to a workspace') && !otraRedaccion.includes(MENSAJE_API_OMITIDO), otraRedaccion)
+      const invalido = resumenErrorVoz(error400Claude('anthropic-workspace-id header must be a valid workspace ID.'), [TRANSCRIPCION])
+      check('y el de un ID inválido también', invalido.includes('must be a valid workspace ID') && !invalido.includes(MENSAJE_API_OMITIDO), invalido)
     }
 
     print('\n8. Médico completo y sede nueva con el GPS (F1 desde la app)')

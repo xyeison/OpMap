@@ -91,7 +91,11 @@ dirección ni los KPIs 2 a 6 (F5).
     cuentas, los médicos que ella visita y sus sedes, contactos de esas cuentas, subtipos vigentes, sus líneas).
     Solo puede elegir ids que estén en el contexto; un nombre que no cruza sale como `medico_nombre_dicho` con
     `medico_id: null` y `sugerir_crear: true`. Nunca recibe ni devuelve documentos. 503 si falta
-    `ANTHROPIC_API_KEY`. Costo estimado por dictado ≈ 0,005 USD.
+    `ANTHROPIC_API_KEY`. Costo estimado por dictado ≈ 0,005 USD. Workspace (2026-10-15): una llave personal o de
+    cuenta de servicio **no asignada a un workspace** recibe 400 ("anthropic-workspace-id is required when
+    authenticating with an identity-linked API key"), así pasó en producción. O se usa una llave asignada a un
+    workspace, o se pone `ANTHROPIC_WORKSPACE_ID` (`wrkspc_…`, opcional) y el cliente manda la cabecera
+    `anthropic-workspace-id` (`cabecerasAnthropic`; un valor sin esa forma no se manda). Ver `web/VERCEL_ENV_VARS.md`.
 13. **Compromisos vencidos** en Hoy: visitas de ella con `next_step_date < hoy` sin una visita posterior al mismo
     médico o cuenta.
 14. **Sede nueva desde la app**: `POST /api/terceros/sedes` acepta `origen: 'gps_app'` con `lat`, `lng` y
