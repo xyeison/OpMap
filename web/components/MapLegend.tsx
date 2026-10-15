@@ -1,11 +1,11 @@
 'use client'
 
-import { useState, type CSSProperties, type ReactNode } from 'react'
+import { useId, useState, type CSSProperties, type ReactNode } from 'react'
 import { readableTextColor } from './ZoneBadgeIcon'
 
-// Leyenda del mapa: vista (línea / zonas), Ejecutivos Comerciales o zonas con su color, estados de
-// los territorios y capas visibles. La misma pieza va en la tarjeta de escritorio y en la hoja
-// inferior de móvil.
+// Leyenda del mapa: "Ver por" (Ejecutivos Comerciales / Zonas), línea de negocio, Ejecutivos Comerciales o
+// zonas con su color, estados de los territorios y capas visibles. La misma pieza va en la tarjeta de
+// escritorio y en la hoja inferior de móvil.
 
 // Zona de un Ejecutivo Comercial con varias zonas: mini-muestra con su tono en el mapa
 export interface LegendZone {
@@ -58,6 +58,21 @@ export interface LegendViewSelect {
   onChange: (value: string) => void
 }
 
+// "Ver por" (autorizado por el dueño el 2026-10-14): mapa por Ejecutivos Comerciales (vista por línea, con el
+// selector de línea) o por zonas (todas las zonas activas con kams.color)
+export type LegendViewByValue = 'executives' | 'zones'
+export interface LegendViewBy {
+  value: LegendViewByValue
+  onChange: (value: LegendViewByValue) => void
+  // Sin líneas asignadas no hay vista por Ejecutivos Comerciales
+  executivesDisabled?: boolean
+}
+
+const VIEW_BY_OPTIONS: { value: LegendViewByValue; label: string }[] = [
+  { value: 'executives', label: 'Ejecutivos Comerciales' },
+  { value: 'zones', label: 'Zonas' }
+]
+
 export interface LegendToggles {
   showIps: boolean
   onShowIps: (value: boolean) => void
@@ -77,6 +92,8 @@ export interface LegendFilter {
 export interface MapLegendProps {
   // Nombre de la vista cuando no hay selector (una sola línea)
   viewLabel: string
+  // "Ver por" (null: sin selector, solo la línea). En "Zonas" no se muestra la línea de negocio.
+  viewBy?: LegendViewBy | null
   viewSelect: LegendViewSelect | null
   entriesTitle: string
   entries: LegendEntry[]
@@ -127,6 +144,7 @@ const SECTION_TITLE = 'text-[11px] font-semibold uppercase tracking-wide text-gr
 
 export default function MapLegend({
   viewLabel,
+  viewBy = null,
   viewSelect,
   entriesTitle,
   entries,
@@ -144,29 +162,70 @@ export default function MapLegend({
   footer
 }: MapLegendProps) {
   const rowHeight = touch ? 'min-h-[44px]' : 'min-h-[34px]'
+  const viewByLabelId = useId()
+  const viewByNoteId = useId()
+  // En "Zonas" el mapa no depende de la línea: no se muestra su selector
+  const showLine = viewBy?.value !== 'zones'
 
   return (
     <div className="space-y-4">
-      {/* Vista: línea de negocio o vista de zonas */}
-      <div>
-        <label htmlFor="map-view-select" className={SECTION_TITLE + ' block'}>
-          Línea de negocio
-        </label>
-        {viewSelect ? (
-          <select
-            id="map-view-select"
-            value={viewSelect.value}
-            onChange={e => viewSelect.onChange(e.target.value)}
-            className={`w-full px-3 text-sm text-gray-900 border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-gray-900 ${touch ? 'h-11' : 'h-9'}`}
-          >
-            {viewSelect.options.map(option => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-        ) : (
-          <div className="text-sm font-medium text-gray-900">{viewLabel}</div>
-        )}
-      </div>
+      {/* Ver por: Ejecutivos Comerciales (vista por línea) o Zonas. Botones segmentados con aria-pressed. */}
+      {viewBy && (
+        <div>
+          <div id={viewByLabelId} className={SECTION_TITLE}>Ver por</div>
+          <div role="group" aria-labelledby={viewByLabelId} className="flex w-full gap-0.5 rounded-lg border border-gray-200 bg-gray-100 p-0.5">
+            {VIEW_BY_OPTIONS.map(option => {
+              const pressed = viewBy.value === option.value
+              const disabled = option.value === 'executives' && !!viewBy.executivesDisabled && !pressed
+              // Desactivado con aria-disabled (no disabled): sigue recibiendo foco y lee el motivo, que además se ve
+              // debajo del selector (un title no se ve al tocar ni lo leen bien los lectores de pantalla)
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  aria-pressed={pressed}
+                  aria-disabled={disabled || undefined}
+                  aria-describedby={disabled ? viewByNoteId : undefined}
+                  onClick={() => {
+                    if (!pressed && !disabled) viewBy.onChange(option.value)
+                  }}
+                  className={`flex-auto whitespace-nowrap rounded-md px-3 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 ${touch ? 'min-h-[44px]' : 'min-h-[32px]'} ${pressed ? 'bg-white text-gray-900 shadow-sm' : disabled ? 'cursor-not-allowed text-gray-600 opacity-50' : 'text-gray-600 hover:text-gray-900'}`}
+                >
+                  {option.label}
+                </button>
+              )
+            })}
+          </div>
+          {viewBy.executivesDisabled && (
+            <p id={viewByNoteId} className="mt-1.5 text-xs text-gray-500">
+              Sin líneas de negocio asignadas: solo puedes ver el mapa por zonas.
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Línea de negocio (vista por Ejecutivos Comerciales): selector si hay varias, nombre si hay una */}
+      {showLine && (
+        <div>
+          <label htmlFor="map-view-select" className={SECTION_TITLE + ' block'}>
+            Línea de negocio
+          </label>
+          {viewSelect ? (
+            <select
+              id="map-view-select"
+              value={viewSelect.value}
+              onChange={e => viewSelect.onChange(e.target.value)}
+              className={`w-full px-3 text-sm text-gray-900 border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-gray-900 ${touch ? 'h-11' : 'h-9'}`}
+            >
+              {viewSelect.options.map(option => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          ) : (
+            <div className="text-sm font-medium text-gray-900">{viewLabel}</div>
+          )}
+        </div>
+      )}
 
       {/* Ejecutivos Comerciales (o zonas / regiones): clic para resaltar su territorio */}
       <div>

@@ -42,7 +42,7 @@ export type Permission =
   | 'executives:transfer'
   | 'coverage:view'    // Fase 2: cobertura por línea (la API limita a las líneas del usuario)
   | 'coverage:edit'    // Fase 2: recalcular y ajustes manuales (line_leader solo en SU línea)
-  | 'map:all-lines'    // Fase 2: ver el mapa de cualquier línea y la vista "Zonas"
+  | 'map:all-lines'    // Fase 2: ver el mapa de cualquier línea (la vista "Zonas" es de map:view desde 2026-10-14)
   | 'territory:view'           // Fase 2b: anexo de territorio por ejecutivo comercial (la API limita por línea/ejecutivo)
   | 'territory:snapshot'       // Fase 2b: guardar versiones inmutables del anexo (line_leader solo SU línea)
   | 'municipalities:recompute' // Fase 2b: recalcular municipality_zone con la caché (sin Google)

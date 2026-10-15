@@ -432,7 +432,9 @@ export default function MapControls({
             </div>
           )}
 
-          {/* Toggle de Solo Hospitales con Contratos */}
+          {/* Toggle de Solo Hospitales con Contratos. No sale si /api/map/data no trae contratos (contractsIncluded:
+              false: vista de zonas de quien no tiene líneas ni contracts:view, spec 2026-10-14). */}
+          {mapData?.contractsIncluded !== false && (
           <div className="mb-3 pt-3 border-t">
             <div className={`flex items-center justify-between ${embedded ? 'min-h-[44px]' : ''}`}>
               <label className="text-xs font-semibold text-gray-700">Solo con Contratos</label>
@@ -463,6 +465,7 @@ export default function MapControls({
               </div>
             )}
           </div>
+          )}
 
           {/* Estadísticas por tipo */}
           <div className="text-xs space-y-1 pt-2 border-t">

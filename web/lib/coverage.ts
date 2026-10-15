@@ -597,17 +597,19 @@ export const LINE_CODE_RE = /^[a-z0-9_-]{1,40}$/
 /**
  * Busca la línea por código entre las que el usuario puede ver.
  * Devuelve la línea con su alcance máximo, o null si no existe o no tiene acceso (→ 403).
+ * `me`: las líneas del usuario ya resueltas con resolveUserLines (para no leerlas dos veces).
  */
 export async function findAccessibleLine(
   user: CoverageUser,
   code: string,
-  db: SupabaseAdminClient = supabaseAdmin
+  db: SupabaseAdminClient = supabaseAdmin,
+  me?: MeLinesResponse
 ): Promise<{ line: CoverageLineInfo; role: MeLineRole } | null> {
   const normalized = code.trim().toLowerCase()
   if (!LINE_CODE_RE.test(normalized)) return null
 
-  const me = await resolveUserLines(user, db)
-  const mine = me.lines.find(line => line.code === normalized)
+  const userLines = me ?? (await resolveUserLines(user, db))
+  const mine = userLines.lines.find(line => line.code === normalized)
   if (!mine) return null
 
   const { data, error } = await db
@@ -618,6 +620,17 @@ export async function findAccessibleLine(
   if (error) throw new Error(`Error leyendo business_lines: ${error.message}`)
   const row = data && data.length > 0 ? (data[0] as CoverageLineInfo) : null
   return row ? { line: row, role: mine.role } : null
+}
+
+/**
+ * Ejecutivos Comerciales que llevan alguna de estas líneas (executive_lines). La vista de zonas del mapa
+ * (/api/map/data) lo usa para que quien no tiene map:all-lines no reciba nombres de personas de líneas que no ve.
+ */
+export async function loadExecutiveIdsOfLines(lineIds: string[], db: SupabaseAdminClient = supabaseAdmin): Promise<Set<string>> {
+  if (lineIds.length === 0) return new Set()
+  const { data, error } = await db.from('executive_lines').select('executive_id').in('line_id', lineIds)
+  if (error) throw new Error(`Error leyendo executive_lines: ${error.message}`)
+  return new Set((data || []).map(row => row.executive_id as string))
 }
 
 /**

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
-import { requireUser } from '@/lib/require-role'
+import { requirePermission } from '@/lib/require-role'
 import { hasPermission } from '@/lib/permissions'
-import { LINE_CODE_RE, findAccessibleLine, loadCoverageResponse } from '@/lib/coverage'
+import { LINE_CODE_RE, findAccessibleLine, loadCoverageResponse, loadExecutiveIdsOfLines, resolveUserLines } from '@/lib/coverage'
 import type { CoverageExecutiveRef, CoverageLineInfo } from '@/lib/types/coverage'
 import { computeTerritoryWinners, territoryIdOf } from '@/lib/territory-rules'
 import { zoneDisplayName } from '@/lib/zone-names'
@@ -99,29 +99,43 @@ async function loadLineCoverage(line: CoverageLineInfo) {
 
 export async function GET(request: NextRequest) {
   try {
-    // Verificar autenticación (sesión de usuario activo)
-    const auth = await requireUser(request)
+    // Sesión de usuario activo con map:view (el mismo permiso que la página /map)
+    const auth = await requirePermission(request, 'map:view')
     if (!auth.ok) return auth.response
 
     const supabase = supabaseAdmin
 
-    // Acceso por línea: con ?line=<code> la línea debe estar entre las del usuario;
-    // sin ?line (vista por zonas) solo quien ve todas las líneas.
-    // Misma regla que GET /api/me/lines (lib/coverage.ts: resolveUserLines / findAccessibleLine).
+    // Líneas que ve el usuario: misma regla que GET /api/me/lines (lib/coverage.ts: resolveUserLines /
+    // findAccessibleLine). Con map:all-lines, todas (no hace falta leerlas).
+    const canSeeAllLines = hasPermission(auth.user.role, 'map:all-lines')
+    const myLines = canSeeAllLines ? null : await resolveUserLines(auth.user)
+
+    // Con ?line=<code> (vista por Ejecutivos Comerciales, o la de zonas con una línea elegida) la línea debe estar
+    // entre las del usuario y la respuesta trae su cobertura. Sin ?line, vista de zonas sin cobertura: la abre todo
+    // el que ve el mapa (spec 2026-10-14; antes solo map:all-lines).
     const lineCode = (request.nextUrl.searchParams.get('line') || '').trim().toLowerCase()
     let selectedLine: CoverageLineInfo | null = null
     if (lineCode) {
       if (!LINE_CODE_RE.test(lineCode)) {
         return NextResponse.json({ error: 'Código de línea no válido' }, { status: 400 })
       }
-      const access = await findAccessibleLine(auth.user, lineCode)
+      const access = await findAccessibleLine(auth.user, lineCode, supabase, myLines ?? undefined)
       if (!access) {
         return NextResponse.json({ error: 'No tienes acceso a esta línea' }, { status: 403 })
       }
       selectedLine = access.line
-    } else if (!hasPermission(auth.user.role, 'map:all-lines')) {
-      return NextResponse.json({ error: 'Debes elegir una línea de negocio' }, { status: 403 })
     }
+
+    // Ejecutivos Comerciales que viven en cada zona (kams[].executives, los nombres de la vista de zonas): quien no
+    // ve todas las líneas solo recibe a los que llevan alguna de SUS líneas. Nunca personas de líneas que no ve.
+    const visibleExecutiveIds = myLines ? await loadExecutiveIdsOfLines(myLines.lines.map(line => line.id), supabase) : null
+
+    // Contratos activos por IPS (valor y proveedor): los recibe quien ya los recibía antes de abrir la vista de zonas
+    // a todos (con map:all-lines o con alguna línea) y quien tiene contracts:view. Quien solo entra por la vista de
+    // zonas (sin líneas, antes 403) y no tiene contracts:view no los recibe: la spec 2026-10-14 solo le abre las zonas
+    // y "los datos de las IPS que ya ve hoy". El mapa oculta entonces "Solo con Contratos" (contractsIncluded).
+    const contractsIncluded =
+      canSeeAllLines || (myLines?.lines.length ?? 0) > 0 || hasPermission(auth.user.role, 'contracts:view')
 
     // Cargar todos los datos necesarios para el mapa
     const [kamsResult, assignmentsResult, municipalitiesResult, hospitalsResult, contractsResult, executivesResult] = await Promise.all([
@@ -160,7 +174,9 @@ export async function GET(request: NextRequest) {
         HOSPITAL_COLUMNS_WITH_REPS,
         HOSPITAL_COLUMNS
       ),
-      supabase.from('hospital_contracts').select('hospital_id, contract_value, provider').eq('active', true),
+      contractsIncluded
+        ? supabase.from('hospital_contracts').select('hospital_id, contract_value, provider').eq('active', true)
+        : Promise.resolve({ data: [] as { hospital_id: string; contract_value: number | null; provider: string | null }[], error: null }),
       // Una sola consulta de ejecutivos; se agrupan por zona en memoria (sin N+1)
       supabase.from('executives')
         .select('id, full_name, status, base_kam_id')
@@ -186,10 +202,11 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Agrupar ejecutivos por zona (base_kam_id)
+    // Agrupar ejecutivos por zona (base_kam_id); sin map:all-lines, solo los de sus líneas
     const executivesByZone: Record<string, MapZoneExecutive[]> = {}
     ;(executivesResult.data || []).forEach((e: any) => {
       if (!e.base_kam_id) return
+      if (visibleExecutiveIds && !visibleExecutiveIds.has(e.id)) return
       ;(executivesByZone[e.base_kam_id] ||= []).push({
         id: e.id,
         full_name: e.full_name,
@@ -356,6 +373,8 @@ export async function GET(request: NextRequest) {
       municipalityNames,
       contractValuesByHospital,
       contractProvidersByHospital,
+      // false: la respuesta no trae contratos (vacíos arriba y en territoryStats), no que no haya ninguno
+      contractsIncluded,
       territoryStats
     })
   } catch (error) {

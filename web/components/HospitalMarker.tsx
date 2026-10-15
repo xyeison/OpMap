@@ -18,9 +18,11 @@ export interface ZoneExecutive {
 }
 
 // Texto plano con los Ejecutivos Comerciales de una zona. Quien lo inserte en HTML crudo debe escaparlo.
-export const formatZoneExecutives = (executives?: ZoneExecutive[] | null): string => {
+// emptyText: lo que se dice si no hay ninguno (en la vista de zonas, quien no ve todas las líneas solo recibe a
+// los de sus líneas: "sin ejecutivo local" daría a entender que la zona no tiene a nadie).
+export const formatZoneExecutives = (executives?: ZoneExecutive[] | null, emptyText = 'sin ejecutivo local'): string => {
   const list = Array.isArray(executives) ? executives : []
-  if (list.length === 0) return 'sin ejecutivo local'
+  if (list.length === 0) return emptyText
   return list
     .map(e => (e.status === 'placeholder' ? `${e.full_name} (por contratar)` : e.full_name))
     .join(', ')
