@@ -5,6 +5,7 @@
  */
 import { View } from 'react-native'
 import { textoDistancia } from '../../lib/geo'
+import { citaAtrasada } from '../../lib/pantallas'
 import { conQuienCita, cuentaDistinta, sinCortes, textoHoraCita } from '../../lib/reglas'
 import { ETIQUETA_TIPO_VISITA, type CitaItem } from '../../lib/tipos'
 import { Grupo, Insignia, Tarjeta, Texto, Vacio, useColores } from '../../lib/ui'
@@ -21,6 +22,7 @@ interface Props {
 export function ListaCitas({ citas, radioM, elegida, alElegir, vacio = 'No tienes citas pendientes para hoy.' }: Props) {
   const c = useColores()
   if (citas.length === 0) return <Vacio texto={vacio} />
+  const ahora = new Date()
   return (
     <View style={{ gap: 8 }}>
       {citas.map(cita => {
@@ -48,6 +50,8 @@ export function ListaCitas({ citas, radioM, elegida, alElegir, vacio = 'No tiene
             </Texto>
             <Grupo>
               <Insignia texto={ETIQUETA_TIPO_VISITA[cita.tipo]} />
+              {/* Como en Hoy (revisión 2026-10-15): la pendiente de hoy con la hora ya pasada. */}
+              {citaAtrasada(cita, ahora) ? <Insignia texto="Atrasada" tono="alerta" /> : null}
               {cita.dentro_del_radio === true ? <Insignia texto="Dentro del radio" tono="exito" /> : null}
               {cita.dentro_del_radio === false ? <Insignia texto={`Fuera del radio (${sinCortes(textoDistancia(radioM))})`} tono="alerta" /> : null}
               {!cita.sede.ubicacion_confirmada ? <Insignia texto="Ubicación sin confirmar" /> : null}

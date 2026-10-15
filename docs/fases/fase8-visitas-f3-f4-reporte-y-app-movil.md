@@ -532,9 +532,10 @@ rollback `2026-10-14_9944_visitas_agenda_rollback.sql` (**ESCRITA, SIN APLICAR**
 
 ### Decisiones de la spec (resumen)
 
-1. **La cita** (`visitas_agenda`): una fila por cita con persona, fecha, hora opcional, tipo (médica con médico;
-   institucional con cuenta y subtipo), sede, nota ≤ 300 y estado `pendiente` | `hecha` | `cancelada`. La hecha guarda
-   `visita_id`. No se borra: se cancela.
+1. **La cita** (`visitas_agenda`): una fila por cita con persona, fecha, hora, tipo (médica con médico; institucional
+   con cuenta y subtipo), sede, nota ≤ 300 y estado `pendiente` | `hecha` | `cancelada`. La hecha guarda `visita_id`. No
+   se borra: se cancela. La hora era opcional; desde el 2026-10-15 es **obligatoria** en toda cita nueva (ver "Cambios
+   del 2026-10-15"); la columna sigue aceptando NULL por las citas viejas.
 2. **Quién agenda**: la propia persona en la app (`visits:report`). Dirección y líder la verán en F5.
 3. **Ventana**: de hoy a hoy + 30 en Bogotá; no en el pasado ni en un día libre aprobado; los festivos sí.
 4. **Sin duplicados**: una cita no cancelada por persona, fecha y médico; en las institucionales por persona, fecha,
@@ -620,7 +621,8 @@ rollback `2026-10-14_9944_visitas_agenda_rollback.sql` (**ESCRITA, SIN APLICAR**
 
 ### Base de datos (0840)
 
-- `visitas_agenda` (17 columnas): `id`, `executive_id`, `fecha`, `hora` (time NULL), `tipo`, `medico_id`, `cuenta_id`,
+- `visitas_agenda` (17 columnas): `id`, `executive_id`, `fecha`, `hora` (time NULL: solo las citas viejas; la API la
+  exige desde el 2026-10-15), `tipo`, `medico_id`, `cuenta_id`,
   `subtipo_id`, `sede_id` NOT NULL, `nota`, `estado`, `visita_id`, `cancelada_at`, `cancelada_motivo`, `created_by`,
   `created_at`, `updated_at`. CHECK `visitas_agenda_tipo_check`, `_estado_check`, `_nota_check`, `_motivo_check`,
   `_tipo_datos_check`, `_estado_datos_check`. Índices `visitas_agenda_medico_uidx`, `visitas_agenda_cuenta_uidx`,
@@ -639,7 +641,7 @@ rollback `2026-10-14_9944_visitas_agenda_rollback.sql` (**ESCRITA, SIN APLICAR**
 | Ruta | Cuerpo / consulta | Respuesta |
 | --- | --- | --- |
 | `GET /api/me/agenda` | `?desde=AAAA-MM-DD&hasta=AAAA-MM-DD&canceladas=true` (sin fechas: hoy a hoy + 7; solo desde: desde + 7; como mucho 31 días; sin las canceladas salvo `canceladas=true`) | 200 `AgendaResponse { desde, hasta, hoy, max_fecha, items: CitaItem[] }` · 400 rango · 503 sin la 0840 |
-| `POST /api/me/agenda` | `CitaCreate { fecha, hora, tipo, medico_id, cuenta_id, subtipo_id, sede_id, nota }` (médica: `medico_id`; institucional: `cuenta_id` y `subtipo_id`; lo que no aplica, null) | 201 `{ cita: CitaItem }` · 400 `{ error, errores? }` (forma, ventana, día libre, perfil, médico, cuenta, subtipo) · 409 repetida · 503 |
+| `POST /api/me/agenda` | `CitaCreate { fecha, hora, tipo, medico_id, cuenta_id, subtipo_id, sede_id, nota }` (`hora` HH:MM **obligatoria** desde el 2026-10-15; médica: `medico_id`; institucional: `cuenta_id` y `subtipo_id`; lo que no aplica, null) | 201 `{ cita: CitaItem }` · 400 `{ error, errores? }` (forma; sin hora, `''` o `null`: "Elige la hora de la cita" en `hora`, sin ir a la base; ventana, día libre, perfil, médico, cuenta, subtipo) · 409 repetida · 503 |
 | `POST /api/me/agenda/[id]/cancelar` | `{ motivo: string \| null }` (cuerpo vacío = sin motivo) | 200 `{ cita: CitaItem }` · 400 cancelada, hecha, de ayer o motivo largo · 404 inexistente o ajena · 503 |
 | `POST /api/me/visitas` | además `agenda_id: uuid \| null` | `VisitaItem` con `agenda_id` y `agendada` (también la repetida) · 400 con los mensajes del vínculo |
 | `GET /api/me/visitas` | — | cada `VisitaItem` con `agenda_id` y `agendada` |
@@ -648,7 +650,7 @@ rollback `2026-10-14_9944_visitas_agenda_rollback.sql` (**ESCRITA, SIN APLICAR**
 | `POST /api/me/voz/proponer` | además `cita_id: uuid \| null` | igual |
 | `POST /api/me/voz/campos` | `CamposDictado { transcript (1..8000), tipo }` | 200 `CamposDictadoResponse { conclusion, compromisos, next_step_date }` · 400 vacío o tipo · 429 (límites de proponer) · 502 · 503 sin `ANTHROPIC_API_KEY` |
 
-- `CitaItem { id, fecha, hora (HH:MM | null), tipo, medico { id, nombre } | null, cuenta { id, nombre } | null, subtipo
+- `CitaItem { id, fecha, hora (HH:MM | null: null solo en las citas viejas), tipo, medico { id, nombre } | null, cuenta { id, nombre } | null, subtipo
   { id, codigo, nombre } | null, sede: SedeCita { id, nombre, cuenta_id, cuenta_nombre, lat, lng, ubicacion_confirmada },
   nota, estado, visita_id, distancia_m, dentro_del_radio, anticipada, cancelable }` (`anticipada`: creada antes de su día;
   `cancelable`: pendiente de hoy en adelante). Nunca documentos ni teléfonos.
@@ -662,12 +664,13 @@ rollback `2026-10-14_9944_visitas_agenda_rollback.sql` (**ESCRITA, SIN APLICAR**
 
 ### Código (servidor)
 
-- Puro (`web/lib/reporte-visitas.ts`, sección 9): `ESTADOS_CITA`, límites y mensajes; `horaCorta`, `ventanaAgenda`,
+- Puro (`web/lib/reporte-visitas.ts`, sección 9): `ESTADOS_CITA`, límites y mensajes (`MENSAJE_HORA_OBLIGATORIA` desde el
+  2026-10-15); `horaCorta`, `ventanaAgenda`,
   `esDiaLibreCompleto`, `mensajeFechaCita`, `citaCancelable`, `citaAnticipada`, `citaParaVincular`,
   `revisarCitaElegida`, `vinculoDeVisita` (espejo del paso 7b), `cuentasAgenda`, `distanciaACita`, `ordenarCitas`,
   `rangoConsultaAgenda`, `PROMPT_CAMPOS`, `esquemaCampos`, `HERRAMIENTA_CAMPOS`, `normalizarCampos`, `mensajeCampos`; y
   `contextoDictado(contexto, hora, citaId)` y `normalizarPropuesta` con la agenda. Esquemas (`reporte-visitas-schemas.ts`):
-  `citaCreateSchema`, `citaCancelarSchema`, `agendaQuerySchema`, `camposDictadoSchema`, `camposSchema`; `agenda_id` en
+  `citaCreateSchema` (con `horaObligatoria` desde el 2026-10-15), `citaCancelarSchema`, `agendaQuerySchema`, `camposDictadoSchema`, `camposSchema`; `agenda_id` en
   `visitaCreateSchema` y `cita_id` en `proponerSchema`.
 - Servidor (`web/app/api/me/_lib/reporte-server.ts`): `MENSAJE_FALTA_MIGRACION_0840`, `faltaMigracion0840`,
   `respuestaErrorAgenda`, lecturas de `visits` con reintento sin las columnas de la 0840, `leerCitas`, `leerCita`,
@@ -686,3 +689,103 @@ rollback `2026-10-14_9944_visitas_agenda_rollback.sql` (**ESCRITA, SIN APLICAR**
 - `web`: `GOOGLE_ROUTES_DISABLED=true npm run check` → typecheck y lint sin errores y las 18 suites en verde
   (`reporte-check` 349, `reporte-api-check` 271).
 - 0840 y 9944: ensayo real deshecho (`DRYRUN_OK` en los dos; ver `database/migrations/README.md`).
+
+### Cambios del 2026-10-15: hora obligatoria y agenda como calendario
+
+Decisión del dueño: `docs/decisiones/2026-10-15-agenda-con-hora-y-calendario.md`. Spec:
+`docs/specs/2026-10-15-usabilidad-y-agenda-con-hora.md` (decisiones 1 a 5, paquete 3). Sin migración.
+
+- **Hora obligatoria** (cambia la decisión 1 del 2026-10-14, "hora opcional"):
+  - `POST /api/me/agenda` sin `hora`, con `''` o con `null` → 400 `{ error: "Elige la hora de la cita", errores: [{ campo:
+    'hora', … }] }`, sin ir a la base. Una hora que no es HH:MM sigue dando "Hora no válida: usa HH:MM (de 00:00 a
+    23:59)"; HH:MM:SS queda en HH:MM.
+  - `CitaCreateBase.hora: string` en `web/lib/reporte-visitas.ts` (`MENSAJE_HORA_OBLIGATORIA`); `horaObligatoria` en
+    `citaCreateSchema`.
+  - La base no cambia: `visitas_agenda.hora` sigue `time NULL` y las citas viejas sin hora siguen válidas.
+    `GET /api/me/agenda` y `contexto.agenda_hoy` pueden traer `hora: null`.
+  - La app manda siempre la hora (`cuerpoCitaConHora`), así que funciona con la API vieja. La app vieja que agenda "Sin
+    hora" contra la API nueva ve el 400 en "No se agendó".
+  - `mobile/lib/tipos.ts` conserva `CitaCreateBase.hora: string | null` hasta igualarlo; `web/scripts/reporte-api-check.ts`
+    comprueba al compilar que lo que manda la app (`cuerpoCitaConHora`) cabe en `W.CitaCreate`.
+- **Agendar como calendario** (`mobile/app/(app)/agenda/nueva.tsx`): "¿Cuándo?" (mes en cuadrícula, lunes primero, de
+  hoy a hoy + 30, el día libre que impide agendar apagado, la cantidad de citas por día) → "¿A qué hora?" (medias horas de
+  07:00 a 18:30 en "Por la mañana" y "Por la tarde", "Otra hora" cada 15 minutos de 05:00 a 21:45, "Ese día ya tienes"
+  como lista, aviso de choque en el pie que no bloquea) → "¿Con quién?" (selector cerrado con un solo buscador, que
+  ofrece "Buscar en OpMap" con lo escrito) → nota; al pie, fijo, "Agendar · jueves 16 oct · 10:00". Abre con la franja
+  tocada en Mi agenda (`rutaAgendar`: solo fecha y hora en la URL) o con la primera libre desde las 08:00 de MAÑANA
+  (`fechaInicialAgendar`: la cita de hoy cuenta como no agendada); el "con quién" puede venir en memoria (`fijarPedidoAgendar` / `tomarPedidoAgendar`, se toma una
+  vez). Una sola carga de 31 días (`api.agenda(hoy, hoy + 30)` y `api.diasLibres(hoy, hoy + 30)`); los datos fijos, del
+  contexto en memoria de menos de 10 minutos o de `GET /api/me/contexto`. Al agendar: `invalidarContexto('cita')` y vuelta
+  a `/agenda?fecha=…` con la cita resaltada.
+- **Mi agenda como calendario** (`mobile/app/(app)/agenda.tsx`): semana por defecto (o mes, con "Ver mes"), con la cantidad
+  de citas por día y los días libres; se puede ir a cualquier mes. Pide por mes (`rangoDeMes`, como mucho 31 días, con
+  `canceladas=true`) y vuelve a pedir al recibir el foco. Debajo, el día como línea de tiempo por medias horas con la línea
+  "Ahora": la franja libre que aún se puede agendar abre Agendar a esa hora; la cita abre su detalle ahí mismo (nota, sede,
+  "Ver la visita", "Cancelar esta cita" con motivo); las viejas sin hora al final ("Sin hora") y las canceladas en "Ver
+  canceladas (n)". Toda cita de hoy a hoy + 30 se ve y se puede cancelar. Entradas a Agendar y a "/dias-libres".
+- **Reglas de Claude** (el dueño puede cambiarlas): franjas de 30 minutos (`HORARIO_AGENDA`); cada cita se dibuja como un
+  bloque de 30 minutos (`DURACION_VISUAL_MIN`, sin columna de duración); dos citas cuyos bloques se pisan solo se avisan.
+- Código puro de la app: `mobile/lib/agenda.ts` (franjas, `ocupacionDelDia`, `siguienteFranjaLibre`, `primeraFranjaLibre`,
+  `validarCitaConHora`, `cuerpoCitaConHora`, `textoBotonAgendar`, `avisoChoque`, `avisoAgendadaHoy`, `textoCitasDelDia`,
+  `lineasCitasDelDia`, `medicosConCitaEseDia`, `marcasDelMes`, `bloqueaAgendar`, `fechaInicialAgendar`,
+  `errorCitaRepetida`, `plegarLibres`, `vistaCalendarioAgendar`) y `mobile/lib/calendario.ts` (`cuadriculaMes`, `semanaDe`,
+  `lunesDe`, `rangoDeMes`, `mesDe`, `mesSiguiente`, `mesAnterior`, `tituloMes`). Componentes en `mobile/components/agenda/`:
+  `CalendarioMes`, `SelectorHora`, `LineaDelDia` y `DetalleCita`.
+- Pruebas: `web/scripts/reporte-check.ts` (10e: sin hora, `''`, espacios o `null` → "Elige la hora de la cita" en `hora`),
+  `web/scripts/reporte-api-check.ts` (sección 14: sin hora 400 sin ir a la base ni guardar; la institucional con 11:00 da
+  201; la cita vieja sin hora se lee con `hora: null`), `web/scripts/simulacion-check.ts` (todas las citas simuladas con
+  hora) y la sección 17 de `mobile/scripts/movil-check.ts` (`mobile/scripts/checks/17-agenda.ts`).
+
+### Cambios del 2026-10-15: usabilidad de la app y medición (tanda 1)
+
+Spec: `docs/specs/2026-10-15-usabilidad-y-agenda-con-hora.md` (paquetes 1, 2, 4 y 5). Sin migración ni cambios en lo que
+responden las rutas.
+
+- **Barra de pestañas** (`mobile/app/(app)/_layout.tsx`, `mobile/lib/navegacion.ts`): Hoy · Reportar · Agenda · Números ·
+  Ajustes, con ícono (relleno si está activa) y el nombre debajo, a la altura que da la librería. "Días libres" sale de la
+  barra (`OCULTAS`, con "Volver") y se abre desde Agenda y desde Ajustes ("Mis días libres"); volverla a la barra es
+  moverla de `OCULTAS` a `PESTANAS`. Agendar, Visita, Nuevo médico y Nueva sede siguen ocultas.
+- **Reportar** (`mobile/lib/tarjeta-resumen.ts`): la tarjeta de voz válida (confianza ≥ 0,6, sin preguntas, presencial
+  dentro del radio o telefónica válida) sale en resumen con filas que se tocan para corregir; lo dudoso abre la tarjeta
+  completa. "Confirmar visita i de N" va fijo en `Pantalla.pie`; cada tarjeta se sigue confirmando con su toque y con
+  `validarBorrador`. La cita tocada en Hoy entra por `tomarCitaParaReportar` con las reglas de `pasoDelReporte`.
+- **Contexto en memoria** (`mobile/lib/contexto-memoria.ts`): Hoy y Reportar lo usan con menos de 60 s y a menos de
+  100 m del punto pedido; entre 60 s y 3 min pintan y refrescan (`planCargaReportar`); Agendar y Visita reusan los datos
+  fijos hasta 10 min. Solo sirve el mismo día en Bogotá (`contexto.hoy.fecha`). Se invalida con el 201 de una visita
+  (`'visita'`), al agendar o cancelar (`'cita'`), al registrar o anular un día libre (`'dia_libre'`), al crear un
+  médico, una cuenta o una sede o vincular una sede a un médico (`'terceros'`, en `lib/api.ts` después del 2xx) y se
+  olvida al cerrar sesión. La ubicación final y lo que decide el servidor no cambian.
+- **Sesión** (`mobile/lib/sesion-reglas.ts`): con perfil guardado y token vigente la app entra ya y confirma
+  `/api/auth/me` en segundo plano con el tiempo de una petición normal (`TIEMPO_ME_FONDO_MS = 20_000`); solo la espera
+  sin perfil guardado usa `TIEMPO_ME_MS = 5_000`. Un 401 sigue cerrando la sesión. El token vive en memoria
+  (`MemoriaToken`).
+- **Medición**: toda ruta de `/api/me/*` (también `/api/me/agenda/**`) responde la cabecera aditiva `Server-Timing`
+  (`fase;dur=ms, …, total;dur=ms`) y deja en `console.info` una línea `[tiempos] <MÉTODO> <ruta con :id> fase=ms …
+  total=ms [datos numéricos] [estado=NNN si no es 2xx] [frio=1]`, sin contenido (`web/app/api/me/_lib/tiempos.ts`). En
+  desarrollo la app escribe `[api]` y `[tiempos-app]` en la terminal de Metro.
+- **Audio**: sigue en 64 kbps y 44,1 kHz; `EXPO_PUBLIC_PERFIL_AUDIO=ligero` deja 32 kbps, 22,05 kHz, mono (prueba A/B
+  del dueño, D7 de la spec).
+- Pruebas: secciones 15 a 19 de `mobile/scripts/movil-check.ts` (`mobile/scripts/checks/15-navegacion.ts` …
+  `19-pantallas.ts`) y `web/scripts/tiempos-check.ts`.
+
+### Correcciones de la revisión de usabilidad (2026-10-15)
+
+Spec: `docs/specs/2026-10-15-usabilidad-y-agenda-con-hora.md` ("Revisión de la rama"). Sin migración.
+
+- **API (aditivo)**: `GET /api/me/cuota`, `GET /api/me/numeros` (en `cuota`) y `GET /api/config-visitas/cuota` traen
+  `dias_habiles_por_delante`: días hábiles después de hoy sin los días libres (`cuotaPeriodo.diasHabilesPorDelante`).
+  Números dice "Te faltan 62 visitas médicas: 7 por día en los 10 días hábiles que quedan" con esa cifra (antes dividía
+  también por los días libres que vienen); con un servidor anterior y días libres en el mes, no lo muestra.
+- **Reportar**: el pie dice qué se confirma ("Efectiva · PerOssal y Reemplazo articular · sin conclusión") o lo que falta
+  / el rechazo; con tarjetas, "¿Dónde estás?" en una línea y "Lo que dijiste" después de las tarjetas; con el contexto de
+  memoria, "Hablar" espera a que respondan las visitas de hoy y, sin red, "Sin señal" y solo "Por toques"; la cita tocada
+  en Hoy que quedó pendiente se ve ("Reportar esa cita", "Olvidarla") y no arranca sola al terminar un envío;
+  "Descartar" pregunta antes.
+- **Agendar**: hoy a una hora pasada → "Esa hora ya pasó: elige una hora más tarde" (solo la app; el servidor acepta
+  cualquier hora de hoy); el mismo médico (o cuenta y subtipo) con cita en pie ese día se avisa al elegirlo, con el texto
+  de la base; en pantallas bajas (< 700 pt) el calendario abre en la semana.
+- **Mi agenda y Días libres**: la línea del día pliega 3 o más medias horas libres seguidas ("Libre de 07:00 a 09:00 ·
+  Ver horas"); el error es por mes; "Hoy" en el calendario; el aviso de cancelar sale junto al día; un día libre con citas
+  pendientes se avisa en Mi agenda y al pedirlo en Días libres (que marca las citas de hoy a hoy + 30).
+- **Barra**: la caja del ícono mide 24 pt (`tabBarIconStyle`): sin margen inferior (iPhone SE u 8) el nombre ya no toca
+  el borde.

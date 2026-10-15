@@ -57,3 +57,47 @@ export function esServidorDesarrollo(base: string): boolean {
   const url = normalizarBase(base)
   return url.startsWith('http://') || /localhost|127\.0\.0\.1|192\.168\.|10\.\d+\./.test(url)
 }
+
+// --- Registro de desarrollo (spec 2026-10-15, "Medición") ----------------------------------------------------
+
+const UUID_EN_RUTA = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
+
+/**
+ * La ruta como patrón, para los registros: sin consulta, cada uuid como ":id" y cualquier tramo que no sea una palabra
+ * de ruta (minúsculas, "-" y "_") también como ":id". Así nunca lleva ids, nombres, documentos ni coordenadas.
+ * rutaPatron('/api/me/visitas/<uuid>/anular') → '/api/me/visitas/:id/anular'
+ */
+export function rutaPatron(ruta: string): string {
+  const sinConsulta = (ruta.split('?')[0] ?? '').split('#')[0] ?? ''
+  return sinConsulta
+    .replace(UUID_EN_RUTA, ':id')
+    .split('/')
+    .map((tramo, i) => (i === 0 || tramo === '' || tramo === ':id' || /^[a-z][a-z_-]*$/.test(tramo) ? tramo : ':id'))
+    .join('/')
+}
+
+/** Lo que registra api.ts en desarrollo por cada petición. Nunca el cuerpo, la consulta ni el token. */
+export interface DatosRegistroApi {
+  metodo: string
+  ruta: string
+  /** Código HTTP; null si no hubo respuesta (sin red o tiempo agotado). */
+  estado: number | null
+  ms: number
+  /** Cabecera Server-Timing de la respuesta (del servidor de OpMap: nombres y números). */
+  serverTiming?: string | null
+}
+
+/** "[api] POST /api/me/contexto 200 412 ms · auth;dur=12, ctx;dur=340, total;dur=380" */
+export function lineaRegistroApi(datos: DatosRegistroApi): string {
+  const metodo = /^[A-Z]{3,7}$/.test(datos.metodo) ? datos.metodo : 'GET'
+  const estado = datos.estado === null ? 'sin respuesta' : String(datos.estado)
+  const ms = Number.isFinite(datos.ms) ? Math.max(0, Math.round(datos.ms)) : 0
+  // Server-Timing: solo "nombre;dur=número" separados por comas (lo demás se descarta).
+  const tiempos = (datos.serverTiming ?? '')
+    .split(',')
+    .map(parte => parte.trim())
+    .filter(parte => /^[a-z][a-z0-9_]{0,23};dur=\d+(\.\d+)?$/.test(parte))
+    .slice(0, 12)
+    .join(', ')
+  return `[api] ${metodo} ${rutaPatron(datos.ruta)} ${estado} ${ms} ms${tiempos ? ` · ${tiempos}` : ''}`
+}

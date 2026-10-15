@@ -745,22 +745,29 @@ export function vozDisponible(): ContextoResponse['voz'] {
  * aporte de hoy de la cuota del mes (calcularCuotaDetallada de F2: un solo cálculo); la configuración, la vigente hoy.
  */
 export async function cargarContexto(persona: PersonaVisitas, punto: Punto | null, hoy: string): Promise<ContextoResponse> {
-  const [detalle, lineas, subtipos, visitasHoy, medicos, sedes, compromisos, citasHoy] = await Promise.all([
-    calcularCuotaDetallada(persona, mesDe(hoy), hoy),
+  // Cada lectura que depende de otra arranca apenas llega la suya (spec 2026-10-15, paquete 4): los contactos no esperan
+  // a la cuota del mes ni la confirmación de las sedes a los médicos. La respuesta es la misma.
+  const detalleP = calcularCuotaDetallada(persona, mesDe(hoy), hoy)
+  const visitasHoyP = leerVisitas(persona.id, hoy, hoy)
+  const sedesP = punto ? sedesCercaDe(punto) : Promise.resolve([] as SedeCerca[])
+  const citasHoyP = citasSinMigracion(() => leerCitas(persona.id, hoy, hoy))
+  const [detalle, lineas, subtipos, visitasHoy, medicos, sedes, compromisos, contactos, confirmadas, agendaHoy] = await Promise.all([
+    detalleP,
     lineasDeEjecutiva(persona.id),
     subtiposVigentes(hoy),
-    leerVisitas(persona.id, hoy, hoy),
+    visitasHoyP,
     misMedicos(persona.id, hoy, punto),
-    punto ? sedesCercaDe(punto) : Promise.resolve([] as SedeCerca[]),
+    sedesP,
     compromisosDe(persona.id, hoy),
-    citasSinMigracion(() => leerCitas(persona.id, hoy, hoy)),
+    sedesP.then(lista => contactosDeCuentas(lista.map(sede => sede.cuenta_id))),
+    visitasHoyP.then(lista => confirmacionDeSedes(lista.map(visita => visita.sede_id))),
+    Promise.all([citasHoyP, detalleP]).then(([citasHoy, cuota]) =>
+      citasHoy
+        ? armarCitaItems(citasHoy, { hoy, punto, radio_m: configDeHoy(cuota.general, cuota.personas, persona.id, hoy).radio_m })
+        : ([] as CitaItem[])
+    ),
   ])
   const config = configDeHoy(detalle.general, detalle.personas, persona.id, hoy)
-  const [contactos, confirmadas, agendaHoy] = await Promise.all([
-    contactosDeCuentas(sedes.map(sede => sede.cuenta_id)),
-    confirmacionDeSedes(visitasHoy.map(visita => visita.sede_id)),
-    citasHoy ? armarCitaItems(citasHoy, { hoy, punto, radio_m: config.radio_m }) : Promise.resolve([] as CitaItem[]),
-  ])
   const meta = metaDelDia(detalle, hoy)
   // La meta del día solo se cumple con lo que suma: las de sedes por confirmar no (aún) y la telefónica con su peso.
   const resumen = resumenHoy(
@@ -805,73 +812,90 @@ export function puntoDe(datos: { lat: number | null; lng: number | null }): Punt
  * estado). Lo que no existe queda null.
  */
 export async function contextoValidacion(datos: VisitaCreate, persona: PersonaVisitas, hoy: string): Promise<ContextoValidacion> {
-  const [lineas, sedeData] = await Promise.all([
+  // La sede (con su cuenta) y el médico o el subtipo no dependen entre sí: van en paralelo (spec 2026-10-15, paquete 4).
+  const [lineas, sede, porTipo] = await Promise.all([
     lineasDeEjecutiva(persona.id),
-    supabaseAdmin.from('sedes').select('id, nombre, cuenta_id, lat, lng, activo').eq('id', datos.sede_id).limit(1),
+    sedeParaValidar(datos.sede_id),
+    datos.tipo === 'medica' ? medicoParaValidar(datos.medico_id, persona.id, hoy) : institucionalParaValidar(datos.subtipo_id, datos.contacto_id),
   ])
+  return {
+    ejecutiva: { id: persona.id, activa: persona.status === 'active', con_zona: Boolean(persona.kamId), lineas: lineas.map(linea => linea.id) },
+    sede,
+    medico: porTipo.medico,
+    subtipo: porTipo.subtipo,
+    contacto: porTipo.contacto,
+  }
+}
+
+/** La sede del cuerpo (activa) y si su cuenta está activa; null si no existe o está inactiva. */
+async function sedeParaValidar(sedeId: string): Promise<ContextoValidacion['sede']> {
+  const sedeData = await supabaseAdmin.from('sedes').select('id, nombre, cuenta_id, lat, lng, activo').eq('id', sedeId).limit(1)
   if (sedeData.error) throw sedeData.error
   const sedeFila = (sedeData.data ?? [])[0] as { id: string; nombre: string; cuenta_id: string | null; lat: number | string | null; lng: number | string | null; activo: boolean } | undefined
+  if (!sedeFila || !sedeFila.activo) return null
   let cuentaActiva = true
-  if (sedeFila?.activo && sedeFila.cuenta_id) {
+  if (sedeFila.cuenta_id) {
     const { data, error } = await supabaseAdmin.from('cuentas').select('id, activo').eq('id', sedeFila.cuenta_id).limit(1)
     if (error) throw error
     const cuenta = (data ?? [])[0] as { id: string; activo: boolean } | undefined
     cuentaActiva = cuenta?.activo === true
   }
+  return { id: sedeFila.id, nombre: sedeFila.nombre, cuenta_id: sedeFila.cuenta_id, lat: aNumero(sedeFila.lat), lng: aNumero(sedeFila.lng), cuenta_activa: cuentaActiva }
+}
 
-  const contexto: ContextoValidacion = {
-    ejecutiva: { id: persona.id, activa: persona.status === 'active', con_zona: Boolean(persona.kamId), lineas: lineas.map(linea => linea.id) },
-    sede:
-      sedeFila && sedeFila.activo
-        ? { id: sedeFila.id, nombre: sedeFila.nombre, cuenta_id: sedeFila.cuenta_id, lat: aNumero(sedeFila.lat), lng: aNumero(sedeFila.lng), cuenta_activa: cuentaActiva }
-        : null,
-    medico: null,
+type PorTipoValidacion = Pick<ContextoValidacion, 'medico' | 'subtipo' | 'contacto'>
+
+/** El médico (activo, sus sedes, si ella es su visitante vigente hoy); null si no existe. */
+async function medicoParaValidar(medicoId: string, executiveId: string, hoy: string): Promise<PorTipoValidacion> {
+  const [medicoData, vinculos, visitantes] = await Promise.all([
+    supabaseAdmin.from('medicos').select('id, nombre, activo').eq('id', medicoId).limit(1),
+    fetchAllRows<{ sede_id: string }>((from, to) =>
+      supabaseAdmin.from('medico_sedes').select('sede_id').eq('medico_id', medicoId).order('sede_id').range(from, to)
+    ),
+    fetchAllRows<{ desde: string; hasta: string | null }>((from, to) =>
+      supabaseAdmin
+        .from('medico_visitantes')
+        .select('desde, hasta')
+        .eq('medico_id', medicoId)
+        .eq('executive_id', executiveId)
+        .order('desde')
+        .range(from, to)
+    ),
+  ])
+  if (medicoData.error) throw medicoData.error
+  const medico = (medicoData.data ?? [])[0] as { id: string; nombre: string; activo: boolean } | undefined
+  return {
+    medico: medico
+      ? {
+          id: medico.id,
+          nombre: medico.nombre,
+          activo: Boolean(medico.activo),
+          sede_ids: vinculos.map(vinculo => vinculo.sede_id),
+          es_visitante: visitantes.some(fila => visitanteVigente(fila, hoy)),
+        }
+      : null,
     subtipo: null,
     contacto: null,
   }
+}
 
-  if (datos.tipo === 'medica') {
-    const [medicoData, vinculos, visitantes] = await Promise.all([
-      supabaseAdmin.from('medicos').select('id, nombre, activo').eq('id', datos.medico_id).limit(1),
-      fetchAllRows<{ sede_id: string }>((from, to) =>
-        supabaseAdmin.from('medico_sedes').select('sede_id').eq('medico_id', datos.medico_id).order('sede_id').range(from, to)
-      ),
-      fetchAllRows<{ desde: string; hasta: string | null }>((from, to) =>
-        supabaseAdmin
-          .from('medico_visitantes')
-          .select('desde, hasta')
-          .eq('medico_id', datos.medico_id)
-          .eq('executive_id', persona.id)
-          .order('desde')
-          .range(from, to)
-      ),
-    ])
-    if (medicoData.error) throw medicoData.error
-    const medico = (medicoData.data ?? [])[0] as { id: string; nombre: string; activo: boolean } | undefined
-    if (medico) {
-      contexto.medico = {
-        id: medico.id,
-        nombre: medico.nombre,
-        activo: Boolean(medico.activo),
-        sede_ids: vinculos.map(vinculo => vinculo.sede_id),
-        es_visitante: visitantes.some(fila => visitanteVigente(fila, hoy)),
-      }
-    }
-  } else {
-    const [subtipoData, contactoData] = await Promise.all([
-      supabaseAdmin.from('subtipos_institucionales').select('id, codigo, vigente_desde, vigente_hasta').eq('id', datos.subtipo_id).limit(1),
-      datos.contacto_id
-        ? supabaseAdmin.from('contactos').select('id, cuenta_id, activo').eq('id', datos.contacto_id).limit(1)
-        : Promise.resolve({ data: [] as { id: string; cuenta_id: string; activo: boolean }[], error: null }),
-    ])
-    if (subtipoData.error) throw subtipoData.error
-    if (contactoData.error) throw contactoData.error
-    const subtipo = (subtipoData.data ?? [])[0] as { id: string; codigo: string; vigente_desde: string; vigente_hasta: string | null } | undefined
-    const contacto = (contactoData.data ?? [])[0] as { id: string; cuenta_id: string; activo: boolean | null } | undefined
-    contexto.subtipo = subtipo ?? null
-    contexto.contacto = contacto ? { id: contacto.id, cuenta_id: contacto.cuenta_id, activo: contacto.activo !== false } : null
+/** El subtipo y el contacto (con su estado) de una visita institucional; null lo que no existe. */
+async function institucionalParaValidar(subtipoId: string, contactoId: string | null): Promise<PorTipoValidacion> {
+  const [subtipoData, contactoData] = await Promise.all([
+    supabaseAdmin.from('subtipos_institucionales').select('id, codigo, vigente_desde, vigente_hasta').eq('id', subtipoId).limit(1),
+    contactoId
+      ? supabaseAdmin.from('contactos').select('id, cuenta_id, activo').eq('id', contactoId).limit(1)
+      : Promise.resolve({ data: [] as { id: string; cuenta_id: string; activo: boolean }[], error: null }),
+  ])
+  if (subtipoData.error) throw subtipoData.error
+  if (contactoData.error) throw contactoData.error
+  const subtipo = (subtipoData.data ?? [])[0] as { id: string; codigo: string; vigente_desde: string; vigente_hasta: string | null } | undefined
+  const contacto = (contactoData.data ?? [])[0] as { id: string; cuenta_id: string; activo: boolean | null } | undefined
+  return {
+    medico: null,
+    subtipo: subtipo ?? null,
+    contacto: contacto ? { id: contacto.id, cuenta_id: contacto.cuenta_id, activo: contacto.activo !== false } : null,
   }
-  return contexto
 }
 
 /** Visitas de hoy de ella (no anuladas) para los topes de validarVisita. */
@@ -1594,15 +1618,24 @@ export function mensajeDictado(contexto: ContextoDictado, transcript: string): s
  * server-side-fallback-2026-07-01). Una respuesta 'refusal' o cortada por max_tokens es un fallo (502). Si Anthropic
  * rechaza la petición (400), se reintenta una vez con la petición mínima (ver pedirHerramienta).
  */
-export async function proponerVisitas(entrada: { contexto: ContextoDictado; transcript: string }): Promise<unknown> {
-  return pedirHerramienta({
-    sistema: PROMPT_PROPUESTA,
-    herramienta: HERRAMIENTA_PROPONER,
-    maxTokens: MAX_TOKENS_PROPUESTA,
-    mensaje: mensajeDictado(entrada.contexto, entrada.transcript),
-    sensibles: [entrada.transcript, entrada.contexto],
-  })
+export async function proponerVisitas(entrada: { contexto: ContextoDictado; transcript: string }, alUsar?: AlUsarClaude): Promise<unknown> {
+  return pedirHerramienta(
+    {
+      sistema: PROMPT_PROPUESTA,
+      herramienta: HERRAMIENTA_PROPONER,
+      maxTokens: MAX_TOKENS_PROPUESTA,
+      mensaje: mensajeDictado(entrada.contexto, entrada.transcript),
+      sensibles: [entrada.transcript, entrada.contexto],
+    },
+    alUsar
+  )
 }
+
+/**
+ * Recibe el `usage` de cada respuesta de Claude (también la del reintento y la de la petición mínima), para la línea
+ * [tiempos] de la ruta (app/api/me/_lib/tiempos.ts: solo números). Si falla, no rompe la llamada.
+ */
+export type AlUsarClaude = (usage: unknown) => void
 
 /** Lo que necesita una llamada a Claude que debe responder SOLO con una herramienta. */
 export interface PedidoHerramienta {
@@ -1670,9 +1703,21 @@ export function esPeticionRechazada(error: unknown): boolean {
 }
 
 /** Una petición (y un reintento si no llama a la herramienta). 'refusal' o max_tokens son un fallo (502). */
-async function llamarHerramienta(cliente: ClientePropuesta, peticion: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming, nombre: string): Promise<unknown> {
+async function llamarHerramienta(
+  cliente: ClientePropuesta,
+  peticion: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming,
+  nombre: string,
+  alUsar?: AlUsarClaude
+): Promise<unknown> {
   for (let intento = 1; intento <= 2; intento++) {
     const respuesta = await cliente.beta.messages.create(peticion)
+    if (alUsar) {
+      try {
+        alUsar(respuesta?.usage)
+      } catch {
+        // medir nunca rompe la propuesta
+      }
+    }
     if (respuesta.stop_reason === 'refusal') throw new ErrorProveedorVoz('anthropic', 'rechazo')
     const bloque = respuesta.content.find(
       (contenido): contenido is Anthropic.Beta.Messages.BetaToolUseBlock => contenido.type === 'tool_use' && contenido.name === nombre
@@ -1690,18 +1735,18 @@ async function llamarHerramienta(cliente: ClientePropuesta, peticion: Anthropic.
  * el contenido) y reintenta UNA vez con la petición mínima; si la mínima también falla, se lanza ese error (la ruta
  * responde 502). Devuelve la entrada cruda de la herramienta; 'refusal' o max_tokens son un fallo del proveedor (502).
  */
-async function pedirHerramienta(entrada: PedidoHerramienta): Promise<unknown> {
+async function pedirHerramienta(entrada: PedidoHerramienta, alUsar?: AlUsarClaude): Promise<unknown> {
   const apiKey = llave('ANTHROPIC_API_KEY')
   if (!apiKey) throw new ErrorProveedorVoz('anthropic', 'sin llave')
   const cliente = fabricas.anthropic(apiKey, cabecerasDelWorkspace())
   try {
-    return await llamarHerramienta(cliente, peticionCompleta(entrada), entrada.herramienta.name)
+    return await llamarHerramienta(cliente, peticionCompleta(entrada), entrada.herramienta.name, alUsar)
   } catch (error) {
     if (!esPeticionRechazada(error)) throw error
     console.warn(
       `Claude rechazó la petición completa de ${entrada.herramienta.name} (${resumenErrorVoz(error, entrada.sensibles)}); se reintenta con la petición mínima`
     )
-    return llamarHerramienta(cliente, peticionMinima(entrada), entrada.herramienta.name)
+    return llamarHerramienta(cliente, peticionMinima(entrada), entrada.herramienta.name, alUsar)
   }
 }
 
@@ -1722,12 +1767,15 @@ export const HERRAMIENTA_REPARTIR: Anthropic.Beta.Messages.BetaTool = {
  * entrada cruda de la herramienta (la ruta la valida con camposSchema y la normaliza con normalizarCampos). El texto
  * nunca va a los logs.
  */
-export async function repartirCampos(entrada: { transcript: string; tipo: TipoVisita; hoy: string }): Promise<unknown> {
-  return pedirHerramienta({
-    sistema: PROMPT_CAMPOS,
-    herramienta: HERRAMIENTA_REPARTIR,
-    maxTokens: MAX_TOKENS_CAMPOS,
-    mensaje: mensajeCampos(entrada),
-    sensibles: [entrada.transcript],
-  })
+export async function repartirCampos(entrada: { transcript: string; tipo: TipoVisita; hoy: string }, alUsar?: AlUsarClaude): Promise<unknown> {
+  return pedirHerramienta(
+    {
+      sistema: PROMPT_CAMPOS,
+      herramienta: HERRAMIENTA_REPARTIR,
+      maxTokens: MAX_TOKENS_CAMPOS,
+      mensaje: mensajeCampos(entrada),
+      sensibles: [entrada.transcript],
+    },
+    alUsar
+  )
 }

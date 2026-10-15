@@ -129,10 +129,13 @@ export const CONTACTOS_BASE: readonly { nombre: string; sede: ClaveSede }[] = [
   { nombre: 'Jorge Luis Ariza Mendoza', sede: 'reinaCatalina' },
 ]
 
-/** Una cita de la plantilla: día 0 = hoy; 1 a 5 = los próximos días hábiles. */
+/**
+ * Una cita de la plantilla: día 0 = hoy; 1 a 5 = los próximos días hábiles. Todas con hora (decisión del dueño
+ * 2026-10-15: la cita nueva lleva hora siempre).
+ */
 export type CitaBase =
-  | { dia: number; hora: string | null; medico: number; sede?: ClaveSede }
-  | { dia: number; hora: string | null; institucional: ClaveSede }
+  | { dia: number; hora: string; medico: number; sede?: ClaveSede }
+  | { dia: number; hora: string; institucional: ClaveSede }
 
 export const AGENDA_BASE: readonly CitaBase[] = [
   // Hoy: 3 en Portoazul, 2 en Reina Catalina y una institucional de compras.
@@ -144,7 +147,7 @@ export const AGENDA_BASE: readonly CitaBase[] = [
   { dia: 0, hora: '16:00', medico: 7 },
   // Próximos 5 días hábiles.
   { dia: 1, hora: '09:00', medico: 4 },
-  { dia: 1, hora: null, medico: 5 },
+  { dia: 1, hora: '10:30', medico: 5 },
   { dia: 1, hora: '15:00', medico: 8 },
   { dia: 2, hora: '08:30', medico: 6, sede: 'baranoa' },
   { dia: 2, hora: '11:00', medico: 9 },
@@ -153,7 +156,7 @@ export const AGENDA_BASE: readonly CitaBase[] = [
   { dia: 3, hora: '15:30', medico: 10 },
   { dia: 4, hora: '08:00', medico: 2 },
   { dia: 4, hora: '10:00', medico: 7 },
-  { dia: 4, hora: null, medico: 3 },
+  { dia: 4, hora: '14:00', medico: 3 },
   { dia: 5, hora: '09:00', medico: 8 },
   { dia: 5, hora: '11:30', medico: 4 },
   { dia: 5, hora: '15:00', institucional: 'portoazul' },

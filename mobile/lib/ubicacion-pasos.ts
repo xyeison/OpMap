@@ -22,9 +22,10 @@
  *
  * Al final del archivo, lo que Reportar hace con los dos pasos, también puro para probarlo (la pantalla solo lo aplica):
  * el orden de la llegada (arrancarLlegada), con qué sale una tarjeta al confirmar (datosParaConfirmar), lo que se
- * conserva al recargar el contexto (contextoAlRecargar) y qué hace al recibir el foco o terminar un envío
- * (pasoDelReporte).
+ * conserva al recargar el contexto (contextoAlRecargar), si el contexto en memoria sirve (planCargaReportar, spec
+ * 2026-10-15) y qué hace al recibir el foco o terminar un envío (pasoDelReporte).
  */
+import { FRESCURA_PINTAR_MS, FRESCURA_SIN_PEDIR_MS } from './contexto-memoria'
 import { isoBogota } from './fechas'
 import { esPunto, haversineM, type Punto } from './geo'
 import { catalogoDesdeContexto, cuentaDeCita, type Borrador, type Catalogo, type ExtrasCatalogo, type SedeOpcion } from './propuesta'
@@ -420,6 +421,33 @@ export function contextoAlRecargar(
   return { contexto: contactos.length > 0 ? { ...nuevo, contactos: [...nuevo.contactos, ...contactos] } : nuevo, sedes }
 }
 
+/**
+ * Qué hace Reportar con el contexto al empezar una llegada (spec 2026-10-15, decisión 7), con lo que hay en memoria
+ * (lib/contexto-memoria.ts) y la primera ubicación:
+ *   - `usar`: de hace menos de FRESCURA_SIN_PEDIR_MS (60 s) y pedido a menos de DISTANCIA_RECARGA_M (100 m) de aquí: se
+ *     pinta ya y no se pide de nuevo;
+ *   - `pintar_y_refrescar`: de 60 s a FRESCURA_PINTAR_MS (3 min), y de aquí: se pinta ya y se pide otra vez sin tapar la
+ *     pantalla;
+ *   - `pedir`: sin memoria, más viejo, de otro sitio, sin la primera ubicación o pedido sin punto: como siempre, con
+ *     "Cargando tus citas…".
+ * La ubicación final de la visita y lo que decide el servidor no cambian (Confirmar sigue con datosParaConfirmar).
+ */
+export type PlanCargaReportar = 'usar' | 'pintar_y_refrescar' | 'pedir'
+
+export function planCargaReportar(entrada: {
+  enMemoria: { punto: Punto | null; recibidoEn: number } | null | undefined
+  primera: Punto | null | undefined
+  ahora: number
+}): PlanCargaReportar {
+  const { enMemoria, primera, ahora } = entrada
+  if (!enMemoria || !enMemoria.punto || !primera) return 'pedir'
+  if (!esPunto(primera.lat, primera.lng) || !esPunto(enMemoria.punto.lat, enMemoria.punto.lng)) return 'pedir'
+  const edad = ahora - enMemoria.recibidoEn
+  if (!Number.isFinite(edad) || edad < 0 || edad >= FRESCURA_PINTAR_MS) return 'pedir'
+  if (haversineM(enMemoria.punto, primera) >= DISTANCIA_RECARGA_M) return 'pedir'
+  return edad < FRESCURA_SIN_PEDIR_MS ? 'usar' : 'pintar_y_refrescar'
+}
+
 export type PasoDelReporte<R> = { accion: 'iniciar'; reintento: R | null } | { accion: 'aplazar'; reintento: R } | { accion: 'seguir' }
 
 /**
@@ -436,6 +464,8 @@ export type PasoDelReporte<R> = { accion: 'iniciar'; reintento: R | null } | { a
  *   - La primera vez que recibe el foco: iniciar (con el reintento, si lo hay).
  *   - Al recibir el foco sin reintento: iniciar si `reiniciar` (debeReiniciarReporte); si no, seguir.
  * El más reciente manda: un `nuevo` reemplaza al aplazado (la visita rechazada sigue en Hoy y se puede pedir otra vez).
+ * La cita pendiente que se toca en Hoy (spec 2026-10-15) entra siempre como `aplazado`: sin nada abierto se elige
+ * enseguida; con una tarjeta abierta, una grabación o un envío en curso, no borra nada y queda pendiente.
  */
 export function pasoDelReporte<R>(estado: {
   motivo: 'foco' | 'envio'

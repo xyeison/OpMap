@@ -19,6 +19,7 @@ import {
   MAX_DIAS_CONSULTA_AGENDA,
   MAX_MOTIVO_CANCELACION_CITA,
   MAX_NOTA_CITA,
+  MENSAJE_HORA_OBLIGATORIA,
   VALORES_MODALIDAD,
   VALORES_MODO_ENTRADA,
   esInstanteIso,
@@ -429,21 +430,29 @@ export const propuestaSchema: z.ZodType<PropuestaCruda, z.ZodTypeDef, unknown> =
 
 const MENSAJE_HORA = 'Hora no válida: usa HH:MM (de 00:00 a 23:59)'
 
-/** Hora opcional HH:MM (o HH:MM:SS): ausente, '' o null → null; queda en HH:MM. */
-const horaOpcional = z
-  .string({ invalid_type_error: MENSAJE_HORA })
-  .trim()
-  .nullish()
-  .transform(valor => (valor ? valor : null))
-  .refine(valor => valor === null || horaCorta(valor) !== null, { message: MENSAJE_HORA })
-  .transform(valor => (valor === null ? null : horaCorta(valor)))
+/**
+ * Hora OBLIGATORIA de la cita (decisión del dueño 2026-10-15): ausente, '' o null → MENSAJE_HORA_OBLIGATORIA; lo que no
+ * es HH:MM (o HH:MM:SS) → MENSAJE_HORA; queda en HH:MM. La base sigue aceptando NULL (las citas viejas sin hora).
+ */
+const horaObligatoria = z.unknown().transform((valor, ctx): string => {
+  if (valor === undefined || valor === null || (typeof valor === 'string' && valor.trim() === '')) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: MENSAJE_HORA_OBLIGATORIA })
+    return z.NEVER
+  }
+  const hora = horaCorta(valor)
+  if (hora === null) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: MENSAJE_HORA })
+    return z.NEVER
+  }
+  return hora
+})
 
 const camposCita = {
   fecha: z
     .string({ required_error: 'Elige la fecha de la cita', invalid_type_error: MENSAJE_FECHA })
     .trim()
     .refine(valor => esFechaIso(valor), { message: MENSAJE_FECHA }),
-  hora: horaOpcional,
+  hora: horaObligatoria,
   tipo: z.enum(VALORES_TIPO_VISITA, { errorMap: () => ({ message: MENSAJE_TIPO }) }),
   medico_id: idOpcional('Médico no válido'),
   cuenta_id: idOpcional('Cuenta no válida'),
@@ -455,7 +464,8 @@ const camposCita = {
 type CitaPlana = z.infer<z.ZodObject<typeof camposCita>>
 
 /**
- * POST /api/me/agenda: médica con médico; institucional con cuenta y subtipo (lo que no aplica al tipo queda en null).
+ * POST /api/me/agenda: fecha, HORA (obligatoria desde el 2026-10-15), médica con médico; institucional con cuenta y
+ * subtipo (lo que no aplica al tipo queda en null).
  * Que la fecha esté en la ventana, el perfil, el médico en esa sede, la cuenta, el subtipo vigente y los repetidos los
  * revisa agenda_crear (la base); la ventana la repite la API con mensajeFechaCita para responder sin ir a la base.
  */

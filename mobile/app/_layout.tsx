@@ -10,6 +10,7 @@
 import { DMSans_400Regular } from '@expo-google-fonts/dm-sans/400Regular'
 import { DMSans_500Medium } from '@expo-google-fonts/dm-sans/500Medium'
 import { DMSans_700Bold } from '@expo-google-fonts/dm-sans/700Bold'
+import Ionicons from '@expo/vector-icons/Ionicons'
 import { useFonts } from 'expo-font'
 import { Stack } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
@@ -21,11 +22,15 @@ import { ProveedorCola } from '../lib/cola-contexto'
 import { ProveedorSesion } from '../lib/sesion'
 import { COLORES_CLAROS, FAMILIAS_DM_SANS, ProveedorFuentes, useColores } from '../lib/ui'
 
-/** Las claves son los nombres de familia que usa lib/ui.tsx (FAMILIAS_DM_SANS). */
+/**
+ * Las claves son los nombres de familia que usa lib/ui.tsx (FAMILIAS_DM_SANS). Los íconos de la barra (Ionicons,
+ * lib/iconos.tsx) cargan con la letra, para que las pestañas no aparezcan un momento sin ícono.
+ */
 const FUENTES = {
   [FAMILIAS_DM_SANS.regular]: DMSans_400Regular,
   [FAMILIAS_DM_SANS.media]: DMSans_500Medium,
   [FAMILIAS_DM_SANS.negrita]: DMSans_700Bold,
+  ...Ionicons.font,
 }
 
 /** Tope de espera de la letra antes de seguir con la del sistema. */

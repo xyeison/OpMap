@@ -102,3 +102,22 @@ export function tomarReintento(): ReintentoReporte | null {
   reintentoActual = null
   return reintento
 }
+
+// ---------------------------------------------------------------------------------------------
+// Cita desde Hoy: al tocar una cita pendiente, Hoy deja aquí su id (en memoria) y lleva a Reportar; Reportar la toma
+// una sola vez al recibir el foco y la elige, con las mismas reglas de "Reportar de nuevo" (pasoDelReporte): si hay
+// una tarjeta abierta, una grabación o un envío en curso, no borra nada y queda pendiente.
+// ---------------------------------------------------------------------------------------------
+
+let citaParaReportar: string | null = null
+
+export function fijarCitaParaReportar(citaId: string): void {
+  citaParaReportar = citaId
+}
+
+/** La cita pendiente de elegir en Reportar (y la olvida: se toma una sola vez). */
+export function tomarCitaParaReportar(): string | null {
+  const cita = citaParaReportar
+  citaParaReportar = null
+  return cita
+}

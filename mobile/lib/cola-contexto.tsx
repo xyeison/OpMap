@@ -2,6 +2,8 @@
  * La cola sin señal conectada a la app: una cola por usuario en AsyncStorage (otra persona que entre en el mismo
  * teléfono no envía visitas ajenas), reintento al volver a primer plano, al reconectar y cada minuto mientras haya
  * pendientes. La lógica (idempotencia por client_id, medianoche, qué se reintenta) está en lib/cola.ts.
+ * Cada 201 de POST /api/me/visitas (nueva o repetida, al momento o desde la cola) invalida el contexto en memoria
+ * (spec 2026-10-15, decisión 7): Hoy y Reportar vuelven a pedir lo hecho hoy.
  */
 import * as Network from 'expo-network'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
@@ -9,6 +11,7 @@ import { AppState } from 'react-native'
 import * as api from './api'
 import { almacenTexto } from './almacen'
 import { ColaVisitas, resumen as resumenDe, type ElementoCola, type ResultadoProceso, type ResumenCola } from './cola'
+import { invalidarContexto } from './contexto-memoria'
 import { TIEMPO_COLA_MS } from './http'
 import { useSesion } from './sesion'
 import type { VisitaCreate } from './tipos'
@@ -31,6 +34,8 @@ const ContextoCola = createContext<ValorCola | null>(null)
 
 const enviarVisita = async (cuerpo: VisitaCreate) => {
   const respuesta = await api.crearVisita(cuerpo, TIEMPO_COLA_MS)
+  // 201: lo hecho hoy cambió (o ya estaba): el contexto en memoria deja de servir.
+  invalidarContexto('visita')
   return { visita_id: respuesta.visita.id, repetida: respuesta.repetida }
 }
 
