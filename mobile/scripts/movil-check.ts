@@ -12,7 +12,8 @@
  * scripts/checks/ (cada uno se corre solo con `npx tsx scripts/checks/correr.ts NN-nombre`): 15 navegación y kit visual
  * (pestañas con ícono, contraste, teclado, pie fijo, háptica), 16 Reportar (tarjeta en resumen, pie "Confirmar visita i
  * de N", médicos por sede y cercanía, buscador al escribir, carga desde memoria, cita desde Hoy), 17 agenda con hora y
- * calendario, 18 tiempos y contexto en memoria (token, sesión, audio) y 19 el resto de pantallas.
+ * calendario, 18 tiempos y contexto en memoria (token, sesión, audio), 19 el resto de pantallas y 20 el estilo visual tipo
+ * Uber (tokens y contrastes, croquis, encabezado blanco y barra).
  * Contrato: docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md (secciones "App móvil", "Pruebas" y "F4.1").
  *
  * Uso (desde mobile/): npx tsx scripts/movil-check.ts   (va dentro de npm run check)
@@ -189,6 +190,7 @@ import { pruebas as pruebasReportar } from './checks/16-reportar'
 import { pruebas as pruebasAgenda } from './checks/17-agenda'
 import { pruebas as pruebasTiempos } from './checks/18-tiempos'
 import { pruebas as pruebasPantallas } from './checks/19-pantallas'
+import { pruebas as pruebasEstilo } from './checks/20-estilo'
 
 // Este archivo corre en Node (tsx), pero el programa de tipos es el de la app (sin @types/node, que chocaría con los
 // tipos de React Native): fs y path con lo mínimo que se usa aquí.
@@ -1942,7 +1944,7 @@ async function main() {
   }
 
   // -------------------------------------------------------------------------
-  // Secciones 15 a 19 (spec 2026-10-15): un archivo por paquete en scripts/checks/, con el mismo marco.
+  // Secciones 15 a 19 (spec 2026-10-15) y 20 (estilo tipo Uber): un archivo por paquete en scripts/checks/, con el mismo marco.
   {
     const probador: Probador = { check, seccion, lanza }
     await pruebasNavegacion(probador)
@@ -1950,6 +1952,7 @@ async function main() {
     await pruebasAgenda(probador)
     await pruebasTiempos(probador)
     await pruebasPantallas(probador)
+    await pruebasEstilo(probador)
   }
 
   console.log(`\n${total - fallas}/${total} pruebas pasaron`)

@@ -366,8 +366,8 @@ function NuevaCita({ fechaPedida, horaPedida, pedido }: { fechaPedida?: string; 
 
   return (
     <Pantalla pie={pie}>
-      {/* ¿Cuándo? */}
-      <Tarjeta estilo={{ gap: 8, paddingHorizontal: 8 }}>
+      {/* ¿Cuándo? (estilo Uber: los pasos sin caja, separados por una raya fina) */}
+      <View style={{ gap: 8, marginHorizontal: -8 }}>
         <Subtitulo estilo={{ paddingHorizontal: 8 }}>¿Cuándo?</Subtitulo>
         <CalendarioMes valor={formulario.fecha} alCambiar={elegirFecha} hoy={hoy} desde={ventana.desde} hasta={ventana.hasta} marcas={marcas} vista={vistaCalendario} />
         {vistaInicial === 'semana' ? (
@@ -393,10 +393,10 @@ function NuevaCita({ fechaPedida, horaPedida, pedido }: { fechaPedida?: string; 
             No pude traer tus citas de esos días: no se avisan los choques.
           </Texto>
         ) : null}
-      </Tarjeta>
+      </View>
 
       {/* ¿A qué hora? */}
-      <Tarjeta estilo={{ gap: 10 }}>
+      <View style={{ gap: 10, borderTopWidth: 1, borderTopColor: c.borde, paddingTop: 16 }}>
         <Subtitulo>¿A qué hora?</Subtitulo>
         <SelectorHora valor={formulario.hora} alCambiar={elegirHora} fecha={formulario.fecha} citasDelDia={citasDelDia} error={error('hora')} />
         {/* "Ese día ya tienes", como lista (el choque de la hora elegida lo dice el pie). */}
@@ -412,10 +412,10 @@ function NuevaCita({ fechaPedida, horaPedida, pedido }: { fechaPedida?: string; 
             ))}
           </View>
         ) : null}
-      </Tarjeta>
+      </View>
 
       {/* ¿Con quién? */}
-      <Tarjeta estilo={{ gap: 12 }}>
+      <View style={{ gap: 12, borderTopWidth: 1, borderTopColor: c.borde, paddingTop: 16 }}>
         <Subtitulo>¿Con quién?</Subtitulo>
         {avisoPedido ? <Aviso tono="alerta">{avisoPedido}</Aviso> : null}
         {perfil.length === 0 ? (
@@ -546,10 +546,10 @@ function NuevaCita({ fechaPedida, horaPedida, pedido }: { fechaPedida?: string; 
             {formulario.tipo === 'medica' ? 'Elige el médico y la sede' : 'Elige la cuenta y la sede'}
           </Texto>
         ) : null}
-      </Tarjeta>
+      </View>
 
       {/* Nota */}
-      <Tarjeta>
+      <View style={{ borderTopWidth: 1, borderTopColor: c.borde, paddingTop: 16 }}>
         <Campo
           etiqueta="Nota (opcional)"
           valor={formulario.nota}
@@ -559,7 +559,7 @@ function NuevaCita({ fechaPedida, horaPedida, pedido }: { fechaPedida?: string; 
           placeholder="Qué llevar, a quién preguntar… (sin datos de pacientes)"
           error={error('nota')}
         />
-      </Tarjeta>
+      </View>
 
       {errorServidor ? (
         <Aviso tono="peligro" titulo="No se agendó">

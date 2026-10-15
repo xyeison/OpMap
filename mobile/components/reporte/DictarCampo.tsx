@@ -16,7 +16,7 @@ import { segundosDe } from '../../lib/grabacion'
 import { Icono } from '../../lib/iconos'
 import { MENSAJE_DICTADO_NO_DISPONIBLE, mensajeErrorDictado } from '../../lib/propuesta'
 import type { CamposDictadoResponse, TipoVisita } from '../../lib/tipos'
-import { ALTO_TOQUE_MIN, Aviso, Texto, useColores, useFuente } from '../../lib/ui'
+import { ALTO_TOQUE_MIN, TAMANO, Aviso, Texto, useColores, useFuente } from '../../lib/ui'
 import { Grabador } from './Grabador'
 
 type Estado = 'listo' | 'grabando' | 'transcribiendo' | 'repartiendo'
@@ -53,10 +53,8 @@ function BotonDictar({ alPresionar, cargando, deshabilitado }: { alPresionar: ()
           minWidth: 120,
           paddingHorizontal: 16,
           paddingVertical: 8,
-          borderRadius: 999,
-          borderWidth: 1.5,
-          borderColor: c.bordeControl,
-          backgroundColor: c.superficie,
+          borderRadius: TAMANO.radio,
+          backgroundColor: c.relleno,
           flexDirection: 'row',
           alignItems: 'center',
           justifyContent: 'center',

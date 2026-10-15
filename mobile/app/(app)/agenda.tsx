@@ -28,7 +28,7 @@ import { esFechaIso, hoyBogota, sumarDias } from '../../lib/fechas'
 import { vibrarExito } from '../../lib/haptica'
 import { conQuienCita, textoTotalAgenda, tituloDiaAgenda } from '../../lib/reglas'
 import type { CitaItem, DiaLibreItem } from '../../lib/tipos'
-import { Aviso, Boton, Cargando, Pantalla, Subtitulo, Tarjeta, Texto, type Tono } from '../../lib/ui'
+import { Aviso, Boton, Cargando, Pantalla, Subtitulo, Texto, useColores, type Tono } from '../../lib/ui'
 
 interface DatosMes {
   citas: CitaItem[]
@@ -45,6 +45,7 @@ function mesesNecesarios(dia: string, vista: 'semana' | 'mes'): string[] {
 
 export default function Agenda() {
   const router = useRouter()
+  const c = useColores()
   const { fecha: fechaParam } = useLocalSearchParams<{ fecha?: string }>()
   const hoy = hoyBogota()
   const [dia, setDia] = useState(() => (esFechaIso(fechaParam) ? fechaParam : hoy))
@@ -199,7 +200,19 @@ export default function Agenda() {
         </Aviso>
       ) : null}
 
-      <Tarjeta estilo={{ gap: 6, paddingHorizontal: 8 }}>
+      {/* Estilo Uber: las dos acciones arriba, junto al título; el calendario sin caja. */}
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <Boton
+          titulo="Agendar"
+          compacto
+          icono="agregar"
+          estilo={{ flex: 1 }}
+          alPresionar={() => router.push(rutaAgendar({ fecha: agendable ? dia : undefined }))}
+        />
+        <Boton titulo="Días libres" variante="secundario" compacto icono="calendario" estilo={{ flex: 1 }} alPresionar={() => router.push('/dias-libres')} />
+      </View>
+
+      <View style={{ gap: 6 }}>
         <CalendarioMes
           valor={dia}
           alCambiar={elegirDia}
@@ -215,20 +228,12 @@ export default function Agenda() {
           estilo={{ minHeight: 44, alignSelf: 'center', paddingVertical: 4 }}
           alPresionar={() => setVista(vista === 'semana' ? 'mes' : 'semana')}
         />
-      </Tarjeta>
-
-      <View style={{ flexDirection: 'row', gap: 8 }}>
-        <Boton
-          titulo="Agendar"
-          estilo={{ flex: 1 }}
-          alPresionar={() => router.push(rutaAgendar({ fecha: agendable ? dia : undefined }))}
-        />
-        <Boton titulo="Días libres" variante="secundario" estilo={{ flex: 1 }} alPresionar={() => router.push('/dias-libres')} />
       </View>
 
-      <View style={{ gap: 2 }}>
-        <Subtitulo>{tituloDiaAgenda(dia, hoy)}</Subtitulo>
-        {datosDelMes ? <Texto suave>{textoTotalAgenda(citasDelDia)}</Texto> : null}
+
+      <View style={{ gap: 2, borderTopWidth: 1, borderTopColor: c.borde, paddingTop: 14 }}>
+        <Subtitulo estilo={{ fontSize: 17, lineHeight: 22, letterSpacing: 0 }}>{tituloDiaAgenda(dia, hoy)}</Subtitulo>
+        {datosDelMes ? <Texto suave peque>{textoTotalAgenda(citasDelDia)}</Texto> : null}
         {libreQueBloquea ? (
           <Texto suave peque>
             Día libre: no se agenda este día.

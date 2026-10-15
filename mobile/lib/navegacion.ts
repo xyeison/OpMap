@@ -21,7 +21,7 @@ export interface Pestana {
   ruta: 'hoy' | 'reportar' | 'agenda' | 'numeros' | 'ajustes'
   /** Nombre bajo el ícono. */
   titulo: string
-  /** Título del encabezado negro, si no es el mismo de la pestaña. */
+  /** Título del encabezado (blanco, con el título grande), si no es el mismo de la pestaña. */
   encabezado?: string
   icono: NombreIcono
 }
@@ -37,7 +37,7 @@ export const PESTANAS: readonly Pestana[] = [
 export interface PantallaOculta {
   /** Ruta dentro de app/(app)/ (el `name` de <Tabs.Screen>). */
   ruta: string
-  /** Título del encabezado negro (la pantalla abre con "Volver"). */
+  /** Título del encabezado (la pantalla abre con "Volver"). */
   encabezado: string
 }
 
@@ -49,6 +49,12 @@ export const OCULTAS: readonly PantallaOculta[] = [
   { ruta: 'medico/nuevo', encabezado: 'Nuevo médico' },
   { ruta: 'sede/nueva', encabezado: 'Nueva sede' },
 ]
+
+/**
+ * Pestañas sin encabezado (estilo Uber, 2026-10-15): arriba va el croquis (components/Croquis.tsx) y el título está
+ * en la hoja blanca que sube sobre él ("Hola, Carmen", "¿Dónde estás?").
+ */
+export const SIN_ENCABEZADO: readonly Pestana['ruta'][] = ['hoy', 'reportar']
 
 /** Letras de un nombre (cuenta "ú" como una sola). */
 export function letras(texto: string): number {

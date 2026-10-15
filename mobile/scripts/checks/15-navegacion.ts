@@ -188,7 +188,8 @@ export async function pruebas(t: Probador): Promise<void> {
   t.check('PESTANAS: cada ícono, relleno y contorno, existe en el glyphmap de Ionicons instalado', usaEseMapa && faltanPestanas.length === 0, faltanPestanas)
   const nombres = Object.keys(GLIFOS_ICONOS) as NombreIcono[]
   const faltanTodos = nombres.flatMap(n => [GLIFOS_ICONOS[n].relleno, GLIFOS_ICONOS[n].contorno]).filter(g => !(g in glifos))
-  t.check('íconos: los 14 nombres tienen relleno y contorno en ese glyphmap', nombres.length === 14 && faltanTodos.length === 0, faltanTodos)
+  // Estilo Uber (2026-10-15): 14 + ubicación, compromiso, buscar y agregar.
+  t.check('íconos: los 18 nombres tienen relleno y contorno en ese glyphmap', nombres.length === 18 && faltanTodos.length === 0, { nombres: nombres.length, faltanTodos })
   t.check('íconos: cada pestaña tiene un ícono distinto', new Set(PESTANAS.map(p => GLIFOS_ICONOS[p.icono].relleno)).size === PESTANAS.length)
 
   // -------------------------------------------------------------------------
@@ -238,9 +239,16 @@ export async function pruebas(t: Probador): Promise<void> {
     const altura = minHeightTocable(codigo)
     t.check(`${nombre}: minHeight ≥ ALTO_TOQUE_MIN (44) en todas sus variantes`, altura.ok, altura)
   }
-  t.check('bordeControl en el botón secundario', /variante === 'secundario' \? c\.bordeControl\b/.test(boton), /const borde = [^\n]*/.exec(boton)?.[0])
-  t.check('bordeControl en el chip inactivo', /borderColor:\s*activo \? c\.acento : c\.bordeControl\b/.test(chip))
-  t.check('bordeControl en el campo (rojo si tiene error)', /borderColor:\s*error \? c\.peligro : c\.bordeControl\b/.test(campo))
+  // Estilo Uber (2026-10-15): el botón secundario y el chip van rellenos de #EEEEEE sin borde (se reconocen por su
+  // texto, WCAG 1.4.11); lo que cuidaban estas pruebas sigue en 20-estilo.ts: texto ≥ 4,5:1 sobre ese relleno y lo
+  // elegido (negro) contra lo no elegido (#EEEEEE) ≥ 3:1, en los dos modos. El campo de texto sí sigue con bordeControl.
+  t.check(
+    'botón secundario: relleno c.relleno (sin borde) y texto c.texto',
+    /const fondo = [^\n]*variante === 'texto' \? 'transparent' : c\.relleno\b/.test(boton) && /const colorTexto = [^\n]*: c\.texto\b/.test(boton) && !/bordeControl/.test(boton),
+    /const fondo = [^\n]*/.exec(boton)?.[0]
+  )
+  t.check('chip: el inactivo relleno de c.relleno con texto c.texto; el elegido, c.acento con c.sobreAcento', /backgroundColor:\s*activo \? c\.acento : c\.relleno\b/.test(chip) && /color:\s*activo \? c\.sobreAcento : c\.texto\b/.test(chip))
+  t.check('bordeControl en el campo (rojo si tiene error, negro con el foco)', /borderColor:\s*error \? c\.peligro : enfocado \? c\.acento : c\.bordeControl\b/.test(campo))
   t.check('la tarjeta sigue con el borde suave (no bordeControl)', /borderColor:\s*c\.borde\b/.test(tarjeta) && !/bordeControl/.test(tarjeta))
   t.check('BotonVolver: ícono "atras" y la palabra "Volver"', /<Icono nombre="atras"/.test(volver) && />Volver</.test(volver) && /accessibilityLabel="Volver"/.test(volver))
 

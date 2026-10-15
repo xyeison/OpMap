@@ -41,7 +41,7 @@ export function DetalleCita({ cita, alVerVisita, preguntaCancelar, alCancelar, a
   }
 
   return (
-    <Tarjeta estilo={{ gap: 10, borderColor: c.texto }}>
+    <Tarjeta estilo={{ gap: 10, borderColor: c.acento, borderWidth: 2 }}>
       <View style={{ gap: 2 }}>
         <Texto negrita>{conQuienCita(cita)}</Texto>
         <Texto suave peque>

@@ -16,7 +16,7 @@ import { citaAtrasada } from '../../lib/pantallas'
 import { Icono } from '../../lib/iconos'
 import { conQuienCita, cuentaDistinta } from '../../lib/reglas'
 import { ETIQUETA_ESTADO_CITA, type CitaItem } from '../../lib/tipos'
-import { ALTO_TOQUE_MIN, Insignia, useColores, useFuente } from '../../lib/ui'
+import { ALTO_TOQUE_MIN, Insignia, TAMANO, useColores, useFuente } from '../../lib/ui'
 
 interface Props {
   /** Día que se dibuja (AAAA-MM-DD). */
@@ -57,7 +57,7 @@ export function LineaDelDia({ fecha, citas, agendable, alTocarFranja, alTocarCit
 
   const lineaAhora = (
     <View key="ahora" accessibilityLabel={`Ahora, ${horaBogota(reloj)}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginVertical: 2 }}>
-      <Text style={[{ width: 52, color: c.peligro, fontSize: 13, textAlign: 'right' }, fuente('negrita')]}>{horaBogota(reloj)}</Text>
+      <Text style={[{ width: 48, color: c.peligro, fontSize: 13, textAlign: 'left' }, fuente('negrita')]}>{horaBogota(reloj)}</Text>
       <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: c.peligro }} />
       <View style={{ flex: 1, height: 2, backgroundColor: c.peligro }} />
       <Text style={[{ color: c.peligro, fontSize: 13 }, fuente('negrita')]}>Ahora</Text>
@@ -76,25 +76,26 @@ export function LineaDelDia({ fecha, citas, agendable, alTocarFranja, alTocarCit
           onPress={() => alTocarCita(cita)}
           style={({ pressed }) => ({
             minHeight: ALTO_TOQUE_MIN,
-            borderRadius: 10,
+            borderRadius: TAMANO.radio,
             paddingHorizontal: 12,
-            paddingVertical: 8,
-            borderLeftWidth: 4,
-            borderLeftColor: cita.estado === 'hecha' ? c.exito : cita.estado === 'cancelada' ? c.textoSuave : c.acento,
-            borderWidth: resaltada === cita.id || abiertaEsta ? 1.5 : 0,
-            borderColor: c.texto,
-            backgroundColor: c.superficieSuave,
+            paddingVertical: 6,
+            // Estilo Uber: la pendiente rellena de #EEEEEE; la hecha, #F6F6F6 con borde fino; la abierta o recién
+            // agendada, con borde negro.
+            borderWidth: resaltada === cita.id || abiertaEsta ? 2 : cita.estado === 'pendiente' ? 0 : 1,
+            borderColor: resaltada === cita.id || abiertaEsta ? c.acento : c.bordeFuerte,
+            backgroundColor: cita.estado === 'pendiente' ? c.relleno : c.superficieSuave,
+            justifyContent: 'center',
             opacity: pressed ? 0.7 : cita.estado === 'cancelada' ? 0.75 : 1,
             gap: 2,
           })}
         >
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Text numberOfLines={2} style={[{ color: c.texto, fontSize: 16, flex: 1 }, fuente('negrita')]}>
+            <Text numberOfLines={2} style={[{ color: cita.estado === 'pendiente' ? c.texto : c.textoSuave, fontSize: 15, lineHeight: 19, flex: 1 }, fuente('negrita')]}>
               {`${cita.hora ? `${cita.hora.slice(0, 5)} · ` : ''}${conQuienCita(cita)}`}
             </Text>
             {cita.estado !== 'pendiente' ? <Insignia texto={ETIQUETA_ESTADO_CITA[cita.estado]} tono={cita.estado === 'hecha' ? 'exito' : 'neutro'} /> : citaAtrasada(cita, reloj) ? <Insignia texto="Atrasada" tono="alerta" /> : null}
           </View>
-          <Text numberOfLines={1} style={[{ color: c.textoSuave, fontSize: 14 }, fuente('regular')]}>
+          <Text numberOfLines={1} style={[{ color: c.textoSuave, fontSize: 13, lineHeight: 17 }, fuente('regular')]}>
             {cuenta ? `${cita.sede.nombre} · ${cuenta}` : cita.sede.nombre}
           </Text>
         </Pressable>
@@ -110,20 +111,32 @@ export function LineaDelDia({ fecha, citas, agendable, alTocarFranja, alTocarCit
     const enPunto = fila.franja.endsWith(':00')
     return (
       <View key={fila.franja} style={{ flexDirection: 'row', gap: 10, minHeight: libre && !tocable ? 32 : ALTO_TOQUE_MIN }}>
-        <Text style={[{ width: 52, paddingTop: libre ? 0 : 10, color: enPunto ? c.texto : c.textoSuave, fontSize: 14, textAlign: 'right', alignSelf: libre ? 'center' : 'flex-start' }, fuente(enPunto ? 'media' : 'regular')]}>
+        <Text style={[{ width: 48, paddingTop: libre ? 0 : 12, color: c.textoSuave, fontSize: 13, fontVariant: ['tabular-nums'], textAlign: 'left', alignSelf: libre ? 'center' : 'flex-start' }, fuente(enPunto ? 'media' : 'regular')]}>
           {fila.franja}
         </Text>
-        <View style={{ flex: 1, gap: 6, borderTopWidth: 1, borderTopColor: c.borde, paddingTop: libre ? 0 : 4, justifyContent: 'center' }}>
+        <View style={{ flex: 1, gap: 6, borderTopWidth: 1, borderTopColor: enPunto ? c.bordeFuerte : c.borde, paddingTop: libre ? 0 : 4, justifyContent: 'center' }}>
           {libre ? (
             tocable ? (
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={`Agendar a las ${fila.franja}`}
                 onPress={() => alTocarFranja(fila.franja)}
-                style={({ pressed }) => ({ minHeight: ALTO_TOQUE_MIN - 4, flexDirection: 'row', alignItems: 'center', gap: 6, opacity: pressed ? 0.5 : 1 })}
+                style={({ pressed }) => ({
+                  minHeight: ALTO_TOQUE_MIN - 4,
+                  marginVertical: 2,
+                  paddingHorizontal: 12,
+                  borderRadius: TAMANO.radio,
+                  borderWidth: 1.5,
+                  borderStyle: 'dashed',
+                  borderColor: c.bordeControl,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 6,
+                  opacity: pressed ? 0.5 : 1,
+                })}
               >
-                <Icono nombre="mas" tamano={18} color={c.textoSuave} />
-                <Text style={[{ color: c.textoSuave, fontSize: 14 }, fuente('regular')]}>Libre</Text>
+                <Icono nombre="agregar" tamano={18} color={c.texto} />
+                <Text style={[{ color: c.texto, fontSize: 14 }, fuente('media')]}>Libre</Text>
               </Pressable>
             ) : null
           ) : (
@@ -147,8 +160,8 @@ export function LineaDelDia({ fecha, citas, agendable, alTocarFranja, alTocarCit
     const texto = `Libre de ${tramo.desde} a ${tramo.hasta}`
     filasDibujadas.push(
       <View key={`libres-${tramo.desde}`} style={{ flexDirection: 'row', gap: 10, minHeight: desplegable ? ALTO_TOQUE_MIN : 32 }}>
-        <Text style={[{ width: 52, color: c.textoSuave, fontSize: 14, textAlign: 'right', alignSelf: 'center' }, fuente('regular')]}>{tramo.desde}</Text>
-        <View style={{ flex: 1, borderTopWidth: 1, borderTopColor: c.borde, justifyContent: 'center' }}>
+        <Text style={[{ width: 48, color: c.textoSuave, fontSize: 13, fontVariant: ['tabular-nums'], textAlign: 'left', alignSelf: 'center' }, fuente('media')]}>{tramo.desde}</Text>
+        <View style={{ flex: 1, borderTopWidth: 1, borderTopColor: c.bordeFuerte, justifyContent: 'center' }}>
           {desplegable ? (
             <Pressable
               accessibilityRole="button"
@@ -156,9 +169,9 @@ export function LineaDelDia({ fecha, citas, agendable, alTocarFranja, alTocarCit
               onPress={() => setDesplegados({ fecha, franjas: new Set([...abiertos, tramo.desde]) })}
               style={({ pressed }) => ({ minHeight: ALTO_TOQUE_MIN - 4, flexDirection: 'row', alignItems: 'center', gap: 6, opacity: pressed ? 0.5 : 1 })}
             >
-              <Icono nombre="mas" tamano={18} color={c.textoSuave} />
+              <Icono nombre="agregar" tamano={18} color={c.textoSuave} />
               <Text style={[{ color: c.textoSuave, fontSize: 14, flex: 1 }, fuente('regular')]}>{texto}</Text>
-              <Text style={[{ color: c.texto, fontSize: 14, textDecorationLine: 'underline' }, fuente('media')]}>Ver horas</Text>
+              <Text style={[{ color: c.texto, fontSize: 14 }, fuente('negrita')]}>Ver horas</Text>
             </Pressable>
           ) : (
             <Text style={[{ color: c.textoSuave, fontSize: 14 }, fuente('regular')]}>{texto}</Text>
@@ -190,7 +203,7 @@ export function LineaDelDia({ fecha, citas, agendable, alTocarFranja, alTocarCit
             onPress={() => setVerCanceladas(!verCanceladas)}
             style={({ pressed }) => ({ minHeight: ALTO_TOQUE_MIN, justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}
           >
-            <Text style={[{ color: c.texto, fontSize: 15, textDecorationLine: 'underline' }, fuente('media')]}>
+            <Text style={[{ color: c.texto, fontSize: 15 }, fuente('negrita')]}>
               {verCanceladas ? `Ocultar canceladas (${canceladas.length})` : `Ver canceladas (${canceladas.length})`}
             </Text>
           </Pressable>

@@ -17,7 +17,7 @@ import { hoyBogota, mesDe, nombreMes, sumarMeses } from '../../lib/fechas'
 import { diasPorDelante, faltanVisitas } from '../../lib/pantallas'
 import { fraccionBarra, muestraCuota, numeroTexto, porcentaje, textoOrigenMeta } from '../../lib/reglas'
 import type { CuotaResponse, CuotaTipo, NumerosAgenda, NumerosResponse } from '../../lib/tipos'
-import { Aviso, Barra, Boton, Cargando, Fila, Pantalla, Separador, Subtitulo, Tarjeta, Texto } from '../../lib/ui'
+import { Aviso, Barra, Boton, BotonIcono, Cargando, Fila, Pantalla, Separador, Subtitulo, Tarjeta, Texto } from '../../lib/ui'
 
 interface Datos {
   /** Mes de estas cifras (AAAA-MM). */
@@ -90,13 +90,13 @@ export default function Numeros() {
       refrescando={refrescando}
     >
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-        <Boton titulo="‹" variante="secundario" alPresionar={() => cambiarMes(-1)} estilo={{ minWidth: 56 }} />
+        <BotonIcono icono="atras" etiqueta="Mes anterior" alPresionar={() => cambiarMes(-1)} />
         <View style={{ flex: 1 }}>
-          <Texto negrita centro>
+          <Texto negrita centro estilo={{ fontSize: 17 }}>
             {capitalizar(nombreMes(mes))}
           </Texto>
         </View>
-        <Boton titulo="›" variante="secundario" alPresionar={() => cambiarMes(1)} deshabilitado={mes >= mesActual} estilo={{ minWidth: 56 }} />
+        <BotonIcono icono="adelante" etiqueta="Mes siguiente" alPresionar={() => cambiarMes(1)} deshabilitado={mes >= mesActual} />
       </View>
 
       {cargando && !datos ? <Cargando texto="Calculando tus números…" /> : null}
@@ -179,7 +179,7 @@ function Contenido({ datos, enCurso }: { datos: Datos; enCurso: boolean }) {
       {numeros?.agenda ? <TarjetaAgenda agenda={numeros.agenda} /> : null}
 
       <Tarjeta>
-        <Subtitulo>Días del mes</Subtitulo>
+        <Subtitulo estilo={{ fontSize: 17, lineHeight: 22, letterSpacing: 0 }}>Días del mes</Subtitulo>
         <Fila etiqueta="Días hábiles" valor={numeroTexto(cuota.dias_habiles)} />
         <Fila etiqueta="Transcurridos" valor={numeroTexto(cuota.dias_habiles_transcurridos)} />
         <Fila etiqueta="Días libres" valor={numeroTexto(cuota.dias_libres)} />
@@ -209,7 +209,7 @@ function Contenido({ datos, enCurso }: { datos: Datos; enCurso: boolean }) {
 function TarjetaAgenda({ agenda }: { agenda: NumerosAgenda }) {
   return (
     <Tarjeta>
-      <Subtitulo>Agenda</Subtitulo>
+      <Subtitulo estilo={{ fontSize: 17, lineHeight: 22, letterSpacing: 0 }}>Agenda</Subtitulo>
       <View style={{ gap: 6 }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
           <Texto negrita estilo={{ flexShrink: 1 }}>
@@ -261,8 +261,8 @@ function TarjetaTipo({
   return (
     <Tarjeta>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-        <Subtitulo estilo={{ flexShrink: 1 }}>{titulo}</Subtitulo>
-        {hechas !== null ? <Texto negrita>{porcentaje(cumplimiento)}</Texto> : null}
+        <Subtitulo estilo={{ flexShrink: 1, fontSize: 17, lineHeight: 22, letterSpacing: 0 }}>{titulo}</Subtitulo>
+        {hechas !== null ? <Texto negrita estilo={{ fontSize: 28, lineHeight: 34, letterSpacing: -0.5 }}>{porcentaje(cumplimiento)}</Texto> : null}
       </View>
       {hechas !== null ? (
         <>
