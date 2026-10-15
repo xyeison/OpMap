@@ -1738,23 +1738,33 @@ async function main() {
       check('recargar: sin nada que conservar, el contexto nuevo tal cual', contextoAlRecargar({ contexto: ctxAntes, catalogo: catalogoAntes, sedeElegida: null, cita: null, tarjetas: [] }, ctxNuevo).contexto === ctxNuevo)
     }
 
-    // Hallazgo 3: mientras una tarjeta se envía no empieza otra llegada; "Reportar de nuevo" se aplaza y se arma después.
+    // Hallazgo 3: mientras una tarjeta se envía no empieza otra llegada; "Reportar de nuevo" se aplaza (en el ref propio
+    // de Reportar) y se arma solo cuando no se pierde nada.
     {
       const R = { client_id: 'rechazada', cuerpo: visita(), error: 'Fuera del radio' }
-      const paso = (extra: Partial<Parameters<typeof pasoDelReporte<typeof R>>[0]>) =>
-        pasoDelReporte<typeof R>({ motivo: 'foco', iniciado: true, reintento: null, enviando: 0, ocupada: false, abiertas: 0, reiniciar: false, ...extra })
-      check('paso: la primera vez que recibe el foco, empieza (con el reintento si lo hay)', JSON.stringify(paso({ iniciado: false, reintento: R })) === JSON.stringify({ accion: 'iniciar', reintento: R }))
-      const aplazado = paso({ reintento: R, enviando: 1 })
+      const R2 = { client_id: 'otra', cuerpo: visita(), error: 'Fuera del radio' }
+      type EntradaPaso = Parameters<typeof pasoDelReporte<typeof R>>[0]
+      const paso = (extra: Partial<EntradaPaso>) =>
+        pasoDelReporte<typeof R>({ motivo: 'foco', iniciado: true, nuevo: null, aplazado: null, enviando: 0, ocupada: false, abiertas: 0, volviendoDeCrear: false, reiniciar: false, ...extra })
+      check('paso: la primera vez que recibe el foco, empieza (con el reintento si lo hay)', JSON.stringify(paso({ iniciado: false, nuevo: R })) === JSON.stringify({ accion: 'iniciar', reintento: R }))
+      const aplazado = paso({ nuevo: R, enviando: 1 })
       check('paso: foco con "Reportar de nuevo" mientras una tarjeta se envía → se aplaza, no empieza otra llegada', aplazado.accion === 'aplazar' && aplazado.reintento === R, aplazado)
       check('paso: foco sin reintento mientras una tarjeta se envía → sigue aunque tocaría reiniciar', paso({ enviando: 2, reiniciar: true }).accion === 'seguir')
-      check('paso: foco con reintento y sin envíos → empieza con él (aunque esté grabando, como siempre)', JSON.stringify(paso({ reintento: R, ocupada: true })) === JSON.stringify({ accion: 'iniciar', reintento: R }))
+      check('paso: un toque NUEVO en Hoy sin envíos → empieza con él (aunque esté grabando o haya abiertas, como siempre)', JSON.stringify(paso({ nuevo: R, ocupada: true, abiertas: 2 })) === JSON.stringify({ accion: 'iniciar', reintento: R }))
       check('paso: foco sin reintento → reinicia solo si debeReiniciarReporte', JSON.stringify(paso({ reiniciar: true })) === JSON.stringify({ accion: 'iniciar', reintento: null }) && paso({}).accion === 'seguir')
-      check('paso: termina el último envío con un reintento aplazado → empieza con él', JSON.stringify(paso({ motivo: 'envio', reintento: R })) === JSON.stringify({ accion: 'iniciar', reintento: R }))
-      check('paso: termina un envío pero queda otro, o está grabando → se aplaza otra vez', paso({ motivo: 'envio', reintento: R, enviando: 1 }).accion === 'aplazar' && paso({ motivo: 'envio', reintento: R, ocupada: true }).accion === 'aplazar')
+      check('paso: termina el último envío con un reintento aplazado y nada abierto → empieza con él', JSON.stringify(paso({ motivo: 'envio', aplazado: R })) === JSON.stringify({ accion: 'iniciar', reintento: R }))
+      check('paso: termina un envío pero queda otro, o está grabando → sigue aplazado', paso({ motivo: 'envio', aplazado: R, enviando: 1 }).accion === 'aplazar' && paso({ motivo: 'envio', aplazado: R, ocupada: true }).accion === 'aplazar')
       check('paso: termina un envío sin reintento → sigue (nunca reinicia por eso)', paso({ motivo: 'envio', reiniciar: true }).accion === 'seguir')
-      const conAbierta = paso({ motivo: 'envio', reintento: R, abiertas: 1 })
-      check('paso: termina el último envío pero queda una tarjeta abierta (rechazada o sin confirmar) → se aplaza otra vez, no la borra', conAbierta.accion === 'aplazar' && conAbierta.reintento === R, conAbierta)
-      check('paso: al recibir el foco con reintento, las tarjetas abiertas no lo detienen (como siempre: lo pidió en Hoy)', paso({ reintento: R, abiertas: 2 }).accion === 'iniciar')
+      const conAbierta = paso({ motivo: 'envio', aplazado: R, abiertas: 1 })
+      check('paso: termina el último envío pero queda una tarjeta abierta (rechazada o sin confirmar) → sigue aplazado, no la borra', conAbierta.accion === 'aplazar' && conAbierta.reintento === R, conAbierta)
+      // Revisión final: al recibir el foco, el APLAZADO tiene las mismas condiciones (no es un toque nuevo en Hoy).
+      const focoConAbierta = paso({ aplazado: R, abiertas: 1, reiniciar: true })
+      check('paso: foco con un reintento aplazado y una tarjeta abierta (la rechazada) → no empieza, sigue aplazado', focoConAbierta.accion === 'aplazar' && focoConAbierta.reintento === R, focoConAbierta)
+      const vuelta = paso({ aplazado: R, volviendoDeCrear: true })
+      check('paso: vuelta de Nuevo médico o Nueva sede con un reintento aplazado → no empieza (lo creado es para una tarjeta)', vuelta.accion === 'aplazar' && vuelta.reintento === R, vuelta)
+      check('paso: foco con un reintento aplazado grabando → no empieza', paso({ aplazado: R, ocupada: true }).accion === 'aplazar')
+      check('paso: foco con un reintento aplazado y nada que perder → empieza con él', JSON.stringify(paso({ aplazado: R })) === JSON.stringify({ accion: 'iniciar', reintento: R }))
+      check('paso: un toque nuevo reemplaza al aplazado (el más reciente manda)', JSON.stringify(paso({ nuevo: R2, aplazado: R })) === JSON.stringify({ accion: 'iniciar', reintento: R2 }) && (paso({ nuevo: R2, aplazado: R, enviando: 1 }) as { reintento?: unknown }).reintento === R2)
 
       // Tarjetas abiertas al terminar un envío: lo último pintado menos la que se acaba de guardar.
       const tA = { clave: 'A' }
@@ -1764,37 +1774,49 @@ async function main() {
         abiertasAlTerminarEnvio([tA], 'A') === 0 && abiertasAlTerminarEnvio([tA], null) === 1 && abiertasAlTerminarEnvio([tA, tD], 'A') === 1 && abiertasAlTerminarEnvio([], null) === 0
       )
 
+      // Simulación del ref de Reportar (aplicarPaso): lo que se aplaza queda ahí y se suelta al iniciar.
+      const correr = (estado: { aplazado: typeof R | null }, p: ReturnType<typeof paso>) => {
+        if (p.accion === 'iniciar') estado.aplazado = null
+        else if (p.accion === 'aplazar') estado.aplazado = p.reintento
+        return p
+      }
+
       // El caso del revisor de punta a punta: la tarjeta espera la final, la persona va a Hoy y toca "Reportar de nuevo".
+      const ref = { aplazado: null as typeof R | null }
       const generacion = { current: 9 }
       let enviando = 1
       let entregar: (valor: ResultadoUbicacion) => void = () => undefined
       const final = new Promise<ResultadoUbicacion>(resolve => (entregar = resolve))
       const esperando = datosParaConfirmar({ clave: tarjetaComoQuedo.clave, final, enPantalla: { ...enPantalla14, borrador: tarjetaComoQuedo }, generacion, ultimo: { current: estado14() } })
-      const alEnfocar = paso({ reintento: R, enviando })
+      const alEnfocar = correr(ref, paso({ nuevo: R, aplazado: ref.aplazado, enviando }))
       if (alEnfocar.accion === 'iniciar') generacion.current++ // lo que haría iniciar: otra generación (y borra las tarjetas)
       entregar({ ubicacion: finalOk, error: null })
       const datos = await esperando
-      check('paso: la visita que esperaba la final no se pierde: sigue y sale con la final', alEnfocar.accion === 'aplazar' && datos !== null && datos.punto?.lat === FINAL.lat, { alEnfocar, datos: datos?.punto })
+      check('paso: la visita que esperaba la final no se pierde: sigue y sale con la final', alEnfocar.accion === 'aplazar' && ref.aplazado === R && datos !== null && datos.punto?.lat === FINAL.lat, { alEnfocar, datos: datos?.punto })
       enviando--
-      const alTerminar = paso({
-        motivo: 'envio',
-        reintento: alEnfocar.accion === 'aplazar' ? alEnfocar.reintento : null,
-        enviando,
-        abiertas: abiertasAlTerminarEnvio([tarjetaComoQuedo], tarjetaComoQuedo.clave),
-      })
-      check('paso: y al terminar ese envío (guardada) se arma el "Reportar de nuevo" aplazado', alTerminar.accion === 'iniciar' && alTerminar.reintento === R)
+      const alTerminar = correr(ref, paso({ motivo: 'envio', aplazado: ref.aplazado, enviando, abiertas: abiertasAlTerminarEnvio([tarjetaComoQuedo], tarjetaComoQuedo.clave) }))
+      check('paso: y al terminar ese envío (guardada) se arma el "Reportar de nuevo" aplazado', alTerminar.accion === 'iniciar' && alTerminar.reintento === R && ref.aplazado === null)
 
-      // Hallazgo 2 (verificación): la tarjeta que esperaba la final sale y el servidor la RECHAZA. Sale de la cola y
-      // queda abierta con su rechazo: el "Reportar de nuevo" aplazado no la borra, sigue aplazado.
-      const rechazada = paso({ motivo: 'envio', reintento: R, enviando: 0, abiertas: abiertasAlTerminarEnvio([tarjetaComoQuedo], null) })
-      check('paso: si el servidor rechazó la tarjeta enviada, el reintento sigue aplazado (no borra la rechazada)', rechazada.accion === 'aplazar' && rechazada.reintento === R, rechazada)
+      // Hallazgo 2 (verificación) y revisión final: el servidor RECHAZA la tarjeta; sale de la cola y queda abierta con su
+      // rechazo. El aplazado no la borra: ni al terminar el envío, ni al volver de Nuevo médico, ni al cambiar de pestaña.
+      const ref2 = { aplazado: R as typeof R | null }
+      const rechazada = correr(ref2, paso({ motivo: 'envio', aplazado: ref2.aplazado, abiertas: abiertasAlTerminarEnvio([tarjetaComoQuedo], null) }))
+      const deNuevoMedico = correr(ref2, paso({ aplazado: ref2.aplazado, abiertas: 1, volviendoDeCrear: true }))
+      const deOtraPestana = correr(ref2, paso({ aplazado: ref2.aplazado, abiertas: 1, reiniciar: true }))
+      const corregidaYGuardada = correr(ref2, paso({ motivo: 'envio', aplazado: ref2.aplazado, abiertas: abiertasAlTerminarEnvio([tarjetaComoQuedo], tarjetaComoQuedo.clave) }))
+      check(
+        'paso: tarjeta rechazada abierta con un aplazado: no se borra al terminar, al volver de crear ni al cambiar de pestaña; al guardarla, se arma',
+        rechazada.accion === 'aplazar' && deNuevoMedico.accion === 'aplazar' && deOtraPestana.accion === 'aplazar' && corregidaYGuardada.accion === 'iniciar' && corregidaYGuardada.reintento === R,
+        { rechazada: rechazada.accion, deNuevoMedico: deNuevoMedico.accion, deOtraPestana: deOtraPestana.accion, corregidaYGuardada: corregidaYGuardada.accion }
+      )
 
       // Hallazgo 3 (verificación): aplazado otra vez por grabar; la propuesta trae C y D; confirmar C no lo arma (D sigue
       // abierta y no se borra); al guardar D, la última, sí.
-      const grabando = paso({ motivo: 'envio', reintento: R, ocupada: true, abiertas: abiertasAlTerminarEnvio([tarjetaComoQuedo], tarjetaComoQuedo.clave) })
+      const ref3 = { aplazado: R as typeof R | null }
+      const grabando = correr(ref3, paso({ motivo: 'envio', aplazado: ref3.aplazado, ocupada: true, abiertas: abiertasAlTerminarEnvio([tarjetaComoQuedo], tarjetaComoQuedo.clave) }))
       const tC = { clave: 'C' }
-      const alGuardarC = paso({ motivo: 'envio', reintento: grabando.accion === 'aplazar' ? grabando.reintento : null, abiertas: abiertasAlTerminarEnvio([tC, tD], 'C') })
-      const alGuardarD = paso({ motivo: 'envio', reintento: alGuardarC.accion === 'aplazar' ? alGuardarC.reintento : null, abiertas: abiertasAlTerminarEnvio([tD], 'D') })
+      const alGuardarC = correr(ref3, paso({ motivo: 'envio', aplazado: ref3.aplazado, abiertas: abiertasAlTerminarEnvio([tC, tD], 'C') }))
+      const alGuardarD = correr(ref3, paso({ motivo: 'envio', aplazado: ref3.aplazado, abiertas: abiertasAlTerminarEnvio([tD], 'D') }))
       check(
         'paso: aplazado por grabar, otro Confirmar con tarjetas abiertas no lo arma (no borra la dictada sin confirmar); al guardar la última, sí',
         grabando.accion === 'aplazar' && alGuardarC.accion === 'aplazar' && alGuardarD.accion === 'iniciar' && alGuardarD.reintento === R,
@@ -1850,15 +1872,16 @@ async function main() {
       /const reintento = tomarReintento\(\)/.test(alEnfocarTs) &&
         /const \{ llegada: llegadaActual, fase: faseActual, borradores: pendientes \} = ultimo\.current/.test(alEnfocarTs) &&
         /const ocupada = esFaseOcupada\(faseActual\)/.test(alEnfocarTs) &&
-        /pasoDelReporte\(\{\s*motivo: 'foco',\s*iniciado: iniciado\.current,\s*reintento,\s*enviando: enviosEnCurso\.current,\s*ocupada,\s*abiertas: pendientes,\s*reiniciar: debeReiniciarReporte\(/.test(alEnfocarTs) &&
-        /aplicarPaso\(paso, r => void iniciarRef\.current\(r\)\)/.test(alEnfocarTs)
+        /pasoDelReporte\(\{\s*motivo: 'foco',\s*iniciado: iniciado\.current,\s*nuevo: reintento,\s*aplazado: reintentoAplazado\.current,\s*enviando: enviosEnCurso\.current,\s*ocupada,\s*abiertas: pendientes,\s*volviendoDeCrear: volviendo,\s*reiniciar: debeReiniciarReporte\(/.test(alEnfocarTs) &&
+        /aplicarPaso\(paso, reintentoAplazado, r => void iniciarRef\.current\(r\)\)/.test(alEnfocarTs)
     )
     check(
       'Reportar: cuenta los envíos (sube antes de esperar la final, baja en el finally) y al terminar cada envío decide con pasoDelReporte',
       cuerpoConfirmar.indexOf('enviosEnCurso.current++') > -1 &&
         cuerpoConfirmar.indexOf('enviosEnCurso.current++') < cuerpoConfirmar.indexOf('await datosParaConfirmar(') &&
         /^\} finally \{\s*enviosEnCurso\.current--/.test(finallyConfirmar) &&
-        /aplicarPaso\(\s*pasoDelReporte\(\{\s*motivo: 'envio',\s*iniciado: true,\s*reintento: tomarReintento\(\),\s*enviando: enviosEnCurso\.current,\s*ocupada: esFaseOcupada\(ultimo\.current\.fase\),\s*abiertas: abiertasAlTerminarEnvio\(ultimo\.current\.tarjetas, guardada\),\s*reiniciar: false,?\s*\}\),\s*r => void iniciarRef\.current\(r\)\s*\)/.test(finallyConfirmar)
+        /aplicarPaso\(\s*pasoDelReporte\(\{\s*motivo: 'envio',\s*iniciado: true,\s*nuevo: null,\s*aplazado: reintentoAplazado\.current,\s*enviando: enviosEnCurso\.current,\s*ocupada: esFaseOcupada\(ultimo\.current\.fase\),\s*abiertas: abiertasAlTerminarEnvio\(ultimo\.current\.tarjetas, guardada\),\s*volviendoDeCrear: false,\s*reiniciar: false,?\s*\}\),\s*reintentoAplazado,\s*r => void iniciarRef\.current\(r\)\s*\)/.test(finallyConfirmar) &&
+        !/tomarReintento\(\)/.test(finallyConfirmar)
     )
     const guardadaEn = cuerpoConfirmar.indexOf('guardada = clave')
     check(
@@ -1870,8 +1893,10 @@ async function main() {
         guardadaEn < cuerpoConfirmar.indexOf('} catch (lanzado) {')
     )
     check(
-      'Reportar: aplicarPaso inicia con el reintento o lo vuelve a guardar (fijarReintento) al aplazarlo',
-      /if \(paso\.accion === 'iniciar'\) iniciar\(paso\.reintento\)/.test(aplicarPasoTs) && /else if \(paso\.accion === 'aplazar'\) fijarReintento\(paso\.reintento\)/.test(aplicarPasoTs)
+      'Reportar: aplicarPaso suelta el aplazado e inicia, o guarda el aplazado en el ref propio (no en el global de Hoy)',
+      /if \(paso\.accion === 'iniciar'\) \{\s*aplazado\.current = null\s*iniciar\(paso\.reintento\)\s*\}/.test(aplicarPasoTs) &&
+        /else if \(paso\.accion === 'aplazar'\) aplazado\.current = paso\.reintento/.test(aplicarPasoTs) &&
+        !/fijarReintento/.test(aplicarPasoTs)
     )
     check(
       'Reportar: lo último (ultimo.current, cada render) lleva la fase, las tarjetas, la sede y la CITA elegidas tal cual',

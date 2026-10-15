@@ -22,9 +22,10 @@ sedes. Los logs de Vercel lo confirman: en Hoy, el `GET /api/me/visitas` y el `P
   se puede editar durante la espera y ninguna visita ni consultorio sale con la primera ubicación.
 - Mientras una tarjeta se está enviando, Reportar no empieza otra llegada. Si en ese rato la persona va a Hoy y toca
   "Reportar de nuevo", esa visita se arma cuando termina el envío, siempre que no quede ninguna tarjeta abierta. Si el
-  servidor rechazó la tarjeta enviada, o hay otra sin confirmar o una grabación en curso, sigue esperando: la arma el
-  siguiente envío que no deje nada abierto o la próxima vez que se vuelva a Reportar. La visita confirmada no se
-  pierde, tampoco si la rechazan.
+  servidor rechazó la tarjeta enviada, o hay otra sin confirmar o una grabación en curso, sigue esperando (en Reportar,
+  no en Hoy): se arma cuando ya no se pierde nada, sea al terminar otro envío o al volver a Reportar, pero nunca con una
+  tarjeta abierta, grabando o al volver de Nuevo médico o Nueva sede. Un toque nuevo en Hoy, sin envíos en curso, se
+  arma enseguida como siempre. La visita confirmada no se pierde, tampoco si la rechazan.
 
 ## Criterios de aceptación (se convierten en pruebas)
 Todas las pruebas están en `mobile/scripts/movil-check.ts`, sección 14. Entre comillas va el comienzo del nombre de
@@ -49,8 +50,9 @@ Las pruebas "Reportar: …" solo revisan que la pantalla las llame.
       usan (`distanciasDeOtroPunto`). Pruebas "recargar: …", "(b) confirmar: con el contexto…" y "Reportar: al recargar
       usa contextoAlRecargar…".
 - [x] Mientras una tarjeta se envía, no empieza otra llegada. Un "Reportar de nuevo" se aplaza y se arma al terminar
-      el envío solo si no queda ninguna tarjeta abierta ni una grabación (`pasoDelReporte`, `abiertasAlTerminarEnvio`:
-      la tarjeta recién guardada no cuenta, la rechazada sí). Pruebas "paso: …", "abiertas al terminar: …",
+      el envío o al volver a Reportar solo si no queda ninguna tarjeta abierta ni una grabación y no se vuelve de crear
+      un médico o una sede (`pasoDelReporte` con el aplazado en un ref propio de Reportar, `abiertasAlTerminarEnvio`:
+      la tarjeta recién guardada no cuenta, la rechazada sí; comprobado rompiéndolo). Pruebas "paso: …", "abiertas al terminar: …",
       "Reportar: al recibir el foco cuenta…", "Reportar: cuenta los envíos…", "Reportar: la tarjeta solo cuenta como
       guardada…", "Reportar: aplicarPaso…" y "Reportar: lo último (ultimo.current…".
 - [x] "Afinando la ubicación…" no se queda pegado cuando empieza otra llegada o se toca "Actualizar" (`estaAfinando`).

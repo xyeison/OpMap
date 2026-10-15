@@ -424,39 +424,47 @@ export type PasoDelReporte<R> = { accion: 'iniciar'; reintento: R | null } | { a
 
 /**
  * Qué hace Reportar al recibir el foco (`motivo: 'foco'`) o al terminar de enviar una tarjeta (`'envio'`). Regla: no
- * empieza una llegada nueva (que borra las tarjetas) mientras alguna tarjeta se está enviando (esperando la final o la
- * respuesta de la cola): si no, la confirmación quedaría sin efecto y la visita confirmada se perdería sin aviso.
+ * empieza una llegada nueva (que borra las tarjetas) si con eso se pierde una visita: una tarjeta que se está enviando
+ * (esperando la final o la respuesta de la cola) o, para un reintento aplazado, una tarjeta abierta (la que el servidor
+ * acaba de rechazar sigue abierta con su rechazo y ya no está en la cola; otra dictada o por toques sin confirmar).
+ * Dos reintentos distintos:
+ *   - `nuevo`: el "Reportar de nuevo" que la persona acaba de tocar en Hoy (tomarReintento; solo llega con el foco).
+ *     Sin envíos en curso se arma enseguida, como siempre (aunque haya tarjetas abiertas o esté grabando: lo pidió).
+ *   - `aplazado`: uno que Reportar guardó antes en su ref propio porque había un envío en curso. Solo se arma cuando no
+ *     se pierde nada: sin envíos, sin estar grabando ni armando la propuesta, sin tarjetas abiertas y no al volver de
+ *     Nuevo médico o Nueva sede (lo creado es para una tarjeta abierta). Si no, sigue aplazado.
  *   - La primera vez que recibe el foco: iniciar (con el reintento, si lo hay).
- *   - Alguna tarjeta enviándose: el "Reportar de nuevo" que pidió Hoy se aplaza (Reportar lo guarda con
- *     fijarReintento; la visita sigue en la cola, en Hoy); sin reintento, seguir.
- *   - Al recibir el foco con reintento: iniciar con él (como siempre, aunque esté grabando o haya tarjetas abiertas: la
- *     persona fue a Hoy y lo pidió).
- *   - Al terminar el último envío con un reintento aplazado: iniciar con él solo si no se pierde nada, es decir, si no
- *     está grabando ni armando la propuesta y no queda ninguna tarjeta abierta (`abiertas`: la que el servidor acaba
- *     de rechazar sigue abierta con su rechazo y ya no está en la cola; otra sin confirmar, dictada o por toques). Si
- *     no, se aplaza otra vez: lo toma el siguiente envío que termine sin nada abierto, o la próxima vez que Reportar
- *     reciba el foco (lo que pase primero).
  *   - Al recibir el foco sin reintento: iniciar si `reiniciar` (debeReiniciarReporte); si no, seguir.
+ * El más reciente manda: un `nuevo` reemplaza al aplazado (la visita rechazada sigue en Hoy y se puede pedir otra vez).
  */
 export function pasoDelReporte<R>(estado: {
   motivo: 'foco' | 'envio'
   /** Ya hubo una llegada (false solo la primera vez que recibe el foco). */
   iniciado: boolean
-  /** "Reportar de nuevo" pedido desde Hoy (tomarReintento), o null. */
-  reintento: R | null
+  /** "Reportar de nuevo" recién pedido desde Hoy (tomarReintento), o null. */
+  nuevo: R | null
+  /** El reintento que Reportar aplazó antes (su ref propio), o null. */
+  aplazado: R | null
   /** Tarjetas que se están enviando. */
   enviando: number
   /** Ubicando, grabando, transcribiendo o armando la propuesta. */
   ocupada: boolean
-  /** Tarjetas abiertas (sin guardar) al terminar el envío: abiertasAlTerminarEnvio. Solo cuenta en 'envio'. */
+  /** Tarjetas abiertas (sin guardar). Al terminar un envío: abiertasAlTerminarEnvio. */
   abiertas: number
+  /** Vuelve de Nuevo médico o Nueva sede (solo cuenta al recibir el foco). */
+  volviendoDeCrear: boolean
   /** debeReiniciarReporte (solo cuenta al recibir el foco sin reintento). */
   reiniciar: boolean
 }): PasoDelReporte<R> {
-  const { motivo, iniciado, reintento, enviando, ocupada, abiertas, reiniciar } = estado
+  const { motivo, iniciado, nuevo, aplazado, enviando, ocupada, abiertas, volviendoDeCrear, reiniciar } = estado
+  const reintento = nuevo ?? aplazado
   if (!iniciado) return { accion: 'iniciar', reintento }
   if (enviando > 0) return reintento ? { accion: 'aplazar', reintento } : { accion: 'seguir' }
-  if (reintento) return motivo === 'envio' && (ocupada || abiertas > 0) ? { accion: 'aplazar', reintento } : { accion: 'iniciar', reintento }
+  if (nuevo) return { accion: 'iniciar', reintento: nuevo }
+  if (aplazado) {
+    const seBorraria = ocupada || abiertas > 0 || (motivo === 'foco' && volviendoDeCrear)
+    return seBorraria ? { accion: 'aplazar', reintento: aplazado } : { accion: 'iniciar', reintento: aplazado }
+  }
   if (motivo === 'foco' && reiniciar) return { accion: 'iniciar', reintento: null }
   return { accion: 'seguir' }
 }

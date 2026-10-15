@@ -23,8 +23,8 @@
  * la primera, se vuelve a pedir el contexto sin tapar la pantalla (conservando las sedes y contactos en uso:
  * contextoAlRecargar); mientras no llegue, las distancias que el servidor midió desde la primera no se usan (decide el
  * servidor). Mientras una tarjeta se envía no empieza otra llegada (pasoDelReporte): un "Reportar de nuevo" de Hoy se
- * arma cuando termina el envío si no queda ninguna tarjeta abierta (la rechazada sigue a la vista); si queda, al
- * siguiente envío sin nada abierto o al volver a Reportar. El orden de la llegada (la final pendiente queda puesta
+ * aplaza en un ref propio y se arma solo cuando no se pierde nada (sin envíos, sin grabar, sin tarjetas abiertas —la
+ * rechazada sigue a la vista— y no al volver de Nuevo médico o Nueva sede). El orden de la llegada (la final pendiente queda puesta
  * antes de mostrar la lista) está en arrancarLlegada. Todo eso es puro y se prueba en scripts/movil-check.ts (sección 14).
  */
 import { useFocusEffect, useRouter } from 'expo-router'
@@ -118,10 +118,19 @@ function esFaseOcupada(fase: Fase): boolean {
   return fase === 'ubicando' || fase === 'grabando' || fase === 'transcribiendo' || fase === 'proponiendo'
 }
 
-/** Aplica lo que decidió pasoDelReporte: empezar una llegada, aplazar el reintento (fijarReintento) o seguir. */
-function aplicarPaso(paso: PasoDelReporte<ReintentoReporte>, iniciar: (reintento: ReintentoReporte | null) => void) {
-  if (paso.accion === 'iniciar') iniciar(paso.reintento)
-  else if (paso.accion === 'aplazar') fijarReintento(paso.reintento)
+/**
+ * Aplica lo que decidió pasoDelReporte: empezar una llegada (y soltar el aplazado), aplazar el reintento en el ref
+ * propio de Reportar (no en el global de Hoy: así un toque nuevo en Hoy no se confunde con uno aplazado) o seguir.
+ */
+function aplicarPaso(
+  paso: PasoDelReporte<ReintentoReporte>,
+  aplazado: { current: ReintentoReporte | null },
+  iniciar: (reintento: ReintentoReporte | null) => void
+) {
+  if (paso.accion === 'iniciar') {
+    aplazado.current = null
+    iniciar(paso.reintento)
+  } else if (paso.accion === 'aplazar') aplazado.current = paso.reintento
 }
 
 export default function Reportar() {
@@ -174,6 +183,8 @@ export default function Reportar() {
   const esperandoCreacion = useRef(false)
   /** Tarjetas que se están enviando (esperando la final o la cola): mientras haya, no empieza otra llegada. */
   const enviosEnCurso = useRef(0)
+  /** "Reportar de nuevo" aplazado porque había un envío en curso (pasoDelReporte); se arma cuando no se pierde nada. */
+  const reintentoAplazado = useRef<ReintentoReporte | null>(null)
 
   const punto: (Punto & { precision: number | null }) | null = ubicacion ? { lat: ubicacion.lat, lng: ubicacion.lng, precision: ubicacion.precision } : null
   const sinSenal = sinSenalDesde !== null
@@ -412,14 +423,16 @@ export default function Reportar() {
       const paso = pasoDelReporte({
         motivo: 'foco',
         iniciado: iniciado.current,
-        reintento,
+        nuevo: reintento,
+        aplazado: reintentoAplazado.current,
         enviando: enviosEnCurso.current,
         ocupada,
         abiertas: pendientes,
+        volviendoDeCrear: volviendo,
         reiniciar: debeReiniciarReporte({ llegada: llegadaActual, ahora: new Date(), borradores: pendientes, ocupada, esperandoCreacion: volviendo }),
       })
       iniciado.current = true
-      aplicarPaso(paso, r => void iniciarRef.current(r))
+      aplicarPaso(paso, reintentoAplazado, r => void iniciarRef.current(r))
     }, [])
   )
 
@@ -630,17 +643,20 @@ export default function Reportar() {
     } finally {
       enviosEnCurso.current--
       // Si Hoy pidió "Reportar de nuevo" mientras esta tarjeta se enviaba (se aplazó), se arma ahora, salvo que borre
-      // algo sin guardar (esta tarjeta rechazada, otra abierta, una grabación): entonces sigue aplazado.
+      // algo sin guardar (esta tarjeta rechazada, otra abierta, una grabación): entonces sigue aplazado en su ref.
       aplicarPaso(
         pasoDelReporte({
           motivo: 'envio',
           iniciado: true,
-          reintento: tomarReintento(),
+          nuevo: null,
+          aplazado: reintentoAplazado.current,
           enviando: enviosEnCurso.current,
           ocupada: esFaseOcupada(ultimo.current.fase),
           abiertas: abiertasAlTerminarEnvio(ultimo.current.tarjetas, guardada),
+          volviendoDeCrear: false,
           reiniciar: false,
         }),
+        reintentoAplazado,
         r => void iniciarRef.current(r)
       )
     }
