@@ -5,8 +5,8 @@
  * todavía no lo tiene (404/503), se muestra la cuota de GET /api/me/cuota?mes= (F2) con un aviso.
  *
  * Spec 2026-10-15: al cambiar de mes, las cifras del mes anterior se atenúan con "Cargando <mes>…" (nunca se mezclan:
- * la respuesta de un mes que ya no se ve se descarta), y en el mes en curso cada tipo dice cuánto falta ("Te faltan 120
- * visitas médicas: 11 por día hábil").
+ * la respuesta de un mes que ya no se ve se descarta), y en el mes en curso cada tipo dice cuánto falta ("Te faltan 62
+ * visitas médicas: 7 por día en los 10 días hábiles que quedan", sin contar los días libres que vienen: diasPorDelante).
  */
 import { useFocusEffect } from 'expo-router'
 import { useCallback, useRef, useState } from 'react'
@@ -14,7 +14,7 @@ import { View } from 'react-native'
 import * as api from '../../lib/api'
 import { aApiError, esNoDisponible, type ApiError } from '../../lib/errores'
 import { hoyBogota, mesDe, nombreMes, sumarMeses } from '../../lib/fechas'
-import { faltanVisitas } from '../../lib/pantallas'
+import { diasPorDelante, faltanVisitas } from '../../lib/pantallas'
 import { fraccionBarra, muestraCuota, numeroTexto, porcentaje, textoOrigenMeta } from '../../lib/reglas'
 import type { CuotaResponse, CuotaTipo, NumerosAgenda, NumerosResponse } from '../../lib/tipos'
 import { Aviso, Barra, Boton, Cargando, Fila, Pantalla, Separador, Subtitulo, Tarjeta, Texto } from '../../lib/ui'
@@ -141,7 +141,7 @@ function Contenido({ datos, enCurso }: { datos: Datos; enCurso: boolean }) {
   const { cuota, numeros, soloCuota } = datos
   // Cuánto falta, solo en el mes en curso y con lo hecho (sin /api/me/numeros no se sabe).
   const falta = (tipo: 'medica' | 'institucional') =>
-    enCurso && numeros ? faltanVisitas(cuota[tipo].cuota, numeros.hechas[tipo], cuota.dias_habiles, cuota.dias_habiles_transcurridos, tipo) : null
+    enCurso && numeros ? faltanVisitas(cuota[tipo].cuota, numeros.hechas[tipo], diasPorDelante(cuota), tipo) : null
   return (
     <>
       {soloCuota ? (
@@ -254,7 +254,7 @@ function TarjetaTipo({
   tipo: CuotaTipo
   hechas: number | null
   cumplimiento: number | null
-  /** "Te faltan 120 visitas médicas: 11 por día hábil" (mes en curso). */
+  /** "Te faltan 62 visitas médicas: 7 por día en los 10 días hábiles que quedan" (mes en curso). */
   falta?: string | null
 }) {
   const llego = cumplimiento !== null && cumplimiento >= 1
@@ -274,7 +274,7 @@ function TarjetaTipo({
         <Fila etiqueta="Cuota del mes" valor={numeroTexto(tipo.cuota)} fuerte />
       )}
       <Texto suave peque>
-        Hoy: {numeroTexto(tipo.meta_dia_hoy)} por día hábil · {textoOrigenMeta(tipo.origen)}
+        Meta de hoy: {numeroTexto(tipo.meta_dia_hoy)} · {textoOrigenMeta(tipo.origen)}
         {tipo.aplica === false ? ' · no está en tu perfil este mes' : ''}
       </Texto>
     </Tarjeta>

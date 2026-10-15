@@ -1,7 +1,7 @@
 /**
  * Agendar una cita como calendario con hora (F4.1; spec 2026-10-15, decisiones 1 y 2 del dueño): "¿Cuándo?" con el
  * mes en cuadrícula (de hoy a hoy + 30; los días con citas llevan su cantidad y el día libre que impide agendar queda
- * apagado), "¿A qué hora?" con las medias horas de Mañana y Tarde y "Otra hora" (la hora es OBLIGATORIA: no hay "Sin
+ * apagado), "¿A qué hora?" con las medias horas de la mañana y de la tarde y "Otra hora" (la hora es OBLIGATORIA: no hay "Sin
  * hora"), "Ese día ya tienes: …" y el aviso de choque (no bloquea), luego "¿Con quién?" (tipo según el perfil; médico de
  * sus médicos o del buscador y una de sus sedes, o cuenta con una de sus sedes y el subtipo) y la nota. El botón del
  * pie dice lo que se agenda: "Agendar · jueves 16 oct · 10:00".
@@ -14,10 +14,20 @@
  * del contexto en memoria si tiene menos de 10 minutos o de GET /api/me/contexto; una sola carga de 31 días de citas
  * (GET /api/me/agenda) y de días libres; POST /api/me/agenda. Al agendar vuelve a Mi agenda en ese día con la cita
  * resaltada. Nunca documentos.
+ *
+ * Revisión 2026-10-15:
+ *   - Sin fecha en la URL abre en la primera franja libre desde MAÑANA (fechaInicialAgendar): una cita de hoy cuenta como
+ *     no agendada y no debe ser el camino por defecto. Hoy se puede elegir igual, con su aviso.
+ *   - El pie dice el choque ("A las 09:00 ya tienes cita con …") y, sin esperar al toque, la cita repetida con el mismo
+ *     médico (o cuenta y subtipo) que la base rechazaría; "Ese día ya tienes" va como lista.
+ *   - Hoy a una hora que ya pasó no se agenda ("Esa hora ya pasó"): al cambiar la fecha a hoy, una hora pasada se cambia
+ *     por la siguiente libre.
+ *   - Un solo buscador de médicos: el del selector, que ofrece "Buscar en OpMap" con lo escrito (como en la tarjeta).
+ *   - En una pantalla baja (iPhone SE u 8) el calendario abre en la semana, con "Ver mes".
  */
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { View } from 'react-native'
+import { useWindowDimensions, View } from 'react-native'
 import { CalendarioMes } from '../../../components/agenda/CalendarioMes'
 import { SelectorHora } from '../../../components/agenda/SelectorHora'
 import { Buscador } from '../../../components/reporte/Buscador'
@@ -26,16 +36,20 @@ import {
   avisoAgendadaHoy,
   avisoChoque,
   cuerpoCitaConHora,
+  errorCitaRepetida,
+  fechaInicialAgendar,
   fijarCitaResaltada,
+  franjaPasada,
+  lineasCitasDelDia,
   marcasDelMes,
   medicosConCitaEseDia,
   primeraFranjaLibre,
   rutaMiAgenda,
   siguienteFranjaLibre,
   textoBotonAgendar,
-  textoCitasDelDia,
   tomarPedidoAgendar,
   validarCitaConHora,
+  vistaCalendarioAgendar,
   type PedidoAgendar,
 } from '../../../lib/agenda'
 import * as api from '../../../lib/api'
@@ -120,8 +134,12 @@ function NuevaCita({ fechaPedida, horaPedida, pedido }: { fechaPedida?: string; 
   const [libres, setLibres] = useState<MisDiasLibresResponse | null>(null)
   const [sinAgenda, setSinAgenda] = useState(false)
   const [cargando, setCargando] = useState(true)
+  const { height: altoPantalla } = useWindowDimensions()
+  /** En una pantalla baja, la semana (con "Ver mes"): así "¿A qué hora?" cae en la primera pantalla. */
+  const vistaInicial = vistaCalendarioAgendar(altoPantalla)
+  const [vistaCalendario, setVistaCalendario] = useState(vistaInicial)
   const [formulario, setFormulario] = useState<FormularioCita>(() => ({
-    ...formularioCitaVacio(fechaDeUrl ?? hoy, []),
+    ...formularioCitaVacio(fechaDeUrl ?? fechaInicialAgendar(hoy), []),
     hora: typeof horaDeUrl === 'string' ? horaDeUrl : '',
   }))
   /** La hora la puso la app (no la URL ni la persona): al cambiar de día se busca otra libre. */
@@ -156,9 +174,10 @@ function NuevaCita({ fechaPedida, horaPedida, pedido }: { fechaPedida?: string; 
       const marcasVentana = marcasDelMes(citasVentana, diasVentana?.items ?? [], { apagarLibres: true, requiereAprobacion: diasVentana?.requiere_aprobacion ?? true })
       setFormulario(prev => {
         let siguiente = prev.tipo ? prev : { ...prev, tipo: formularioCitaVacio(hoy, perfil).tipo }
-        // Abre con una hora ya elegida: la de la URL, o la primera franja libre (de la fecha pedida o de la ventana).
+        // Abre con una hora ya elegida: la de la URL, o la primera franja libre (de la fecha pedida o, sin fecha, desde
+        // mañana: la de hoy contaría como no agendada).
         if (!fechaDeUrl) {
-          const primera = primeraFranjaLibre(ventana.desde, ventana.hasta, citasVentana, marcasVentana)
+          const primera = primeraFranjaLibre(fechaInicialAgendar(hoy), ventana.hasta, citasVentana, marcasVentana)
           if (primera && typeof horaDeUrl !== 'string') siguiente = { ...siguiente, fecha: primera.fecha, hora: primera.hora }
         } else if (typeof horaDeUrl !== 'string') {
           siguiente = { ...siguiente, hora: siguienteFranjaLibre(siguiente.fecha, citasVentana) ?? '' }
@@ -196,10 +215,12 @@ function NuevaCita({ fechaPedida, horaPedida, pedido }: { fechaPedida?: string; 
   const citasDelDia = useMemo(() => citas.filter(cita => cita.fecha === formulario.fecha), [citas, formulario.fecha])
   const conCita = useMemo(() => medicosConCitaEseDia(citas, formulario.fecha), [citas, formulario.fecha])
   const choque = avisoChoque(formulario.hora, citasDelDia)
-  const delDia = textoCitasDelDia(citasDelDia)
+  const delDia = lineasCitasDelDia(citasDelDia)
   const paraHoy = avisoAgendadaHoy(formulario.fecha, hoy)
+  /** Ya hay cita con ese médico (o cuenta y subtipo) ese día: la base la rechazaría; se dice al elegirlo. */
+  const repetida = errorCitaRepetida(formulario, citas)
 
-  const erroresLocales = validarCitaConHora(formulario, hoy, perfil)
+  const erroresLocales = validarCitaConHora(formulario, hoy, perfil, { citas })
   const error = (...campos: string[]) =>
     (intentado ? errorDe(erroresLocales, ...campos) : null) ?? (errorServidor ? errorDe(errorServidor.errores, ...campos) : null)
 
@@ -209,9 +230,14 @@ function NuevaCita({ fechaPedida, horaPedida, pedido }: { fechaPedida?: string; 
   }
 
   const elegirFecha = (fecha: string) => {
-    // La hora que puso la app se vuelve a buscar en el día nuevo; la que eligió la persona se queda.
-    if (horaAuto) cambiar({ fecha, hora: siguienteFranjaLibre(fecha, citas) ?? '' })
-    else cambiar({ fecha })
+    // La hora que puso la app se vuelve a buscar en el día nuevo; la que eligió la persona se queda, salvo que en ese día
+    // ya haya pasado (hoy): entonces la siguiente libre.
+    const hora = horaDeCita(formulario.hora)
+    const yaPaso = typeof hora === 'string' && franjaPasada(fecha, hora)
+    if (horaAuto || yaPaso) {
+      if (yaPaso) setHoraAuto(true)
+      cambiar({ fecha, hora: siguienteFranjaLibre(fecha, citas) ?? '' })
+    } else cambiar({ fecha })
   }
 
   const elegirHora = (hora: string) => {
@@ -313,6 +339,8 @@ function NuevaCita({ fechaPedida, horaPedida, pedido }: { fechaPedida?: string; 
   }
 
   const faltan = intentado ? erroresLocales.map(e => e.mensaje) : []
+  // El pie dice, en este orden: el rechazo del servidor, lo que falta (después de tocar), la cita repetida (ya, porque la
+  // base la rechazaría) o el choque de hora (solo aviso: se agenda igual). Así se ve sin desplazar.
   const pie = (
     <View style={{ gap: 6 }}>
       {errorServidor ? (
@@ -322,6 +350,14 @@ function NuevaCita({ fechaPedida, horaPedida, pedido }: { fechaPedida?: string; 
       ) : faltan.length > 0 ? (
         <Texto peque color={c.peligro}>
           {`Falta algo: ${faltan.slice(0, 3).join(' · ')}${faltan.length > 3 ? '…' : ''}`}
+        </Texto>
+      ) : repetida ? (
+        <Texto peque color={c.peligro}>
+          {repetida.mensaje}
+        </Texto>
+      ) : choque ? (
+        <Texto peque color={c.alerta}>
+          {choque}
         </Texto>
       ) : null}
       <Boton titulo={textoBotonAgendar(formulario.fecha, formulario.hora)} cargando={guardando} alPresionar={() => void guardar()} />
@@ -333,7 +369,15 @@ function NuevaCita({ fechaPedida, horaPedida, pedido }: { fechaPedida?: string; 
       {/* ¿Cuándo? */}
       <Tarjeta estilo={{ gap: 8, paddingHorizontal: 8 }}>
         <Subtitulo estilo={{ paddingHorizontal: 8 }}>¿Cuándo?</Subtitulo>
-        <CalendarioMes valor={formulario.fecha} alCambiar={elegirFecha} hoy={hoy} desde={ventana.desde} hasta={ventana.hasta} marcas={marcas} vista="mes" />
+        <CalendarioMes valor={formulario.fecha} alCambiar={elegirFecha} hoy={hoy} desde={ventana.desde} hasta={ventana.hasta} marcas={marcas} vista={vistaCalendario} />
+        {vistaInicial === 'semana' ? (
+          <Boton
+            titulo={vistaCalendario === 'semana' ? 'Ver mes' : 'Ver semana'}
+            variante="texto"
+            estilo={{ minHeight: 44, alignSelf: 'center', paddingVertical: 4 }}
+            alPresionar={() => setVistaCalendario(vistaCalendario === 'semana' ? 'mes' : 'semana')}
+          />
+        ) : null}
         {paraHoy ? (
           <Texto peque color={c.alerta} estilo={{ paddingHorizontal: 8 }}>
             {paraHoy}
@@ -355,8 +399,19 @@ function NuevaCita({ fechaPedida, horaPedida, pedido }: { fechaPedida?: string; 
       <Tarjeta estilo={{ gap: 10 }}>
         <Subtitulo>¿A qué hora?</Subtitulo>
         <SelectorHora valor={formulario.hora} alCambiar={elegirHora} fecha={formulario.fecha} citasDelDia={citasDelDia} error={error('hora')} />
-        {delDia ? <Texto suave peque>{delDia}</Texto> : null}
-        {choque ? <Aviso tono="alerta">{choque}</Aviso> : null}
+        {/* "Ese día ya tienes", como lista (el choque de la hora elegida lo dice el pie). */}
+        {delDia.length > 0 ? (
+          <View style={{ gap: 2 }}>
+            <Texto suave peque>
+              Ese día ya tienes:
+            </Texto>
+            {delDia.map(linea => (
+              <Texto key={linea} peque lineas={1}>
+                {linea}
+              </Texto>
+            ))}
+          </View>
+        ) : null}
       </Tarjeta>
 
       {/* ¿Con quién? */}
@@ -392,6 +447,7 @@ function NuevaCita({ fechaPedida, horaPedida, pedido }: { fechaPedida?: string; 
 
         {formulario.tipo === 'medica' ? (
           <View style={{ gap: 12 }}>
+            {/* Un solo buscador: el filtro de la lista, que ofrece "Buscar en OpMap" con lo escrito. */}
             <Selector
               etiqueta="Médico"
               valor={formulario.medico_id}
@@ -399,18 +455,28 @@ function NuevaCita({ fechaPedida, horaPedida, pedido }: { fechaPedida?: string; 
               opciones={medicos.map(m => ({ id: m.id, titulo: m.nombre, detalle: m.detalle, lateral: conCita.get(m.id) ?? (m.propio ? null : 'Buscado') }))}
               alElegir={elegirMedico}
               error={error('medico_id')}
-              vacio="Aún no tienes médicos asignados: búscalo abajo."
+              vacio="Aún no tienes médicos asignados: escribe su nombre arriba para buscarlo en OpMap."
               tituloElegido={medico?.nombre ?? null}
+              buscarFuera={{
+                donde: 'OpMap',
+                resultados: (consulta, cerrar) => (
+                  <Buscador<MedicoPublico>
+                    etiqueta="Médicos en OpMap"
+                    consulta={consulta}
+                    buscar={async q => (await api.buscarMedicos(q)).items}
+                    clave={item => item.id}
+                    titulo={item => item.nombre}
+                    detalle={item => [item.especialidades.map(etiquetaEspecialidad).join(', '), item.ciudad].filter(Boolean).join(' · ') || null}
+                    sinResultados="No encontré a nadie con ese nombre en OpMap."
+                    alElegir={item => {
+                      agregarMedico(item)
+                      cerrar()
+                    }}
+                  />
+                ),
+              }}
             />
-            <Buscador<MedicoPublico>
-              etiqueta="Buscar otro médico en OpMap"
-              placeholder="Nombre del médico"
-              buscar={async q => (await api.buscarMedicos(q)).items}
-              clave={item => item.id}
-              titulo={item => item.nombre}
-              detalle={item => [item.especialidades.map(etiquetaEspecialidad).join(', '), item.ciudad].filter(Boolean).join(' · ') || null}
-              alElegir={item => agregarMedico(item)}
-            />
+            {repetida && formulario.tipo === 'medica' && !error('medico_id') ? <Aviso tono="alerta">{repetida.mensaje}</Aviso> : null}
           </View>
         ) : null}
 

@@ -1,6 +1,7 @@
 # Spec: usabilidad de la app de visita y agenda con hora  (2026-10-15)
 
-**Estado**: tanda 1 implementada e integrada el 2026-10-15; falta la prueba del dueño en el iPhone y la tanda 2.
+**Estado**: tanda 1 implementada e integrada el 2026-10-15, con las correcciones de la revisión de la rama (sección
+"Revisión de la rama"); falta la prueba del dueño en el iPhone y la tanda 2.
 La hora obligatoria en la cita y la agenda como calendario son pedido del dueño del 2026-10-15.
 Lo demás lo propone Claude y el dueño puede cambiarlo. Lo que necesita decisión del dueño está en "Para decidir" y
 no entra en este cambio.
@@ -51,13 +52,16 @@ Lo que se midió:
 - **Agendar es un calendario con hora.** Primero va "¿Cuándo?", con un mes en cuadrícula: lunes primero, celdas de
   44 pt, hoy marcado, los días fuera de hoy..hoy + 30 apagados, un punto en los días con citas y los días libres
   aprobados marcados.
-  - Justo debajo, "¿A qué hora?": chips cada 30 minutos de 07:00 a 18:30, en dos grupos (Mañana y Tarde), y "Otra
-    hora" con hora de 05 a 21 y minutos 00/15/30/45. Debajo, "Ese día ya tienes: 08:00 Dra. X · 10:30 Clínica Y".
-  - Después van "¿Con quién?", con el selector cerrado y la búsqueda a la vista, y "Nota (opcional)".
+  - Justo debajo, "¿A qué hora?": chips cada 30 minutos de 07:00 a 18:30, en dos grupos ("Por la mañana" y "Por la
+    tarde": "Mañana" es el día siguiente en la app), y "Otra hora" con hora de 05 a 21 y minutos 00/15/30/45. Debajo,
+    "Ese día ya tienes:" como lista ("08:00 · Dra. X").
+  - Después van "¿Con quién?", con el selector cerrado y un solo buscador (el del selector, que ofrece "Buscar en
+    OpMap" con lo escrito), y "Nota (opcional)".
   - Al pie, fijo, el botón con el resumen: "Agendar · jueves 16 oct · 10:00".
   - **La cita lleva hora siempre**: no hay "Sin hora". Agendar abre con una hora ya elegida a la vista: la franja que
-    se tocó en el calendario o la siguiente libre desde las 08:00.
-  - Una hora ya ocupada se avisa ("A las 09:30 ya tienes cita con …. Puedes agendar igual."), pero no se bloquea.
+    se tocó en el calendario o la siguiente libre desde las 08:00 de MAÑANA (la de hoy contaría como no agendada).
+  - Una hora ya ocupada se avisa en el pie ("A las 09:30 ya tienes cita con …. Puedes agendar igual."), pero no se
+    bloquea. Hoy, una hora que ya pasó no se puede elegir.
   - Si la fecha es hoy, se avisa que la visita contará como no agendada.
 - **Mi agenda es un calendario.** Arriba va el mes o la semana, con la cantidad de citas por día y los días libres;
   se puede ir a cualquier mes.
@@ -107,8 +111,9 @@ Lo que se midió:
    - Hoy y Reportar no piden de nuevo antes de 60 s. Entre 60 s y 3 min pintan y refrescan sin tapar la pantalla.
    - El contexto solo se reusa a menos de 100 m del punto con que se pidió (`DISTANCIA_RECARGA_M`).
    - Agendar y Visita reusan los datos que no dependen del punto hasta 10 min.
-   - Se invalida al recibir el 201 de una visita, al agendar o cancelar una cita, al registrar o anular un día libre y
-     al cerrar sesión.
+   - Solo sirve el mismo día en Bogotá (`contexto.hoy.fecha`), como el respaldo sin señal.
+   - Se invalida al recibir el 201 de una visita, al agendar o cancelar una cita, al registrar o anular un día libre, al
+     crear un médico, una cuenta o una sede o vincular una sede a un médico (`'terceros'`, revisión) y al cerrar sesión.
    - La ubicación final de la visita y lo que decide el servidor no cambian.
 8. **Resumen de la tarjeta.** Solo para las tarjetas de voz que pasan `validarBorrador`, con confianza ≥ 0,6, sin
    preguntas y presenciales dentro del radio o telefónicas válidas. Las demás abren completas. La de toques abre
@@ -179,8 +184,9 @@ rompiendo a mano lo que cuida, como en la spec de ubicación rápida.
 - [x] Cita desde Hoy (`tomarCitaParaReportar` al recibir el foco):
   - Sin nada abierto, elige esa cita.
   - Con una tarjeta abierta, una grabación o un envío en curso, no borra nada y queda pendiente, con las mismas
-    reglas de "Reportar de nuevo" (`pasoDelReporte`).
-  - Prueba: `16-reportar.ts`: las 4 «cita desde Hoy: …» y «retorno: la cita de Hoy se toma una sola vez».
+    reglas de "Reportar de nuevo" (`pasoDelReporte`). Revisión: la pendiente se ve ("Reportar esa cita", "Olvidarla") y
+    no arranca sola al terminar un envío (`soloReintento`).
+  - Prueba: `16-reportar.ts`: las «cita desde Hoy: …» y «retorno: la cita de Hoy se toma una sola vez».
 - [x] Antes de elegir no aparecen Hablar y Por toques deshabilitados al final. Hay una línea guía arriba.
   - Prueba: `16-reportar.ts`: «Reportar: antes de elegir no aparecen Hablar y Por toques deshabilitados» y «hay una línea guía arriba».
 - [x] En la fase `proponiendo` se muestra "Lo que dijiste". "Lo que dijiste" se pliega y se despliega completo.
@@ -290,7 +296,7 @@ rompiendo a mano lo que cuida, como en la spec de ubicación rápida.
   - Con perfil y token vigente → `entrar_y_confirmar`.
   - Sin perfil → `confirmar_antes`.
   - Sin token → `sin_sesion`.
-  - `TIEMPO_ME_MS = 5_000`.
+  - `TIEMPO_ME_MS = 5_000` solo cuando la persona espera; en segundo plano, `TIEMPO_ME_FONDO_MS = 20_000` (revisión).
   - Prueba: `18-tiempos.ts`, 18e.
 - [x] Audio:
   - `OPCIONES_GRABACION` sigue en 64000/44100 por defecto.
@@ -316,8 +322,9 @@ rompiendo a mano lo que cuida, como en la spec de ubicación rápida.
   - Prueba: `19-pantallas.ts`, 19e; capturas `despues/19`, `23` y `34`.
 - [x] Números:
   - Al cambiar de mes, las cifras se atenúan con "Cargando <mes>…".
-  - `faltanVisitas(cuota, hechas, diasHabiles, transcurridos)` → "Te faltan N visitas médicas: X por día hábil".
-    Si no se puede calcular, da null.
+  - `faltanVisitas(cuota, hechas, diasPorDelante(cuota))` → "Te faltan N visitas médicas: X por día en los D días
+    hábiles que quedan" (revisión: sin los días libres que vienen, `dias_habiles_por_delante`). Si no se puede
+    calcular, da null.
   - Prueba: `19-pantallas.ts`, 19c («faltanVisitas…») y 19e (Números); capturas `despues/21` y `22`.
 - [x] Visita:
   - Conclusión y Compromisos van con la etiqueta arriba y el texto a todo el ancho.
@@ -362,6 +369,34 @@ Se tiene que ver:
   - Agendar se ve como calendario con hora.
   - Un dictado completo deja las marcas `[tiempos-app]` en Metro y las `[tiempos]` en Vercel.
 
+## Revisión de la rama (2026-10-15)
+
+La revisión del diff (lentes de spec, visual y de flujos) dejó 28 hallazgos. Se corrigieron con prueba pura (cada una
+comprobada rompiendo lo que cuida) y se volvieron a tomar todas las capturas de `despues/`, más 35 a 39: Agendar en
+semana y la barra a 375×667 (el nombre queda a 5 pt del borde; antes, 1), el pie con lo que falta, el día libre con una
+cita en Mi agenda y Días libres con las citas del día:
+
+- **Contexto en memoria**: solo del mismo día (`contextoReciente` mira `hoy.fecha`; antes, pasada la medianoche, Hoy y
+  Reportar usaban las citas y la meta de ayer); crear o vincular médicos y sedes invalida (`'terceros'`).
+- **Reportar**: el pie dice qué se confirma (`resumenParaPie`) o lo que falta / el rechazo (`avisoDelPie`): la tarjeta por
+  toques nace válida y ya no se confirma a ciegas. Con tarjetas, "¿Dónde estás?" en una línea y "Lo que dijiste"
+  después. Con el contexto de memoria, "Hablar" espera a las visitas de hoy y, sin red, "Sin señal" (no se dicta para
+  perder el audio). La cita de Hoy pendiente se ve y no arranca sola tras un envío. "Descartar" pregunta.
+- **Sesión**: la confirmación en segundo plano usa 20 s (con 5 s quedaba "Sin conexión" en un arranque en frío).
+- **Agendar**: desde mañana; choque y cita repetida en el pie (la repetida, que la base rechaza, al elegir al médico);
+  "Ese día ya tienes" como lista; un solo buscador; "Por la mañana"/"Por la tarde"; hoy no deja una hora pasada (ni con
+  "Otra hora" ni al cambiar la fecha); semana en pantallas bajas; texto de chips, días e insignias hasta 1,3×.
+- **Mi agenda**: libres seguidas plegadas; error por mes; "Hoy"; aviso de cancelar junto al día; leyenda sin cifra fija;
+  día libre con citas avisado. **Días libres**: marca las citas y avisa si el día pedido tiene pendientes.
+- **Hoy**: solo "›" en la cita y "Atrasada" junto a "Pendiente" (también en Reportar y Mi agenda).
+- **Números**: "Te faltan …" sin contar los días libres que vienen (`dias_habiles_por_delante`, aditivo en
+  `/api/me/cuota` y `/api/me/numeros`) y sin repetir la frase de la meta de hoy ("Meta de hoy: 6 · …").
+- **Barra**: caja del ícono de 24 pt: sin margen inferior (iPhone SE u 8) el nombre ya no toca el borde.
+
+No se tocó: la línea de fase 8 de `CLAUDE.md` (la cambia o aprueba el dueño: D10) ni el desplazamiento automático hasta
+la tarjeta con error (el pie ya lo dice; desplazar exige un ref al ScrollView de `Pantalla`: tanda 2). "Siguiente: …"
+de Hoy sigue (criterio 19b): parte el nombre largo en dos líneas, pero es la cita de ahora a un toque.
+
 ## Fuera de alcance
 
 - La confirmación optimista (la tarjeta pasa a "Enviando…" antes del 201). Es de prioridad baja y tiene riesgo
@@ -389,6 +424,9 @@ paquetes 6 y 7.
 | D5 | ¿Días libres por rango ("del 20 al 22")? | Sí, como un ciclo en la app con un resumen de lo que entró y lo que no. Cada día respeta su plazo y su aprobación, sin cambiar la API. |
 | D6 | ¿"Confirmar las N visitas" de un solo toque cuando todas están en resumen? El contrato pide "Confirmar" por tarjeta. | No por ahora. El pie "Confirmar visita 1 de N" ya quita el desplazamiento. Se revisa con las marcas de tiempo. |
 | D7 | ¿Se graba más liviano, a 32 kbps y 22,05 kHz? | Solo después de que el dueño compare el mismo dictado, con nombres de médicos, productos y líneas, en los dos perfiles (`EXPO_PUBLIC_PERFIL_AUDIO`). Sube la mitad de bytes con mala señal; el riesgo está en los nombres propios. |
+| D8 | ¿El servidor rechaza una cita de hoy a una hora que ya pasó? Hoy solo lo revisa la app ("Esa hora ya pasó"). | Sí, en `citaCreateSchema` con la hora de Bogotá, cuando haya otro cambio de la API de agenda. Una app vieja podría crear una cita "Atrasada" al nacer. |
+| D9 | ¿Agendar abre en el siguiente día HÁBIL (sin sábados, domingos ni festivos) en vez de mañana? | Sí si el dueño lo pide: el calendario de días hábiles es del servidor (`/api/me/cuota`); hoy salta solo los días libres que impiden agendar. |
+| D10 | Línea de fase 8 de `CLAUDE.md`: añadir "hora obligatoria y agenda como calendario desde 2026-10-15; Server-Timing y `[tiempos]` en /api/me/*". | Que el dueño la cambie o la apruebe: un agente no edita `CLAUDE.md`. |
 
 ## Impacto
 

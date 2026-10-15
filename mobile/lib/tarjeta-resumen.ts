@@ -10,12 +10,15 @@
  *   campo. Una fila vacía no aparece, salvo la conclusión.
  * - textoPieConfirmar: el botón del pie fijo ("Confirmar visita 1 de 2"). Cada tarjeta se sigue confirmando con su
  *   propio toque y con las mismas validaciones (validarBorrador).
+ * - resumenParaPie y avisoDelPie (revisión 2026-10-15): encima del botón, qué se confirma ("Efectiva · PerOssal y
+ *   Reemplazo articular · sin conclusión") o, si falta algo o el servidor la rechazó, eso. La tarjeta por toques nace
+ *   válida (efectiva, con las líneas del médico): sin esto se confirmaba de un toque sin ver resultado ni conclusión.
  */
 import { esFechaIso, fechaLarga } from './fechas'
 import { textoDistancia, type Punto } from './geo'
 import type { PedidoAgendar } from './agenda'
-import { cuentasDelCatalogo, distanciaASede, nombreSede, validarBorrador, type Borrador, type Catalogo, type EntradaValidacion } from './propuesta'
-import { ETIQUETA_MEDIO } from './tipos'
+import { cuentasDelCatalogo, distanciaASede, nombreSede, validarBorrador, type Borrador, type Catalogo, type EntradaValidacion, type Rechazo } from './propuesta'
+import { ETIQUETA_MEDIO, type ErrorVisita } from './tipos'
 
 /** Por debajo de esto la IA no está segura: la tarjeta abre completa. */
 export const CONFIANZA_MINIMA_RESUMEN = 0.6
@@ -111,6 +114,39 @@ export function filasResumen(borrador: Borrador, catalogo: Catalogo, opciones: {
 /** El botón del pie fijo: "Confirmar visita 1 de 2"; con una sola, "Confirmar esta visita". */
 export function textoPieConfirmar(numero: number, total: number): string {
   return total <= 1 ? 'Confirmar esta visita' : `Confirmar visita ${numero} de ${total}`
+}
+
+/** "A y B", "A, B y C". */
+function juntarNombres(nombres: readonly string[]): string {
+  if (nombres.length <= 1) return nombres[0] ?? ''
+  return `${nombres.slice(0, -1).join(', ')} y ${nombres[nombres.length - 1]}`
+}
+
+/**
+ * Lo que dice el pie encima de "Confirmar" (una línea): "Efectiva · PerOssal y Reemplazo articular · sin conclusión",
+ * "Efectiva · 3 líneas · con conclusión", "Efectiva · sin líneas · sin conclusión" o "No efectiva: No estaba".
+ */
+export function resumenParaPie(borrador: Pick<Borrador, 'efectiva' | 'failure_reason' | 'lineas' | 'conclusion'>, catalogo: Pick<Catalogo, 'lineas'>): string {
+  if (!borrador.efectiva) {
+    const motivo = borrador.failure_reason.trim()
+    return motivo ? `No efectiva: ${motivo}` : 'No efectiva'
+  }
+  const lineas = borrador.lineas.map(id => catalogo.lineas.find(l => l.id === id)?.name).filter((nombre): nombre is string => !!nombre)
+  const textoLineas = lineas.length === 0 ? 'sin líneas' : lineas.length <= 2 ? juntarNombres(lineas) : `${lineas.length} líneas`
+  return ['Efectiva', textoLineas, borrador.conclusion.trim() ? 'con conclusión' : 'sin conclusión'].join(' · ')
+}
+
+/**
+ * El aviso del pie cuando la tarjeta que confirma no pasó: lo que falta ("Falta algo: Elige el médico · Elige la sede";
+ * con varias visitas, "Falta algo en la visita 1: …"; como mucho 2 y "…") o el rechazo del servidor ("No se guardó: …").
+ * null si no hay nada que decir.
+ */
+export function avisoDelPie(o: { numero: number; total: number; errores: readonly ErrorVisita[]; rechazo: Pick<Rechazo, 'mensaje'> | null }): string | null {
+  const cual = o.total > 1 ? ` la visita ${o.numero}` : ''
+  if (o.rechazo) return `No se guardó${cual}: ${o.rechazo.mensaje}`
+  if (o.errores.length === 0) return null
+  const mensajes = Array.from(new Set(o.errores.map(e => e.mensaje)))
+  return `Falta algo${o.total > 1 ? ` en la visita ${o.numero}` : ''}: ${mensajes.slice(0, 2).join(' · ')}${mensajes.length > 2 ? ' …' : ''}`
 }
 
 /**

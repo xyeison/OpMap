@@ -310,7 +310,7 @@ Fechas como texto ISO `AAAA-MM-DD` (sin zona horaria); Colombia es UTC−5 sin h
 | `GET /api/me/dias-libres?desde=&hasta=` | visits:report | `{ ejecutiva: { id, nombre }, items, plazo_horas, requiere_aprobacion, motivos }` |
 | `POST /api/me/dias-libres` | visits:report | `diaLibreCreateSchema`: `puedeRegistrarDiaLibre` con el plazo vigente hoy (400 con la fecha límite), día hábil para ella (400 "Ese día no es hábil en tu calendario"), sin duplicado (409), motivo de la lista vigente; estado inicial según `aprobacion_dias_libres.requiere` → 201 |
 | `POST /api/me/dias-libres/[id]/anular` | visits:report | solo su propio día, en `por_aprobar`, o en `registrado` o `aprobado` con fecha ≥ hoy; `motivo_revision = 'Anulado por la ejecutiva'` |
-| `GET /api/me/cuota?mes=AAAA-MM` | visits:report | `{ mes, ejecutiva: { id, nombre }, zona, municipio, perfil, medica: { cuota, meta_dia_hoy, origen }, institucional: { ... }, subtipos: [{ subtipo_id, nombre, cuota, ... }], dias_habiles, dias_habiles_transcurridos, dias_libres, dias_por_aprobar, ritmo }` |
+| `GET /api/me/cuota?mes=AAAA-MM` | visits:report | `{ mes, ejecutiva: { id, nombre }, zona, municipio, perfil, medica: { cuota, meta_dia_hoy, origen }, institucional: { ... }, subtipos: [{ subtipo_id, nombre, cuota, ... }], dias_habiles, dias_habiles_transcurridos, dias_habiles_por_delante, dias_libres, dias_por_aprobar, ritmo }` (`dias_habiles_por_delante`, aditivo desde 2026-10-15: días hábiles después de hoy sin los días libres) |
 
 Ninguna ruta llama a Google ni recalcula asignaciones. PostgREST corta en 1.000 filas: paginar con
 `fetchAllRows` donde haga falta.

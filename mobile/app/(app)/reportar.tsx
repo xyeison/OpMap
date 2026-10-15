@@ -40,6 +40,19 @@
  *   - La tarjeta de voz que está bien sale en resumen; "Confirmar visita 1 de N" va fijo al pie (Pantalla.pie).
  *   - La visita confirmada con próxima reunión de hoy a hoy + 30 ofrece "Agendar esa reunión".
  *   - Vibra con el 201 y deja las marcas de tiempo (lib/tiempos.ts) del dictado.
+ *
+ * Revisión 2026-10-15 (la misma calidad, sin sorpresas):
+ *   - El pie dice QUÉ se confirma ("Efectiva · PerOssal y Reemplazo articular · sin conclusión": resumenParaPie) y, si
+ *     falta algo o el servidor la rechazó, lo dice ahí mismo (avisoDelPie): la tarjeta por toques nace válida y se
+ *     confirma de un toque, así que el pie no deja confirmar a ciegas.
+ *   - En la fase de tarjetas, "¿Dónde estás?" pasa a una línea y "Lo que dijiste" va después de las tarjetas: el resumen
+ *     se ve entero encima del pie.
+ *   - Con el contexto de memoria no se pide nada antes de la lista, así que la señal se comprueba con las visitas de hoy
+ *     (que se piden siempre): mientras no responden, "Hablar" espera; si fallan por red, sale "Sin señal" y solo "Por
+ *     toques" (como antes, cuando cada llegada pedía el contexto). Así no se dicta para perder el audio.
+ *   - La cita tocada en Hoy que quedó pendiente se ve (con "Reportar esa cita" y "Olvidarla") y NO arranca sola al
+ *     terminar un envío: no borra lo recién confirmado ni "Agendar esa reunión".
+ *   - "Descartar" pide confirmación.
  */
 import { useFocusEffect, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -97,7 +110,7 @@ import {
   type Retorno,
 } from '../../lib/retorno'
 import { useSesion } from '../../lib/sesion'
-import { pedidoAgendarDe } from '../../lib/tarjeta-resumen'
+import { avisoDelPie, pedidoAgendarDe, resumenParaPie } from '../../lib/tarjeta-resumen'
 import { marcar } from '../../lib/tiempos'
 import type { CitaItem, ContextoResponse, SedeBusquedaItem, VisitaItem, VisitasResponse } from '../../lib/tipos'
 import { pedirUbicacion, pedirUbicacionEnDosPasos, type ResultadoUbicacion, type Ubicacion } from '../../lib/ubicacion'
@@ -114,7 +127,7 @@ import {
   planCargaReportar,
   type PasoDelReporte,
 } from '../../lib/ubicacion-pasos'
-import { Aviso, Boton, Cargando, Grupo, Insignia, Pantalla, Subtitulo, Tarjeta, Texto, Titulo, useColores } from '../../lib/ui'
+import { Aviso, Boton, Cargando, Grupo, Insignia, Pantalla, Subtitulo, Tarjeta, Texto, Titulo, confirmar, useColores } from '../../lib/ui'
 
 type Fase = 'ubicando' | 'lista' | 'grabando' | 'transcribiendo' | 'proponiendo' | 'tarjetas'
 
@@ -139,6 +152,12 @@ type PedidoDeHoy = { reintento: ReintentoReporte; cita_id?: undefined } | { cita
 
 const pedidoDeReintento = (reintento: ReintentoReporte | null): PedidoDeHoy | null => (reintento ? { reintento } : null)
 const pedidoDeCita = (citaId: string | null): PedidoDeHoy | null => (citaId ? { cita_id: citaId } : null)
+/**
+ * Al terminar un envío solo se arma solo el "Reportar de nuevo" aplazado; la cita tocada en Hoy no (revisión
+ * 2026-10-15): arrancar otra llegada borraría lo recién confirmado y "Agendar esa reunión". La cita sigue pendiente, a la
+ * vista, con "Reportar esa cita".
+ */
+const soloReintento = (pedido: PedidoDeHoy | null): PedidoDeHoy | null => (pedido?.reintento ? pedido : null)
 
 const MENSAJE_CITA_NO_DISPONIBLE = 'La cita que tocaste ya no está pendiente de hoy (quizá ya la reportaste o la cancelaron). Elige dónde estás.'
 
@@ -239,13 +258,31 @@ export default function Reportar() {
    * "Reportar de nuevo" (o la cita tocada en Hoy) aplazado porque había un envío en curso, una tarjeta abierta o una
    * grabación (pasoDelReporte); se arma cuando no se pierde nada.
    */
-  const reintentoAplazado = useRef<PedidoDeHoy | null>(null)
+  const aplazadoGuardado = useRef<PedidoDeHoy | null>(null)
+  /** La cita de Hoy que quedó pendiente (espejo de reintentoAplazado para pintarla). */
+  const [citaAplazada, setCitaAplazada] = useState<string | null>(null)
+  const reintentoAplazado = useRef({
+    get current(): PedidoDeHoy | null {
+      return aplazadoGuardado.current
+    },
+    set current(valor: PedidoDeHoy | null) {
+      aplazadoGuardado.current = valor
+      setCitaAplazada(valor?.cita_id ?? null)
+    },
+  }).current
+  /**
+   * Con el contexto de memoria (sin pedir nada antes de la lista), la señal se comprueba con las visitas de hoy: mientras
+   * no responden, "Hablar" espera (cargando) para no dictar sin red.
+   */
+  const [comprobandoSenal, setComprobandoSenal] = useState(false)
   /** El punto del contexto en uso, sin esperar al siguiente render (afinar lo compara con la final). */
   const puntoDelContexto = useRef<Punto | null>(null)
   /** Cada recarga sin tapar lleva su turno: la respuesta de una vieja que llega tarde no pisa a la nueva. */
   const recargas = useRef(0)
   /** Hay tarjetas nuevas sin tocar: el primer toque deja la marca primer_toque_tarjeta. */
   const primerToquePendiente = useRef(false)
+  /** Cuándo llegó el contexto en uso (ms): es la hora que dice "Sin señal" si después falla la red. */
+  const recibidoContexto = useRef<number | null>(null)
 
   const punto: (Punto & { precision: number | null }) | null = ubicacion ? { lat: ubicacion.lat, lng: ubicacion.lng, precision: ubicacion.precision } : null
   const sinSenal = sinSenalDesde !== null
@@ -321,6 +358,7 @@ export default function Reportar() {
         fijarPuntoContexto(nuevo)
         setErrorContexto(null)
         setSinSenalDesde(null)
+        recibidoContexto.current = Date.now()
         void guardarContexto(usuarioId, ctx.value)
         return { contexto: ctx.value, sinSenal: false }
       }
@@ -333,6 +371,7 @@ export default function Reportar() {
           fijarPuntoContexto(null)
           setErrorContexto(null)
           setSinSenalDesde(guardado.guardado_at)
+          recibidoContexto.current = Date.parse(guardado.guardado_at)
           return { contexto: guardado.contexto, sinSenal: true }
         }
       }
@@ -361,9 +400,12 @@ export default function Reportar() {
         fijarPuntoContexto(lugar)
         setErrorContexto(null)
         setSinSenalDesde(null)
+        recibidoContexto.current = Date.now()
         void guardarContexto(usuarioId, ctx)
-      } catch {
-        // Sin respuesta: queda el contexto de antes.
+      } catch (lanzado) {
+        // Sin respuesta: queda el contexto de antes. Si fue la red, se dice "Sin señal" (y "Hablar" no se ofrece).
+        if (gen !== generacion.current || turno !== recargas.current || !esTransitorio(aApiError(lanzado))) return
+        setSinSenalDesde(prev => prev ?? new Date(recibidoContexto.current ?? Date.now()).toISOString())
       }
     },
     [usuarioId, fijarPuntoContexto]
@@ -405,12 +447,22 @@ export default function Reportar() {
         fijarPuntoContexto(enMemoria.punto)
         setErrorContexto(null)
         setSinSenalDesde(null)
-        // Las visitas de hoy (topes) llegan cuando lleguen: no detienen la lista.
+        recibidoContexto.current = enMemoria.recibidoEn
+        // Las visitas de hoy (topes) llegan cuando lleguen: no detienen la lista. Como aquí no se pidió nada antes de la
+        // lista, son también la prueba de la señal: mientras no responden, "Hablar" espera; si fallan por red, "Sin
+        // señal" con la hora de este contexto (y solo "Por toques"), como cuando cada llegada pedía el contexto.
+        setComprobandoSenal(true)
         opciones.visitas.then(
           v => {
-            if (opciones.vigente()) setVisitasServidor(v.items)
+            if (!opciones.vigente()) return
+            setVisitasServidor(v.items)
+            setComprobandoSenal(false)
           },
-          () => undefined
+          lanzado => {
+            if (!opciones.vigente()) return
+            setComprobandoSenal(false)
+            if (esTransitorio(aApiError(lanzado))) setSinSenalDesde(new Date(enMemoria.recibidoEn).toISOString())
+          }
         )
         if (plan === 'pintar_y_refrescar' && primera) void recargarSinTapar(gen, primera)
         return { contexto: enMemoria.contexto, sinSenal: false }
@@ -451,6 +503,7 @@ export default function Reportar() {
       setCitaElegida(null)
       setBuscandoSede(false)
       setAvisoCita(null)
+      setComprobandoSenal(false)
       esperandoCreacion.current = false
       primerToquePendiente.current = false
       // Las visitas de hoy no dependen del punto: se piden ya, a la vez que la ubicación.
@@ -820,13 +873,14 @@ export default function Reportar() {
     } finally {
       enviosEnCurso.current--
       // Si Hoy pidió "Reportar de nuevo" mientras esta tarjeta se enviaba (se aplazó), se arma ahora, salvo que borre
-      // algo sin guardar (esta tarjeta rechazada, otra abierta, una grabación): entonces sigue aplazado en su ref.
+      // algo sin guardar (esta tarjeta rechazada, otra abierta, una grabación): entonces sigue aplazado en su ref. La
+      // cita tocada en Hoy no arranca sola aquí (soloReintento): queda a la vista con "Reportar esa cita".
       aplicarPaso(
         pasoDelReporte({
           motivo: 'envio',
           iniciado: true,
           nuevo: null,
-          aplazado: reintentoAplazado.current,
+          aplazado: soloReintento(reintentoAplazado.current),
           enviando: enviosEnCurso.current,
           ocupada: esFaseOcupada(ultimo.current.fase),
           abiertas: abiertasAlTerminarEnvio(ultimo.current.tarjetas, guardada),
@@ -839,8 +893,11 @@ export default function Reportar() {
     }
   }
 
-  const descartar = (clave: string) => {
+  /** "Descartar" borra lo dictado o escrito de esa tarjeta sin deshacer: se pregunta antes. */
+  const descartar = async (clave: string) => {
     tocarTarjeta()
+    const si = await confirmar('¿Descartar esta visita?', 'Se borra lo que tiene esta tarjeta y no se guarda nada.', 'Descartar', true)
+    if (!si) return
     setBorradores(prev => prev.filter(b => b.clave !== clave))
   }
 
@@ -938,25 +995,66 @@ export default function Reportar() {
   const totalVisitas = yaConfirmadas + borradores.length
   /** La primera tarjeta abierta se confirma desde el pie fijo (visible sin desplazar); las demás, con su propio botón. */
   const primeraAbierta = fase === 'tarjetas' ? (borradores[0] ?? null) : null
+  // El pie dice qué se confirma y, si falta algo o el servidor la rechazó, lo dice ahí (la tarjeta puede estar fuera de la
+  // vista y la vibración no se siente en todos lados).
+  const estadoPrimera = primeraAbierta ? estadoDe(primeraAbierta.clave) : null
+  const avisoPie =
+    primeraAbierta && estadoPrimera
+      ? avisoDelPie({
+          numero: yaConfirmadas + 1,
+          total: totalVisitas,
+          errores: estadoPrimera.intentado ? validarBorrador(primeraAbierta, catalogo, { punto, checked_in_at: llegada, ahora: new Date(), visitasHoy }).errores : [],
+          rechazo: estadoPrimera.rechazo,
+        })
+      : null
   const pie = primeraAbierta ? (
-    <PieConfirmar numero={yaConfirmadas + 1} total={totalVisitas} enviando={estadoDe(primeraAbierta.clave).enviando} alConfirmar={() => void confirmarTarjeta(primeraAbierta.clave)} />
+    <PieConfirmar numero={yaConfirmadas + 1} total={totalVisitas} enviando={estadoDe(primeraAbierta.clave).enviando} alConfirmar={() => void confirmarTarjeta(primeraAbierta.clave)} resumen={resumenParaPie(primeraAbierta, catalogo)} aviso={avisoPie} />
   ) : undefined
   const hoy = hoyBogota()
+  /** "Reportar esa cita": una llegada nueva con la cita pendiente (sale del ref: ya no está pendiente). */
+  const reportarCitaAplazada = () => {
+    const pedido = reintentoAplazado.current
+    reintentoAplazado.current = null
+    if (pedido) void iniciar(pedido)
+  }
+  /** La cita tocada en Hoy que quedó pendiente (no se perdió nada abierto): se ve y se elige con un toque. */
+  const citaPendiente = citaAplazada ? ((contexto.agenda_hoy ?? []).find(c => c.id === citaAplazada) ?? null) : null
+  const nadaAbierto = borradores.length === 0 && (fase === 'lista' || fase === 'tarjetas')
+  const avisoCitaPendiente = citaAplazada ? (
+    <Aviso
+      tono="info"
+      titulo={citaPendiente ? `Cita de las ${textoHoraCita(citaPendiente.hora)} con ${conQuienCita(citaPendiente)}` : 'La cita que tocaste en Hoy'}
+      accion={
+        <Grupo>
+          {nadaAbierto ? <Boton titulo="Reportar esa cita" variante="secundario" alPresionar={reportarCitaAplazada} /> : null}
+          <Boton
+            titulo="Olvidarla"
+            variante="texto"
+            alPresionar={() => {
+              reintentoAplazado.current = null
+            }}
+          />
+        </Grupo>
+      }
+    >
+      {nadaAbierto ? 'La tocaste en Hoy. Repórtala ahora o sigue aquí.' : 'La tocaste en Hoy: la eliges al terminar lo que tienes abierto aquí (no se borra nada).'}
+    </Aviso>
+  ) : null
 
   return (
     <Pantalla pie={pie}>
-      {/* 1. Dónde estás */}
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+      {/* 1. Dónde estás (con tarjetas abiertas, en una línea: la tarjeta va primero) */}
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: fase === 'tarjetas' ? 'center' : 'flex-start', gap: 8 }}>
         <View style={{ gap: 4, flexShrink: 1 }}>
-          <Titulo>¿Dónde estás?</Titulo>
-          <Texto suave>
+          {fase === 'tarjetas' ? null : <Titulo>¿Dónde estás?</Titulo>}
+          <Texto suave peque={fase === 'tarjetas'}>
             Llegada {horaBogota(llegada)}
             {ubicacion?.precision != null ? ` · ${textoPrecision(ubicacion.precision)}` : ''}
             {afinando ? ' · afinando la ubicación…' : ubicacion?.aproximada ? ' · ubicación aproximada' : ''}
           </Texto>
         </View>
         {ubicacion && !afinando && (fase === 'lista' || fase === 'tarjetas') ? (
-          <Boton titulo="Actualizar" variante="texto" cargando={reubicando} alPresionar={() => void reubicar()} />
+          <Boton titulo="Actualizar" variante="texto" cargando={reubicando} alPresionar={() => void reubicar()} estilo={fase === 'tarjetas' ? { paddingVertical: 4 } : undefined} />
         ) : null}
       </View>
 
@@ -964,6 +1062,7 @@ export default function Reportar() {
       {fase === 'lista' && !eligio ? <Texto>Toca tu cita o la sede donde estás. Después cuentas qué pasó, hablando o por toques.</Texto> : null}
 
       {avisoCita ? <Aviso tono="info">{avisoCita}</Aviso> : null}
+      {nadaAbierto ? avisoCitaPendiente : null}
 
       {sinSenalDesde ? (
         <Aviso tono="alerta" titulo="Sin señal">
@@ -1058,6 +1157,7 @@ export default function Reportar() {
               titulo="Hablar"
               detalle={cita ? `Cuenta qué pasó con ${conQuienCita(cita)}` : 'Cuenta qué pasó: con quién, qué quedó pendiente'}
               grande
+              cargando={comprobandoSenal}
               alPresionar={() => hablar('nuevo')}
             />
           ) : (
@@ -1100,7 +1200,6 @@ export default function Reportar() {
       {fase === 'tarjetas' && borradores.length > 0 ? (
         <View style={{ gap: 14 }}>
           {avisoVoz ? <Aviso tono="info">{avisoVoz}</Aviso> : null}
-          {transcript ? <LoQueDijiste texto={transcript} /> : null}
           {borradores.map((borrador, indice) => (
             <TarjetaBorrador
               key={borrador.clave}
@@ -1115,7 +1214,7 @@ export default function Reportar() {
               estado={estadoDe(borrador.clave)}
               alCambiar={cambios => cambiar(borrador.clave, cambios)}
               alConfirmar={() => void confirmarTarjeta(borrador.clave)}
-              alDescartar={() => descartar(borrador.clave)}
+              alDescartar={() => void descartar(borrador.clave)}
               alCrearMedico={() => pedirMedico(borrador)}
               alCrearSede={() => pedirSede(borrador.clave)}
               alAgregarMedico={medico => {
@@ -1132,12 +1231,16 @@ export default function Reportar() {
               alTocar={tocarTarjeta}
             />
           ))}
+          {/* Después de las tarjetas: lo que hay que revisar (el resumen) queda encima del pie. */}
+          {transcript ? <LoQueDijiste texto={transcript} /> : null}
           <Grupo>
             {vozLista && transcript ? <Boton titulo="Corregir hablando" variante="secundario" alPresionar={() => hablar('corregir')} /> : null}
             {eligio ? <Boton titulo="Agregar otra visita" variante="secundario" alPresionar={porToques} /> : null}
           </Grupo>
         </View>
       ) : null}
+
+      {!nadaAbierto ? avisoCitaPendiente : null}
 
       {/* 3. Resultado */}
       {resultados.length > 0 ? (

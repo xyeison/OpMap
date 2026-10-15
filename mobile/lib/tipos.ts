@@ -381,6 +381,11 @@ export interface CuotaResponse {
   subtipos: CuotaSubtipo[]
   dias_habiles: number
   dias_habiles_transcurridos: number
+  /**
+   * Días hábiles después de hoy sin los días libres (aditivo, 2026-10-15). Un servidor anterior no lo manda: la app no se
+   * fía del tipo y lo revisa al usarlo (lib/pantallas.ts diasPorDelante).
+   */
+  dias_habiles_por_delante: number
   dias_libres: number
   dias_por_aprobar: number
   ritmo: number

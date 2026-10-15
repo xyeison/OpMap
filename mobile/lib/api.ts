@@ -344,9 +344,15 @@ export function verificarMedico(datos: MedicoVerificar): Promise<MedicoVerificar
   return peticion<MedicoVerificarRespuesta>('/api/terceros/medicos/verificar', { metodo: 'POST', cuerpo: datos })
 }
 
+// Crear un médico, una cuenta o una sede, o vincular una sede a un médico, cambia lo que trae el contexto (mis_medicos y
+// sus sedes, las sedes cercanas): después del 2xx el contexto en memoria deja de servir (invalidarContexto('terceros'),
+// revisión 2026-10-15), y la siguiente llegada, Agendar o Visita lo piden de nuevo con lo recién creado.
+
 /** Crea un médico completo (409 con { existente } si el documento ya está). */
-export function crearMedico(datos: MedicoCreate): Promise<MedicoCreateResponse> {
-  return peticion<MedicoCreateResponse>('/api/terceros/medicos', { metodo: 'POST', cuerpo: datos })
+export async function crearMedico(datos: MedicoCreate): Promise<MedicoCreateResponse> {
+  const respuesta = await peticion<MedicoCreateResponse>('/api/terceros/medicos', { metodo: 'POST', cuerpo: datos })
+  invalidarContexto('terceros')
+  return respuesta
 }
 
 /** Busca médicos por nombre (todas las palabras, sin importar tildes). Nunca trae documentos. */
@@ -360,8 +366,10 @@ export function medico(id: string): Promise<{ medico: MedicoPublico }> {
 }
 
 /** Vincula una sede más a un médico (el médico atiende también ahí). */
-export function vincularSedeMedico(medicoId: string, sede: MedicoSedeCreate): Promise<{ medico: MedicoPublico }> {
-  return peticion<{ medico: MedicoPublico }>(`/api/terceros/medicos/${encodeURIComponent(medicoId)}/sedes`, { metodo: 'POST', cuerpo: sede })
+export async function vincularSedeMedico(medicoId: string, sede: MedicoSedeCreate): Promise<{ medico: MedicoPublico }> {
+  const respuesta = await peticion<{ medico: MedicoPublico }>(`/api/terceros/medicos/${encodeURIComponent(medicoId)}/sedes`, { metodo: 'POST', cuerpo: sede })
+  invalidarContexto('terceros')
+  return respuesta
 }
 
 /** Buscador de sedes activas por nombre de sede o de cuenta, o por código de habilitación. */
@@ -380,13 +388,17 @@ export function cuenta(id: string): Promise<CuentaDetalleResponse> {
 }
 
 /** Crea una cuenta con su sede principal (p. ej. el consultorio de un médico). */
-export function crearCuenta(datos: CuentaCreate): Promise<CuentaCreateResponse> {
-  return peticion<CuentaCreateResponse>('/api/terceros/cuentas', { metodo: 'POST', cuerpo: datos })
+export async function crearCuenta(datos: CuentaCreate): Promise<CuentaCreateResponse> {
+  const respuesta = await peticion<CuentaCreateResponse>('/api/terceros/cuentas', { metodo: 'POST', cuerpo: datos })
+  invalidarContexto('terceros')
+  return respuesta
 }
 
 /** Crea una sede con el GPS del sitio (origen 'gps_app'). */
-export function crearSede(datos: SedeCreateGps): Promise<SedeCreateResponse> {
-  return peticion<SedeCreateResponse>('/api/terceros/sedes', { metodo: 'POST', cuerpo: datos })
+export async function crearSede(datos: SedeCreateGps): Promise<SedeCreateResponse> {
+  const respuesta = await peticion<SedeCreateResponse>('/api/terceros/sedes', { metodo: 'POST', cuerpo: datos })
+  invalidarContexto('terceros')
+  return respuesta
 }
 
 /** Departamentos de Colombia (código DANE de 2 dígitos). */

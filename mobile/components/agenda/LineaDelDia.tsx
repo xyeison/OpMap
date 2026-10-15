@@ -3,12 +3,16 @@
  * y sus citas; la línea "Ahora" si el día es hoy; una franja libre que aún se puede agendar se toca y abre Agendar a
  * esa hora; tocar una cita abre su detalle ahí mismo (debajo de ella). Las citas viejas sin hora van al final, en "Sin
  * hora", y las canceladas en "Ver canceladas (n)". Cada cita ocupa una franja (DURACION_VISUAL_MIN: no hay duración).
- * Reglas puras en lib/agenda.ts (ocupacionDelDia, filaDeAhora, franjaPasada).
+ * Revisión 2026-10-15: tres o más franjas libres seguidas van plegadas en una fila ("Libre de 07:00 a 09:00 · Ver horas";
+ * al tocarla se despliegan para elegir la hora), cortadas en la línea "Ahora": un día con 2 citas ya no son 24 filas y
+ * "Sin hora" y "Ver canceladas" quedan cerca. Reglas puras en lib/agenda.ts (ocupacionDelDia, plegarLibres, filaDeAhora,
+ * franjaPasada).
  */
 import { useState, type JSX, type ReactNode } from 'react'
 import { Pressable, Text, View } from 'react-native'
-import { filaDeAhora, franjaPasada, ocupacionDelDia } from '../../lib/agenda'
+import { filaDeAhora, franjaPasada, ocupacionDelDia, plegarLibres, type FilaDelDia } from '../../lib/agenda'
 import { hoyBogota, horaBogota } from '../../lib/fechas'
+import { citaAtrasada } from '../../lib/pantallas'
 import { Icono } from '../../lib/iconos'
 import { conQuienCita, cuentaDistinta } from '../../lib/reglas'
 import { ETIQUETA_ESTADO_CITA, type CitaItem } from '../../lib/tipos'
@@ -37,6 +41,9 @@ export function LineaDelDia({ fecha, citas, agendable, alTocarFranja, alTocarCit
   const c = useColores()
   const fuente = useFuente()
   const [verCanceladas, setVerCanceladas] = useState(false)
+  /** Tramos libres desplegados (clave: la franja con que empiezan); se vuelven a plegar al cambiar de día. */
+  const [desplegados, setDesplegados] = useState<{ fecha: string; franjas: ReadonlySet<string> }>({ fecha, franjas: new Set() })
+  const abiertos = desplegados.fecha === fecha ? desplegados.franjas : new Set<string>()
   const reloj = ahora ?? new Date()
   const { filas, sinHora } = ocupacionDelDia(citas)
   const canceladas = citas.filter(cita => cita.estado === 'cancelada')
@@ -85,7 +92,7 @@ export function LineaDelDia({ fecha, citas, agendable, alTocarFranja, alTocarCit
             <Text numberOfLines={2} style={[{ color: c.texto, fontSize: 16, flex: 1 }, fuente('negrita')]}>
               {`${cita.hora ? `${cita.hora.slice(0, 5)} · ` : ''}${conQuienCita(cita)}`}
             </Text>
-            {cita.estado !== 'pendiente' ? <Insignia texto={ETIQUETA_ESTADO_CITA[cita.estado]} tono={cita.estado === 'hecha' ? 'exito' : 'neutro'} /> : null}
+            {cita.estado !== 'pendiente' ? <Insignia texto={ETIQUETA_ESTADO_CITA[cita.estado]} tono={cita.estado === 'hecha' ? 'exito' : 'neutro'} /> : citaAtrasada(cita, reloj) ? <Insignia texto="Atrasada" tono="alerta" /> : null}
           </View>
           <Text numberOfLines={1} style={[{ color: c.textoSuave, fontSize: 14 }, fuente('regular')]}>
             {cuenta ? `${cita.sede.nombre} · ${cuenta}` : cita.sede.nombre}
@@ -96,14 +103,12 @@ export function LineaDelDia({ fecha, citas, agendable, alTocarFranja, alTocarCit
     )
   }
 
-  const filasDibujadas: ReactNode[] = []
-  filas.forEach((fila, i) => {
-    if (i === indiceAhora) filasDibujadas.push(lineaAhora)
+  const filaDibujada = (fila: FilaDelDia<CitaItem>) => {
     const pasada = franjaPasada(fecha, fila.franja, reloj)
     const libre = fila.citas.length === 0
     const tocable = libre && agendable && !pasada
     const enPunto = fila.franja.endsWith(':00')
-    filasDibujadas.push(
+    return (
       <View key={fila.franja} style={{ flexDirection: 'row', gap: 10, minHeight: libre && !tocable ? 32 : ALTO_TOQUE_MIN }}>
         <Text style={[{ width: 52, paddingTop: libre ? 0 : 10, color: enPunto ? c.texto : c.textoSuave, fontSize: 14, textAlign: 'right', alignSelf: libre ? 'center' : 'flex-start' }, fuente(enPunto ? 'media' : 'regular')]}>
           {fila.franja}
@@ -127,7 +132,41 @@ export function LineaDelDia({ fecha, citas, agendable, alTocarFranja, alTocarCit
         </View>
       </View>
     )
-  })
+  }
+
+  // Las libres seguidas, plegadas (cortadas donde va "Ahora"); un tramo que aún se puede agendar se despliega al tocarlo.
+  const filasDibujadas: ReactNode[] = []
+  for (const tramo of plegarLibres(filas, { cortes: indiceAhora >= 0 ? [indiceAhora] : [], desplegados: abiertos })) {
+    const primero = tramo.tipo === 'fila' ? tramo.indice : tramo.indices[0]
+    if (primero === indiceAhora) filasDibujadas.push(lineaAhora)
+    if (tramo.tipo === 'fila') {
+      filasDibujadas.push(filaDibujada(tramo.fila))
+      continue
+    }
+    const desplegable = agendable && !franjaPasada(fecha, tramo.filas[tramo.filas.length - 1].franja, reloj)
+    const texto = `Libre de ${tramo.desde} a ${tramo.hasta}`
+    filasDibujadas.push(
+      <View key={`libres-${tramo.desde}`} style={{ flexDirection: 'row', gap: 10, minHeight: desplegable ? ALTO_TOQUE_MIN : 32 }}>
+        <Text style={[{ width: 52, color: c.textoSuave, fontSize: 14, textAlign: 'right', alignSelf: 'center' }, fuente('regular')]}>{tramo.desde}</Text>
+        <View style={{ flex: 1, borderTopWidth: 1, borderTopColor: c.borde, justifyContent: 'center' }}>
+          {desplegable ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`${texto}. Toca para ver las horas y agendar`}
+              onPress={() => setDesplegados({ fecha, franjas: new Set([...abiertos, tramo.desde]) })}
+              style={({ pressed }) => ({ minHeight: ALTO_TOQUE_MIN - 4, flexDirection: 'row', alignItems: 'center', gap: 6, opacity: pressed ? 0.5 : 1 })}
+            >
+              <Icono nombre="mas" tamano={18} color={c.textoSuave} />
+              <Text style={[{ color: c.textoSuave, fontSize: 14, flex: 1 }, fuente('regular')]}>{texto}</Text>
+              <Text style={[{ color: c.texto, fontSize: 14, textDecorationLine: 'underline' }, fuente('media')]}>Ver horas</Text>
+            </Pressable>
+          ) : (
+            <Text style={[{ color: c.textoSuave, fontSize: 14 }, fuente('regular')]}>{texto}</Text>
+          )}
+        </View>
+      </View>
+    )
+  }
   if (indiceAhora === filas.length) filasDibujadas.push(lineaAhora)
 
   return (

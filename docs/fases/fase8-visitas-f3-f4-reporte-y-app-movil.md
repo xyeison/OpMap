@@ -709,10 +709,11 @@ Decisión del dueño: `docs/decisiones/2026-10-15-agenda-con-hora-y-calendario.m
     comprueba al compilar que lo que manda la app (`cuerpoCitaConHora`) cabe en `W.CitaCreate`.
 - **Agendar como calendario** (`mobile/app/(app)/agenda/nueva.tsx`): "¿Cuándo?" (mes en cuadrícula, lunes primero, de
   hoy a hoy + 30, el día libre que impide agendar apagado, la cantidad de citas por día) → "¿A qué hora?" (medias horas de
-  07:00 a 18:30 en Mañana y Tarde, "Otra hora" cada 15 minutos de 05:00 a 21:45, "Ese día ya tienes: …", aviso de choque
-  que no bloquea) → "¿Con quién?" (selector cerrado y la búsqueda a la vista) → nota; al pie, fijo, "Agendar · jueves 16
-  oct · 10:00". Abre con la franja tocada en Mi agenda (`rutaAgendar`: solo fecha y hora en la URL) o con la primera
-  libre desde las 08:00; el "con quién" puede venir en memoria (`fijarPedidoAgendar` / `tomarPedidoAgendar`, se toma una
+  07:00 a 18:30 en "Por la mañana" y "Por la tarde", "Otra hora" cada 15 minutos de 05:00 a 21:45, "Ese día ya tienes"
+  como lista, aviso de choque en el pie que no bloquea) → "¿Con quién?" (selector cerrado con un solo buscador, que
+  ofrece "Buscar en OpMap" con lo escrito) → nota; al pie, fijo, "Agendar · jueves 16 oct · 10:00". Abre con la franja
+  tocada en Mi agenda (`rutaAgendar`: solo fecha y hora en la URL) o con la primera libre desde las 08:00 de MAÑANA
+  (`fechaInicialAgendar`: la cita de hoy cuenta como no agendada); el "con quién" puede venir en memoria (`fijarPedidoAgendar` / `tomarPedidoAgendar`, se toma una
   vez). Una sola carga de 31 días (`api.agenda(hoy, hoy + 30)` y `api.diasLibres(hoy, hoy + 30)`); los datos fijos, del
   contexto en memoria de menos de 10 minutos o de `GET /api/me/contexto`. Al agendar: `invalidarContexto('cita')` y vuelta
   a `/agenda?fecha=…` con la cita resaltada.
@@ -726,7 +727,8 @@ Decisión del dueño: `docs/decisiones/2026-10-15-agenda-con-hora-y-calendario.m
   bloque de 30 minutos (`DURACION_VISUAL_MIN`, sin columna de duración); dos citas cuyos bloques se pisan solo se avisan.
 - Código puro de la app: `mobile/lib/agenda.ts` (franjas, `ocupacionDelDia`, `siguienteFranjaLibre`, `primeraFranjaLibre`,
   `validarCitaConHora`, `cuerpoCitaConHora`, `textoBotonAgendar`, `avisoChoque`, `avisoAgendadaHoy`, `textoCitasDelDia`,
-  `medicosConCitaEseDia`, `marcasDelMes`, `bloqueaAgendar`) y `mobile/lib/calendario.ts` (`cuadriculaMes`, `semanaDe`,
+  `lineasCitasDelDia`, `medicosConCitaEseDia`, `marcasDelMes`, `bloqueaAgendar`, `fechaInicialAgendar`,
+  `errorCitaRepetida`, `plegarLibres`, `vistaCalendarioAgendar`) y `mobile/lib/calendario.ts` (`cuadriculaMes`, `semanaDe`,
   `lunesDe`, `rangoDeMes`, `mesDe`, `mesSiguiente`, `mesAnterior`, `tituloMes`). Componentes en `mobile/components/agenda/`:
   `CalendarioMes`, `SelectorHora`, `LineaDelDia` y `DetalleCita`.
 - Pruebas: `web/scripts/reporte-check.ts` (10e: sin hora, `''`, espacios o `null` → "Elige la hora de la cita" en `hora`),
@@ -749,11 +751,13 @@ responden las rutas.
   `validarBorrador`. La cita tocada en Hoy entra por `tomarCitaParaReportar` con las reglas de `pasoDelReporte`.
 - **Contexto en memoria** (`mobile/lib/contexto-memoria.ts`): Hoy y Reportar lo usan con menos de 60 s y a menos de
   100 m del punto pedido; entre 60 s y 3 min pintan y refrescan (`planCargaReportar`); Agendar y Visita reusan los datos
-  fijos hasta 10 min. Se invalida con el 201 de una visita (`'visita'`), al agendar o cancelar (`'cita'`), al registrar o
-  anular un día libre (`'dia_libre'`) y se olvida al cerrar sesión. La ubicación final y lo que decide el servidor no
-  cambian.
+  fijos hasta 10 min. Solo sirve el mismo día en Bogotá (`contexto.hoy.fecha`). Se invalida con el 201 de una visita
+  (`'visita'`), al agendar o cancelar (`'cita'`), al registrar o anular un día libre (`'dia_libre'`), al crear un
+  médico, una cuenta o una sede o vincular una sede a un médico (`'terceros'`, en `lib/api.ts` después del 2xx) y se
+  olvida al cerrar sesión. La ubicación final y lo que decide el servidor no cambian.
 - **Sesión** (`mobile/lib/sesion-reglas.ts`): con perfil guardado y token vigente la app entra ya y confirma
-  `/api/auth/me` en segundo plano (`TIEMPO_ME_MS = 5_000`); un 401 sigue cerrando la sesión. El token vive en memoria
+  `/api/auth/me` en segundo plano con el tiempo de una petición normal (`TIEMPO_ME_FONDO_MS = 20_000`); solo la espera
+  sin perfil guardado usa `TIEMPO_ME_MS = 5_000`. Un 401 sigue cerrando la sesión. El token vive en memoria
   (`MemoriaToken`).
 - **Medición**: toda ruta de `/api/me/*` (también `/api/me/agenda/**`) responde la cabecera aditiva `Server-Timing`
   (`fase;dur=ms, …, total;dur=ms`) y deja en `console.info` una línea `[tiempos] <MÉTODO> <ruta con :id> fase=ms …
@@ -763,3 +767,25 @@ responden las rutas.
   del dueño, D7 de la spec).
 - Pruebas: secciones 15 a 19 de `mobile/scripts/movil-check.ts` (`mobile/scripts/checks/15-navegacion.ts` …
   `19-pantallas.ts`) y `web/scripts/tiempos-check.ts`.
+
+### Correcciones de la revisión de usabilidad (2026-10-15)
+
+Spec: `docs/specs/2026-10-15-usabilidad-y-agenda-con-hora.md` ("Revisión de la rama"). Sin migración.
+
+- **API (aditivo)**: `GET /api/me/cuota`, `GET /api/me/numeros` (en `cuota`) y `GET /api/config-visitas/cuota` traen
+  `dias_habiles_por_delante`: días hábiles después de hoy sin los días libres (`cuotaPeriodo.diasHabilesPorDelante`).
+  Números dice "Te faltan 62 visitas médicas: 7 por día en los 10 días hábiles que quedan" con esa cifra (antes dividía
+  también por los días libres que vienen); con un servidor anterior y días libres en el mes, no lo muestra.
+- **Reportar**: el pie dice qué se confirma ("Efectiva · PerOssal y Reemplazo articular · sin conclusión") o lo que falta
+  / el rechazo; con tarjetas, "¿Dónde estás?" en una línea y "Lo que dijiste" después de las tarjetas; con el contexto de
+  memoria, "Hablar" espera a que respondan las visitas de hoy y, sin red, "Sin señal" y solo "Por toques"; la cita tocada
+  en Hoy que quedó pendiente se ve ("Reportar esa cita", "Olvidarla") y no arranca sola al terminar un envío;
+  "Descartar" pregunta antes.
+- **Agendar**: hoy a una hora pasada → "Esa hora ya pasó: elige una hora más tarde" (solo la app; el servidor acepta
+  cualquier hora de hoy); el mismo médico (o cuenta y subtipo) con cita en pie ese día se avisa al elegirlo, con el texto
+  de la base; en pantallas bajas (< 700 pt) el calendario abre en la semana.
+- **Mi agenda y Días libres**: la línea del día pliega 3 o más medias horas libres seguidas ("Libre de 07:00 a 09:00 ·
+  Ver horas"); el error es por mes; "Hoy" en el calendario; el aviso de cancelar sale junto al día; un día libre con citas
+  pendientes se avisa en Mi agenda y al pedirlo en Días libres (que marca las citas de hoy a hoy + 30).
+- **Barra**: la caja del ícono mide 24 pt (`tabBarIconStyle`): sin margen inferior (iPhone SE u 8) el nombre ya no toca
+  el borde.

@@ -2,11 +2,14 @@
  * El último contexto del reporte (POST /api/me/contexto) en MEMORIA mientras la app está abierta (spec 2026-10-15,
  * decisión 7): Hoy y Reportar no piden de nuevo antes de 60 s y entre 60 s y 3 min pintan y refrescan sin tapar;
  * Agendar y Visita reusan lo que no depende del punto (médicos, perfil, líneas, voz) hasta 10 min. Solo se reusa a
- * menos de DISTANCIA_RECARGA_M del punto con que se pidió. Se invalida con el 201 de una visita, al agendar o cancelar
- * una cita, al registrar o anular un día libre y al cerrar sesión. Puro: sin react-native ni almacén (el respaldo sin
+ * menos de DISTANCIA_RECARGA_M del punto con que se pidió, y solo el MISMO día en Bogotá (después de la medianoche las
+ * citas, la meta y la configuración de ayer no sirven). Se invalida con el 201 de una visita, al agendar o cancelar una
+ * cita, al registrar o anular un día libre, al crear un médico o una sede o vincular una sede a un médico (revisión
+ * 2026-10-15: lo nuevo debe salir en las listas) y al cerrar sesión. Puro: sin react-native ni almacén (el respaldo sin
  * señal sigue en lib/contexto-guardado.ts). La ubicación final de la visita y lo que decide el servidor no cambian.
  * Lo prueba scripts/checks/18-tiempos.ts.
  */
+import { hoyBogota } from './fechas'
 import { esPunto, haversineM, type Punto } from './geo'
 import type { ContextoResponse } from './tipos'
 
@@ -18,7 +21,8 @@ export interface ContextoEnMemoria {
   recibidoEn: number
 }
 
-export type MotivoInvalidacion = 'visita' | 'cita' | 'dia_libre' | 'sesion'
+/** 'terceros': se creó un médico o una sede, o se vinculó una sede a un médico (cambian mis_medicos y las sedes). */
+export type MotivoInvalidacion = 'visita' | 'cita' | 'dia_libre' | 'terceros' | 'sesion'
 
 /** Hoy y Reportar no piden de nuevo antes de esto. */
 export const FRESCURA_SIN_PEDIR_MS = 60_000
@@ -56,13 +60,17 @@ export function recordarContexto(contexto: ContextoResponse, punto: Punto | null
  * El contexto en memoria si tiene menos de `maxEdadMs` y, si se pide `cercaDe`, está a menos de `maxDistanciaM`
  * (por defecto DISTANCIA_REUSO_M, 100 m) de ese punto. Con `cercaDe` y sin punto guardado → null; `cercaDe: null` (se
  * pide cercanía pero no hay ubicación) → null: no se puede saber si es el mismo sitio. Sin `cercaDe` no mira el punto
- * (Agendar y Visita: lo que no depende de dónde está). Una entrada "del futuro" (reloj cambiado) no sirve.
+ * (Agendar y Visita: lo que no depende de dónde está). Una entrada "del futuro" (reloj cambiado) no sirve, y tampoco una
+ * de otro día en Bogotá (`contexto.hoy.fecha`): pasada la medianoche se pide de nuevo (las citas de hoy, la meta y la
+ * configuración son de ese día), como exige contextoUsable para el guardado sin señal.
  */
 export function contextoReciente(o: { maxEdadMs: number; cercaDe?: Punto | null; maxDistanciaM?: number; ahora?: number }): ContextoEnMemoria | null {
   const entrada = ultimo
   if (!entrada) return null
-  const edad = (o.ahora ?? Date.now()) - entrada.recibidoEn
+  const ahora = o.ahora ?? Date.now()
+  const edad = ahora - entrada.recibidoEn
   if (!Number.isFinite(edad) || edad < 0 || edad >= o.maxEdadMs) return null
+  if (entrada.contexto.hoy?.fecha !== hoyBogota(new Date(ahora))) return null
   if (o.cercaDe === undefined) return entrada
   if (!o.cercaDe || !esPunto(o.cercaDe.lat, o.cercaDe.lng) || !entrada.punto) return null
   return haversineM(entrada.punto, o.cercaDe) < (o.maxDistanciaM ?? DISTANCIA_REUSO_M) ? entrada : null

@@ -1231,6 +1231,12 @@ export interface ResultadoCuota {
   diasHabiles: number
   /** Días hábiles hasta hoy, incluido. */
   diasHabilesTranscurridos: number
+  /**
+   * Días hábiles DESPUÉS de hoy sin los días libres (Σ max(0, hábil − libre)): los que quedan para hacer lo que falta.
+   * diasHabiles − diasHabilesTranscurridos cuenta también los días libres que vienen (la app de visita dividía por
+   * ellos: "6 por día hábil" cuando eran 7; revisión 2026-10-15).
+   */
+  diasHabilesPorDelante: number
   diasLibres: number
   diasPorAprobar: number
   /** Meta del día completo que rige hoy (con el perfil y el factor del primer mes; 0 si no aplica). */
@@ -1301,6 +1307,7 @@ export function cuotaPeriodo(entrada: {
   let cuota = 0
   let diasHabiles = 0
   let diasHabilesTranscurridos = 0
+  let diasHabilesPorDelante = 0
   let diasLibres = 0
   let diasPorAprobar = 0
   let aplicaEnPeriodo = false
@@ -1319,6 +1326,7 @@ export function cuotaPeriodo(entrada: {
     cuota += aporte
     diasHabiles += habil
     if (fecha <= hoy) diasHabilesTranscurridos += habil
+    else diasHabilesPorDelante += Math.max(0, habil - libre)
     diasLibres += libre
     diasPorAprobar += porAprobar
   }
@@ -1328,6 +1336,7 @@ export function cuotaPeriodo(entrada: {
     cuota: redondear2(cuota),
     diasHabiles: redondear2(diasHabiles),
     diasHabilesTranscurridos: redondear2(diasHabilesTranscurridos),
+    diasHabilesPorDelante: redondear2(diasHabilesPorDelante),
     diasLibres: redondear2(diasLibres),
     diasPorAprobar: redondear2(diasPorAprobar),
     metaDiaHoy: activoEn(hoy) ? redondear2(hoyMeta.valor * factorDelDia(hoy)) : 0,
@@ -1616,6 +1625,8 @@ export interface CuotaResponse {
   subtipos: CuotaSubtipo[]
   dias_habiles: number
   dias_habiles_transcurridos: number
+  /** Días hábiles después de hoy sin los días libres (cuotaPeriodo.diasHabilesPorDelante; aditivo, 2026-10-15). */
+  dias_habiles_por_delante: number
   dias_libres: number
   dias_por_aprobar: number
   ritmo: number

@@ -8,6 +8,10 @@
  * cancelar: se pide por MES (rangoDeMes, como mucho 31 días), se guarda por mes y se vuelve a pedir al recibir el foco.
  * Datos: GET /api/me/agenda?desde=&hasta=&canceladas=true, GET /api/me/dias-libres?desde=&hasta= y
  * POST /api/me/agenda/[id]/cancelar. Sin la migración 0840 el servidor responde 503 y se muestra su aviso.
+ *
+ * Revisión 2026-10-15: el error es POR MES (el de un mes que falla no lo borra otro que llega bien: si no, quedaba
+ * "Cargando tu agenda…" sin "Reintentar"); "Cancelaste la cita…" sale junto al día (no arriba, fuera de la vista);
+ * "Hoy" en el calendario vuelve a hoy; y si un día libre tiene citas pendientes, se dice.
  */
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -47,7 +51,8 @@ export default function Agenda() {
   const [vista, setVista] = useState<'semana' | 'mes'>('semana')
   const [meses, setMeses] = useState<Record<string, DatosMes>>({})
   const [cargando, setCargando] = useState<Record<string, boolean>>({})
-  const [error, setError] = useState<ApiError | null>(null)
+  /** El error de cada mes (AAAA-MM): uno que llega bien no borra el de otro. */
+  const [errores, setErrores] = useState<Record<string, ApiError>>({})
   const [refrescando, setRefrescando] = useState(false)
   const [abierta, setAbierta] = useState<string | null>(null)
   const [resaltada, setResaltada] = useState<string | null>(null)
@@ -84,9 +89,13 @@ export default function Agenda() {
           requiereAprobacion: libres?.requiere_aprobacion ?? prev[mes]?.requiereAprobacion ?? true,
         },
       }))
-      setError(null)
+      setErrores(prev => {
+        if (!(mes in prev)) return prev
+        const { [mes]: _resuelto, ...resto } = prev
+        return resto
+      })
     } catch (e) {
-      setError(aApiError(e))
+      setErrores(prev => ({ ...prev, [mes]: aApiError(e) }))
     } finally {
       enCurso.current.delete(mes)
       setCargando(prev => ({ ...prev, [mes]: false }))
@@ -144,6 +153,12 @@ export default function Agenda() {
   const agendable = puedeAgendarProxima(dia, hoy) && !libreQueBloquea
   const citaResaltada = resaltada ? todas.flatMap(m => m.citas).find(cita => cita.id === resaltada) : undefined
   const citaAbierta = abierta ? citasDelDia.find(cita => cita.id === abierta) : undefined
+  // El error que importa es el de los meses que se ven (el del día elegido primero).
+  const error = [mesDe(dia), ...mesesNecesarios(dia, vista)].map(mes => errores[mes]).find(Boolean) ?? null
+  const errorDelDia = errores[mesDe(dia)] ?? null
+  /** Día libre (aprobado o registrado) con citas pendientes: hay que cancelarlas o moverlas. */
+  const libreDelDia = (datosDelMes?.libres ?? []).find(l => l.fecha === dia && (l.estado === 'aprobado' || l.estado === 'registrado'))
+  const pendientesEnLibre = libreDelDia ? citasDelDia.filter(cita => cita.estado === 'pendiente').length : 0
 
   const elegirDia = (fecha: string) => {
     setDia(fecha)
@@ -174,7 +189,6 @@ export default function Agenda() {
           {`${fechaBoton(citaResaltada.fecha)} · ${citaResaltada.hora ?? 'Sin hora'} · ${conQuienCita(citaResaltada)}`}
         </Aviso>
       ) : null}
-      {mensaje ? <Aviso tono={mensaje.tono}>{mensaje.texto}</Aviso> : null}
       {error ? (
         <Aviso
           tono={esNoDisponible(error) ? 'info' : error.tipo === 'red' || error.tipo === 'tiempo' ? 'alerta' : 'peligro'}
@@ -193,6 +207,7 @@ export default function Agenda() {
           marcas={marcas}
           vista={vista}
           alCambiarMes={mes => void cargarMes(mes, true)}
+          conHoy
         />
         <Boton
           titulo={vista === 'semana' ? 'Ver mes' : 'Ver semana'}
@@ -225,8 +240,16 @@ export default function Agenda() {
         ) : null}
       </View>
 
+      {pendientesEnLibre > 0 ? (
+        <Aviso tono="alerta">
+          {`Ese día lo tienes libre y ${pendientesEnLibre === 1 ? 'tienes 1 cita pendiente' : `tienes ${pendientesEnLibre} citas pendientes`}: cancélala${pendientesEnLibre === 1 ? '' : 's'} o agéndala${pendientesEnLibre === 1 ? '' : 's'} otro día.`}
+        </Aviso>
+      ) : null}
+      {/* Junto al día (no arriba): quien canceló estaba mirando la línea del día. */}
+      {mensaje ? <Aviso tono={mensaje.tono}>{mensaje.texto}</Aviso> : null}
+
       {!datosDelMes ? (
-        error && !cargando[mesDe(dia)] ? null : <Cargando texto="Cargando tu agenda…" />
+        errorDelDia && !cargando[mesDe(dia)] ? null : <Cargando texto="Cargando tu agenda…" />
       ) : (
         <LineaDelDia
           fecha={dia}

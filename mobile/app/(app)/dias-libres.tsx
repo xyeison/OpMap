@@ -6,19 +6,23 @@
  * Spec 2026-10-15: se abre desde Mi agenda y desde Ajustes (ya no es pestaña). La fecha se elige en el calendario del
  * mes (CalendarioMes), con los días libres marcados por estado y apagados los que ya pasaron del plazo. Registrar o
  * anular invalida el contexto en memoria (la meta de Hoy cambia).
+ *
+ * Revisión 2026-10-15: el calendario también marca las citas (de hoy a hoy + 30, GET /api/me/agenda) y, si el día que se
+ * va a pedir libre tiene citas pendientes, lo dice con "Ver en Mi agenda" (no se bloquea: el servidor decide).
  */
-import { useFocusEffect } from 'expo-router'
+import { useFocusEffect, useRouter } from 'expo-router'
 import { useCallback, useMemo, useState } from 'react'
 import { View } from 'react-native'
 import { CalendarioMes } from '../../components/agenda/CalendarioMes'
+import { rutaMiAgenda } from '../../lib/agenda'
 import * as api from '../../lib/api'
 import { invalidarContexto } from '../../lib/contexto-memoria'
 import { aApiError, mensajeDeError, type ApiError } from '../../lib/errores'
 import { fechaLarga, fechaRelativa, hoyBogota, puedeRegistrarDiaLibre, sumarDias, textoLimiteLargo, venceRegistroDiaLibre } from '../../lib/fechas'
-import { marcasDiasLibres, primerDiaRegistrable } from '../../lib/pantallas'
+import { avisoCitasEnDiaLibre, marcasConCitas, marcasDiasLibres, primerDiaRegistrable } from '../../lib/pantallas'
 import { ejecutivaPuedeAnular, ordenarDiasLibres, textoFraccion } from '../../lib/reglas'
-import type { DiaLibreItem, EstadoDiaLibre, MisDiasLibresResponse } from '../../lib/tipos'
-import { ETIQUETA_ESTADO_DIA_LIBRE } from '../../lib/tipos'
+import type { CitaItem, DiaLibreItem, EstadoDiaLibre, MisDiasLibresResponse } from '../../lib/tipos'
+import { DIAS_AGENDA_ADELANTE, ETIQUETA_ESTADO_DIA_LIBRE } from '../../lib/tipos'
 import { Aviso, Boton, Campo, Cargando, Chip, Grupo, Insignia, Pantalla, Subtitulo, Tarjeta, Texto, confirmar, type Tono } from '../../lib/ui'
 
 const DIAS_ATRAS = 90
@@ -32,7 +36,10 @@ const TONO_ESTADO: Record<EstadoDiaLibre, Tono> = {
 }
 
 export default function DiasLibres() {
+  const router = useRouter()
   const [datos, setDatos] = useState<MisDiasLibresResponse | null>(null)
+  /** Citas de hoy a hoy + 30 (las que se pueden tener por delante): solo para marcar y avisar. */
+  const [citas, setCitas] = useState<CitaItem[]>([])
   const [error, setError] = useState<ApiError | null>(null)
   const [cargando, setCargando] = useState(true)
   const [refrescando, setRefrescando] = useState(false)
@@ -46,6 +53,12 @@ export default function DiasLibres() {
   const [anulando, setAnulando] = useState<string | null>(null)
 
   const cargar = useCallback(async () => {
+    // Las citas solo marcan el calendario y avisan: si fallan (o no está la agenda), la pantalla sigue igual.
+    const hoyAhora = hoyBogota()
+    void api.agenda(hoyAhora, sumarDias(hoyAhora, DIAS_AGENDA_ADELANTE)).then(
+      r => setCitas(r.items),
+      () => undefined
+    )
     try {
       const respuesta = await api.diasLibres(sumarDias(hoyBogota(), -DIAS_ATRAS))
       setDatos(respuesta)
@@ -68,7 +81,8 @@ export default function DiasLibres() {
   const hoy = hoyBogota()
   const plazoHoras = datos?.plazo_horas ?? 24
   const primerDia = primerDiaRegistrable(hoy, plazoHoras)
-  const marcas = useMemo(() => marcasDiasLibres(datos?.items ?? []), [datos])
+  const marcas = useMemo(() => marcasConCitas(marcasDiasLibres(datos?.items ?? []), citas), [datos, citas])
+  const conCitas = avisoCitasEnDiaLibre(fecha, citas)
   const vence = useMemo(() => venceRegistroDiaLibre(fecha, plazoHoras), [fecha, plazoHoras])
   const dentroDePlazo = puedeRegistrarDiaLibre(fecha, plazoHoras)
   const yaRegistrado = (datos?.items ?? []).some(d => d.fecha === fecha && d.estado !== 'anulado' && d.estado !== 'rechazado')
@@ -162,6 +176,11 @@ export default function DiasLibres() {
             <Aviso tono="peligro">{`Ya pasó el plazo para registrar ese día: se podía hasta el ${textoLimiteLargo(vence)} (hora de Colombia).`}</Aviso>
           )}
           {yaRegistrado ? <Aviso tono="alerta">Ya tienes un día libre registrado en esa fecha.</Aviso> : null}
+          {conCitas ? (
+            <Aviso tono="alerta" accion={<Boton titulo="Ver en Mi agenda" variante="secundario" alPresionar={() => router.push(rutaMiAgenda(fecha))} />}>
+              {conCitas}
+            </Aviso>
+          ) : null}
 
           <Texto suave peque>
             Cuánto

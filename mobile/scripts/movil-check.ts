@@ -1900,7 +1900,7 @@ async function main() {
       cuerpoConfirmar.indexOf('enviosEnCurso.current++') > -1 &&
         cuerpoConfirmar.indexOf('enviosEnCurso.current++') < cuerpoConfirmar.indexOf('await datosParaConfirmar(') &&
         /^\} finally \{\s*enviosEnCurso\.current--/.test(finallyConfirmar) &&
-        /aplicarPaso\(\s*pasoDelReporte\(\{\s*motivo: 'envio',\s*iniciado: true,\s*nuevo: null,\s*aplazado: reintentoAplazado\.current,\s*enviando: enviosEnCurso\.current,\s*ocupada: esFaseOcupada\(ultimo\.current\.fase\),\s*abiertas: abiertasAlTerminarEnvio\(ultimo\.current\.tarjetas, guardada\),\s*volviendoDeCrear: false,\s*reiniciar: false,?\s*\}\),\s*reintentoAplazado,\s*r => void iniciarRef\.current\(r\)\s*\)/.test(finallyConfirmar) &&
+        /aplicarPaso\(\s*pasoDelReporte\(\{\s*motivo: 'envio',\s*iniciado: true,\s*nuevo: null,\s*aplazado: soloReintento\(reintentoAplazado\.current\),\s*enviando: enviosEnCurso\.current,\s*ocupada: esFaseOcupada\(ultimo\.current\.fase\),\s*abiertas: abiertasAlTerminarEnvio\(ultimo\.current\.tarjetas, guardada\),\s*volviendoDeCrear: false,\s*reiniciar: false,?\s*\}\),\s*reintentoAplazado,\s*r => void iniciarRef\.current\(r\)\s*\)/.test(finallyConfirmar) &&
         !/tomarReintento\(\)/.test(finallyConfirmar)
     )
     const guardadaEn = cuerpoConfirmar.indexOf('guardada = clave')

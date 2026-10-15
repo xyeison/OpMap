@@ -410,10 +410,9 @@ function AgendaDeHoy({
           <FilaCita
             key={cita.id}
             cita={cita}
+            atrasada={citaAtrasada(cita, ahora)}
             alPresionar={cita.estado === 'pendiente' ? () => alReportarCita(cita) : cita.visita_id ? () => alAbrirVisita(cita.visita_id as string) : undefined}
-          >
-            {citaAtrasada(cita, ahora) ? <Insignia texto="Atrasada" tono="alerta" /> : null}
-          </FilaCita>
+          />
         ))
       )}
       <View style={{ flexDirection: 'row', gap: 8 }}>

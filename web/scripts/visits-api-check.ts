@@ -1828,9 +1828,10 @@ async function main() {
         mia.body
       )
       check(
-        'días hábiles 20, transcurridos 10, libres 2, por aprobar 0,5 (el medio día no resta) y ritmo 50 %',
+        'días hábiles 20, transcurridos 10, 10 por delante, libres 2, por aprobar 0,5 (el medio día no resta) y ritmo 50 %',
         mia.body?.dias_habiles === 20 &&
           mia.body?.dias_habiles_transcurridos === 10 &&
+          mia.body?.dias_habiles_por_delante === 10 &&
           mia.body?.dias_libres === 2 &&
           mia.body?.dias_por_aprobar === 0.5 &&
           mia.body?.ritmo === 0.5,

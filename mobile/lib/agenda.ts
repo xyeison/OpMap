@@ -15,6 +15,15 @@
  * (que siguen aceptando "sin hora" para no tocar sus pruebas); el servidor exige la hora con el mismo mensaje
  * (MENSAJE_HORA_OBLIGATORIA, web/lib/reporte-visitas.ts). Las citas viejas sin hora siguen válidas y se muestran al
  * final del día, en "Sin hora".
+ *
+ * Revisión 2026-10-15:
+ *   - Agendar abre en la primera franja libre desde MAÑANA (fechaInicialAgendar): una cita de hoy cuenta como no
+ *     agendada, así que el camino por defecto no debe crearla. La franja tocada en Mi agenda (URL) manda.
+ *   - validarCitaConHora también dice "Esa hora ya pasó" (hoy, a una hora pasada: antes se podía con "Otra hora" o
+ *     cambiando la fecha a hoy) y que ya hay cita con ese médico (o esa cuenta y ese subtipo) ese día, que la base
+ *     rechaza (índices únicos de la 0840): se avisa antes de llenar todo, no con el 409 al final.
+ *   - lineasCitasDelDia: "Ese día ya tienes" como lista; plegarLibres: la línea del día pliega las horas libres
+ *     seguidas ("Libre de 07:00 a 09:00"); vistaCalendarioAgendar: en pantallas bajas (iPhone SE u 8), la semana.
  */
 import { esFechaIso, hoyBogota, horaBogota, sumarDias } from './fechas'
 import type { MarcaDia } from './calendario'
@@ -193,6 +202,14 @@ export function siguienteFranjaLibre(fecha: string, citas: readonly Pick<CitaIte
 }
 
 /**
+ * El día desde el que Agendar busca la primera franja libre si no viene una fecha en la URL: MAÑANA. Una cita de hoy
+ * cuenta como visita no agendada; hoy se puede elegir igual en el calendario (con su aviso).
+ */
+export function fechaInicialAgendar(hoy: string): string {
+  return sumarDias(hoy, 1)
+}
+
+/**
  * El primer día elegible de desde..hasta con una franja libre, y esa franja (la cita que Agendar trae puesta al abrir
  * sin fecha ni hora). null si ninguno.
  */
@@ -217,16 +234,60 @@ export function primeraFranjaLibre(
 
 /** El mismo texto de web/lib/reporte-visitas.ts (MENSAJE_HORA_OBLIGATORIA, que usa citaCreateSchema). */
 export const MENSAJE_HORA_OBLIGATORIA = 'Elige la hora de la cita'
+/** Hoy, a una hora que ya pasó (solo la app lo revisa: el servidor acepta cualquier hora de hoy). */
+export const MENSAJE_HORA_PASADA = 'Esa hora ya pasó: elige una hora más tarde'
+/** Los mismos textos de web/lib/reporte-visitas.ts (MENSAJE_CITA_REPETIDA_*: la base no deja dos el mismo día). */
+export const MENSAJE_CITA_REPETIDA_MEDICO = 'Ya tienes una cita con ese médico ese día'
+export const MENSAJE_CITA_REPETIDA_CUENTA = 'Ya tienes una cita con esa cuenta y ese subtipo ese día'
+
+/**
+ * La cita en pie del mismo día con el mismo médico (o la misma cuenta y el mismo subtipo) que la base rechazaría
+ * (índices únicos de la 0840, sin las canceladas): el error en `medico_id` (o `cuenta_id`) con su hora y qué hacer.
+ * null si no hay.
+ */
+export function errorCitaRepetida(
+  formulario: Pick<FormularioCita, 'fecha' | 'tipo' | 'medico_id' | 'cuenta_id' | 'subtipo_id'>,
+  citas: readonly Pick<CitaItem, 'fecha' | 'hora' | 'estado' | 'tipo' | 'medico' | 'cuenta' | 'subtipo'>[]
+): ErrorVisita | null {
+  const delDia = vivas(citas).filter(c => c.fecha === formulario.fecha && c.tipo === formulario.tipo)
+  const igual =
+    formulario.tipo === 'medica' && formulario.medico_id
+      ? delDia.find(c => c.medico?.id === formulario.medico_id)
+      : formulario.tipo === 'institucional' && formulario.cuenta_id && formulario.subtipo_id
+        ? delDia.find(c => c.cuenta?.id === formulario.cuenta_id && c.subtipo?.id === formulario.subtipo_id)
+        : undefined
+  if (!igual) return null
+  const cuando = igual.hora ? ` (a las ${igual.hora.slice(0, 5)})` : ''
+  const base = formulario.tipo === 'medica' ? MENSAJE_CITA_REPETIDA_MEDICO : MENSAJE_CITA_REPETIDA_CUENTA
+  return { campo: formulario.tipo === 'medica' ? 'medico_id' : 'cuenta_id', mensaje: `${base}${cuando}: elige otro día o cancela esa cita en Mi agenda` }
+}
 
 /**
  * validarCita (forma y ventana, los mismos mensajes del servidor) con la hora OBLIGATORIA: sin hora, el error va en
- * `hora` con MENSAJE_HORA_OBLIGATORIA, justo después de los de la fecha.
+ * `hora` con MENSAJE_HORA_OBLIGATORIA, justo después de los de la fecha. Con `opciones` (revisión 2026-10-15): hoy a una
+ * hora que ya pasó (según `ahora`, en Bogotá) → MENSAJE_HORA_PASADA en `hora`; y la cita repetida de ese día con las
+ * `citas` que se conocen (errorCitaRepetida).
  */
-export function validarCitaConHora(formulario: FormularioCita, hoy: string, perfil?: readonly TipoVisita[]): ErrorVisita[] {
+export function validarCitaConHora(
+  formulario: FormularioCita,
+  hoy: string,
+  perfil?: readonly TipoVisita[],
+  opciones: { ahora?: Date; citas?: readonly Pick<CitaItem, 'fecha' | 'hora' | 'estado' | 'tipo' | 'medico' | 'cuenta' | 'subtipo'>[] } = {}
+): ErrorVisita[] {
   const errores = validarCita(formulario, hoy, perfil)
-  if (horaDeCita(formulario.hora) !== null) return errores
   const despuesDeFecha = errores.filter(e => e.campo === 'fecha').length
-  return [...errores.slice(0, despuesDeFecha), { campo: 'hora', mensaje: MENSAJE_HORA_OBLIGATORIA }, ...errores.slice(despuesDeFecha)]
+  const hora = horaDeCita(formulario.hora)
+  const ahora = opciones.ahora ?? new Date()
+  // Sin hora → obligatoria; una hora no válida ya trae el error de formato de validarCita.
+  const errorHora =
+    hora === null
+      ? MENSAJE_HORA_OBLIGATORIA
+      : typeof hora === 'string' && formulario.fecha === hoy && hoyBogota(ahora) === hoy && franjaPasada(formulario.fecha, hora, ahora)
+        ? MENSAJE_HORA_PASADA
+        : null
+  const conHora = errorHora ? [...errores.slice(0, despuesDeFecha), { campo: 'hora', mensaje: errorHora }, ...errores.slice(despuesDeFecha)] : errores
+  const repetida = opciones.citas ? errorCitaRepetida(formulario, opciones.citas) : null
+  return repetida && !conHora.some(e => e.campo === repetida.campo) ? [...conHora, repetida] : conHora
 }
 
 /** Cuerpo de POST /api/me/agenda con la hora en HH:MM. Lanza sin hora (o si falta algo): validarlo antes. */
@@ -292,6 +353,16 @@ export function textoCitasDelDia(citasDelDia: readonly Pick<CitaItem, 'id' | 'ho
 }
 
 /**
+ * "Ese día ya tienes" como lista (revisión 2026-10-15: en un párrafo corrido partía los nombres): una línea por cita en
+ * pie, por hora ("08:00 · Dra. X"; las viejas sin hora al final, "Sin hora · …"). Vacía si no hay.
+ */
+export function lineasCitasDelDia(citasDelDia: readonly Pick<CitaItem, 'id' | 'hora' | 'estado' | 'tipo' | 'medico' | 'cuenta' | 'subtipo'>[]): string[] {
+  return vivas(citasDelDia)
+    .sort(porHora)
+    .map(c => `${c.hora ? c.hora.slice(0, 5) : 'Sin hora'} · ${conQuienCita(c)}`)
+}
+
+/**
  * Los médicos que ya tienen cita (en pie) ese día, con el texto del selector: "Cita a las 09:30" (o "Ya tiene cita ese
  * día" si es una vieja sin hora). La base no deja dos citas con el mismo médico el mismo día.
  */
@@ -339,6 +410,57 @@ export function marcasDelMes(
     if (opciones.apagarLibres && bloqueaAgendar(dia, opciones.requiereAprobacion ?? true)) marca.apagado = true
   }
   return marcas
+}
+
+/** Desde cuántas franjas libres seguidas se pliegan en una fila ("Libre de 07:00 a 08:30"). */
+export const MIN_LIBRES_PLEGADAS = 3
+
+export type TramoDelDia<T> =
+  | { tipo: 'fila'; indice: number; fila: FilaDelDia<T> }
+  | { tipo: 'libres'; desde: string; hasta: string; filas: FilaDelDia<T>[]; indices: number[] }
+
+/**
+ * La línea del día con las franjas libres seguidas plegadas (revisión 2026-10-15: un día con 2 citas dibujaba 24 filas
+ * de 44 pt): MIN_LIBRES_PLEGADAS o más libres seguidas pasan a un tramo "Libre de 07:00 a 09:00" (`hasta` = fin de la
+ * última, + paso) que se despliega al tocarlo. Un tramo se corta en cada índice de `cortes` (la línea "Ahora" va antes
+ * de esa fila) y lo que esté en `desplegados` (clave = la franja con que empieza) no se pliega.
+ */
+export function plegarLibres<T>(
+  filas: readonly FilaDelDia<T>[],
+  opciones: { cortes?: readonly number[]; desplegados?: ReadonlySet<string>; minimo?: number; paso?: number } = {}
+): TramoDelDia<T>[] {
+  const minimo = opciones.minimo ?? MIN_LIBRES_PLEGADAS
+  const paso = opciones.paso ?? HORARIO_AGENDA.paso
+  const cortes = new Set(opciones.cortes ?? [])
+  const tramos: TramoDelDia<T>[] = []
+  let corrida: number[] = []
+  const cerrar = () => {
+    if (corrida.length >= minimo && !opciones.desplegados?.has(filas[corrida[0]].franja)) {
+      const ultima = filas[corrida[corrida.length - 1]].franja
+      tramos.push({ tipo: 'libres', desde: filas[corrida[0]].franja, hasta: horaDeMinutos(minutosDe(ultima) + paso), filas: corrida.map(i => filas[i]), indices: [...corrida] })
+    } else {
+      for (const i of corrida) tramos.push({ tipo: 'fila', indice: i, fila: filas[i] })
+    }
+    corrida = []
+  }
+  filas.forEach((fila, i) => {
+    if (cortes.has(i)) cerrar()
+    if (fila.citas.length === 0) corrida.push(i)
+    else {
+      cerrar()
+      tramos.push({ tipo: 'fila', indice: i, fila })
+    }
+  })
+  cerrar()
+  return tramos
+}
+
+/** Por debajo de este alto (pt) Agendar abre el calendario en la semana del día elegido (iPhone SE u 8: 667). */
+export const ALTO_PANTALLA_BAJA = 700
+
+/** La vista con que Agendar abre el calendario: el mes, o la semana en una pantalla baja (con "Ver mes"). */
+export function vistaCalendarioAgendar(altoPantalla: number): 'mes' | 'semana' {
+  return Number.isFinite(altoPantalla) && altoPantalla > 0 && altoPantalla < ALTO_PANTALLA_BAJA ? 'semana' : 'mes'
 }
 
 /** Dónde va la línea "Ahora" en la línea del día: antes de la primera franja que aún no empieza (filas.length: al final). */

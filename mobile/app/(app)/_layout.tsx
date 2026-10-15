@@ -17,6 +17,9 @@ import { OCULTAS, PESTANAS } from '../../lib/navegacion'
 import { useSesion } from '../../lib/sesion'
 import { ALTO_TOQUE_MIN, Cargando, useColores, useFuente } from '../../lib/ui'
 
+/** Alto de la caja del ícono de cada pestaña (y tamaño máximo del ícono): 24 pt, como el ícono de Material. */
+const ALTO_ICONO_PESTANA = 24
+
 function BotonVolver() {
   const router = useRouter()
   const c = useColores()
@@ -78,8 +81,11 @@ export default function AppLayout() {
           tabBarActiveTintColor: c.acento,
           tabBarInactiveTintColor: c.textoSuave,
           tabBarLabelPosition: 'below-icon',
-          // flexShrink 0: ícono (28) + nombre (~14) pasan por 3 pt el alto útil de la pestaña (49 − 10 de relleno);
-          // sin esto, en el navegador el nombre se encoge a 10 pt y corta "y", "p", "g" y "j". Así usa el relleno.
+          // Alto útil de la pestaña: 49 − 10 de relleno = 39 pt. El ícono va en una caja de 24 (la librería la hace de
+          // 28) para que ícono + nombre (~14) quepan con el relleno de abajo: con 28 se pasaban 3 pt y, sin margen
+          // inferior (iPhone SE u 8, con botón de inicio), el nombre quedaba a 1 pt del borde (revisión 2026-10-15).
+          tabBarIconStyle: { height: ALTO_ICONO_PESTANA },
+          // flexShrink 0: sin esto, en el navegador el nombre se encoge a 10 pt y corta "y", "p", "g" y "j".
           tabBarLabelStyle: { fontSize: 11, flexShrink: 0, ...fuente('media') },
           // Como la barra nativa de iOS, el nombre no crece con el texto grande del sistema (se cortaría); al dejar
           // el dedo encima, iOS lo muestra en grande.
@@ -94,7 +100,7 @@ export default function AppLayout() {
               title: p.titulo,
               headerTitle: p.encabezado ?? p.titulo,
               tabBarIcon: ({ focused, size }) => (
-                <Icono nombre={p.icono} activo={focused} color={focused ? c.acento : c.textoSuave} tamano={size} />
+                <Icono nombre={p.icono} activo={focused} color={focused ? c.acento : c.textoSuave} tamano={Math.min(size, ALTO_ICONO_PESTANA)} />
               ),
             }}
           />

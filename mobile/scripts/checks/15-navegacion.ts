@@ -144,6 +144,10 @@ export async function pruebas(t: Probador): Promise<void> {
   const estiloEtiqueta = objetoDe(opcionesBarra, 'tabBarLabelStyle')
   t.check('barra: etiqueta a 11 pt con DM Sans media y sin lineHeight forzado', /fontSize:\s*11\b/.test(estiloEtiqueta) && /fuente\('media'\)/.test(estiloEtiqueta) && !/lineHeight/.test(estiloEtiqueta), estiloEtiqueta)
   t.check('barra: la etiqueta no se encoge (flexShrink: 0; si no, el navegador le corta "y", "p", "g" y "j")', /flexShrink:\s*0\b/.test(estiloEtiqueta), estiloEtiqueta)
+  t.check(
+    'barra: el ícono va en una caja de 24 pt (tabBarIconStyle) y no pasa de 24: ícono + nombre caben en los 39 pt útiles, también sin margen inferior',
+    /const ALTO_ICONO_PESTANA = 24\b/.test(layout) && /tabBarIconStyle:\s*\{\s*height:\s*ALTO_ICONO_PESTANA\s*\}/.test(opcionesBarra) && /tamano=\{Math\.min\(size, ALTO_ICONO_PESTANA\)\}/.test(layout)
+  )
   t.check('barra: el nombre no crece con el texto grande del sistema (como la barra nativa de iOS)', /tabBarAllowFontScaling:\s*false/.test(opcionesBarra))
   t.check('barra: elegida en acento (negro) y las demás en textoSuave', /tabBarActiveTintColor:\s*c\.acento\b/.test(opcionesBarra) && /tabBarInactiveTintColor:\s*c\.textoSuave\b/.test(opcionesBarra))
 

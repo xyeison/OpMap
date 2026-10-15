@@ -22,7 +22,7 @@ import {
   type MedicoOpcion,
 } from '../../lib/propuesta'
 import { fijarCitaParaReportar, tomarCitaParaReportar } from '../../lib/retorno'
-import { CONFIANZA_MINIMA_RESUMEN, filasResumen, modoTarjeta, pedidoAgendarDe, textoPieConfirmar } from '../../lib/tarjeta-resumen'
+import { CONFIANZA_MINIMA_RESUMEN, avisoDelPie, filasResumen, modoTarjeta, pedidoAgendarDe, resumenParaPie, textoPieConfirmar } from '../../lib/tarjeta-resumen'
 import type { MarcaReporte } from '../../lib/tiempos'
 import type { CitaItem, ContextoResponse, VisitaPropuesta } from '../../lib/tipos'
 import { DISTANCIA_RECARGA_M, pasoDelReporte, planCargaReportar } from '../../lib/ubicacion-pasos'
@@ -219,6 +219,46 @@ export async function pruebas(t: Probador): Promise<void> {
       /confirmarEnPie=\{indice === 0\}/.test(reportar)
   )
 
+  // --- Revisión 2026-10-15: el pie dice qué se confirma, o lo que falta ---------------------------------------------
+  check('resumenParaPie: efectiva con dos líneas y conclusión → "Efectiva · Osteosíntesis y Columna · con conclusión"', resumenParaPie(buena, catalogo) === 'Efectiva · Osteosíntesis y Columna · con conclusión', resumenParaPie(buena, catalogo))
+  check(
+    'resumenParaPie: sin conclusión ni líneas lo dice ("sin líneas · sin conclusión"); con 3 líneas, la cantidad',
+    resumenParaPie({ ...buena, conclusion: '  ', lineas: [] }, catalogo) === 'Efectiva · sin líneas · sin conclusión' &&
+      resumenParaPie({ ...buena, lineas: [L1, L2, 'x'] }, { lineas: [...catalogo.lineas, { id: 'x', code: 'x', name: 'Rodilla' }] }) === 'Efectiva · 3 líneas · con conclusión',
+    resumenParaPie({ ...buena, conclusion: '  ', lineas: [] }, catalogo)
+  )
+  check('resumenParaPie: la no efectiva dice su motivo', resumenParaPie({ ...buena, efectiva: false, failure_reason: 'No estaba' }, catalogo) === 'No efectiva: No estaba' && resumenParaPie({ ...buena, efectiva: false, failure_reason: '' }, catalogo) === 'No efectiva')
+  check(
+    'avisoDelPie: lo que falta (2 como mucho, sin repetir) y de qué visita; el rechazo manda; sin nada → null',
+    avisoDelPie({ numero: 1, total: 1, errores: [{ campo: 'medico_id', mensaje: 'Elige el médico' }], rechazo: null }) === 'Falta algo: Elige el médico' &&
+      avisoDelPie({ numero: 1, total: 2, errores: [{ campo: 'a', mensaje: 'A' }, { campo: 'b', mensaje: 'A' }, { campo: 'c', mensaje: 'B' }, { campo: 'd', mensaje: 'C' }], rechazo: null }) === 'Falta algo en la visita 1: A · B …' &&
+      avisoDelPie({ numero: 2, total: 2, errores: [{ campo: 'a', mensaje: 'A' }], rechazo: { mensaje: 'Esa cita ya tiene su visita' } }) === 'No se guardó la visita 2: Esa cita ya tiene su visita' &&
+      avisoDelPie({ numero: 1, total: 1, errores: [], rechazo: null }) === null
+  )
+  check(
+    'PieConfirmar: encima del botón, el aviso (en rojo) o el resumen de lo que se confirma',
+    /\{aviso \? \(\s*<Texto peque color=\{c\.peligro\}[^>]*>\s*\{aviso\}/.test(pieTs) && /\) : resumen \? \(\s*<Texto peque suave[^>]*>\s*\{resumen\}/.test(pieTs)
+  )
+  check(
+    'Reportar: el pie lleva el resumen de la primera tarjeta y, si ya se intentó o el servidor la rechazó, lo que falta (validarBorrador) o el rechazo',
+    /resumen=\{resumenParaPie\(primeraAbierta, catalogo\)\} aviso=\{avisoPie\}/.test(pieReportar) &&
+      /errores: estadoPrimera\.intentado \? validarBorrador\(primeraAbierta, catalogo, \{ punto, checked_in_at: llegada, ahora: new Date\(\), visitasHoy \}\)\.errores : \[\]/.test(reportar) &&
+      /rechazo: estadoPrimera\.rechazo/.test(reportar)
+  )
+  const tarjetasTs = entre(reportar, "{fase === 'tarjetas' && borradores.length > 0 ? (", '{/* 3. Resultado */}')
+  check(
+    'Reportar: con tarjetas, "Lo que dijiste" va DESPUÉS de las tarjetas y "¿Dónde estás?" pasa a una línea (sin el título)',
+    tarjetasTs.indexOf('{borradores.map((borrador, indice) => (') > -1 &&
+      tarjetasTs.indexOf('<LoQueDijiste texto={transcript} />') > tarjetasTs.indexOf('{borradores.map((borrador, indice) => (') &&
+      /\{fase === 'tarjetas' \? null : <Titulo>¿Dónde estás\?<\/Titulo>\}/.test(reportar)
+  )
+  check(
+    'Reportar: "Descartar" pregunta antes (confirmar) y la tarjeta lo muestra aparte, en rojo',
+    /const si = await confirmar\('¿Descartar esta visita\?'/.test(entre(reportar, 'const descartar = async', '\n  }\n')) &&
+      /<Boton titulo="Descartar esta visita" variante="peligro"/.test(tarjetaTs) &&
+      !/titulo="Descartar" variante="texto"/.test(tarjetaTs)
+  )
+
   // --- Tarjeta de una cita: sin "Tipo de visita" ------------------------------------------------------------------
   const bloqueTipoTs = entre(tarjetaTs, 'const bloqueTipo = (', '\n  )\n')
   check(
@@ -395,7 +435,22 @@ export async function pruebas(t: Probador): Promise<void> {
     paso({ abiertas: 1 }).accion === 'aplazar' && paso({ ocupada: true }).accion === 'aplazar' && paso({ enviando: 1 }).accion === 'aplazar' && paso({ volviendoDeCrear: true }).accion === 'aplazar'
   )
   const finEnvio = pasoDelReporte<Pedido>({ motivo: 'envio', iniciado: true, nuevo: null, aplazado: CITA, enviando: 0, ocupada: false, abiertas: 0, volviendoDeCrear: false, reiniciar: false })
-  check('cita desde Hoy: al terminar el último envío sin nada abierto, se elige', finEnvio.accion === 'iniciar' && finEnvio.reintento === CITA)
+  check('pasoDelReporte (puro): con un aplazado, al terminar el último envío sin nada abierto, inicia', finEnvio.accion === 'iniciar' && finEnvio.reintento === CITA)
+  // Revisión 2026-10-15: en Reportar la CITA no arranca sola al terminar un envío (borraría lo recién confirmado y
+  // "Agendar esa reunión"); solo el "Reportar de nuevo". Queda a la vista con "Reportar esa cita" y "Olvidarla".
+  const finallyEnvioTs = entre(reportar, 'enviosEnCurso.current--', 'const descartar = ')
+  check(
+    'cita desde Hoy: al terminar un envío no arranca sola (soloReintento); queda a la vista con "Reportar esa cita" y "Olvidarla"',
+    /aplazado: soloReintento\(reintentoAplazado\.current\)/.test(finallyEnvioTs) &&
+      /const soloReintento = \(pedido: PedidoDeHoy \| null\): PedidoDeHoy \| null => \(pedido\?\.reintento \? pedido : null\)/.test(reportar) &&
+      /titulo="Reportar esa cita"/.test(reportar) &&
+      /titulo="Olvidarla"/.test(reportar) &&
+      /setCitaAplazada\(valor\?\.cita_id \?\? null\)/.test(reportar)
+  )
+  check(
+    'cita desde Hoy: "Reportar esa cita" la saca de pendientes y empieza la llegada con ella',
+    /const pedido = reintentoAplazado\.current\s*reintentoAplazado\.current = null\s*if \(pedido\) void iniciar\(pedido\)/.test(entre(reportar, 'const reportarCitaAplazada = () => {', '\n  }\n'))
+  )
   const eligeTs = entre(iniciarTs, "setFase('lista')", '\n    },\n')
   check(
     'Reportar: al cargar la llegada elige la cita si sigue pendiente de hoy (citasParaReportar); si no, avisa',
@@ -403,6 +458,21 @@ export async function pruebas(t: Probador): Promise<void> {
       /const sigue = citasParaReportar\(cargado\.contexto\.agenda_hoy[^\n]*\.some\(c => c\.id === citaPorElegir\)/.test(eligeTs) &&
       /if \(sigue\) \{\s*setCitaElegida\(citaPorElegir\)\s*setSedeElegida\(null\)/.test(eligeTs) &&
       /setAvisoCita\(MENSAJE_CITA_NO_DISPONIBLE\)/.test(eligeTs)
+  )
+
+  // --- Revisión 2026-10-15: con el contexto de memoria, la señal se comprueba antes de dictar --------------------------
+  const llegadaTs = entre(reportar, 'const cargarLlegada = useCallback(', 'const iniciar = useCallback(')
+  check(
+    'Reportar: con el contexto de memoria, "Hablar" espera a las visitas de hoy y, si fallan por red, "Sin señal" (sin Hablar)',
+    /setComprobandoSenal\(true\)/.test(llegadaTs) &&
+      /setVisitasServidor\(v\.items\)\s*setComprobandoSenal\(false\)/.test(llegadaTs) &&
+      /if \(esTransitorio\(aApiError\(lanzado\)\)\) setSinSenalDesde\(new Date\(enMemoria\.recibidoEn\)\.toISOString\(\)\)/.test(llegadaTs) &&
+      /titulo="Hablar"[\s\S]*?cargando=\{comprobandoSenal\}/.test(reportar) &&
+      /const vozLista = contexto\.voz\.transcribir && contexto\.voz\.proponer && !sinSenal/.test(reportar)
+  )
+  check(
+    'Reportar: si el refresco sin tapar falla por red, también "Sin señal" (con la hora del contexto en uso)',
+    /if \(gen !== generacion\.current \|\| turno !== recargas\.current \|\| !esTransitorio\(aApiError\(lanzado\)\)\) return\s*setSinSenalDesde\(prev => prev \?\? new Date\(recibidoContexto\.current \?\? Date\.now\(\)\)\.toISOString\(\)\)/.test(entre(reportar, 'const recargarSinTapar = useCallback(', 'const afinar = useCallback('))
   )
 
   // --- Antes de elegir -----------------------------------------------------------------------------------------

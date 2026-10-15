@@ -98,28 +98,41 @@ const NOMBRES_TIPO = {
 } as const
 
 /**
- * "Te faltan 120 visitas médicas: 11 por día hábil". Lo que falta es la cuota menos lo hecho (hacia arriba) y se
- * reparte en los días hábiles que quedan después de hoy (`transcurridos` ya cuenta hoy, como dias_habiles_transcurridos
- * del servidor), también hacia arriba. null si no se puede calcular (números no válidos, sin cuota, sin días por
- * delante) o si ya no falta nada.
+ * Los días hábiles que quedan DESPUÉS de hoy sin los días libres que vienen (revisión 2026-10-15): el
+ * dias_habiles_por_delante del servidor. Un servidor anterior no lo manda: entonces, sin días libres en el mes, son
+ * dias_habiles − dias_habiles_transcurridos (exacto); con días libres no se sabe cuáles vienen → null (no se muestra
+ * "Te faltan …" con una cifra que cuenta los días libres como días para visitar).
+ */
+export function diasPorDelante(cuota: { dias_habiles: number; dias_habiles_transcurridos: number; dias_libres: number; dias_habiles_por_delante?: number | null }): number | null {
+  if (typeof cuota.dias_habiles_por_delante === 'number' && Number.isFinite(cuota.dias_habiles_por_delante)) return cuota.dias_habiles_por_delante
+  if (cuota.dias_libres !== 0) return null
+  const quedan = cuota.dias_habiles - cuota.dias_habiles_transcurridos
+  return Number.isFinite(quedan) ? Math.round(quedan * 100) / 100 : null
+}
+
+/**
+ * "Te faltan 62 visitas médicas: 7 por día en los 10 días hábiles que quedan". Lo que falta es la cuota menos lo hecho
+ * (hacia arriba) y se reparte en los días hábiles que quedan después de hoy SIN los días libres (diasPorDelante),
+ * también hacia arriba. null si no se puede calcular (números no válidos, sin cuota, sin días por delante) o si ya no
+ * falta nada. No dice "por día hábil" a secas: esa frase es la de la meta de hoy, justo debajo.
  */
 export function faltanVisitas(
   cuota: number | null | undefined,
   hechas: number | null | undefined,
-  diasHabiles: number | null | undefined,
-  transcurridos: number | null | undefined,
+  porDelante: number | null | undefined,
   tipo: keyof typeof NOMBRES_TIPO = 'medica'
 ): string | null {
-  const numeros = [cuota, hechas, diasHabiles, transcurridos]
+  const numeros = [cuota, hechas, porDelante]
   if (!numeros.every(n => typeof n === 'number' && Number.isFinite(n))) return null
-  const [c, h, d, t] = numeros as number[]
-  if (c <= 0 || h < 0 || d <= 0 || t < 0) return null
+  const [c, h, d] = numeros as number[]
+  if (c <= 0 || h < 0) return null
   const faltan = Math.ceil(Math.round((c - h) * 100) / 100)
-  const quedan = Math.round((d - t) * 100) / 100
+  const quedan = Math.round(d * 100) / 100
   if (faltan <= 0 || quedan <= 0) return null
   const porDia = Math.ceil(faltan / quedan)
   const nombre = NOMBRES_TIPO[tipo]
-  return `${faltan === 1 ? 'Te falta' : 'Te faltan'} ${numeroTexto(faltan)} ${faltan === 1 ? nombre.singular : nombre.plural}: ${numeroTexto(porDia)} por día hábil`
+  const dias = quedan === 1 ? 'el día hábil que queda' : `los ${numeroTexto(quedan)} días hábiles que quedan`
+  return `${faltan === 1 ? 'Te falta' : 'Te faltan'} ${numeroTexto(faltan)} ${faltan === 1 ? nombre.singular : nombre.plural}: ${numeroTexto(porDia)} por día en ${dias}`
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -147,6 +160,41 @@ export function marcasDiasLibres(items: readonly Pick<DiaLibreItem, 'fecha' | 'e
     if (!actual || prioridad > (PRIORIDAD_ESTADO[actual.estadoLibre] ?? 0)) marcas[item.fecha] = { estadoLibre: item.estado }
   }
   return marcas
+}
+
+/**
+ * Las marcas de Días libres con las citas en pie de cada día (revisión 2026-10-15: así se ve que el día que se va a pedir
+ * libre tiene citas). Las canceladas no cuentan.
+ */
+export function marcasConCitas(
+  libres: Readonly<Record<string, MarcaDiaLibre>>,
+  citas: readonly Pick<CitaItem, 'fecha' | 'estado'>[]
+): Record<string, { estadoLibre?: EstadoDiaLibre; citas?: number }> {
+  const marcas: Record<string, { estadoLibre?: EstadoDiaLibre; citas?: number }> = {}
+  for (const [fecha, marca] of Object.entries(libres)) marcas[fecha] = { ...marca }
+  for (const cita of citas) {
+    if (cita.estado === 'cancelada') continue
+    const marca = (marcas[cita.fecha] ??= {})
+    marca.citas = (marca.citas ?? 0) + 1
+  }
+  return marcas
+}
+
+/**
+ * Si el día que se va a pedir libre tiene citas pendientes: "Ese día tienes 2 citas pendientes (09:30 Dra. X · 10:00
+ * Clínica Y): cancélalas o agéndalas otro día en Mi agenda." (como mucho 3 nombradas, "y N más"). null si no tiene.
+ */
+export function avisoCitasEnDiaLibre(fecha: string, citas: readonly Pick<CitaItem, 'id' | 'fecha' | 'hora' | 'estado' | 'tipo' | 'medico' | 'cuenta' | 'subtipo'>[]): string | null {
+  const delDia = citas
+    .filter(c => c.fecha === fecha && c.estado === 'pendiente')
+    .sort((a, b) => (a.hora ?? '99:99').localeCompare(b.hora ?? '99:99') || (a.id < b.id ? -1 : 1))
+  if (delDia.length === 0) return null
+  // Como mucho 3 nombradas (y "y N más"): con un día lleno, el aviso no debe ser un párrafo.
+  const nombradas = delDia.slice(0, 3).map(c => `${c.hora ? c.hora.slice(0, 5) : 'sin hora'} ${conQuienCita(c)}`).join(' · ')
+  const lista = delDia.length > 3 ? `${nombradas} y ${delDia.length - 3} más` : nombradas
+  return delDia.length === 1
+    ? `Ese día tienes 1 cita pendiente (${lista}): cancélala o agéndala otro día en Mi agenda.`
+    : `Ese día tienes ${delDia.length} citas pendientes (${lista}): cancélalas o agéndalas otro día en Mi agenda.`
 }
 
 /** El primer día que todavía se puede registrar con ese plazo (hoy si ya no se puede ninguno anterior). */

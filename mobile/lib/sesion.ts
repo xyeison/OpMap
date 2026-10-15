@@ -2,7 +2,8 @@
  * Sesión de la app (decisión 1 del contrato fase 8): POST /api/auth/login con cliente 'movil' devuelve el token en
  * el cuerpo; se guarda en el almacén seguro (lib/almacen.ts) y viaja como portador. Al abrir (spec 2026-10-15,
  * arranqueDeSesion de lib/sesion-reglas.ts): con token vigente y el perfil guardado se entra YA y se confirma con
- * GET /api/auth/me en segundo plano (TIEMPO_ME_MS); sin perfil guardado se pregunta antes de entrar; sin señal se
+ * GET /api/auth/me en segundo plano (TIEMPO_ME_FONDO_MS, el de una petición normal); sin perfil guardado se pregunta
+ * antes de entrar, esperando como mucho TIEMPO_ME_MS; sin señal se
  * sigue con el perfil guardado (para poder reportar y encolar). Nunca se entra sin token. Un 401 en cualquier
  * petición (también en esa confirmación) olvida el token y cierra la sesión. Cerrar sesión = olvidar el token, el
  * perfil y el contexto (guardado y en memoria) y avisar al servidor si hay señal. Nunca se guarda la contraseña.
@@ -13,7 +14,7 @@ import { borrarClave, borrarToken, guardarJson, guardarToken, leerJson, leerToke
 import { olvidarContextoGuardado } from './contexto-guardado'
 import { olvidarContextoEnMemoria } from './contexto-memoria'
 import { MENSAJE_SESION_VENCIDA, aApiError } from './errores'
-import { TIEMPO_ME_MS, arranqueDeSesion } from './sesion-reglas'
+import { TIEMPO_ME_FONDO_MS, TIEMPO_ME_MS, arranqueDeSesion } from './sesion-reglas'
 import { leerCargaToken, tokenVencido } from './token'
 import type { EjecutivaMovil, UsuarioMovil } from './tipos'
 
@@ -64,13 +65,14 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
     setEstado('sin_sesion')
   }, [])
 
+  /** `tiempoMs`: TIEMPO_ME_MS si la persona espera la respuesta; TIEMPO_ME_FONDO_MS en segundo plano. */
   const confirmar = useCallback(
-    async (token: string, guardado: Perfil | null) => {
+    async (token: string, guardado: Perfil | null, tiempoMs: number) => {
       const desde = generacion.current
       // ¿Sigue siendo la misma sesión? (nadie salió ni entró mientras se esperaba la respuesta)
       const vigente = () => montado.current && generacion.current === desde
       try {
-        const respuesta = await api.me(token, TIEMPO_ME_MS)
+        const respuesta = await api.me(token, tiempoMs)
         if (generacion.current !== desde) return
         const nuevo: Perfil = {
           usuario: { id: respuesta.user.id, full_name: respuesta.user.full_name, role: respuesta.user.role, email: respuesta.user.email },
@@ -125,11 +127,11 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
         setPerfil(guardado)
         setSinConfirmar(false)
         setEstado('con_sesion')
-        void confirmar(token, guardado)
+        void confirmar(token, guardado, TIEMPO_ME_FONDO_MS)
         return
       }
       // Sin perfil guardado (o de otro usuario): se pregunta antes de entrar, como siempre.
-      await confirmar(token, null)
+      await confirmar(token, null, TIEMPO_ME_MS)
     })()
     return () => {
       montado.current = false
@@ -163,7 +165,8 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
       await olvidar(null)
       return
     }
-    await confirmar(token, perfil)
+    // En segundo plano (Hoy lo pide sin tapar la pantalla).
+    await confirmar(token, perfil, TIEMPO_ME_FONDO_MS)
   }, [confirmar, olvidar, perfil])
 
   const valor = useMemo<ValorSesion>(

@@ -23,7 +23,7 @@ import {
   type MotivoInvalidacion,
 } from '../../lib/contexto-memoria'
 import { lineaRegistroApi, rutaPatron } from '../../lib/http'
-import { TIEMPO_ME_MS, arranqueDeSesion } from '../../lib/sesion-reglas'
+import { TIEMPO_ME_FONDO_MS, TIEMPO_ME_MS, arranqueDeSesion } from '../../lib/sesion-reglas'
 import { MARCAS_REPORTE, MAX_RECORRIDO_MS, crearRegistroMarcas, marcar } from '../../lib/tiempos'
 import { MemoriaToken, type LlaveroToken } from '../../lib/token'
 import type { ContextoResponse } from '../../lib/tipos'
@@ -89,6 +89,19 @@ export async function pruebas(t: Probador): Promise<void> {
     recordarContexto(CONTEXTO, { lat: Number.NaN, lng: 1 }, T0 + 4_000)
     t.check('un punto no válido se guarda como null', contextoReciente({ maxEdadMs: FRESCURA_SIN_PEDIR_MS, ahora: T0 + 4_000 })?.punto === null)
 
+    // Revisión 2026-10-15: pasada la medianoche en Bogotá, el contexto de ayer (citas, meta, configuración) no sirve.
+    const AYER = { hoy: { fecha: '2026-10-14' } } as unknown as ContextoResponse
+    const CASI_MEDIANOCHE = Date.UTC(2026, 9, 15, 4, 59, 50) // 23:59:50 del 14 en Bogotá
+    recordarContexto(AYER, NORTE, CASI_MEDIANOCHE)
+    t.check(
+      'contexto de ayer → null pasada la medianoche (00:00:30), aunque tenga 40 s y sea del mismo sitio',
+      contextoReciente({ maxEdadMs: FRESCURA_SIN_PEDIR_MS, cercaDe: NORTE, ahora: CASI_MEDIANOCHE + 40_000 }) === null &&
+        contextoReciente({ maxEdadMs: FRESCURA_DATOS_FIJOS_MS, ahora: CASI_MEDIANOCHE + 40_000 }) === null
+    )
+    t.check('…y el mismo contexto antes de la medianoche sí sirve (23:59:55)', contextoReciente({ maxEdadMs: FRESCURA_SIN_PEDIR_MS, cercaDe: NORTE, ahora: CASI_MEDIANOCHE + 5_000 })?.contexto === AYER)
+    recordarContexto({ otro: true } as unknown as ContextoResponse, NORTE, T0)
+    t.check('un contexto sin hoy.fecha no se reusa', contextoReciente({ maxEdadMs: FRESCURA_SIN_PEDIR_MS, ahora: T0 + 1_000 }) === null)
+
     recordarContexto(CONTEXTO, NORTE, T0)
     const recibidos: MotivoInvalidacion[] = []
     const otros: MotivoInvalidacion[] = []
@@ -145,6 +158,14 @@ export async function pruebas(t: Probador): Promise<void> {
       enviar.indexOf('await api.crearVisita(') >= 0 && enviar.indexOf("invalidarContexto('visita')") > enviar.indexOf('await api.crearVisita(') && enviar.indexOf("invalidarContexto('visita')") < enviar.indexOf('return {'),
       enviar
     )
+    // Revisión 2026-10-15: lo recién creado (médico, cuenta o sede, o la sede vinculada a un médico) debe salir en la
+    // siguiente llegada, en Agendar y en Visita: el contexto en memoria se invalida después del 2xx.
+    const terceros = ['export async function crearMedico(', 'export async function vincularSedeMedico(', 'export async function crearCuenta(', 'export async function crearSede(']
+    const sinInvalidar = terceros.filter(firma => {
+      const bloque = bloqueDe(api, firma)
+      return !(bloque.indexOf("invalidarContexto('terceros')") > bloque.indexOf('await peticion') && bloque.indexOf('await peticion') > -1)
+    })
+    t.check("crear un médico, una cuenta o una sede y vincular una sede invalidan el contexto ('terceros') después del 2xx", sinInvalidar.length === 0, sinInvalidar)
     const sesion = leer('lib/sesion.ts')
     const olvidar = sesion.slice(sesion.indexOf('const olvidar = useCallback('), sesion.indexOf('const confirmar = useCallback('))
     t.check('sesion.ts: al cerrar sesión (olvidar) llama a olvidarContextoEnMemoria y olvida el guardado', /olvidarContextoEnMemoria\(\)/.test(olvidar) && /olvidarContextoGuardado\(\)/.test(olvidar) && /borrarToken\(\)/.test(olvidar))
@@ -253,7 +274,7 @@ export async function pruebas(t: Probador): Promise<void> {
   t.seccion('18e. Arranque de la sesión: entra con el perfil guardado y confirma en segundo plano')
   {
     const perfil = { usuario: { id: 'usuario-1' } }
-    t.check('TIEMPO_ME_MS = 5.000', TIEMPO_ME_MS === 5_000)
+    t.check('TIEMPO_ME_MS = 5.000 (la persona espera) y TIEMPO_ME_FONDO_MS = 20.000 (en segundo plano, el de una petición normal)', TIEMPO_ME_MS === 5_000 && TIEMPO_ME_FONDO_MS === 20_000)
     t.check('con perfil y token vigente → entrar_y_confirmar', arranqueDeSesion({ perfilGuardado: perfil, tokenVigente: true }) === 'entrar_y_confirmar')
     t.check('sin perfil → confirmar_antes', arranqueDeSesion({ perfilGuardado: null, tokenVigente: true }) === 'confirmar_antes' && arranqueDeSesion({ perfilGuardado: undefined, tokenVigente: true }) === 'confirmar_antes')
     t.check('sin token (o vencido) → sin_sesion, aunque haya perfil', arranqueDeSesion({ perfilGuardado: perfil, tokenVigente: false }) === 'sin_sesion' && arranqueDeSesion({ perfilGuardado: null, tokenVigente: false }) === 'sin_sesion')
@@ -265,17 +286,25 @@ export async function pruebas(t: Probador): Promise<void> {
     t.check(
       'sesion.ts al abrir: usa arranqueDeSesion; con entrar_y_confirmar entra con lo guardado y confirma sin esperar (void confirmar)',
       /arranqueDeSesion\(\{ perfilGuardado: guardado, tokenVigente: token !== null/.test(abrir) &&
-        /if \(arranque === 'entrar_y_confirmar' && guardado\) \{[\s\S]*?setPerfil\(guardado\)[\s\S]*?setEstado\('con_sesion'\)[\s\S]*?void confirmar\(token, guardado\)/.test(abrir),
+        /if \(arranque === 'entrar_y_confirmar' && guardado\) \{[\s\S]*?setPerfil\(guardado\)[\s\S]*?setEstado\('con_sesion'\)[\s\S]*?void confirmar\(token, guardado, TIEMPO_ME_FONDO_MS\)/.test(abrir),
       abrir.slice(0, 600)
     )
     t.check('nunca se entra sin token: sin_sesion o sin token → sin sesión; el vencido se olvida con aviso', /if \(arranque === 'sin_sesion' \|\| !token\) \{\s*setEstado\('sin_sesion'\)/.test(abrir) && /if \(token && tokenVencido\(token\)\) \{\s*await olvidar\(MENSAJE_SESION_VENCIDA\)/.test(abrir))
     const confirmar = sesion.slice(sesion.indexOf('const confirmar = useCallback('), sesion.indexOf('// Al abrir la app.'))
     t.check(
-      'la confirmación espera /api/auth/me con TIEMPO_ME_MS; un 401 cierra la sesión; una respuesta tardía de otra sesión no la revive',
-      /api\.me\(token, TIEMPO_ME_MS\)/.test(confirmar) &&
+      'la confirmación espera /api/auth/me con el tiempo que le pasan; un 401 cierra la sesión; una respuesta tardía de otra sesión no la revive',
+      /async \(token: string, guardado: Perfil \| null, tiempoMs: number\)/.test(confirmar) &&
+        /api\.me\(token, tiempoMs\)/.test(confirmar) &&
         /if \(error\.status === 401\) \{\s*await olvidar\(MENSAJE_SESION_VENCIDA\)/.test(confirmar) &&
         (confirmar.match(/generacion\.current !== desde/g) ?? []).length >= 2,
       confirmar.slice(0, 400)
+    )
+    // Revisión 2026-10-15: la confirmación en segundo plano no usa los 5 s de la espera (dejaba "Sin conexión" sin razón).
+    t.check(
+      'solo la confirmación que la persona espera usa TIEMPO_ME_MS; la de segundo plano y refrescar usan TIEMPO_ME_FONDO_MS',
+      /await confirmar\(token, null, TIEMPO_ME_MS\)/.test(abrir) &&
+        (sesion.match(/confirmar\([^)]*TIEMPO_ME_MS\)/g) ?? []).length === 1 &&
+        /await confirmar\(token, perfil, TIEMPO_ME_FONDO_MS\)/.test(sesion.slice(sesion.indexOf('const refrescar = useCallback(')))
     )
     t.check('un 401 en cualquier petición sigue cerrando la sesión (alVencerSesion → olvidar)', /api\.alVencerSesion\(\(\) => void olvidar\(MENSAJE_SESION_VENCIDA\)\)/.test(sesion))
     t.check('salir y entrar cambian la generación (una confirmación vieja no revive la sesión)', /const olvidar = useCallback\(async \(motivo: string \| null\) => \{\s*generacion\.current\+\+/.test(sesion) && /const respuesta = await api\.login\(email, password\)\s*generacion\.current\+\+/.test(sesion))

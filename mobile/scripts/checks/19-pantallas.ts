@@ -9,12 +9,15 @@
  */
 import { FRESCURA_SIN_PEDIR_MS } from '../../lib/contexto-memoria'
 import {
+  avisoCitasEnDiaLibre,
   citaAtrasada,
   citaDeAhora,
   debeRecargarHoy,
+  diasPorDelante,
   erroresNuevoMedico,
   faltaParaEntrar,
   faltanVisitas,
+  marcasConCitas,
   marcasDiasLibres,
   primerDiaRegistrable,
   textoSiguienteCita,
@@ -122,22 +125,41 @@ export async function pruebas(t: Probador): Promise<void> {
   // -------------------------------------------------------------------------
   t.seccion('19c. Textos puros: Números, Nueva sede, Días libres, Nuevo médico e Ingreso')
   {
-    t.check('faltanVisitas(220, 100, 22, 11) → "Te faltan 120 visitas médicas: 11 por día hábil"', faltanVisitas(220, 100, 22, 11) === 'Te faltan 120 visitas médicas: 11 por día hábil', faltanVisitas(220, 100, 22, 11))
-    t.check('faltanVisitas: singular ("Te falta 1 visita médica: 1 por día hábil")', faltanVisitas(10, 9, 20, 19) === 'Te falta 1 visita médica: 1 por día hábil', faltanVisitas(10, 9, 20, 19))
+    // Revisión 2026-10-15: se reparte en los días hábiles que quedan SIN los días libres que vienen, y la frase no es la
+    // misma de la meta de hoy ("por día hábil").
     t.check(
-      'faltanVisitas: institucionales y cifras con decimales (hacia arriba)',
-      faltanVisitas(30, 10, 20, 10, 'institucional') === 'Te faltan 20 visitas institucionales: 2 por día hábil' && faltanVisitas(10.5, 3, 20, 10) === 'Te faltan 8 visitas médicas: 1 por día hábil',
-      [faltanVisitas(30, 10, 20, 10, 'institucional'), faltanVisitas(10.5, 3, 20, 10)]
+      'faltanVisitas(220, 100, 11) → "Te faltan 120 visitas médicas: 11 por día en los 11 días hábiles que quedan"',
+      faltanVisitas(220, 100, 11) === 'Te faltan 120 visitas médicas: 11 por día en los 11 días hábiles que quedan',
+      faltanVisitas(220, 100, 11)
+    )
+    t.check(
+      'faltanVisitas: el caso de la revisión: faltan 62 con 11 hábiles por delante y uno libre (10) → 7 por día, no 6',
+      faltanVisitas(120, 58, diasPorDelante({ dias_habiles: 21, dias_habiles_transcurridos: 10, dias_libres: 2, dias_habiles_por_delante: 10 })) === 'Te faltan 62 visitas médicas: 7 por día en los 10 días hábiles que quedan',
+      faltanVisitas(120, 58, diasPorDelante({ dias_habiles: 21, dias_habiles_transcurridos: 10, dias_libres: 2, dias_habiles_por_delante: 10 }))
+    )
+    t.check(
+      'faltanVisitas: singular ("Te falta 1 visita médica: 1 por día en el día hábil que queda") e institucionales con decimales (hacia arriba)',
+      faltanVisitas(10, 9, 1) === 'Te falta 1 visita médica: 1 por día en el día hábil que queda' &&
+        faltanVisitas(30, 10, 10, 'institucional') === 'Te faltan 20 visitas institucionales: 2 por día en los 10 días hábiles que quedan' &&
+        faltanVisitas(10.5, 3, 10) === 'Te faltan 8 visitas médicas: 1 por día en los 10 días hábiles que quedan' &&
+        faltanVisitas(62, 0, 8.5) === 'Te faltan 62 visitas médicas: 8 por día en los 8,5 días hábiles que quedan',
+      [faltanVisitas(10, 9, 1), faltanVisitas(30, 10, 10, 'institucional'), faltanVisitas(10.5, 3, 10), faltanVisitas(62, 0, 8.5)]
     )
     t.check(
       'faltanVisitas: null si ya cumplió, si no quedan días, sin cuota o con números no válidos',
-      faltanVisitas(100, 100, 22, 11) === null &&
-        faltanVisitas(100, 130, 22, 11) === null &&
-        faltanVisitas(220, 100, 22, 22) === null &&
-        faltanVisitas(0, 0, 22, 11) === null &&
-        faltanVisitas(220, 100, 0, 0) === null &&
-        faltanVisitas(220, null, 22, 11) === null &&
-        faltanVisitas(Number.NaN, 1, 22, 11) === null
+      faltanVisitas(100, 100, 11) === null &&
+        faltanVisitas(100, 130, 11) === null &&
+        faltanVisitas(220, 100, 0) === null &&
+        faltanVisitas(0, 0, 11) === null &&
+        faltanVisitas(220, 100, null) === null &&
+        faltanVisitas(220, null, 11) === null &&
+        faltanVisitas(Number.NaN, 1, 11) === null
+    )
+    t.check(
+      'diasPorDelante: el del servidor; sin él, hábiles − transcurridos solo si no hay días libres en el mes (si los hay, null)',
+      diasPorDelante({ dias_habiles: 21, dias_habiles_transcurridos: 10, dias_libres: 1, dias_habiles_por_delante: 10 }) === 10 &&
+        diasPorDelante({ dias_habiles: 21, dias_habiles_transcurridos: 10, dias_libres: 0 }) === 11 &&
+        diasPorDelante({ dias_habiles: 21, dias_habiles_transcurridos: 10, dias_libres: 1 }) === null
     )
 
     t.check(
@@ -174,6 +196,22 @@ export async function pruebas(t: Probador): Promise<void> {
       'marcasDiasLibres: rechazado y anulado no son días libres: no se marcan',
       !('2026-10-22' in marcas) && !('2026-10-23' in marcas) && Object.keys(marcas).length === 4 && Object.keys(alReves).length === 4,
       marcas
+    )
+    // Revisión 2026-10-15: Días libres también marca las citas y avisa si el día elegido tiene pendientes.
+    const conCitas = marcasConCitas(marcas, [cita('a', '09:30', 'pendiente', '2026-10-24'), cita('b', '10:00', 'cancelada', '2026-10-24'), cita('c', null, 'hecha', '2026-10-30')])
+    t.check(
+      'marcasConCitas: suma las citas en pie a las marcas de los días libres (sin las canceladas) y no toca el original',
+      conCitas['2026-10-24']?.estadoLibre === 'aprobado' && conCitas['2026-10-24']?.citas === 1 && conCitas['2026-10-30']?.citas === 1 && !('citas' in (marcas['2026-10-24'] ?? {})),
+      conCitas
+    )
+    t.check(
+      'avisoCitasEnDiaLibre: las pendientes de ese día, por hora, con qué hacer; null si no hay',
+      avisoCitasEnDiaLibre('2026-10-24', [cita('x', '10:30', 'pendiente', '2026-10-24', 'Dra. Gómez'), cita('y', '09:00', 'pendiente', '2026-10-24', 'Dr. Ruiz'), cita('z', '08:00', 'hecha', '2026-10-24')]) ===
+        'Ese día tienes 2 citas pendientes (09:00 Dr. Ruiz · 10:30 Dra. Gómez): cancélalas o agéndalas otro día en Mi agenda.' &&
+        avisoCitasEnDiaLibre('2026-10-24', [cita('x', '10:30', 'pendiente', '2026-10-24', 'Dra. Gómez')]) === 'Ese día tienes 1 cita pendiente (10:30 Dra. Gómez): cancélala o agéndala otro día en Mi agenda.' &&
+        avisoCitasEnDiaLibre('2026-10-25', [cita('x', '10:30', 'pendiente', '2026-10-24')]) === null &&
+        avisoCitasEnDiaLibre('2026-10-24', ['08', '09', '10', '11', '12'].map(h => cita(h, `${h}:00`, 'pendiente', '2026-10-24', `Dr. ${h}`))) ===
+          'Ese día tienes 5 citas pendientes (08:00 Dr. 08 · 09:00 Dr. 09 · 10:00 Dr. 10 y 2 más): cancélalas o agéndalas otro día en Mi agenda.'
     )
     const diezAm = new Date('2026-10-15T10:00:00-05:00')
     t.check(
@@ -276,7 +314,20 @@ export async function pruebas(t: Probador): Promise<void> {
       'Hoy: arriba de la agenda, "Siguiente: …" (citaDeAhora) que también lleva a reportarla; "Atrasada" en las de hora pasada',
       /const deAhora = citaDeAhora\(ordenadas, ahora\)/.test(agendaDeHoy) &&
         /titulo=\{textoSiguienteCita\(deAhora, ahora\)\}[^>]*alPresionar=\{\(\) => alReportarCita\(deAhora\)\}/.test(agendaDeHoy) &&
-        /\{citaAtrasada\(cita, ahora\) \? <Insignia texto="Atrasada" tono="alerta" \/> : null\}/.test(agendaDeHoy)
+        /atrasada=\{citaAtrasada\(cita, ahora\)\}/.test(agendaDeHoy)
+    )
+    // Revisión 2026-10-15: la fila de la cita no reserva ~67 pt para "Reportar ›" (partía el nombre y la sede) y
+    // "Atrasada" va con "Pendiente"; Reportar (ListaCitas) y Mi agenda (LineaDelDia) también la marcan.
+    const filaCita = leer('components/reporte/FilaCita.tsx')
+    t.check(
+      'FilaCita: solo "›" a la derecha (sin "Reportar ›") y "Atrasada" en el mismo grupo que el estado',
+      !filaCita.includes('Reportar ›') &&
+        /<Insignia texto=\{ETIQUETA_ESTADO_CITA\[cita\.estado\]\}[^\n]*\/>\s*\{atrasada \? <Insignia texto="Atrasada" tono="alerta" \/> : null\}\s*<\/Grupo>/.test(filaCita)
+    )
+    t.check(
+      'Reportar (ListaCitas) y Mi agenda (LineaDelDia) también marcan "Atrasada" (citaAtrasada)',
+      /citaAtrasada\(cita, ahora\) \? <Insignia texto="Atrasada" tono="alerta" \/>/.test(leer('components/reporte/ListaCitas.tsx')) &&
+        /citaAtrasada\(cita, reloj\) \? <Insignia texto="Atrasada" tono="alerta" \/>/.test(leer('components/agenda/LineaDelDia.tsx'))
     )
     t.check(
       'Hoy: "Visitas de hoy" dice que carga (no "Todavía no has reportado") mientras no llegan',
@@ -296,12 +347,19 @@ export async function pruebas(t: Probador): Promise<void> {
     )
 
     const dias = leer('app/(app)/dias-libres.tsx')
+    t.check(
+      'Días libres: el calendario marca las citas (de hoy a hoy + 30) y el día elegido con citas pendientes avisa, con "Ver en Mi agenda"',
+      /api\.agenda\(hoyAhora, sumarDias\(hoyAhora, DIAS_AGENDA_ADELANTE\)\)/.test(dias) &&
+        /marcasConCitas\(marcasDiasLibres\(datos\?\.items \?\? \[\]\), citas\)/.test(dias) &&
+        /const conCitas = avisoCitasEnDiaLibre\(fecha, citas\)/.test(dias) &&
+        /titulo="Ver en Mi agenda"[^\n]*alPresionar=\{\(\) => router\.push\(rutaMiAgenda\(fecha\)\)\}/.test(dias)
+    )
     const registrar = bloque(dias, 'async function registrar() {', '\n  }\n')
     const anular = bloque(dias, 'async function anular(dia: DiaLibreItem) {', '\n  }\n')
     t.check(
       'Días libres: la fecha se elige en CalendarioMes, con los días libres por estado y desde el primer día que aún se puede',
       /<CalendarioMes valor=\{fecha\} alCambiar=\{setFecha\} hoy=\{hoy\} desde=\{primerDia\} marcas=\{marcas\}/.test(dias) &&
-        /const marcas = useMemo\(\(\) => marcasDiasLibres\(datos\?\.items \?\? \[\]\), \[datos\]\)/.test(dias) &&
+        /const marcas = useMemo\(\(\) => marcasConCitas\(marcasDiasLibres\(datos\?\.items \?\? \[\]\), citas\), \[datos, citas\]\)/.test(dias) &&
         /const primerDia = primerDiaRegistrable\(hoy, plazoHoras\)/.test(dias) &&
         !/sumarDias\(f, [-]?1\)/.test(dias)
     )
@@ -329,7 +387,9 @@ export async function pruebas(t: Probador): Promise<void> {
     )
     t.check(
       'Números: "Te faltan …" con faltanVisitas, solo en el mes en curso y con lo hecho',
-      /enCurso && numeros \? faltanVisitas\(cuota\[tipo\]\.cuota, numeros\.hechas\[tipo\], cuota\.dias_habiles, cuota\.dias_habiles_transcurridos, tipo\) : null/.test(numeros) &&
+      /enCurso && numeros \? faltanVisitas\(cuota\[tipo\]\.cuota, numeros\.hechas\[tipo\], diasPorDelante\(cuota\), tipo\) : null/.test(numeros) &&
+        /Meta de hoy: \{numeroTexto\(tipo\.meta_dia_hoy\)\} · \{textoOrigenMeta\(tipo\.origen\)\}/.test(numeros) &&
+        !/por día hábil/.test(numeros.replace(/\/\*[\s\S]*?\*\//g, '')) &&
         /enCurso=\{datos\.mes === mesActual\}/.test(numeros) &&
         /falta=\{falta\('medica'\)\}/.test(numeros) &&
         /falta=\{falta\('institucional'\)\}/.test(numeros)

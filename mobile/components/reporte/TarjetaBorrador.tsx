@@ -15,6 +15,9 @@
  *   - El "Confirmar" de la primera tarjeta va en el pie fijo de Reportar (PieConfirmar en Pantalla.pie: "Confirmar
  *     visita 1 de N", visible sin desplazar); las demás llevan el suyo. Cada tarjeta se confirma con su propio toque y
  *     con las mismas validaciones (validarBorrador).
+ *   - Encima del botón del pie va qué se confirma ("Efectiva · PerOssal y Reemplazo articular · sin conclusión") o lo
+ *     que falta / el rechazo (revisión 2026-10-15): la de toques nace válida y no se confirma a ciegas.
+ *   - "Descartar" va aparte, en rojo, y Reportar pregunta antes de borrar la tarjeta.
  *   - Con una cita (agenda_id) no se muestra "Tipo de visita": el tipo es el de la cita.
  *   - Los médicos van ordenados por la sede elegida y por cercanía (lib/orden-medicos.ts), con un solo buscador: el
  *     filtro de la lista ofrece "Buscar en OpMap" con el mismo texto.
@@ -100,9 +103,40 @@ interface Props {
   alTocar?: () => void
 }
 
-/** El botón del pie fijo de Reportar (Pantalla.pie): "Confirmar visita 1 de N" de la primera tarjeta abierta. */
-export function PieConfirmar({ numero, total, enviando, alConfirmar }: { numero: number; total: number; enviando: boolean; alConfirmar: () => void }) {
-  return <Boton titulo={textoPieConfirmar(numero, total)} cargando={enviando} alPresionar={alConfirmar} />
+/**
+ * El botón del pie fijo de Reportar (Pantalla.pie): "Confirmar visita 1 de N" de la primera tarjeta abierta. Encima, en
+ * una línea, qué se confirma (`resumen`: resumenParaPie) o, si no pasó, lo que falta o el rechazo (`aviso`: avisoDelPie).
+ */
+export function PieConfirmar({
+  numero,
+  total,
+  enviando,
+  alConfirmar,
+  resumen = null,
+  aviso = null,
+}: {
+  numero: number
+  total: number
+  enviando: boolean
+  alConfirmar: () => void
+  resumen?: string | null
+  aviso?: string | null
+}) {
+  const c = useColores()
+  return (
+    <View style={{ gap: 6 }}>
+      {aviso ? (
+        <Texto peque color={c.peligro} lineas={3}>
+          {aviso}
+        </Texto>
+      ) : resumen ? (
+        <Texto peque suave lineas={2}>
+          {resumen}
+        </Texto>
+      ) : null}
+      <Boton titulo={textoPieConfirmar(numero, total)} cargando={enviando} alPresionar={alConfirmar} />
+    </View>
+  )
 }
 
 export function TarjetaBorrador(props: Props) {
@@ -574,7 +608,8 @@ export function TarjetaBorrador(props: Props) {
       {props.confirmarEnPie ? null : (
         <Boton titulo={textoPieConfirmar(props.numero, props.total)} variante="secundario" cargando={estado.enviando} alPresionar={props.alConfirmar} />
       )}
-      <Boton titulo="Descartar" variante="texto" deshabilitado={estado.enviando} alPresionar={props.alDescartar} />
+      {/* Aparte y en rojo (no junto a "Editar todo" con el mismo estilo); Reportar pregunta antes de borrar. */}
+      <Boton titulo="Descartar esta visita" variante="peligro" deshabilitado={estado.enviando} alPresionar={props.alDescartar} estilo={{ marginTop: 6 }} />
     </Tarjeta>
   )
 }

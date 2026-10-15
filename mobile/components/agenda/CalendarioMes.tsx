@@ -7,6 +7,11 @@
  * Con `vista` 'mes' las flechas pasan de mes; con 'semana', de semana. Al pasar a otro mes avisa `alCambiarMes` (en la
  * vista de semana, cada mes que toca la semana nueva) para que la pantalla pida sus citas. Si `valor` cambia desde
  * afuera, el calendario va a su mes o su semana. Las reglas puras están en lib/calendario.ts.
+ *
+ * Revisión 2026-10-15: con `conHoy` (Mi agenda), un "Hoy" en la cabecera vuelve a hoy (lo elige) cuando se ve otro día
+ * u otra semana. La leyenda de las citas es una insignia sin cifra ("número de citas del día"; con un "2" fijo se leía
+ * como un total). Los números no crecen más de 1,3 veces con el texto grande del sistema (círculos de 38 pt e insignias
+ * de 17).
  */
 import { useEffect, useMemo, useState, type JSX } from 'react'
 import { Pressable, Text, View } from 'react-native'
@@ -47,12 +52,17 @@ export interface PropsCalendarioMes {
   vista?: 'mes' | 'semana'
   /** Al pasar a otro mes (AAAA-MM): para pedir sus citas. */
   alCambiarMes?: (mes: string) => void
+  /** "Hoy" en la cabecera (Mi agenda): vuelve a hoy y lo elige cuando se ve otro día u otra semana. */
+  conHoy?: boolean
 }
+
+/** Hasta cuánto crecen los números con el texto grande del sistema. */
+const MAX_ESCALA_TEXTO = 1.3
 
 /** Día libre que ya cuenta como libre (fondo lleno); los demás estados vivos, borde punteado. */
 const LIBRE_LLENO: readonly EstadoDiaLibre[] = ['aprobado', 'registrado']
 
-export function CalendarioMes({ valor, alCambiar, hoy, desde, hasta, marcas, vista = 'mes', alCambiarMes }: PropsCalendarioMes): JSX.Element {
+export function CalendarioMes({ valor, alCambiar, hoy, desde, hasta, marcas, vista = 'mes', alCambiarMes, conHoy }: PropsCalendarioMes): JSX.Element {
   const c = useColores()
   const fuente = useFuente()
   const base = valor ?? (desde !== undefined && hoy < desde ? desde : hoy)
@@ -98,6 +108,13 @@ export function CalendarioMes({ valor, alCambiar, hoy, desde, hasta, marcas, vis
   }
 
   const visibles = semanas.flat()
+  const hoyElegible = (desde === undefined || hoy >= desde) && (hasta === undefined || hoy <= hasta)
+  const verHoy = !!conHoy && hoyElegible && (valor !== hoy || !visibles.some(d => d.fecha === hoy))
+  const irAHoy = () => {
+    if (vista === 'semana') ir(lunesDe(hoy))
+    else ir(mesDe(hoy))
+    alCambiar(hoy)
+  }
   const hayCitas = visibles.some(d => (marcas?.[d.fecha]?.citas ?? 0) > 0)
   const libresVisibles = visibles.map(d => marcas?.[d.fecha]?.estadoLibre ?? null).filter((e): e is EstadoDiaLibre => e !== null)
   const hayLibres = libresVisibles.some(e => LIBRE_LLENO.includes(e))
@@ -131,6 +148,19 @@ export function CalendarioMes({ valor, alCambiar, hoy, desde, hasta, marcas, vis
         <Text accessibilityRole="header" style={[{ color: c.texto, fontSize: 17, textAlign: 'center', flex: 1 }, fuente('negrita')]}>
           {vista === 'semana' ? tituloSemana(lunes) : tituloMes(mes)}
         </Text>
+        {verHoy ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Ir a hoy"
+            onPress={irAHoy}
+            hitSlop={4}
+            style={({ pressed }) => ({ minHeight: ALTO_TOQUE_MIN, paddingHorizontal: 10, justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}
+          >
+            <Text maxFontSizeMultiplier={MAX_ESCALA_TEXTO} style={[{ color: c.texto, fontSize: 15, textDecorationLine: 'underline' }, fuente('media')]}>
+              Hoy
+            </Text>
+          </Pressable>
+        ) : null}
         {flecha('adelante', puedeSiguiente, siguiente)}
       </View>
 
@@ -181,7 +211,9 @@ export function CalendarioMes({ valor, alCambiar, hoy, desde, hasta, marcas, vis
                     borderStyle: libre && !lleno && !elegido ? 'dashed' : 'solid',
                   }}
                 >
-                  <Text style={[{ color: colorNumero, fontSize: 16 }, fuente(elegido || dia.esHoy ? 'negrita' : 'regular')]}>{dia.numero}</Text>
+                  <Text maxFontSizeMultiplier={MAX_ESCALA_TEXTO} style={[{ color: colorNumero, fontSize: 16 }, fuente(elegido || dia.esHoy ? 'negrita' : 'regular')]}>
+                    {dia.numero}
+                  </Text>
                 </View>
                 {marca?.citas ? (
                   <View
@@ -199,7 +231,9 @@ export function CalendarioMes({ valor, alCambiar, hoy, desde, hasta, marcas, vis
                       backgroundColor: c.info,
                     }}
                   >
-                    <Text style={[{ color: c.superficie, fontSize: 11, lineHeight: 13 }, fuente('negrita')]}>{marca.citas}</Text>
+                    <Text maxFontSizeMultiplier={MAX_ESCALA_TEXTO} style={[{ color: c.superficie, fontSize: 11, lineHeight: 13 }, fuente('negrita')]}>
+                      {marca.citas}
+                    </Text>
                   </View>
                 ) : null}
               </Pressable>
@@ -212,10 +246,8 @@ export function CalendarioMes({ valor, alCambiar, hoy, desde, hasta, marcas, vis
         <View importantForAccessibility="no-hide-descendants" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 14, paddingHorizontal: 4 }}>
           {hayCitas ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <View style={{ minWidth: 17, height: 17, borderRadius: 9, backgroundColor: c.info, alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={[{ color: c.superficie, fontSize: 11, lineHeight: 13 }, fuente('negrita')]}>2</Text>
-              </View>
-              <Text style={[{ color: c.textoSuave, fontSize: 13 }, fuente('regular')]}>citas</Text>
+              <View style={{ width: 17, height: 17, borderRadius: 9, backgroundColor: c.info }} />
+              <Text style={[{ color: c.textoSuave, fontSize: 13 }, fuente('regular')]}>número de citas del día</Text>
             </View>
           ) : null}
           {hayLibres ? (

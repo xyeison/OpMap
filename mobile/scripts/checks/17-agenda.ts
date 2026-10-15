@@ -11,21 +11,30 @@ import {
   DURACION_VISUAL_MIN,
   HORARIO_AGENDA,
   MENSAJE_HORA_OBLIGATORIA,
+  ALTO_PANTALLA_BAJA,
+  MENSAJE_CITA_REPETIDA_CUENTA,
+  MENSAJE_CITA_REPETIDA_MEDICO,
+  MENSAJE_HORA_PASADA,
+  MIN_LIBRES_PLEGADAS,
   OTRA_HORA,
   avisoAgendadaHoy,
   avisoChoque,
   bloqueaAgendar,
   citasQueChocan,
   cuerpoCitaConHora,
+  errorCitaRepetida,
+  fechaInicialAgendar,
   fijarCitaResaltada,
   fijarPedidoAgendar,
   filaDeAhora,
   franjaDe,
   franjaPasada,
   franjasHorario,
+  lineasCitasDelDia,
   marcasDelMes,
   medicosConCitaEseDia,
   ocupacionDelDia,
+  plegarLibres,
   primeraFranjaLibre,
   puedeAgendarProxima,
   rutaAgendar,
@@ -36,6 +45,7 @@ import {
   tomarCitaResaltada,
   tomarPedidoAgendar,
   validarCitaConHora,
+  vistaCalendarioAgendar,
   type PedidoAgendar,
 } from '../../lib/agenda'
 import {
@@ -385,10 +395,13 @@ export async function pruebas(t: Probador): Promise<void> {
     check('Agendar: ¿Cuándo? → ¿A qué hora? → ¿Con quién? → Nota', cuando > 0 && cuando < aQueHora && aQueHora < conQuien && conQuien < nota, { cuando, aQueHora, conQuien, nota })
     const selectorMedico = bloqueJsx(nueva, 'Selector', 'etiqueta="Médico"')
     check('Agendar: el Selector de médicos empieza cerrado (sin abiertoInicial) y marca el que ya tiene cita ese día', !!selectorMedico && !selectorMedico.includes('abiertoInicial') && selectorMedico.includes('conCita.get(m.id)'), selectorMedico.slice(0, 200))
-    const buscadorMedico = bloqueJsx(nueva, 'Buscador<MedicoPublico>', 'Buscar otro médico en OpMap')
-    check('Agendar: la búsqueda de otro médico está a la vista (fuera del extra del Selector)', !!buscadorMedico && !selectorMedico.includes('extra='))
+    // Revisión 2026-10-15: un solo buscador de médicos (había dos: el filtro del selector y "Buscar otro médico en OpMap").
+    check(
+      'Agendar: un solo buscador de médicos: el del Selector, que ofrece "Buscar en OpMap" (buscarFuera) con lo escrito',
+      selectorMedico.includes('buscarFuera={{') && /donde: 'OpMap'/.test(selectorMedico) && /consulta=\{consulta\}/.test(selectorMedico) && !sinComentarios(nueva).includes('Buscar otro médico en OpMap') && !selectorMedico.includes('extra=')
+    )
     check('Agendar: el calendario va con la ventana (hoy a hoy + 30) y sus marcas', /<CalendarioMes\s[^>]*desde=\{ventana\.desde\}[^>]*hasta=\{ventana\.hasta\}[^>]*marcas=\{marcas\}/.test(nueva))
-    check('Agendar: usa validarCitaConHora y cuerpoCitaConHora (no validarCita ni cuerpoCita sueltas)', /validarCitaConHora\(formulario, hoy, perfil\)/.test(nueva) && /api\.agendar\(cuerpoCitaConHora\(formulario\)\)/.test(nueva) && !/\bvalidarCita\(/.test(nueva) && !/\bcuerpoCita\(/.test(nueva))
+    check('Agendar: usa validarCitaConHora y cuerpoCitaConHora (no validarCita ni cuerpoCita sueltas)', /validarCitaConHora\(formulario, hoy, perfil, \{ citas \}\)/.test(nueva) && /api\.agendar\(cuerpoCitaConHora\(formulario\)\)/.test(nueva) && !/\bvalidarCita\(/.test(nueva) && !/\bcuerpoCita\(/.test(nueva))
     const pie = bloqueJsx(nueva, 'Pantalla', 'pie=')
     check('Agendar: el botón principal va en Pantalla.pie con el resumen (textoBotonAgendar)', /<Pantalla pie=\{pie\}>/.test(pie) && /const pie = \([\s\S]*?<Boton titulo=\{textoBotonAgendar\(formulario\.fecha, formulario\.hora\)\}[\s\S]*?\n {2}\)/.test(nueva))
     check('Agendar: una sola carga de 31 días de citas y de días libres', /api\.agenda\(ventana\.desde, ventana\.hasta\)/.test(nueva) && /api\.diasLibres\(ventana\.desde, ventana\.hasta\)/.test(nueva))
@@ -396,8 +409,11 @@ export async function pruebas(t: Probador): Promise<void> {
     check('Agendar: lee rutaAgendar (fecha y hora de la URL) y tomarPedidoAgendar, y se vuelve a montar con SoloEnFoco clave', /useLocalSearchParams<\{ fecha\?: string; hora\?: string \}>/.test(nueva) && /tomarPedidoAgendar\(\)/.test(nueva) && /<SoloEnFoco clave=\{`\$\{fecha \?\? ''\}\|\$\{hora \?\? ''\}\|\$\{entrada\.vez\}`\}>/.test(nueva))
     const guardar = nueva.slice(nueva.indexOf('const guardar = async'), nueva.indexOf('if (cargando && !contexto)'))
     check("Agendar: al agendar invalida el contexto ('cita'), resalta la cita y vuelve a Mi agenda en su día", /invalidarContexto\('cita'\)/.test(guardar) && /fijarCitaResaltada\(cita\)/.test(guardar) && /router\.navigate\(rutaMiAgenda\(cita\.fecha\)\)/.test(guardar))
-    check('Agendar: avisa el choque, "Ese día ya tienes" y la cita de hoy', /avisoChoque\(formulario\.hora, citasDelDia\)/.test(nueva) && /textoCitasDelDia\(citasDelDia\)/.test(nueva) && /avisoAgendadaHoy\(formulario\.fecha, hoy\)/.test(nueva))
-    check('SelectorHora: Mañana y Tarde con las franjas y "Otra hora" con OTRA_HORA', /franjasHorario\(\)/.test(selectorHora) && /grupo\('Mañana'/.test(selectorHora) && /grupo\('Tarde'/.test(selectorHora) && /OTRA_HORA\.horas\.map/.test(selectorHora) && /OTRA_HORA\.minutos\.map/.test(selectorHora))
+    check('Agendar: avisa el choque, "Ese día ya tienes" (lista) y la cita de hoy', /avisoChoque\(formulario\.hora, citasDelDia\)/.test(nueva) && /lineasCitasDelDia\(citasDelDia\)/.test(nueva) && /avisoAgendadaHoy\(formulario\.fecha, hoy\)/.test(nueva))
+    check(
+      'SelectorHora: "Por la mañana" y "Por la tarde" con las franjas (no "Mañana": es el día siguiente) y "Otra hora" con OTRA_HORA',
+      /franjasHorario\(\)/.test(selectorHora) && /grupo\('Por la mañana'/.test(selectorHora) && /grupo\('Por la tarde'/.test(selectorHora) && !/grupo\('Mañana'/.test(selectorHora) && /OTRA_HORA\.horas\.map/.test(selectorHora) && /OTRA_HORA\.minutos\.map/.test(selectorHora)
+    )
 
     const agenda = leer('mobile/app/(app)/agenda.tsx')
     check('Mi agenda: usa CalendarioMes y LineaDelDia', /<CalendarioMes\s/.test(agenda) && /<LineaDelDia\s/.test(agenda))
@@ -416,5 +432,122 @@ export async function pruebas(t: Probador): Promise<void> {
     check('LineaDelDia: "Ahora", "Sin hora" y "Ver canceladas (n)"', />Ahora</.test(linea) && /\n\s+Sin hora\n/.test(linea) && /Ver canceladas \(\$\{canceladas\.length\}\)/.test(linea))
     const detalle = leer('mobile/components/agenda/DetalleCita.tsx')
     check('DetalleCita: "Ver la visita", "Cancelar esta cita" con motivo opcional', detalle.includes('titulo="Ver la visita"') && detalle.includes('titulo="Cancelar esta cita"') && detalle.includes('etiqueta="Motivo (opcional)"'))
+  }
+
+  // -------------------------------------------------------------------------
+  t.seccion('17i. Revisión 2026-10-15: Agendar desde mañana, hora pasada, cita repetida, línea del día plegada')
+  {
+    check("fechaInicialAgendar: mañana ('2026-10-16'): la cita de hoy contaría como no agendada", fechaInicialAgendar(HOY) === '2026-10-16')
+    check(
+      'primeraFranjaLibre desde mañana: el 16 a las 08:00, aunque hoy a las 10:42 quede libre las 11:00',
+      primeraFranjaLibre(fechaInicialAgendar(HOY), '2026-11-14', [], {}, A_LAS_10_42)?.fecha === '2026-10-16' && primeraFranjaLibre(fechaInicialAgendar(HOY), '2026-11-14', [], {}, A_LAS_10_42)?.hora === '08:00'
+    )
+    const base: FormularioCita = { ...formularioCitaVacio(HOY, ['medica']), medico_id: 'm1', sede_id: 's1' }
+    const pasada = validarCitaConHora({ ...base, hora: '10:30' }, HOY, ['medica'], { ahora: A_LAS_10_42 })
+    check(`hoy a las 10:42, la cita de las 10:30 → "${MENSAJE_HORA_PASADA}" en hora`, pasada.length === 1 && pasada[0].campo === 'hora' && pasada[0].mensaje === MENSAJE_HORA_PASADA, pasada)
+    check("hoy a las 10:42, 10:45 y 11:00 → sin errores (con 'Otra hora' también vale)", validarCitaConHora({ ...base, hora: '10:45' }, HOY, ['medica'], { ahora: A_LAS_10_42 }).length === 0 && validarCitaConHora({ ...base, hora: '11:00' }, HOY, ['medica'], { ahora: A_LAS_10_42 }).length === 0)
+    check('mañana a cualquier hora → sin "ya pasó"', validarCitaConHora({ ...base, fecha: '2026-10-16', hora: '07:00' }, HOY, ['medica'], { ahora: A_LAS_10_42 }).length === 0)
+    const dra = cita({ hora: '09:30', medico: { id: 'm1', nombre: 'Dra. X' } })
+    const repetida = errorCitaRepetida({ ...base, fecha: HOY }, [dra])
+    check(
+      'errorCitaRepetida: el mismo médico ese día → error en medico_id con el texto del servidor, su hora y qué hacer',
+      repetida?.campo === 'medico_id' && repetida.mensaje === `${MENSAJE_CITA_REPETIDA_MEDICO} (a las 09:30): elige otro día o cancela esa cita en Mi agenda` && MENSAJE_CITA_REPETIDA_MEDICO === 'Ya tienes una cita con ese médico ese día',
+      repetida
+    )
+    check(
+      'errorCitaRepetida: no cuenta la cancelada, otro día ni otro médico',
+      errorCitaRepetida(base, [cita({ medico: { id: 'm1', nombre: 'X' }, estado: 'cancelada' })]) === null &&
+        errorCitaRepetida({ ...base, fecha: '2026-10-16' }, [dra]) === null &&
+        errorCitaRepetida({ ...base, medico_id: 'm2' }, [dra]) === null
+    )
+    const institucional: FormularioCita = { ...formularioCitaVacio(HOY, ['institucional']), cuenta_id: 'c1', subtipo_id: 'st1', sede_id: 's1' }
+    const deCuenta = cita({ tipo: 'institucional', medico: null, cuenta: { id: 'c1', nombre: 'Clínica Y' }, subtipo: { id: 'st1', codigo: 'compras', nombre: 'Compras' }, hora: null })
+    check(
+      'errorCitaRepetida: la misma cuenta y el mismo subtipo ese día → error en cuenta_id (otro subtipo no)',
+      errorCitaRepetida(institucional, [deCuenta])?.mensaje === `${MENSAJE_CITA_REPETIDA_CUENTA}: elige otro día o cancela esa cita en Mi agenda` &&
+        errorCitaRepetida(institucional, [deCuenta])?.campo === 'cuenta_id' &&
+        errorCitaRepetida({ ...institucional, subtipo_id: 'st2' }, [deCuenta]) === null
+    )
+    const web = leer('web/lib/reporte-visitas.ts')
+    check(
+      'los textos de la cita repetida son los del servidor (web/lib/reporte-visitas.ts)',
+      web.includes(`export const MENSAJE_CITA_REPETIDA_MEDICO = '${MENSAJE_CITA_REPETIDA_MEDICO}'`) && web.includes(`export const MENSAJE_CITA_REPETIDA_CUENTA = '${MENSAJE_CITA_REPETIDA_CUENTA}'`)
+    )
+    check(
+      'validarCitaConHora con las citas: incluye la repetida (una sola vez)',
+      validarCitaConHora({ ...base, fecha: '2026-10-16', hora: '10:00' }, HOY, ['medica'], { citas: [{ ...dra, fecha: '2026-10-16' }], ahora: A_LAS_10_42 }).map(e => e.campo).join() === 'medico_id'
+    )
+    check(
+      'lineasCitasDelDia: una línea por cita en pie, por hora, sin la cancelada y la sin hora al final',
+      lineasCitasDelDia([cita({ hora: '10:30', medico: { id: 'a', nombre: 'Dr. B' } }), cita({ hora: null, medico: { id: 'b', nombre: 'Dr. C' } }), dra, cita({ hora: '08:00', estado: 'cancelada' })]).join(' | ') ===
+        '09:30 · Dra. X | 10:30 · Dr. B | Sin hora · Dr. C'
+    )
+    const { filas } = ocupacionDelDia([cita({ hora: '09:30' }), cita({ hora: '16:00' })])
+    const tramos = plegarLibres(filas)
+    const resumen = tramos.map(tr => (tr.tipo === 'libres' ? `[${tr.desde}-${tr.hasta}]` : tr.fila.franja)).join(' ')
+    check(
+      `plegarLibres: un día con 2 citas pasa de 24 filas a 5 (libres de ${MIN_LIBRES_PLEGADAS} o más plegadas, con su fin)`,
+      MIN_LIBRES_PLEGADAS === 3 && filas.length === 24 && resumen === '[07:00-09:30] 09:30 [10:00-16:00] 16:00 [16:30-19:00]',
+      resumen
+    )
+    check(
+      'plegarLibres: dos libres seguidas no se pliegan; se corta en la fila de "Ahora"; lo desplegado no se pliega',
+      plegarLibres(ocupacionDelDia([cita({ hora: '07:00' }), cita({ hora: '08:30' })]).filas).slice(0, 4).map(tr => (tr.tipo === 'fila' ? tr.fila.franja : 'L')).join() === '07:00,07:30,08:00,08:30' &&
+        plegarLibres(filas, { cortes: [2] }).map(tr => (tr.tipo === 'libres' ? `[${tr.desde}-${tr.hasta}]` : tr.fila.franja)).slice(0, 3).join(' ') === '07:00 07:30 [08:00-09:30]' &&
+        plegarLibres(filas, { cortes: [3] })[0].tipo === 'libres' &&
+        plegarLibres(filas, { cortes: [3] })[1].tipo === 'fila' &&
+        plegarLibres(filas, { desplegados: new Set(['10:00']) }).filter(tr => tr.tipo === 'fila').length === 2 + 12
+    )
+    check(
+      'plegarLibres: no pierde ni repite filas',
+      tramos.flatMap(tr => (tr.tipo === 'libres' ? tr.indices : [tr.indice])).join() === filas.map((_, i) => i).join()
+    )
+    check(
+      `vistaCalendarioAgendar: semana por debajo de ${ALTO_PANTALLA_BAJA} pt (iPhone SE u 8: 667), mes en 844 y si no se sabe`,
+      ALTO_PANTALLA_BAJA === 700 && vistaCalendarioAgendar(667) === 'semana' && vistaCalendarioAgendar(844) === 'mes' && vistaCalendarioAgendar(Number.NaN) === 'mes' && vistaCalendarioAgendar(0) === 'mes'
+    )
+
+    const nueva = leer('mobile/app/(app)/agenda/nueva.tsx')
+    check(
+      'Agendar: sin fecha en la URL abre desde mañana (fechaInicialAgendar) en el formulario y en primeraFranjaLibre',
+      /formularioCitaVacio\(fechaDeUrl \?\? fechaInicialAgendar\(hoy\), \[\]\)/.test(nueva) && /primeraFranjaLibre\(fechaInicialAgendar\(hoy\), ventana\.hasta, citasVentana, marcasVentana\)/.test(nueva)
+    )
+    const pie = nueva.slice(nueva.indexOf('const pie = ('), nueva.indexOf('return (', nueva.indexOf('const pie = (')))
+    check(
+      'Agendar: el pie dice la cita repetida (ya) y el choque de hora (antes: al final de la tarjeta de la hora, fuera de la vista)',
+      /\) : repetida \? \(\s*<Texto peque color=\{c\.peligro\}>\s*\{repetida\.mensaje\}/.test(pie) && /\) : choque \? \(\s*<Texto peque color=\{c\.alerta\}>\s*\{choque\}/.test(pie) && !/\{choque \? <Aviso/.test(nueva)
+    )
+    const elegirFechaTs = nueva.slice(nueva.indexOf('const elegirFecha = '), nueva.indexOf('const elegirHora = '))
+    check('Agendar: al cambiar a hoy, una hora que ya pasó se cambia por la siguiente libre', /const yaPaso = typeof hora === 'string' && franjaPasada\(fecha, hora\)/.test(elegirFechaTs) && /if \(horaAuto \|\| yaPaso\)/.test(elegirFechaTs))
+    check(
+      'Agendar: en pantalla baja el calendario abre en la semana (vistaCalendarioAgendar con useWindowDimensions) y ofrece "Ver mes"',
+      /const vistaInicial = vistaCalendarioAgendar\(altoPantalla\)/.test(nueva) && /vista=\{vistaCalendario\}/.test(nueva) && /vistaInicial === 'semana' \?/.test(nueva)
+    )
+    const selectorHora = leer('mobile/components/agenda/SelectorHora.tsx')
+    check(
+      '"Otra hora": hoy apaga las horas y los minutos que ya pasaron (como los chips)',
+      /deshabilitado: libre === null/.test(selectorHora) && /const pasado = franjaPasada\(fecha, `\$\{hora\}:\$\{m\}`, reloj\)/.test(selectorHora) && /deshabilitado: pasado/.test(selectorHora)
+    )
+    const calendario = leer('mobile/components/agenda/CalendarioMes.tsx')
+    check(
+      'texto grande: chips de hora, números del calendario e insignias con maxFontSizeMultiplier 1,3',
+      /const MAX_ESCALA_TEXTO = 1\.3/.test(selectorHora) && /maxFontSizeMultiplier=\{MAX_ESCALA_TEXTO\}/.test(selectorHora) && (calendario.match(/maxFontSizeMultiplier=\{MAX_ESCALA_TEXTO\}/g) ?? []).length >= 3 && /maxFontSizeMultiplier=\{1\.3\}/.test(leer('mobile/lib/ui.tsx'))
+    )
+    check(
+      'CalendarioMes: la leyenda de citas sin cifra fija ("número de citas del día") y "Hoy" con conHoy',
+      !/>2<\/Text>/.test(calendario) && calendario.includes('número de citas del día') && /accessibilityLabel="Ir a hoy"/.test(calendario) && /const verHoy = !!conHoy && hoyElegible/.test(calendario)
+    )
+    const linea = leer('mobile/components/agenda/LineaDelDia.tsx')
+    check('LineaDelDia: pliega las libres seguidas (plegarLibres) cortando en "Ahora"', /plegarLibres\(filas, \{ cortes: indiceAhora >= 0 \? \[indiceAhora\] : \[\], desplegados: abiertos \}\)/.test(linea) && /Libre de \$\{tramo\.desde\} a \$\{tramo\.hasta\}/.test(linea))
+    const agenda = leer('mobile/app/(app)/agenda.tsx')
+    const cargarMes = agenda.slice(agenda.indexOf('const cargarMes = useCallback'), agenda.indexOf('const recargar = useCallback'))
+    check(
+      'Mi agenda: el error es por mes (uno que llega bien no borra el de otro) y el "Cargando" mira el del día',
+      /setErrores\(prev => \(\{ \.\.\.prev, \[mes\]: aApiError\(e\) \}\)\)/.test(cargarMes) && !/setError\(null\)/.test(agenda) && /errorDelDia && !cargando\[mesDe\(dia\)\] \? null : <Cargando/.test(agenda)
+    )
+    check(
+      'Mi agenda: "Cancelaste…" sale junto al día (después del título del día), "Hoy" en el calendario y el aviso del día libre con citas',
+      agenda.indexOf('{mensaje ? <Aviso') > agenda.indexOf('{tituloDiaAgenda(dia, hoy)}') && /\n\s+conHoy\n/.test(agenda) && /pendientesEnLibre > 0 \?/.test(agenda)
+    )
   }
 }

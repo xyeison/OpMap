@@ -390,7 +390,10 @@ export function Insignia({ texto, tono = 'neutro' }: { texto: string; tono?: Ton
   const t = coloresTono(c, tono)
   return (
     <View style={{ alignSelf: 'flex-start', backgroundColor: t.fondo, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3 }}>
-      <Text style={[{ color: t.texto, fontSize: 13 }, fuente('negrita')]}>{texto}</Text>
+      {/* Con el texto grande del sistema crece hasta 1,3 veces (más, se sale de la pastilla). */}
+      <Text maxFontSizeMultiplier={1.3} style={[{ color: t.texto, fontSize: 13 }, fuente('negrita')]}>
+        {texto}
+      </Text>
     </View>
   )
 }
