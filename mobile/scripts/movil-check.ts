@@ -151,6 +151,7 @@ import {
   valoresDeVisita,
 } from '../lib/propuesta'
 import { departamentoDe, municipioDe, tipoIdCuentaDeMedico, validarDocumentoMedico, validarRepsCode } from '../lib/terceros'
+import { parteAudio, tipoAudio } from '../lib/subida-audio'
 
 // Este archivo corre en Node (tsx), pero el programa de tipos es el de la app (sin @types/node, que chocaría con los
 // tipos de React Native): fs y path con lo mínimo que se usa aquí.
@@ -1172,6 +1173,60 @@ async function main() {
     archivos.push(path.join(raiz, 'app.json'), path.join(raiz, 'README.md'))
     const prohibidos = archivos.filter(ruta => /OpMap Visitas|\bKAM\b|representante|\bpanel\b/i.test(readFileSync(ruta, 'utf8')))
     check('no queda "OpMap Visitas", "KAM", "representante" ni "panel" en app/, components/, lib/, app.json ni README.md', prohibidos.length === 0, prohibidos.map(ruta => path.relative(raiz, ruta)))
+  }
+
+  // -------------------------------------------------------------------------
+  seccion('13. Subir el audio: la parte que acepta el fetch de Expo (SDK 57)')
+  {
+    check('m4a por defecto (iPhone y Android)', JSON.stringify(tipoAudio('file:///cache/rec-1.m4a')) === JSON.stringify({ tipo: 'audio/m4a', nombre: 'dictado.m4a' }))
+    check('webm, mp4 y aac por extensión; la consulta (?…) no cuenta', tipoAudio('blob:x.webm').tipo === 'audio/webm' && tipoAudio('file:///a.MP4').tipo === 'audio/mp4' && tipoAudio('file:///a.aac?v=1').nombre === 'dictado.aac')
+
+    let lecturas = 0
+    const audio = new Uint8Array([0, 0, 0, 24, 102, 116, 121, 112, 77, 52, 65, 32])
+    const parte = parteAudio('file:///cache/rec-1.m4a', async () => {
+      lecturas++
+      return audio
+    })
+    check('armar la parte no lee el archivo (se lee al enviar)', lecturas === 0)
+    check('la parte no lleva uri (el fetch de Expo la rechaza)', !('uri' in parte) && parte.name === 'dictado.m4a' && parte.type === 'audio/m4a')
+
+    // El convertidor real de Expo (el que dio "Unsupported FormDataPart implementation" en el teléfono), con un
+    // FormData mínimo como el de React Native ya parchado por Expo: entries() devuelve [nombre, valor].
+    type Convertir = (formulario: unknown, boundary?: string) => Promise<{ body: Uint8Array; boundary: string }>
+    const { convertFormDataAsync } = require(path.resolve(__dirname, '../node_modules/expo/src/winter/fetch/convertFormData.ts')) as { convertFormDataAsync: Convertir }
+    const formularioDe = (partes: [string, unknown][]) => ({ entries: () => partes })
+
+    let errorViejo = ''
+    try {
+      await convertFormDataAsync(formularioDe([['audio', { uri: 'file:///cache/rec-1.m4a', name: 'dictado.m4a', type: 'audio/m4a' }]]))
+    } catch (error) {
+      errorViejo = error instanceof Error ? error.message : String(error)
+    }
+    check('la forma vieja { uri, name, type } falla como en el teléfono', errorViejo === 'Unsupported FormDataPart implementation', errorViejo)
+
+    const { body, boundary } = await convertFormDataAsync(formularioDe([['audio', parte], ['duracion_s', '12']]), 'LimiteDePrueba')
+    check('la parte nueva se convierte y lee el archivo una vez', lecturas === 1 && body.length > audio.length)
+
+    // El servidor lee el multipart con request.formData(): se lee igual aquí (Response de Node).
+    interface ArchivoLeido {
+      name: string
+      type: string
+      size: number
+      arrayBuffer(): Promise<ArrayBuffer>
+    }
+    interface FormularioLeido {
+      get(nombre: string): unknown
+    }
+    const RespuestaNode = (globalThis as unknown as { Response: new (cuerpo: Uint8Array, init: { headers: Record<string, string> }) => { formData(): Promise<FormularioLeido> } }).Response
+    const leido = await new RespuestaNode(body, { headers: { 'content-type': `multipart/form-data; boundary=${boundary}` } }).formData()
+    const archivo = leido.get('audio') as ArchivoLeido | null
+    const bytesLeidos = archivo ? new Uint8Array(await archivo.arrayBuffer()) : new Uint8Array()
+    check('el servidor recibe dictado.m4a con tipo audio/m4a', archivo?.name === 'dictado.m4a' && archivo?.type === 'audio/m4a', archivo && { name: archivo.name, type: archivo.type })
+    check('y los mismos bytes del archivo', bytesLeidos.length === audio.length && bytesLeidos.every((byte, i) => byte === audio[i]))
+    check('duracion_s llega como texto', leido.get('duracion_s') === '12')
+
+    const api = readFileSync(path.resolve(__dirname, '../lib/api.ts'), 'utf8')
+    check('lib/api.ts sube el audio con parteAudio y bytes(), sin { uri, name, type }', /parteAudio\(uri, \(\) => archivo\.bytes\(\)\)/.test(api) && !/\{ uri, name:/.test(api))
   }
 
   console.log(`\n${total - fallas}/${total} pruebas pasaron`)

@@ -4,6 +4,7 @@
  * sesión (lo escucha lib/sesion.ts). Los errores salen como ApiError con el mensaje { error } del servidor, o uno
  * en español según el código (lib/errores.ts). Todas las peticiones tienen tiempo máximo.
  */
+import { File } from 'expo-file-system'
 import { Platform } from 'react-native'
 import { leerToken } from './almacen'
 import { ApiError, MENSAJE_SESION_VENCIDA, aApiError, errorDeRespuesta } from './errores'
@@ -16,6 +17,7 @@ import {
   normalizarBase,
   type ValorQuery,
 } from './http'
+import { parteAudio } from './subida-audio'
 import type {
   AgendaResponse,
   CamposDictadoResponse,
@@ -202,15 +204,6 @@ export function anularVisita(id: string, motivo: string): Promise<unknown> {
 
 // --- Voz -----------------------------------------------------------------------------------------------------
 
-/** Tipo MIME por la extensión del archivo grabado (m4a en iPhone y Android, webm en el navegador). */
-export function tipoAudio(uri: string): { tipo: string; nombre: string } {
-  const limpia = uri.split('?')[0].toLowerCase()
-  if (limpia.endsWith('.webm')) return { tipo: 'audio/webm', nombre: 'dictado.webm' }
-  if (limpia.endsWith('.mp4')) return { tipo: 'audio/mp4', nombre: 'dictado.mp4' }
-  if (limpia.endsWith('.aac')) return { tipo: 'audio/aac', nombre: 'dictado.aac' }
-  return { tipo: 'audio/m4a', nombre: 'dictado.m4a' }
-}
-
 /**
  * Sube el audio grabado (campo `audio`) y devuelve la transcripción. El audio va directo del archivo temporal
  * del teléfono al servidor; quien llama lo borra al recibir la respuesta (o al cancelar).
@@ -223,9 +216,9 @@ export async function transcribir(uri: string, duracionS?: number | null): Promi
     const extension = blob.type.includes('mp4') ? 'mp4' : 'webm'
     formulario.append('audio', blob, `dictado.${extension}`)
   } else {
-    const { tipo, nombre } = tipoAudio(uri)
-    // React Native acepta { uri, name, type } como archivo en FormData.
-    formulario.append('audio', { uri, name: nombre, type: tipo } as unknown as Blob)
+    // El fetch de Expo no acepta { uri, name, type } (lib/subida-audio.ts): la parte lee el archivo con bytes().
+    const archivo = new File(uri)
+    formulario.append('audio', parteAudio(uri, () => archivo.bytes()) as unknown as Blob)
   }
   if (duracionS != null && Number.isFinite(duracionS)) formulario.append('duracion_s', String(Math.round(duracionS)))
   return peticion<TranscripcionResponse>('/api/me/voz/transcribir', { metodo: 'POST', formulario, timeoutMs: TIEMPO_TRANSCRIBIR_MS })
