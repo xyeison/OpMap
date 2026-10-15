@@ -1685,6 +1685,12 @@ export const MENSAJE_CITA_NO_EXISTE = 'Esa cita no existe'
 export const MENSAJE_CITA_YA_CANCELADA = 'Esa cita ya está cancelada'
 export const MENSAJE_CITA_HECHA_NO_SE_CANCELA = 'Esa cita ya tiene su visita: no se cancela'
 export const MENSAJE_CITA_PASADA_NO_SE_CANCELA = 'Solo se cancelan las citas de hoy en adelante'
+/**
+ * Decisión del dueño 2026-10-15 (docs/decisiones/2026-10-15-agenda-con-hora-y-calendario.md): toda cita NUEVA lleva
+ * hora. La exige citaCreateSchema (sin hora, '' o null → 400 con este mensaje en `hora`); la base sigue aceptando NULL y
+ * las citas viejas sin hora siguen válidas. La app (mobile/lib/agenda.ts) usa el mismo texto.
+ */
+export const MENSAJE_HORA_OBLIGATORIA = 'Elige la hora de la cita'
 
 /** Mensajes de visitas_registrar (23514) cuando la visita trae un agenda_id que no sirve (decisión 7). */
 export const MENSAJE_CITA_AJENA = 'Esa cita no existe o no es tuya'
@@ -1708,8 +1714,8 @@ export function horaCorta(valor: unknown): string | null {
 export interface CitaCreateBase {
   /** AAAA-MM-DD, de hoy a hoy + 30 (Bogotá); no en un día libre aprobado. */
   fecha: string
-  /** HH:MM (opcional). */
-  hora: string | null
+  /** HH:MM, obligatoria desde el 2026-10-15 (MENSAJE_HORA_OBLIGATORIA); la columna sigue aceptando NULL (citas viejas). */
+  hora: string
   sede_id: string
   /** Hasta 300 caracteres (opcional). */
   nota: string | null

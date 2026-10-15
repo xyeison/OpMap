@@ -2,13 +2,20 @@
  * Mis días libres (F2): registrar con la fecha límite del plazo a la vista, ver la lista y anular. Datos:
  * GET/POST /api/me/dias-libres y POST /api/me/dias-libres/[id]/anular. Las reglas (plazo de gracia, día hábil,
  * duplicados, motivos) las vuelve a revisar el servidor; aquí solo se muestran para no perder tiempo.
+ *
+ * Spec 2026-10-15: se abre desde Mi agenda y desde Ajustes (ya no es pestaña). La fecha se elige en el calendario del
+ * mes (CalendarioMes), con los días libres marcados por estado y apagados los que ya pasaron del plazo. Registrar o
+ * anular invalida el contexto en memoria (la meta de Hoy cambia).
  */
 import { useFocusEffect } from 'expo-router'
 import { useCallback, useMemo, useState } from 'react'
 import { View } from 'react-native'
+import { CalendarioMes } from '../../components/agenda/CalendarioMes'
 import * as api from '../../lib/api'
+import { invalidarContexto } from '../../lib/contexto-memoria'
 import { aApiError, mensajeDeError, type ApiError } from '../../lib/errores'
 import { fechaLarga, fechaRelativa, hoyBogota, puedeRegistrarDiaLibre, sumarDias, textoLimiteLargo, venceRegistroDiaLibre } from '../../lib/fechas'
+import { marcasDiasLibres, primerDiaRegistrable } from '../../lib/pantallas'
 import { ejecutivaPuedeAnular, ordenarDiasLibres, textoFraccion } from '../../lib/reglas'
 import type { DiaLibreItem, EstadoDiaLibre, MisDiasLibresResponse } from '../../lib/tipos'
 import { ETIQUETA_ESTADO_DIA_LIBRE } from '../../lib/tipos'
@@ -60,6 +67,8 @@ export default function DiasLibres() {
 
   const hoy = hoyBogota()
   const plazoHoras = datos?.plazo_horas ?? 24
+  const primerDia = primerDiaRegistrable(hoy, plazoHoras)
+  const marcas = useMemo(() => marcasDiasLibres(datos?.items ?? []), [datos])
   const vence = useMemo(() => venceRegistroDiaLibre(fecha, plazoHoras), [fecha, plazoHoras])
   const dentroDePlazo = puedeRegistrarDiaLibre(fecha, plazoHoras)
   const yaRegistrado = (datos?.items ?? []).some(d => d.fecha === fecha && d.estado !== 'anulado' && d.estado !== 'rechazado')
@@ -71,6 +80,7 @@ export default function DiasLibres() {
     setMensaje(null)
     try {
       const { dia } = await api.crearDiaLibre({ fecha, fraccion, motivo, nota: nota.trim() ? nota.trim() : null })
+      invalidarContexto('dia_libre')
       setNota('')
       setMensaje({
         tono: 'exito',
@@ -94,6 +104,7 @@ export default function DiasLibres() {
     setMensaje(null)
     try {
       await api.anularDiaLibre(dia.id)
+      invalidarContexto('dia_libre')
       setMensaje({ tono: 'info', texto: `Anulado el día libre del ${fechaLarga(dia.fecha)}.` })
       await cargar()
     } catch (e) {
@@ -140,23 +151,8 @@ export default function DiasLibres() {
           <Texto suave peque>
             Fecha
           </Texto>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Boton titulo="‹" variante="secundario" alPresionar={() => setFecha(f => sumarDias(f, -1))} estilo={{ minWidth: 56 }} />
-            <View style={{ flex: 1, alignItems: 'center' }}>
-              <Texto negrita centro>
-                {capitalizar(fechaLarga(fecha))}
-              </Texto>
-              <Texto suave peque centro>
-                {fechaRelativa(fecha)}
-              </Texto>
-            </View>
-            <Boton titulo="›" variante="secundario" alPresionar={() => setFecha(f => sumarDias(f, 1))} estilo={{ minWidth: 56 }} />
-          </View>
-          <Grupo>
-            <Chip texto="Ayer" activo={fecha === sumarDias(hoy, -1)} alPresionar={() => setFecha(sumarDias(hoy, -1))} />
-            <Chip texto="Hoy" activo={fecha === hoy} alPresionar={() => setFecha(hoy)} />
-            <Chip texto="Mañana" activo={fecha === sumarDias(hoy, 1)} alPresionar={() => setFecha(sumarDias(hoy, 1))} />
-          </Grupo>
+          <CalendarioMes valor={fecha} alCambiar={setFecha} hoy={hoy} desde={primerDia} marcas={marcas} vista="mes" />
+          <Texto negrita>{`${capitalizar(fechaLarga(fecha))} (${fechaRelativa(fecha)})`}</Texto>
 
           {dentroDePlazo ? (
             <Texto suave peque>

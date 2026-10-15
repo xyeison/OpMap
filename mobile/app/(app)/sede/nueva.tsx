@@ -2,24 +2,26 @@
  * Nueva sede con el GPS del sitio (decisión 14 del contrato fase 8): nombre, cuenta (de las sedes cercanas o del
  * buscador), municipio, código de habilitación del REPS (opcional) y la ubicación del teléfono. POST
  * /api/terceros/sedes con origen 'gps_app': nace "por confirmar" salvo que el código del REPS cruce con el municipio
- * (entonces suma al instante); si no, suma cuando data manager la confirma. Al crearla vuelve a Reportar con la sede
- * puesta (en la tarjeta que la pidió o como sede elegida del paso 1).
+ * (entonces suma al instante); si no, suma cuando el equipo de datos la confirma. Al crearla vuelve a Reportar con la
+ * sede puesta (en la tarjeta que la pidió o como sede elegida del paso 1).
+ *
+ * Spec 2026-10-15: la ubicación se muestra como "Ubicación tomada · ±12 m" (sin coordenadas), cada error va junto a su
+ * campo y "Crear sede" queda fijo al pie (Pantalla.pie), a la vista aunque el formulario sea largo.
  */
 import { useRouter } from 'expo-router'
 import { useEffect, useState } from 'react'
-import { View } from 'react-native'
 import { Buscador } from '../../../components/reporte/Buscador'
 import { Selector } from '../../../components/reporte/Selector'
 import { SelectorMunicipio } from '../../../components/reporte/SelectorMunicipio'
 import * as api from '../../../lib/api'
 import { ApiError, mensajeDeError } from '../../../lib/errores'
-import { textoPrecision } from '../../../lib/geo'
 import { SoloEnFoco } from '../../../lib/montaje'
+import { textoUbicacionTomada } from '../../../lib/pantallas'
 import { avisarRetorno, leerPedido } from '../../../lib/retorno'
 import { etiquetaClaseCuenta, limpiarNombre, validarRepsCode } from '../../../lib/terceros'
 import type { CuentaListItem } from '../../../lib/tipos'
 import { pedirUbicacion, type Ubicacion } from '../../../lib/ubicacion'
-import { Aviso, Boton, Campo, Pantalla, Tarjeta, Texto } from '../../../lib/ui'
+import { Aviso, Boton, Campo, Pantalla, Tarjeta, Texto, useColores } from '../../../lib/ui'
 
 interface CuentaOpcion {
   id: string
@@ -55,6 +57,8 @@ function NuevaSede() {
   const [errorUbicacion, setErrorUbicacion] = useState<string | null>(null)
   const [ubicando, setUbicando] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  /** Se tocó "Crear sede": desde ahí cada campo dice lo que le falta. */
+  const [intentado, setIntentado] = useState(false)
   const [creando, setCreando] = useState(false)
 
   const ubicar = async () => {
@@ -71,16 +75,23 @@ function NuevaSede() {
 
   const codigo = validarRepsCode(reps)
   const cuenta = cuentas.find(c => c.id === cuentaId) ?? null
+  const nombreLimpio = limpiarNombre(nombre)
+  // Lo que le falta a cada campo (se muestra junto al campo después del primer "Crear sede").
+  const faltas = {
+    nombre: nombreLimpio.length < 2 ? 'Escribe el nombre de la sede' : null,
+    cuenta: !cuentaId || !cuenta ? 'Elige la cuenta de la sede' : null,
+    municipio: !municipio ? 'Elige el municipio de la sede' : null,
+    ubicacion: !ubicacion ? 'Hace falta la ubicación del teléfono: la sede se crea con el GPS de aquí' : null,
+  }
+  const hayFaltas = Boolean(faltas.nombre || faltas.cuenta || faltas.municipio || faltas.ubicacion) || !codigo.ok
+  // Al pie, junto al botón: el error del servidor o, si falta algo, que se revise lo marcado.
+  const avisoPie = error ?? (intentado && hayFaltas ? 'Revisa lo que está marcado arriba.' : null)
 
   const crear = async () => {
-    const nombreLimpio = limpiarNombre(nombre)
-    if (nombreLimpio.length < 2) return setError('Escribe el nombre de la sede')
-    if (!cuentaId || !cuenta) return setError('Elige la cuenta de la sede')
-    if (!municipio) return setError('Elige el municipio de la sede')
-    if (!codigo.ok) return setError(codigo.error)
-    if (!ubicacion) return setError('Hace falta la ubicación del teléfono: la sede se crea con el GPS de aquí')
-    setCreando(true)
+    setIntentado(true)
     setError(null)
+    if (hayFaltas || !codigo.ok || !cuentaId || !cuenta || !municipio || !ubicacion) return
+    setCreando(true)
     try {
       const respuesta = await api.crearSede({
         cuenta_id: cuentaId,
@@ -119,7 +130,14 @@ function NuevaSede() {
   }
 
   return (
-    <Pantalla>
+    <Pantalla
+      pie={
+        <>
+          {avisoPie ? <Aviso tono="peligro">{avisoPie}</Aviso> : null}
+          <Boton titulo="Crear sede" grande cargando={creando} deshabilitado={ubicando} alPresionar={() => void crear()} />
+        </>
+      }
+    >
       <Texto suave>La sede se crea con la ubicación de este teléfono: hazlo estando en el sitio.</Texto>
 
       <Tarjeta estilo={{ gap: 6 }}>
@@ -127,18 +145,22 @@ function NuevaSede() {
         {ubicando ? (
           <Texto suave>Tomando la ubicación…</Texto>
         ) : ubicacion ? (
-          <Texto>
-            {ubicacion.lat.toFixed(6)}, {ubicacion.lng.toFixed(6)}
-            {ubicacion.precision !== null ? ` · ${textoPrecision(ubicacion.precision)}` : ''}
-            {ubicacion.aproximada ? ' · aproximada' : ''}
-          </Texto>
+          <Texto>{textoUbicacionTomada(ubicacion.precision, ubicacion.aproximada)}</Texto>
         ) : (
           <Aviso tono="alerta">{errorUbicacion ?? 'Sin ubicación'}</Aviso>
         )}
+        {intentado && faltas.ubicacion && !ubicando ? <ErrorCampo texto={faltas.ubicacion} /> : null}
         {!ubicando ? <Boton titulo="Volver a tomar la ubicación" variante="texto" alPresionar={() => void ubicar()} /> : null}
       </Tarjeta>
 
-      <Campo etiqueta="Nombre de la sede" valor={nombre} alCambiar={setNombre} placeholder="Clínica Norte · Torre 2" maxLength={200} />
+      <Campo
+        etiqueta="Nombre de la sede"
+        valor={nombre}
+        alCambiar={setNombre}
+        placeholder="Clínica Norte · Torre 2"
+        maxLength={200}
+        error={intentado ? faltas.nombre : null}
+      />
 
       <Selector
         etiqueta="Cuenta"
@@ -164,8 +186,10 @@ function NuevaSede() {
           />
         }
       />
+      {intentado && faltas.cuenta ? <ErrorCampo texto={faltas.cuenta} /> : null}
 
       <SelectorMunicipio etiqueta="Municipio de la sede" valor={municipio} alCambiar={id => setMunicipio(id)} />
+      {intentado && faltas.municipio ? <ErrorCampo texto={faltas.municipio} /> : null}
 
       <Campo
         etiqueta="Código de habilitación del REPS (opcional)"
@@ -175,14 +199,18 @@ function NuevaSede() {
         maxLength={16}
         placeholder="12 dígitos"
         error={reps && !codigo.ok ? codigo.error : null}
-        ayuda="Si cruza con el municipio en el REPS, la sede suma al instante; si no, cuando data manager la confirme."
+        ayuda="Si cruza con el municipio en el REPS, la sede suma al instante; si no, cuando el equipo de datos la confirme."
       />
-
-      {error ? <Aviso tono="peligro">{error}</Aviso> : null}
-
-      <View style={{ gap: 8 }}>
-        <Boton titulo="Crear sede" grande cargando={creando} deshabilitado={ubicando} alPresionar={() => void crear()} />
-      </View>
     </Pantalla>
+  )
+}
+
+/** Lo que le falta a un campo, en rojo y justo debajo de él. */
+function ErrorCampo({ texto }: { texto: string }) {
+  const c = useColores()
+  return (
+    <Texto peque color={c.peligro}>
+      {texto}
+    </Texto>
   )
 }

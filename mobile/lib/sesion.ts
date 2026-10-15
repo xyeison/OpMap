@@ -1,15 +1,19 @@
 /**
  * Sesión de la app (decisión 1 del contrato fase 8): POST /api/auth/login con cliente 'movil' devuelve el token en
- * el cuerpo; se guarda en el almacén seguro (lib/almacen.ts) y viaja como portador. Al abrir: si hay token se
- * pregunta GET /api/auth/me; sin señal se sigue con el perfil guardado (para poder reportar y encolar). Un 401
- * en cualquier petición olvida el token. Cerrar sesión = olvidar el token (y avisar al servidor si hay señal).
- * Nunca se guarda la contraseña.
+ * el cuerpo; se guarda en el almacén seguro (lib/almacen.ts) y viaja como portador. Al abrir (spec 2026-10-15,
+ * arranqueDeSesion de lib/sesion-reglas.ts): con token vigente y el perfil guardado se entra YA y se confirma con
+ * GET /api/auth/me en segundo plano (TIEMPO_ME_MS); sin perfil guardado se pregunta antes de entrar; sin señal se
+ * sigue con el perfil guardado (para poder reportar y encolar). Nunca se entra sin token. Un 401 en cualquier
+ * petición (también en esa confirmación) olvida el token y cierra la sesión. Cerrar sesión = olvidar el token, el
+ * perfil y el contexto (guardado y en memoria) y avisar al servidor si hay señal. Nunca se guarda la contraseña.
  */
 import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import * as api from './api'
 import { borrarClave, borrarToken, guardarJson, guardarToken, leerJson, leerToken } from './almacen'
 import { olvidarContextoGuardado } from './contexto-guardado'
+import { olvidarContextoEnMemoria } from './contexto-memoria'
 import { MENSAJE_SESION_VENCIDA, aApiError } from './errores'
+import { TIEMPO_ME_MS, arranqueDeSesion } from './sesion-reglas'
 import { leerCargaToken, tokenVencido } from './token'
 import type { EjecutivaMovil, UsuarioMovil } from './tipos'
 
@@ -44,8 +48,12 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
   const [sinConfirmar, setSinConfirmar] = useState(false)
   const [aviso, setAviso] = useState<string | null>(null)
   const montado = useRef(true)
+  /** Cambia al entrar y al olvidar: una confirmación que llega tarde (en segundo plano) no revive otra sesión. */
+  const generacion = useRef(0)
 
   const olvidar = useCallback(async (motivo: string | null) => {
+    generacion.current++
+    olvidarContextoEnMemoria()
     await borrarToken()
     await borrarClave(CLAVE_PERFIL)
     await olvidarContextoGuardado()
@@ -58,27 +66,32 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
 
   const confirmar = useCallback(
     async (token: string, guardado: Perfil | null) => {
+      const desde = generacion.current
+      // ¿Sigue siendo la misma sesión? (nadie salió ni entró mientras se esperaba la respuesta)
+      const vigente = () => montado.current && generacion.current === desde
       try {
-        const respuesta = await api.me(token)
+        const respuesta = await api.me(token, TIEMPO_ME_MS)
+        if (generacion.current !== desde) return
         const nuevo: Perfil = {
           usuario: { id: respuesta.user.id, full_name: respuesta.user.full_name, role: respuesta.user.role, email: respuesta.user.email },
           ejecutiva: respuesta.ejecutiva,
           expira_at: guardado?.expira_at ?? expiraDelToken(token),
         }
         await guardarJson(CLAVE_PERFIL, nuevo).catch(() => undefined)
-        if (!montado.current) return
+        if (!vigente()) return
         setPerfil(nuevo)
         setSinConfirmar(false)
         setEstado('con_sesion')
       } catch (lanzado) {
         const error = aApiError(lanzado)
+        if (generacion.current !== desde) return
         if (error.status === 401) {
           await olvidar(MENSAJE_SESION_VENCIDA)
           return
         }
         // Sin señal o servidor caído: se sigue con lo guardado (o con lo que dice el token).
         const respaldo = guardado ?? perfilDelToken(token)
-        if (!montado.current) return
+        if (!vigente()) return
         if (respaldo) {
           setPerfil(respaldo)
           setSinConfirmar(true)
@@ -96,15 +109,27 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
     montado.current = true
     ;(async () => {
       const token = await leerToken()
-      if (!token) {
-        setEstado('sin_sesion')
-        return
-      }
-      if (tokenVencido(token)) {
+      if (token && tokenVencido(token)) {
         await olvidar(MENSAJE_SESION_VENCIDA)
         return
       }
-      await confirmar(token, await leerJson<Perfil>(CLAVE_PERFIL))
+      const guardado = token ? await leerJson<Perfil>(CLAVE_PERFIL) : null
+      const arranque = arranqueDeSesion({ perfilGuardado: guardado, tokenVigente: token !== null, uidDelToken: leerCargaToken(token)?.uid })
+      if (!montado.current) return
+      if (arranque === 'sin_sesion' || !token) {
+        setEstado('sin_sesion')
+        return
+      }
+      if (arranque === 'entrar_y_confirmar' && guardado) {
+        // Entra ya con lo guardado y confirma en segundo plano: un 401 cierra la sesión; sin señal queda "sin confirmar".
+        setPerfil(guardado)
+        setSinConfirmar(false)
+        setEstado('con_sesion')
+        void confirmar(token, guardado)
+        return
+      }
+      // Sin perfil guardado (o de otro usuario): se pregunta antes de entrar, como siempre.
+      await confirmar(token, null)
     })()
     return () => {
       montado.current = false
@@ -116,6 +141,8 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
 
   const entrar = useCallback(async (email: string, password: string) => {
     const respuesta = await api.login(email, password)
+    generacion.current++
+    olvidarContextoEnMemoria()
     await guardarToken(respuesta.token)
     const nuevo: Perfil = { usuario: { ...respuesta.usuario, email: email.trim().toLowerCase() }, ejecutiva: respuesta.ejecutiva, expira_at: respuesta.expira_at }
     await guardarJson(CLAVE_PERFIL, nuevo).catch(() => undefined)

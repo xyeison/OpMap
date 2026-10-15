@@ -283,7 +283,8 @@ Contrato en `docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md` (sección "F
 `docs/specs/2026-10-14-agenda-dictado-y-marca.md`. Una fila por cita; no se borra (se cancela). RLS sin políticas (solo `service_role`:
 SELECT, INSERT, UPDATE; sin DELETE). Las escrituras pasan por `agenda_crear`, `agenda_cancelar` y `visitas_registrar` / `visitas_anular`.
 ```sql
-visitas_agenda:    id, executive_id → executives, fecha date, hora time NULL (sin hora), tipo medica|institucional,
+visitas_agenda:    id, executive_id → executives, fecha date, hora time NULL (NULL solo en citas viejas: la API la exige desde el
+                   2026-10-15), tipo medica|institucional,
                    medico_id → medicos (médica), cuenta_id → cuentas + subtipo_id → subtipos_institucionales (institucional),
                    sede_id → sedes NOT NULL, nota (≤ 300), estado pendiente|hecha|cancelada, visita_id → visits (la que la cumplió),
                    cancelada_at, cancelada_motivo (≤ 300), created_by → users, created_at (antes del día de la visita ⇒ "agendada"), updated_at
@@ -302,6 +303,12 @@ funciones:         agenda_crear(p jsonb, p_user uuid) → jsonb { cita_id } (de 
                    pendiente del mismo médico o cuenta ese día) y devuelve agenda_id y agendada; visitas_anular devuelve la cita a
                    pendiente.
 ```
+**Hora obligatoria desde el 2026-10-15** (`docs/decisiones/2026-10-15-agenda-con-hora-y-calendario.md`): toda cita nueva
+lleva hora; lo exige `citaCreateSchema` en `POST /api/me/agenda` ("Elige la hora de la cita"), no la base. `hora` sigue
+`time NULL` a propósito: un `NOT NULL` rompería las citas viejas sin hora y las pruebas del bloque DO de la 0840. El
+comentario de la columna (`COMMENT ON COLUMN visitas_agenda.hora`: "Hora de la cita (opcional; sin medias horas ni
+ruteros)") quedó desactualizado: corregirlo en la próxima migración que haya (p. ej. "Hora de la cita (HH:MM; obligatoria
+en las nuevas desde 2026-10-15, la exige la API; NULL solo en citas viejas)").
 
 ### Vistas
 

@@ -1,7 +1,8 @@
 /**
  * Lectura (sin verificar: eso lo hace el servidor) de la carga del token de sesión que firma web/lib/session.ts:
  * "<base64url(JSON { uid, pv, iat, exp })>.<firma>". La app solo la usa para saber de quién es la cola sin
- * señal y cuándo vence, aun sin conexión. Puro: lo prueba scripts/movil-check.ts.
+ * señal y cuándo vence, aun sin conexión. Y MemoriaToken: el token en memoria, para no leer el llavero en cada
+ * petición (spec 2026-10-15, paquete 4). Puro: lo prueban scripts/movil-check.ts y scripts/checks/18-tiempos.ts.
  */
 
 export interface CargaToken {
@@ -55,4 +56,67 @@ export function tokenVencido(token: string | null | undefined, ahora: Date = new
   const carga = leerCargaToken(token)
   if (!carga || carga.exp === null) return false
   return carga.exp * 1000 <= ahora.getTime()
+}
+
+// --- Token en memoria ----------------------------------------------------------------------------------------
+
+/** El almacén seguro del teléfono (Keychain / Keystore; localStorage en el navegador), inyectado. */
+export interface LlaveroToken {
+  leer(): Promise<string | null>
+  guardar(token: string): Promise<void>
+  borrar(): Promise<void>
+}
+
+/**
+ * El token de sesión en memoria: el llavero se lee UNA sola vez (aunque lo pidan varias peticiones a la vez); guardar y
+ * borrar actualizan la memoria y el llavero; un 401 la borra (olvidarSiEs) para que ninguna petición siguiente lo
+ * mande. Si el llavero falla al leer, cuenta como sin sesión (null), como antes.
+ */
+export class MemoriaToken {
+  /** undefined: aún no se leyó el llavero. */
+  private valor: string | null | undefined = undefined
+  private lectura: Promise<string | null> | null = null
+
+  constructor(private readonly llavero: LlaveroToken) {}
+
+  leer(): Promise<string | null> {
+    if (this.valor !== undefined) return Promise.resolve(this.valor)
+    if (!this.lectura) {
+      this.lectura = this.llavero
+        .leer()
+        .catch(() => null)
+        .then(token => {
+          this.lectura = null
+          // Si mientras se leía se guardó, se borró o llegó un 401, manda eso: la lectura tardía no lo pisa.
+          if (this.valor === undefined) this.valor = token || null
+          return this.valor
+        })
+    }
+    return this.lectura
+  }
+
+  /** Guarda en el llavero y, si salió bien, en memoria (si el llavero falla, lanza como antes). */
+  async guardar(token: string): Promise<void> {
+    await this.llavero.guardar(token)
+    this.valor = token
+    this.lectura = null
+  }
+
+  /** Olvida en memoria al instante y borra del llavero (nunca lanza). */
+  async borrar(): Promise<void> {
+    this.valor = null
+    this.lectura = null
+    try {
+      await this.llavero.borrar()
+    } catch {
+      // en memoria ya no está
+    }
+  }
+
+  /** Un 401 con este token: se olvida en memoria (si sigue siendo el de ahora). El llavero lo borra la sesión. */
+  olvidarSiEs(token: string | null | undefined): void {
+    if (!token || this.valor !== token) return
+    this.valor = null
+    this.lectura = null
+  }
 }

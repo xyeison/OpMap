@@ -1,7 +1,8 @@
 /**
  * Una cita en Hoy y en Mi agenda (F4.1): la hora a la izquierda ("Sin hora" en pequeño), con quién (médico, o cuenta y
- * subtipo), la sede (y la cuenta si dice algo más), la nota y el estado. Si se puede tocar (la hecha abre su visita),
- * lleva "›". `children` va debajo (p. ej. "Cancelar esta cita"). Nunca documentos.
+ * subtipo), la sede (y la cuenta si dice algo más), la nota y el estado. Si se puede tocar lleva "›": la hecha abre su
+ * visita y la pendiente (spec 2026-10-15, desde Hoy) se reporta, con "Reportar ›". `children` va debajo (p. ej.
+ * "Cancelar esta cita"). Nunca documentos.
  */
 import type { ReactNode } from 'react'
 import { View } from 'react-native'
@@ -22,11 +23,12 @@ interface Props {
 export function FilaCita({ cita, alPresionar, conTipo, conNota, children }: Props) {
   const con = conQuienCita(cita)
   const cuenta = cita.tipo === 'medica' ? cuentaDistinta(cita.sede.nombre, cita.sede.cuenta_nombre) : null
+  const reportar = !!alPresionar && cita.estado === 'pendiente'
   return (
     <Tarjeta
       alPresionar={alPresionar}
       estilo={{ padding: 12, gap: 6 }}
-      etiquetaAccesible={`Cita ${textoHoraCita(cita.hora)} con ${con} en ${cita.sede.nombre}, ${ETIQUETA_ESTADO_CITA[cita.estado]}${alPresionar ? '. Toca para ver la visita' : ''}`}
+      etiquetaAccesible={`Cita ${textoHoraCita(cita.hora)} con ${con} en ${cita.sede.nombre}, ${ETIQUETA_ESTADO_CITA[cita.estado]}${alPresionar ? (reportar ? '. Toca para reportarla' : '. Toca para ver la visita') : ''}`}
     >
       <View style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-start' }}>
         <View style={{ width: 62, paddingTop: cita.hora ? 0 : 2 }}>
@@ -54,7 +56,11 @@ export function FilaCita({ cita, alPresionar, conTipo, conNota, children }: Prop
             <Insignia texto={ETIQUETA_ESTADO_CITA[cita.estado]} tono={cita.estado === 'hecha' ? 'exito' : 'neutro'} />
           </Grupo>
         </View>
-        {alPresionar ? (
+        {reportar ? (
+          <Texto peque negrita>
+            Reportar ›
+          </Texto>
+        ) : alPresionar ? (
           <Texto suave estilo={{ fontSize: 24, lineHeight: 26 }}>
             ›
           </Texto>

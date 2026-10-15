@@ -3,10 +3,15 @@
  * del almacén seguro en "Authorization: Bearer" (decisión 1 del contrato fase 8); un 401 con token cierra la
  * sesión (lo escucha lib/sesion.ts). Los errores salen como ApiError con el mensaje { error } del servidor, o uno
  * en español según el código (lib/errores.ts). Todas las peticiones tienen tiempo máximo.
+ * Spec 2026-10-15 (paquete 4): el token sale de la memoria (lib/almacen.ts, el llavero se lee una vez); el contexto que
+ * llega queda en memoria (recordarContexto de lib/contexto-memoria.ts) con el punto con que se pidió; corregir o anular
+ * una visita lo invalida. En desarrollo (`__DEV__`) cada petición deja en Metro una línea `[api]` con método, patrón de
+ * la ruta (sin ids), estado, ms y la cabecera Server-Timing: nunca el cuerpo, la consulta ni el token.
  */
 import { File } from 'expo-file-system'
 import { Platform } from 'react-native'
-import { leerToken } from './almacen'
+import { leerToken, olvidarTokenPor401 } from './almacen'
+import { invalidarContexto, recordarContexto, versionContexto } from './contexto-memoria'
 import { ApiError, MENSAJE_SESION_VENCIDA, aApiError, errorDeRespuesta } from './errores'
 import {
   TIEMPO_NORMAL_MS,
@@ -14,7 +19,9 @@ import {
   TIEMPO_TRANSCRIBIR_MS,
   construirUrl,
   jsonSeguro,
+  lineaRegistroApi,
   normalizarBase,
+  type DatosRegistroApi,
   type ValorQuery,
 } from './http'
 import { parteAudio } from './subida-audio'
@@ -99,6 +106,23 @@ function avisarSesionVencida() {
   }
 }
 
+// --- Registro de desarrollo ----------------------------------------------------------------------------------
+
+function relojMs(): number {
+  const rendimiento = (globalThis as { performance?: { now?: () => number } }).performance
+  return typeof rendimiento?.now === 'function' ? rendimiento.now() : Date.now()
+}
+
+/** Solo en desarrollo: método, patrón de la ruta, estado, ms y Server-Timing (lineaRegistroApi). Nunca lanza. */
+function registrarPeticion(datos: DatosRegistroApi): void {
+  if (!__DEV__) return
+  try {
+    console.log(lineaRegistroApi(datos))
+  } catch {
+    // el registro nunca rompe una petición
+  }
+}
+
 // --- Petición genérica ---------------------------------------------------------------------------------------
 
 export async function peticion<T>(ruta: string, opciones: OpcionesPeticion = {}): Promise<T> {
@@ -118,19 +142,24 @@ export async function peticion<T>(ruta: string, opciones: OpcionesPeticion = {})
 
   const control = new AbortController()
   const temporizador = setTimeout(() => control.abort(), timeoutMs)
+  const inicio = relojMs()
   let respuesta: Response
   try {
     respuesta = await fetch(url, { method: metodo, headers: cabeceras, body, signal: control.signal })
   } catch (error) {
+    registrarPeticion({ metodo, ruta, estado: null, ms: relojMs() - inicio })
     throw aApiError(error)
   } finally {
     clearTimeout(temporizador)
   }
 
   const texto = await respuesta.text().catch(() => '')
+  registrarPeticion({ metodo, ruta, estado: respuesta.status, ms: relojMs() - inicio, serverTiming: respuesta.headers?.get?.('server-timing') ?? null })
   const datos = jsonSeguro(texto)
   if (!respuesta.ok) {
     if (respuesta.status === 401 && token) {
+      // Ninguna petición siguiente manda este token; la sesión lo borra del llavero y cierra (alVencerSesion).
+      olvidarTokenPor401(token)
       avisarSesionVencida()
       throw new ApiError(401, MENSAJE_SESION_VENCIDA, { tipo: 'sesion', cuerpo: datos })
     }
@@ -149,8 +178,9 @@ export function login(email: string, password: string): Promise<LoginMovilRespon
   })
 }
 
-export function me(token?: string): Promise<MeResponse> {
-  return peticion<MeResponse>('/api/auth/me', { token })
+/** Quién es la sesión. `timeoutMs`: al abrir la app se espera poco (TIEMPO_ME_MS de lib/sesion-reglas.ts). */
+export function me(token?: string, timeoutMs?: number): Promise<MeResponse> {
+  return peticion<MeResponse>('/api/auth/me', { token, timeoutMs })
 }
 
 /** Avisa al servidor (responde 200 con o sin token). Cerrar sesión de verdad es olvidar el token. */
@@ -172,18 +202,25 @@ export interface PuntoConsulta {
 
 /**
  * Todo lo que Reportar y Hoy necesitan. Con el punto del teléfono va por POST con la ubicación en el CUERPO: en la URL
- * quedaría en los logs de peticiones del proveedor (con la hora y la persona). Sin punto, GET.
+ * quedaría en los logs de peticiones del proveedor (con la hora y la persona). Sin punto, GET. Lo que llega queda en
+ * memoria con el punto pedido (recordarContexto): Hoy, Reportar, Agendar y Visita lo reusan según su frescura.
  */
-export function contexto(punto?: PuntoConsulta | null): Promise<ContextoResponse> {
-  if (!punto) return peticion<ContextoResponse>('/api/me/contexto')
-  return peticion<ContextoResponse>('/api/me/contexto', {
-    metodo: 'POST',
-    cuerpo: {
-      lat: Math.round(punto.lat * 1e6) / 1e6,
-      lng: Math.round(punto.lng * 1e6) / 1e6,
-      precision: punto.precision != null ? Math.round(punto.precision) : null,
-    },
-  })
+export async function contexto(punto?: PuntoConsulta | null): Promise<ContextoResponse> {
+  const pedido = punto ? { lat: punto.lat, lng: punto.lng } : null
+  const version = versionContexto()
+  const respuesta = punto
+    ? await peticion<ContextoResponse>('/api/me/contexto', {
+        metodo: 'POST',
+        cuerpo: {
+          lat: Math.round(punto.lat * 1e6) / 1e6,
+          lng: Math.round(punto.lng * 1e6) / 1e6,
+          precision: punto.precision != null ? Math.round(punto.precision) : null,
+        },
+      })
+    : await peticion<ContextoResponse>('/api/me/contexto')
+  // Si mientras tanto llegó una visita, una cita o un día libre (o se cerró la sesión), esta respuesta ya es vieja.
+  if (versionContexto() === version) recordarContexto(respuesta, pedido)
+  return respuesta
 }
 
 export function visitas(fecha?: string): Promise<VisitasResponse> {
@@ -194,12 +231,18 @@ export function crearVisita(cuerpo: VisitaCreate, timeoutMs?: number): Promise<V
   return peticion<VisitaCreateResponse>('/api/me/visitas', { metodo: 'POST', cuerpo, timeoutMs })
 }
 
-export function editarVisita(id: string, cambios: VisitaUpdate): Promise<{ visita: VisitaItem }> {
-  return peticion<{ visita: VisitaItem }>(`/api/me/visitas/${encodeURIComponent(id)}`, { metodo: 'PATCH', cuerpo: cambios })
+/** Corrige una visita de hoy. Lo hecho hoy puede cambiar (efectiva o no): el contexto en memoria deja de servir. */
+export async function editarVisita(id: string, cambios: VisitaUpdate): Promise<{ visita: VisitaItem }> {
+  const respuesta = await peticion<{ visita: VisitaItem }>(`/api/me/visitas/${encodeURIComponent(id)}`, { metodo: 'PATCH', cuerpo: cambios })
+  invalidarContexto('visita')
+  return respuesta
 }
 
-export function anularVisita(id: string, motivo: string): Promise<unknown> {
-  return peticion(`/api/me/visitas/${encodeURIComponent(id)}/anular`, { metodo: 'POST', cuerpo: { motivo } })
+/** Anula una visita de hoy. Lo hecho hoy cambia: el contexto en memoria deja de servir. */
+export async function anularVisita(id: string, motivo: string): Promise<unknown> {
+  const respuesta = await peticion(`/api/me/visitas/${encodeURIComponent(id)}/anular`, { metodo: 'POST', cuerpo: { motivo } })
+  invalidarContexto('visita')
+  return respuesta
 }
 
 // --- Voz -----------------------------------------------------------------------------------------------------

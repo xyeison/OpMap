@@ -1,21 +1,22 @@
 /**
- * Dictar un campo (F4.1, decisión 9 de la spec 2026-10-14): el micrófono junto a "Conclusión" en el reporte por toques
- * y en la tarjeta de la visita. Graba con el mismo Grabador del dictado (lib/audio y lib/grabacion: tope de 3 minutos;
- * el audio se borra al llegar la transcripción o al cancelar), transcribe con POST /api/me/voz/transcribir y reparte lo
- * dicho con POST /api/me/voz/campos. Quien lo usa AÑADE lo repartido (unirCamposDictados): nunca borra lo escrito.
+ * Dictar un campo (F4.1, decisión 9 de la spec 2026-10-14): el micrófono debajo de "Conclusión" en el reporte por
+ * toques y en la tarjeta de la visita (botón de 44 pt con ícono, spec 2026-10-15). Graba con el mismo Grabador del
+ * dictado (lib/audio y lib/grabacion: tope de 3 minutos; el audio se borra al llegar la transcripción o al cancelar),
+ * transcribe con POST /api/me/voz/transcribir y reparte lo dicho con POST /api/me/voz/campos. Quien lo usa AÑADE lo repartido (unirCamposDictados): nunca borra lo escrito.
  *
  * Si la IA no reparte (502, sin señal, demasiados dictados), lo transcrito no se pierde: queda en la conclusión para
  * revisarlo. Sin la llave (503) o sin la ruta (404): "El dictado no está disponible; escribe la conclusión".
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { View } from 'react-native'
+import { ActivityIndicator, Pressable, Text, View } from 'react-native'
 import * as api from '../../lib/api'
 import { borrarAudio } from '../../lib/audio'
 import { aApiError } from '../../lib/errores'
 import { segundosDe } from '../../lib/grabacion'
+import { Icono } from '../../lib/iconos'
 import { MENSAJE_DICTADO_NO_DISPONIBLE, mensajeErrorDictado } from '../../lib/propuesta'
 import type { CamposDictadoResponse, TipoVisita } from '../../lib/tipos'
-import { Aviso, Boton, Texto } from '../../lib/ui'
+import { ALTO_TOQUE_MIN, Aviso, Texto, useColores, useFuente } from '../../lib/ui'
 import { Grabador } from './Grabador'
 
 type Estado = 'listo' | 'grabando' | 'transcribiendo' | 'repartiendo'
@@ -27,22 +28,45 @@ interface Props {
   disponible: boolean
   /** Lo repartido por la IA: quien lo usa lo añade y devuelve el texto que se muestra ("Agregué lo que dijiste en…"). */
   alDictar: (campos: CamposDictadoResponse) => string
-  /** El campo Conclusión: el botón "Dictar" va a la derecha de su etiqueta. */
+  /** El campo Conclusión: el botón "Dictar" va debajo, a la derecha. */
   children: ReactNode
 }
 
-/** Botón compacto a la altura de la etiqueta del campo (la etiqueta mide ~20 px y el campo empieza 6 más abajo; el botón, 34). */
+/**
+ * "Dictar" (spec 2026-10-15): un botón de 44 pt o más con el ícono del micrófono, en su propia fila debajo del campo
+ * (antes iba superpuesto a la etiqueta y medía 34).
+ */
 function BotonDictar({ alPresionar, cargando, deshabilitado }: { alPresionar: () => void; cargando?: boolean; deshabilitado?: boolean }) {
+  const c = useColores()
+  const fuente = useFuente()
+  const inactivo = deshabilitado || cargando
   return (
-    <View style={{ position: 'absolute', top: -11, right: 0 }}>
-      <Boton
-        titulo="● Dictar"
-        variante="secundario"
-        cargando={cargando}
-        deshabilitado={deshabilitado}
-        alPresionar={alPresionar}
-        estilo={{ minHeight: 34, paddingVertical: 3, paddingHorizontal: 14, minWidth: 104 }}
-      />
+    <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Dictar la conclusión"
+        accessibilityState={{ disabled: !!inactivo, busy: !!cargando }}
+        disabled={inactivo}
+        onPress={alPresionar}
+        style={({ pressed }) => ({
+          minHeight: ALTO_TOQUE_MIN,
+          minWidth: 120,
+          paddingHorizontal: 16,
+          paddingVertical: 8,
+          borderRadius: 999,
+          borderWidth: 1.5,
+          borderColor: c.bordeControl,
+          backgroundColor: c.superficie,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 8,
+          opacity: inactivo ? 0.5 : pressed ? 0.75 : 1,
+        })}
+      >
+        {cargando ? <ActivityIndicator color={c.texto} /> : <Icono nombre="microfono" tamano={20} />}
+        <Text style={[{ color: c.texto, fontSize: 16 }, fuente('negrita')]}>Dictar</Text>
+      </Pressable>
     </View>
   )
 }
@@ -64,11 +88,9 @@ export function DictarCampo({ tipo, disponible, alDictar, children }: Props) {
 
   if (!disponible || !tipo) {
     return (
-      <View style={{ gap: 4 }}>
-        <View>
-          {children}
-          <BotonDictar deshabilitado alPresionar={() => undefined} />
-        </View>
+      <View style={{ gap: 6 }}>
+        {children}
+        <BotonDictar deshabilitado alPresionar={() => undefined} />
         <Texto peque suave>
           {MENSAJE_DICTADO_NO_DISPONIBLE}
         </Texto>
@@ -139,10 +161,8 @@ export function DictarCampo({ tipo, disponible, alDictar, children }: Props) {
           }}
         />
       ) : null}
-      <View>
-        {children}
-        {estado !== 'grabando' ? <BotonDictar cargando={ocupado} alPresionar={empezar} /> : null}
-      </View>
+      {children}
+      {estado !== 'grabando' ? <BotonDictar cargando={ocupado} alPresionar={empezar} /> : null}
       {ocupado ? (
         <Texto peque suave>
           {estado === 'transcribiendo' ? 'Transcribiendo… (el audio se borra al terminar)' : 'Escribiendo en conclusión y compromisos…'}

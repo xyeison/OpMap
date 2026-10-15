@@ -48,6 +48,7 @@ import {
   MENSAJE_CITA_OTRO_TIPO,
   MENSAJE_CITA_PASADA,
   MENSAJE_CITA_YA_HECHA,
+  MENSAJE_HORA_OBLIGATORIA,
   PROMPT_CAMPOS,
   citaAnticipada,
   citaCancelable,
@@ -1260,13 +1261,31 @@ seccion('10e. Esquemas de la agenda y del dictado por campo')
   const medica = { fecha: '2026-10-14', hora: '09:30', tipo: 'medica', medico_id: MED1, cuenta_id: CUENTA1, subtipo_id: SUB_COMPRAS, sede_id: SEDE1, nota: '  Llevar   muestras ' }
   const r = citaCreateSchema.safeParse(medica)
   check('citaCreateSchema: médica válida; lo que no aplica (cuenta, subtipo) queda en null; la nota limpia', r.success && r.data.tipo === 'medica' && r.data.medico_id === MED1 && r.data.cuenta_id === null && r.data.subtipo_id === null && r.data.nota === 'Llevar muestras' && r.data.hora === '09:30', r.success ? r.data : r.error.issues)
-  const inst = citaCreateSchema.safeParse({ fecha: '2026-10-14', tipo: 'institucional', cuenta_id: CUENTA1, subtipo_id: SUB_COMPRAS, medico_id: MED1, sede_id: SEDE1 })
-  check('citaCreateSchema: institucional sin hora ni nota → null; el médico no aplica', inst.success && inst.data.medico_id === null && inst.data.hora === null && inst.data.nota === null && inst.data.cuenta_id === CUENTA1)
-  check('citaCreateSchema: hora con segundos → HH:MM', citaCreateSchema.safeParse({ ...medica, hora: '14:05:00' }).success && (citaCreateSchema.parse({ ...medica, hora: '14:05:00' }) as { hora: string | null }).hora === '14:05')
+  const inst = citaCreateSchema.safeParse({ fecha: '2026-10-14', hora: '11:00', tipo: 'institucional', cuenta_id: CUENTA1, subtipo_id: SUB_COMPRAS, medico_id: MED1, sede_id: SEDE1 })
+  check('citaCreateSchema: institucional con hora y sin nota → nota null; el médico no aplica', inst.success && inst.data.medico_id === null && inst.data.hora === '11:00' && inst.data.nota === null && inst.data.cuenta_id === CUENTA1, inst.success ? inst.data : inst.error.issues)
+  check('citaCreateSchema: hora con segundos → HH:MM', citaCreateSchema.safeParse({ ...medica, hora: '14:05:00' }).success && citaCreateSchema.parse({ ...medica, hora: '14:05:00' }).hora === '14:05')
+  // Decisión del dueño 2026-10-15: la cita nueva lleva hora siempre (la base sigue aceptando NULL para las viejas).
+  const { hora: _sinHora, ...medicaSinHora } = medica
+  const sinHora = [
+    ['sin la clave hora', medicaSinHora],
+    ["con hora ''", { ...medica, hora: '' }],
+    ["con hora '   '", { ...medica, hora: '   ' }],
+    ['con hora null', { ...medica, hora: null }],
+    ['institucional sin hora', { fecha: '2026-10-14', tipo: 'institucional', cuenta_id: CUENTA1, subtipo_id: SUB_COMPRAS, sede_id: SEDE1 }],
+  ] as const
+  for (const [nombre, cuerpoSinHora] of sinHora) {
+    const resultado = citaCreateSchema.safeParse(cuerpoSinHora)
+    check(`citaCreateSchema rechaza la cita ${nombre}: error en hora "${MENSAJE_HORA_OBLIGATORIA}"`, !resultado.success && mensajeZod(resultado, 'hora') === MENSAJE_HORA_OBLIGATORIA, resultado.success ? resultado.data : resultado.error.issues)
+  }
+  check('MENSAJE_HORA_OBLIGATORIA = "Elige la hora de la cita" (el mismo texto de la app)', MENSAJE_HORA_OBLIGATORIA === 'Elige la hora de la cita')
+  check(
+    'citaCreateSchema: una hora que no es HH:MM (número, 24:00) da el mensaje de formato, no el de obligatoria',
+    mensajeZod(citaCreateSchema.safeParse({ ...medica, hora: 930 }), 'hora') === 'Hora no válida: usa HH:MM (de 00:00 a 23:59)' && mensajeZod(citaCreateSchema.safeParse({ ...medica, hora: '24:00' }), 'hora') === 'Hora no válida: usa HH:MM (de 00:00 a 23:59)'
+  )
   check('citaCreateSchema rechaza: médica sin médico, institucional sin subtipo, hora 24:00 o 9:30, fecha no válida, sin sede, nota de 301', ['medico_id', 'subtipo_id', 'hora', 'hora', 'fecha', 'sede_id', 'nota'].every((campo, i) => {
     const cuerpos = [
       { ...medica, medico_id: null },
-      { fecha: '2026-10-14', tipo: 'institucional', cuenta_id: CUENTA1, sede_id: SEDE1 },
+      { fecha: '2026-10-14', hora: '11:00', tipo: 'institucional', cuenta_id: CUENTA1, sede_id: SEDE1 },
       { ...medica, hora: '24:00' },
       { ...medica, hora: '9:30' },
       { ...medica, fecha: '14/10/2026' },

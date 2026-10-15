@@ -5,6 +5,9 @@
  * parecidos se ofrecen. Las sedes salen de las cercanas, del buscador de sedes o de "Crear consultorio" (una cuenta
  * consultorio con el GPS del sitio). Al crear, vuelve a Reportar con el médico puesto en la tarjeta que lo pidió.
  * El documento solo viaja en el cuerpo de las peticiones y nunca se muestra en listas.
+ *
+ * Spec 2026-10-15: cada error va junto a su campo (erroresNuevoMedico) y "Verificar" / "Crear médico" quedan fijos al
+ * pie (Pantalla.pie), con el error del servidor encima: a la vista aunque el formulario sea largo o el teclado esté.
  */
 import { useRouter } from 'expo-router'
 import { useState } from 'react'
@@ -14,6 +17,7 @@ import { SelectorMunicipio } from '../../../components/reporte/SelectorMunicipio
 import * as api from '../../../lib/api'
 import { ApiError, mensajeDeError } from '../../../lib/errores'
 import { textoDistancia } from '../../../lib/geo'
+import { erroresNuevoMedico } from '../../../lib/pantallas'
 import { medicoParaReportar, sedeConsultorio } from '../../../lib/propuesta'
 import { sinCortes } from '../../../lib/reglas'
 import { SoloEnFoco } from '../../../lib/montaje'
@@ -27,7 +31,7 @@ import {
   validarDocumentoMedico,
 } from '../../../lib/terceros'
 import type { EspecialidadMedico, MedicoPublico, MedicoVerificarRespuesta, RolMedicoSede, SedeBusquedaItem, TipoDocMedico } from '../../../lib/tipos'
-import { Aviso, Boton, Campo, Chip, Grupo, Pantalla, Subtitulo, Tarjeta, Texto } from '../../../lib/ui'
+import { Aviso, Boton, Campo, Chip, Grupo, Pantalla, Subtitulo, Tarjeta, Texto, useColores } from '../../../lib/ui'
 
 interface SedeElegida {
   sede_id: string
@@ -61,11 +65,21 @@ function NuevoMedico() {
   const [paso, setPaso] = useState<'documento' | 'datos'>('documento')
   const [especialidades, setEspecialidades] = useState<EspecialidadMedico[]>([])
   const [sedes, setSedes] = useState<SedeElegida[]>([])
+  /** Error del servidor (o de una acción) que no es de un campo: va al pie, junto al botón. */
   const [error, setError] = useState<string | null>(null)
+  /** Se tocó "Verificar" o "Crear médico": desde ahí cada campo dice lo que le falta. */
+  const [intento, setIntento] = useState<'verificar' | 'crear' | null>(null)
   const [ocupado, setOcupado] = useState(false)
 
   const documento = validarDocumentoMedico(tipo, numero)
   const nombreLimpio = limpiarNombre(nombre)
+  const datosFormulario = (paso: 'verificar' | 'crear') =>
+    erroresNuevoMedico(
+      { errorDocumento: documento.ok ? null : documento.error, nombre: nombreLimpio, municipio, especialidades: especialidades.length, sedes: sedes.length },
+      paso
+    )
+  const errores = intento ? datosFormulario(intento) : {}
+  const hayErrores = Object.keys(errores).length > 0
 
   const terminar = (medico: MedicoPublico) => {
     // Lo que se sabe de cada sede: las cercanas del pedido y las elegidas aquí (el consultorio recién creado con el
@@ -91,9 +105,9 @@ function NuevoMedico() {
   }
 
   const verificar = async () => {
-    if (!documento.ok) return setError(documento.error)
-    if (nombreLimpio.length < 3) return setError('Escribe el nombre completo del médico')
-    if (!municipio) return setError('Elige la ciudad del médico')
+    setIntento('verificar')
+    setError(null)
+    if (Object.keys(datosFormulario('verificar')).length > 0 || !documento.ok || !municipio) return
     setOcupado(true)
     setError(null)
     try {
@@ -136,7 +150,7 @@ function NuevoMedico() {
           // Solo una sede ACTIVA sirve de consultorio (la inactiva la rechazaría el servidor al crear el médico).
           const principal = detalle.cuenta.activo === false ? null : sedeConsultorio(detalle.sedes)
           if (principal) agregarSede({ sede_id: principal.id, nombre: principal.nombre, cuenta_nombre: detalle.cuenta.nombre, distancia_m: null }, 'consultorio')
-          else setError('Ya hay una cuenta con ese documento, pero no tiene sedes activas: búscala o pide a data manager que la revise.')
+          else setError('Ya hay una cuenta con ese documento, pero no tiene sedes activas: búscala o pide al equipo de datos que la revise.')
         } catch (otro) {
           setError(mensajeDeError(otro))
         }
@@ -149,10 +163,9 @@ function NuevoMedico() {
   }
 
   const crear = async () => {
-    if (!documento.ok) return setError(documento.error)
-    if (!municipio) return setError('Elige la ciudad del médico')
-    if (especialidades.length === 0) return setError('Elige al menos una especialidad')
-    if (sedes.length === 0) return setError('Elige al menos una sede donde atiende')
+    setIntento('crear')
+    setError(null)
+    if (Object.keys(datosFormulario('crear')).length > 0 || !documento.ok || !municipio) return
     setOcupado(true)
     setError(null)
     try {
@@ -182,8 +195,26 @@ function NuevoMedico() {
     }
   }
 
+  // El botón del paso en que se está, fijo al pie; encima, el error del servidor o que se revise lo marcado.
+  const accion =
+    paso === 'datos' ? (
+      <Boton titulo="Crear médico" grande cargando={ocupado} alPresionar={() => void crear()} />
+    ) : paso === 'documento' && !verificacion ? (
+      <Boton titulo="Verificar" grande cargando={ocupado} alPresionar={() => void verificar()} />
+    ) : null
+  const avisoPie = error ?? (hayErrores ? 'Revisa lo que está marcado arriba.' : null)
+
   return (
-    <Pantalla>
+    <Pantalla
+      pie={
+        accion || avisoPie ? (
+          <>
+            {avisoPie ? <Aviso tono="peligro">{avisoPie}</Aviso> : null}
+            {accion}
+          </>
+        ) : undefined
+      }
+    >
       <Texto suave>Un médico se crea completo: documento, nombre, ciudad, especialidad y dónde atiende.</Texto>
 
       <Tarjeta estilo={{ gap: 12 }}>
@@ -216,12 +247,20 @@ function NuevoMedico() {
           autoComplete="off"
           importantForAutofill="no"
           maxLength={24}
-          error={numero && !documento.ok ? documento.error : null}
+          error={(numero ? (documento.ok ? null : documento.error) : null) ?? errores.documento ?? null}
           ayuda="No se muestra en listas ni se dicta."
         />
-        <Campo etiqueta="Nombre completo" valor={nombre} alCambiar={setNombre} autoCapitalize="words" placeholder="Dra. Ana María Gómez" maxLength={200} />
+        <Campo
+          etiqueta="Nombre completo"
+          valor={nombre}
+          alCambiar={setNombre}
+          autoCapitalize="words"
+          placeholder="Dra. Ana María Gómez"
+          maxLength={200}
+          error={errores.nombre ?? null}
+        />
         <SelectorMunicipio etiqueta="Ciudad del médico" valor={municipio} alCambiar={id => setMunicipio(id)} />
-        {paso === 'documento' && !verificacion ? <Boton titulo="Verificar" grande cargando={ocupado} alPresionar={() => void verificar()} /> : null}
+        {errores.ciudad ? <ErrorCampo texto={errores.ciudad} /> : null}
 
         {verificacion?.existente ? (
           <Aviso tono="info" titulo="Ese documento ya está en OpMap">
@@ -258,7 +297,9 @@ function NuevoMedico() {
               />
             ))}
           </Grupo>
+          {errores.especialidad ? <ErrorCampo texto={errores.especialidad} /> : null}
 
+          {errores.sedes ? <ErrorCampo texto={errores.sedes} /> : null}
           {sedes.length > 0 ? (
             <View style={{ gap: 8 }}>
               <Texto negrita>Sedes elegidas</Texto>
@@ -317,9 +358,16 @@ function NuevoMedico() {
         </Tarjeta>
       ) : null}
 
-      {error ? <Aviso tono="peligro">{error}</Aviso> : null}
-
-      {paso === 'datos' ? <Boton titulo="Crear médico" grande cargando={ocupado} alPresionar={() => void crear()} /> : null}
     </Pantalla>
+  )
+}
+
+/** Lo que le falta a un campo, en rojo y justo debajo de él. */
+function ErrorCampo({ texto }: { texto: string }) {
+  const c = useColores()
+  return (
+    <Texto peque color={c.peligro}>
+      {texto}
+    </Texto>
   )
 }

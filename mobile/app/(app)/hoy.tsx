@@ -4,24 +4,34 @@
  * se guarda en el teléfono para reportar sin señal) y GET /api/me/visitas?fecha=hoy. Si el servidor todavía no tiene
  * el reporte de visitas (404/503), se muestra el aviso y la cola sigue funcionando. Una visita de la cola que el
  * servidor no aceptó hoy se puede "Reportar de nuevo" (vuelve a Reportar como tarjeta, sin perder lo escrito).
+ *
+ * Menos esperas (spec 2026-10-15): se pinta primero lo que ya hay (el contexto en memoria o el guardado hoy en el
+ * teléfono) con "Actualizando…"; al volver a Hoy no se pide de nuevo antes de 60 s (debeRecargarHoy) salvo que algo lo
+ * invalide (visita guardada, cita, día libre: escucharInvalidacion) o se tire para actualizar. Una cita pendiente se
+ * toca para reportarla: Reportar la abre ya elegida (fijarCitaParaReportar).
  */
 import { useFocusEffect, useRouter } from 'expo-router'
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { View } from 'react-native'
 import { FilaCita } from '../../components/reporte/FilaCita'
 import * as api from '../../lib/api'
 import { useCola } from '../../lib/cola-contexto'
-import { guardarContexto } from '../../lib/contexto-guardado'
+import { guardarContexto, leerContextoGuardado } from '../../lib/contexto-guardado'
+import { FRESCURA_PINTAR_MS, FRESCURA_SIN_PEDIR_MS, contextoReciente, escucharInvalidacion } from '../../lib/contexto-memoria'
 import { aApiError, esNoDisponible, type ApiError } from '../../lib/errores'
 import { fechaCorta, fechaLarga, horaBogota, hoyBogota } from '../../lib/fechas'
-import { textoDistancia, textoPrecision } from '../../lib/geo'
+import { textoDistancia } from '../../lib/geo'
+import { citaAtrasada, citaDeAhora, debeRecargarHoy, textoSiguienteCita, textoUbicacionTomada } from '../../lib/pantallas'
 import { avance, conQuien, conQuienCita, detalleModalidad, fraccionBarra, numeroTexto, plural } from '../../lib/reglas'
-import { fijarReintento } from '../../lib/retorno'
+import { fijarCitaParaReportar, fijarReintento } from '../../lib/retorno'
 import { useSesion } from '../../lib/sesion'
 import type { CitaItem, ContextoResponse, VisitaItem, VisitasResponse } from '../../lib/tipos'
 import { ETIQUETA_TIPO_VISITA } from '../../lib/tipos'
 import { pedirUbicacionEnDosPasos, type ResultadoUbicacion } from '../../lib/ubicacion'
 import { Aviso, Barra, Boton, Cargando, Fila, Grupo, Insignia, Pantalla, Subtitulo, Tarjeta, Texto, Titulo, Vacio } from '../../lib/ui'
+
+/** Cada cuánto se mueve el reloj de la cita "de ahora" ("en 25 min", "Atrasada") mientras Hoy está a la vista. */
+const RELOJ_MS = 30_000
 
 export default function Hoy() {
   const router = useRouter()
@@ -38,14 +48,39 @@ export default function Hoy() {
   const [ubicacion, setUbicacion] = useState<ResultadoUbicacion | null>(null)
   const [cargando, setCargando] = useState(true)
   const [refrescando, setRefrescando] = useState(false)
+  /** Hay una carga en curso mientras se ve lo que ya había ("Actualizando…", sin tapar la pantalla). */
+  const [actualizando, setActualizando] = useState(false)
   const [actualizado, setActualizado] = useState<string | null>(null)
+  const [ahora, setAhora] = useState(() => new Date())
   const enCurso = useRef(false)
+  /** Cuándo llegó el contexto que se ve (ms); null: todavía nada del servidor en esta pantalla. */
+  const ultimaCarga = useRef<number | null>(null)
+  /** Algo cambió desde la última carga (invalidarContexto) o se tiró para actualizar. */
+  const invalidado = useRef(false)
+  const enfocada = useRef(false)
 
-  const cargar = useCallback(async () => {
-    if (enCurso.current) return
-    enCurso.current = true
-    const hoy = hoyBogota()
-    try {
+  // Primero lo que ya hay: el contexto en memoria (de hace menos de 3 min) o el guardado hoy en el teléfono.
+  useEffect(() => {
+    let vigente = true
+    const enMemoria = contextoReciente({ maxEdadMs: FRESCURA_PINTAR_MS })
+    if (enMemoria) {
+      setContexto(actual => actual ?? enMemoria.contexto)
+    } else {
+      leerContextoGuardado(sesion.current.usuarioId).then(
+        guardado => {
+          if (vigente && guardado) setContexto(actual => actual ?? guardado.contexto)
+        },
+        () => undefined
+      )
+    }
+    return () => {
+      vigente = false
+    }
+  }, [])
+
+  const cargarUnaVez = useCallback(
+    async (forzar: boolean) => {
+      const hoy = hoyBogota()
       if (sesion.current.sinConfirmar) void sesion.current.refrescarSesion()
       const pedidoVisitas = api.visitas(hoy).then(
         datos => {
@@ -60,32 +95,95 @@ export default function Hoy() {
       const resultado = (await pedirUbicacionEnDosPasos({ timeoutMs: 8_000 }).primera).resultado
       setUbicacion(resultado)
       const punto = resultado.ubicacion
-      const pedidoContexto = api.contexto(punto ? { lat: punto.lat, lng: punto.lng, precision: punto.precision } : null).then(
-        datos => {
-          setContexto(datos)
-          setErrorContexto(null)
-          void guardarContexto(sesion.current.usuarioId, datos) // para poder reportar sin señal más tarde, hoy
-        },
-        error => setErrorContexto(aApiError(error))
-      )
-      await Promise.all([pedidoVisitas, pedidoContexto, reintentar()])
-      setActualizado(new Date().toISOString())
-    } finally {
-      enCurso.current = false
-      setCargando(false)
-      setRefrescando(false)
-    }
-  }, [reintentar])
+      // Un contexto de menos de 60 s pedido cerca de aquí (por Reportar, por ejemplo) sirve tal cual: no se pide otro.
+      const reciente = forzar ? null : contextoReciente({ maxEdadMs: FRESCURA_SIN_PEDIR_MS, cercaDe: punto ? { lat: punto.lat, lng: punto.lng } : null })
+      // Cuándo llegó el contexto que queda a la vista (null: no llegó).
+      const pedidoContexto: Promise<number | null> = reciente
+        ? Promise.resolve().then(() => {
+            setContexto(reciente.contexto)
+            setErrorContexto(null)
+            return reciente.recibidoEn
+          })
+        : api.contexto(punto ? { lat: punto.lat, lng: punto.lng, precision: punto.precision } : null).then(
+            datos => {
+              setContexto(datos)
+              setErrorContexto(null)
+              void guardarContexto(sesion.current.usuarioId, datos) // para poder reportar sin señal más tarde, hoy
+              return Date.now()
+            },
+            error => {
+              setErrorContexto(aApiError(error))
+              return null
+            }
+          )
+      const [, llegada] = await Promise.all([pedidoVisitas, pedidoContexto, reintentar()])
+      if (llegada !== null) {
+        ultimaCarga.current = llegada
+        setActualizado(new Date(llegada).toISOString())
+      }
+    },
+    [reintentar]
+  )
+
+  const cargar = useCallback(
+    async (forzar: boolean = false) => {
+      if (enCurso.current) return
+      enCurso.current = true
+      setActualizando(true)
+      try {
+        let vuelta = 0
+        do {
+          // Lo que se pide ahora ya trae todo lo invalidado hasta aquí. Si llega otra invalidación mientras tanto (la
+          // cola envió una visita guardada sin señal, por ejemplo), se pide una vez más.
+          invalidado.current = false
+          await cargarUnaVez(forzar || vuelta > 0)
+          vuelta++
+        } while (invalidado.current && enfocada.current && vuelta < 2)
+      } finally {
+        enCurso.current = false
+        setCargando(false)
+        setRefrescando(false)
+        setActualizando(false)
+      }
+    },
+    [cargarUnaVez]
+  )
 
   useFocusEffect(
     useCallback(() => {
-      void cargar()
-    }, [cargar])
+      enfocada.current = true
+      if (debeRecargarHoy(ultimaCarga.current, Date.now(), invalidado.current)) void cargar()
+      else void reintentar() // lo de la pantalla sigue fresco; solo se intenta enviar lo guardado sin señal
+      return () => {
+        enfocada.current = false
+      }
+    }, [cargar, reintentar])
+  )
+
+  // Una visita guardada, una cita agendada o cancelada, un día libre: la próxima vez (o ya, si Hoy está a la vista) se
+  // pide de nuevo.
+  useEffect(
+    () =>
+      escucharInvalidacion(() => {
+        invalidado.current = true
+        if (enfocada.current) void cargar()
+      }),
+    [cargar]
+  )
+
+  // El reloj de la cita "de ahora" ("en 25 min", "Atrasada"), solo mientras Hoy está a la vista.
+  useFocusEffect(
+    useCallback(() => {
+      setAhora(new Date())
+      const reloj = setInterval(() => setAhora(new Date()), RELOJ_MS)
+      return () => clearInterval(reloj)
+    }, [])
   )
 
   const refrescar = () => {
     setRefrescando(true)
-    void cargar()
+    invalidado.current = true
+    void cargar(true)
   }
 
   if (cargando && !contexto && !visitas) return <Cargando texto="Cargando tu día…" />
@@ -101,7 +199,12 @@ export default function Hoy() {
     fijarReintento({ client_id: e.client_id, cuerpo: e.cuerpo, error: e.error })
     router.push('/reportar')
   }
+  const reportarCita = (cita: CitaItem) => {
+    fijarCitaParaReportar(cita.id)
+    router.push('/reportar')
+  }
   const items = (visitas?.items ?? []).slice().sort((a, b) => b.checked_in_at.localeCompare(a.checked_in_at))
+  const textoUbicacion = ubicacion?.ubicacion ? textoUbicacionTomada(ubicacion.ubicacion.precision, ubicacion.ubicacion.aproximada) : (ubicacion?.error ?? '')
 
   return (
     <Pantalla alRefrescar={refrescar} refrescando={refrescando}>
@@ -109,6 +212,11 @@ export default function Hoy() {
         <Texto suave>{capitalizar(fechaLarga(hoy))}</Texto>
         <Titulo>{nombre ? `Hola, ${primerNombre(nombre)}` : 'Hoy'}</Titulo>
         {zona ? <Texto suave>Zona {zona}</Texto> : null}
+        {actualizando && !refrescando ? (
+          <Texto suave peque>
+            Actualizando…
+          </Texto>
+        ) : null}
       </View>
 
       {sinEjecutiva ? (
@@ -125,10 +233,17 @@ export default function Hoy() {
       <Boton titulo="Reportar visita" detalle="Dicta lo que pasó o repórtala por toques" grande alPresionar={() => router.push('/reportar')} />
 
       <MetaDelDia contexto={contexto} error={errorContexto} />
+      {contexto && errorContexto && !actualizando ? (
+        <Texto suave peque>
+          {`No se pudo actualizar (${errorContexto.message}). Ves lo último que llegó hoy.`}
+        </Texto>
+      ) : null}
 
       {contexto ? (
         <AgendaDeHoy
           citas={contexto.agenda_hoy ?? []}
+          ahora={ahora}
+          alReportarCita={reportarCita}
           alAgendar={() => router.push('/agenda/nueva')}
           alVerAgenda={() => router.push('/agenda')}
           alAbrirVisita={id => router.push(`/visita/${id}`)}
@@ -209,6 +324,8 @@ export default function Hoy() {
           <Aviso tono={esNoDisponible(errorVisitas) ? 'info' : errorVisitas.tipo === 'red' || errorVisitas.tipo === 'tiempo' ? 'alerta' : 'peligro'}>
             {esNoDisponible(errorVisitas) ? 'El reporte de visitas todavía no está activo en el servidor.' : errorVisitas.message}
           </Aviso>
+        ) : !visitas ? (
+          <Vacio texto="Cargando tus visitas de hoy…" />
         ) : items.length === 0 ? (
           <Vacio texto="Todavía no has reportado visitas hoy." />
         ) : (
@@ -217,10 +334,8 @@ export default function Hoy() {
       </Tarjeta>
 
       <Texto suave peque>
-        {ubicacion?.ubicacion
-          ? `Ubicación tomada${ubicacion.ubicacion.aproximada ? ' (aproximada)' : ''} ${textoPrecision(ubicacion.ubicacion.precision) ?? ''}`.trim()
-          : (ubicacion?.error ?? '')}
-        {actualizado ? ` · Actualizado a las ${horaBogota(actualizado)}` : ''}
+        {textoUbicacion}
+        {actualizado ? `${textoUbicacion ? ' · ' : ''}Actualizado a las ${horaBogota(actualizado)}` : ''}
       </Texto>
     </Pantalla>
   )
@@ -255,14 +370,22 @@ function MetaDelDia({ contexto, error }: { contexto: ContextoResponse | null; er
   )
 }
 
-/** Las citas de hoy (pendientes y hechas): la hecha abre su visita. "Agendar" y "Ver agenda" llevan a la agenda. */
+/**
+ * Las citas de hoy (pendientes y hechas). La pendiente se toca para reportarla (Reportar la abre elegida) y lleva
+ * "Atrasada" si ya pasó su hora; la hecha abre su visita. Arriba, la cita "de ahora" ("Siguiente: 10:30 · …"). "Agendar"
+ * y "Ver agenda" llevan a la agenda.
+ */
 function AgendaDeHoy({
   citas,
+  ahora,
+  alReportarCita,
   alAgendar,
   alVerAgenda,
   alAbrirVisita,
 }: {
   citas: readonly CitaItem[]
+  ahora: Date
+  alReportarCita: (cita: CitaItem) => void
   alAgendar: () => void
   alVerAgenda: () => void
   alAbrirVisita: (visitaId: string) => void
@@ -272,16 +395,26 @@ function AgendaDeHoy({
     .filter(c => c.estado !== 'cancelada')
     .sort((a, b) => (a.hora === b.hora ? conQuienCita(a).localeCompare(conQuienCita(b), 'es') : a.hora === null ? 1 : b.hora === null ? -1 : a.hora < b.hora ? -1 : 1))
   const hechas = ordenadas.filter(c => c.estado === 'hecha').length
+  const deAhora = citaDeAhora(ordenadas, ahora)
   return (
     <Tarjeta>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
         <Subtitulo>Tu agenda de hoy</Subtitulo>
         {ordenadas.length > 0 ? <Insignia texto={`${numeroTexto(hechas)} de ${numeroTexto(ordenadas.length)} hechas`} tono={hechas === ordenadas.length ? 'exito' : 'neutro'} /> : null}
       </View>
+      {deAhora ? <Boton titulo={textoSiguienteCita(deAhora, ahora)} detalle="Toca para reportarla" variante="secundario" alPresionar={() => alReportarCita(deAhora)} /> : null}
       {ordenadas.length === 0 ? (
         <Vacio texto="No tienes citas para hoy." />
       ) : (
-        ordenadas.map(cita => <FilaCita key={cita.id} cita={cita} alPresionar={cita.visita_id ? () => alAbrirVisita(cita.visita_id as string) : undefined} />)
+        ordenadas.map(cita => (
+          <FilaCita
+            key={cita.id}
+            cita={cita}
+            alPresionar={cita.estado === 'pendiente' ? () => alReportarCita(cita) : cita.visita_id ? () => alAbrirVisita(cita.visita_id as string) : undefined}
+          >
+            {citaAtrasada(cita, ahora) ? <Insignia texto="Atrasada" tono="alerta" /> : null}
+          </FilaCita>
+        ))
       )}
       <View style={{ flexDirection: 'row', gap: 8 }}>
         <Boton titulo="Agendar" variante="secundario" alPresionar={alAgendar} estilo={{ flex: 1 }} />

@@ -17,6 +17,7 @@
     },
     "android": {
       "package": "co.vg.opmap.visitas",
+      "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "backgroundColor": "#000000",
         "foregroundImage": "./assets/android-icon-foreground.png",

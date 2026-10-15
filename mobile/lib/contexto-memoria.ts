@@ -5,11 +5,9 @@
  * menos de DISTANCIA_RECARGA_M del punto con que se pidió. Se invalida con el 201 de una visita, al agendar o cancelar
  * una cita, al registrar o anular un día libre y al cerrar sesión. Puro: sin react-native ni almacén (el respaldo sin
  * señal sigue en lib/contexto-guardado.ts). La ubicación final de la visita y lo que decide el servidor no cambian.
- *
- * PROVISIONAL (Paso 0): contextoReciente devuelve siempre null, así que todas las pantallas piden como hoy. El
- * paquete 4 escribe la versión real con estas mismas firmas.
+ * Lo prueba scripts/checks/18-tiempos.ts.
  */
-import type { Punto } from './geo'
+import { esPunto, haversineM, type Punto } from './geo'
 import type { ContextoResponse } from './tipos'
 
 export interface ContextoEnMemoria {
@@ -28,27 +26,52 @@ export const FRESCURA_SIN_PEDIR_MS = 60_000
 export const FRESCURA_PINTAR_MS = 180_000
 /** Agendar y Visita: médicos, perfil, líneas y voz (lo que no depende del punto). */
 export const FRESCURA_DATOS_FIJOS_MS = 600_000
+/**
+ * Por defecto, el contexto se reusa solo a menos de esto del punto con que se pidió: la misma DISTANCIA_RECARGA_M de
+ * lib/ubicacion-pasos.ts (no se importa para no crear un ciclo; la prueba 18 compara las dos).
+ */
+export const DISTANCIA_REUSO_M = 100
 
-/** Lo último que llegó (la versión provisional lo guarda, pero contextoReciente todavía no lo entrega). */
+/** Lo último que llegó (uno solo: el de la última petición). */
 let ultimo: ContextoEnMemoria | null = null
 const oyentes = new Set<(motivo: MotivoInvalidacion) => void>()
+/** Sube con cada invalidación y al olvidar: un contexto pedido ANTES no se guarda (traería lo de antes). */
+let version = 0
+
+/**
+ * Versión de la memoria: api.contexto la toma al pedir y solo recuerda la respuesta si no cambió mientras tanto (una
+ * visita, una cita o un día libre que llegó durante la petición deja esa respuesta vieja fuera de la memoria).
+ */
+export function versionContexto(): number {
+  return version
+}
 
 /** Lo llama api.contexto con lo que acaba de llegar y el punto con que se pidió. */
 export function recordarContexto(contexto: ContextoResponse, punto: Punto | null, ahora: number = Date.now()): void {
-  ultimo = { contexto, punto, recibidoEn: ahora }
+  const valido = punto && esPunto(punto.lat, punto.lng) ? { lat: punto.lat, lng: punto.lng } : null
+  ultimo = { contexto, punto: valido, recibidoEn: ahora }
 }
 
 /**
- * El contexto en memoria si tiene menos de `maxEdadMs` y, si se pide `cercaDe`, está a menos de `maxDistanciaM` de ese
- * punto. Provisional: siempre null (todos piden como hoy).
+ * El contexto en memoria si tiene menos de `maxEdadMs` y, si se pide `cercaDe`, está a menos de `maxDistanciaM`
+ * (por defecto DISTANCIA_REUSO_M, 100 m) de ese punto. Con `cercaDe` y sin punto guardado → null; `cercaDe: null` (se
+ * pide cercanía pero no hay ubicación) → null: no se puede saber si es el mismo sitio. Sin `cercaDe` no mira el punto
+ * (Agendar y Visita: lo que no depende de dónde está). Una entrada "del futuro" (reloj cambiado) no sirve.
  */
-export function contextoReciente(_o: { maxEdadMs: number; cercaDe?: Punto | null; maxDistanciaM?: number; ahora?: number }): ContextoEnMemoria | null {
-  return null
+export function contextoReciente(o: { maxEdadMs: number; cercaDe?: Punto | null; maxDistanciaM?: number; ahora?: number }): ContextoEnMemoria | null {
+  const entrada = ultimo
+  if (!entrada) return null
+  const edad = (o.ahora ?? Date.now()) - entrada.recibidoEn
+  if (!Number.isFinite(edad) || edad < 0 || edad >= o.maxEdadMs) return null
+  if (o.cercaDe === undefined) return entrada
+  if (!o.cercaDe || !esPunto(o.cercaDe.lat, o.cercaDe.lng) || !entrada.punto) return null
+  return haversineM(entrada.punto, o.cercaDe) < (o.maxDistanciaM ?? DISTANCIA_REUSO_M) ? entrada : null
 }
 
 /** Borra el contexto en memoria y avisa a quien escuche (Hoy vuelve a pedir). */
 export function invalidarContexto(motivo: MotivoInvalidacion): void {
   ultimo = null
+  version++
   for (const oyente of oyentes) {
     try {
       oyente(motivo)
@@ -69,4 +92,5 @@ export function escucharInvalidacion(oyente: (motivo: MotivoInvalidacion) => voi
 /** Al cerrar sesión: nada de la persona anterior queda en memoria. */
 export function olvidarContextoEnMemoria(): void {
   ultimo = null
+  version++
 }

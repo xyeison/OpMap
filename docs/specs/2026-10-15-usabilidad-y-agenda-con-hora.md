@@ -1,6 +1,7 @@
 # Spec: usabilidad de la app de visita y agenda con hora  (2026-10-15)
 
-**Estado**: borrador. La hora obligatoria en la cita y la agenda como calendario son pedido del dueño del 2026-10-15.
+**Estado**: tanda 1 implementada e integrada el 2026-10-15; falta la prueba del dueño en el iPhone y la tanda 2.
+La hora obligatoria en la cita y la agenda como calendario son pedido del dueño del 2026-10-15.
 Lo demás lo propone Claude y el dueño puede cambiarlo. Lo que necesita decisión del dueño está en "Para decidir" y
 no entra en este cambio.
 
@@ -126,160 +127,209 @@ pruebas que leen el texto de una pantalla revisan cada llamada dentro de su bloq
 rompiendo a mano lo que cuida, como en la spec de ubicación rápida.
 
 ### 15. Navegación y kit visual (`15-navegacion.ts`)
-- [ ] Dado `_layout.tsx`, entonces `tabBarStyle` no tiene `height`, y no quedan `tabBarIcon: () => null`,
+- [x] Dado `_layout.tsx`, entonces `tabBarStyle` no tiene `height`, y no quedan `tabBarIcon: () => null`,
       `display: 'none'`, `'beside-icon'` ni `tabBarActiveBackgroundColor`. La etiqueta va debajo del ícono.
-- [ ] `PESTANAS` (`mobile/lib/navegacion.ts`) es exactamente hoy, reportar, agenda, numeros, ajustes. Cada título
+  - Prueba: `15-navegacion.ts`: «barra: tabBarStyle existe y no fija `height`», «no quedan tabBarIcon…» y «la etiqueta va debajo del ícono».
+- [x] `PESTANAS` (`mobile/lib/navegacion.ts`) es exactamente hoy, reportar, agenda, numeros, ajustes. Cada título
       tiene 8 letras o menos, y cada ícono, relleno y contorno, existe en el glyphmap de Ionicons del paquete instalado.
-- [ ] `dias-libres`, `agenda/nueva`, `visita/[id]`, `medico/nuevo` y `sede/nueva` llevan `href: null`.
-- [ ] `contraste()` (`mobile/lib/paleta.ts`, fórmula WCAG):
+  - Prueba: `15-navegacion.ts`: «PESTANAS es exactamente hoy, reportar, agenda, numeros, ajustes», «cada título tiene 8 letras o menos» y «cada ícono, relleno y contorno, existe en el glyphmap de Ionicons instalado».
+- [x] `dias-libres`, `agenda/nueva`, `visita/[id]`, `medico/nuevo` y `sede/nueva` llevan `href: null`.
+  - Prueba: `15-navegacion.ts`: «OCULTAS (href: null): dias-libres, agenda/nueva, visita/[id], medico/nuevo y sede/nueva».
+- [x] `contraste()` (`mobile/lib/paleta.ts`, fórmula WCAG):
   - `bordeControl` da ≥ 3:1 sobre `superficie` y sobre `fondo`, en claro y en oscuro.
   - `textoSuave` sigue ≥ 4,5:1 sobre `fondo`.
-- [ ] `Pantalla` lleva `automaticallyAdjustKeyboardInsets` y `keyboardDismissMode`, y su `pie` queda fuera del
+  - Prueba: `15-navegacion.ts`: «bordeControl ≥ 3:1 sobre superficie/fondo» (claro 3,45 y 3,28; oscuro 3,40 y 3,72) y «textoSuave sigue ≥ 4,5:1» (6,42 y 7,85).
+- [x] `Pantalla` lleva `automaticallyAdjustKeyboardInsets` y `keyboardDismissMode`, y su `pie` queda fuera del
       ScrollView. `Boton`, `Chip` y `BotonVolver` tienen `minHeight` ≥ `ALTO_TOQUE_MIN` (44).
-- [ ] `haptica.ts` no llama a expo-haptics en web y nunca lanza.
+  - Prueba: `15-navegacion.ts`: «Pantalla: el ScrollView lleva automaticallyAdjustKeyboardInsets», «keyboardDismissMode…», «el pie queda fuera del ScrollView» y «Boton / Chip / BotonVolver: minHeight ≥ ALTO_TOQUE_MIN (44)».
+- [x] `haptica.ts` no llama a expo-haptics en web y nunca lanza.
+  - Prueba: `15-navegacion.ts`: «háptica: en web no llama a expo-haptics» y las tres de «no lanza».
 
 ### 16. Reportar y tarjeta (`16-reportar.ts`)
-- [ ] `modoTarjeta`:
+- [x] `modoTarjeta`:
   - Una tarjeta de voz válida, con confianza 0,8 y sin preguntas → `resumen`.
   - Con confianza 0,5, con una pregunta, fuera del radio o sin médico cruzado → `completa`, y `atencion` nombra el
     campo.
   - Una tarjeta de toques → siempre `completa`.
-- [ ] `filasResumen` devuelve, en orden: con quién, "Sede · Presencial a 35 m (dentro del radio)", resultado, líneas,
+  - Prueba: `16-reportar.ts`: las 9 pruebas «modoTarjeta: …».
+- [x] `filasResumen` devuelve, en orden: con quién, "Sede · Presencial a 35 m (dentro del radio)", resultado, líneas,
       conclusión, compromisos y próxima reunión en palabras ("jueves 22 de octubre"). Una fila vacía no aparece,
       salvo la conclusión.
-- [ ] `textoPieConfirmar(1, 2) === 'Confirmar visita 1 de 2'` y `textoPieConfirmar(1, 1) === 'Confirmar esta
+  - Prueba: `16-reportar.ts`: las 9 pruebas «filasResumen: …».
+- [x] `textoPieConfirmar(1, 2) === 'Confirmar visita 1 de 2'` y `textoPieConfirmar(1, 1) === 'Confirmar esta
       visita'`. TarjetaBorrador y Reportar usan `Pantalla.pie` para Confirmar.
-- [ ] Con una tarjeta que viene de una cita (`agenda_id`), "Tipo de visita" no se muestra.
-- [ ] `ordenarMedicos(medicos, sedeId, punto)`:
+  - Prueba: `16-reportar.ts`: «textoPieConfirmar(1, 2)…», «textoPieConfirmar(1, 1)…», «TarjetaBorrador: PieConfirmar…» y «Reportar: Pantalla.pie lleva "Confirmar visita i de N"…».
+- [x] Con una tarjeta que viene de una cita (`agenda_id`), "Tipo de visita" no se muestra.
+  - Prueba: `16-reportar.ts`: «TarjetaBorrador: "Tipo de visita" … solo se pinta sin cita (agenda_id)».
+- [x] `ordenarMedicos(medicos, sedeId, punto)`:
   - Primero "Atienden en <sede>", luego "Cerca de aquí" por distancia y luego el resto por nombre.
   - Las cantidades no cambian y no hay repetidos.
-- [ ] Un solo buscador de médicos:
+  - Prueba: `16-reportar.ts`: las 6 pruebas «ordenarMedicos: …».
+- [x] Un solo buscador de médicos:
   - Si no hay coincidencias propias, ofrece "Buscar en OpMap" con el mismo texto.
   - `debeBuscarAlEscribir`: 3 letras sin contar espacios, con `ESPERA_BUSQUEDA_MS = 400`.
   - Buscador cancela la búsqueda anterior con `AbortController`, y la fila entera es tocable.
-- [ ] `planCargaReportar({ enMemoria, primera, ahora })`:
+  - Prueba: `16-reportar.ts`: «ofertaBuscarFuera…», «busqueda: ESPERA_BUSQUEDA_MS = 400», «debeBuscarAlEscribir…», «Buscador: cada búsqueda cancela la anterior (AbortController)…» y «la fila entera del resultado es tocable».
+- [x] `planCargaReportar({ enMemoria, primera, ahora })`:
   - Con menos de 60 s y menos de 100 m → `usar`, sin pedir.
   - Entre 60 s y 3 min → `pintar_y_refrescar`.
   - Sin memoria, más viejo o más lejos → `pedir`.
   - Reportar no muestra "Cargando tus citas…" en los dos primeros casos.
-- [ ] Cita desde Hoy (`tomarCitaParaReportar` al recibir el foco):
+  - Prueba: `16-reportar.ts`: las 3 «planCargaReportar: …» y «Reportar: "Cargando tus citas…" solo cuando hay que pedir»; en las capturas, `medidas.json` → `pestanas_peticiones`.
+- [x] Cita desde Hoy (`tomarCitaParaReportar` al recibir el foco):
   - Sin nada abierto, elige esa cita.
   - Con una tarjeta abierta, una grabación o un envío en curso, no borra nada y queda pendiente, con las mismas
     reglas de "Reportar de nuevo" (`pasoDelReporte`).
-- [ ] Antes de elegir no aparecen Hablar y Por toques deshabilitados al final. Hay una línea guía arriba.
-- [ ] En la fase `proponiendo` se muestra "Lo que dijiste". "Lo que dijiste" se pliega y se despliega completo.
-- [ ] Próxima reunión:
+  - Prueba: `16-reportar.ts`: las 4 «cita desde Hoy: …» y «retorno: la cita de Hoy se toma una sola vez».
+- [x] Antes de elegir no aparecen Hablar y Por toques deshabilitados al final. Hay una línea guía arriba.
+  - Prueba: `16-reportar.ts`: «Reportar: antes de elegir no aparecen Hablar y Por toques deshabilitados» y «hay una línea guía arriba».
+- [x] En la fase `proponiendo` se muestra "Lo que dijiste". "Lo que dijiste" se pliega y se despliega completo.
+  - Prueba: `16-reportar.ts`: «en la fase proponiendo ya se ve "Lo que dijiste"» y «se pliega (3 líneas) y se despliega completo»; captura `despues/32`.
+- [x] Próxima reunión:
   - `CamposVisita` usa `CalendarioMes` en lugar del campo "Fecha (AAAA-MM-DD)". Los atajos se quedan.
   - `puedeAgendarProxima(next_step_date, hoy)` es verdadero solo dentro de hoy..hoy + 30.
   - Con eso, el resultado de la visita confirmada ofrece "Agendar esa reunión" (`fijarPedidoAgendar` + `rutaAgendar`).
-- [ ] "Dictar" mide ≥ 44 pt, tiene ícono de micrófono y no va con `position: 'absolute'`. Grabador vibra al empezar y
+  - Prueba: `16-reportar.ts`: «CamposVisita: la próxima reunión con CalendarioMes…», «puedeAgendarProxima…» y «la visita confirmada ofrece "Agendar esa reunión"…».
+- [x] "Dictar" mide ≥ 44 pt, tiene ícono de micrófono y no va con `position: 'absolute'`. Grabador vibra al empezar y
       al terminar, y Reportar vibra con el 201.
-- [ ] Reportar llama a `marcar()` en: toque_hablar, grabando, fin_grabacion, transcripcion, propuesta,
+  - Prueba: `16-reportar.ts`: «"Dictar" mide 44 pt o más…», «Grabador: vibra al empezar… y al terminar» y «Reportar: vibra con el 201…».
+- [x] Reportar llama a `marcar()` en: toque_hablar, grabando, fin_grabacion, transcripcion, propuesta,
       primer_toque_tarjeta, toque_confirmar, visita_guardada y lista_pintada.
-- [ ] Las pruebas existentes de las secciones 8, 11 y 14 siguen en verde. Solo el paquete 2 las ajusta, y solo las
+  - Prueba: `16-reportar.ts`: «Reportar llama a marcar() en las 9 marcas del dictado» y «cada marca en su sitio».
+- [x] Las pruebas existentes de las secciones 8, 11 y 14 siguen en verde. Solo el paquete 2 las ajusta, y solo las
       que leen archivos suyos.
+  - Prueba: `movil-check.ts` completo: 756/756, con las secciones 1 a 14 en verde. Solo el paquete 2 ajustó 2 pruebas de la 14 que leen `reportar.tsx`.
 
 ### 17. Agenda con hora (`17-agenda.ts`, `web/scripts/reporte-check.ts`, `reporte-api-check.ts`, `simulacion-check.ts`)
-- [ ] Calendario (`mobile/lib/calendario.ts`):
+- [x] Calendario (`mobile/lib/calendario.ts`):
   - `cuadriculaMes('2026-10', …)`: 5 semanas de 7 días, lunes primero, del 28 de septiembre al 1 de noviembre. Hoy va
     marcado, y `elegible` respeta `desde` y `hasta`.
   - `rangoDeMes` nunca pasa de 31 días.
   - Para todo día de hoy..hoy + 30, el mes que lo contiene se pide con un rango que lo incluye.
-- [ ] Franjas (`mobile/lib/agenda.ts`):
+  - Prueba: `17-agenda.ts`, 17a.
+- [x] Franjas (`mobile/lib/agenda.ts`):
   - `franjasHorario()` da 24 franjas, de '07:00' a '18:30'.
   - `franjaDe('09:45') === '09:30'`.
   - `ocupacionDelDia` deja las citas sin hora al final y amplía el día si hay una cita a las 06:30 o a las 19:00.
-- [ ] `siguienteFranjaLibre`:
+  - Prueba: `17-agenda.ts`, 17b.
+- [x] `siguienteFranjaLibre`:
   - Hoy a las 10:42, con 11:00 ocupada → '11:30'.
   - Un día futuro vacío → '08:00'.
   - Un día lleno, o hoy después de las 18:30 → null, y la validación dice "Elige la hora de la cita".
-- [ ] `validarCitaConHora`:
+  - Prueba: `17-agenda.ts`, 17c.
+- [x] `validarCitaConHora`:
   - Hora '' → error en `hora`, con `MENSAJE_HORA_OBLIGATORIA = 'Elige la hora de la cita'`.
   - '10:00' → sin errores.
   - '25:00' → el mensaje de formato del servidor.
   - El texto es idéntico al de `web/lib/reporte-visitas-schemas.ts` (lo comprueba leyendo el archivo).
-- [ ] `cuerpoCitaConHora` lanza sin hora y deja la hora en HH:MM.
-- [ ] Textos:
+  - Prueba: `17-agenda.ts`, 17d (incluida «el texto es idéntico al del servidor…», que lee los dos archivos de la web).
+- [x] `cuerpoCitaConHora` lanza sin hora y deja la hora en HH:MM.
+  - Prueba: `17-agenda.ts`, 17d: «cuerpoCitaConHora lanza sin hora» y «… deja la hora en HH:MM».
+- [x] Textos:
   - `textoBotonAgendar` → 'Agendar · jueves 16 oct · 10:00'.
   - `avisoChoque` nombra la hora y con quién; da null si la franja está libre.
   - `avisoAgendadaHoy` solo cuando la fecha es hoy.
-- [ ] Pedido para Agendar:
+  - Prueba: `17-agenda.ts`, 17e.
+- [x] Pedido para Agendar:
   - `rutaAgendar` solo lleva `fecha` y `hora` en la URL y descarta valores no válidos.
   - Con quién (tipo, médico o cuenta y subtipo, sede) va en memoria con `fijarPedidoAgendar` /
     `tomarPedidoAgendar`, que se toma una sola vez.
-- [ ] `agenda/nueva.tsx`:
+  - Prueba: `17-agenda.ts`, 17g.
+- [x] `agenda/nueva.tsx`:
   - No quedan el chip "Sin hora" ni el campo "Hora (opcional)".
   - "¿Cuándo?" y "¿A qué hora?" van antes de "¿Con quién?", y el Selector de médicos empieza cerrado.
   - Usa `validarCitaConHora` y `cuerpoCitaConHora`, y el botón principal va en `Pantalla.pie`.
-- [ ] `agenda.tsx`:
+  - Prueba: `17-agenda.ts`, 17h (Agendar); capturas `despues/13`, `16`, `30` y `31`.
+- [x] `agenda.tsx`:
   - Usa `CalendarioMes` y `LineaDelDia`.
   - Pide `api.agenda(desde, hasta, true)` con `rangoDeMes` y sigue diciendo "Queda en tu agenda como cancelada".
   - Tiene entrada a "/dias-libres".
-- [ ] Servidor (`reporte-check`, sección 10e):
+  - Prueba: `17-agenda.ts`, 17h (Mi agenda); capturas `despues/11`, `27`, `28` y `29`.
+- [x] Servidor (`reporte-check`, sección 10e):
   - `citaCreateSchema` rechaza una cita sin hora, con hora '' o con null, y el error va en `hora` con "Elige la
     hora de la cita".
   - La hora con segundos queda en HH:MM.
-- [ ] Servidor (`reporte-api-check`):
+  - Prueba: `reporte-check.ts` 10e: «citaCreateSchema rechaza la cita sin la clave hora», «con hora ''», «con hora null» y «hora con segundos → HH:MM».
+- [x] Servidor (`reporte-api-check`):
   - `POST /api/me/agenda` sin hora da 400, con error en `hora`, y no guarda nada.
   - La institucional válida, ahora con hora '11:00', da 201.
   - `GET /api/me/agenda` sigue devolviendo las citas viejas con `hora: null`.
-- [ ] Simulación: `simulacion-carmen.ts` da hora a todas las citas (día 1, médico 5: 10:30; día 4, médico 3: 14:00).
+  - Prueba: `reporte-api-check.ts` 14: «POST /api/me/agenda sin la clave hora / con hora null / con hora '': 400…», «ningún rechazo guardó una cita», «institucional válida (con hora 11:00): 201» y «GET /api/me/agenda sigue devolviendo una cita vieja sin hora: hora null».
+- [x] Simulación: `simulacion-carmen.ts` da hora a todas las citas (día 1, médico 5: 10:30; día 4, médico 3: 14:00).
       En `simulacion-check`, "hay alguna sin hora" pasa a "todas con hora". La simulación no se corre en este cambio.
+  - Prueba: `simulacion-check.ts`: «todas con hora HH:MM» y «día 1, médico 5: 10:30; día 4, médico 3: 14:00». La simulación no se corrió.
 
 ### 18. Tiempos y caché (`18-tiempos.ts` y `web/scripts/tiempos-check.ts`)
-- [ ] `cronometro(ruta)` (`web/app/api/me/_lib/tiempos.ts`), con un reloj falso:
+- [x] `cronometro(ruta)` (`web/app/api/me/_lib/tiempos.ts`), con un reloj falso:
   - Mide cada `fase` también cuando la promesa falla, y la falla se propaga.
   - La cabecera es `auth;dur=12, ctx;dur=340, total;dur=380`.
   - La línea es `[tiempos] POST /api/me/contexto auth=12 ctx=340 total=380 frio=1`: solo el patrón de la ruta y
     números, sin ids, texto ni coordenadas. `frio=1` solo en la primera petición de la instancia.
-- [ ] `leerPorIds` devuelve lo mismo y en el mismo orden con trozos en paralelo, con 4 a la vez como mucho, probado
+  - Prueba: `tiempos-check.ts` 18a y 18b (cabecera, línea, `frio=1` y la falla que se propaga y se mide).
+- [x] `leerPorIds` devuelve lo mismo y en el mismo orden con trozos en paralelo, con 4 a la vez como mucho, probado
       con un lector falso.
-- [ ] `reporte-api-check.ts` y `terceros-api-check.ts` siguen en verde SIN cambios del paquete 4. Las rutas no
+  - Prueba: `tiempos-check.ts` 18e.
+- [x] `reporte-api-check.ts` y `terceros-api-check.ts` siguen en verde SIN cambios del paquete 4. Las rutas no
       cambian lo que responden y los registros siguen sin contenido.
-- [ ] `contextoReciente`:
+  - Prueba: `reporte-api-check` 345 OK y `terceros-api-check` 129 OK. El paquete 4 no tocó ninguno de los dos (el 3 sí cambió `reporte-api-check` por la hora). La integración añadió `medirRuta` a `/api/me/agenda/**` y los dos siguen en verde; `tiempos-check` 18f comprueba que todo `route.ts` de `app/api/me` se mide.
+- [x] `contextoReciente`:
   - Devuelve la entrada solo si tiene menos de `maxEdadMs` y, si se pide `cercaDe`, está a menos de `maxDistanciaM`.
   - Sin punto guardado y con `cercaDe` → null.
   - `invalidarContexto` la borra y avisa a los oyentes, y `olvidarContextoEnMemoria` la borra al cerrar sesión.
-- [ ] `api.contexto(punto)` llama a `recordarContexto` con el punto pedido (texto). `cola-contexto.tsx` llama a
+  - Prueba: `18-tiempos.ts`, 18a.
+- [x] `api.contexto(punto)` llama a `recordarContexto` con el punto pedido (texto). `cola-contexto.tsx` llama a
       `invalidarContexto('visita')` al recibir el 201.
-- [ ] `rutaPatron('/api/me/visitas/<uuid>/anular') === '/api/me/visitas/:id/anular'`. El registro de desarrollo
+  - Prueba: `18-tiempos.ts`, 18b.
+- [x] `rutaPatron('/api/me/visitas/<uuid>/anular') === '/api/me/visitas/:id/anular'`. El registro de desarrollo
       (`__DEV__`) de `api.ts` lleva método, patrón, estado, ms y `server-timing`, nunca el cuerpo.
-- [ ] `MemoriaToken` (`token.ts`): lee el llavero una sola vez; guardar y borrar actualizan la memoria, y un 401 la
+  - Prueba: `18-tiempos.ts`, 18c.
+- [x] `MemoriaToken` (`token.ts`): lee el llavero una sola vez; guardar y borrar actualizan la memoria, y un 401 la
       borra.
-- [ ] `arranqueDeSesion({ perfilGuardado, tokenVigente })`:
+  - Prueba: `18-tiempos.ts`, 18d.
+- [x] `arranqueDeSesion({ perfilGuardado, tokenVigente })`:
   - Con perfil y token vigente → `entrar_y_confirmar`.
   - Sin perfil → `confirmar_antes`.
   - Sin token → `sin_sesion`.
   - `TIEMPO_ME_MS = 5_000`.
-- [ ] Audio:
+  - Prueba: `18-tiempos.ts`, 18e.
+- [x] Audio:
   - `OPCIONES_GRABACION` sigue en 64000/44100 por defecto.
   - Con `EXPO_PUBLIC_PERFIL_AUDIO=ligero` queda en 32000/22050, mono, también en web (`bitsPerSecond`).
   - `lib/api.ts` sigue subiendo con `parteAudio(uri, () => archivo.bytes())` (prueba existente).
+  - Prueba: `18-tiempos.ts`, 18g.
 
 ### 19. Resto de pantallas (`19-pantallas.ts`)
-- [ ] `debeRecargarHoy(ultima, ahora, invalidado)`: no antes de 60 s; sí si hubo invalidación o se tiró para
+- [x] `debeRecargarHoy(ultima, ahora, invalidado)`: no antes de 60 s; sí si hubo invalidación o se tiró para
       actualizar.
-- [ ] `citaDeAhora(citas, ahora)` es la pendiente con hora entre 30 min antes y 60 min después.
+  - Prueba: `19-pantallas.ts`, 19a.
+- [x] `citaDeAhora(citas, ahora)` es la pendiente con hora entre 30 min antes y 60 min después.
       `textoSiguienteCita` → 'Siguiente: 10:30 · Dra. Gómez (en 25 min)'. Las pendientes con hora pasada llevan
       'Atrasada'.
-- [ ] Hoy:
+  - Prueba: `19-pantallas.ts`, 19b.
+- [x] Hoy:
   - Una cita pendiente es tocable: llama a `fijarCitaParaReportar(cita.id)` y lleva a Reportar.
   - Sigue llamando a `pedirUbicacionEnDosPasos({ timeoutMs: 8_000 }).primera` (prueba existente de la sección 14).
   - Pinta el contexto guardado con "Actualizando…".
-- [ ] Ajustes tiene "Mis días libres". Días libres elige la fecha con `CalendarioMes`, con sus días marcados por
+  - Prueba: `19-pantallas.ts`, 19d, y la prueba de la sección 14 de `movil-check.ts`; capturas `despues/01` a `03`.
+- [x] Ajustes tiene "Mis días libres". Días libres elige la fecha con `CalendarioMes`, con sus días marcados por
       estado, y llama a `invalidarContexto('dia_libre')`.
-- [ ] Números:
+  - Prueba: `19-pantallas.ts`, 19e; capturas `despues/19`, `23` y `34`.
+- [x] Números:
   - Al cambiar de mes, las cifras se atenúan con "Cargando <mes>…".
   - `faltanVisitas(cuota, hechas, diasHabiles, transcurridos)` → "Te faltan N visitas médicas: X por día hábil".
     Si no se puede calcular, da null.
-- [ ] Visita:
+  - Prueba: `19-pantallas.ts`, 19c («faltanVisitas…») y 19e (Números); capturas `despues/21` y `22`.
+- [x] Visita:
   - Conclusión y Compromisos van con la etiqueta arriba y el texto a todo el ancho.
   - "Agendar la próxima reunión" aparece solo con `next_step_date` dentro de hoy..hoy + 30.
   - "data manager" pasa a "el equipo de datos".
-- [ ] Nueva sede dice "Ubicación tomada · ±12 m" (`textoUbicacionTomada`). Nuevo médico muestra el error junto a cada
+  - Prueba: `19-pantallas.ts`, 19f (Visita), y la búsqueda global de la sección 12 de `movil-check.ts` («ningún texto visible … dice "data manager"»).
+- [x] Nueva sede dice "Ubicación tomada · ±12 m" (`textoUbicacionTomada`). Nuevo médico muestra el error junto a cada
       campo y "Crear médico" en `Pantalla.pie`. Sigue `const punto = pedido?.puntoFinal ? await pedido.puntoFinal`
       (prueba existente).
-- [ ] Ingreso: "Siguiente" en el correo pasa a la contraseña (`onSubmitEditing`). "Entrar" explica lo que falta.
+  - Prueba: `19-pantallas.ts`, 19c («textoUbicacionTomada…») y 19f (Nueva sede y Nuevo médico).
+- [x] Ingreso: "Siguiente" en el correo pasa a la contraseña (`onSubmitEditing`). "Entrar" explica lo que falta.
+  - Prueba: `19-pantallas.ts`, 19f (Ingreso).
 
 ### Verificación visual (antes y después, 390×844)
 Se usa el método del estudio: `scratchpad/usabilidad/capturar.sh <carpeta-salida> [ref-git] [carpeta-mobile]`.
@@ -294,14 +344,19 @@ Se usa el método del estudio: `scratchpad/usabilidad/capturar.sh <carpeta-salid
 
 Se tiene que ver:
 
-- [ ] **Barra:** con el área segura emulada, las etiquetas quedan enteras por encima de la franja inferior, y ninguna
+- [x] **Barra:** con el área segura emulada, las etiquetas quedan enteras por encima de la franja inferior, y ninguna
       termina en "…" (capturas 24 y 26 y `medidas.json`).
-- [ ] **Agendar sin elegir médico:** "¿A qué hora?" y sus chips caen dentro de la primera pantalla, encima de la
+  - Prueba: capturas `despues/24` y `26` y `medidas.json`: la pestaña va de 762 a 810 pt y las etiquetas de 795 a 809 pt; la franja inferior va de 810 a 844. Ninguna está cortada ni termina en «…» (antes: 25 pt de alto y «Días libres» truncada).
+- [x] **Agendar sin elegir médico:** "¿A qué hora?" y sus chips caen dentro de la primera pantalla, encima de la
       barra (antes: hora a 2.207 px).
-- [ ] **Tarjeta por toques:** "Confirmar" se ve sin desplazar (antes: 974 px).
-- [ ] **Mi agenda:** muestra el calendario, el día como línea de tiempo y una cita a más de 7 días.
-- [ ] **Peticiones:** volver a Hoy antes de 60 s no hace `POST /api/me/contexto`. Entrar a Reportar justo después de
+  - Prueba: captura `despues/13` y `medidas.json`: «¿A qué hora?» a 497 pt y «Mañana» a 533 pt, con las dos filas de la mañana antes del pie (680 pt) y de la barra (762 pt).
+- [x] **Tarjeta por toques:** "Confirmar" se ve sin desplazar (antes: 974 px).
+  - Prueba: capturas `despues/07` a `10`: «Confirmar esta visita» fijo a 710–732 pt, sin desplazar.
+- [x] **Mi agenda:** muestra el calendario, el día como línea de tiempo y una cita a más de 7 días.
+  - Prueba: capturas `despues/11`, `27` (semana), `28` (mes) y `29` (cita a 12 días, el 27 de octubre).
+- [x] **Peticiones:** volver a Hoy antes de 60 s no hace `POST /api/me/contexto`. Entrar a Reportar justo después de
       Hoy no muestra "Cargando tus citas…".
+  - Prueba: `medidas.json` → `pestanas_peticiones`: 0 `POST /api/me/contexto` al volver a Hoy, Reportar y Agenda; «Cargando tus citas…» no aparece al entrar a Reportar. Reportar sigue pidiendo `GET /api/me/visitas` (tanda 2: `visitas_hoy`).
 - [ ] **En el iPhone del dueño (Expo Go), con la rama en su Expo:**
   - La barra se ve entera.
   - Agendar se ve como calendario con hora.

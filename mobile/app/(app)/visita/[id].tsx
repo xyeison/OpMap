@@ -4,15 +4,22 @@
  * médico, cuenta ni sede: para eso se anula y se vuelve a reportar. Datos: GET /api/me/visitas?fecha= (la de hoy o
  * la que se pase en ?fecha=, p. ej. desde un compromiso vencido), PATCH /api/me/visitas/[id] y
  * POST /api/me/visitas/[id]/anular. Las líneas se nombran con GET /api/me/contexto. Nunca documentos.
+ *
+ * Spec 2026-10-15: las líneas y la voz salen del contexto en memoria si tiene menos de 10 min (contextoReciente) y solo
+ * si no hay, de GET /api/me/contexto. Los textos largos (conclusión, compromisos, motivo) van con la etiqueta arriba y a
+ * todo el ancho. Con la próxima reunión dentro de hoy..hoy + 30, "Agendar la próxima reunión" abre Agendar con la
+ * fecha y con quién (en memoria: fijarPedidoAgendar).
  */
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { View } from 'react-native'
 import { CamposVisita, type ValoresCampos } from '../../../components/reporte/CamposVisita'
+import { fijarPedidoAgendar, puedeAgendarProxima, rutaAgendar } from '../../../lib/agenda'
 import * as api from '../../../lib/api'
+import { FRESCURA_DATOS_FIJOS_MS, contextoReciente } from '../../../lib/contexto-memoria'
 import { aApiError, mensajeDeError, type ApiError } from '../../../lib/errores'
 import { SoloEnFoco } from '../../../lib/montaje'
-import { esFechaIso, fechaCorta, horaBogota, hoyBogota } from '../../../lib/fechas'
+import { esFechaIso, fechaCorta, fechaLarga, horaBogota, hoyBogota } from '../../../lib/fechas'
 import { textoDistancia } from '../../../lib/geo'
 import { MAX_FAILURE_REASON, MENSAJE_PROXIMA_ANTES_DE_VISITA, cambiosDeVisita, proximaAntesDeLaVisita, valoresDeVisita } from '../../../lib/propuesta'
 import { conQuien, detalleModalidad, numeroTexto } from '../../../lib/reglas'
@@ -58,7 +65,9 @@ function Visita({ id, fecha }: { id: string; fecha: string }) {
   const cargar = useCallback(async () => {
     setCargando(true)
     try {
-      const [respuesta, contexto] = await Promise.all([api.visitas(fecha), api.contexto(null).catch(() => null)])
+      // Líneas y voz no dependen del punto: sirve el contexto en memoria de menos de 10 min; si no hay, se pide sin punto.
+      const enMemoria = contextoReciente({ maxEdadMs: FRESCURA_DATOS_FIJOS_MS })
+      const [respuesta, contexto] = await Promise.all([api.visitas(fecha), enMemoria ? Promise.resolve(enMemoria.contexto) : api.contexto(null).catch(() => null)])
       const encontrada = respuesta.items.find(v => v.id === id) ?? null
       setVisita(encontrada)
       setValores(encontrada ? valoresDeVisita(encontrada) : null)
@@ -109,6 +118,15 @@ function Visita({ id, fecha }: { id: string; fecha: string }) {
   const cambios = cambiosDeVisita(visita, valores)
   const hayCambios = Object.keys(cambios).length > 0
   const nombreLinea = (lineaId: string) => lineas.find(l => l.id === lineaId)?.name ?? 'Línea'
+  const proxima = visita.next_step_date
+  const agendarProxima =
+    proxima && puedeAgendarProxima(proxima, hoyBogota())
+      ? () => {
+          // Con quién va en memoria (nunca ids en la URL); la fecha, en la ruta. La hora la elige Agendar.
+          fijarPedidoAgendar({ tipo: visita.tipo, medico_id: visita.medico?.id ?? null, cuenta_id: visita.cuenta?.id ?? null, subtipo_id: visita.subtipo?.id ?? null, sede_id: visita.sede.id })
+          router.push(rutaAgendar({ fecha: proxima }))
+        }
+      : null
 
   const guardar = async () => {
     if (!valores.efectiva && !valores.failure_reason.trim()) {
@@ -166,16 +184,13 @@ function Visita({ id, fecha }: { id: string; fecha: string }) {
         <Fila etiqueta="Modalidad" valor={detalleModalidad(visita, textoDistancia)} />
         {visita.contacto ? <Fila etiqueta="Contacto" valor={visita.contacto.nombre} /> : null}
         <Fila etiqueta="Resultado" valor={visita.efectiva ? 'Efectiva' : 'No efectiva'} fuerte />
-        <Fila
-          etiqueta="Cuenta para"
-          valor={
-            visita.sede_por_confirmar
-              ? 'Suma cuando data manager confirme la sede'
-              : visita.cuenta_para
-                ? `${ETIQUETA_CUENTA_PARA[visita.cuenta_para]}${visita.peso !== 1 ? ` (×${numeroTexto(visita.peso)})` : ''}`
-                : 'No suma'
-          }
-        />
+        <Apilado etiqueta="Cuenta para">
+          {visita.sede_por_confirmar
+            ? 'Suma cuando el equipo de datos confirme la sede'
+            : visita.cuenta_para
+              ? `${ETIQUETA_CUENTA_PARA[visita.cuenta_para]}${visita.peso !== 1 ? ` (×${numeroTexto(visita.peso)})` : ''}`
+              : 'No suma'}
+        </Apilado>
         <Grupo>
           {visita.out_of_territory ? <Insignia texto="Fuera de tu territorio" tono="info" /> : null}
           {visita.sede_por_confirmar ? <Insignia texto="Sede por confirmar" tono="alerta" /> : null}
@@ -185,6 +200,10 @@ function Visita({ id, fecha }: { id: string; fecha: string }) {
           ))}
         </Grupo>
       </Tarjeta>
+
+      {agendarProxima && proxima ? (
+        <Boton titulo="Agendar la próxima reunión" detalle={capitalizar(fechaLarga(proxima))} variante="secundario" alPresionar={agendarProxima} />
+      ) : null}
 
       {mensaje ? <Aviso tono={mensaje.tono}>{mensaje.texto}</Aviso> : null}
 
@@ -220,13 +239,29 @@ function Visita({ id, fecha }: { id: string; fecha: string }) {
       ) : (
         <>
           <Separador />
-          {visita.conclusion ? <Fila etiqueta="Conclusión" valor={visita.conclusion} /> : null}
-          {visita.compromisos ? <Fila etiqueta="Compromisos" valor={visita.compromisos} /> : null}
+          {visita.conclusion ? <Apilado etiqueta="Conclusión">{visita.conclusion}</Apilado> : null}
+          {visita.compromisos ? <Apilado etiqueta="Compromisos">{visita.compromisos}</Apilado> : null}
           {visita.next_step_date ? <Fila etiqueta="Próxima reunión" valor={fechaCorta(visita.next_step_date)} /> : null}
-          {!visita.efectiva && visita.failure_reason ? <Fila etiqueta="Motivo" valor={visita.failure_reason} /> : null}
+          {!visita.efectiva && visita.failure_reason ? <Apilado etiqueta="Motivo">{visita.failure_reason}</Apilado> : null}
           <Aviso tono="info">Solo se corrigen o anulan las visitas del mismo día. Si hay un error, avísale a tu líder.</Aviso>
         </>
       )}
     </Pantalla>
   )
+}
+
+/** Texto largo con la etiqueta arriba y el texto a todo el ancho (Fila los deja en una columna angosta). */
+function Apilado({ etiqueta, children }: { etiqueta: string; children: ReactNode }) {
+  return (
+    <View style={{ gap: 2 }}>
+      <Texto suave peque>
+        {etiqueta}
+      </Texto>
+      <Texto>{children}</Texto>
+    </View>
+  )
+}
+
+function capitalizar(texto: string): string {
+  return texto ? texto[0].toUpperCase() + texto.slice(1) : texto
 }

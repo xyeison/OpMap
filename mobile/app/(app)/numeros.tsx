@@ -3,18 +3,25 @@
  * los subtipos con meta propia, días hábiles sin visitas y (F4.1) el bloque Agenda: porcentaje de visitas efectivas
  * agendadas y cumplimiento de la agenda, con las cantidades (decisión 8 de la spec 2026-10-14). Datos: GET /api/me/numeros?mes=; si el servidor
  * todavía no lo tiene (404/503), se muestra la cuota de GET /api/me/cuota?mes= (F2) con un aviso.
+ *
+ * Spec 2026-10-15: al cambiar de mes, las cifras del mes anterior se atenúan con "Cargando <mes>…" (nunca se mezclan:
+ * la respuesta de un mes que ya no se ve se descarta), y en el mes en curso cada tipo dice cuánto falta ("Te faltan 120
+ * visitas médicas: 11 por día hábil").
  */
 import { useFocusEffect } from 'expo-router'
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { View } from 'react-native'
 import * as api from '../../lib/api'
 import { aApiError, esNoDisponible, type ApiError } from '../../lib/errores'
 import { hoyBogota, mesDe, nombreMes, sumarMeses } from '../../lib/fechas'
+import { faltanVisitas } from '../../lib/pantallas'
 import { fraccionBarra, muestraCuota, numeroTexto, porcentaje, textoOrigenMeta } from '../../lib/reglas'
 import type { CuotaResponse, CuotaTipo, NumerosAgenda, NumerosResponse } from '../../lib/tipos'
 import { Aviso, Barra, Boton, Cargando, Fila, Pantalla, Separador, Subtitulo, Tarjeta, Texto } from '../../lib/ui'
 
 interface Datos {
+  /** Mes de estas cifras (AAAA-MM). */
+  mes: string
   numeros: NumerosResponse | null
   cuota: CuotaResponse
   /** /api/me/numeros no está disponible: solo la cuota. */
@@ -28,24 +35,33 @@ export default function Numeros() {
   const [error, setError] = useState<ApiError | null>(null)
   const [cargando, setCargando] = useState(true)
   const [refrescando, setRefrescando] = useState(false)
+  /** Cada pedido lleva su número: solo el último cuenta (pasar rápido de mes no deja las cifras de otro). */
+  const ultimoPedido = useRef(0)
 
   const cargar = useCallback(async (mesPedido: string) => {
+    const pedido = ++ultimoPedido.current
+    const vigente = () => pedido === ultimoPedido.current
     setError(null)
     try {
+      let nuevos: Datos
       try {
         const numeros = await api.numeros(mesPedido)
-        setDatos({ numeros, cuota: numeros.cuota, soloCuota: false })
+        nuevos = { mes: mesPedido, numeros, cuota: numeros.cuota, soloCuota: false }
       } catch (e) {
         if (!esNoDisponible(e)) throw e
         const cuota = await api.cuota(mesPedido)
-        setDatos({ numeros: null, cuota, soloCuota: true })
+        nuevos = { mes: mesPedido, numeros: null, cuota, soloCuota: true }
       }
+      if (vigente()) setDatos(nuevos)
     } catch (e) {
+      if (!vigente()) return
       setError(aApiError(e))
       setDatos(null)
     } finally {
-      setCargando(false)
-      setRefrescando(false)
+      if (vigente()) {
+        setCargando(false)
+        setRefrescando(false)
+      }
     }
   }, [])
 
@@ -54,6 +70,9 @@ export default function Numeros() {
       void cargar(mes)
     }, [cargar, mes])
   )
+
+  /** Se ven las cifras de otro mes mientras llega el elegido. */
+  const otroMes = datos !== null && datos.mes !== mes
 
   const cambiarMes = (n: number) => {
     const nuevo = sumarMeses(mes, n)
@@ -81,6 +100,11 @@ export default function Numeros() {
       </View>
 
       {cargando && !datos ? <Cargando texto="Calculando tus números…" /> : null}
+      {otroMes ? (
+        <Texto suave centro>
+          {`Cargando ${nombreMes(mes)}…`}
+        </Texto>
+      ) : null}
       {error ? (
         <Aviso
           tono={error.tipo === 'red' || error.tipo === 'tiempo' ? 'alerta' : 'peligro'}
@@ -99,13 +123,25 @@ export default function Numeros() {
         </Aviso>
       ) : null}
 
-      {datos ? <Contenido datos={datos} /> : null}
+      {datos ? (
+        // Mientras llega el mes nuevo, las cifras del anterior se ven atenuadas (y no se tocan).
+        <View
+          style={{ gap: 14, opacity: otroMes ? 0.35 : 1, pointerEvents: otroMes ? 'none' : 'auto' }}
+          accessibilityElementsHidden={otroMes}
+          importantForAccessibility={otroMes ? 'no-hide-descendants' : 'auto'}
+        >
+          <Contenido datos={datos} enCurso={datos.mes === mesActual} />
+        </View>
+      ) : null}
     </Pantalla>
   )
 }
 
-function Contenido({ datos }: { datos: Datos }) {
+function Contenido({ datos, enCurso }: { datos: Datos; enCurso: boolean }) {
   const { cuota, numeros, soloCuota } = datos
+  // Cuánto falta, solo en el mes en curso y con lo hecho (sin /api/me/numeros no se sabe).
+  const falta = (tipo: 'medica' | 'institucional') =>
+    enCurso && numeros ? faltanVisitas(cuota[tipo].cuota, numeros.hechas[tipo], cuota.dias_habiles, cuota.dias_habiles_transcurridos, tipo) : null
   return (
     <>
       {soloCuota ? (
@@ -113,7 +149,13 @@ function Contenido({ datos }: { datos: Datos }) {
       ) : null}
 
       {muestraCuota(cuota.medica) ? (
-        <TarjetaTipo titulo="Visitas médicas" tipo={cuota.medica} hechas={numeros?.hechas.medica ?? null} cumplimiento={numeros?.cumplimiento.medica ?? null} />
+        <TarjetaTipo
+          titulo="Visitas médicas"
+          tipo={cuota.medica}
+          hechas={numeros?.hechas.medica ?? null}
+          cumplimiento={numeros?.cumplimiento.medica ?? null}
+          falta={falta('medica')}
+        />
       ) : null}
       {muestraCuota(cuota.institucional) ? (
         <TarjetaTipo
@@ -121,6 +163,7 @@ function Contenido({ datos }: { datos: Datos }) {
           tipo={cuota.institucional}
           hechas={numeros?.hechas.institucional ?? null}
           cumplimiento={numeros?.cumplimiento.institucional ?? null}
+          falta={falta('institucional')}
         />
       ) : null}
       {cuota.subtipos.filter(muestraCuota).map(subtipo => (
@@ -200,7 +243,20 @@ function TarjetaAgenda({ agenda }: { agenda: NumerosAgenda }) {
   )
 }
 
-function TarjetaTipo({ titulo, tipo, hechas, cumplimiento }: { titulo: string; tipo: CuotaTipo; hechas: number | null; cumplimiento: number | null }) {
+function TarjetaTipo({
+  titulo,
+  tipo,
+  hechas,
+  cumplimiento,
+  falta = null,
+}: {
+  titulo: string
+  tipo: CuotaTipo
+  hechas: number | null
+  cumplimiento: number | null
+  /** "Te faltan 120 visitas médicas: 11 por día hábil" (mes en curso). */
+  falta?: string | null
+}) {
   const llego = cumplimiento !== null && cumplimiento >= 1
   return (
     <Tarjeta>
@@ -212,6 +268,7 @@ function TarjetaTipo({ titulo, tipo, hechas, cumplimiento }: { titulo: string; t
         <>
           <Fila etiqueta="Hechas" valor={`${numeroTexto(hechas)} de ${numeroTexto(tipo.cuota)}`} fuerte />
           <Barra valor={fraccionBarra(cumplimiento)} tono={llego ? 'exito' : 'neutro'} />
+          {falta ? <Texto negrita>{falta}</Texto> : null}
         </>
       ) : (
         <Fila etiqueta="Cuota del mes" valor={numeroTexto(tipo.cuota)} fuerte />

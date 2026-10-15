@@ -1,25 +1,38 @@
 /**
- * Calendario de la agenda (spec 2026-10-15): el mes en cuadrícula (o la semana), lunes primero, hoy marcado, los días
- * fuera de desde..hasta apagados, la cantidad de citas por día y los días libres por estado. Lo usan Agendar, Mi
- * agenda, Días libres y la próxima reunión de la visita.
+ * Calendario de la agenda (spec 2026-10-15): el mes en cuadrícula (o una semana), lunes primero, celdas de 44 pt, hoy
+ * marcado con un borde, el día elegido relleno, los días fuera de desde..hasta (o apagados) atenuados y sin toque, la
+ * cantidad de citas en una insignia sobre el día y los días libres con fondo ámbar (borde punteado si están por
+ * aprobar). Lo usan Agendar, Mi agenda, Días libres y la próxima reunión de la visita.
  *
- * PROVISIONAL (Paso 0): es el "‹ fecha ›" de Agendar de hoy (un día por toque, dentro de desde..hasta) con las props
- * definitivas; avisa alCambiarMes al pasar de mes. `vista` todavía no cambia nada. El paquete 3 escribe la cuadrícula.
+ * Con `vista` 'mes' las flechas pasan de mes; con 'semana', de semana. Al pasar a otro mes avisa `alCambiarMes` (en la
+ * vista de semana, cada mes que toca la semana nueva) para que la pantalla pida sus citas. Si `valor` cambia desde
+ * afuera, el calendario va a su mes o su semana. Las reglas puras están en lib/calendario.ts.
  */
-import type { JSX } from 'react'
-import { View } from 'react-native'
-import { fechaLarga, fechaRelativa, mesDe, sumarDias } from '../../lib/fechas'
+import { useEffect, useMemo, useState, type JSX } from 'react'
+import { Pressable, Text, View } from 'react-native'
+import {
+  cuadriculaMes,
+  cuadriculaSemana,
+  etiquetaDia,
+  LETRAS_SEMANA,
+  lunesDe,
+  mesAnterior,
+  mesDe,
+  mesesDeRango,
+  mesSiguiente,
+  rangoDeMes,
+  semanasVisibles,
+  tituloMes,
+  tituloSemana,
+  type DiaCalendario,
+  type MarcaDia,
+} from '../../lib/calendario'
+import { fechaLarga, sumarDias } from '../../lib/fechas'
+import { Icono } from '../../lib/iconos'
 import { ETIQUETA_ESTADO_DIA_LIBRE, type EstadoDiaLibre } from '../../lib/tipos'
-import { Boton, Texto } from '../../lib/ui'
+import { ALTO_TOQUE_MIN, useColores, useFuente } from '../../lib/ui'
 
-export interface MarcaDia {
-  /** Citas de ese día (pendientes y hechas). */
-  citas?: number
-  /** Estado del día libre de ese día, si hay. */
-  estadoLibre?: EstadoDiaLibre | null
-  /** El día no se puede elegir (además de los que caen fuera de desde..hasta). */
-  apagado?: boolean
-}
+export type { MarcaDia } from '../../lib/calendario'
 
 export interface PropsCalendarioMes {
   /** Día elegido (AAAA-MM-DD) o null. */
@@ -36,40 +49,188 @@ export interface PropsCalendarioMes {
   alCambiarMes?: (mes: string) => void
 }
 
-export function CalendarioMes({ valor, alCambiar, hoy, desde, hasta, marcas, alCambiarMes }: PropsCalendarioMes): JSX.Element {
-  const fecha = valor ?? hoy
-  const elegible = (dia: string) => (desde === undefined || dia >= desde) && (hasta === undefined || dia <= hasta) && !marcas?.[dia]?.apagado
-  const mover = (dias: number) => {
-    const nueva = sumarDias(fecha, dias)
-    if (!elegible(nueva)) return
-    if (alCambiarMes && mesDe(nueva) !== mesDe(fecha)) alCambiarMes(mesDe(nueva))
-    alCambiar(nueva)
+/** Día libre que ya cuenta como libre (fondo lleno); los demás estados vivos, borde punteado. */
+const LIBRE_LLENO: readonly EstadoDiaLibre[] = ['aprobado', 'registrado']
+
+export function CalendarioMes({ valor, alCambiar, hoy, desde, hasta, marcas, vista = 'mes', alCambiarMes }: PropsCalendarioMes): JSX.Element {
+  const c = useColores()
+  const fuente = useFuente()
+  const base = valor ?? (desde !== undefined && hoy < desde ? desde : hoy)
+  const [mes, setMes] = useState(() => mesDe(base))
+  const [lunes, setLunes] = useState(() => lunesDe(base))
+
+  // El valor cambió desde afuera (otro día elegido, otra vista): el calendario va a su mes y a su semana.
+  useEffect(() => {
+    setMes(mesDe(base))
+    setLunes(lunesDe(base))
+  }, [base, vista])
+
+  const semanas: DiaCalendario[][] = useMemo(
+    () =>
+      vista === 'semana'
+        ? [cuadriculaSemana(lunes, { hoy, desde, hasta, marcas })]
+        : semanasVisibles(cuadriculaMes(mes, { hoy, desde, hasta, marcas }), { desde, hasta }),
+    [vista, lunes, mes, hoy, desde, hasta, marcas]
+  )
+
+  // Flechas: no se pasa a un mes (o una semana) que queda entero fuera de desde..hasta.
+  const anterior = vista === 'semana' ? sumarDias(lunes, -7) : mesAnterior(mes)
+  const siguiente = vista === 'semana' ? sumarDias(lunes, 7) : mesSiguiente(mes)
+  const finDeAnterior = vista === 'semana' ? sumarDias(lunes, -1) : rangoDeMes(anterior).hasta
+  const inicioDeSiguiente = vista === 'semana' ? siguiente : rangoDeMes(siguiente).desde
+  const puedeAnterior = desde === undefined || finDeAnterior >= desde
+  const puedeSiguiente = hasta === undefined || inicioDeSiguiente <= hasta
+
+  const ir = (destino: string) => {
+    if (vista === 'semana') {
+      setLunes(destino)
+      for (const m of mesesDeRango(destino, sumarDias(destino, 6))) alCambiarMes?.(m)
+    } else {
+      setMes(destino)
+      alCambiarMes?.(destino)
+    }
   }
-  const marca = marcas?.[fecha]
-  const detalle = [
-    marca?.citas ? `${marca.citas} ${marca.citas === 1 ? 'cita' : 'citas'}` : null,
-    marca?.estadoLibre ? `Día libre: ${ETIQUETA_ESTADO_DIA_LIBRE[marca.estadoLibre].toLowerCase()}` : null,
-  ]
-    .filter(Boolean)
-    .join(' · ')
+
+  const elegir = (dia: DiaCalendario) => {
+    if (!dia.elegible) return
+    if (alCambiarMes && mesDe(dia.fecha) !== mesDe(base)) alCambiarMes(mesDe(dia.fecha))
+    alCambiar(dia.fecha)
+  }
+
+  const visibles = semanas.flat()
+  const hayCitas = visibles.some(d => (marcas?.[d.fecha]?.citas ?? 0) > 0)
+  const libresVisibles = visibles.map(d => marcas?.[d.fecha]?.estadoLibre ?? null).filter((e): e is EstadoDiaLibre => e !== null)
+  const hayLibres = libresVisibles.some(e => LIBRE_LLENO.includes(e))
+  const hayPorAprobar = libresVisibles.some(e => !LIBRE_LLENO.includes(e))
+
+  const flecha = (direccion: 'atras' | 'adelante', habilitada: boolean, destino: string) => (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={direccion === 'atras' ? (vista === 'semana' ? 'Semana anterior' : 'Mes anterior') : vista === 'semana' ? 'Semana siguiente' : 'Mes siguiente'}
+      accessibilityState={{ disabled: !habilitada }}
+      disabled={!habilitada}
+      onPress={() => ir(destino)}
+      hitSlop={4}
+      style={({ pressed }) => ({
+        width: ALTO_TOQUE_MIN,
+        height: ALTO_TOQUE_MIN,
+        borderRadius: ALTO_TOQUE_MIN / 2,
+        alignItems: 'center',
+        justifyContent: 'center',
+        opacity: !habilitada ? 0.3 : pressed ? 0.6 : 1,
+      })}
+    >
+      <Icono nombre={direccion} tamano={24} />
+    </Pressable>
+  )
+
   return (
-    <View style={{ gap: 4 }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-        <Boton titulo="‹" variante="secundario" alPresionar={() => mover(-1)} deshabilitado={!elegible(sumarDias(fecha, -1))} estilo={{ minWidth: 56 }} />
-        <View style={{ flex: 1, alignItems: 'center' }}>
-          <Texto negrita centro>
-            {capitalizar(fechaLarga(fecha))}
-          </Texto>
-          <Texto suave peque centro>
-            {fechaRelativa(fecha)}
-          </Texto>
-        </View>
-        <Boton titulo="›" variante="secundario" alPresionar={() => mover(1)} deshabilitado={!elegible(sumarDias(fecha, 1))} estilo={{ minWidth: 56 }} />
+    <View style={{ gap: 6 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        {flecha('atras', puedeAnterior, anterior)}
+        <Text accessibilityRole="header" style={[{ color: c.texto, fontSize: 17, textAlign: 'center', flex: 1 }, fuente('negrita')]}>
+          {vista === 'semana' ? tituloSemana(lunes) : tituloMes(mes)}
+        </Text>
+        {flecha('adelante', puedeSiguiente, siguiente)}
       </View>
-      {detalle ? (
-        <Texto suave peque centro>
-          {detalle}
-        </Texto>
+
+      <View style={{ flexDirection: 'row' }}>
+        {LETRAS_SEMANA.map((letra, i) => (
+          <Text key={i} importantForAccessibility="no" style={[{ flex: 1, textAlign: 'center', color: c.textoSuave, fontSize: 13 }, fuente('media')]}>
+            {letra}
+          </Text>
+        ))}
+      </View>
+
+      {semanas.map(semana => (
+        <View key={semana[0].fecha} style={{ flexDirection: 'row' }}>
+          {semana.map(dia => {
+            const marca = marcas?.[dia.fecha]
+            const elegido = dia.fecha === valor
+            const libre = marca?.estadoLibre ?? null
+            const lleno = !!libre && LIBRE_LLENO.includes(libre)
+            const fondo = elegido ? c.acento : lleno ? c.fondoAlerta : 'transparent'
+            const colorNumero = elegido ? c.sobreAcento : libre ? c.alerta : dia.delMes ? c.texto : c.textoSuave
+            const borde = dia.esHoy && !elegido ? c.texto : libre && !lleno && !elegido ? c.alerta : 'transparent'
+            return (
+              <Pressable
+                key={dia.fecha}
+                accessibilityRole="button"
+                accessibilityLabel={etiquetaDia(capitalizar(fechaLarga(dia.fecha, new Date(`${hoy}T12:00:00-05:00`))), dia, marca, libre ? ETIQUETA_ESTADO_DIA_LIBRE[libre] : null)}
+                accessibilityState={{ selected: elegido, disabled: !dia.elegible }}
+                disabled={!dia.elegible}
+                onPress={() => elegir(dia)}
+                style={({ pressed }) => ({
+                  flex: 1,
+                  height: ALTO_TOQUE_MIN,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  opacity: !dia.elegible ? 0.3 : pressed ? 0.6 : 1,
+                })}
+              >
+                <View
+                  style={{
+                    width: 38,
+                    height: 38,
+                    borderRadius: 19,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: fondo,
+                    borderWidth: 1.5,
+                    borderColor: borde,
+                    borderStyle: libre && !lleno && !elegido ? 'dashed' : 'solid',
+                  }}
+                >
+                  <Text style={[{ color: colorNumero, fontSize: 16 }, fuente(elegido || dia.esHoy ? 'negrita' : 'regular')]}>{dia.numero}</Text>
+                </View>
+                {marca?.citas ? (
+                  <View
+                    importantForAccessibility="no"
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      right: '8%',
+                      minWidth: 17,
+                      height: 17,
+                      borderRadius: 9,
+                      paddingHorizontal: 4,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backgroundColor: c.info,
+                    }}
+                  >
+                    <Text style={[{ color: c.superficie, fontSize: 11, lineHeight: 13 }, fuente('negrita')]}>{marca.citas}</Text>
+                  </View>
+                ) : null}
+              </Pressable>
+            )
+          })}
+        </View>
+      ))}
+
+      {hayCitas || hayLibres || hayPorAprobar ? (
+        <View importantForAccessibility="no-hide-descendants" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 14, paddingHorizontal: 4 }}>
+          {hayCitas ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <View style={{ minWidth: 17, height: 17, borderRadius: 9, backgroundColor: c.info, alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={[{ color: c.superficie, fontSize: 11, lineHeight: 13 }, fuente('negrita')]}>2</Text>
+              </View>
+              <Text style={[{ color: c.textoSuave, fontSize: 13 }, fuente('regular')]}>citas</Text>
+            </View>
+          ) : null}
+          {hayLibres ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <View style={{ width: 17, height: 17, borderRadius: 9, backgroundColor: c.fondoAlerta }} />
+              <Text style={[{ color: c.textoSuave, fontSize: 13 }, fuente('regular')]}>día libre</Text>
+            </View>
+          ) : null}
+          {hayPorAprobar ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <View style={{ width: 17, height: 17, borderRadius: 9, borderWidth: 1.5, borderStyle: 'dashed', borderColor: c.alerta }} />
+              <Text style={[{ color: c.textoSuave, fontSize: 13 }, fuente('regular')]}>por aprobar</Text>
+            </View>
+          ) : null}
+        </View>
       ) : null}
     </View>
   )

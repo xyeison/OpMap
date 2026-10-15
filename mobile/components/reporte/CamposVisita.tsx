@@ -4,14 +4,22 @@
  *
  * F4.1: con `dictado`, junto a "Conclusión" va el micrófono (DictarCampo): lo que se dice se reparte entre conclusión,
  * compromisos y próxima reunión y se AÑADE a lo escrito (unirCamposDictados); todo queda editable antes de confirmar.
+ *
+ * Spec 2026-10-15 (paquete 2): la próxima reunión se elige con los atajos o en el calendario (CalendarioMes, "Otra
+ * fecha"), no escribiendo AAAA-MM-DD. Con `solo` se pintan únicamente esos campos (la tarjeta en resumen corrige uno a
+ * la vez).
  */
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { View } from 'react-native'
-import { sumarDias, fechaCorta, hoyBogota } from '../../lib/fechas'
+import { CalendarioMes } from '../agenda/CalendarioMes'
+import { esFechaIso, fechaLarga, hoyBogota, sumarDias } from '../../lib/fechas'
 import { MAX_COMPROMISOS, MAX_CONCLUSION, MAX_FAILURE_REASON, textoResultadoDictado, unirCamposDictados } from '../../lib/propuesta'
 import type { CamposDictadoResponse, LineaEjecutiva, TipoVisita } from '../../lib/tipos'
 import { Campo, Chip, Grupo, Texto, useColores } from '../../lib/ui'
 import { DictarCampo } from './DictarCampo'
+
+/** Cada parte que se puede pintar sola (`solo`). */
+export type CampoVisita = 'resultado' | 'conclusion' | 'compromisos' | 'proxima' | 'lineas'
 
 export interface ValoresCampos {
   efectiva: boolean
@@ -31,11 +39,14 @@ interface Props {
   errorDe?: (campo: string) => string | null
   /** Micrófono junto a Conclusión (F4.1): el tipo de la visita y si la voz está disponible (configurada y con señal). */
   dictado?: { tipo: TipoVisita | null; disponible: boolean }
+  /** Solo estas partes (la tarjeta en resumen corrige un campo a la vez); sin `solo`, todas. */
+  solo?: readonly CampoVisita[]
 }
 
-export function CamposVisita({ valores, lineas, alCambiar, errorDe, dictado }: Props) {
+export function CamposVisita({ valores, lineas, alCambiar, errorDe, dictado, solo }: Props) {
   const c = useColores()
   const hoy = hoyBogota()
+  const ver = (parte: CampoVisita) => !solo || solo.includes(parte)
   // Lo dictado llega tarde (tras grabar y transcribir): se une con lo que haya escrito EN ESE MOMENTO.
   const ultimos = useRef(valores)
   ultimos.current = valores
@@ -51,6 +62,10 @@ export function CamposVisita({ valores, lineas, alCambiar, errorDe, dictado }: P
     { texto: 'En 15 días', fecha: sumarDias(hoy, 15) },
     { texto: 'En 1 mes', fecha: sumarDias(hoy, 30) },
   ]
+  const proxima = valores.next_step_date.trim()
+  const esAtajo = atajos.some(atajo => atajo.fecha === proxima)
+  // El calendario se abre con "Otra fecha" (o si la fecha puesta no es de un atajo, p. ej. la dictada).
+  const [verCalendario, setVerCalendario] = useState(() => !!proxima && !esAtajo)
   const error = (campo: string) => (errorDe ? errorDe(campo) : null)
 
   const campoConclusion = (
@@ -72,90 +87,118 @@ export function CamposVisita({ valores, lineas, alCambiar, errorDe, dictado }: P
 
   return (
     <View style={{ gap: 14 }}>
-      <View style={{ gap: 6 }}>
-        <Texto negrita>¿Fue efectiva?</Texto>
-        <Grupo>
-          <Chip texto="Sí, efectiva" activo={valores.efectiva} alPresionar={() => alCambiar({ efectiva: true, failure_reason: '' })} />
-          <Chip texto="No efectiva" activo={!valores.efectiva} alPresionar={() => alCambiar({ efectiva: false })} />
-        </Grupo>
-        {!valores.efectiva ? (
-          <Campo
-            etiqueta="Motivo (obligatorio)"
-            valor={valores.failure_reason}
-            alCambiar={texto => alCambiar({ failure_reason: texto })}
-            placeholder="No estaba, cancelaron la cita…"
-            maxLength={MAX_FAILURE_REASON}
-            error={error('failure_reason')}
-            ayuda="Solo la visita efectiva suma; la no efectiva se guarda con su motivo."
-          />
-        ) : null}
-      </View>
-
-      {dictado ? (
-        <DictarCampo tipo={dictado.tipo} disponible={dictado.disponible} alDictar={alDictar}>
-          {campoConclusion}
-        </DictarCampo>
-      ) : (
-        campoConclusion
-      )}
-      <Campo
-        etiqueta="Compromisos"
-        valor={valores.compromisos}
-        alCambiar={texto => alCambiar({ compromisos: texto })}
-        varias
-        maxLength={MAX_COMPROMISOS}
-        placeholder="Qué quedó pendiente y de quién"
-        error={error('compromisos')}
-      />
-
-      <View style={{ gap: 6 }}>
-        <Texto negrita>Próxima reunión</Texto>
-        <Grupo>
-          <Chip texto="Sin fecha" activo={!valores.next_step_date} alPresionar={() => alCambiar({ next_step_date: '' })} />
-          {atajos.map(atajo => (
-            <Chip key={atajo.texto} texto={atajo.texto} activo={valores.next_step_date === atajo.fecha} alPresionar={() => alCambiar({ next_step_date: atajo.fecha })} />
-          ))}
-        </Grupo>
-        <Campo
-          etiqueta="Fecha (AAAA-MM-DD)"
-          valor={valores.next_step_date}
-          alCambiar={texto => alCambiar({ next_step_date: texto.trim() })}
-          placeholder={sumarDias(hoy, 7)}
-          keyboardType="numbers-and-punctuation"
-          autoCorrect={false}
-          maxLength={10}
-          error={error('next_step_date')}
-          ayuda={/^\d{4}-\d{2}-\d{2}$/.test(valores.next_step_date) ? safeFechaCorta(valores.next_step_date) : null}
-        />
-      </View>
-
-      <View style={{ gap: 6 }}>
-        <Texto negrita>Líneas</Texto>
-        {lineas.length === 0 ? (
-          <Texto suave peque>
-            No tienes líneas asignadas: pide a tu líder que las revise.
-          </Texto>
-        ) : (
+      {ver('resultado') ? (
+        <View style={{ gap: 6 }}>
+          <Texto negrita>¿Fue efectiva?</Texto>
           <Grupo>
-            {lineas.map(linea => (
-              <Chip key={linea.id} texto={linea.name} activo={valores.lineas.includes(linea.id)} alPresionar={() => alternarLinea(linea.id)} />
-            ))}
+            <Chip texto="Sí, efectiva" activo={valores.efectiva} alPresionar={() => alCambiar({ efectiva: true, failure_reason: '' })} />
+            <Chip texto="No efectiva" activo={!valores.efectiva} alPresionar={() => alCambiar({ efectiva: false })} />
           </Grupo>
-        )}
-        {error('lineas') ? (
-          <Texto peque color={c.peligro}>
-            {error('lineas')}
-          </Texto>
-        ) : null}
-      </View>
+          {!valores.efectiva ? (
+            <Campo
+              etiqueta="Motivo (obligatorio)"
+              valor={valores.failure_reason}
+              alCambiar={texto => alCambiar({ failure_reason: texto })}
+              placeholder="No estaba, cancelaron la cita…"
+              maxLength={MAX_FAILURE_REASON}
+              error={error('failure_reason')}
+              ayuda="Solo la visita efectiva suma; la no efectiva se guarda con su motivo."
+            />
+          ) : null}
+        </View>
+      ) : null}
+
+      {ver('conclusion') ? (
+        dictado ? (
+          <DictarCampo tipo={dictado.tipo} disponible={dictado.disponible} alDictar={alDictar}>
+            {campoConclusion}
+          </DictarCampo>
+        ) : (
+          campoConclusion
+        )
+      ) : null}
+      {ver('compromisos') ? (
+        <Campo
+          etiqueta="Compromisos"
+          valor={valores.compromisos}
+          alCambiar={texto => alCambiar({ compromisos: texto })}
+          varias
+          maxLength={MAX_COMPROMISOS}
+          placeholder="Qué quedó pendiente y de quién"
+          error={error('compromisos')}
+        />
+      ) : null}
+
+      {ver('proxima') ? (
+        <View style={{ gap: 6 }}>
+          <Texto negrita>Próxima reunión</Texto>
+          <Grupo>
+            <Chip
+              texto="Sin fecha"
+              activo={!proxima}
+              alPresionar={() => {
+                setVerCalendario(false)
+                alCambiar({ next_step_date: '' })
+              }}
+            />
+            {atajos.map(atajo => (
+              <Chip
+                key={atajo.texto}
+                texto={atajo.texto}
+                activo={proxima === atajo.fecha}
+                alPresionar={() => {
+                  setVerCalendario(false)
+                  alCambiar({ next_step_date: atajo.fecha })
+                }}
+              />
+            ))}
+            <Chip texto="Otra fecha" activo={verCalendario || (!!proxima && !esAtajo)} alPresionar={() => setVerCalendario(!verCalendario)} />
+          </Grupo>
+          {verCalendario ? (
+            <CalendarioMes valor={esFechaIso(proxima) ? proxima : null} alCambiar={fecha => alCambiar({ next_step_date: fecha })} hoy={hoy} desde={hoy} />
+          ) : null}
+          {error('next_step_date') ? (
+            <Texto peque color={c.peligro}>
+              {error('next_step_date')}
+            </Texto>
+          ) : esFechaIso(proxima) ? (
+            <Texto peque suave>
+              {`Próxima reunión: ${textoFecha(proxima)}`}
+            </Texto>
+          ) : null}
+        </View>
+      ) : null}
+
+      {ver('lineas') ? (
+        <View style={{ gap: 6 }}>
+          <Texto negrita>Líneas</Texto>
+          {lineas.length === 0 ? (
+            <Texto suave peque>
+              No tienes líneas asignadas: pide a tu líder que las revise.
+            </Texto>
+          ) : (
+            <Grupo>
+              {lineas.map(linea => (
+                <Chip key={linea.id} texto={linea.name} activo={valores.lineas.includes(linea.id)} alPresionar={() => alternarLinea(linea.id)} />
+              ))}
+            </Grupo>
+          )}
+          {error('lineas') ? (
+            <Texto peque color={c.peligro}>
+              {error('lineas')}
+            </Texto>
+          ) : null}
+        </View>
+      ) : null}
     </View>
   )
 }
 
-function safeFechaCorta(fecha: string): string | null {
+/** "jueves 22 de octubre" (o la fecha tal cual si no se puede leer). */
+function textoFecha(fecha: string): string {
   try {
-    return fechaCorta(fecha)
+    return fechaLarga(fecha)
   } catch {
-    return null
+    return fecha
   }
 }
