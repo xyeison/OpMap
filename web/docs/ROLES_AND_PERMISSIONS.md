@@ -55,6 +55,19 @@ reglas que las páginas de donde salen las cifras (`lib/zona-estadisticas.ts`; p
 | Compras públicas (SECOP y la parte de VG Medical) | `intelligence:view`: admin, commercial_director, line_leader, data_manager, viewer | Igual que `/api/secop/*`; sin el permiso la tarjeta no sale y la ruta ni lee SECOP |
 | Cobertura por línea y territorio | Solo las líneas de `GET /api/me/lines` (`resolveUserLines`): todas con `map:all-lines`; si no, las que lidera o lleva | Igual que `/api/coverage?line=`, que da 403 en las demás; sin líneas, ni cobertura ni territorio |
 
+## Mapa: "Ver por" Ejecutivos Comerciales o Zonas (2026-10-14)
+
+Spec `docs/specs/2026-10-14-mapa-vista-de-zonas-para-todos.md`; pruebas en `scripts/mapa-zonas-api-check.ts`.
+
+| Qué | Quién lo ve | Por qué |
+|-----|-------------|---------|
+| `/map` y `GET /api/map/data` | `map:view`: todos menos `hr` (la API da 403 sin el permiso) | Mismo permiso que la página |
+| Vista por Ejecutivos Comerciales (`?line=<código>`) | Las líneas de `GET /api/me/lines`: todas con `map:all-lines`; si no, las que lidera o lleva | Igual que `/api/coverage?line=`, que da 403 en las demás |
+| Vista de zonas (`?mode=zones`: todas las zonas activas con su color) | `map:view` (antes solo `map:all-lines`); también quien no tiene líneas | Pedido del dueño: que las líderes vean cómo se distribuyen todas las zonas |
+| En la vista de zonas, quién vive en cada zona (`kams[].executives`) | Con `map:all-lines`, todos; si no, solo quienes llevan alguna de sus líneas | Sin la cobertura ni las personas de las líneas que no ve; sin `?line` no hay cobertura |
+| Contratos activos por IPS en `/api/map/data` (valor y proveedor, también en `territoryStats`) | Quien ya los recibía: `map:all-lines` o alguna línea; y quien tiene `contracts:view`. Sin líneas y sin `contracts:view` (rol `user`), no (`contractsIncluded: false`) | La vista de zonas no amplía lo que cada uno ve de las IPS. Pendiente del dueño: hoy `viewer`, `data_manager` y un `user` con línea reciben contratos sin `contracts:view` (hueco anterior al 2026-10-14, no se tocó) |
+| Modo Regiones del mapa (`?mode=zones&viewMode=zones`) | Solo `map:all-lines`, como antes | Fuera de alcance de la spec (`lib/map-view.ts`) |
+
 ## Roles Definidos (histórico)
 
 ### 1. **Admin** (Administrador del Sistema)

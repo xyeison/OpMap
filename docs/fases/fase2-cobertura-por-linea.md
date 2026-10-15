@@ -51,13 +51,17 @@ contraseña de los 2 usuarios nuevos desde `/users`.
   `POST /api/coverage/overrides` {line_id, kam_id, executive_id, reason} y
   `DELETE /api/coverage/overrides/[id]` (coverage:edit; line_leader solo su línea; recalculan);
   `GET /api/map/data?line=<code>` añade `coverage` (misma forma que /api/coverage) y `executives`;
-  sin `?line` (vista "Zonas") solo para map:all-lines.
-- **Mapa** (`/map?line=<code>`): elegir línea es obligatorio (modal si hay varias; "No tienes líneas
-  asignadas" si ninguna). Territorios e IPS con el color de la ejecutiva que cubre la zona en esa línea;
+  sin `?line` (vista "Zonas"), sin cobertura. Desde el 2026-10-14 la ruta pide `map:view` y la vista de zonas es
+  para todos; sin map:all-lines, `kams[].executives` solo trae a quienes llevan alguna de sus líneas, y quien no
+  tiene líneas ni contracts:view no recibe contratos (`contractsIncluded: false`) (`scripts/mapa-zonas-api-check.ts`).
+- **Mapa** (`/map?line=<code>`): en la vista por Ejecutivos Comerciales elegir línea es obligatorio (modal si hay
+  varias; "No tienes líneas asignadas" si ninguna, con el botón "Ver el mapa por zonas"); la vista de zonas
+  (`?mode=zones`, dueño 2026-10-14) abre sin elegir línea. Territorios e IPS con el color de la ejecutiva que cubre la zona en esa línea;
   vacante: polígono pizarra #94a3b8 (0.5 con IPS, 0.3 de alcance) con borde #64748b, insignia hueca
   pizarra con "—" e IPS #64748b; conflicto ámbar #f59e0b; sin equipo con
-  trama y opacidad baja. Tooltip con zona, ciudad base, línea y tipo de cobertura. Quien tiene
-  map:all-lines puede pasar a la vista "Zonas" (`&mode=zones`, colores de zona de siempre). Pines,
+  trama y opacidad baja. Tooltip con zona, ciudad base, línea y tipo de cobertura. Todo el que ve el mapa
+  puede pasar a la vista "Zonas" con "Ver por" de la leyenda (`&mode=zones`, colores de zona de siempre; antes
+  solo map:all-lines, cambio del 2026-10-14). Pines,
   racimos y tarjetas: ver "Estética del Mapa".
 - **Páginas**: `/lines` con panel "Cobertura por línea" (tabla, Recalcular, Ajuste manual con motivo
   obligatorio, Quitar ajuste); `/kams` muestra nombre + "Ciudad base"; `EditKamModal` edita el nombre;

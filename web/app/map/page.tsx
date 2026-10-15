@@ -8,6 +8,7 @@ import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
 import type { MapLine, MapMode } from '@/components/MapComponent'
 import { setMapHeaderTitle } from '@/components/mapHeaderStore'
+import { lineForExecutivesView, resolveMapView } from '@/lib/map-view'
 
 // Importar MapComponent directamente en lugar de MapWithVisitsSimple
 const MapComponent = dynamic(
@@ -77,19 +78,10 @@ function MapPageContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const pathname = usePathname()
-  const [viewMode, setViewMode] = useState<'kams' | 'zones'>('kams')
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null)
 
   useEffect(() => {
-    const mode = searchParams.get('viewMode')
     const zoneId = searchParams.get('zoneId')
-
-    if (mode === 'zones') {
-      setViewMode('zones')
-    } else {
-      setViewMode('kams')
-    }
-
     if (zoneId) {
       setSelectedZoneId(zoneId)
     }
@@ -120,8 +112,14 @@ function MapPageContent() {
   const canSeeAll = myLines?.canSeeAll === true
   const lineParam = searchParams.get('line')
   const selectedLine = lines.find(l => l.code === lineParam) ?? null
-  // Vista "Zonas" (colores por zona): solo para quien ve todas las líneas
-  const mapMode: MapMode = canSeeAll && searchParams.get('mode') === 'zones' ? 'zones' : 'line'
+  // Vista "Zonas" (colores por zona, ?mode=zones): todo el que ve el mapa (spec 2026-10-14; antes solo quien ve
+  // todas las líneas). A quien no ve todas, /api/map/data no le trae nada de las personas ni de la cobertura de
+  // las líneas que no ve. El modo Regiones (&viewMode=zones) sigue siendo solo de quien ve todas (lib/map-view.ts).
+  const { mapMode, viewMode } = resolveMapView({
+    mode: searchParams.get('mode'),
+    viewMode: searchParams.get('viewMode'),
+    canSeeAllLines: canSeeAll,
+  })
 
   // Actualiza la URL (?line=code&mode=zones) conservando el resto de parámetros
   const updateParams = useCallback((changes: Record<string, string | null>) => {
@@ -140,9 +138,14 @@ function MapPageContent() {
     (code: string) => updateParams({ line: code, mode: null, exec: null, zones: null }),
     [updateParams]
   )
+  // "Ver por" de la leyenda. Volver a "Ejecutivos Comerciales" deja la línea elegida o, si no había ninguna (se
+  // entró directo a la vista de zonas), la primera de sus líneas.
   const changeMapMode = useCallback(
-    (mode: MapMode) => updateParams({ mode: mode === 'zones' ? 'zones' : null, exec: null, zones: null }),
-    [updateParams]
+    (mode: MapMode) => {
+      if (mode === 'zones') updateParams({ mode: 'zones', exec: null, zones: null })
+      else updateParams({ mode: null, exec: null, zones: null, line: lineForExecutivesView(selectedLine?.code ?? null, lines) })
+    },
+    [updateParams, selectedLine, lines]
   )
 
   // Una sola línea: se selecciona sola (conserva el filtro de un enlace compartido)
@@ -202,22 +205,34 @@ function MapPageContent() {
       )
     }
 
-    if (lines.length === 0) {
+    // Sin líneas: no hay vista por Ejecutivos Comerciales, pero sí la de zonas (todo el que ve el mapa)
+    if (lines.length === 0 && mapMode !== 'zones') {
       return (
         <div className="flex items-center justify-center h-full px-4">
           <div className="max-w-sm w-full bg-white border border-gray-200 rounded-2xl shadow-sm p-6 text-center">
             <p className="text-gray-900 font-semibold mb-1">No tienes líneas asignadas</p>
             <p className="text-sm text-gray-600">
-              Pide al administrador que te asigne una línea de negocio para ver su mapa.
+              Pide al administrador que te asigne una línea de negocio para ver su mapa. Mientras tanto puedes ver
+              todas las zonas.
             </p>
+            <button
+              type="button"
+              onClick={() => changeMapMode('zones')}
+              className="mt-4 w-full min-h-[44px] px-4 rounded-xl bg-gray-900 text-white text-sm font-medium hover:bg-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2"
+            >
+              Ver el mapa por zonas
+            </button>
           </div>
         </div>
       )
     }
 
-    // Varias líneas y ninguna elegida: selector obligatorio (no se cierra hasta elegir)
-    if (!selectedLine) {
-      if (lines.length === 1) return <MapPageFallback />
+    // Una sola línea: se selecciona sola (efecto de arriba)
+    if (!selectedLine && lines.length === 1) return <MapPageFallback />
+
+    // Varias líneas y ninguna elegida en la vista por Ejecutivos Comerciales: selector obligatorio (no se cierra
+    // hasta elegir). La vista de zonas no depende de la línea: se abre sin elegirla.
+    if (!selectedLine && mapMode !== 'zones') {
       return <LineSelectorModal lines={lines} onSelect={selectLine} />
     }
 
@@ -225,9 +240,8 @@ function MapPageContent() {
       <MapComponent
         viewMode={viewMode}
         selectedZoneId={selectedZoneId}
-        onViewModeChange={setViewMode}
         lines={lines}
-        selectedLineCode={selectedLine.code}
+        selectedLineCode={selectedLine?.code ?? null}
         onLineChange={selectLine}
         canSeeAllLines={canSeeAll}
         mapMode={mapMode}

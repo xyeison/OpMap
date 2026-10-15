@@ -13,6 +13,33 @@ Estilo autorizado por el dueño el 2026-10-11 (rama `ui/mapa-estetica`; constant
   cubre varias (ver "Tonos por zona"); vista de zonas: color de la zona (`kams.color`); vista de
   regiones: color de la región. Polígonos, puntos de IPS, insignias, tooltips y tarjetas usan siempre
   ese mismo color.
+- **"Ver por" en la leyenda** (autorizado por el dueño el 2026-10-14: "vista por zonas o por ejecutivos
+  comerciales, y que pueda cambiar el plano"; spec `docs/specs/2026-10-14-mapa-vista-de-zonas-para-todos.md`):
+  arriba de la leyenda (tarjeta de escritorio y hoja inferior de celular), un selector segmentado "Ver por"
+  con dos botones, "Ejecutivos Comerciales" y "Zonas" (`aria-pressed`; 32 px de alto en escritorio, 44 px en
+  celular; el activo en blanco con sombra suave sobre fondo gris claro). "Ejecutivos Comerciales" es la vista por
+  línea de siempre, con el selector "Línea de negocio" debajo; "Zonas" es la vista de zonas (`?mode=zones`,
+  colores de `kams.color`, todas las zonas activas) y oculta el selector de línea. Volver a "Ejecutivos
+  Comerciales" deja la línea elegida o la primera de la persona. "Vista de zonas" ya no va dentro del selector de
+  línea. La vista de zonas la ve todo el que tiene `map:view` (antes solo `map:all-lines`); a quien no tiene
+  `map:all-lines`, `/api/map/data` no le trae la cobertura ni las personas de las líneas que no ve. Quien no tiene
+  líneas ve en "No tienes líneas asignadas" el botón "Ver el mapa por zonas"; en la leyenda "Ejecutivos
+  Comerciales" queda desactivado (`aria-disabled`, sigue recibiendo foco) con el motivo visible debajo: "Sin líneas
+  de negocio asignadas: solo puedes ver el mapa por zonas." El modo Regiones (`&viewMode=zones`) sigue siendo solo de
+  `map:all-lines`. Colores, opacidades, polígonos, puntos, insignias, racimos, filtros y la vista por línea no
+  cambiaron.
+  - **Textos de tarjetas y tooltips en la vista de zonas sin `map:all-lines` (PENDIENTE de confirmar por el
+    dueño)**: el dueño autorizó el selector, no estos textos. Son consecuencia de la regla de la spec (no mostrar
+    personas de líneas que no ve): como solo llegan las personas de SUS líneas, el texto de siempre ("Ejecutivo
+    Comercial: sin ejecutivo local") diría algo falso en una zona donde vive alguien de otra línea. Por eso, solo
+    para quien no tiene `map:all-lines` y solo en la vista de zonas, las tarjetas dicen "Ejecutivo Comercial (tus
+    líneas)" (con "ninguno" si no vive ninguna persona de sus líneas en la zona), igual que la vista por línea dice
+    "Ejecutivo Comercial (<línea>)", y los tooltips "sin Ejecutivo Comercial de tus líneas". Con `map:all-lines`, los
+    textos de siempre. Si el dueño prefiere otra redacción, se cambia en `zoneExecutivesText` / `zoneExecutiveLabel`
+    (`web/components/MapComponent.tsx`).
+  - Quien no tiene líneas ni `contracts:view` (rol `user` sin ejecutiva enlazada ni línea liderada, que antes no
+    abría el mapa) no recibe contratos (`contractsIncluded: false`): sus tarjetas no muestran "Contratos" y "Solo con
+    Contratos" no sale en "Filtros y visitas". Todos los demás, lo de siempre.
 - **Tonos por zona** (pedido del dueño 2026-10-11: "los 4 de Bogotá se deberían diferenciar por
   colores"): solo en la vista por línea, si un Ejecutivo Comercial cubre n > 1 zonas (cobertura local,
   reach o manual), cada zona usa `zoneTint(color, índice, n)` (`web/components/mapStyles.ts`): mismo

@@ -1,7 +1,7 @@
 'use client'
 
 import { MapContainer, TileLayer, GeoJSON, CircleMarker, Tooltip, ZoomControl, AttributionControl, Pane } from 'react-leaflet'
-import { useQuery, keepPreviousData } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
@@ -11,8 +11,8 @@ import { formatTravelTimeFromSeconds } from '@/lib/format-utils'
 import MapControls from './MapControls'
 import { EMPTY_IPS_FILTER, isIpsFilterActive, matchesIpsFilter, type IpsServiceFilter } from '@/lib/hospital-service-filters'
 import MapController, { ZoomGate } from './MapController'
-import HospitalMarker, { UnassignedHospitalMarker, IpsZoomLayer, formatZoneExecutives, ipsRadius, IPS_FULL_SIZE_ZOOM, type HospitalSelectHandler } from './HospitalMarker'
-import MapLegend, { MapLegendCard, type LegendEntry, type LegendNote, type LegendState, type LegendViewSelect } from './MapLegend'
+import HospitalMarker, { UnassignedHospitalMarker, IpsZoomLayer, formatZoneExecutives, ipsRadius, IPS_FULL_SIZE_ZOOM, type HospitalSelectHandler, type ZoneExecutive } from './HospitalMarker'
+import MapLegend, { MapLegendCard, type LegendEntry, type LegendNote, type LegendState, type LegendViewBy, type LegendViewSelect } from './MapLegend'
 import MapBottomSheet, { SHEET_PEEK_PX, type SheetSnap } from './MapBottomSheet'
 import {
   MapPopup,
@@ -73,6 +73,7 @@ import {
 import { useMediaQuery, matchesMediaQuery, MOBILE_QUERY, HOVER_QUERY } from './useMediaQuery'
 import { usePermissions } from '@/hooks/usePermissions'
 import { zoneDisplayName } from '@/lib/zone-names'
+import { mapDataPlaceholder } from '@/lib/map-view'
 import { computeTerritoryWinners, territoryIdOf } from '@/lib/territory-rules'
 // NO usar estimaciones - solo datos reales de Google Maps
 
@@ -148,7 +149,7 @@ export interface MapLine {
 }
 
 // 'line': territorios coloreados por el Ejecutivo Comercial que cubre la zona en la línea elegida.
-// 'zones': vista anterior, colores por zona (solo quien ve todas las líneas).
+// 'zones': colores por zona (kams.color). Desde el 2026-10-14 la abre todo el que ve el mapa ("Ver por" de la leyenda).
 export type MapMode = 'line' | 'zones'
 
 export type CoverageKind = 'local' | 'reach' | 'manual' | 'vacant' | 'conflict'
@@ -298,8 +299,6 @@ const IPS_PANE_Z = 460
 const BOGOTA_CODE = '11001'
 // Ancho que ocupa la leyenda flotante de escritorio (300 px + margen): al acercar a un racimo se deja libre
 const LEGEND_INSET_PX = 316
-// Valor del selector de vista para "Vista de zonas"
-const ZONES_VIEW_VALUE = '__zones__'
 // Zoom mínimo de los puntos de IPS en móvil (compactos en zoom 5) y de los marcadores de visitas
 const MOBILE_IPS_MIN_ZOOM = 5
 const VISIT_MARKERS_MIN_ZOOM = 10
@@ -466,8 +465,9 @@ export default function MapComponent({
       }
       return response.json()
     },
-    // Al cambiar de línea se conserva el mapa anterior mientras llega la nueva cobertura
-    placeholderData: keepPreviousData,
+    // Al cambiar de línea se conserva el mapa anterior mientras llega la nueva cobertura; no al pasar de la vista de
+    // zonas abierta sin línea a "Ejecutivos Comerciales" (lib/map-view.ts: sale "Cargando mapa...")
+    placeholderData: previous => mapDataPlaceholder(previous, selectedLineCode),
     // Con sesión caducada (401) o sin acceso a la línea (403) no tiene sentido reintentar
     retry: (failureCount, error) =>
       !(error instanceof MapDataError && (error.status === 401 || error.status === 403)) && failureCount < 2
@@ -796,6 +796,16 @@ export default function MapComponent({
   // Modo por línea activo: hay cobertura cargada y no se eligió la vista "Zonas"
   const isLineMode = mapMode === 'line' && !!lineView
 
+  // Vista de zonas para quien no ve todas las líneas (spec 2026-10-14): /api/map/data solo le trae, de los
+  // Ejecutivos Comerciales que viven en cada zona, a los de SUS líneas. Los textos lo dicen para no dar a entender
+  // que la zona no tiene a nadie. Con map:all-lines, los textos de siempre.
+  const zoneExecutivesOnlyMine = !canSeeAllLines
+  const zoneExecutiveLabel = zoneExecutivesOnlyMine ? 'Ejecutivo Comercial (tus líneas)' : 'Ejecutivo Comercial'
+  // labeled: va debajo de zoneExecutiveLabel (tarjetas); si no, texto suelto (tooltips)
+  const zoneExecutivesText = useCallback((executives: ZoneExecutive[] | null | undefined, labeled: boolean): string =>
+    formatZoneExecutives(executives, zoneExecutivesOnlyMine ? (labeled ? 'ninguno' : 'sin Ejecutivo Comercial de tus líneas') : undefined),
+    [zoneExecutivesOnlyMine])
+
   // Color de la zona en la línea: Ejecutivo Comercial que la cubre (con el tono de la zona si cubre
   // varias), vacante (pizarra) o conflicto (ámbar)
   const zoneLineColor = useCallback((kamId: string | undefined): string => {
@@ -1094,19 +1104,21 @@ export default function MapComponent({
     return byId
   }, [kamStats])
 
-  // Filtros de tipo de hospital y de contratos
+  // Filtros de tipo de hospital y de contratos. Sin contratos en la respuesta (contractsIncluded: false, vista de
+  // zonas de quien no tiene líneas ni contracts:view) "Solo con Contratos" no se ofrece ni filtra.
+  const contractsFilterOn = showContracts && mapData?.contractsIncluded !== false
   const filteredAssignments = useMemo(() => {
     if (!mapData) return [] as any[]
     return mapData.assignments.filter((a: any) => {
       // Filtrar por contratos primero si está activo
-      if (showContracts && !mapData.contractValuesByHospital[a.hospitals.id]) return false
+      if (contractsFilterOn && !mapData.contractValuesByHospital[a.hospitals.id]) return false
       if (!matchesIpsFilter(a.hospitals, ipsServiceFilter)) return false
       // Luego aplicar filtro de tipo
       if (hospitalTypeFilter === 'all') return true
       if (hospitalTypeFilter === 'sin_tipo') return !a.hospitals.type
       return a.hospitals.type === hospitalTypeFilter
     }) as any[]
-  }, [mapData, showContracts, hospitalTypeFilter, ipsServiceFilter])
+  }, [mapData, contractsFilterOn, hospitalTypeFilter, ipsServiceFilter])
 
   const filteredUnassignedHospitals = useMemo(() => {
     if (!mapData) return [] as any[]
@@ -1116,10 +1128,10 @@ export default function MapComponent({
         if (!matchesType) return false
       }
       // Si showContracts está activo, solo mostrar hospitales con contratos
-      if (showContracts && !mapData.contractValuesByHospital[h.id]) return false
+      if (contractsFilterOn && !mapData.contractValuesByHospital[h.id]) return false
       return matchesIpsFilter(h, ipsServiceFilter)
     }) as any[]
-  }, [mapData, showContracts, hospitalTypeFilter, ipsServiceFilter])
+  }, [mapData, contractsFilterOn, hospitalTypeFilter, ipsServiceFilter])
 
   const assignmentByHospital = useMemo(() => {
     const byId: Record<string, any> = {}
@@ -1307,7 +1319,7 @@ export default function MapComponent({
         else if (row.kind === 'conflict') tooltipMeta = `Conflicto: ${row.note || 'varios Ejecutivos Comerciales locales'}`
         else tooltipMeta = executiveName(row.executive) || 'Sin Ejecutivo Comercial'
       } else {
-        tooltipMeta = formatZoneExecutives(kam.executives)
+        tooltipMeta = zoneExecutivesText(kam.executives, false)
       }
       const color = hollow ? VACANT_BADGE_COLOR : colorForZone(kam.id)
       return {
@@ -1326,7 +1338,7 @@ export default function MapComponent({
         tooltipTitle: `Zona ${name}`,
         tooltipMeta
       }
-    }), [kamStats, isZoneVisible, isLineMode, lineView, colorForZone, executiveBaseColor, zoneInitials, groupKeyForZone, isDimmedZone])
+    }), [kamStats, isZoneVisible, isLineMode, lineView, colorForZone, executiveBaseColor, zoneInitials, groupKeyForZone, isDimmedZone, zoneExecutivesText])
 
   const selectZone = useCallback((id: string, position: L.LatLngTuple) => {
     openPopup({ kind: 'zone', id, position })
@@ -1464,7 +1476,7 @@ export default function MapComponent({
       } else if (t.isVacant || !t.kamId) {
         meta = 'Zona vacante: sin Ejecutivo Comercial'
       } else {
-        meta = `Zona ${zone} · ${formatZoneExecutives(kamIndex.byId[t.kamId]?.executives)}`
+        meta = `Zona ${zone} · ${zoneExecutivesText(kamIndex.byId[t.kamId]?.executives, false)}`
       }
     } else if (t.kind === 'reach') {
       const minutes = t.row?.travel_minutes
@@ -1567,7 +1579,7 @@ export default function MapComponent({
       status = {
         tone: 'zone',
         title: `Zona: ${zoneLabel}`,
-        lines: [`Ejecutivo Comercial: ${formatZoneExecutives(territoryZone?.executives)}`]
+        lines: [`${zoneExecutiveLabel}: ${zoneExecutivesText(territoryZone?.executives, true)}`]
       }
     }
 
@@ -1621,7 +1633,7 @@ export default function MapComponent({
   const fichaActions = (hospitalId: string): PopupAction[] =>
     can('hospitals:view') ? [{ label: 'Ver ficha →', href: `/hospitals/${hospitalId}` }] : []
 
-  const lineExecutiveLabel = isLineMode && lineView ? `Ejecutivo Comercial (${lineView.line.name})` : 'Ejecutivo Comercial'
+  const lineExecutiveLabel = isLineMode && lineView ? `Ejecutivo Comercial (${lineView.line.name})` : zoneExecutiveLabel
 
   const buildIpsPopup = (hospitalId: string): IpsPopupData | null => {
     const assignment = assignmentByHospital[hospitalId]
@@ -1637,7 +1649,7 @@ export default function MapComponent({
       executiveLabel: lineExecutiveLabel,
       executiveText: isLineMode && lineView
         ? describeCoverage(row, lineView.zoneNameById)
-        : formatZoneExecutives(kamIndex.byId[kamId]?.executives),
+        : zoneExecutivesText(kamIndex.byId[kamId]?.executives, true),
       noEquipment: isLineMode && row?.has_equipment === false,
       travelTime: assignment.travel_time !== null && assignment.travel_time !== undefined
         ? formatTravelTimeFromSeconds(assignment.travel_time)
@@ -1702,7 +1714,7 @@ export default function MapComponent({
       executiveLabel: lineExecutiveLabel,
       executiveText: isLineMode && lineView
         ? `${describeCoverage(row, lineView.zoneNameById)}`
-        : formatZoneExecutives(kam.executives),
+        : zoneExecutivesText(kam.executives, true),
       executivePerson: tone && row?.executive ? executiveName(row.executive) : null,
       executiveOrdinal: tone && tone.total > 1 ? `zona ${tone.index + 1} de ${tone.total}` : null,
       noEquipment: isLineMode && row?.has_equipment === false,
@@ -1851,18 +1863,22 @@ export default function MapComponent({
       : `Filtro: ${filteredOptionIds.length} de ${groupFilter.options.length} ${groupFilter.kind === 'executive' ? 'Ejecutivos Comerciales' : 'zonas'}`
   }
 
-  const viewOptions = [
-    ...lines.map(line => ({ value: line.code, label: line.name })),
-    ...(canSeeAllLines && onMapModeChange ? [{ value: ZONES_VIEW_VALUE, label: 'Vista de zonas' }] : [])
-  ]
+  // "Ver por" de la leyenda (spec 2026-10-14): Ejecutivos Comerciales (vista por línea) o Zonas (colores de
+  // kams.color), para todo el que ve el mapa. Sin líneas asignadas solo queda la vista de zonas.
+  const viewBy: LegendViewBy | null = onMapModeChange
+    ? {
+        value: mapMode === 'zones' ? 'zones' : 'executives',
+        onChange: value => onMapModeChange(value === 'zones' ? 'zones' : 'line'),
+        executivesDisabled: lines.length === 0
+      }
+    : null
+  // Selector de línea (solo en la vista por Ejecutivos Comerciales y con más de una línea)
+  const viewOptions = lines.map(line => ({ value: line.code, label: line.name }))
   const viewSelect: LegendViewSelect | null = viewOptions.length > 1
     ? {
-        value: mapMode === 'zones' ? ZONES_VIEW_VALUE : (selectedLineCode ?? ''),
+        value: selectedLineCode ?? '',
         options: viewOptions,
-        onChange: value => {
-          if (value === ZONES_VIEW_VALUE) onMapModeChange?.('zones')
-          else onLineChange?.(value)
-        }
+        onChange: value => onLineChange?.(value)
       }
     : null
 
@@ -1976,6 +1992,7 @@ export default function MapComponent({
 
   const legendProps = {
     viewLabel,
+    viewBy,
     viewSelect,
     entriesTitle,
     entries: legendEntries,
