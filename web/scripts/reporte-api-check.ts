@@ -138,6 +138,7 @@ import {
   MENSAJE_MOTIVO_NO_VALIDO,
   MENSAJE_OTRA_FECHA_DISTINTA,
   MENSAJE_SOLO_PENDIENTE_SE_ELIMINA,
+  MENSAJE_VISITA_CON_OTRA_FECHA,
   agendaChoca,
   mensajeChoque,
   mensajeHoraCita,
@@ -146,6 +147,8 @@ import {
   revisarCerrar,
   revisarEliminar,
   revisarMotivo,
+  revisarVisitaConOtraFecha,
+  type CitaConSucesora,
   type CitaParaChoque,
 } from '../lib/agenda-ciclo'
 import type { camposDictadoSchema, citaCancelarSchema, citaCreateSchema, visitaCreateSchema } from '../lib/reporte-visitas-schemas'
@@ -943,6 +946,8 @@ function fakeSupabase(tablas: Tablas) {
     if (proxima && proxima < visita.visit_date) return pgError('23514', MENSAJE_PROXIMA_ANTES_DE_VISITA)
     if (reintento && reintento < visita.visit_date) return pgError('23514', MENSAJE_REINTENTO_ANTES_DE_VISITA)
     if (efectiva && !visita.efectiva) {
+      const conOtraFecha = revisarVisitaConOtraFecha(visita.id as string, store('visitas_agenda') as unknown as CitaConSucesora[])
+      if (conOtraFecha) return pgError('23514', conOtraFecha)
       const cfg = configVigente(visita.executive_id ?? null, visita.visit_date)
       if (visita.tipo === 'medica' && deHoy(args.p_user, visita.visit_date, v => v.medico_id === visita.medico_id, visita.id) >= cfg.tope_visitas_medico_dia) {
         return pgError('23514', MENSAJE_TOPE_MEDICO)
@@ -984,6 +989,8 @@ function fakeSupabase(tablas: Tablas) {
     if (visita.user_id !== args.p_user) return pgError('P0002', 'Esa visita no existe', 404)
     if (visita.deleted_at) return pgError('23514', 'Esa visita ya está anulada')
     if (visita.visit_date !== hoyFalso()) return pgError('23514', C_NO_EDITABLE)
+    const conOtraFecha = revisarVisitaConOtraFecha(visita.id as string, store('visitas_agenda') as unknown as CitaConSucesora[])
+    if (conOtraFecha) return pgError('23514', conOtraFecha)
     visita.deleted_at = new Date().toISOString()
     visita.deleted_reason = motivo
     visita.updated_by = args.p_user
@@ -3000,6 +3007,7 @@ async function main() {
       const visitaLider = await visitaDe(LIDER_ID, cuerpoVisita({ medico_id: M_DEP, lineas: [L_DEP] }))
       const filaLider = porId(visitaLider.body?.visita?.id)
       check('líder: POST /api/me/visitas con su línea y un médico de su línea → 201, sin Ejecutivo Comercial ni zona, nunca fuera de territorio', visitaLider.status === 201 && filaLider?.executive_id === null && filaLider?.kam_id === null && filaLider?.user_id === LIDER_ID && filaLider?.kam_name === 'Lucía Líder' && filaLider?.out_of_territory === false && visitaLider.body.visita.editable === true, { status: visitaLider.status, body: visitaLider.body, fila: filaLider })
+      check('líder sin Ejecutivo Comercial: su visita sale como hecha (cuenta_para medica, peso 1), igual que en sus hechas de Mis números', visitaLider.body.visita.cuenta_para === 'medica' && visitaLider.body.visita.peso === 1, visitaLider.body.visita)
       const rpcLider = fake.rpcs.filter(r => r.nombre === 'visitas_registrar').at(-1)
       check('líder: el jsonb de visitas_registrar va con executive_id null y el usuario de la sesión', rpcLider?.args.p.executive_id === null && rpcLider?.args.p_user === LIDER_ID, rpcLider?.args)
       const numerosLider = await pedir(verNumeros, '/api/me/numeros?mes=2026-10', { portador: true, userId: LIDER_ID })
@@ -3023,6 +3031,15 @@ async function main() {
       const trauma = await visitaDe(PAOLA_ID, cuerpoVisita({ medico_id: M_TRA, lineas: [L_TRA] }))
       const sustitutos = await visitaDe(PAOLA_ID, cuerpoVisita({ medico_id: M_SUS, lineas: [L_SUS] }))
       check('Paola: una visita de trauma queda sin Ejecutivo Comercial (como líder) y una de sustitutos con el suyo', trauma.status === 201 && porId(trauma.body.visita.id)?.executive_id === null && porId(trauma.body.visita.id)?.kam_id === null && sustitutos.status === 201 && porId(sustitutos.body.visita.id)?.executive_id === EJEC_P && porId(sustitutos.body.visita.id)?.kam_id === KAM_BGA, { trauma: trauma.body, sustitutos: sustitutos.body })
+      // C4, A13: lo de líder no suma a su cuota de Ejecutiva. La API lo dice igual en POST, en GET /api/me/visitas, en
+      // hoy.hechas del contexto y en Mis números.
+      check('Paola: POST /api/me/visitas: la de trauma (líder) → cuenta_para null y peso 0 ("No suma"); la de sustitutos suma a la médica', trauma.body.visita.cuenta_para === null && trauma.body.visita.peso === 0 && trauma.body.visita.sede_por_confirmar === false && sustitutos.body.visita.cuenta_para === 'medica' && sustitutos.body.visita.peso === 1, { trauma: trauma.body.visita, sustitutos: sustitutos.body.visita })
+      const listaPaola = await pedir(verVisitas, '/api/me/visitas', { portador: true, userId: PAOLA_ID })
+      const enLista = (id: string) => (listaPaola.body?.items ?? []).find((v: W.VisitaItem) => v.id === id) as W.VisitaItem | undefined
+      check('Paola: GET /api/me/visitas dice lo mismo (trauma null y 0; sustitutos medica)', listaPaola.status === 200 && enLista(trauma.body.visita.id)?.cuenta_para === null && enLista(trauma.body.visita.id)?.peso === 0 && enLista(sustitutos.body.visita.id)?.cuenta_para === 'medica', listaPaola.body?.items)
+      const ctxPaolaTras = await pedir(verContexto, '/api/me/contexto', { portador: true, userId: PAOLA_ID })
+      const numerosPaola = await pedir(verNumeros, '/api/me/numeros?mes=2026-10', { portador: true, userId: PAOLA_ID })
+      check('Paola: hoy.hechas del contexto y Mis números cuentan solo la de sustitutos (1 médica)', ctxPaolaTras.status === 200 && ctxPaolaTras.body.hoy.hechas.medicas === 1 && numerosPaola.status === 200 && numerosPaola.body.hechas.medica === 1, { hoy: ctxPaolaTras.body?.hoy, hechas: numerosPaola.body?.hechas })
       const papel = await pedir(corregirVisita, `/api/me/visitas/${trauma.body.visita.id}`, { method: 'PATCH', body: { lineas: [L_SUS] }, id: trauma.body.visita.id, portador: true, userId: PAOLA_ID })
       check(`Paola: corregir la de trauma a sustitutos (cambia el papel) → 400 "${MENSAJE_CAMBIO_DE_PAPEL}"`, papel.status === 400 && papel.body?.error === MENSAJE_CAMBIO_DE_PAPEL, papel.body)
       const citaPaolaLider = await agendaDe(PAOLA_ID, { fecha: MANANA, hora: '10:00', tipo: 'medica', medico_id: M_TRA, sede_id: S1, como: 'lider' })
@@ -3097,6 +3114,19 @@ async function main() {
       const visibles = await pedir(verAgenda, `/api/me/agenda?desde=${AYER}&hasta=${HOY}`, { portador: true })
       const visible = (id: string) => (visibles.body?.items ?? []).find((c: W.CitaItem) => c.id === id)?.estado_visible
       check('estado_visible: hoy pasada su hora → atrasada; de ayer → sin_cerrar; la de hoy por venir → programada', visible(atrasada) === 'atrasada' && visible(sinCerrar) === 'sin_cerrar' && visible(porVenir) === 'programada', (visibles.body?.items ?? []).map((c: W.CitaItem) => [c.id.slice(-4), c.estado, c.estado_visible]))
+
+      // Con otra fecha la cita queda cerrada (A7): su visita no se anula ni pasa a efectiva hasta eliminar la otra fecha
+      const noEfectivaSus = await visitaDe(VENTAS_ID, cuerpoVisita({ medico_id: M_SUS, efectiva: false, failure_reason: 'No estaba' }))
+      const visitaNe = noEfectivaSus.body?.visita as W.VisitaItem
+      check('una no efectiva cumple la cita de hoy con ese médico (hecha)', noEfectivaSus.status === 201 && visitaNe.agenda_id === porVenir && filaCita(porVenir)?.estado === 'hecha', noEfectivaSus.body)
+      const otraDeHecha = await pedir(otraFechaCita, `/api/me/agenda/${porVenir}/otra-fecha`, { method: 'POST', body: { fecha: '2026-10-22', hora: '09:00' }, id: porVenir, portador: true })
+      check('otra fecha de la hecha no efectiva → 201', otraDeHecha.status === 201 && otraDeHecha.body.cita.viene_de === porVenir, otraDeHecha.body)
+      const anularConOtra = await pedir(anularVisita, `/api/me/visitas/${visitaNe.id}/anular`, { method: 'POST', body: { motivo: 'Me equivoqué de médico' }, id: visitaNe.id, portador: true })
+      const efectivaConOtra = await pedir(corregirVisita, `/api/me/visitas/${visitaNe.id}`, { method: 'PATCH', body: { efectiva: true }, id: visitaNe.id, portador: true })
+      check(`anular la visita o pasarla a efectiva → 400 "${MENSAJE_VISITA_CON_OTRA_FECHA}"; la cita sigue hecha con ella`, anularConOtra.status === 400 && anularConOtra.body?.error === MENSAJE_VISITA_CON_OTRA_FECHA && efectivaConOtra.status === 400 && efectivaConOtra.body?.error === MENSAJE_VISITA_CON_OTRA_FECHA && filaCita(porVenir)?.estado === 'hecha' && filaCita(porVenir)?.visita_id === visitaNe.id && !porId(visitaNe.id)?.deleted_at, { anular: anularConOtra.body, efectiva: efectivaConOtra.body })
+      const otraEliminada = await eliminar(otraDeHecha.body.cita.id)
+      const anularSinOtra = await pedir(anularVisita, `/api/me/visitas/${visitaNe.id}/anular`, { method: 'POST', body: { motivo: 'Me equivoqué de médico' }, id: visitaNe.id, portador: true })
+      check('eliminada la otra fecha, la visita se anula y la cita vuelve a pendiente', otraEliminada.status === 200 && anularSinOtra.status === 200 && filaCita(porVenir)?.estado === 'pendiente' && Boolean(porId(visitaNe.id)?.deleted_at), { eliminada: otraEliminada.body, anular: anularSinOtra.body })
 
       // Compatibilidad con la app de hoy: cada respuesta trae TODAS las claves que la app lee
       check('compatibilidad: contexto, cita, agenda, Mis números y me traen todas las claves de la app de hoy', conClavesDeLaApp('contexto', ctxPaola.body) && conClavesDeLaApp('cita', otra.body.cita) && conClavesDeLaApp('agenda', visibles.body) && conClavesDeLaApp('numeros', numerosLider.body) && conClavesDeLaApp('numerosAgenda', numerosLider.body.agenda) && conClavesDeLaApp('me', meLider.body))

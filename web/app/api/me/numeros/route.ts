@@ -16,6 +16,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { jsonError, zodMessage } from '@/app/api/kams/_lib/kam-shared'
 import { numerosQuerySchema } from '@/lib/reporte-visitas-schemas'
 import { cumplimientoMes, numerosDesdeCumplimiento } from '@/lib/reporte-visitas'
+import { visitaSumaALaCuota } from '@/lib/persona-campo'
 import { hoyBogota, limitesMes, mesDe, sumarDias } from '@/lib/visits-rules'
 import { ahora, calcularCuotaDetallada, leerGeneral, requirePersonaDeCampo } from '../../config-visitas/_lib/visitas-server'
 import { confirmacionDeSedes, errorReporte, leerConteo, leerVisitas, numerosDeAgenda } from '../_lib/reporte-server'
@@ -47,7 +48,7 @@ export async function GET(request: NextRequest) {
           persona.ejecutiva ? Promise.resolve(null) : leerGeneral(),
         ])
       )
-      const deLaCuota = persona.ejecutiva ? visitas.filter(visita => visita.executive_id === persona.executiveId) : visitas
+      const deLaCuota = visitas.filter(visita => visitaSumaALaCuota(persona, visita))
       const [confirmadas, agenda] = await t.fase('sedes', () =>
         Promise.all([confirmacionDeSedes(deLaCuota.map(visita => visita.sede_id)), numerosDeAgenda(persona.userId, { desde, hasta }, visitas, hoy)])
       )

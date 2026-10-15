@@ -349,7 +349,11 @@ funciones          agenda_crear(p, p_user) (hora obligatoria; sin tope hacia ade
 ```
 - **Salida (A16)**: `users.active` de true a false cancela sus citas pendientes de hoy en adelante con motivo `salida`
   ("Salió de la empresa"). Un Ejecutivo Comercial que pasa a inactivo: si la persona se queda sin líneas, lo mismo; si
-  sigue como líder, solo se cancelan sus citas como Ejecutivo Comercial ("Dejó de ser Ejecutivo Comercial").
+  sigue como líder, solo se cancelan sus citas como Ejecutivo Comercial ("Dejó de ser Ejecutivo Comercial", motivo `otro`:
+  admiten otra fecha). La salida toma el candado por persona de `agenda_crear`, que lee la persona ya con el candado.
+- **Otra fecha cierra la cita**: si la cita que cumplió una visita ya tiene otra fecha, `visitas_anular` no anula esa
+  visita y `visitas_editar` no la pasa a efectiva ("La cita de esta visita ya tiene otra fecha: elimina primero esa otra
+  fecha").
 - **Mapa de asignación**: `/api/visits/filtered`, `/stats` y `/unvisited-zones` filtran `source <> 'app' OR executive_id IS
   NOT NULL` (una visita como líder no tiene zona y no pinta el mapa).
 - **Rollback 9945**: se detiene (con cuentas) si hay citas `no_realizada`, `eliminada`, con `viene_de` o sin Ejecutivo

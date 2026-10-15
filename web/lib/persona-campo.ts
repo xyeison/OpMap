@@ -160,6 +160,16 @@ export function ejecutivoDeLaVisita(persona: Pick<PersonaCampoPura, 'executiveId
 }
 
 /**
+ * ¿La visita suma a la cuota de la persona? (C4, A13) Con Ejecutivo Comercial, solo sus visitas como Ejecutivo
+ * Comercial: lo que hace como líder (executive_id NULL) no suma. Sin Ejecutivo Comercial (una líder) no hay cuota y sus
+ * visitas cuentan como hechas. La misma regla para hoy.hechas (contexto), Mis números y cuenta_para (GET y POST
+ * /api/me/visitas), para que la API no se contradiga.
+ */
+export function visitaSumaALaCuota(persona: Pick<PersonaCampoPura, 'executiveId'>, visita: { executive_id: string | null }): boolean {
+  return !persona.executiveId || visita.executive_id === persona.executiveId
+}
+
+/**
  * Espejo de "como qué" de agenda_crear (C12): sin `como`, como Ejecutivo Comercial si lo tiene y si no como líder; como
  * Ejecutivo Comercial exige tenerlo (MENSAJE_SIN_EJECUTIVA); como líder exige liderar alguna línea. La cita lleva el
  * executive_id solo como Ejecutivo Comercial.

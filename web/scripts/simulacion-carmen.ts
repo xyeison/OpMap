@@ -472,7 +472,8 @@ export interface CitaExistente {
   medico_id: string | null
   cuenta_id: string | null
   subtipo_id: string | null
-  estado: 'pendiente' | 'hecha' | 'cancelada'
+  /** 0850: también no_realizada ("no se hizo") y eliminada (por error). */
+  estado: 'pendiente' | 'hecha' | 'cancelada' | 'no_realizada' | 'eliminada'
   nota: string | null
   visita_id: string | null
 }
@@ -707,8 +708,9 @@ const LISTAS_BORRAR = ['visitasAnular', 'citasCancelar', 'citasLiberar', 'visita
 /**
  * Lo que --borrar hace con lo que hay en la base (decisión 11): anula las visitas de la app de Carmen a los médicos de
  * prueba y las que hizo con un contacto de prueba (NUNCA las demás, aunque se hayan vinculado solas a una cita
- * simulada: las citas institucionales simuladas son con cuentas reales), cancela las citas simuladas que no estén
- * canceladas (las de nota "Simulación" y cualquiera de Carmen con un médico de prueba) salvo las que cumplió una visita
+ * simulada: las citas institucionales simuladas son con cuentas reales), cancela las citas simuladas pendientes o hechas
+ * (las de nota "Simulación" y cualquiera de Carmen con un médico de prueba; como agenda_cancelar: las que no se hicieron,
+ * las eliminadas y las ya canceladas ya están cerradas y no se tocan) salvo las que cumplió una visita
  * que no es de prueba (esas se dejan y se muestran), termina los visitantes abiertos de los médicos de prueba,
  * desactiva médicos y contactos de prueba y cierra la configuración de prueba que rige hoy o empieza después. Correrlo
  * otra vez sobre lo ya borrado no hace nada.
@@ -739,7 +741,7 @@ export function planBorrar(existentes: Existentes, hoy: string): AccionesBorrar 
 
   return {
     visitasAnular,
-    citasCancelar: citasSimuladas.filter(c => c.estado !== 'cancelada' && !conVisitaReal(c)).map(c => c.id).sort(),
+    citasCancelar: citasSimuladas.filter(c => (c.estado === 'pendiente' || c.estado === 'hecha') && !conVisitaReal(c)).map(c => c.id).sort(),
     citasConVisitaReal: citasSimuladas.filter(conVisitaReal).map(c => c.id).sort(),
     citasLiberar: (existentes.citas ?? [])
       .filter(
@@ -1255,7 +1257,8 @@ async function borrar(ctx: Contexto, acciones: AccionesBorrar) {
       // 0850: cancelar exige motivo (motivo_codigo 'otro' con su texto).
       .update({ estado: 'cancelada', visita_id: null, cancelada_at: ahora, cancelada_motivo: MOTIVO_BORRAR, motivo_codigo: 'otro' })
       .in('id', acciones.citasCancelar)
-      .neq('estado', 'cancelada')
+      // Solo pendientes y hechas (las cerradas violarían visitas_agenda_estado_datos_check: no_realizada_at, eliminada_at).
+      .in('estado', ['pendiente', 'hecha'])
     if (error) fallar('cancelar las citas simuladas', error)
     console.log(`   citas canceladas: ${acciones.citasCancelar.length}`)
   }

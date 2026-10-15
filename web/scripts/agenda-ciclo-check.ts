@@ -38,6 +38,7 @@ import {
   MENSAJE_MOTIVO_SALIDA,
   MENSAJE_OTRA_FECHA_DISTINTA,
   MENSAJE_SOLO_PENDIENTE_SE_ELIMINA,
+  MENSAJE_VISITA_CON_OTRA_FECHA,
   MINUTOS_CITA,
   MIN_MOTIVO_OTRO,
   MOTIVOS_CIERRE,
@@ -58,6 +59,7 @@ import {
   revisarCerrar,
   revisarEliminar,
   revisarMotivo,
+  revisarVisitaConOtraFecha,
   type CitaParaChoque,
   type EstadoCita,
 } from '../lib/agenda-ciclo'
@@ -183,6 +185,12 @@ check('de una eliminada → no existe', o('eliminada') === 'Esa cita no existe')
 check(`de una cancelada por salida → "${MENSAJE_CITA_SALIDA_SIN_OTRA_FECHA}"`, o('cancelada', { motivo_codigo: 'salida' }) === MENSAJE_CITA_SALIDA_SIN_OTRA_FECHA)
 check(`de una hecha efectiva (o sin saber) → "${MENSAJE_CITA_EFECTIVA_SIN_OTRA_FECHA}"`, o('hecha', { visita_efectiva: true }) === MENSAJE_CITA_EFECTIVA_SIN_OTRA_FECHA && o('hecha') === MENSAJE_CITA_EFECTIVA_SIN_OTRA_FECHA)
 check(`con sucesora → "${MENSAJE_CITA_YA_TIENE_OTRA_FECHA}"`, o('no_realizada', { tiene_sucesora: true }) === MENSAJE_CITA_YA_TIENE_OTRA_FECHA)
+// Con otra fecha la cita queda cerrada: su visita no se anula ni pasa a efectiva (espejo de visitas_anular y visitas_editar).
+const cumplida = { id: 'c', estado: 'hecha' as EstadoCita, visita_id: 'v-ne', viene_de: null }
+const sucesora = (estado: EstadoCita) => ({ id: 'c2', estado, visita_id: null, viene_de: 'c' })
+check(`visita cuya cita tiene otra fecha pendiente (o ya hecha o cancelada) → "${MENSAJE_VISITA_CON_OTRA_FECHA}"`, (['pendiente', 'hecha', 'cancelada', 'no_realizada'] as EstadoCita[]).every(e => revisarVisitaConOtraFecha('v-ne', [cumplida, sucesora(e)]) === MENSAJE_VISITA_CON_OTRA_FECHA))
+check('sin otra fecha, con la otra fecha eliminada o sin cita: sí se anula o pasa a efectiva', revisarVisitaConOtraFecha('v-ne', [cumplida]) === null && revisarVisitaConOtraFecha('v-ne', [cumplida, sucesora('eliminada')]) === null && revisarVisitaConOtraFecha('v-otra', [cumplida, sucesora('pendiente')]) === null)
+check('la sucesora de otra cita no cuenta', revisarVisitaConOtraFecha('v-ne', [cumplida, { ...sucesora('pendiente'), viene_de: 'otra' }]) === null)
 const otraSinNota = citaOtraFechaSchema.safeParse({ fecha: '2026-11-03', hora: '09:05' })
 const otraConNotaVacia = citaOtraFechaSchema.safeParse({ fecha: '2026-11-03', hora: '09:05', nota: '' })
 const otraSinHora = citaOtraFechaSchema.safeParse({ fecha: '2026-11-03' })
@@ -245,6 +253,7 @@ const mensajes = {
   MENSAJE_CITA_EFECTIVA_SIN_OTRA_FECHA,
   MENSAJE_CITA_SALIDA_SIN_OTRA_FECHA,
   MENSAJE_OTRA_FECHA_DISTINTA,
+  MENSAJE_VISITA_CON_OTRA_FECHA,
   MENSAJE_MOTIVO_NO_VALIDO,
   MENSAJE_MOTIVO_SALIDA,
   MENSAJE_MOTIVO_LARGO,

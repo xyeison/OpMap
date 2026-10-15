@@ -69,6 +69,8 @@ export const MENSAJE_CITA_YA_TIENE_OTRA_FECHA = 'Esa cita ya tiene otra fecha'
 export const MENSAJE_CITA_EFECTIVA_SIN_OTRA_FECHA = 'Esa cita ya se hizo (visita efectiva): agenda una cita nueva'
 export const MENSAJE_CITA_SALIDA_SIN_OTRA_FECHA = 'Esa cita se canceló por la salida de la persona: no tiene otra fecha'
 export const MENSAJE_OTRA_FECHA_DISTINTA = 'La otra fecha debe ser con el mismo médico o la misma cuenta y subtipo'
+/** visitas_anular y visitas_editar (al pasar a efectiva) con una cita que ya tiene otra fecha (A7). */
+export const MENSAJE_VISITA_CON_OTRA_FECHA = 'La cita de esta visita ya tiene otra fecha: elimina primero esa otra fecha'
 export const MENSAJE_MOTIVO_NO_VALIDO = 'Elige el motivo: cliente, prioridad, falta_tiempo, fuerza_mayor u otro'
 export const MENSAJE_MOTIVO_SALIDA = 'El motivo "salida" lo pone el sistema'
 export const MENSAJE_MOTIVO_LARGO = `El motivo no puede superar ${MAX_MOTIVO_CIERRE} caracteres`
@@ -80,7 +82,10 @@ export const MENSAJE_MOTIVO_CERRAR = 'Escribe por qué no se hizo'
 export const MENSAJE_CANCELAR_SIN_MOTIVO = 'Elige o escribe el motivo de la cancelación'
 /** Texto que deja la salida (A16): users.active a false, o la baja del Ejecutivo Comercial sin más líneas. */
 export const TEXTO_SALIDA = 'Salió de la empresa'
-/** Texto que deja la baja del Ejecutivo Comercial de quien sigue como líder (solo sus citas como Ejecutivo Comercial). */
+/**
+ * Texto que deja la baja del Ejecutivo Comercial de quien sigue como líder (solo sus citas como Ejecutivo Comercial),
+ * con motivo 'otro': no salió de la empresa, así que esas citas sí admiten otra fecha (como líder, C9).
+ */
 export const TEXTO_DEJO_DE_SER_EJECUTIVO = 'Dejó de ser Ejecutivo Comercial'
 
 /** Choque de media hora (23P01 → 409 con el error en `hora`): "A las 09:30 ya tienes cita con …: elige otra hora". */
@@ -219,6 +224,26 @@ export function origenParaOtraFecha(cita: OrigenOtraFecha): string | null {
   if (cita.estado === 'hecha' && cita.visita_efectiva !== false) return MENSAJE_CITA_EFECTIVA_SIN_OTRA_FECHA
   if (cita.tiene_sucesora) return MENSAJE_CITA_YA_TIENE_OTRA_FECHA
   return null
+}
+
+/** Una cita con lo que miran visitas_anular y visitas_editar para no dejar una otra fecha colgando. */
+export interface CitaConSucesora {
+  id: string
+  estado: EstadoCita
+  visita_id: string | null
+  viene_de: string | null
+}
+
+/**
+ * Espejo de la guarda de visitas_anular y de visitas_editar al pasar a efectiva (A7): si la cita que cumplió la visita
+ * ya tiene otra fecha (una sucesora no eliminada), se rechaza con MENSAJE_VISITA_CON_OTRA_FECHA. Si no, la cita
+ * volvería a pendiente (o quedaría hecha efectiva) con su otra fecha colgando, que agenda_crear no permite. Eliminar la
+ * otra fecha quita la guarda. null = se puede.
+ */
+export function revisarVisitaConOtraFecha(visitaId: string, citas: readonly CitaConSucesora[]): string | null {
+  const cumplida = citas.find(cita => cita.estado === 'hecha' && cita.visita_id === visitaId)
+  if (!cumplida) return null
+  return citas.some(cita => cita.viene_de === cumplida.id && cita.estado !== 'eliminada') ? MENSAJE_VISITA_CON_OTRA_FECHA : null
 }
 
 // ---------------------------------------------------------------------------------------------

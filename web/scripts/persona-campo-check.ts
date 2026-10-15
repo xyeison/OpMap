@@ -8,7 +8,8 @@
  * vacante no cuenta; línea inactiva no cuenta; usuario inactivo y dirección comercial sin líneas); personaDeCampo
  * (sales_manager sin Ejecutivo Comercial → MENSAJE_SIN_LINEAS; la directora → MENSAJE_DIRECCION_NO_REPORTA aunque
  * lidere una línea; Ejecutivo Comercial sin zona → MENSAJE_SIN_ZONA; rol ejecutivo, lider y lider_y_ejecutivo);
- * ejecutivoDeLaVisita (Paola: Trauma → null, Sustitutos → el suyo, las dos → el suyo); ejecutivoDeLaCita (por defecto
+ * ejecutivoDeLaVisita (Paola: Trauma → null, Sustitutos → el suyo, las dos → el suyo); visitaSumaALaCuota (con
+ * Ejecutivo Comercial solo lo suyo como Ejecutivo Comercial; una líder sin él, todo); ejecutivoDeLaCita (por defecto
  * como Ejecutiva; como líder → null; líder sin Ejecutivo Comercial como Ejecutiva → error; Ejecutiva sin líneas de
  * líder como líder → error); medicoDeLineas (visitante en la línea, sí; visitante de un Ejecutivo Comercial de la línea
  * en otra línea, sí; vencido, futuro, de otra línea y de otro Ejecutivo Comercial o de uno inactivo, no); permisos de la
@@ -37,6 +38,7 @@ import {
   medicoDeLineas,
   personaDeCampo,
   rolDePersona,
+  visitaSumaALaCuota,
   type EjecutivaCampo,
   type LineaCampo,
   type UsuarioCampo,
@@ -128,6 +130,10 @@ check('Paola: una de Sustitutos (Ejecutiva) → el suyo', ejecutivoDeLaVisita(pa
 check('Paola: una con las dos → el suyo (alguna línea es suya como Ejecutiva)', ejecutivoDeLaVisita(paola.persona, [TRAUMA, SUSTITUTOS]) === 'e-paola')
 check('Lucía: siempre null', ejecutivoDeLaVisita(lucia.persona, [DEPORTIVA]) === null)
 check('Ana: el suyo', ejecutivoDeLaVisita(ana.persona, [ORTOPEDIA]) === 'e-ana')
+// visitaSumaALaCuota (C4, A13): la regla con la que el contexto, Mis números y cuenta_para dicen lo mismo.
+check('Paola: su visita como Ejecutiva suma a la cuota; la de líder (sin Ejecutivo Comercial) no', visitaSumaALaCuota(paola.persona, { executive_id: 'e-paola' }) && !visitaSumaALaCuota(paola.persona, { executive_id: null }))
+check('Ana: una visita con otro Ejecutivo Comercial (de antes de un traspaso) no suma a la suya', !visitaSumaALaCuota(ana.persona, { executive_id: 'e-otra' }))
+check('Lucía (líder sin Ejecutivo Comercial, sin cuota): sus visitas cuentan como hechas', visitaSumaALaCuota(lucia.persona, { executive_id: null }))
 check('Paola: por defecto la cita es como Ejecutiva, con su Ejecutivo Comercial', igual(ejecutivoDeLaCita(paola.persona), { ok: true, como: 'ejecutivo', executiveId: 'e-paola' }))
 check('Paola: como líder → sin Ejecutivo Comercial', igual(ejecutivoDeLaCita(paola.persona, 'lider'), { ok: true, como: 'lider', executiveId: null }))
 check('Lucía: por defecto como líder', igual(ejecutivoDeLaCita(lucia.persona), { ok: true, como: 'lider', executiveId: null }))

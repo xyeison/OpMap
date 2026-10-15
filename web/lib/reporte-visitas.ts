@@ -1734,8 +1734,9 @@ export {
   mensajeChoque,
   mensajeHoraCita,
   origenParaOtraFecha,
+  revisarVisitaConOtraFecha,
 } from './agenda-ciclo'
-export type { EstadoCita, EstadoVisible, MotivoCierre, MotivoElegible, NumerosAgenda } from './agenda-ciclo'
+export type { CitaConSucesora, EstadoCita, EstadoVisible, MotivoCierre, MotivoElegible, NumerosAgenda } from './agenda-ciclo'
 
 /** Límites (mismos CHECK de la 0840). */
 export const MAX_NOTA_CITA = 300
@@ -2098,7 +2099,8 @@ export interface VisitaParaRetomar {
  * Espejo del final de visitas_anular: al anular la visita que cumplía `cita`, la cita pasa a otra visita suya (0850: de
  * la persona y del mismo papel) no anulada de ese día, del mismo tipo y con el mismo médico o cuenta, que no tenga cita
  * (la efectiva primero, luego el mismo subtipo, la llegada más temprana y por id; p. ej. la no efectiva de antes de un
- * relevo). null = no hay: la cita vuelve a pendiente.
+ * relevo). null = no hay: la cita vuelve a pendiente. Antes, visitas_anular rechaza si la cita ya tiene otra fecha
+ * (revisarVisitaConOtraFecha, lib/agenda-ciclo.ts).
  */
 export function visitaQueRetomaCita(
   cita: Pick<CitaVinculo, 'user_id' | 'executive_id' | 'fecha' | 'tipo' | 'medico_id' | 'cuenta_id' | 'subtipo_id'>,

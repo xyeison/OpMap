@@ -1,7 +1,8 @@
 // /api/me/visitas (visits:report + persona de campo, F1a: Ejecutivo Comercial o líder, por user_id).
 //   GET ?fecha=AAAA-MM-DD (sin fecha: hoy) — sus visitas de la app de ese día (sin las anuladas), con a qué meta suma
 //       cada una (valorVisita con el conteo vigente en su fecha) y si aún puede corregirla. Como líder, la visita va sin
-//       Ejecutivo Comercial ni zona y con un médico de sus líneas (0850, C9).
+//       Ejecutivo Comercial ni zona y con un médico de sus líneas (0850, C9); si además tiene Ejecutivo Comercial, no suma
+//       a su cuota (C4: cuenta_para null y peso 0, como en el contexto y en Mis números).
 //   POST — reporta UNA visita: visitaCreateSchema → idempotencia por client_id (la misma visita otra vez devuelve la
 //       que ya estaba, `repetida: true`, sin validar de nuevo) → pre-validación pura (validarVisita: 400 con todos los
 //       errores) → RPC visitas_registrar (la base es la última palabra: 23514 → 400 con su mensaje) → 201

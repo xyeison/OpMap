@@ -32,7 +32,7 @@ import {
   type CuotaDetallada,
   type PersonaCampo,
 } from '@/app/api/config-visitas/_lib/visitas-server'
-import { ejecutivoDeLaVisita, lineasDelMedico, visitanteVigenteEn, type ComoPersona, type VisitanteMedico } from '@/lib/persona-campo'
+import { ejecutivoDeLaVisita, lineasDelMedico, visitaSumaALaCuota, visitanteVigenteEn, type ComoPersona, type VisitanteMedico } from '@/lib/persona-campo'
 import { estadoVisible, mensajeChoque } from '@/lib/agenda-ciclo'
 import {
   HERRAMIENTA_CAMPOS,
@@ -515,11 +515,13 @@ async function nombresPorId(tabla: 'medicos' | 'cuentas' | 'sedes' | 'contactos'
 
 /**
  * Filas de visits → elementos de GET /api/me/visitas: nombres de médico, cuenta, sede, contacto y subtipo, líneas,
- * a qué meta suma (valorVisita con el conteo vigente en su fecha) y si la ejecutiva aún puede corregirla.
+ * a qué meta suma (valorVisita con el conteo vigente en su fecha) y si la ejecutiva aún puede corregirla. Lo que no suma
+ * a su cuota (visitaSumaALaCuota: con Ejecutivo Comercial, lo hecho como líder, C4) sale con cuenta_para null y peso 0,
+ * como en el contexto y en Mis números.
  */
 export async function armarVisitaItems(
   filas: readonly FilaVisita[],
-  entrada: { persona: Pick<PersonaCampo, 'userId'>; hoy: string; conteo: readonly ConteoVigencia[]; general: readonly GeneralVigencia[] }
+  entrada: { persona: Pick<PersonaCampo, 'userId' | 'executiveId'>; hoy: string; conteo: readonly ConteoVigencia[]; general: readonly GeneralVigencia[] }
 ): Promise<VisitaItem[]> {
   if (filas.length === 0) return []
   const ids = filas.map(fila => fila.id)
@@ -542,7 +544,9 @@ export async function armarVisitaItems(
 
   const confirmadas = new Map(Array.from(sedes.entries()).map(([id, sede]) => [id, sede.confirmada]))
   return filas.map(fila => {
-    const valor = valorDe(fila, { conteo: entrada.conteo, general: entrada.general, confirmadas })
+    const valor = visitaSumaALaCuota(entrada.persona, fila)
+      ? valorDe(fila, { conteo: entrada.conteo, general: entrada.general, confirmadas })
+      : { meta: null, peso: 0, sede_por_confirmar: false }
     const subtipo = fila.subtipo_id ? subtipoPorId.get(fila.subtipo_id) : undefined
     return {
       id: fila.id,
@@ -580,7 +584,7 @@ export async function armarVisitaItems(
 /** Una visita armada como elemento de la lista (o null si no existe). */
 export async function cargarVisitaItem(
   id: string,
-  entrada: { persona: Pick<PersonaCampo, 'userId'>; hoy: string; conteo?: readonly ConteoVigencia[]; general?: readonly GeneralVigencia[] }
+  entrada: { persona: Pick<PersonaCampo, 'userId' | 'executiveId'>; hoy: string; conteo?: readonly ConteoVigencia[]; general?: readonly GeneralVigencia[] }
 ): Promise<VisitaItem | null> {
   const fila = await leerVisita(id)
   if (!fila) return null
@@ -881,7 +885,7 @@ export async function cargarContexto(persona: PersonaCampo, punto: Punto | null,
   const conteo = detalle ? detalle.conteo : await leerConteo()
   // La meta del día solo se cumple con lo que suma: las de sedes por confirmar no (aún) y la telefónica con su peso. Lo
   // que hace como líder no suma a su cuota de Ejecutivo Comercial (C4): con Ejecutivo Comercial, solo sus visitas.
-  const deLaCuota = ejecutiva ? visitasHoy.filter(visita => visita.executive_id === persona.executiveId) : visitasHoy
+  const deLaCuota = visitasHoy.filter(visita => visitaSumaALaCuota(persona, visita))
   const resumen = resumenHoy(
     deLaCuota.map(visita => {
       const valor = valorDe(visita, { conteo, general, confirmadas })

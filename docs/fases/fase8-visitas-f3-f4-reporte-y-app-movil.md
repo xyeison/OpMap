@@ -234,7 +234,7 @@ business_lines, PRIMARY KEY)`, RLS sin políticas, solo service_role.
 | Ruta | Respuesta |
 | --- | --- |
 | `POST /api/me/contexto` `{ lat, lng, precision }` (con el punto: la app usa esta; la ubicación va en el cuerpo y no en la URL, que queda en los logs de peticiones del proveedor) · `GET /api/me/contexto` (sin punto; por compatibilidad acepta aún `?lat=&lng=&precision=`) | `{ ejecutiva: { id, nombre, zona, municipio, lineas: [{ id, code, name }] }, hoy: { fecha, meta: { medica, institucional }, hechas: { medicas, institucionales, telefonicas, no_efectivas }, cuota_dia_ok }, config: { radio_m, telefonica: { habilitada, tope_dia, medios }, tope_visitas_medico_dia, perfil }, sedes_cerca: [{ id, nombre, cuenta_id, cuenta_nombre, cuenta_clase, ciudad, lat, lng, distancia_m, hospital_id, ubicacion_confirmada }], mis_medicos: [{ id, nombre, especialidades, municipality_id, lineas: [id], sedes: [{ id, nombre, cuenta_nombre, distancia_m }] }], contactos: [{ id, cuenta_id, sede_id, nombre, cargo_texto, rol }], subtipos: [{ id, codigo, nombre, roles_sugeridos }], compromisos_vencidos: [{ visita_id, fecha, con, next_step_date }], voz: { transcribir: bool, proponer: bool } }` (sin lat/lng: `sedes_cerca` vacío y `mis_medicos` sin distancias; nunca documentos ni teléfonos) |
-| `GET /api/me/visitas?fecha=` | `{ fecha, items: [{ id, client_id, tipo, subtipo, medico: { id, nombre } \| null, cuenta: { id, nombre } \| null, sede: { id, nombre }, contacto, modalidad, medio, efectiva, failure_reason, checked_in_at, distance_m, conclusion, compromisos, next_step_date, lineas: [id], input_mode, out_of_territory, cuenta_para: 'medica' \| 'institucional' \| 'subtipo' \| null, peso, sede_por_confirmar, editable }] }` (`peso` con el de la telefónica; `sede_por_confirmar`: efectiva en una sede aún sin confirmar, `cuenta_para` null y `peso` 0 hasta que la confirmen) |
+| `GET /api/me/visitas?fecha=` | `{ fecha, items: [{ id, client_id, tipo, subtipo, medico: { id, nombre } \| null, cuenta: { id, nombre } \| null, sede: { id, nombre }, contacto, modalidad, medio, efectiva, failure_reason, checked_in_at, distance_m, conclusion, compromisos, next_step_date, lineas: [id], input_mode, out_of_territory, cuenta_para: 'medica' \| 'institucional' \| 'subtipo' \| null, peso, sede_por_confirmar, editable }] }` (`peso` con el de la telefónica; `sede_por_confirmar`: efectiva en una sede aún sin confirmar, `cuenta_para` null y `peso` 0 hasta que la confirmen; 0850: con Ejecutivo Comercial, lo hecho como líder no suma a su cuota, C4: `cuenta_para` null y `peso` 0, igual que en `hoy.hechas` y Mis números) |
 | `POST /api/me/visitas` | `visitaCreateSchema` → pre-validación pura (`validarVisita`, 400 con `errores`) → RPC `visitas_registrar` → 201 `{ visita, repetida }`; 23514 → 400 con el mensaje de la base |
 | `PATCH /api/me/visitas/[id]` | `visitaUpdateSchema` → RPC `visitas_editar` → `{ visita }`; 400 / 404 |
 | `POST /api/me/visitas/[id]/anular` | `{ motivo }` → RPC `visitas_anular` → 200 |
@@ -822,7 +822,8 @@ usuario no tiene líneas para reportar"; 503 "…falta aplicar la migración 085
 | --- | --- |
 | `GET/POST /api/me/contexto` | + `persona: { user_id, nombre, executive_id, rol, lineas: [{ id, nombre, como }] }`. Sin Ejecutivo Comercial: `ejecutiva.id` = el usuario, `zona` null, `mis_medicos` los de sus líneas, meta 0, telefónica apagada |
 | `POST /api/me/visitas` | El servidor decide el Ejecutivo Comercial de la visita; línea ajena → 400 "Alguna de las líneas no es tuya"; como líder, médico ajeno → 400 "Ese médico no es de tus líneas" |
-| `PATCH /api/me/visitas/[id]` | Cambiar el papel → 400 "Para cambiar el papel de la visita …, anúlala y repórtala de nuevo" |
+| `PATCH /api/me/visitas/[id]` | Cambiar el papel → 400 "Para cambiar el papel de la visita …, anúlala y repórtala de nuevo". Pasar a efectiva una visita cuya cita ya tiene otra fecha → 400 "La cita de esta visita ya tiene otra fecha: elimina primero esa otra fecha" (A7) |
+| `POST /api/me/visitas/[id]/anular` | Anular una visita cuya cita ya tiene otra fecha → 400 "La cita de esta visita ya tiene otra fecha: elimina primero esa otra fecha" (A7: la cita volvería a pendiente con su otra fecha colgando) |
 | `GET /api/me/numeros` | Sin Ejecutivo Comercial: `cuota: null` y cumplimiento null; con él, la cuota solo cuenta sus visitas como Ejecutivo Comercial. `agenda` + `citas_no_realizadas` (las eliminadas no cuentan) |
 | `GET /api/auth/me` | + `persona: { rol, lineas } \| null` (null sin `visits:report` o sin líneas) |
 | `GET /api/me/agenda` | `max_fecha: null` (sin tope, A4). `canceladas=true` trae también las que no se hicieron; las eliminadas nunca |
@@ -861,7 +862,9 @@ usuario no tiene líneas para reportar"; 503 "…falta aplicar la migración 085
 ### Decisiones de implementación (Claude; el dueño puede cambiarlas)
 
 1. Un Ejecutivo Comercial que pasa a inactivo mientras la persona sigue como líder cancela solo sus citas como Ejecutivo
-   Comercial ("Dejó de ser Ejecutivo Comercial", motivo `salida`); si la persona se queda sin líneas, todas.
+   Comercial ("Dejó de ser Ejecutivo Comercial", motivo `otro`: no salió de la empresa, así que esas citas admiten otra
+   fecha como líder con un médico de sus líneas); si la persona se queda sin líneas, todas (motivo `salida`). La spec
+   (C11) solo pide el segundo caso: el primero espera el visto bueno del dueño.
 2. La "otra fecha" única no cuenta las eliminadas: si la sucesora se eliminó por error, se puede pedir otra vez.
 3. El disparador que exige motivo al cancelar solo mira cancelaciones nuevas: las canceladas de la 0840 sin código
    quedan como están.

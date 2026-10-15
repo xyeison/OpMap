@@ -67,13 +67,15 @@
 --   con motivo) | cancelada (agenda_cancelar, de hoy en adelante, con motivo; o la salida) | eliminada (agenda_eliminar,
 --   pendiente y de hoy en adelante; la fila se queda y ninguna lectura la muestra). Otra fecha = agenda_otra_fecha: una
 --   cita nueva con viene_de = la anterior, que debe estar cerrada (no_realizada, cancelada no por salida, o hecha con una
---   visita no efectiva) y sin otra sucesora.
+--   visita no efectiva) y sin otra sucesora. Con otra fecha, la cita queda cerrada: visitas_anular no anula su visita y
+--   visitas_editar no la pasa a efectiva hasta que se elimine la otra fecha.
 --
 -- Salida (A16, C11): users.active pasa de true a false → se cancelan sus citas pendientes de hoy en adelante
 --   (motivo_codigo 'salida', "Salió de la empresa"). Un Ejecutivo Comercial pasa a inactive → si su usuario se queda sin
 --   líneas, igual; si sigue siendo persona de campo (una líder que también era Ejecutivo Comercial), solo las citas que
---   tenía como Ejecutivo Comercial ("Dejó de ser Ejecutivo Comercial"). Lo de días pasados queda como está ("Sin
---   cerrar"). No se toca el cuerpo de ejecutivas_traspasar (0820): sus pasos j y k disparan esto.
+--   tenía como Ejecutivo Comercial, con motivo 'otro' ("Dejó de ser Ejecutivo Comercial": no salió de la empresa, así
+--   que admiten otra fecha). Lo de días pasados queda como está ("Sin cerrar"). La salida toma el candado por persona
+--   de agenda_crear. No se toca el cuerpo de ejecutivas_traspasar (0820): sus pasos j y k disparan esto.
 --
 -- Errores para la API: 22023 forma (400); 23514 regla con mensaje para la persona (400); 23505 repetida (cita con el
 --   mismo médico ese día, segunda "otra fecha", client_id ajeno) (409); 23P01 choque de media hora (409, con el error en
@@ -200,9 +202,9 @@ BEGIN
   FOR v_col IN
     SELECT * FROM (VALUES
       ('visitas_registrar', ARRAY['eeae55de7196179daa686cc9bd11da7c', 'e915ea728b393ba6dd677a109d09faf5']),
-      ('visitas_editar', ARRAY['f7948c247b88575f4695943f4c9bad45', '48f1504d9ad05836c32db7e728142a8c']),
-      ('visitas_anular', ARRAY['462a121cfde8802c4a830bd3c61c05e4', '6787ebe86f6a3f893ff43b1a10cf95eb']),
-      ('agenda_crear', ARRAY['68e92a28d606fd2b45b57530db87558c', 'f7e95a1daa1345d2090776d521b8d654']),
+      ('visitas_editar', ARRAY['f7948c247b88575f4695943f4c9bad45', 'ef8c1f875cd58a30f72fdcf6bbf3b9f6']),
+      ('visitas_anular', ARRAY['462a121cfde8802c4a830bd3c61c05e4', 'b1ab633c3949a21f75ae887bee68bcda']),
+      ('agenda_crear', ARRAY['68e92a28d606fd2b45b57530db87558c', '0bb1da4a0d377040d79eccb5f6c3a16f']),
       ('agenda_cancelar', ARRAY['cf3d768d58654ec1e767144fafb62be5', '2ee5183731a93220a107aea059dbf0ef']),
       ('visitas_config_vigente', ARRAY['b5ce2f997fc50012ebc3e8d61463bc1c']),
       ('visitas_distancia_m', ARRAY['de6fd102ba79b9d0b59dc94ea9d4b60b']),
@@ -705,10 +707,11 @@ BEGIN
     v_medico := NULL;
   END IF;
 
-  -- 1. La persona (persona_de_campo: la directora, sin líneas o Ejecutivo Comercial sin zona → 23514). Candado por
-  --    persona (el mismo de las visitas: agendar, cerrar, cancelar y vincular no se cruzan).
-  v_persona := public.persona_de_campo(p_user);
+  -- 1. Candado por persona (el mismo de las visitas y de la salida: agendar, cerrar, cancelar, vincular y cancelar por
+  --    salida no se cruzan) y, ya con él, la persona (persona_de_campo: la directora, sin líneas o Ejecutivo Comercial
+  --    sin zona → 23514). Leerla después del candado evita agendar para quien se está desactivando (A16).
   PERFORM pg_advisory_xact_lock(hashtext('visitas_app:' || p_user::text));
+  v_persona := public.persona_de_campo(p_user);
 
   -- 2. Otra fecha (A7): la anterior es propia y está cerrada (no_realizada, cancelada no por salida, o hecha con una
   --    visita no efectiva), sin otra sucesora, y la nueva es con el mismo médico o la misma cuenta y subtipo.
@@ -1682,8 +1685,13 @@ BEGIN
     RAISE EXCEPTION 'La fecha para reintentar no puede ser anterior a la fecha de la visita' USING ERRCODE = 'check_violation';
   END IF;
 
-  -- Pasar a efectiva: vuelve a mirar los topes de la persona (sin contarse a sí misma)
+  -- Pasar a efectiva: la cita que cumplió no debe tener otra fecha (A7: una hecha efectiva no tiene sucesora); luego
+  -- vuelve a mirar los topes de la persona (sin contarse a sí misma)
   IF v_efectiva AND NOT v_v.efectiva THEN
+    IF EXISTS (SELECT 1 FROM public.visitas_agenda a JOIN public.visitas_agenda s ON s.viene_de = a.id
+               WHERE a.visita_id = p_id AND a.estado = 'hecha' AND s.estado <> 'eliminada') THEN
+      RAISE EXCEPTION 'La cita de esta visita ya tiene otra fecha: elimina primero esa otra fecha' USING ERRCODE = 'check_violation';
+    END IF;
     v_cfg := public.visitas_config_persona(v_v.executive_id, v_v.visit_date);
     IF v_v.tipo = 'medica' THEN
       SELECT count(*) INTO v_n
@@ -1793,6 +1801,12 @@ BEGIN
   IF v_v.visit_date IS DISTINCT FROM v_hoy THEN
     RAISE EXCEPTION '%', c_no_editable USING ERRCODE = 'check_violation';
   END IF;
+  -- La cita que cumplió ya tiene otra fecha (A7): anularla la devolvería a pendiente (o la pasaría a otra visita) con su
+  -- sucesora colgando. Primero se elimina la otra fecha.
+  IF EXISTS (SELECT 1 FROM public.visitas_agenda a JOIN public.visitas_agenda s ON s.viene_de = a.id
+             WHERE a.visita_id = p_id AND a.estado = 'hecha' AND s.estado <> 'eliminada') THEN
+    RAISE EXCEPTION 'La cita de esta visita ya tiene otra fecha: elimina primero esa otra fecha' USING ERRCODE = 'check_violation';
+  END IF;
 
   UPDATE public.visits
   SET deleted_at = now(), deleted_reason = v_motivo, updated_by = p_user
@@ -1841,24 +1855,30 @@ AS $$
 DECLARE
   v_hoy constant date := (now() AT TIME ZONE 'America/Bogota')::date;
 BEGIN
+  -- El candado por persona de agenda_crear: una cita que se está agendando en ese momento termina antes (y aquí se
+  -- cancela) o espera y ya no encuentra a la persona.
   IF TG_TABLE_NAME = 'users' THEN
     IF OLD.active IS TRUE AND NEW.active IS NOT TRUE THEN
+      PERFORM pg_advisory_xact_lock(hashtext('visitas_app:' || NEW.id::text));
       UPDATE public.visitas_agenda a
       SET estado = 'cancelada', cancelada_at = now(), cancelada_motivo = 'Salió de la empresa', motivo_codigo = 'salida'
       WHERE a.user_id = NEW.id AND a.estado = 'pendiente' AND a.fecha >= v_hoy;
     END IF;
   ELSIF TG_TABLE_NAME = 'executives' THEN
     IF NEW.status = 'inactive' AND OLD.status IS DISTINCT FROM 'inactive' AND NEW.user_id IS NOT NULL THEN
+      PERFORM pg_advisory_xact_lock(hashtext('visitas_app:' || NEW.user_id::text));
       IF cardinality(public.persona_lineas(NEW.user_id)) = 0 THEN
         -- Su usuario se queda sin líneas: deja de ser persona de campo (todo lo suyo).
         UPDATE public.visitas_agenda a
         SET estado = 'cancelada', cancelada_at = now(), cancelada_motivo = 'Salió de la empresa', motivo_codigo = 'salida'
         WHERE a.user_id = NEW.user_id AND a.estado = 'pendiente' AND a.fecha >= v_hoy;
       ELSE
-        -- Sigue como líder: solo lo que tenía agendado como Ejecutivo Comercial (lo de líder se queda).
+        -- Sigue como líder: solo lo que tenía agendado como Ejecutivo Comercial (lo de líder se queda). No salió de la
+        -- empresa: motivo 'otro' (no 'salida'), así esas citas sí admiten otra fecha como líder (con un médico de sus
+        -- líneas, C9). Decisión de implementación pendiente del visto bueno del dueño (fase 8, F4.2).
         UPDATE public.visitas_agenda a
         SET estado = 'cancelada', cancelada_at = now(), cancelada_motivo = 'Dejó de ser Ejecutivo Comercial',
-            motivo_codigo = 'salida'
+            motivo_codigo = 'otro'
         WHERE a.executive_id = NEW.id AND a.estado = 'pendiente' AND a.fecha >= v_hoy;
       END IF;
     END IF;
@@ -1989,6 +2009,7 @@ DECLARE
   c_lineas       constant text := 'Alguna de las líneas no es tuya';
   c_no_existe    constant text := 'Esa cita no existe';
   c_cerrada      constant text := 'Esa cita ya está cerrada';
+  c_otra_fecha_v constant text := 'La cita de esta visita ya tiene otra fecha: elimina primero esa otra fecha';
   v_fn           text;
   v_col          record;
   v_caso         record;
@@ -2052,6 +2073,8 @@ DECLARE
   v_cita_hoy_h   uuid;
   v_cita_hoy_p   uuid;
   v_cita_hoy_ne  uuid;
+  v_visita_ne    uuid;
+  v_suc_ne       uuid;
   v_c_cancel     uuid;
   v_c_cancel2    uuid;
   v_c_el         uuid;
@@ -2216,14 +2239,14 @@ BEGIN
   -- Huellas: las de este archivo; visitas_config_vigente, visitas_distancia_m y ejecutivas_traspasar no cambiaron.
   FOR v_col IN
     SELECT * FROM (VALUES
-      ('visitas_registrar', 'e915ea728b393ba6dd677a109d09faf5'), ('visitas_editar', '48f1504d9ad05836c32db7e728142a8c'),
-      ('visitas_anular', '6787ebe86f6a3f893ff43b1a10cf95eb'), ('agenda_crear', 'f7e95a1daa1345d2090776d521b8d654'),
+      ('visitas_registrar', 'e915ea728b393ba6dd677a109d09faf5'), ('visitas_editar', 'ef8c1f875cd58a30f72fdcf6bbf3b9f6'),
+      ('visitas_anular', 'b1ab633c3949a21f75ae887bee68bcda'), ('agenda_crear', '0bb1da4a0d377040d79eccb5f6c3a16f'),
       ('agenda_cancelar', '2ee5183731a93220a107aea059dbf0ef'), ('agenda_cerrar', 'f3da99531f4668d61f5c3e8c643a5f9a'),
       ('agenda_eliminar', '9040ff2a61415c9a6927dc3ed38ae33b'), ('agenda_otra_fecha', 'd0c2265e2f17489e7f04d224c98121ab'),
       ('persona_lineas', '3c6b3795f2aea8e3d71bc65794e2ee70'), ('persona_de_campo', '1179a6c038c84b574cfb53f17d520557'),
       ('ejecutivo_de_la_visita', 'd32c6b8997884544fa7ac9ca7830abdb'), ('medico_de_lineas', '3db2304d37e1a535a0ffd8e984cec343'),
       ('visitas_config_persona', 'b5adc709c7fc776c1b1e0578bfb25862'), ('agenda_choque', '32d88b6e2ec71eedb13a5be493caa6f3'),
-      ('agenda_cancelar_por_salida', '3053bbee7ad4fccaeea8193b2d2cc333'),
+      ('agenda_cancelar_por_salida', '9ffce5ac59c878fb051bef1dcb9b5d95'),
       ('visitas_agenda_cancelar_con_motivo', 'bfe89a3ee621c592aad98f0646d10e59'),
       ('visitas_config_vigente', 'b5ce2f997fc50012ebc3e8d61463bc1c'),
       ('visitas_distancia_m', 'de6fd102ba79b9d0b59dc94ea9d4b60b'),
@@ -2782,7 +2805,38 @@ BEGIN
     IF (v_r ->> 'agenda_id')::uuid IS DISTINCT FROM v_cita_hoy_ne THEN
       RAISE EXCEPTION '0850: la no efectiva debía cumplir su cita de hoy: %', v_r;
     END IF;
-    PERFORM public.agenda_otra_fecha(v_cita_hoy_ne, jsonb_build_object('fecha', v_hoy + 9, 'hora', '09:00'), v_u_ec);
+    v_visita_ne := (v_r ->> 'visita_id')::uuid;
+    v_suc_ne := (public.agenda_otra_fecha(v_cita_hoy_ne, jsonb_build_object('fecha', v_hoy + 9, 'hora', '09:00'), v_u_ec) ->> 'cita_id')::uuid;
+    -- Con otra fecha la cita queda cerrada (A7): ni anular su visita (volvería a pendiente con la sucesora colgando) ni
+    -- pasarla a efectiva (hecha efectiva con otra fecha). Lo demás de la visita sí se corrige; sin la otra fecha, se anula.
+    FOR v_caso IN
+      SELECT * FROM (VALUES
+        ('anular la visita de una cita con otra fecha', format('SELECT public.visitas_anular(%L::uuid, %L, %L::uuid)', v_visita_ne, 'Prueba 0850: me equivoqué', v_u_ec), '23514', c_otra_fecha_v),
+        ('pasar a efectiva la visita de una cita con otra fecha', format('SELECT public.visitas_editar(%L::uuid, %L::jsonb, %L::uuid)', v_visita_ne, '{"efectiva": true}', v_u_ec), '23514', c_otra_fecha_v)
+      ) AS t(nombre, sentencia, estado, mensaje)
+    LOOP
+      BEGIN
+        EXECUTE v_caso.sentencia;
+        RAISE EXCEPTION '0850: se aceptó %', v_caso.nombre;
+      EXCEPTION WHEN OTHERS THEN
+        GET STACKED DIAGNOSTICS v_estado = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
+        IF v_estado IS DISTINCT FROM v_caso.estado OR NOT (v_msg LIKE v_caso.mensaje) THEN
+          RAISE EXCEPTION '0850: el caso "%" devolvió % (%) y se esperaba % (%)', v_caso.nombre, v_estado, v_msg, v_caso.estado, v_caso.mensaje;
+        END IF;
+      END;
+    END LOOP;
+    PERFORM public.visitas_editar(v_visita_ne, '{"compromisos": "Prueba 0850: lo demás sí se corrige"}'::jsonb, v_u_ec);
+    SELECT * INTO v_fila FROM public.visitas_agenda a WHERE a.id = v_cita_hoy_ne;
+    IF v_fila.estado <> 'hecha' OR v_fila.visita_id IS DISTINCT FROM v_visita_ne
+       OR NOT EXISTS (SELECT 1 FROM public.visits v WHERE v.id = v_visita_ne AND v.deleted_at IS NULL AND NOT v.efectiva) THEN
+      RAISE EXCEPTION '0850: la cita con otra fecha debía seguir hecha con su visita no efectiva y sin anular: %', to_jsonb(v_fila);
+    END IF;
+    PERFORM public.agenda_eliminar(v_suc_ne, v_u_ec);
+    PERFORM public.visitas_anular(v_visita_ne, 'Prueba 0850: sin otra fecha sí se anula', v_u_ec);
+    IF EXISTS (SELECT 1 FROM public.visitas_agenda a WHERE a.id = v_cita_hoy_ne AND a.visita_id IS NOT DISTINCT FROM v_visita_ne)
+       OR NOT EXISTS (SELECT 1 FROM public.visits v WHERE v.id = v_visita_ne AND v.deleted_at IS NOT NULL) THEN
+      RAISE EXCEPTION '0850: tras eliminar la otra fecha, la visita se anula y la cita la suelta';
+    END IF;
     v_c_o := (public.agenda_crear(jsonb_build_object('fecha', v_hoy + 10, 'hora', '09:00', 'tipo', 'medica',
                 'medico_id', v_m_x3, 'sede_id', v_s1), v_u_ec) ->> 'cita_id')::uuid;
     PERFORM public.agenda_cancelar(v_c_o, NULL, v_u_ec, 'fuerza_mayor');
@@ -2793,7 +2847,7 @@ BEGIN
        OR (SELECT a.nota FROM public.visitas_agenda a WHERE a.id = v_id3) IS DISTINCT FROM 'Prueba 0850: nota nueva' THEN
       RAISE EXCEPTION '0850 otra fecha tras eliminar la sucesora: debía crearse con su nota';
     END IF;
-    v_casos := v_casos || 'ciclo de vida: cerrar (de ayer y de hoy sí; de mañana, ajena, cerrada, hecha, salida, motivo raro, otro sin texto y texto largo no), cancelar con motivo (3 argumentos con texto, código sin texto; sin motivo, corto, salida, raro, de ayer, cerrada, hecha y ajena no), eliminar (sí; hecha, de ayer, ajena, dos veces no; libera el día), otra fecha (de no_realizada, en cadena, de hecha no efectiva y tras eliminar la sucesora sí; dos veces 23505, pendiente, hecha efectiva, ajena y con otro médico no)'::text;
+    v_casos := v_casos || 'ciclo de vida: cerrar (de ayer y de hoy sí; de mañana, ajena, cerrada, hecha, salida, motivo raro, otro sin texto y texto largo no), cancelar con motivo (3 argumentos con texto, código sin texto; sin motivo, corto, salida, raro, de ayer, cerrada, hecha y ajena no), eliminar (sí; hecha, de ayer, ajena, dos veces no; libera el día), otra fecha (de no_realizada, en cadena, de hecha no efectiva y tras eliminar la sucesora sí; dos veces 23505, pendiente, hecha efectiva, ajena y con otro médico no), con otra fecha la visita de la cita no se anula ni pasa a efectiva (lo demás sí; sin la otra fecha, se anula)'::text;
 
     -- F0. Como service_role (el rol de la API), antes de la salida, que cambia los datos de prueba --------------------
     BEGIN
@@ -2846,18 +2900,10 @@ BEGIN
        OR NOT EXISTS (SELECT 1 FROM public.visitas_agenda a WHERE a.id = v_s_ayer AND a.estado = 'pendiente') THEN
       RAISE EXCEPTION '0850 salida: al desactivar el usuario se cancelan sus citas de hoy en adelante (salida) y la de ayer se queda';
     END IF;
-    UPDATE public.executives SET status = 'inactive', left_at = v_hoy - 1 WHERE id = v_e_paola;
-    IF NOT EXISTS (SELECT 1 FROM public.visitas_agenda a WHERE a.id = v_c_p_lider AND a.estado = 'pendiente')
-       OR NOT EXISTS (SELECT 1 FROM public.visitas_agenda a WHERE a.id = v_c_p_ec AND a.estado = 'cancelada'
-                        AND a.motivo_codigo = 'salida' AND a.cancelada_motivo = 'Dejó de ser Ejecutivo Comercial') THEN
-      RAISE EXCEPTION '0850 salida: dar de baja al Ejecutivo Comercial de Paola cancela lo suyo como Ejecutiva y deja su cita de líder';
-    END IF;
-    v_r := public.persona_de_campo(v_u_paola);
-    IF v_r ->> 'rol' <> 'lider' OR v_r ->> 'executive_id' IS NOT NULL THEN
-      RAISE EXCEPTION '0850 salida: Paola sigue como líder: %', v_r;
-    END IF;
+    -- Una cancelada por salida no tiene otra fecha, aunque la persona vuelva (se reactiva solo para probarlo).
+    UPDATE public.users SET active = true WHERE id = v_u_sale;
     BEGIN
-      PERFORM public.agenda_otra_fecha(v_c_p_ec, jsonb_build_object('fecha', v_hoy + 3, 'hora', '09:00'), v_u_paola);
+      PERFORM public.agenda_otra_fecha(v_s1c, jsonb_build_object('fecha', v_hoy + 3, 'hora', '09:00'), v_u_sale);
       RAISE EXCEPTION '0850: se pidió otra fecha de una cita cancelada por salida';
     EXCEPTION WHEN check_violation THEN
       GET STACKED DIAGNOSTICS v_msg = MESSAGE_TEXT;
@@ -2865,13 +2911,41 @@ BEGIN
         RAISE EXCEPTION '0850 otra fecha de salida: mensaje inesperado (%)', v_msg;
       END IF;
     END;
+    UPDATE public.executives SET status = 'inactive', left_at = v_hoy - 1 WHERE id = v_e_paola;
+    IF NOT EXISTS (SELECT 1 FROM public.visitas_agenda a WHERE a.id = v_c_p_lider AND a.estado = 'pendiente')
+       OR NOT EXISTS (SELECT 1 FROM public.visitas_agenda a WHERE a.id = v_c_p_ec AND a.estado = 'cancelada'
+                        AND a.motivo_codigo = 'otro' AND a.cancelada_motivo = 'Dejó de ser Ejecutivo Comercial') THEN
+      RAISE EXCEPTION '0850 salida: dar de baja al Ejecutivo Comercial de Paola cancela lo suyo como Ejecutiva (motivo otro) y deja su cita de líder';
+    END IF;
+    v_r := public.persona_de_campo(v_u_paola);
+    IF v_r ->> 'rol' <> 'lider' OR v_r ->> 'executive_id' IS NOT NULL THEN
+      RAISE EXCEPTION '0850 salida: Paola sigue como líder: %', v_r;
+    END IF;
+    -- No salió de la empresa: la otra fecha no se bloquea por salida. Como Ejecutiva ya no puede (no lo es) y como
+    -- líder, solo con un médico de sus líneas (C9).
+    FOR v_caso IN
+      SELECT * FROM (VALUES
+        ('otra fecha como Ejecutiva de quien dejó de serlo', format('SELECT public.agenda_otra_fecha(%L::uuid, %L::jsonb, %L::uuid)', v_c_p_ec, jsonb_build_object('fecha', v_hoy + 3, 'hora', '09:00'), v_u_paola), '23514', c_sin_ejec),
+        ('otra fecha como líder con un médico que no es de sus líneas', format('SELECT public.agenda_otra_fecha(%L::uuid, %L::jsonb, %L::uuid)', v_c_p_ec, jsonb_build_object('fecha', v_hoy + 3, 'hora', '09:00', 'como', 'lider'), v_u_paola), '23514', c_medico_ajeno)
+      ) AS t(nombre, sentencia, estado, mensaje)
+    LOOP
+      BEGIN
+        EXECUTE v_caso.sentencia;
+        RAISE EXCEPTION '0850: se aceptó %', v_caso.nombre;
+      EXCEPTION WHEN OTHERS THEN
+        GET STACKED DIAGNOSTICS v_estado = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
+        IF v_estado IS DISTINCT FROM v_caso.estado OR NOT (v_msg LIKE v_caso.mensaje) THEN
+          RAISE EXCEPTION '0850: el caso "%" devolvió % (%) y se esperaba % (%)', v_caso.nombre, v_estado, v_msg, v_caso.estado, v_caso.mensaje;
+        END IF;
+      END;
+    END LOOP;
     UPDATE public.executives SET status = 'inactive', left_at = v_hoy - 1 WHERE id = v_e_ec;
     IF EXISTS (SELECT 1 FROM public.visitas_agenda a WHERE a.user_id = v_u_ec AND a.estado = 'pendiente' AND a.fecha >= v_hoy)
        OR NOT EXISTS (SELECT 1 FROM public.visitas_agenda a WHERE a.user_id = v_u_ec AND a.estado = 'cancelada'
                         AND a.motivo_codigo = 'salida' AND a.cancelada_motivo = 'Salió de la empresa') THEN
       RAISE EXCEPTION '0850 salida: un Ejecutivo Comercial dado de baja que se queda sin líneas pierde todo lo pendiente desde hoy';
     END IF;
-    v_casos := v_casos || 'salida: desactivar el usuario cancela desde hoy (la de ayer se queda); la baja del Ejecutivo de Paola cancela solo lo suyo como Ejecutiva; la baja de un Ejecutivo sin más líneas, todo; una cancelada por salida no tiene otra fecha'::text;
+    v_casos := v_casos || 'salida: desactivar el usuario cancela desde hoy (la de ayer se queda); una cancelada por salida no tiene otra fecha; la baja del Ejecutivo de Paola cancela solo lo suyo como Ejecutiva, con motivo otro (otra fecha como líder sí, con un médico de sus líneas); la baja de un Ejecutivo sin más líneas, todo'::text;
 
     -- G. Últimas barreras: CHECK, índices y disparador ---------------------------------------------------------------
     BEGIN
