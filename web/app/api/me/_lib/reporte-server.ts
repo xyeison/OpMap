@@ -16,7 +16,8 @@
 // Voz (decisiones 11 y 12): los clientes de OpenAI (transcribir) y de Anthropic (proponer) se crean aquí con fábricas
 // INYECTABLES (las pruebas ponen falsos con fijarFabricasVoz). Sin llave: 503 con el mensaje del contrato y nunca se
 // rompe el resto de la app. El audio llega en memoria (FormData) y se manda en memoria: nunca se escribe en disco ni
-// en un bucket, y ni el audio ni la transcripción se registran en los logs (solo el tipo y el estado del error).
+// en un bucket, y ni el audio ni la transcripción se registran en los logs (del error, solo el estado, el tipo de la
+// API, el parámetro, el request_id y el mensaje de la API saneado: resumenErrorVoz).
 import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import Anthropic from '@anthropic-ai/sdk'
@@ -1178,11 +1179,290 @@ export function esErrorDeProveedor(error: unknown): boolean {
   return error instanceof ErrorProveedorVoz || error instanceof OpenAI.APIError || error instanceof Anthropic.APIError
 }
 
-/** Resumen del error para el log: tipo y estado, NUNCA el contenido (ni audio ni transcripción). */
-export function resumenErrorVoz(error: unknown): string {
+/** Tope del mensaje (ya saneado) de la API en el log. */
+const MAX_MENSAJE_API_LOG = 160
+/**
+ * Tope del mensaje de la API que se analiza. Los de verdad son una o dos frases; uno más largo es anómalo (podría
+ * repetir lo enviado) y no se imprime. Además, ninguna expresión regular corre sobre un texto enorme (una de correos
+ * sobre 80.000 caracteres sin espacios tardaba segundos y bloqueaba la función antes del respaldo).
+ */
+export const MAX_MENSAJE_API_ANALIZAR = 1000
+/** Lo que queda en el log en lugar del mensaje de la API cuando no es seguro imprimirlo. */
+export const MENSAJE_API_OMITIDO = 'mensaje omitido (podría repetir parte de lo enviado)'
+
+function comoObjeto(valor: unknown): Record<string, unknown> | null {
+  return valor && typeof valor === 'object' && !Array.isArray(valor) ? (valor as Record<string, unknown>) : null
+}
+
+function comoTexto(valor: unknown): string | null {
+  return typeof valor === 'string' && valor.trim() ? valor.trim() : null
+}
+
+/** Minúsculas y sin tildes (para comparar palabras). */
+function sinTildes(texto: string): string {
+  return texto.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
+}
+
+/**
+ * Un grupo de dígitos con los separadores con que se escriben teléfonos, cédulas y NIT (300 123 4567, 1.020.304.050,
+ * 900.123.456-7, (300) 123-4567): se compara y se tapa por sus dígitos, no por cómo se escribió.
+ */
+const GRUPO_DIGITOS = /\d(?:[ .,()/-]*\d)*/g
+/** Una fecha ISO (la de una beta: server-side-fallback-2026-07-01): no se tapa, sirve en el log. */
+const FECHA_ISO = /^\d{4}-\d{2}-\d{2}$/
+
+function soloDigitos(texto: string): string {
+  return texto.replace(/\D/g, '')
+}
+
+/** Lo que mandó la persona (transcripción, contexto), listo para comparar con el mensaje de la API. */
+export interface LoEnviado {
+  /** Sus palabras de 3 o más letras o dígitos con al menos una letra, sin tildes y en minúsculas. */
+  palabras: ReadonlySet<string>
+  /** Sus números de 3 o más dígitos, sin separadores (300 123 4567 → 3001234567). */
+  numeros: readonly string[]
+}
+
+/**
+ * Las palabras y los números de lo que mandó la persona: de cada texto que aparezca en los valores (nunca en las
+ * claves). Las palabras de 1 o 2 letras y los números de 1 o 2 dígitos no cuentan (no identifican a nadie).
+ */
+export function loEnviado(sensibles: readonly unknown[]): LoEnviado {
+  const palabras = new Set<string>()
+  const numeros = new Set<string>()
+  const visitar = (valor: unknown, profundidad: number) => {
+    if (profundidad > 8 || valor === null || valor === undefined) return
+    if (typeof valor === 'string') {
+      for (const palabra of sinTildes(valor).match(/[\p{L}\p{N}]+/gu) ?? []) {
+        if (palabra.length >= 3 && /\p{L}/u.test(palabra)) palabras.add(palabra)
+      }
+      for (const grupo of valor.match(GRUPO_DIGITOS) ?? []) {
+        const digitos = soloDigitos(grupo)
+        if (digitos.length >= 3) numeros.add(digitos)
+      }
+      return
+    }
+    if (Array.isArray(valor)) {
+      for (const item of valor) visitar(item, profundidad + 1)
+      return
+    }
+    if (typeof valor === 'object') for (const item of Object.values(valor)) visitar(item, profundidad + 1)
+  }
+  for (const valor of sensibles) visitar(valor, 0)
+  return { palabras, numeros: [...numeros] }
+}
+
+/** ¿El texto repite alguna palabra de lo enviado? (palabra completa, sin tildes ni mayúsculas) */
+function repitePalabras(texto: string, palabras: ReadonlySet<string>): boolean {
+  return (sinTildes(texto).match(/[\p{L}\p{N}]+/gu) ?? []).some(palabra => palabras.has(palabra))
+}
+
+/** Un nombre técnico (parámetro, valor de la API, beta, modelo): ASCII, sin espacios, corto. */
+const NOMBRE_TECNICO = /^[A-Za-z0-9_.:/[\]-]{1,64}$/
+
+/** Tildes o eñes escapadas (á, \xe1, &aacute;, &#225;, %C3%A1): casi seguro un nombre en español citado. */
+const ESCAPE = /\\(?:u[0-9a-f]{4}|u\{[0-9a-f]+\}|x[0-9a-f]{2})|&(?:#\d+|#x[0-9a-f]+|[a-z]+);|%[0-9a-f]{2}/i
+
+/**
+ * Lista CERRADA de las palabras (en inglés) de los mensajes de error de la API de Anthropic y de OpenAI. Un mensaje
+ * con cualquier otra palabra de 2 o más letras no se imprime: así ningún nombre, apellido (también uno corto, como Gil
+ * o Paz), trozo de palabra ("Fernand") ni tilde escapada ("Fern" + "ndez") llega al log, esté o no en lo enviado. Las
+ * partes de un nombre técnico cuentan por separado (thinking.type.between_tools → thinking, type, between, tools).
+ * Si un mensaje real queda omitido por una palabra que falta, se añade aquí (nunca un nombre propio).
+ */
+const VOCABULARIO_API: ReadonlySet<string> = new Set(
+  `
+  a about above access account actual adaptive add added additional after again all allow allowed alongside also
+  alternate an and anthropic any api are argument arguments array as assistant at audio auto available avoid bad
+  balance be been before beta betas between billing block blocks body boolean both budget but by bytes cache call
+  called can cannot cause change character characters check choice claude code codes com combination combined
+  compatible compilation complex config configuration connection consecutive consult contact contain contains content
+  context control conversation corrupted could count credit credits current custom data date decode decoded default
+  define defined deprecated description details dictionary different disable disabled discriminator discuss do docs
+  document documentation does draft duplicate duration each effort either empty en enable enabled end ends ensure
+  entry enum ephemeral equal error errors exceed exceeded exceeds except exist exists expected extra extract fail
+  failed fallback fallbacks false feature features field fields file files final find first flac follow following for
+  format formats found from function further given go got gpt greater guides had haiku has have header headers help
+  high higher http https id if image in include included includes incompatible incorrect increase information input
+  inputs integer internal into invalid is iso it item items its json key keys language large larger last learn least
+  length less level levels limit limits list literal long longer low lower malformed match matches max maximum may
+  media medium message messages metadata might mime min mini minimum minute missing mode model models more most mp
+  mpeg mpga multiple must name names near needs new no non none not null number numbers object objects of oga ogg on
+  one only openai optional options or org organization other our output outputs over overloaded parallel param
+  parameter parameters params pattern per permission permissions permitted plan plans platform please possible
+  prefill processing prompt properties property provide provided purchase quota range rate reached read reason
+  received recognized reduce region request requested requests require required requires response responses result
+  role roles row rpm sales schema second seconds see sequence sequences server service set should side single size
+  sonnet sorry specified specify speed status stop stream streaming strict string strings supplied support supported
+  supports system tag tags temperature temporarily text than that the their then these thinking this those tier time
+  to token tokens too tool tools top total tpm transcribe transcription transcriptions true try ttl turn turns type
+  types unable unavailable unexpected union unknown unrecognized unsupported upgrade uri url usage use used user
+  using valid value values version wav webm were when which while whisper window with within without workspace www
+  xhigh you your
+  `
+    .split(/\s+/)
+    .filter(Boolean)
+)
+
+/** ¿El texto tiene alguna palabra de 2 o más letras fuera de VOCABULARIO_API? */
+function tienePalabraAjena(texto: string): boolean {
+  return (texto.match(/[A-Za-z]{2,}/g) ?? []).some(palabra => !VOCABULARIO_API.has(palabra.toLowerCase()))
+}
+
+/**
+ * El mensaje de la API, saneado para el log, o null si no es seguro imprimirlo. A prueba de filtraciones:
+ * 1. Uno de más de MAX_MENSAJE_API_ANALIZAR caracteres no se imprime (es anómalo y no se analiza).
+ * 2. Lo que va entre comillas solo se queda si es un nombre técnico (thinking.type.between_tools, 'xhigh',
+ *    `anthropic-beta`); cualquier otro segmento entre comillas (con espacios, tildes…) se cambia por "...".
+ * 3. Si queda algún carácter fuera del ASCII imprimible (los mensajes de la API vienen en inglés y ASCII; un texto en
+ *    español con tildes es casi seguro contenido de la visita) o una tilde escapada (ESCAPE), NO se imprime.
+ * 4. Llaves (sk-…) y correos se tapan. Los números se miran por sus dígitos, con o sin separadores: los de 6 o más
+ *    dígitos (documentos, teléfonos, NIT) se tapan salvo una fecha ISO, y si un número de 3 o más dígitos que queda a la
+ *    vista es parte de un número de lo enviado (una extensión, el trozo de un teléfono), NO se imprime.
+ * 5. Si tiene una palabra fuera de la lista cerrada VOCABULARIO_API o repite una palabra de lo enviado (`enviado`: de
+ *    la transcripción y del contexto), NO se imprime. Todo esto también vale para lo que va entre comillas.
+ * 6. Se recorta a MAX_MENSAJE_API_LOG caracteres.
+ */
+export function mensajeApiSeguro(mensaje: unknown, enviado: LoEnviado): string | null {
+  const original = comoTexto(mensaje)
+  if (!original || original.length > MAX_MENSAJE_API_ANALIZAR) return null
+  let texto = original.replace(/\s+/g, ' ')
+  for (const comillas of [/`([^`]*)`/g, /"([^"]*)"/g, /“([^”]*)”/g, /«([^»]*)»/g, /‘([^’]*)’/g, /'([^']*)'/g]) {
+    texto = texto.replace(comillas, (segmento, dentro: string) => (NOMBRE_TECNICO.test(dentro) ? segmento : '"..."'))
+  }
+  if (/[^\x20-\x7E]/.test(texto) || ESCAPE.test(texto)) return null
+  texto = texto.replace(/sk-[A-Za-z0-9_-]{6,}/g, '[llave]').replace(/[^\s@]+@[^\s@]+/g, '[correo]')
+  let repiteNumero = false
+  texto = texto.replace(GRUPO_DIGITOS, grupo => {
+    const digitos = soloDigitos(grupo)
+    const aLaVista = digitos.length < 6 || FECHA_ISO.test(grupo)
+    if (aLaVista && digitos.length >= 3 && enviado.numeros.some(numero => numero.includes(digitos))) repiteNumero = true
+    return aLaVista ? grupo : '#'
+  })
+  texto = texto.trim()
+  const sinMarcas = texto.replace(/\[(?:llave|correo)\]/g, ' ')
+  if (!texto || repiteNumero || tienePalabraAjena(sinMarcas) || repitePalabras(sinMarcas, enviado.palabras)) return null
+  return texto.length > MAX_MENSAJE_API_LOG ? `${texto.slice(0, MAX_MENSAJE_API_LOG)}...` : texto
+}
+
+/** Parámetros de primer nivel de las peticiones de voz (Messages de Anthropic y transcripciones de OpenAI). */
+const PARAMETROS_RAIZ = new Set([
+  'model',
+  'max_tokens',
+  'messages',
+  'system',
+  'tools',
+  'tool_choice',
+  'thinking',
+  'output_config',
+  'output_format',
+  'fallbacks',
+  'betas',
+  'metadata',
+  'stop_sequences',
+  'temperature',
+  'top_p',
+  'top_k',
+  'cache_control',
+  'context_management',
+  'container',
+  'mcp_servers',
+  'service_tier',
+  'speed',
+  'inference_geo',
+  'stream',
+  'file',
+  'language',
+  'prompt',
+  'response_format',
+])
+
+/**
+ * El parámetro que nombra el mensaje de la API, si se reconoce: una cabecera ("… for the `anthropic-beta` header") o
+ * un parámetro de primer nivel (PARAMETROS_RAIZ) escrito como ruta ("output_config.effort", "tools.0.custom…"), entre
+ * comillas ("\"thinking.type.disabled\" is not supported…") o al empezar una frase con dos puntos ("tool_choice: …",
+ * "fallbacks: Extra inputs…"). Una palabra suelta ("…for this model") no cuenta. null si no hay o si repite una
+ * palabra de lo enviado. Solo se miran los primeros MAX_MENSAJE_API_ANALIZAR caracteres.
+ */
+export function parametroDelMensaje(mensaje: unknown, enviado: LoEnviado): string | null {
+  const texto = comoTexto(mensaje)?.slice(0, MAX_MENSAJE_API_ANALIZAR)
+  if (!texto) return null
+  const cabecera = texto.match(/\b(anthropic-[a-z-]+|x-api-key)[`'"]?\s+header\b/i)?.[1]
+  if (cabecera) return cabecera.toLowerCase()
+  for (const m of texto.matchAll(/(["'`]?)([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z0-9_[\]]+)*)(["'`]?)(\s*:)?/g)) {
+    const candidato = m[2]
+    const ruta = /[.[]/.test(candidato)
+    const entreComillas = Boolean(m[1]) && m[1] === m[3]
+    const conDosPuntos = Boolean(m[4])
+    if (!PARAMETROS_RAIZ.has(candidato.split(/[.[]/)[0]) || !(ruta || entreComillas || conDosPuntos)) continue
+    if (NOMBRE_TECNICO.test(candidato) && !repitePalabras(candidato, enviado.palabras)) return candidato
+  }
+  return null
+}
+
+/** Las partes de un error de la API que pueden ir al log. */
+interface PartesErrorApi {
+  tipo: unknown
+  codigo?: unknown
+  parametro?: unknown
+  requestId: unknown
+  mensaje: unknown
+}
+
+function resumenErrorApi(proveedor: 'Anthropic' | 'OpenAI', error: { status?: number | undefined }, partes: PartesErrorApi, sensibles: readonly unknown[], sinRespuesta: string | null): string {
+  const enviado = loEnviado(sensibles)
+  const tecnico = (valor: unknown, patron: RegExp) => {
+    const texto = comoTexto(valor)
+    return texto && patron.test(texto) && !repitePalabras(texto, enviado.palabras) ? texto : null
+  }
+  const estado = typeof error.status === 'number' ? String(error.status) : (sinRespuesta ?? 'sin estado')
+  const tipo = tecnico(partes.tipo, /^[a-z_]{1,64}$/)
+  const codigo = tecnico(partes.codigo, /^[a-z0-9_.-]{1,64}$/i)
+  const parametro = tecnico(partes.parametro, NOMBRE_TECNICO) ?? parametroDelMensaje(partes.mensaje, enviado)
+  const requestId = tecnico(partes.requestId, /^[A-Za-z0-9_-]{1,100}$/)
+  const piezas = [`${proveedor} ${estado}${tipo ? ` ${tipo}` : ''}${codigo && codigo !== tipo ? ` (${codigo})` : ''}`]
+  if (parametro) piezas.push(`parámetro ${parametro}`)
+  if (requestId) piezas.push(`request_id ${requestId}`)
+  if (comoTexto(partes.mensaje)) {
+    const mensaje = mensajeApiSeguro(partes.mensaje, enviado)
+    piezas.push(mensaje ? `mensaje: ${mensaje}` : MENSAJE_API_OMITIDO)
+  }
+  return piezas.join(' · ')
+}
+
+/**
+ * Resumen del error para el log, NUNCA con el contenido (ni audio, ni transcripción, ni contexto de la visita, ni
+ * nombres). Para un error de la API de Anthropic u OpenAI: proveedor, estado HTTP (o "tiempo agotado" / "sin
+ * conexión"), tipo de error de la API (invalid_request_error…), el parámetro que nombra si se reconoce, el request_id
+ * y el mensaje de la API saneado con mensajeApiSeguro (lo que no sea seguro no se imprime: una palabra fuera de la
+ * lista cerrada VOCABULARIO_API, una tilde escapada, un número de lo enviado…). `sensibles`: lo que mandó la persona
+ * en esa petición (la transcripción, el contexto): si el mensaje repite una palabra o un número de ahí, se omite.
+ */
+export function resumenErrorVoz(error: unknown, sensibles: readonly unknown[] = []): string {
   if (error instanceof ErrorProveedorVoz) return error.message
-  if (error instanceof OpenAI.APIError || error instanceof Anthropic.APIError) {
-    return `${error.name}${error.status ? ` ${error.status}` : ''}`
+  if (error instanceof Anthropic.APIError) {
+    const cuerpo = comoObjeto(error.error)
+    const interno = comoObjeto(cuerpo?.error)
+    const sinRespuesta =
+      error instanceof Anthropic.APIConnectionTimeoutError ? 'tiempo agotado' : error instanceof Anthropic.APIConnectionError ? 'sin conexión' : null
+    return resumenErrorApi(
+      'Anthropic',
+      error,
+      { tipo: error.type ?? interno?.type, requestId: error.requestID ?? cuerpo?.request_id, mensaje: interno?.message ?? cuerpo?.message },
+      sensibles,
+      sinRespuesta
+    )
+  }
+  if (error instanceof OpenAI.APIError) {
+    const interno = comoObjeto(error.error)
+    const sinRespuesta = error instanceof OpenAI.APIConnectionTimeoutError ? 'tiempo agotado' : error instanceof OpenAI.APIConnectionError ? 'sin conexión' : null
+    return resumenErrorApi(
+      'OpenAI',
+      error,
+      { tipo: error.type, codigo: error.code, parametro: error.param, requestId: error.requestID, mensaje: interno?.message },
+      sensibles,
+      sinRespuesta
+    )
   }
   return error instanceof Error ? error.name : 'error desconocido'
 }
@@ -1284,7 +1564,8 @@ export function mensajeDictado(contexto: ContextoDictado, transcript: string): s
  * una sola llamada (disable_parallel_tool_use), la instrucción explícita en el mensaje y, si aun así no la llama, un
  * reintento; "sin razonamiento" = thinking 'between_tools' con effort 'low'. El prompt del sistema y la herramienta
  * van en caché. Respaldo del servidor ante un rechazo de seguridad (fallbacks 'default', beta
- * server-side-fallback-2026-07-01). Una respuesta 'refusal' o cortada por max_tokens es un fallo (502).
+ * server-side-fallback-2026-07-01). Una respuesta 'refusal' o cortada por max_tokens es un fallo (502). Si Anthropic
+ * rechaza la petición (400), se reintenta una vez con la petición mínima (ver pedirHerramienta).
  */
 export async function proponerVisitas(entrada: { contexto: ContextoDictado; transcript: string }): Promise<unknown> {
   return pedirHerramienta({
@@ -1292,24 +1573,31 @@ export async function proponerVisitas(entrada: { contexto: ContextoDictado; tran
     herramienta: HERRAMIENTA_PROPONER,
     maxTokens: MAX_TOKENS_PROPUESTA,
     mensaje: mensajeDictado(entrada.contexto, entrada.transcript),
+    sensibles: [entrada.transcript, entrada.contexto],
   })
 }
 
-/**
- * Una llamada a Claude que debe responder SOLO con una herramienta (proponer_visitas o repartir_campos): los mismos
- * parámetros para las dos (ver proponerVisitas) y un reintento si no la llama. Devuelve la entrada cruda de la
- * herramienta; 'refusal' o max_tokens son un fallo del proveedor (502).
- */
-async function pedirHerramienta(entrada: {
+/** Lo que necesita una llamada a Claude que debe responder SOLO con una herramienta. */
+export interface PedidoHerramienta {
   sistema: string
   herramienta: Anthropic.Beta.Messages.BetaTool
   maxTokens: number
   mensaje: string
-}): Promise<unknown> {
-  const apiKey = llave('ANTHROPIC_API_KEY')
-  if (!apiKey) throw new ErrorProveedorVoz('anthropic', 'sin llave')
-  const cliente = fabricas.anthropic(apiKey)
-  const peticion: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming = {
+  /** Lo que mandó la persona (transcripción, contexto): el log del error nunca repite nada de esto. */
+  sensibles: readonly unknown[]
+}
+
+/**
+ * Tope de tokens de la petición mínima: sin thinking 'between_tools' el modelo razona (adaptativo, con effort 'low')
+ * y el razonamiento cuenta dentro de max_tokens; con el tope de la completa (4096 / 2048) la respuesta podría cortarse.
+ * No más alto: todo tiene que caber en los 60 s de la ruta (maxDuration), del cliente del SDK y de la app. Solo se
+ * cobra lo que se genera.
+ */
+export const MAX_TOKENS_PETICION_MINIMA = 8_000
+
+/** La petición completa (la de siempre): ver proponerVisitas. */
+export function peticionCompleta(entrada: PedidoHerramienta): Anthropic.Beta.Messages.MessageCreateParamsNonStreaming {
+  return {
     model: MODELO_PROPUESTA,
     max_tokens: entrada.maxTokens,
     betas: ['server-side-fallback-2026-07-01'],
@@ -1321,17 +1609,73 @@ async function pedirHerramienta(entrada: {
     tool_choice: { type: 'auto', disable_parallel_tool_use: true },
     messages: [{ role: 'user', content: entrada.mensaje }],
   }
+}
+
+/**
+ * La petición mínima, de respaldo cuando Anthropic rechaza la completa con un 400: solo lo básico y estable. El mismo
+ * modelo, el system (con su cache_control) y el mensaje; la herramienta SIN strict (lo que devuelva lo validan después
+ * propuestaSchema / camposSchema con zod); sin betas, sin fallbacks y sin thinking. Se queda effort 'low' (GA, sin
+ * beta; en Sonnet 5.5 el effort de serie es 'high' y sin él el razonamiento adaptativo no cabría en los 60 s de la
+ * ruta): si el effort fuera la causa del 400, la mínima también fallaría y el aviso del log diría "parámetro
+ * output_config.effort". tool_choice sigue en 'auto' (con una sola llamada): Claude Sonnet 5.5 rechaza con 400 el
+ * forzado ('tool' / 'any'), así que forzarla aquí haría fallar también la mínima; el mensaje ya pide la herramienta por
+ * su nombre y, si no la llama, hay un reintento.
+ */
+export function peticionMinima(entrada: PedidoHerramienta): Anthropic.Beta.Messages.MessageCreateParamsNonStreaming {
+  const { name, description, input_schema } = entrada.herramienta
+  return {
+    model: MODELO_PROPUESTA,
+    max_tokens: Math.max(entrada.maxTokens, MAX_TOKENS_PETICION_MINIMA),
+    output_config: { effort: 'low' },
+    system: [{ type: 'text', text: entrada.sistema, cache_control: { type: 'ephemeral' } }],
+    tools: [{ name, description, input_schema }],
+    tool_choice: { type: 'auto', disable_parallel_tool_use: true },
+    messages: [{ role: 'user', content: entrada.mensaje }],
+  }
+}
+
+/**
+ * ¿Anthropic rechazó la PETICIÓN (400 invalid_request)? Solo entonces se prueba la mínima. Un 'refusal' (200), un 429,
+ * un 5xx, la red o el tiempo agotado NO: la mínima no los arreglaría (y el SDK ya reintenta 429/5xx y la red).
+ */
+export function esPeticionRechazada(error: unknown): boolean {
+  return error instanceof Anthropic.APIError && error.status === 400
+}
+
+/** Una petición (y un reintento si no llama a la herramienta). 'refusal' o max_tokens son un fallo (502). */
+async function llamarHerramienta(cliente: ClientePropuesta, peticion: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming, nombre: string): Promise<unknown> {
   for (let intento = 1; intento <= 2; intento++) {
     const respuesta = await cliente.beta.messages.create(peticion)
     if (respuesta.stop_reason === 'refusal') throw new ErrorProveedorVoz('anthropic', 'rechazo')
     const bloque = respuesta.content.find(
-      (contenido): contenido is Anthropic.Beta.Messages.BetaToolUseBlock =>
-        contenido.type === 'tool_use' && contenido.name === entrada.herramienta.name
+      (contenido): contenido is Anthropic.Beta.Messages.BetaToolUseBlock => contenido.type === 'tool_use' && contenido.name === nombre
     )
     if (respuesta.stop_reason === 'max_tokens') throw new ErrorProveedorVoz('anthropic', 'respuesta cortada (max_tokens)')
     if (bloque) return bloque.input
   }
-  throw new ErrorProveedorVoz('anthropic', `no usó la herramienta ${entrada.herramienta.name}`)
+  throw new ErrorProveedorVoz('anthropic', `no usó la herramienta ${nombre}`)
+}
+
+/**
+ * Una llamada a Claude que debe responder SOLO con una herramienta (proponer_visitas o repartir_campos): los mismos
+ * parámetros para las dos (ver proponerVisitas) y un reintento si no la llama. Si Anthropic rechaza la petición
+ * completa con un 400, deja en el log (console.warn) el resumen seguro del porqué (tipo, parámetro, request_id; nunca
+ * el contenido) y reintenta UNA vez con la petición mínima; si la mínima también falla, se lanza ese error (la ruta
+ * responde 502). Devuelve la entrada cruda de la herramienta; 'refusal' o max_tokens son un fallo del proveedor (502).
+ */
+async function pedirHerramienta(entrada: PedidoHerramienta): Promise<unknown> {
+  const apiKey = llave('ANTHROPIC_API_KEY')
+  if (!apiKey) throw new ErrorProveedorVoz('anthropic', 'sin llave')
+  const cliente = fabricas.anthropic(apiKey)
+  try {
+    return await llamarHerramienta(cliente, peticionCompleta(entrada), entrada.herramienta.name)
+  } catch (error) {
+    if (!esPeticionRechazada(error)) throw error
+    console.warn(
+      `Claude rechazó la petición completa de ${entrada.herramienta.name} (${resumenErrorVoz(error, entrada.sensibles)}); se reintenta con la petición mínima`
+    )
+    return llamarHerramienta(cliente, peticionMinima(entrada), entrada.herramienta.name)
+  }
 }
 
 /** Tope de tokens del reparto de un dictado (tres campos cortos). */
@@ -1347,8 +1691,9 @@ export const HERRAMIENTA_REPARTIR: Anthropic.Beta.Messages.BetaTool = {
 
 /**
  * Decisión 9 de F4.1 (POST /api/me/voz/campos): pide a Claude que reparta lo dictado para UNA visita entre conclusión,
- * compromisos y próxima reunión. Mismo proveedor y parámetros que proponer. Devuelve la entrada cruda de la
- * herramienta (la ruta la valida con camposSchema y la normaliza con normalizarCampos). El texto nunca va a los logs.
+ * compromisos y próxima reunión. Mismos proveedor, parámetros y respaldo de petición mínima que proponer. Devuelve la
+ * entrada cruda de la herramienta (la ruta la valida con camposSchema y la normaliza con normalizarCampos). El texto
+ * nunca va a los logs.
  */
 export async function repartirCampos(entrada: { transcript: string; tipo: TipoVisita; hoy: string }): Promise<unknown> {
   return pedirHerramienta({
@@ -1356,5 +1701,6 @@ export async function repartirCampos(entrada: { transcript: string; tipo: TipoVi
     herramienta: HERRAMIENTA_REPARTIR,
     maxTokens: MAX_TOKENS_CAMPOS,
     mensaje: mensajeCampos(entrada),
+    sensibles: [entrada.transcript],
   })
 }

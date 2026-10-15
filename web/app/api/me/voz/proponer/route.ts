@@ -69,7 +69,8 @@ export async function POST(request: NextRequest) {
     const respuesta: PropuestaResponse = normalizarPropuesta(cruda.data, contexto)
     return NextResponse.json(respuesta, { headers: { 'Cache-Control': 'no-store' } })
   } catch (error) {
-    console.error(`POST /api/me/voz/proponer: fallo al proponer (${resumenErrorVoz(error)})`)
+    // El resumen nunca repite lo dictado ni el contexto (nombres de médicos, cuentas, sedes): resumenErrorVoz.
+    console.error(`POST /api/me/voz/proponer: fallo al proponer (${resumenErrorVoz(error, [datos.transcript, contexto])})`)
     if (esErrorDeProveedor(error)) return jsonError(MENSAJE_FALLO_PROPUESTA, 502)
     return jsonError('Error interno al armar la propuesta', 500)
   }
