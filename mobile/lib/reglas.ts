@@ -3,7 +3,8 @@
  * (web/components/visitas/comun.tsx numeroTexto y porcentaje; web/lib/visits-rules.ts ejecutivaPuedeAnular y
  * textoOrigenMeta). Los prueba scripts/movil-check.ts.
  */
-import type { CuotaTipo, DiaLibreItem, EstadoDiaLibre, OrigenMeta, VisitaItem } from './tipos'
+import { diasEntre, fechaLarga, sumarDias } from './fechas'
+import type { CitaItem, CuotaTipo, DiaLibreItem, EstadoDiaLibre, OrigenMeta, VisitaItem } from './tipos'
 import { ETIQUETA_MEDIO } from './tipos'
 
 /** Número con coma decimal, punto de miles y hasta 2 decimales ("0,5", "72", "1.250"); "—" si no es número. */
@@ -114,4 +115,71 @@ export function tituloRol(role: string | null | undefined): string {
     hr: 'Recursos humanos',
   }
   return (role && titulos[role]) || 'Usuario'
+}
+
+// ---------------------------------------------------------------------------------------------
+// Agenda (F4.1): textos de las citas en Hoy, Agenda y Reportar
+// ---------------------------------------------------------------------------------------------
+
+/** Con quién es la cita ("Dra. Ana Gómez" o "Clínica Norte · Compras"). Nunca documentos. */
+export function conQuienCita(cita: Pick<CitaItem, 'tipo' | 'medico' | 'cuenta' | 'subtipo'>): string {
+  if (cita.tipo === 'medica') return cita.medico?.nombre ?? 'Médico'
+  return [cita.cuenta?.nombre ?? 'Cuenta', cita.subtipo?.nombre].filter(Boolean).join(' · ')
+}
+
+/** "10:30" o "Sin hora". */
+export function textoHoraCita(hora: string | null | undefined): string {
+  return hora ? hora.slice(0, 5) : 'Sin hora'
+}
+
+/** "Hoy · martes 14 de octubre", "Mañana · miércoles 15 de octubre" o "jueves 16 de octubre" (con mayúscula inicial). */
+export function tituloDiaAgenda(fecha: string, hoy: string): string {
+  const larga = fechaLarga(fecha, new Date(`${hoy}T12:00:00-05:00`))
+  const diferencia = diasEntre(hoy, fecha)
+  if (diferencia === 0) return `Hoy · ${larga}`
+  if (diferencia === 1) return `Mañana · ${larga}`
+  return larga ? larga[0].toUpperCase() + larga.slice(1) : larga
+}
+
+/**
+ * Mi agenda (F4.1): "3 citas" cuenta las que siguen en pie (pendientes y hechas); las canceladas también se muestran,
+ * con su insignia, porque una cita no se borra: se cancela (decisión 1). Si hay, se añade " · 1 cancelada".
+ */
+export function textoTotalAgenda(citas: readonly Pick<CitaItem, 'estado'>[]): string {
+  const canceladas = citas.filter(cita => cita.estado === 'cancelada').length
+  const enPie = citas.length - canceladas
+  const base = enPie === 1 ? '1 cita' : `${enPie} citas`
+  return canceladas === 0 ? base : `${base} · ${canceladas === 1 ? '1 cancelada' : `${canceladas} canceladas`}`
+}
+
+/** Las citas por día, de `desde` a `hasta` (ambos incluidos, también los días sin citas), cada día por hora. */
+export function agruparCitasPorDia<T extends Pick<CitaItem, 'id' | 'fecha' | 'hora'>>(citas: readonly T[], desde: string, hasta: string): { fecha: string; citas: T[] }[] {
+  const dias: { fecha: string; citas: T[] }[] = []
+  const total = Math.max(0, Math.min(62, diasEntre(desde, hasta)))
+  for (let i = 0; i <= total; i++) {
+    const fecha = sumarDias(desde, i)
+    const delDia = citas
+      .filter(cita => cita.fecha === fecha)
+      .sort((a, b) => (a.hora === b.hora ? (a.id < b.id ? -1 : 1) : a.hora === null ? 1 : b.hora === null ? -1 : a.hora < b.hora ? -1 : 1))
+    dias.push({ fecha, citas: delDia })
+  }
+  return dias
+}
+
+/**
+ * El nombre de la cuenta junto al de la sede solo si dice algo más ("Portoazul Torre Médica · Clínica Portoazul S.A.S."
+ * sí; "Clínica Portoazul · Clínica Portoazul S.A.S." no): ninguno contiene al otro, sin tildes ni mayúsculas.
+ */
+export function cuentaDistinta(sede: string, cuenta: string | null | undefined): string | null {
+  if (!cuenta) return null
+  const limpio = (texto: string) =>
+    texto
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim()
+  const a = limpio(sede)
+  const b = limpio(cuenta)
+  return a && b && !a.includes(b) && !b.includes(a) ? cuenta : null
 }

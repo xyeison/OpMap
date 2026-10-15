@@ -7,7 +7,7 @@ import { sinCortes } from '../../lib/reglas'
 import { textoDistancia } from '../../lib/geo'
 import type { SedeOpcion } from '../../lib/propuesta'
 import { etiquetaClaseCuenta } from '../../lib/terceros'
-import { Grupo, Insignia, Tarjeta, Texto, Vacio } from '../../lib/ui'
+import { Grupo, Insignia, Tarjeta, Texto, Vacio, useColores } from '../../lib/ui'
 
 interface Props {
   sedes: readonly SedeOpcion[]
@@ -15,11 +15,14 @@ interface Props {
   elegida: string | null
   alElegir: (id: string | null) => void
   max?: number
+  /** Texto si no hay sedes (p. ej. sin ubicación). */
+  vacio?: string
 }
 
-export function ListaSedes({ sedes, radioM, elegida, alElegir, max = 12 }: Props) {
+export function ListaSedes({ sedes, radioM, elegida, alElegir, max = 12, vacio = 'No hay sedes de OpMap a menos de 1 km de aquí.' }: Props) {
+  const c = useColores()
   const ordenadas = [...sedes].sort((a, b) => (a.distancia_m ?? Infinity) - (b.distancia_m ?? Infinity)).slice(0, max)
-  if (ordenadas.length === 0) return <Vacio texto="No hay sedes de OpMap a menos de 1 km de aquí." />
+  if (ordenadas.length === 0) return <Vacio texto={vacio} />
   return (
     <View style={{ gap: 8 }}>
       {ordenadas.map(sede => {
@@ -30,7 +33,7 @@ export function ListaSedes({ sedes, radioM, elegida, alElegir, max = 12 }: Props
             key={sede.id}
             alPresionar={() => alElegir(activa ? null : sede.id)}
             etiquetaAccesible={`${sede.nombre}${sede.distancia_m !== null ? `, a ${textoDistancia(sede.distancia_m)}` : ''}`}
-            estilo={{ padding: 12, borderWidth: activa ? 2.5 : undefined }}
+            estilo={{ padding: 12, ...(activa ? { borderWidth: 2.5, borderColor: c.acento } : null) }}
           >
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
               <Texto negrita estilo={{ flexShrink: 1 }}>

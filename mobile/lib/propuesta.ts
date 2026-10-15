@@ -10,10 +10,15 @@
  * - validarBorrador es el espejo en el teléfono de validarVisita del servidor (mismos campos y mensajes), para
  *   avisar antes de enviar; el servidor sigue siendo la última palabra (la distancia que vale es la suya).
  * - cuerpoDesdeBorrador arma el cuerpo de POST /api/me/visitas (tipo y modalidad discriminados).
+ * - F4.1 (agenda, spec 2026-10-14): Reportar empieza por el sitio (la cita de hoy o la sede); la cita elegida arma el
+ *   borrador (tipo, médico o cuenta y subtipo, sede y agenda_id); el dictado de un campo se AÑADE a lo escrito.
  */
-import { esFechaIso, fechaBogota, hoyBogota } from './fechas'
+import { esFechaIso, fechaBogota, hoyBogota, sumarDias } from './fechas'
 import { esPunto, haversineM, textoDistancia, type Punto } from './geo'
 import type {
+  CamposDictadoResponse,
+  CitaCreate,
+  CitaItem,
   ConfigContexto,
   ContactoContexto,
   ContextoResponse,
@@ -32,7 +37,7 @@ import type {
   VisitaPropuesta,
   VisitaUpdate,
 } from './tipos'
-import { ETIQUETA_TIPO_VISITA } from './tipos'
+import { DIAS_AGENDA_ADELANTE, ETIQUETA_TIPO_VISITA, MAX_NOTA_CITA } from './tipos'
 
 // ---------------------------------------------------------------------------------------------
 // Límites y mensajes (los mismos de web/lib/reporte-visitas.ts y de visitas_registrar)
@@ -103,6 +108,11 @@ export interface SedeOpcion {
   ubicacion_confirmada: boolean | null
   /** Sede traída del buscador: no se saben sus coordenadas (el servidor decide si está en el radio). */
   coordenadas_desconocidas?: boolean
+  /**
+   * Sede que entró al catálogo solo por una cita de hoy (no está entre las cercanas): sirve para la tarjeta de esa
+   * cita, pero no se lista en "Visita no agendada" (esa lista es la de las sedes a menos de 1 km).
+   */
+  de_agenda?: boolean
 }
 
 export interface SedeDeMedicoOpcion {
@@ -149,6 +159,10 @@ export interface ExtrasCatalogo {
  * las distancias de las sedes con coordenadas se recalculan desde ahí (el contexto pudo cargarse en otro punto).
  * `sinSenal`: el contexto es el guardado (otro punto, otra hora): las distancias de las sedes de los médicos ya no
  * valen y quedan "desconocidas" (decide el servidor al enviar la cola), salvo las de sedes con coordenadas.
+ *
+ * F4.1: las citas de hoy (contexto.agenda_hoy) también entran: su sede (con sus coordenadas, aunque esté a más de 1 km)
+ * y su médico (si no es de "mis médicos", como uno traído del buscador: fuera de su territorio). Así la tarjeta de la
+ * cita y lo que proponga la IA con esa cita (decisión 51) se pueden elegir y validar aquí.
  */
 export function catalogoDesdeContexto(
   contexto: ContextoResponse,
@@ -167,6 +181,23 @@ export function catalogoDesdeContexto(
     distancia_m: sede.distancia_m,
     ubicacion_confirmada: sede.ubicacion_confirmada,
   }))
+  // El contexto guardado antes de la 0840 no trae agenda_hoy: sin citas.
+  const citas = Array.isArray(contexto.agenda_hoy) ? contexto.agenda_hoy : []
+  for (const cita of citas) {
+    if (cita.estado === 'cancelada' || sedes.some(sede => sede.id === cita.sede.id)) continue
+    sedes.push({
+      id: cita.sede.id,
+      nombre: cita.sede.nombre,
+      cuenta_id: cita.sede.cuenta_id,
+      cuenta_nombre: cita.sede.cuenta_nombre,
+      cuenta_clase: null,
+      lat: cita.sede.lat,
+      lng: cita.sede.lng,
+      distancia_m: opciones.sinSenal ? null : cita.distancia_m,
+      ubicacion_confirmada: cita.sede.ubicacion_confirmada,
+      de_agenda: true,
+    })
+  }
   for (const extra of extras.sedes ?? []) if (!sedes.some(sede => sede.id === extra.id)) sedes.push({ ...extra })
   if (punto && esPunto(punto.lat, punto.lng)) {
     for (const sede of sedes) {
@@ -181,6 +212,22 @@ export function catalogoDesdeContexto(
     sedes: medico.sedes.map(sede => (opciones.sinSenal ? { ...sede, distancia_m: null, coordenadas_desconocidas: true } : { ...sede })),
     propio: true,
   }))
+  for (const cita of citas) {
+    if (cita.estado === 'cancelada' || cita.tipo !== 'medica' || !cita.medico) continue
+    // La sede de la cita ya está en `sedes` con sus coordenadas: distanciaASede la mide desde ahí.
+    const deLaCita: SedeDeMedicoOpcion = {
+      id: cita.sede.id,
+      nombre: cita.sede.nombre,
+      cuenta_nombre: cita.sede.cuenta_nombre,
+      distancia_m: sedes.find(s => s.id === cita.sede.id)?.distancia_m ?? null,
+    }
+    const existente = medicos.find(m => m.id === cita.medico?.id)
+    if (existente) {
+      if (!existente.sedes.some(s => s.id === deLaCita.id)) existente.sedes.push(deLaCita)
+    } else {
+      medicos.push({ id: cita.medico.id, nombre: cita.medico.nombre, especialidades: [], lineas: [], sedes: [deLaCita], propio: false })
+    }
+  }
   for (const extra of extras.medicos ?? []) {
     const existente = medicos.find(medico => medico.id === extra.id)
     if (!existente) medicos.push(extra)
@@ -255,6 +302,11 @@ export interface Borrador {
   nombre_dicho_original?: string | null
   /** Transcripción propia de la tarjeta (una visita que se vuelve a reportar desde la cola); si no, la del dictado. */
   transcript?: string | null
+  /**
+   * Cita de la agenda que cumple esta visita (F4.1): la elegida en el paso 1. null = no se eligió; el servidor vincula
+   * sola la cita pendiente de hoy con el mismo médico o cuenta. Se suelta al cambiar el tipo, el médico o la cuenta.
+   */
+  agenda_id: string | null
 }
 
 export interface OpcionesBorrador {
@@ -307,6 +359,7 @@ export function borradorVacio(catalogo: Catalogo, opciones: OpcionesBorrador & {
     medio: null,
     preguntas: [],
     confianza: null,
+    agenda_id: null,
   }
   const sede = opciones.sedeElegida ? catalogo.sedes.find(s => s.id === opciones.sedeElegida) : undefined
   if (sede && tipo === 'institucional') return normalizar({ ...base, sede_id: sede.id, cuenta_id: sede.cuenta_id }, catalogo)
@@ -356,6 +409,7 @@ export function borradorDesdePropuesta(visita: VisitaPropuesta, catalogo: Catalo
     medio: telefonica ? medioPorDefecto(catalogo.config) : null,
     preguntas: visita.preguntas.slice(0, 3),
     confianza: Number.isFinite(visita.confianza) ? visita.confianza : null,
+    agenda_id: null,
   }
   return normalizar(borrador, catalogo, { sedePreferida: opciones.sedeElegida ?? null })
 }
@@ -389,6 +443,14 @@ export function cambiarBorrador(borrador: Borrador, cambios: Partial<Borrador>, 
   if (cambios.modalidad === 'telefonica' && !siguiente.medio) siguiente = { ...siguiente, medio: medioPorDefecto(catalogo.config) }
   if (cambios.modalidad === 'presencial') siguiente = { ...siguiente, medio: null }
   if (cambios.efectiva === true) siguiente = { ...siguiente, failure_reason: '' }
+  // La cita es con ese médico o esa cuenta: si cambia con quién fue (o el tipo), ya no es esa cita (el servidor la
+  // rechazaría con "Esa cita es con otro médico"). La sede y el subtipo sí pueden cambiar (decisión 42).
+  if (siguiente.agenda_id && cambios.agenda_id === undefined) {
+    const otroTipo = cambios.tipo !== undefined && cambios.tipo !== borrador.tipo
+    const otroMedico = cambios.medico_id !== undefined && cambios.medico_id !== borrador.medico_id
+    const otraCuenta = cambios.cuenta_id !== undefined && cambios.cuenta_id !== borrador.cuenta_id
+    if (otroTipo || otroMedico || otraCuenta) siguiente = { ...siguiente, agenda_id: null }
+  }
   return normalizar(siguiente, catalogo)
 }
 
@@ -692,6 +754,7 @@ export function cuerpoDesdeBorrador(borrador: Borrador, datos: DatosEnvio): Visi
     transcript: borrador.origen === 'voz' ? textoONulo(borrador.transcript ?? datos.transcript ?? '', MAX_TRANSCRIPT) : null,
     input_mode: borrador.origen,
     lineas: [...borrador.lineas],
+    agenda_id: borrador.agenda_id ?? null,
   }
   let tipo: { tipo: 'medica'; medico_id: string; cuenta_id: null; subtipo_id: null; contacto_id: null } | { tipo: 'institucional'; medico_id: null; cuenta_id: string; subtipo_id: string; contacto_id: string | null }
   if (borrador.tipo === 'medica') {
@@ -730,7 +793,28 @@ export function resumenBorrador(borrador: Borrador, catalogo: Catalogo): string 
 // Errores de la API al confirmar: qué se le ofrece a la persona
 // ---------------------------------------------------------------------------------------------
 
-export type ClaseRechazo = 'radio' | 'sede_sin_ubicacion' | 'telefonica' | 'tope_medico' | 'perfil' | 'solo_hoy' | 'lineas' | 'otro'
+export type ClaseRechazo = 'radio' | 'sede_sin_ubicacion' | 'telefonica' | 'tope_medico' | 'perfil' | 'solo_hoy' | 'lineas' | 'cita' | 'otro'
+
+/** Mensajes de visitas_registrar cuando el agenda_id no sirve (0840, decisión 43): los mismos de web/lib/reporte-visitas.ts. */
+export const MENSAJES_RECHAZO_CITA = [
+  'Esa cita no existe o no es tuya',
+  'Esa cita está cancelada',
+  'Esa cita ya tiene su visita',
+  'Esa cita es de otro día',
+  'Esa cita es de otro tipo de visita',
+  'Esa cita es con otro médico',
+  'Esa cita es con otra cuenta',
+] as const
+
+/** ¿El servidor rechazó la visita por la cita elegida? (entonces se vuelve a confirmar sin cita). */
+export function esRechazoDeCita(mensaje: string | null | undefined): boolean {
+  return !!mensaje && MENSAJES_RECHAZO_CITA.some(m => mensaje.includes(m))
+}
+
+/** Lo que ve la persona cuando la cita no sirvió: la visita sigue y se confirma como no agendada. */
+export function textoRechazoCita(mensaje: string): string {
+  return `${mensaje}. Quité la cita de esta visita: confírmala de nuevo y queda como visita no agendada.`
+}
 
 export interface Rechazo {
   clase: ClaseRechazo
@@ -752,6 +836,8 @@ export function interpretarRechazo(error: { message: string; errores?: readonly 
   }
   const con = (texto: string) => mensajes.find(m => m.includes(texto))
   const primero = mensajes[0] ?? error.message
+  const cita = mensajes.find(m => esRechazoDeCita(m))
+  if (cita) return { clase: 'cita', mensaje: cita, distancia_m: null, radio_m: null }
   const sinUbicacion = con('no tiene ubicación')
   if (sinUbicacion) return { clase: 'sede_sin_ubicacion', mensaje: sinUbicacion, distancia_m: null, radio_m: null }
   const perfil = con('Tu perfil no incluye')
@@ -870,9 +956,10 @@ export function descartarYaConfirmadas(nuevos: readonly Borrador[], confirmadas:
  * La tarjeta de una visita que quedó "no enviada" por un rechazo del servidor (tope, perfil, lejos…), para corregirla
  * en Reportar sin perder lo escrito: mismo tipo, médico o cuenta, sede, contacto, resultado, conclusión, compromisos,
  * próxima reunión, líneas y transcripción, con un client_id nuevo. Lo que ya no está en el catálogo (otra sede, un
- * médico que no es suyo) se limpia y se vuelve a elegir.
+ * médico que no es suyo) se limpia y se vuelve a elegir. La cita se conserva salvo que el rechazo fuera por ella
+ * (`motivo` con uno de los mensajes del vínculo: "Esa cita ya tiene su visita"…): entonces va sin cita.
  */
-export function borradorDesdeCuerpo(cuerpo: VisitaCreate, catalogo: Catalogo, opciones: OpcionesBorrador): Borrador {
+export function borradorDesdeCuerpo(cuerpo: VisitaCreate, catalogo: Catalogo, opciones: OpcionesBorrador & { motivo?: string | null }): Borrador {
   const borrador: Borrador = {
     clave: opciones.nuevoId(),
     client_id: opciones.nuevoId(),
@@ -897,6 +984,8 @@ export function borradorDesdeCuerpo(cuerpo: VisitaCreate, catalogo: Catalogo, op
     preguntas: [],
     confianza: null,
     transcript: cuerpo.transcript,
+    // Un cuerpo guardado en la cola antes de la agenda no trae agenda_id.
+    agenda_id: opciones.motivo && esRechazoDeCita(opciones.motivo) ? null : (cuerpo.agenda_id ?? null),
   }
   return normalizar(borrador, catalogo)
 }
@@ -1045,4 +1134,321 @@ export function sedesDeCuentaBuscada(item: { id: string; nombre: string; clase: 
 export function sedeConsultorio(sedes: readonly SedeCreada[]): SedeCreada | null {
   const activas = sedes.filter(sede => sede.activo !== false)
   return activas.find(sede => sede.es_principal) ?? activas[0] ?? null
+}
+
+// ---------------------------------------------------------------------------------------------
+// F4.1 Agenda: Reportar empieza por el sitio (spec 2026-10-14, decisiones 6 y 7; contrato fase 8, sección "F4.1")
+// ---------------------------------------------------------------------------------------------
+
+/** Compara dos horas HH:MM (las sin hora al final), como compararHora del servidor. */
+function compararHora(a: string | null, b: string | null): number {
+  if (a === b) return 0
+  if (a === null) return 1
+  if (b === null) return -1
+  return a < b ? -1 : 1
+}
+
+function conQuienDeCita(cita: Pick<CitaItem, 'medico' | 'cuenta'>): string {
+  return cita.medico?.nombre ?? cita.cuenta?.nombre ?? ''
+}
+
+/**
+ * Citas de Reportar: la más cercana primero (las sin distancia al final); luego por hora (las sin hora al final), por
+ * con quién y por id. Igual que ordenarCitas del servidor con porDistancia, dentro de un mismo día.
+ */
+export function ordenarCitasPorDistancia<T extends Pick<CitaItem, 'id' | 'hora' | 'distancia_m' | 'medico' | 'cuenta'>>(citas: readonly T[]): T[] {
+  const distancia = (cita: T) => (cita.distancia_m === null ? Number.POSITIVE_INFINITY : cita.distancia_m)
+  return [...citas].sort(
+    (a, b) =>
+      distancia(a) - distancia(b) ||
+      compararHora(a.hora, b.hora) ||
+      conQuienDeCita(a).localeCompare(conQuienDeCita(b), 'es', { sensitivity: 'base' }) ||
+      (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+  )
+}
+
+/**
+ * Reportar (F4.1): ¿ya eligió dónde está? Una cita, o una sede que está en el catálogo. Sin eso no se graba ni se abre
+ * una tarjeta por toques (spec 2026-10-14, criterio de la app): ni desde los botones, ni desde el aviso de la voz que
+ * falló, ni desde "Agregar otra visita".
+ */
+export function hayEleccion(entrada: { cita: { id: string } | null | undefined; sedeId: string | null | undefined; catalogo: Pick<Catalogo, 'sedes'> | null | undefined }): boolean {
+  if (entrada.cita) return true
+  return !!entrada.sedeId && !!entrada.catalogo?.sedes.some(s => s.id === entrada.sedeId)
+}
+
+/**
+ * Las citas que Reportar ofrece en "¿Dónde estás?": las PENDIENTES de hoy (sin las ya usadas en este reporte), con la
+ * distancia medida desde el punto de AHORA cuando su sede tiene coordenadas (el contexto pudo cargarse en otro punto, o
+ * ser el guardado sin señal) y si queda dentro del radio presencial; ordenadas por distancia.
+ */
+export function citasParaReportar(
+  agenda: readonly CitaItem[] | null | undefined,
+  punto: Punto | null,
+  radioM: number,
+  opciones: { usadas?: readonly string[]; sinSenal?: boolean; hoy?: string } = {}
+): CitaItem[] {
+  const usadas = new Set(opciones.usadas ?? [])
+  const hoy = opciones.hoy ?? hoyBogota()
+  const pendientes = (agenda ?? []).filter(cita => cita.estado === 'pendiente' && cita.fecha === hoy && !usadas.has(cita.id))
+  const conPunto = !!punto && esPunto(punto.lat, punto.lng)
+  return ordenarCitasPorDistancia(
+    pendientes.map(cita => {
+      if (conPunto && esPunto(cita.sede.lat, cita.sede.lng)) {
+        const distancia_m = haversineM(punto as Punto, { lat: cita.sede.lat as number, lng: cita.sede.lng as number })
+        return { ...cita, distancia_m, dentro_del_radio: distancia_m <= radioM }
+      }
+      // Sin punto, o sin señal (la distancia guardada es de otro sitio): no se sabe.
+      if (!conPunto || opciones.sinSenal) return { ...cita, distancia_m: null, dentro_del_radio: null }
+      return { ...cita }
+    })
+  )
+}
+
+/** Cuenta de una cita institucional (la de la cita o, si no viene, la de su sede). */
+function cuentaDeCita(cita: CitaItem): string | null {
+  return cita.cuenta?.id ?? cita.sede.cuenta_id ?? null
+}
+
+/** ¿La tarjeta es la visita de esa cita? (mismo tipo y mismo médico o misma cuenta; la sede y el subtipo pueden cambiar). */
+export function esVisitaDeLaCita(borrador: Pick<Borrador, 'tipo' | 'medico_id' | 'cuenta_id'>, cita: CitaItem): boolean {
+  if (borrador.tipo !== cita.tipo) return false
+  if (cita.tipo === 'medica') return !!borrador.medico_id && borrador.medico_id === (cita.medico?.id ?? null)
+  return !!borrador.cuenta_id && borrador.cuenta_id === cuentaDeCita(cita)
+}
+
+/**
+ * La tarjeta ya armada de una cita (la persona solo dicta o toca lo que pasó): tipo, médico (con sus líneas) o cuenta y
+ * subtipo, la sede de la cita y su agenda_id. En la institucional, si la cuenta tiene un solo contacto que sugiere ese
+ * subtipo, queda elegido (se puede quitar). Presencial y efectiva, como la visita por toques.
+ */
+export function borradorDesdeCita(cita: CitaItem, catalogo: Catalogo, opciones: OpcionesBorrador & { origen?: ModoEntrada }): Borrador {
+  const medico = cita.tipo === 'medica' && cita.medico ? (catalogo.medicos.find(m => m.id === cita.medico?.id) ?? null) : null
+  const subtipo = cita.tipo === 'institucional' && cita.subtipo ? (catalogo.subtipos.find(s => s.id === cita.subtipo?.id) ?? null) : null
+  const cuentaId = cita.tipo === 'institucional' ? cuentaDeCita(cita) : null
+  const sugeridos = subtipo && cuentaId ? catalogo.contactos.filter(c => c.cuenta_id === cuentaId && subtipo.roles_sugeridos.includes(c.rol)) : []
+  const contacto = sugeridos.filter(c => !c.sede_id || c.sede_id === cita.sede.id)
+  const borrador: Borrador = {
+    clave: opciones.nuevoId(),
+    client_id: opciones.nuevoId(),
+    origen: opciones.origen ?? 'toques',
+    tipo: cita.tipo,
+    subtipo_id: subtipo?.id ?? null,
+    medico_id: medico?.id ?? null,
+    medico_nombre_dicho: null,
+    sugerir_crear_medico: false,
+    cuenta_id: cuentaId,
+    sede_id: cita.sede.id,
+    contacto_id: contacto.length === 1 ? contacto[0].id : null,
+    contacto_nombre_dicho: null,
+    lineas: lineasPorDefecto(catalogo, medico),
+    efectiva: true,
+    failure_reason: '',
+    conclusion: '',
+    compromisos: '',
+    next_step_date: '',
+    modalidad: 'presencial',
+    medio: null,
+    preguntas: [],
+    confianza: null,
+    agenda_id: cita.id,
+  }
+  return normalizar(borrador, catalogo, { sedePreferida: cita.sede.id })
+}
+
+/**
+ * Después de dictar con una cita elegida (proponer recibió cita_id): la tarjeta que es la visita de esa cita lleva su
+ * agenda_id (la primera, si la IA repitió). Si ninguna cruzó pero hay UNA sola tarjeta, del tipo de la cita y sin
+ * médico ni nombre dicho (o sin cuenta), es la de la cita: se completa con ella. Las demás tarjetas no se tocan (la base
+ * vincula sola otra cita pendiente de hoy con el mismo médico o cuenta).
+ */
+export function aplicarCitaAPropuestas(borradores: readonly Borrador[], cita: CitaItem, catalogo: Catalogo): Borrador[] {
+  const indice = borradores.findIndex(b => esVisitaDeLaCita(b, cita))
+  if (indice >= 0) {
+    return borradores.map((b, i) => (i === indice ? normalizar({ ...b, agenda_id: cita.id }, catalogo, { sedePreferida: cita.sede.id }) : b))
+  }
+  if (borradores.length !== 1) return [...borradores]
+  const unica = borradores[0]
+  if (unica.tipo !== cita.tipo) return [...borradores]
+  if (cita.tipo === 'medica') {
+    if (unica.medico_id || unica.medico_nombre_dicho || !cita.medico) return [...borradores]
+    const medico = catalogo.medicos.find(m => m.id === cita.medico?.id) ?? null
+    if (!medico) return [...borradores]
+    const lineas = unica.lineas.length > 0 ? unica.lineas : lineasPorDefecto(catalogo, medico)
+    return [normalizar({ ...unica, medico_id: medico.id, sugerir_crear_medico: false, sede_id: cita.sede.id, lineas, agenda_id: cita.id }, catalogo)]
+  }
+  if (unica.cuenta_id) return [...borradores]
+  const subtipo = unica.subtipo_id ?? (cita.subtipo && catalogo.subtipos.some(s => s.id === cita.subtipo?.id) ? cita.subtipo.id : null)
+  return [normalizar({ ...unica, cuenta_id: cuentaDeCita(cita), subtipo_id: subtipo, sede_id: cita.sede.id, agenda_id: cita.id }, catalogo)]
+}
+
+// ---------------------------------------------------------------------------------------------
+// F4.1 Dictar un campo (POST /api/me/voz/campos): lo dictado se AÑADE, nunca borra lo escrito
+// ---------------------------------------------------------------------------------------------
+
+export interface CamposEditables {
+  conclusion: string
+  compromisos: string
+  /** AAAA-MM-DD o ''. */
+  next_step_date: string
+}
+
+export interface ResultadoDictado extends CamposEditables {
+  /** Qué campos cambiaron (para decirle a la persona dónde quedó lo que dijo). */
+  agregados: (keyof CamposEditables)[]
+  /** Al añadir se pasó del máximo del campo y se recortó el final. */
+  recortado: boolean
+}
+
+const normalizarTexto = (texto: string) =>
+  texto
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim()
+
+/**
+ * Une el reparto del dictado con lo que ya hay en la tarjeta: la conclusión y los compromisos dictados se AÑADEN en una
+ * línea nueva (lo escrito no se borra; lo que ya estaba igual no se repite) y la próxima reunión solo se pone si estaba
+ * vacía (y es de hoy en adelante). Todo queda editable antes de confirmar.
+ */
+export function unirCamposDictados(actual: CamposEditables, dictado: CamposDictadoResponse, hoy: string = hoyBogota()): ResultadoDictado {
+  const agregados: (keyof CamposEditables)[] = []
+  let recortado = false
+  const anadir = (campo: 'conclusion' | 'compromisos', max: number): string => {
+    const previo = actual[campo]
+    const nuevo = (dictado[campo] ?? '').trim()
+    if (!nuevo) return previo
+    if (previo.trim() && normalizarTexto(previo).includes(normalizarTexto(nuevo))) return previo
+    const base = previo.replace(/\s+$/, '')
+    const junto = base ? `${base}\n${nuevo}` : nuevo
+    agregados.push(campo)
+    if (junto.length > max) {
+      recortado = true
+      return junto.slice(0, max)
+    }
+    return junto
+  }
+  const conclusion = anadir('conclusion', MAX_CONCLUSION)
+  const compromisos = anadir('compromisos', MAX_COMPROMISOS)
+  let next_step_date = actual.next_step_date
+  const fecha = dictado.next_step_date
+  if (!actual.next_step_date.trim() && esFechaIso(fecha) && fecha >= hoy) {
+    next_step_date = fecha
+    agregados.push('next_step_date')
+  }
+  return { conclusion, compromisos, next_step_date, agregados, recortado }
+}
+
+/** Sin la llave de la IA (503) o con un servidor que aún no tiene la ruta (404): se escribe a mano. */
+export const MENSAJE_DICTADO_NO_DISPONIBLE = 'El dictado no está disponible; escribe la conclusión'
+
+/** Mensaje de un fallo al transcribir o repartir el dictado del campo (status 0 = sin respuesta del servidor). */
+export function mensajeErrorDictado(status: number, mensaje: string): string {
+  if (status === 503 || status === 404) return MENSAJE_DICTADO_NO_DISPONIBLE
+  return mensaje
+}
+
+/** Lo que se le dice a la persona al terminar el dictado del campo. */
+export function textoResultadoDictado(resultado: Pick<ResultadoDictado, 'agregados' | 'recortado'>): string {
+  const nombres: Record<keyof CamposEditables, string> = { conclusion: 'conclusión', compromisos: 'compromisos', next_step_date: 'próxima reunión' }
+  if (resultado.agregados.length === 0) return 'No encontré nada nuevo para agregar. Revisa los campos o vuelve a dictar.'
+  const lista = resultado.agregados.map(campo => nombres[campo])
+  const texto = lista.length === 1 ? lista[0] : `${lista.slice(0, -1).join(', ')} y ${lista[lista.length - 1]}`
+  return `Agregué lo que dijiste en ${texto}. Revísalo antes de confirmar.${resultado.recortado ? ' Se recortó el final porque superaba el máximo del campo.' : ''}`
+}
+
+// ---------------------------------------------------------------------------------------------
+// F4.1 Agendar (POST /api/me/agenda): formulario, revisión antes de enviar y cuerpo
+// ---------------------------------------------------------------------------------------------
+
+/** Mensajes de la ventana: los mismos de web/lib/reporte-visitas.ts (mensajeFechaCita) y del esquema de la hora. */
+export const MENSAJE_CITA_PASADA = 'No se agenda en el pasado: elige hoy o una fecha posterior'
+export const MENSAJE_CITA_LEJANA = `Solo se agenda hasta ${DIAS_AGENDA_ADELANTE} días adelante`
+export const MENSAJE_HORA_CITA = 'Hora no válida: usa HH:MM (de 00:00 a 23:59)'
+
+export interface FormularioCita {
+  /** AAAA-MM-DD. */
+  fecha: string
+  /** Lo que escribió ('' = sin hora; "9:30" vale como 09:30). */
+  hora: string
+  tipo: TipoVisita | null
+  medico_id: string | null
+  cuenta_id: string | null
+  subtipo_id: string | null
+  sede_id: string | null
+  nota: string
+}
+
+/** Formulario nuevo: hoy, sin hora, el primer tipo del perfil (médica primero). */
+export function formularioCitaVacio(hoy: string, perfil: readonly TipoVisita[]): FormularioCita {
+  const tipo: TipoVisita | null = perfil.includes('medica') ? 'medica' : perfil.includes('institucional') ? 'institucional' : null
+  return { fecha: hoy, hora: '', tipo, medico_id: null, cuenta_id: null, subtipo_id: null, sede_id: null, nota: '' }
+}
+
+/** De hoy a hoy + 30 (Bogotá): las fechas que se pueden agendar. */
+export function ventanaCita(hoy: string): { desde: string; hasta: string } {
+  return { desde: hoy, hasta: sumarDias(hoy, DIAS_AGENDA_ADELANTE) }
+}
+
+/** Hora del formulario → 'HH:MM'; '' → null (sin hora); undefined si no es una hora válida. */
+export function horaDeCita(texto: string): string | null | undefined {
+  const limpio = texto.trim()
+  if (!limpio) return null
+  const partes = /^(\d{1,2})[:.h](\d{2})$/.exec(limpio)
+  if (!partes) return undefined
+  const horas = Number(partes[1])
+  const minutos = Number(partes[2])
+  if (horas > 23 || minutos > 59) return undefined
+  return `${String(horas).padStart(2, '0')}:${String(minutos).padStart(2, '0')}`
+}
+
+/**
+ * Revisa la cita como lo hará el servidor (forma y ventana; el día libre, el perfil en esa fecha, el médico en la sede,
+ * la cuenta, el subtipo vigente y los repetidos los decide la base): todos los errores a la vez, con su campo.
+ */
+export function validarCita(formulario: FormularioCita, hoy: string, perfil?: readonly TipoVisita[]): ErrorVisita[] {
+  const errores: ErrorVisita[] = []
+  const falla = (campo: string, mensaje: string) => errores.push({ campo, mensaje })
+  if (!esFechaIso(formulario.fecha)) falla('fecha', 'Fecha no válida: usa AAAA-MM-DD')
+  else if (formulario.fecha < hoy) falla('fecha', MENSAJE_CITA_PASADA)
+  else if (formulario.fecha > ventanaCita(hoy).hasta) falla('fecha', MENSAJE_CITA_LEJANA)
+  if (horaDeCita(formulario.hora) === undefined) falla('hora', MENSAJE_HORA_CITA)
+  if (!formulario.tipo) falla('tipo', 'Elige el tipo de visita')
+  else if (perfil && !perfil.includes(formulario.tipo)) falla('tipo', mensajePerfil(formulario.tipo))
+  if (formulario.tipo === 'medica' && !formulario.medico_id) falla('medico_id', 'Elige el médico')
+  if (formulario.tipo === 'institucional') {
+    if (!formulario.cuenta_id) falla('cuenta_id', 'Elige la cuenta')
+    if (!formulario.subtipo_id) falla('subtipo_id', 'Elige el subtipo de la visita institucional')
+  }
+  if (!formulario.sede_id) falla('sede_id', 'Elige la sede')
+  if (formulario.nota.trim().length > MAX_NOTA_CITA) falla('nota', `La nota no puede superar ${MAX_NOTA_CITA} caracteres`)
+  return errores
+}
+
+/** Cuerpo de POST /api/me/agenda (lo que no aplica al tipo va en null). Lanza si está incompleto: validarlo antes. */
+export function cuerpoCita(formulario: FormularioCita): CitaCreate {
+  const hora = horaDeCita(formulario.hora)
+  if (!formulario.tipo || !formulario.sede_id || hora === undefined || !esFechaIso(formulario.fecha)) throw new Error('La cita está incompleta')
+  const nota = formulario.nota.trim() ? formulario.nota.trim().slice(0, MAX_NOTA_CITA) : null
+  const base = { fecha: formulario.fecha, hora, sede_id: formulario.sede_id, nota }
+  if (formulario.tipo === 'medica') {
+    if (!formulario.medico_id) throw new Error('Elige el médico')
+    return { ...base, tipo: 'medica', medico_id: formulario.medico_id, cuenta_id: null, subtipo_id: null }
+  }
+  if (!formulario.cuenta_id || !formulario.subtipo_id) throw new Error('Elige la cuenta y el subtipo')
+  return { ...base, tipo: 'institucional', medico_id: null, cuenta_id: formulario.cuenta_id, subtipo_id: formulario.subtipo_id }
+}
+
+/** Cambia el formulario y limpia lo que deja de cuadrar (otro tipo: otro "con quién"; otro médico o cuenta: otra sede). */
+export function cambiarFormularioCita(formulario: FormularioCita, cambios: Partial<FormularioCita>): FormularioCita {
+  let siguiente = { ...formulario, ...cambios }
+  if (cambios.tipo !== undefined && cambios.tipo !== formulario.tipo) {
+    siguiente = { ...siguiente, medico_id: null, cuenta_id: null, subtipo_id: null, sede_id: cambios.sede_id ?? null }
+  }
+  const otroMedico = cambios.medico_id !== undefined && cambios.medico_id !== formulario.medico_id
+  const otraCuenta = cambios.cuenta_id !== undefined && cambios.cuenta_id !== formulario.cuenta_id
+  if ((otroMedico || otraCuenta) && cambios.sede_id === undefined) siguiente = { ...siguiente, sede_id: null }
+  return siguiente
 }

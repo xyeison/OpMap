@@ -1,6 +1,7 @@
 /**
  * Mis números del mes: cuota y cumplimiento (KPI 1: visitas efectivas × peso ÷ cuota) de médica, institucional y
- * los subtipos con meta propia, y días hábiles sin visitas. Datos: GET /api/me/numeros?mes=; si el servidor
+ * los subtipos con meta propia, días hábiles sin visitas y (F4.1) el bloque Agenda: porcentaje de visitas efectivas
+ * agendadas y cumplimiento de la agenda, con las cantidades (decisión 8 de la spec 2026-10-14). Datos: GET /api/me/numeros?mes=; si el servidor
  * todavía no lo tiene (404/503), se muestra la cuota de GET /api/me/cuota?mes= (F2) con un aviso.
  */
 import { useFocusEffect } from 'expo-router'
@@ -10,7 +11,7 @@ import * as api from '../../lib/api'
 import { aApiError, esNoDisponible, type ApiError } from '../../lib/errores'
 import { hoyBogota, mesDe, nombreMes, sumarMeses } from '../../lib/fechas'
 import { fraccionBarra, muestraCuota, numeroTexto, porcentaje, textoOrigenMeta } from '../../lib/reglas'
-import type { CuotaResponse, CuotaTipo, NumerosResponse } from '../../lib/tipos'
+import type { CuotaResponse, CuotaTipo, NumerosAgenda, NumerosResponse } from '../../lib/tipos'
 import { Aviso, Barra, Boton, Cargando, Fila, Pantalla, Separador, Subtitulo, Tarjeta, Texto } from '../../lib/ui'
 
 interface Datos {
@@ -132,6 +133,8 @@ function Contenido({ datos }: { datos: Datos }) {
         />
       ))}
 
+      {numeros?.agenda ? <TarjetaAgenda agenda={numeros.agenda} /> : null}
+
       <Tarjeta>
         <Subtitulo>Días del mes</Subtitulo>
         <Fila etiqueta="Días hábiles" valor={numeroTexto(cuota.dias_habiles)} />
@@ -156,6 +159,44 @@ function Contenido({ datos }: { datos: Datos }) {
         ) : null}
       </Tarjeta>
     </>
+  )
+}
+
+/** Bloque Agenda: cuántas efectivas fueron agendadas con anticipación y cuántas citas del mes se cumplieron. */
+function TarjetaAgenda({ agenda }: { agenda: NumerosAgenda }) {
+  return (
+    <Tarjeta>
+      <Subtitulo>Agenda</Subtitulo>
+      <View style={{ gap: 6 }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+          <Texto negrita estilo={{ flexShrink: 1 }}>
+            Visitas efectivas agendadas
+          </Texto>
+          <Texto negrita>{porcentaje(agenda.porcentaje_agendadas)}</Texto>
+        </View>
+        <Barra valor={fraccionBarra(agenda.porcentaje_agendadas)} />
+        <Texto suave peque>
+          {agenda.efectivas === 0
+            ? 'Aún no tienes visitas efectivas este mes.'
+            : `${numeroTexto(agenda.efectivas_agendadas)} de ${numeroTexto(agenda.efectivas)} efectivas estaban en tu agenda desde antes del día de la visita.`}
+        </Texto>
+      </View>
+      <Separador />
+      <View style={{ gap: 6 }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+          <Texto negrita estilo={{ flexShrink: 1 }}>
+            Cumplimiento de la agenda
+          </Texto>
+          <Texto negrita>{porcentaje(agenda.cumplimiento)}</Texto>
+        </View>
+        <Barra valor={fraccionBarra(agenda.cumplimiento)} tono={agenda.cumplimiento !== null && agenda.cumplimiento >= 1 ? 'exito' : 'neutro'} />
+        <Texto suave peque>
+          {agenda.citas_hasta_hoy === 0
+            ? 'No tienes citas de días pasados ni de hoy este mes.'
+            : `${numeroTexto(agenda.citas_hechas)} de ${numeroTexto(agenda.citas_hasta_hoy)} citas hasta hoy tienen su visita (sin las canceladas).`}
+        </Texto>
+      </View>
+    </Tarjeta>
   )
 }
 

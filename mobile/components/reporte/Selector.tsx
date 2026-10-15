@@ -5,7 +5,7 @@
  */
 import { useMemo, useState, type ReactNode } from 'react'
 import { Pressable, Text, TextInput, View } from 'react-native'
-import { TAMANO, useColores } from '../../lib/ui'
+import { TAMANO, useColores, useFuente } from '../../lib/ui'
 
 export interface OpcionSelector {
   id: string
@@ -47,6 +47,7 @@ export function normalizarBusqueda(texto: string): string {
 
 export function Selector({ etiqueta, valor, opciones, alElegir, placeholder, error, ayuda, textoNinguno, vacio, extra, abiertoInicial, tituloElegido }: Props) {
   const c = useColores()
+  const fuente = useFuente()
   const [abierto, setAbierto] = useState(!!abiertoInicial)
   const [filtro, setFiltro] = useState('')
   const elegida = opciones.find(opcion => opcion.id === valor) ?? null
@@ -91,17 +92,17 @@ export function Selector({ etiqueta, valor, opciones, alElegir, placeholder, err
         })}
       >
         <View style={{ flex: 1 }}>
-          <Text style={{ color: c.textoSuave, fontSize: 13, fontWeight: '600' }}>{etiqueta}</Text>
-          <Text style={{ color: valor ? c.texto : c.textoSuave, fontSize: TAMANO.texto, fontWeight: valor ? '700' : '500' }} numberOfLines={2}>
+          <Text style={[{ color: c.textoSuave, fontSize: 13 }, fuente('media')]}>{etiqueta}</Text>
+          <Text style={[{ color: valor ? c.texto : c.textoSuave, fontSize: TAMANO.texto }, fuente(valor ? 'negrita' : 'media')]} numberOfLines={2}>
             {tituloCerrado}
           </Text>
           {elegida?.detalle && !abierto ? (
-            <Text style={{ color: c.textoSuave, fontSize: 14 }} numberOfLines={1}>
+            <Text style={[{ color: c.textoSuave, fontSize: 14 }, fuente('regular')]} numberOfLines={1}>
               {elegida.detalle}
             </Text>
           ) : null}
         </View>
-        <Text style={{ color: c.textoSuave, fontSize: 15, fontWeight: '600' }}>{abierto ? 'Cerrar' : valor ? 'Cambiar' : 'Elegir'}</Text>
+        <Text style={[{ color: c.textoSuave, fontSize: 15 }, fuente('media')]}>{abierto ? 'Cerrar' : valor ? 'Cambiar' : 'Elegir'}</Text>
       </Pressable>
 
       {abierto ? (
@@ -114,19 +115,22 @@ export function Selector({ etiqueta, valor, opciones, alElegir, placeholder, err
               placeholder="Escribe para buscar"
               placeholderTextColor={c.textoSuave}
               autoCorrect={false}
-              style={{
-                minHeight: 50,
-                paddingHorizontal: 14,
-                fontSize: TAMANO.texto,
-                color: c.texto,
-                borderBottomWidth: 1,
-                borderBottomColor: c.borde,
-              }}
+              style={[
+                {
+                  minHeight: 50,
+                  paddingHorizontal: 14,
+                  fontSize: TAMANO.texto,
+                  color: c.texto,
+                  borderBottomWidth: 1,
+                  borderBottomColor: c.borde,
+                },
+                fuente('regular'),
+              ]}
             />
           ) : null}
           {textoNinguno ? <FilaOpcion titulo={textoNinguno} elegida={valor === null} alPresionar={() => elegir(null)} /> : null}
           {visibles.length === 0 ? (
-            <Text style={{ color: c.textoSuave, fontSize: 16, padding: 14 }}>{filtro ? 'Nada coincide con lo que escribiste.' : (vacio ?? 'No hay opciones.')}</Text>
+            <Text style={[{ color: c.textoSuave, fontSize: 16, padding: 14 }, fuente('regular')]}>{filtro ? 'Nada coincide con lo que escribiste.' : (vacio ?? 'No hay opciones.')}</Text>
           ) : (
             visibles.slice(0, 60).map(opcion => (
               <FilaOpcion
@@ -143,13 +147,18 @@ export function Selector({ etiqueta, valor, opciones, alElegir, placeholder, err
         </View>
       ) : null}
 
-      {error ? <Text style={{ color: c.peligro, fontSize: 14 }}>{error}</Text> : ayuda ? <Text style={{ color: c.textoSuave, fontSize: 14 }}>{ayuda}</Text> : null}
+      {error ? (
+        <Text style={[{ color: c.peligro, fontSize: 14 }, fuente('regular')]}>{error}</Text>
+      ) : ayuda ? (
+        <Text style={[{ color: c.textoSuave, fontSize: 14 }, fuente('regular')]}>{ayuda}</Text>
+      ) : null}
     </View>
   )
 }
 
 function FilaOpcion({ titulo, detalle, lateral, elegida, alPresionar }: { titulo: string; detalle?: string | null; lateral?: string | null; elegida: boolean; alPresionar: () => void }) {
   const c = useColores()
+  const fuente = useFuente()
   return (
     <Pressable
       accessibilityRole="button"
@@ -168,12 +177,12 @@ function FilaOpcion({ titulo, detalle, lateral, elegida, alPresionar }: { titulo
         backgroundColor: elegida ? c.superficieSuave : pressed ? c.superficieSuave : c.superficie,
       })}
     >
-      <Text style={{ width: 20, color: c.acento, fontSize: 17, fontWeight: '800' }}>{elegida ? '✓' : ''}</Text>
+      <Text style={[{ width: 20, color: c.acento, fontSize: 17 }, fuente('negrita')]}>{elegida ? '✓' : ''}</Text>
       <View style={{ flex: 1 }}>
-        <Text style={{ color: c.texto, fontSize: 16, fontWeight: elegida ? '700' : '500' }}>{titulo}</Text>
-        {detalle ? <Text style={{ color: c.textoSuave, fontSize: 14 }}>{detalle}</Text> : null}
+        <Text style={[{ color: c.texto, fontSize: 16 }, fuente(elegida ? 'negrita' : 'media')]}>{titulo}</Text>
+        {detalle ? <Text style={[{ color: c.textoSuave, fontSize: 14 }, fuente('regular')]}>{detalle}</Text> : null}
       </View>
-      {lateral ? <Text style={{ color: c.textoSuave, fontSize: 14, fontWeight: '600' }}>{lateral}</Text> : null}
+      {lateral ? <Text style={[{ color: c.textoSuave, fontSize: 14 }, fuente('media')]}>{lateral}</Text> : null}
     </Pressable>
   )
 }

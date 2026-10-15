@@ -268,6 +268,31 @@ funciones:         visitas_registrar(p jsonb, p_user uuid) → jsonb (una visita
                    telefonica }; visitas_distancia_m(lat1, lng1, lat2, lng2) → int (Haversine, radio 6371008.8 m)
 ```
 
+#### App de visita · F4.1 agenda de visitas (migración 0840, aplicada 2026-10-14)
+Contrato en `docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md` (sección "F4.1"); spec
+`docs/specs/2026-10-14-agenda-dictado-y-marca.md`. Una fila por cita; no se borra (se cancela). RLS sin políticas (solo `service_role`:
+SELECT, INSERT, UPDATE; sin DELETE). Las escrituras pasan por `agenda_crear`, `agenda_cancelar` y `visitas_registrar` / `visitas_anular`.
+```sql
+visitas_agenda:    id, executive_id → executives, fecha date, hora time NULL (sin hora), tipo medica|institucional,
+                   medico_id → medicos (médica), cuenta_id → cuentas + subtipo_id → subtipos_institucionales (institucional),
+                   sede_id → sedes NOT NULL, nota (≤ 300), estado pendiente|hecha|cancelada, visita_id → visits (la que la cumplió),
+                   cancelada_at, cancelada_motivo (≤ 300), created_by → users, created_at (antes del día de la visita ⇒ "agendada"), updated_at
+                   CHECK por tipo (médica: médico sin cuenta ni subtipo; institucional: cuenta y subtipo sin médico) y por estado
+                   (pendiente: sin visita ni cancelación; hecha: con visita; cancelada: con cancelada_at y sin visita)
+                   Índices únicos parciales visitas_agenda_medico_uidx (executive_id, fecha, medico_id; no canceladas),
+                   visitas_agenda_cuenta_uidx (executive_id, fecha, cuenta_id, subtipo_id; no canceladas), visitas_agenda_visita_uidx;
+                   visitas_agenda_executive_fecha_idx. Disparadores update_visitas_agenda_updated_at y visitas_agenda_sin_borrar
+visits (+0840):    agenda_id → visitas_agenda (UNIQUE parcial visits_agenda_id_uidx: una visita no anulada por cita; la anulada conserva el
+                   rastro), agendada boolean NOT NULL DEFAULT false; CHECK visits_agenda_check (agendada ⇒ agenda_id; agenda_id solo en las
+                   de la app). Las 7.033 de VMO quedan agenda_id NULL y agendada false.
+funciones:         agenda_crear(p jsonb, p_user uuid) → jsonb { cita_id } (de hoy a hoy + 30 en Bogotá, no en día libre de día completo
+                   registrado o aprobado, perfil en la fecha, sede activa de cuenta activa, médico que atiende en la sede o sede de la
+                   cuenta y subtipo vigente, sin duplicados: 23505); agenda_cancelar(p_id, p_motivo, p_user) (pendiente de hoy o
+                   futura, propia; P0002 ajena). visitas_registrar acepta agenda_id (validado; si no viene, vínculo automático con la
+                   pendiente del mismo médico o cuenta ese día) y devuelve agenda_id y agendada; visitas_anular devuelve la cita a
+                   pendiente.
+```
+
 ### Vistas
 
 #### 1. `kam_statistics`

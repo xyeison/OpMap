@@ -1,20 +1,22 @@
 /**
- * Ingreso con el mismo correo y contraseña de la web de OpMap. La contraseña no se guarda: solo el token que
- * devuelve el servidor (en el almacén seguro del teléfono).
+ * Ingreso a VG Visitas con el mismo correo y contraseña de la web de OpMap. La contraseña no se guarda: solo el
+ * token que devuelve el servidor (en el almacén seguro del teléfono). Arriba, el logotipo de VG Medical y "Visitas".
  */
 import { useState } from 'react'
 import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
+import { Logo } from '../../components/Logo'
 import { URL_API } from '../../lib/api'
 import { mensajeDeError } from '../../lib/errores'
 import { esServidorDesarrollo, nombreServidor } from '../../lib/http'
 import { pareceCorreo } from '../../lib/reglas'
 import { useSesion } from '../../lib/sesion'
-import { Aviso, Boton, Campo, TAMANO, Texto, Titulo, useColores } from '../../lib/ui'
+import { Aviso, Boton, Campo, TAMANO, Texto, Titulo, useColores, useFuente } from '../../lib/ui'
 
 export default function Login() {
   const { entrar, aviso } = useSesion()
   const c = useColores()
+  const fuente = useFuente()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [enviando, setEnviando] = useState(false)
@@ -40,10 +42,13 @@ export default function Login() {
     <SafeAreaView style={{ flex: 1, backgroundColor: c.fondo }}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: TAMANO.espacio, gap: 18 }} keyboardShouldPersistTaps="handled">
-          <View style={{ gap: 6 }}>
-            <Titulo>OpMap Visitas</Titulo>
-            <Texto suave>Entra con el correo y la contraseña de OpMap.</Texto>
+          <View style={{ alignItems: 'center', gap: 10, marginBottom: 14 }}>
+            <Logo ancho={220} />
+            <Titulo estilo={{ textAlign: 'center', fontSize: 24, letterSpacing: 0.5, color: c.textoSuave, ...fuente('media') }}>Visitas</Titulo>
           </View>
+          <Texto suave centro>
+            Entra con el correo y la contraseña de OpMap.
+          </Texto>
 
           {aviso ? <Aviso tono="alerta">{aviso}</Aviso> : null}
 

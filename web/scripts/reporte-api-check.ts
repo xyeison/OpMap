@@ -22,6 +22,14 @@
  * en la ruta): borra solo source = 'vmo_import' del mes y no inserta nada si el borrado falla. El portador en páginas,
  * el CORS de desarrollo y los límites del login están en scripts/reporte-check.ts.
  *
+ * F4.1 (migración 0840, sección 14): GET/POST /api/me/agenda, POST /api/me/agenda/[id]/cancelar, el vínculo de
+ * POST /api/me/visitas con la agenda (agenda_id o automático, "agendada", anular devuelve la cita a pendiente),
+ * contexto.agenda_hoy con distancia, el bloque agenda de Mis números, proponer con cita_id, POST /api/me/voz/campos
+ * (Claude falso: reparto en conclusión y compromisos, 503 sin llave, 400 vacío, nada en los logs) y el 503 claro de la
+ * agenda sin la 0840 mientras lo demás sigue igual. El Supabase falso emula agenda_crear y agenda_cancelar con los
+ * mensajes y SQLSTATE de la 0840 y el paso 7b de visitas_registrar con las reglas puras (citaParaVincular,
+ * revisarCitaElegida y citaAnticipada, probadas contra los mismos casos que el bloque DO de la 0840).
+ *
  * Uso (desde web/): npx tsx scripts/reporte-api-check.ts      Código de salida 1 si alguna prueba falla.
  */
 import { randomUUID } from 'node:crypto'
@@ -43,9 +51,33 @@ import {
   MOTIVO_SEMILLA,
   festivosColombia,
   hoyBogota,
+  sumarDias,
   type CuotaResponse,
 } from '../lib/visits-rules'
 import {
+  MENSAJE_CITA_AJENA,
+  MENSAJE_CITA_CANCELADA,
+  MENSAJE_CITA_DIA_LIBRE,
+  MENSAJE_CITA_HECHA_NO_SE_CANCELA,
+  MENSAJE_CITA_LEJANA,
+  MENSAJE_CITA_NO_EXISTE,
+  MENSAJE_CITA_OTRO_DIA,
+  MENSAJE_CITA_OTRO_MEDICO,
+  MENSAJE_CITA_PASADA,
+  MENSAJE_CITA_PASADA_NO_SE_CANCELA,
+  MENSAJE_CITA_REPETIDA_CUENTA,
+  MENSAJE_CITA_REPETIDA_MEDICO,
+  MENSAJE_CITA_YA_CANCELADA,
+  MENSAJE_FALLO_CAMPOS,
+  MENSAJE_MEDICO_NO_EXISTE,
+  MENSAJE_SEDE_NO_DE_LA_CUENTA,
+  MENSAJE_SEDE_NO_DEL_MEDICO,
+  MENSAJE_SUBTIPO_NO_VIGENTE,
+  PROMPT_CAMPOS,
+  citaAnticipada,
+  citaParaVincular,
+  revisarCitaElegida,
+  type CitaVinculo,
   MENSAJE_AUDIO_SIN_DURACION,
   MENSAJE_CONTACTO_INACTIVO,
   MENSAJE_CUENTA_INACTIVA,
@@ -76,10 +108,10 @@ import {
   mensajeTopeTelefonicas,
 } from '../lib/reporte-visitas'
 import type * as W from '../lib/reporte-visitas'
-import type { visitaCreateSchema } from '../lib/reporte-visitas-schemas'
+import type { camposDictadoSchema, citaCancelarSchema, citaCreateSchema, visitaCreateSchema } from '../lib/reporte-visitas-schemas'
 import type * as M from '../../mobile/lib/tipos'
 import { CLAVES_API, clavesDe, tieneClaves, type FormaApi } from '../../mobile/lib/claves-api'
-import { MENSAJE_FALTA_MIGRACION_0830, TEXTO_OMITIDO_EN_LOG, fijarFabricasVoz, reiniciarLimitesVoz, type ClientePropuesta, type ClienteTranscripcion } from '../app/api/me/_lib/reporte-server'
+import { MENSAJE_FALTA_MIGRACION_0830, MENSAJE_FALTA_MIGRACION_0840, TEXTO_OMITIDO_EN_LOG, fijarFabricasVoz, reiniciarLimitesVoz, type ClientePropuesta, type ClienteTranscripcion } from '../app/api/me/_lib/reporte-server'
 import { POST as login } from '../app/api/auth/login/route'
 import { GET as verMe } from '../app/api/auth/me/route'
 import { importarMesVmo } from '../app/api/visits/_lib/importar-vmo'
@@ -92,6 +124,9 @@ import { POST as transcribir } from '../app/api/me/voz/transcribir/route'
 import { POST as proponer } from '../app/api/me/voz/proponer/route'
 import { GET as verNumeros } from '../app/api/me/numeros/route'
 import { GET as verCuota } from '../app/api/me/cuota/route'
+import { GET as verAgenda, POST as agendar } from '../app/api/me/agenda/route'
+import { POST as cancelarCita } from '../app/api/me/agenda/[id]/cancelar/route'
+import { POST as repartirCampos } from '../app/api/me/voz/campos/route'
 import { POST as crearSede } from '../app/api/terceros/sedes/route'
 import { POST as crearMedico } from '../app/api/terceros/medicos/route'
 import { GET as visitasDelMapa } from '../app/api/visits/filtered/route'
@@ -122,6 +157,23 @@ export type TiposDeLaApp = [
   Afirmar<Asignable<W.LoginMovilResponse, M.LoginMovilResponse>>,
   Afirmar<Asignable<W.MeResponse, M.MeResponse>>,
   Afirmar<Asignable<W.ErrorResponse, M.ErrorResponse>>,
+  // F4.1 (0840): agenda, indicador y dictado por campo.
+  Afirmar<Asignable<W.CitaItem, M.CitaItem>>,
+  Afirmar<Asignable<M.CitaItem, W.CitaItem>>,
+  Afirmar<Asignable<W.AgendaResponse, M.AgendaResponse>>,
+  Afirmar<Asignable<M.AgendaResponse, W.AgendaResponse>>,
+  Afirmar<Asignable<W.CitaResponse, M.CitaResponse>>,
+  Afirmar<Asignable<W.NumerosAgenda, M.NumerosAgenda>>,
+  Afirmar<Asignable<M.NumerosAgenda, W.NumerosAgenda>>,
+  Afirmar<Asignable<W.CamposDictadoResponse, M.CamposDictadoResponse>>,
+  Afirmar<Asignable<M.CamposDictadoResponse, W.CamposDictadoResponse>>,
+  Afirmar<Asignable<M.CitaCreate, W.CitaCreate>>,
+  Afirmar<Asignable<W.CitaCreate, M.CitaCreate>>,
+  Afirmar<Asignable<M.CitaCreate, z.input<typeof citaCreateSchema>>>,
+  Afirmar<Asignable<M.CitaCancelar, W.CitaCancelar>>,
+  Afirmar<Asignable<M.CitaCancelar, z.input<typeof citaCancelarSchema>>>,
+  Afirmar<Asignable<M.CamposDictado, W.CamposDictado>>,
+  Afirmar<Asignable<M.CamposDictado, z.input<typeof camposDictadoSchema>>>,
   // Cuerpos: lo que manda la app cabe en lo que valida el servidor.
   Afirmar<Asignable<M.VisitaCreate, W.VisitaCreate>>,
   Afirmar<Asignable<W.VisitaCreate, M.VisitaCreate>>,
@@ -309,6 +361,9 @@ function project(row: Fila, select: string | null): Fila {
 /** Columnas nuevas de visits (0830): con `sin0830` cualquier consulta que las nombre falla como en la base vieja. */
 const COLUMNAS_0830 = ['source', 'executive_id', 'client_id', 'tipo', 'subtipo_id', 'medico_id', 'cuenta_id', 'sede_id', 'modalidad', 'efectiva', 'deleted_at', 'checked_in_at', 'transcript']
 
+/** Columnas de visits de la 0840: con `sin0840` cualquier consulta que las nombre falla como antes de aplicarla. */
+const COLUMNAS_0840 = ['agenda_id', 'agendada']
+
 const CONFIG_GENERAL_DEFECTO = GENERAL_POR_DEFECTO as unknown as Record<string, any>
 
 function fakeSupabase(tablas: Tablas) {
@@ -317,6 +372,8 @@ function fakeSupabase(tablas: Tablas) {
   const rpcs: { nombre: string; args: Fila }[] = []
   const estado = {
     sin0830: false,
+    /** La base sin la 0840: sin visitas_agenda, agenda_crear, agenda_cancelar ni visits.agenda_id/agendada. */
+    sin0840: false,
     rechazoForzado: null as string | null,
     /** Error crudo de PostgREST que devuelve la próxima RPC visitas_* (para probar qué sale en los logs). */
     errorRpc: null as Fila | null,
@@ -372,7 +429,8 @@ function fakeSupabase(tablas: Tablas) {
     const previa = store('visits').find(v => v.client_id === p.client_id)
     if (previa) {
       if (previa.executive_id !== p.executive_id) return pgError('23505', 'Ese client_id ya se usó en otra visita', 409)
-      return json({ visita_id: previa.id, repetida: true, out_of_territory: previa.out_of_territory, distance_m: previa.distance_m, visit_date: previa.visit_date })
+      const vinculo = estado.sin0840 ? {} : { agenda_id: previa.agenda_id ?? null, agendada: previa.agendada === true }
+      return json({ visita_id: previa.id, repetida: true, out_of_territory: previa.out_of_territory, distance_m: previa.distance_m, visit_date: previa.visit_date, ...vinculo })
     }
     // 2. Ejecutiva, mismo día, horas
     const ejecutiva = store('executives').find(e => e.id === p.executive_id)
@@ -426,6 +484,25 @@ function fakeSupabase(tablas: Tablas) {
     // 7. Líneas
     if (p.lineas.length === 0) return regla('Elige al menos una línea')
     if ((p.lineas as string[]).some(id => !store('executive_lines').some(el => el.executive_id === p.executive_id && el.line_id === id))) return regla(MENSAJE_LINEAS_AJENAS)
+    // 7b. Agenda (0840): la cita de agenda_id (revisada) o la del vínculo automático; agendada si se creó antes del día.
+    //     Con las reglas puras de lib/reporte-visitas.ts (las mismas que prueba el bloque DO de la 0840). Sin la 0840, la
+    //     función de la 0830 ignora agenda_id.
+    let citaVinculada: Fila | null = null
+    let agendada = false
+    if (!estado.sin0840) {
+      const visitaVinculo = { executive_id: p.executive_id, fecha, tipo: p.tipo, medico_id: p.tipo === 'medica' ? p.medico_id : null, cuenta_id: p.tipo === 'institucional' ? p.cuenta_id : null, subtipo_id: p.tipo === 'institucional' ? p.subtipo_id : null }
+      const citas = store('visitas_agenda')
+      if (p.agenda_id) {
+        const cita = citas.find(c => c.id === p.agenda_id) ?? null
+        const error = revisarCitaElegida(cita ? aVinculo(cita) : null, visitaVinculo)
+        if (error) return regla(error)
+        citaVinculada = cita
+      } else {
+        const elegida = citaParaVincular(citas.map(aVinculo), visitaVinculo)
+        citaVinculada = elegida ? (citas.find(c => c.id === elegida.id) ?? null) : null
+      }
+      agendada = citaVinculada ? citaAnticipada(citaVinculada.created_at, fecha) : false
+    }
     // Lo que la pre-validación no puede ver (otra visita que entró en el mismo instante, con el candado por ejecutiva)
     if (estado.rechazoForzado) return regla(estado.rechazoForzado)
     // 8. Punto del mapa de calor e inserción. Telefónica: la sede, su municipio o la zona; NUNCA el GPS del teléfono.
@@ -484,9 +561,108 @@ function fakeSupabase(tablas: Tablas) {
       updated_by: args.p_user,
       deleted_at: null,
       deleted_reason: null,
+      ...(estado.sin0840 ? {} : { agenda_id: citaVinculada?.id ?? null, agendada }),
     })
     for (const line_id of Array.from(new Set(p.lineas as string[]))) store('visit_lines').push({ visit_id: id, line_id })
-    return json({ visita_id: id, repetida: false, out_of_territory: oot, distance_m: distancia, visit_date: fecha })
+    if (citaVinculada) Object.assign(citaVinculada, { estado: 'hecha', visita_id: id, updated_at: new Date().toISOString() })
+    const vinculo = estado.sin0840 ? {} : { agenda_id: citaVinculada?.id ?? null, agendada }
+    return json({ visita_id: id, repetida: false, out_of_territory: oot, distance_m: distancia, visit_date: fecha, ...vinculo })
+  }
+
+  const aVinculo = (cita: Fila): CitaVinculo => ({
+    id: cita.id,
+    executive_id: cita.executive_id,
+    fecha: cita.fecha,
+    hora: cita.hora ? String(cita.hora).slice(0, 5) : null,
+    tipo: cita.tipo,
+    medico_id: cita.medico_id ?? null,
+    cuenta_id: cita.cuenta_id ?? null,
+    subtipo_id: cita.subtipo_id ?? null,
+    estado: cita.estado,
+    created_at: cita.created_at,
+  })
+
+  // --- Espejo de agenda_crear (0840): mismos pasos, mensajes y SQLSTATE ---
+  function agendaCrear(args: Fila): Response {
+    const p = (args.p ?? {}) as Fila
+    const regla = (mensaje: string) => pgError('23514', mensaje)
+    const forma = (mensaje: string) => pgError('22023', mensaje)
+    if (!args.p_user) return forma('Falta el usuario que agenda')
+    if (!p.fecha) return forma('Elige la fecha de la cita')
+    if (!['medica', 'institucional'].includes(p.tipo)) return forma('Tipo de visita no válido: medica o institucional')
+    if (!p.sede_id) return forma('Elige la sede')
+    if (p.tipo === 'medica' && !p.medico_id) return forma('Elige el médico')
+    if (p.tipo === 'institucional' && !p.cuenta_id) return forma('Elige la cuenta')
+    if (p.tipo === 'institucional' && !p.subtipo_id) return forma('Elige el subtipo de la visita institucional')
+    if (p.nota && String(p.nota).length > 300) return forma('La nota no puede superar 300 caracteres')
+    const ejecutiva = store('executives').find(e => e.user_id === args.p_user)
+    if (!ejecutiva || ejecutiva.status !== 'active') return regla(MENSAJE_SIN_EJECUTIVA)
+    if (!ejecutiva.base_kam_id) return regla(MENSAJE_SIN_ZONA)
+    const hoy = hoyFalso()
+    if (p.fecha < hoy) return regla(MENSAJE_CITA_PASADA)
+    if (p.fecha > sumarDias(hoy, 30)) return regla(MENSAJE_CITA_LEJANA)
+    if (store('dias_libres').some(d => d.executive_id === ejecutiva.id && d.fecha === p.fecha && ['registrado', 'aprobado'].includes(d.estado) && Number(d.fraccion) >= 1)) {
+      return regla(MENSAJE_CITA_DIA_LIBRE)
+    }
+    const cfg = configVigente(ejecutiva.id, p.fecha)
+    if (!cfg.perfil.includes(p.tipo)) return regla(mensajePerfil(p.tipo))
+    const sede = store('sedes').find(s => s.id === p.sede_id)
+    if (!sede || !sede.activo) return regla('Esa sede no existe')
+    if (store('cuentas').find(c => c.id === sede.cuenta_id)?.activo !== true) return regla(MENSAJE_CUENTA_INACTIVA)
+    const medica = p.tipo === 'medica'
+    if (medica) {
+      if (!store('medicos').some(m => m.id === p.medico_id && m.activo)) return regla(MENSAJE_MEDICO_NO_EXISTE)
+      if (!store('medico_sedes').some(ms => ms.medico_id === p.medico_id && ms.sede_id === p.sede_id)) return regla(MENSAJE_SEDE_NO_DEL_MEDICO)
+    } else {
+      if (sede.cuenta_id !== p.cuenta_id) return regla(MENSAJE_SEDE_NO_DE_LA_CUENTA)
+      if (!store('subtipos_institucionales').some(s => s.id === p.subtipo_id && s.vigente_desde <= p.fecha && (s.vigente_hasta === null || s.vigente_hasta >= p.fecha))) {
+        return regla(MENSAJE_SUBTIPO_NO_VIGENTE)
+      }
+    }
+    const citas = store('visitas_agenda')
+    const vivas = citas.filter(c => c.executive_id === ejecutiva.id && c.fecha === p.fecha && c.tipo === p.tipo && c.estado !== 'cancelada')
+    if (medica && vivas.some(c => c.medico_id === p.medico_id)) return pgError('23505', MENSAJE_CITA_REPETIDA_MEDICO, 409)
+    if (!medica && vivas.some(c => c.cuenta_id === p.cuenta_id && c.subtipo_id === p.subtipo_id)) return pgError('23505', MENSAJE_CITA_REPETIDA_CUENTA, 409)
+    const id = randomUUID()
+    const ahora = new Date().toISOString()
+    citas.push({
+      id,
+      executive_id: ejecutiva.id,
+      fecha: p.fecha,
+      // PostgreSQL devuelve time con segundos.
+      hora: p.hora ? `${String(p.hora).slice(0, 5)}:00` : null,
+      tipo: p.tipo,
+      medico_id: medica ? p.medico_id : null,
+      cuenta_id: medica ? null : p.cuenta_id,
+      subtipo_id: medica ? null : p.subtipo_id,
+      sede_id: p.sede_id,
+      nota: p.nota ? String(p.nota).trim() : null,
+      estado: 'pendiente',
+      visita_id: null,
+      cancelada_at: null,
+      cancelada_motivo: null,
+      created_by: args.p_user,
+      created_at: ahora,
+      updated_at: ahora,
+    })
+    return json({ cita_id: id })
+  }
+
+  // --- Espejo de agenda_cancelar (0840) ---
+  function agendaCancelar(args: Fila): Response {
+    if (!args.p_id) return pgError('22023', 'Falta la cita')
+    if (!args.p_user) return pgError('22023', 'Falta el usuario que cancela')
+    const motivo = typeof args.p_motivo === 'string' && args.p_motivo.trim() ? args.p_motivo.trim() : null
+    if (motivo && motivo.length > 300) return pgError('23514', 'El motivo no puede superar 300 caracteres')
+    const ejecutiva = store('executives').find(e => e.user_id === args.p_user)
+    if (!ejecutiva || ejecutiva.status !== 'active') return pgError('23514', MENSAJE_SIN_EJECUTIVA)
+    const cita = store('visitas_agenda').find(c => c.id === args.p_id)
+    if (!cita || cita.executive_id !== ejecutiva.id) return pgError('P0002', MENSAJE_CITA_NO_EXISTE, 404)
+    if (cita.estado === 'cancelada') return pgError('23514', MENSAJE_CITA_YA_CANCELADA)
+    if (cita.estado === 'hecha') return pgError('23514', MENSAJE_CITA_HECHA_NO_SE_CANCELA)
+    if (cita.fecha < hoyFalso()) return pgError('23514', MENSAJE_CITA_PASADA_NO_SE_CANCELA)
+    Object.assign(cita, { estado: 'cancelada', cancelada_at: new Date().toISOString(), cancelada_motivo: motivo, updated_at: new Date().toISOString() })
+    return json(null)
   }
 
   const C_NO_EDITABLE = MENSAJE_VISITA_NO_EDITABLE
@@ -553,6 +729,12 @@ function fakeSupabase(tablas: Tablas) {
     visita.deleted_at = new Date().toISOString()
     visita.deleted_reason = motivo
     visita.updated_by = args.p_user
+    // 0840: la cita que cumplía vuelve a pendiente (la visita anulada conserva agenda_id).
+    if (!estado.sin0840) {
+      for (const cita of store('visitas_agenda')) {
+        if (cita.visita_id === visita.id && cita.estado === 'hecha') Object.assign(cita, { estado: 'pendiente', visita_id: null })
+      }
+    }
     return json(null)
   }
 
@@ -583,6 +765,16 @@ function fakeSupabase(tablas: Tablas) {
       }
     }
 
+    if (estado.sin0840) {
+      if (table === 'rpc/agenda_crear' || table === 'rpc/agenda_cancelar') return pgError('PGRST202', `Could not find the function public.${table.slice(4)} in the schema cache`, 404)
+      if (table === 'visitas_agenda') return pgError('PGRST205', "Could not find the table 'public.visitas_agenda' in the schema cache", 404)
+      if (table === 'visits') {
+        const nombradas = [...(select ?? '').split(',').map(c => c.trim()), ...Array.from(url.searchParams.keys())]
+        const nueva = nombradas.find(c => COLUMNAS_0840.includes(c))
+        if (nueva) return pgError('42703', `column visits.${nueva} does not exist`, 400)
+      }
+    }
+
     const backup = JSON.parse(JSON.stringify(tablas)) as Tablas
     const rollback = () => {
       for (const key of Object.keys(tablas)) delete tablas[key]
@@ -598,6 +790,8 @@ function fakeSupabase(tablas: Tablas) {
         visitas_registrar: visitasRegistrar,
         visitas_editar: visitasEditar,
         visitas_anular: visitasAnular,
+        agenda_crear: agendaCrear,
+        agenda_cancelar: agendaCancelar,
         // Importador de VMO: ninguna IPS a menos de 5 km en estas pruebas.
         find_nearest_hospital: () => json(null),
       }
@@ -769,6 +963,8 @@ const filaVisitaApp = (extra: Fila): Fila => ({
   updated_by: VENTAS_ID,
   deleted_at: null,
   deleted_reason: null,
+  agenda_id: null,
+  agendada: false,
   ...extra,
 })
 
@@ -891,6 +1087,7 @@ function datosIniciales(): Tablas {
       filaVisitaApp({ id: ANULADA_ID, executive_id: EJEC_B, visit_date: '2026-10-02', checked_in_at: '2026-10-02T09:00:00.000-05:00', reported_at: '2026-10-02T09:05:00.000-05:00', lat: alNorte(-50_000).lat, lng: TEL.lng, deleted_at: '2026-10-02T15:00:00.000Z', deleted_reason: 'Reporté el médico equivocado' }),
     ],
     visit_lines: [],
+    visitas_agenda: [],
   }
 }
 
@@ -1014,7 +1211,7 @@ function entradaClaude(): Fila {
   }
 }
 
-function mensajeClaude(entrada: unknown, stop: 'tool_use' | 'refusal' | 'end_turn' = 'tool_use'): Anthropic.Beta.Messages.BetaMessage {
+function mensajeClaude(entrada: unknown, stop: 'tool_use' | 'refusal' | 'end_turn' = 'tool_use', herramienta = 'proponer_visitas'): Anthropic.Beta.Messages.BetaMessage {
   return {
     id: 'msg_falso',
     type: 'message',
@@ -1022,7 +1219,7 @@ function mensajeClaude(entrada: unknown, stop: 'tool_use' | 'refusal' | 'end_tur
     model: MODELO_PROPUESTA,
     stop_reason: stop,
     stop_sequence: null,
-    content: stop === 'tool_use' ? [{ type: 'tool_use', id: 'toolu_falso', name: 'proponer_visitas', input: entrada }] : [{ type: 'text', text: 'No puedo.' }],
+    content: stop === 'tool_use' ? [{ type: 'tool_use', id: 'toolu_falso', name: herramienta, input: entrada }] : [{ type: 'text', text: 'No puedo.' }],
     usage: { input_tokens: 1000, output_tokens: 300 },
   } as unknown as Anthropic.Beta.Messages.BetaMessage
 }
@@ -1770,6 +1967,248 @@ async function main() {
         julio.status === 200 && julio.body.successful === 2 && !ids().includes('vmo-jul-1') && tablas.visits.filter(v => String(v.visit_date).startsWith('2026-07')).length === 2,
         julio.body
       )
+    }
+
+    print('\n14. Agenda (F4.1, 0840): agendar, cancelar, el vínculo con la visita, Hoy, Mis números y el dictado por campo')
+    {
+      const M3 = 'f1f1f1f1-0000-4000-8000-000000000003'
+      const M4 = 'f1f1f1f1-0000-4000-8000-000000000004'
+      const M5 = 'f1f1f1f1-0000-4000-8000-000000000005'
+      for (const [id, nombre] of [[M3, 'Dra. Agenda Tres'], [M4, 'Dr. Agenda Cuatro'], [M5, 'Dr. Agenda Cinco']] as const) {
+        tablas.medicos.push({ id, nombre, especialidades: ['ortopedia'], municipality_id: '68001', tipo_documento: 'CC', numero_documento: `5550${id.slice(-1)}777`, telefono: '3157778899', email: null, activo: true })
+        tablas.medico_sedes.push({ medico_id: id, sede_id: S1, rol: 'atiende', principal: true })
+      }
+      tablas.medico_sedes.push({ medico_id: M3, sede_id: S2, rol: 'atiende', principal: false }, { medico_id: M5, sede_id: S2, rol: 'atiende', principal: false })
+      const SUB_VIEJO = randomUUID()
+      tablas.subtipos_institucionales.push({ id: SUB_VIEJO, codigo: 'prueba_viejo', nombre: 'Prueba vieja', para_que: 'Prueba', roles_sugeridos: ['compras'], orden: 99, vigente_desde: CONFIG_VIGENTE_DESDE, vigente_hasta: '2026-10-15' })
+      const MANANA = '2026-10-14'
+      const cita = (extra: Fila = {}): Fila => ({ fecha: MANANA, hora: '09:30', tipo: 'medica', medico_id: M3, sede_id: S1, nota: 'Llevar muestras', ...extra })
+      const agendarComo = (cuerpo: Fila, userId = VENTAS_ID) => pedir(agendar, '/api/me/agenda', { method: 'POST', body: cuerpo, portador: true, userId })
+      const cancelar = (id: string, cuerpo: Fila = {}, userId = VENTAS_ID) => pedir(cancelarCita, `/api/me/agenda/${id}/cancelar`, { method: 'POST', body: cuerpo, id, portador: true, userId })
+      const citaPorId = (id: string | undefined) => tablas.visitas_agenda.find(c => c.id === id)
+      /** Una cita insertada directo (como la simulación), con la fecha de creación que se quiera. */
+      const citaDirecta = (extra: Fila): string => {
+        const fila: Fila = { id: randomUUID(), executive_id: EJEC_A, fecha: HOY, hora: null, tipo: 'medica', medico_id: M3, cuenta_id: null, subtipo_id: null, sede_id: S1, nota: null, estado: 'pendiente', visita_id: null, cancelada_at: null, cancelada_motivo: null, created_by: VENTAS_ID, created_at: '2026-10-12T15:00:00.000Z', updated_at: '2026-10-12T15:00:00.000Z', ...extra }
+        tablas.visitas_agenda.push(fila)
+        return fila.id as string
+      }
+
+      // Permisos
+      const X = '99999999-9999-4999-8999-999999999999'
+      const rutas: [string, Handler, string, string?][] = [
+        ['GET /api/me/agenda', verAgenda, '/api/me/agenda'],
+        ['POST /api/me/agenda', agendar, '/api/me/agenda', 'POST'],
+        ['POST /api/me/agenda/[id]/cancelar', cancelarCita, `/api/me/agenda/${X}/cancelar`, 'POST'],
+        ['POST /api/me/voz/campos', repartirCampos, '/api/me/voz/campos', 'POST'],
+      ]
+      const escriturasAntes = fake.writes().length
+      for (const [nombre, handler, path, method] of rutas) {
+        const viewer = await pedir(handler, path, { method, userId: VIEWER_ID, id: X, body: method ? {} : undefined })
+        const directora = await pedir(handler, path, { method, userId: DIRECTORA_ID, id: X, body: method ? {} : undefined, portador: true })
+        const anonimo = await pedir(handler, path, { method, userId: null, id: X, body: method ? {} : undefined })
+        check(`${nombre}: viewer 403, usuario sin Ejecutivo Comercial 403, sin sesión 401`, viewer.status === 403 && directora.status === 403 && directora.body?.error === MENSAJE_SIN_EJECUTIVA && anonimo.status === 401, { viewer: viewer.status, directora: directora.body, anonimo: anonimo.status })
+      }
+      check('ningún rechazo de permisos escribió nada', fake.writes().length === escriturasAntes)
+
+      // Agendar
+      const nueva = await agendarComo(cita())
+      const c1 = nueva.body?.cita as W.CitaItem
+      check('agendar una cita médica válida: 201 { cita } con las claves de la app', nueva.status === 201 && ok('citaResponse', nueva.body) && ok('cita', c1) && ok('sedeCita', c1.sede), nueva.body)
+      check(
+        'la cita: pendiente, hora HH:MM, el médico y la sede (con cuenta y coordenadas), anticipada (se creó antes de su día) y cancelable',
+        c1.estado === 'pendiente' && c1.hora === '09:30' && c1.fecha === MANANA && c1.medico?.nombre === 'Dra. Agenda Tres' && c1.cuenta === null && c1.sede.nombre === 'Clínica Norte' && c1.sede.cuenta_nombre === 'Clínica Norte S.A.' && c1.sede.lat === alNorte(120).lat && c1.sede.ubicacion_confirmada && c1.anticipada && c1.cancelable && c1.nota === 'Llevar muestras' && c1.distancia_m === null && c1.dentro_del_radio === null,
+        c1
+      )
+      const rpcCita = fake.rpcs.filter(r => r.nombre === 'agenda_crear').at(-1)
+      check('el jsonb de agenda_crear: solo las claves del contrato, con el usuario de la sesión', clavesDe(rpcCita?.args.p).join() === [...CLAVES_API.citaCreate].sort().join() && rpcCita?.args.p_user === VENTAS_ID && rpcCita?.args.p.cuenta_id === null, rpcCita?.args)
+      check('nunca el documento ni el teléfono del médico en la cita', !nueva.texto.includes('5550') && !nueva.texto.includes('3157778899'))
+
+      tablas.dias_libres.push({ id: randomUUID(), executive_id: EJEC_A, fecha: '2026-10-20', fraccion: 1, motivo: 'vacaciones', nota: null, estado: 'aprobado', registrado_por: VENTAS_ID, registrado_at: '2026-10-01T15:00:00Z', fuera_de_plazo: false, justificacion: null, revisado_por: ADMIN_ID, revisado_at: '2026-10-02T15:00:00Z', motivo_revision: null, created_at: '2026-10-01T15:00:00Z', updated_at: '2026-10-02T15:00:00Z' })
+      const citasAntes = tablas.visitas_agenda.length
+      const rechazoCita = async (nombre: string, cuerpo: Fila, status: number, mensaje: string, opciones: { sinBase?: boolean; userId?: string } = {}) => {
+        const antes = fake.rpcs.filter(r => r.nombre === 'agenda_crear').length
+        const r = await agendarComo(cuerpo, opciones.userId)
+        const llamadas = fake.rpcs.filter(r2 => r2.nombre === 'agenda_crear').length - antes
+        check(nombre, r.status === status && r.body?.error === mensaje && (!opciones.sinBase || llamadas === 0), { status: r.status, body: r.body, llamadas })
+      }
+      await rechazoCita('del pasado: 400 (sin ir a la base)', cita({ fecha: AYER }), 400, MENSAJE_CITA_PASADA, { sinBase: true })
+      await rechazoCita('a más de 30 días: 400 (sin ir a la base)', cita({ fecha: '2026-11-13' }), 400, MENSAJE_CITA_LEJANA, { sinBase: true })
+      await rechazoCita('en un día libre aprobado: 400', cita({ fecha: '2026-10-20' }), 400, MENSAJE_CITA_DIA_LIBRE)
+      await rechazoCita('con un médico que no atiende en esa sede: 400', cita({ medico_id: M4, sede_id: S2 }), 400, MENSAJE_SEDE_NO_DEL_MEDICO)
+      await rechazoCita('institucional con una cuenta ajena a la sede: 400', { fecha: MANANA, tipo: 'institucional', cuenta_id: C1, subtipo_id: SUBTIPO_ID.compras, sede_id: S2 }, 400, MENSAJE_SEDE_NO_DE_LA_CUENTA)
+      await rechazoCita('con un subtipo vencido en esa fecha: 400', { fecha: '2026-10-16', tipo: 'institucional', cuenta_id: C1, subtipo_id: SUB_VIEJO, sede_id: S1 }, 400, MENSAJE_SUBTIPO_NO_VIGENTE)
+      await rechazoCita('perfil solo institucional (Berta) y una cita médica: 400', cita(), 400, mensajePerfil('medica'), { userId: OTRA_ID })
+      await rechazoCita('repetida (mismo médico y día): 409', cita({ hora: '15:00', nota: null }), 409, MENSAJE_CITA_REPETIDA_MEDICO)
+      const malaHora = await agendarComo(cita({ hora: '25:00' }))
+      check('hora no válida: 400 con errores por campo (hora)', malaHora.status === 400 && malaHora.body.errores?.some((e: { campo: string }) => e.campo === 'hora'), malaHora.body)
+      check('ningún rechazo guardó una cita', tablas.visitas_agenda.length === citasAntes)
+      const subtipoAntes = await agendarComo({ fecha: '2026-10-15', tipo: 'institucional', cuenta_id: C1, subtipo_id: SUB_VIEJO, sede_id: S1 })
+      check('el mismo subtipo el último día de su vigencia: sí', subtipoAntes.status === 201, subtipoAntes.body)
+      const inst = await agendarComo({ fecha: MANANA, tipo: 'institucional', cuenta_id: C1, subtipo_id: SUBTIPO_ID.compras, sede_id: S1 })
+      check('institucional válida: 201 con la cuenta y el subtipo, sin médico ni hora', inst.status === 201 && inst.body.cita.cuenta?.id === C1 && inst.body.cita.subtipo?.codigo === 'compras' && inst.body.cita.medico === null && inst.body.cita.hora === null, inst.body)
+      await rechazoCita('institucional repetida (misma cuenta, subtipo y día): 409', { fecha: MANANA, tipo: 'institucional', cuenta_id: C1, subtipo_id: SUBTIPO_ID.compras, sede_id: S1, hora: '11:00' }, 409, MENSAJE_CITA_REPETIDA_CUENTA)
+
+      // GET /api/me/agenda
+      const lista = await pedir(verAgenda, '/api/me/agenda', { portador: true })
+      check('GET /api/me/agenda: de hoy a hoy + 7, max_fecha hoy + 30, claves de la app, por fecha y hora', lista.status === 200 && ok('agenda', lista.body) && todosCon('cita', lista.body.items) && lista.body.desde === HOY && lista.body.hasta === '2026-10-20' && lista.body.max_fecha === '2026-11-12' && lista.body.items.length === 3 && lista.body.items[0].id === c1.id, lista.body)
+      check('más de 31 días: 400', (await pedir(verAgenda, '/api/me/agenda?desde=2026-10-01&hasta=2026-11-15', { portador: true })).status === 400)
+      check('la agenda es propia: Berta no ve las de Ana', (await pedir(verAgenda, '/api/me/agenda', { portador: true, userId: OTRA_ID })).body.items.length === 0)
+
+      // Cancelar
+      const ajena = await cancelar(inst.body.cita.id, {}, OTRA_ID)
+      check('cancelar la cita de otra persona: 404', ajena.status === 404 && ajena.body.error === MENSAJE_CITA_NO_EXISTE, ajena.body)
+      const cancelada = await cancelar(inst.body.cita.id, { motivo: '  Compras no recibe esta semana ' })
+      check('cancelar la propia pendiente (futura): 200 { cita } cancelada y ya no cancelable; el motivo queda', cancelada.status === 200 && ok('citaResponse', cancelada.body) && cancelada.body.cita.estado === 'cancelada' && !cancelada.body.cita.cancelable && citaPorId(inst.body.cita.id)?.cancelada_motivo === 'Compras no recibe esta semana', cancelada.body)
+      const dosVeces = await cancelar(inst.body.cita.id)
+      check('cancelar dos veces: 400', dosVeces.status === 400 && dosVeces.body.error === MENSAJE_CITA_YA_CANCELADA, dosVeces.body)
+      const sinCanceladas = await pedir(verAgenda, '/api/me/agenda', { portador: true })
+      const conCanceladas = await pedir(verAgenda, '/api/me/agenda?canceladas=true', { portador: true })
+      check('la cancelada sale de la agenda; con canceladas=true vuelve', !sinCanceladas.body.items.some((c: W.CitaItem) => c.id === inst.body.cita.id) && conCanceladas.body.items.some((c: W.CitaItem) => c.id === inst.body.cita.id))
+      const otraVez = await agendarComo({ fecha: MANANA, tipo: 'institucional', cuenta_id: C1, subtipo_id: SUBTIPO_ID.compras, sede_id: S1 })
+      check('cancelada: lo mismo se vuelve a agendar', otraVez.status === 201, otraVez.body)
+      const CITA_AYER = citaDirecta({ fecha: AYER, medico_id: M4, created_at: '2026-10-10T15:00:00.000Z' })
+      const deAyer = await cancelar(CITA_AYER)
+      check('cancelar una de ayer: 400', deAyer.status === 400 && deAyer.body.error === MENSAJE_CITA_PASADA_NO_SE_CANCELA, deAyer.body)
+      check('id que no es uuid o que no existe: 404', (await cancelar('no-es-uuid')).status === 404 && (await cancelar(randomUUID())).status === 404)
+      check('motivo de 301 caracteres: 400', (await cancelar(otraVez.body.cita.id, { motivo: 'x'.repeat(301) })).status === 400)
+
+      // Citas de HOY: M3 creada AYER (agendada) en Clínica Norte; M4 creada hoy; M5 creada ayer en la Clínica Sur (800 m);
+      // una cancelada con M5; otra de Berta con M5; y M5 mañana.
+      const CITA_M3 = citaDirecta({ medico_id: M3, hora: '08:00:00' })
+      const citaM4 = (await agendarComo(cita({ fecha: HOY, medico_id: M4, hora: '10:00' }))).body.cita as W.CitaItem
+      const CITA_M5 = citaDirecta({ medico_id: M5, sede_id: S2, hora: '07:00:00' })
+      const CITA_CANCELADA = citaDirecta({ medico_id: M5, estado: 'cancelada', cancelada_at: '2026-10-12T20:00:00.000Z' })
+      const CITA_B = citaDirecta({ executive_id: EJEC_B, tipo: 'institucional', medico_id: null, cuenta_id: C2, subtipo_id: SUBTIPO_ID.compras, sede_id: S2 })
+      const CITA_M5_MANANA = (await agendarComo(cita({ medico_id: M5 }))).body.cita.id as string
+
+      // Hoy y Reportar: agenda_hoy con la distancia (la más cercana primero) y sin punto por hora
+      const ctx = await pedir(pedirContexto, '/api/me/contexto', { method: 'POST', body: { lat: TEL.lat, lng: TEL.lng, precision: 10 }, portador: true })
+      const hoyIds = (ctx.body?.agenda_hoy ?? []).map((c: W.CitaItem) => c.id)
+      check('contexto: agenda_hoy con las de hoy (sin canceladas, ni de otros días, ni de otra persona) y las claves de la app', ctx.status === 200 && ok('contexto', ctx.body) && todosCon('cita', ctx.body.agenda_hoy) && todosCon('sedeCita', ctx.body.agenda_hoy.map((c: W.CitaItem) => c.sede)) && hoyIds.length === 3, ctx.body?.agenda_hoy)
+      check('con el punto: la más cercana primero (Clínica Norte a 120 m: 08:00 y 10:00; Clínica Sur a 800 m)', hoyIds.join() === [CITA_M3, citaM4.id, CITA_M5].join(), hoyIds)
+      const [h1, , h3] = ctx.body.agenda_hoy as W.CitaItem[]
+      check('distancia a la sede y si está dentro del radio (500 m)', Math.abs((h1.distancia_m ?? 0) - 120) <= 1 && h1.dentro_del_radio === true && Math.abs((h3.distancia_m ?? 0) - 800) <= 1 && h3.dentro_del_radio === false, [h1, h3])
+      check('anticipada: la creada ayer sí, la creada hoy no', h1.anticipada && !(ctx.body.agenda_hoy[1] as W.CitaItem).anticipada)
+      const ctxSinPunto = await pedir(verContexto, '/api/me/contexto', { portador: true })
+      check('sin el punto: por hora y sin distancias', ctxSinPunto.body.agenda_hoy.map((c: W.CitaItem) => c.id).join() === [CITA_M5, CITA_M3, citaM4.id].join() && ctxSinPunto.body.agenda_hoy.every((c: W.CitaItem) => c.distancia_m === null && c.dentro_del_radio === null))
+
+      // Reportar con agenda_id: M3 (creada ayer) → agendada; la cita pasa a hecha
+      const conCita = await pedir(reportarVisita, '/api/me/visitas', { method: 'POST', body: cuerpoVisita({ medico_id: M3, agenda_id: CITA_M3 }), portador: true })
+      check('reportar con agenda_id: 201, vinculada y agendada (la cita se creó antes del día)', conCita.status === 201 && ok('visitaItem', conCita.body.visita) && conCita.body.visita.agenda_id === CITA_M3 && conCita.body.visita.agendada === true, conCita.body)
+      check('la cita pasa a hecha con su visita', citaPorId(CITA_M3)?.estado === 'hecha' && citaPorId(CITA_M3)?.visita_id === conCita.body.visita.id)
+      const rpcVisita = fake.rpcs.filter(r => r.nombre === 'visitas_registrar').at(-1)
+      check('el jsonb de visitas_registrar lleva agenda_id', rpcVisita?.args.p.agenda_id === CITA_M3)
+      const repetida = await pedir(reportarVisita, '/api/me/visitas', { method: 'POST', body: cuerpoVisita({ medico_id: M3, agenda_id: CITA_M3, client_id: conCita.body.visita.client_id }), portador: true })
+      check('la misma visita otra vez (client_id): repetida, con el mismo vínculo', repetida.status === 201 && repetida.body.repetida === true && repetida.body.visita.agenda_id === CITA_M3 && repetida.body.visita.agendada === true)
+
+      const rechazoVinculo = async (nombre: string, cuerpo: Fila, mensaje: string) => {
+        const antes = visitasApp().length
+        const r = await pedir(reportarVisita, '/api/me/visitas', { method: 'POST', body: cuerpo, portador: true })
+        check(nombre, r.status === 400 && r.body?.error === mensaje && visitasApp().length === antes, r.body)
+      }
+      await rechazoVinculo('agenda_id de otra persona: 400 (23514) y nada guardado', cuerpoVisita({ tipo: 'institucional', medico_id: null, cuenta_id: C2, sede_id: S2, subtipo_id: SUBTIPO_ID.compras, ...alNorte(800), agenda_id: CITA_B }), MENSAJE_CITA_AJENA)
+      await rechazoVinculo('agenda_id que no existe: 400', cuerpoVisita({ medico_id: M5, agenda_id: randomUUID() }), MENSAJE_CITA_AJENA)
+      await rechazoVinculo('agenda_id de otro día: 400', cuerpoVisita({ medico_id: M5, agenda_id: CITA_M5_MANANA }), MENSAJE_CITA_OTRO_DIA)
+      await rechazoVinculo('agenda_id con otro médico: 400', cuerpoVisita({ medico_id: M5, agenda_id: citaM4.id }), MENSAJE_CITA_OTRO_MEDICO)
+      await rechazoVinculo('agenda_id cancelada: 400', cuerpoVisita({ medico_id: M5, agenda_id: CITA_CANCELADA }), MENSAJE_CITA_CANCELADA)
+      await rechazoVinculo('agenda_id ya cumplida (una no efectiva a M3 con su cita): 400', cuerpoVisita({ medico_id: M3, agenda_id: CITA_M3, efectiva: false, failure_reason: 'Prueba' }), 'Esa cita ya tiene su visita')
+      const malId = await pedir(reportarVisita, '/api/me/visitas', { method: 'POST', body: cuerpoVisita({ medico_id: M5, agenda_id: 'xyz' }), portador: true })
+      check('agenda_id que no es uuid: 400 del esquema (campo agenda_id)', malId.status === 400 && malId.body.errores?.some((e: { campo: string }) => e.campo === 'agenda_id'), malId.body)
+
+      // Sin agenda_id: se vincula sola la pendiente de ese día con el mismo médico (aunque sea en otra sede)
+      const auto4 = await pedir(reportarVisita, '/api/me/visitas', { method: 'POST', body: cuerpoVisita({ medico_id: M4 }), portador: true })
+      check('sin agenda_id con una cita pendiente de M4 hoy: se vincula sola; creada hoy → no agendada', auto4.status === 201 && auto4.body.visita.agenda_id === citaM4.id && auto4.body.visita.agendada === false && citaPorId(citaM4.id)?.estado === 'hecha', auto4.body)
+      const auto5 = await pedir(reportarVisita, '/api/me/visitas', { method: 'POST', body: cuerpoVisita({ medico_id: M5 }), portador: true })
+      check('M5 en Clínica Norte con su cita de hoy en la Clínica Sur: se vincula (mismo médico y día) y cuenta como agendada', auto5.status === 201 && auto5.body.visita.agenda_id === CITA_M5 && auto5.body.visita.agendada === true, auto5.body)
+      const sinCita = await pedir(reportarVisita, '/api/me/visitas', { method: 'POST', body: cuerpoVisita({ medico_id: M5, efectiva: false, failure_reason: 'Salió a cirugía' }), portador: true })
+      check('sin cita pendiente: la visita queda no agendada', sinCita.status === 201 && sinCita.body.visita.agenda_id === null && sinCita.body.visita.agendada === false, sinCita.body)
+
+      // Anular la visita vinculada devuelve la cita a pendiente; otra visita la vuelve a cumplir
+      const anulada = await pedir(anularVisita, `/api/me/visitas/${conCita.body.visita.id}/anular`, { method: 'POST', body: { motivo: 'Reporté mal la visita' }, id: conCita.body.visita.id, portador: true })
+      check('anular la visita vinculada: la cita vuelve a pendiente (la visita anulada conserva su agenda_id)', anulada.status === 200 && citaPorId(CITA_M3)?.estado === 'pendiente' && citaPorId(CITA_M3)?.visita_id === null && porId(conCita.body.visita.id)?.agenda_id === CITA_M3, citaPorId(CITA_M3))
+      const deNuevo = await pedir(reportarVisita, '/api/me/visitas', { method: 'POST', body: cuerpoVisita({ medico_id: M3 }), portador: true })
+      check('y otra visita a M3 la vuelve a cumplir (agendada)', deNuevo.status === 201 && deNuevo.body.visita.agenda_id === CITA_M3 && deNuevo.body.visita.agendada === true && citaPorId(CITA_M3)?.estado === 'hecha', deNuevo.body)
+      const hecha = await cancelar(CITA_M3)
+      check('una cita hecha no se cancela: 400', hecha.status === 400 && hecha.body.error === MENSAJE_CITA_HECHA_NO_SE_CANCELA, hecha.body)
+      const deHoy = await pedir(verVisitas, '/api/me/visitas', { portador: true })
+      check('GET /api/me/visitas: cada visita con agenda_id y agendada', deHoy.status === 200 && todosCon('visitaItem', deHoy.body.items) && deHoy.body.items.some((v: W.VisitaItem) => v.id === deNuevo.body.visita.id && v.agendada && v.agenda_id === CITA_M3) && deHoy.body.items.some((v: W.VisitaItem) => v.agenda_id === null && !v.agendada))
+
+      // Mis números: el bloque agenda del mes (decisión 8)
+      const numeros = await pedir(verNumeros, '/api/me/numeros?mes=2026-10', { portador: true })
+      const visitasAna = tablas.visits.filter(v => v.source === 'app' && v.executive_id === EJEC_A && String(v.visit_date).startsWith('2026-10') && !v.deleted_at && v.efectiva)
+      const agendadas = visitasAna.filter(v => v.agendada === true).length
+      check('Mis números: claves de la app y del bloque agenda', numeros.status === 200 && ok('numeros', numeros.body) && ok('numerosAgenda', numeros.body.agenda), numeros.body?.agenda)
+      check(
+        'efectivas agendadas 2 (M3 de nuevo y M5; la de M4 se vinculó con una cita del mismo día) ÷ efectivas del mes',
+        numeros.body.agenda.efectivas_agendadas === 2 && agendadas === 2 && numeros.body.agenda.efectivas === visitasAna.length && numeros.body.agenda.porcentaje_agendadas === Math.round((2 / visitasAna.length) * 100) / 100,
+        { agenda: numeros.body.agenda, efectivas: visitasAna.length }
+      )
+      check('cumplimiento: citas hechas 3 (M3, M4, M5) ÷ citas de días pasados o de hoy sin canceladas 4 (con la de ayer sin cumplir) = 0,75', numeros.body.agenda.citas_hasta_hoy === 4 && numeros.body.agenda.citas_hechas === 3 && numeros.body.agenda.cumplimiento === 0.75, numeros.body.agenda)
+
+      // Proponer con cita_id: el contexto de Claude trae la agenda pendiente de hoy y la cita elegida
+      reiniciarLimitesVoz()
+      const CITA_PROPONER = citaDirecta({ tipo: 'institucional', medico_id: null, cuenta_id: C1, subtipo_id: SUBTIPO_ID.compras, sede_id: S1, nota: 'Llamar al 3009998877 antes' })
+      const propuesta = await pedir(proponer, '/api/me/voz/proponer', { method: 'POST', body: { transcript: TRANSCRIPCION, lat: TEL.lat, lng: TEL.lng, precision: 12, hora: '2026-10-13T10:41:00.000-05:00', cita_id: CITA_PROPONER }, portador: true })
+      const mensajeProponer = String(llamadasClaude.at(-1)?.messages[0]?.content ?? '')
+      check('proponer con cita_id: 200 y el contexto de Claude trae la agenda pendiente de hoy y cita_elegida', propuesta.status === 200 && mensajeProponer.includes(`"cita_elegida":"${CITA_PROPONER}"`) && mensajeProponer.includes('"agenda":[') && mensajeProponer.includes(CITA_PROPONER), mensajeProponer.slice(0, 400))
+      check('el contexto de Claude nunca lleva la nota de la cita (ni su teléfono) ni la cita hecha', !mensajeProponer.includes('3009998877') && !mensajeProponer.includes(`"id":"${CITA_M3}"`))
+
+      // POST /api/me/voz/campos (Claude falso)
+      const DICTADO = 'Le gustó el tornillo canulado. Quedé en enviarle una muestra el jueves y llamarlo al 3001234567.'
+      const llave = process.env.ANTHROPIC_API_KEY
+      delete process.env.ANTHROPIC_API_KEY
+      const sinLlave = await pedir(repartirCampos, '/api/me/voz/campos', { method: 'POST', body: { transcript: DICTADO, tipo: 'medica' }, portador: true })
+      process.env.ANTHROPIC_API_KEY = llave
+      check(`campos sin ANTHROPIC_API_KEY: 503 "${MENSAJE_SIN_ANTHROPIC}"`, sinLlave.status === 503 && sinLlave.body.error === MENSAJE_SIN_ANTHROPIC, sinLlave.body)
+      const vacio = await pedir(repartirCampos, '/api/me/voz/campos', { method: 'POST', body: { transcript: '   ', tipo: 'medica' }, portador: true })
+      check('campos con el texto vacío: 400', vacio.status === 400, vacio.body)
+      const respuestaOriginal = respuestaClaude
+      respuestaClaude = () => mensajeClaude({ conclusion: 'Le gustó el tornillo canulado', compromisos: 'Enviar una muestra el jueves; llamarlo al 3001234567', next_step_date: '2026-10-15', extra: 'x' }, 'tool_use', 'repartir_campos')
+      const llamadasAntes = llamadasClaude.length
+      const escriturasCampos = fake.writes().length
+      const logsCampos = moduleLogs.length
+      const campos = await pedir(repartirCampos, '/api/me/voz/campos', { method: 'POST', body: { transcript: DICTADO, tipo: 'medica' }, portador: true })
+      check('campos: un dictado con compromisos llena la conclusión Y los compromisos (claves de la app)', campos.status === 200 && ok('campos', campos.body) && campos.body.conclusion === 'Le gustó el tornillo canulado' && (campos.body.compromisos ?? '').startsWith('Enviar una muestra el jueves') && campos.body.next_step_date === '2026-10-15', campos.body)
+      check('campos: el teléfono dicho no vuelve (número omitido)', !campos.texto.includes('3001234567') && (campos.body.compromisos ?? '').includes(NUMERO_OMITIDO))
+      const peticionCampos = llamadasClaude.at(-1)
+      const herramientaCampos = peticionCampos?.tools?.[0] as Anthropic.Beta.Messages.BetaTool | undefined
+      check('campos: el mismo proveedor que proponer (modelo, herramienta estricta repartir_campos, prompt propio, la fecha de hoy con su día)', llamadasClaude.length === llamadasAntes + 1 && peticionCampos?.model === MODELO_PROPUESTA && herramientaCampos?.name === 'repartir_campos' && herramientaCampos?.strict === true && (peticionCampos?.system as { text: string }[])[0].text === PROMPT_CAMPOS && String(peticionCampos?.messages[0]?.content).includes('HOY: 2026-10-13 (martes)'))
+      check('campos: nada se guarda y el dictado no sale en los logs', fake.writes().length === escriturasCampos && moduleLogs.slice(logsCampos).every(l => !l.includes('tornillo') && !l.includes('muestra')))
+      respuestaClaude = () => mensajeClaude({ conclusion: 'Bien', compromisos: null, next_step_date: '2026-10-01' }, 'tool_use', 'repartir_campos')
+      const fechaVieja = await pedir(repartirCampos, '/api/me/voz/campos', { method: 'POST', body: { transcript: 'Bien', tipo: 'institucional' }, portador: true })
+      check('campos: una próxima reunión anterior a hoy se descarta; sin compromisos → null', fechaVieja.status === 200 && fechaVieja.body.next_step_date === null && fechaVieja.body.compromisos === null, fechaVieja.body)
+      respuestaClaude = () => mensajeClaude(null, 'refusal')
+      const rechazo = await pedir(repartirCampos, '/api/me/voz/campos', { method: 'POST', body: { transcript: DICTADO, tipo: 'medica' }, portador: true })
+      respuestaClaude = () => mensajeClaude({ conclusion: 5 }, 'tool_use', 'repartir_campos')
+      const invalido = await pedir(repartirCampos, '/api/me/voz/campos', { method: 'POST', body: { transcript: DICTADO, tipo: 'medica' }, portador: true })
+      check('campos: Claude rechaza o devuelve algo que no cumple el esquema → 502 con el mensaje para escribir a mano', rechazo.status === 502 && rechazo.body.error === MENSAJE_FALLO_CAMPOS && invalido.status === 502, { rechazo: rechazo.body, invalido: invalido.body })
+      // Comparte los límites de proponer: 10 en el minuto entre los dos; el siguiente (proponer) → 429.
+      respuestaClaude = () => mensajeClaude({ conclusion: 'Bien', compromisos: null, next_step_date: null }, 'tool_use', 'repartir_campos')
+      reiniciarLimitesVoz()
+      const estados: number[] = []
+      for (let i = 0; i < 10; i++) estados.push((await pedir(repartirCampos, '/api/me/voz/campos', { method: 'POST', body: { transcript: 'Bien', tipo: 'medica' }, portador: true })).status)
+      respuestaClaude = respuestaOriginal
+      const undecima = await pedir(proponer, '/api/me/voz/proponer', { method: 'POST', body: { transcript: TRANSCRIPCION, hora: '2026-10-13T10:41:00.000-05:00' }, portador: true })
+      check('campos comparte los límites de proponer: 10 dictados en el minuto pasan y la propuesta siguiente → 429', estados.every(st => st === 200) && undecima.status === 429, { estados, undecima: undecima.status })
+      reiniciarLimitesVoz()
+
+      // Sin la 0840: la agenda 503 con un mensaje claro; lo demás igual que antes
+      fake.estado.sin0840 = true
+      const agendaVieja = await pedir(verAgenda, '/api/me/agenda', { portador: true })
+      const agendarViejo = await agendarComo(cita({ fecha: '2026-10-22', medico_id: M4 }))
+      const cancelarViejo = await cancelar(otraVez.body.cita.id)
+      const ctxViejo = await pedir(pedirContexto, '/api/me/contexto', { method: 'POST', body: { lat: TEL.lat, lng: TEL.lng }, portador: true })
+      const visitasViejas = await pedir(verVisitas, '/api/me/visitas', { portador: true })
+      const numerosViejos = await pedir(verNumeros, '/api/me/numeros?mes=2026-10', { portador: true })
+      const reporteViejo = await pedir(reportarVisita, '/api/me/visitas', { method: 'POST', body: cuerpoVisita({ medico_id: M4, efectiva: false, failure_reason: 'No estaba', agenda_id: randomUUID() }), portador: true })
+      fake.estado.sin0840 = false
+      for (const [nombre, respuesta] of [['GET /api/me/agenda', agendaVieja], ['POST /api/me/agenda', agendarViejo], ['POST /api/me/agenda/[id]/cancelar', cancelarViejo]] as const) {
+        check(`sin la 0840, ${nombre}: 503 "${MENSAJE_FALTA_MIGRACION_0840}"`, respuesta.status === 503 && respuesta.body.error === MENSAJE_FALTA_MIGRACION_0840, respuesta)
+      }
+      check('sin la 0840, el contexto sigue (agenda_hoy vacía) con las claves de la app', ctxViejo.status === 200 && ok('contexto', ctxViejo.body) && ctxViejo.body.agenda_hoy.length === 0, ctxViejo.body)
+      check('sin la 0840, GET /api/me/visitas sigue (agenda_id null, agendada false)', visitasViejas.status === 200 && todosCon('visitaItem', visitasViejas.body.items) && visitasViejas.body.items.every((v: W.VisitaItem) => v.agenda_id === null && v.agendada === false), visitasViejas.body)
+      check('sin la 0840, Mis números sigue con agenda null', numerosViejos.status === 200 && ok('numeros', numerosViejos.body) && numerosViejos.body.agenda === null, numerosViejos.body)
+      check('sin la 0840, POST /api/me/visitas registra como hoy (la función de la 0830 ignora agenda_id)', reporteViejo.status === 201 && reporteViejo.body.visita.agenda_id === null, reporteViejo.body)
     }
 
     check('nada salió a la red salvo al Supabase falso', fake.external.length === 0, fake.external)

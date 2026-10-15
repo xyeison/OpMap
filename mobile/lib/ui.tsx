@@ -1,9 +1,15 @@
 /**
- * Piezas visuales de la app, con el estilo de la web de OpMap: fondo claro, texto gris oscuro y acento negro
- * (en modo oscuro se invierten). Tamaños grandes para usar en la calle, con una mano: botones de 56 px de alto,
- * texto de 17 px, áreas táctiles amplias.
+ * Piezas visuales de la app con la marca VG Medical (spec 2026-10-14, decisión 10): paleta monocromática (botón
+ * principal y encabezado negros, texto carbón #2E2D2D, texto secundario gris #5C5B5B, fondo #F8F9FA, tarjetas
+ * blancas; en modo oscuro se invierten) y letra DM Sans. Los colores de estado (éxito, alerta, peligro, info) se
+ * quedan con contraste AA sobre esos fondos. Tamaños grandes para usar en la calle, con una mano: botones de 56 px
+ * de alto, texto de 17 px, áreas táctiles amplias.
+ *
+ * Letra: app/_layout.tsx carga DM Sans (Regular, Medium, Bold) con useFonts y avisa con <ProveedorFuentes>. Mientras
+ * no esté (o si falla) todo usa la fuente del sistema con el peso equivalente: la app nunca se queda en blanco.
+ * Para un <Text> propio fuera de estos componentes: `const fuente = useFuente()` y `style={[..., fuente('negrita')]}`.
  */
-import { type ReactNode } from 'react'
+import { createContext, useContext, type ReactNode } from 'react'
 import {
   ActivityIndicator,
   Alert,
@@ -43,16 +49,20 @@ export interface Colores {
   fondoAlerta: string
   info: string
   fondoInfo: string
+  /** Encabezado de las pantallas (negro de marca en los dos modos) y el texto/íconos que van encima. */
+  encabezado: string
+  sobreEncabezado: string
 }
 
+/** Marca VG Medical. Contrastes (WCAG): texto 13:1 y texto secundario 6,4:1 sobre el fondo; estados ≥ 5,2:1. */
 export const COLORES_CLAROS: Colores = {
-  fondo: '#F9FAFB',
+  fondo: '#F8F9FA',
   superficie: '#FFFFFF',
-  superficieSuave: '#F3F4F6',
-  texto: '#1F2937',
-  textoSuave: '#6B7280',
-  borde: '#E5E7EB',
-  acento: '#111827',
+  superficieSuave: '#EEEFF1',
+  texto: '#2E2D2D',
+  textoSuave: '#5C5B5B',
+  borde: '#E2E3E5',
+  acento: '#000000',
   sobreAcento: '#FFFFFF',
   peligro: '#B91C1C',
   fondoPeligro: '#FEF2F2',
@@ -62,17 +72,20 @@ export const COLORES_CLAROS: Colores = {
   fondoAlerta: '#FFFBEB',
   info: '#1E40AF',
   fondoInfo: '#EFF6FF',
+  encabezado: '#000000',
+  sobreEncabezado: '#FFFFFF',
 }
 
+/** Modo oscuro monocromático: grises neutros (sin tinte azul) y acento blanco. Estados ≥ 8:1. */
 export const COLORES_OSCUROS: Colores = {
-  fondo: '#0B0F14',
-  superficie: '#151B23',
-  superficieSuave: '#1E252E',
-  texto: '#E5E7EB',
-  textoSuave: '#9CA3AF',
-  borde: '#2A323C',
-  acento: '#F9FAFB',
-  sobreAcento: '#111827',
+  fondo: '#0A0A0A',
+  superficie: '#161616',
+  superficieSuave: '#222222',
+  texto: '#EDEDED',
+  textoSuave: '#A3A3A3',
+  borde: '#2E2E2E',
+  acento: '#FFFFFF',
+  sobreAcento: '#000000',
   peligro: '#FCA5A5',
   fondoPeligro: '#3A1414',
   exito: '#6EE7B7',
@@ -81,6 +94,8 @@ export const COLORES_OSCUROS: Colores = {
   fondoAlerta: '#33270B',
   info: '#93C5FD',
   fondoInfo: '#14223A',
+  encabezado: '#000000',
+  sobreEncabezado: '#FFFFFF',
 }
 
 export const TAMANO = {
@@ -96,6 +111,48 @@ export const TAMANO = {
 
 export function useColores(): Colores {
   return useColorScheme() === 'dark' ? COLORES_OSCUROS : COLORES_CLAROS
+}
+
+// ---------------------------------------------------------------------------------------------
+// Letra (DM Sans con respaldo a la del sistema)
+// ---------------------------------------------------------------------------------------------
+
+export type Peso = 'regular' | 'media' | 'negrita'
+
+/**
+ * Nombres con que app/_layout.tsx registra cada archivo de DM Sans en useFonts (las claves del objeto que recibe).
+ * Cada peso es su propio archivo: con la letra cargada se usa la familia del peso y fontWeight normal, porque
+ * Android e iOS no derivan la negrita de un archivo Regular de forma fiable.
+ */
+export const FAMILIAS_DM_SANS: Record<Peso, string> = {
+  regular: 'DMSans_400Regular',
+  media: 'DMSans_500Medium',
+  negrita: 'DMSans_700Bold',
+}
+
+const PESO_SISTEMA: Record<Peso, TextStyle['fontWeight']> = { regular: '400', media: '500', negrita: '700' }
+
+/** Estilo de letra para un peso: DM Sans si ya cargó, si no la fuente del sistema con el peso equivalente. */
+export function estiloFuente(peso: Peso, dmSans: boolean): TextStyle {
+  return dmSans ? { fontFamily: FAMILIAS_DM_SANS[peso], fontWeight: 'normal' } : { fontWeight: PESO_SISTEMA[peso] }
+}
+
+const ContextoFuentes = createContext(false)
+
+/** Lo pone app/_layout.tsx: `listas` es verdadero solo si DM Sans cargó sin error. */
+export function ProveedorFuentes({ listas, children }: { listas: boolean; children: ReactNode }) {
+  return <ContextoFuentes.Provider value={listas}>{children}</ContextoFuentes.Provider>
+}
+
+/** ¿Está cargada DM Sans? (falso mientras carga o si falló: entonces va la fuente del sistema). */
+export function useFuentesListas(): boolean {
+  return useContext(ContextoFuentes)
+}
+
+/** Devuelve `fuente(peso)` → estilo de letra listo para poner en un <Text>. */
+export function useFuente(): (peso: Peso) => TextStyle {
+  const listas = useContext(ContextoFuentes)
+  return (peso: Peso) => estiloFuente(peso, listas)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -115,6 +172,7 @@ interface PropsTexto {
 
 export function Texto({ children, suave, peque, negrita, centro, color, estilo, lineas }: PropsTexto) {
   const c = useColores()
+  const fuente = useFuente()
   return (
     <Text
       numberOfLines={lineas}
@@ -123,9 +181,9 @@ export function Texto({ children, suave, peque, negrita, centro, color, estilo, 
           color: color ?? (suave ? c.textoSuave : c.texto),
           fontSize: peque ? TAMANO.textoPeque : TAMANO.texto,
           lineHeight: peque ? 20 : 24,
-          fontWeight: negrita ? '600' : '400',
           textAlign: centro ? 'center' : 'left',
         },
+        fuente(negrita ? 'negrita' : 'regular'),
         estilo,
       ]}
     >
@@ -136,8 +194,12 @@ export function Texto({ children, suave, peque, negrita, centro, color, estilo, 
 
 export function Titulo({ children, estilo }: { children: ReactNode; estilo?: StyleProp<TextStyle> }) {
   const c = useColores()
+  const fuente = useFuente()
   return (
-    <Text accessibilityRole="header" style={[{ color: c.texto, fontSize: TAMANO.titulo, lineHeight: 32, fontWeight: '700' }, estilo]}>
+    <Text
+      accessibilityRole="header"
+      style={[{ color: c.texto, fontSize: TAMANO.titulo, lineHeight: 32, letterSpacing: -0.3 }, fuente('negrita'), estilo]}
+    >
       {children}
     </Text>
   )
@@ -145,8 +207,9 @@ export function Titulo({ children, estilo }: { children: ReactNode; estilo?: Sty
 
 export function Subtitulo({ children, estilo }: { children: ReactNode; estilo?: StyleProp<TextStyle> }) {
   const c = useColores()
+  const fuente = useFuente()
   return (
-    <Text accessibilityRole="header" style={[{ color: c.texto, fontSize: TAMANO.subtitulo, lineHeight: 26, fontWeight: '700' }, estilo]}>
+    <Text accessibilityRole="header" style={[{ color: c.texto, fontSize: TAMANO.subtitulo, lineHeight: 26 }, fuente('negrita'), estilo]}>
       {children}
     </Text>
   )
@@ -251,6 +314,7 @@ interface PropsBoton {
 
 export function Boton({ titulo, alPresionar, variante = 'primario', grande, cargando, deshabilitado, detalle, estilo }: PropsBoton) {
   const c = useColores()
+  const fuente = useFuente()
   const inactivo = deshabilitado || cargando
   const fondo = variante === 'primario' ? c.acento : variante === 'peligro' ? c.fondoPeligro : variante === 'texto' ? 'transparent' : c.superficie
   const colorTexto = variante === 'primario' ? c.sobreAcento : variante === 'peligro' ? c.peligro : c.texto
@@ -282,8 +346,10 @@ export function Boton({ titulo, alPresionar, variante = 'primario', grande, carg
         <ActivityIndicator color={colorTexto} />
       ) : (
         <>
-          <Text style={{ color: colorTexto, fontSize: grande ? 21 : TAMANO.texto, fontWeight: '700', textAlign: 'center' }}>{titulo}</Text>
-          {detalle ? <Text style={{ color: colorTexto, opacity: 0.8, fontSize: TAMANO.textoPeque, marginTop: 2, textAlign: 'center' }}>{detalle}</Text> : null}
+          <Text style={[{ color: colorTexto, fontSize: grande ? 21 : TAMANO.texto, textAlign: 'center' }, fuente('negrita')]}>{titulo}</Text>
+          {detalle ? (
+            <Text style={[{ color: colorTexto, opacity: 0.8, fontSize: TAMANO.textoPeque, marginTop: 2, textAlign: 'center' }, fuente('regular')]}>{detalle}</Text>
+          ) : null}
         </>
       )}
     </Pressable>
@@ -300,6 +366,7 @@ interface PropsChip {
 /** Opción seleccionable (tipo, motivo, medio día…). */
 export function Chip({ texto, activo, alPresionar, deshabilitado }: PropsChip) {
   const c = useColores()
+  const fuente = useFuente()
   return (
     <Pressable
       accessibilityRole="button"
@@ -318,7 +385,7 @@ export function Chip({ texto, activo, alPresionar, deshabilitado }: PropsChip) {
         opacity: deshabilitado ? 0.45 : pressed ? 0.75 : 1,
       })}
     >
-      <Text style={{ color: activo ? c.sobreAcento : c.texto, fontSize: 16, fontWeight: activo ? '700' : '500' }}>{texto}</Text>
+      <Text style={[{ color: activo ? c.sobreAcento : c.texto, fontSize: 16 }, fuente(activo ? 'negrita' : 'media')]}>{texto}</Text>
     </Pressable>
   )
 }
@@ -343,10 +410,11 @@ function coloresTono(c: Colores, tono: Tono): { texto: string; fondo: string } {
 /** Etiqueta pequeña de estado ("Efectiva", "Por aprobar"). */
 export function Insignia({ texto, tono = 'neutro' }: { texto: string; tono?: Tono }) {
   const c = useColores()
+  const fuente = useFuente()
   const t = coloresTono(c, tono)
   return (
     <View style={{ alignSelf: 'flex-start', backgroundColor: t.fondo, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3 }}>
-      <Text style={{ color: t.texto, fontSize: 13, fontWeight: '700' }}>{texto}</Text>
+      <Text style={[{ color: t.texto, fontSize: 13 }, fuente('negrita')]}>{texto}</Text>
     </View>
   )
 }
@@ -354,11 +422,12 @@ export function Insignia({ texto, tono = 'neutro' }: { texto: string; tono?: Ton
 /** Mensaje destacado (error, aviso, éxito) con acción opcional. */
 export function Aviso({ tono = 'info', titulo, children, accion }: { tono?: Tono; titulo?: string; children?: ReactNode; accion?: ReactNode }) {
   const c = useColores()
+  const fuente = useFuente()
   const t = coloresTono(c, tono)
   return (
     <View accessibilityRole={tono === 'peligro' ? 'alert' : undefined} style={{ backgroundColor: t.fondo, borderRadius: TAMANO.radio, padding: 14, gap: 6 }}>
-      {titulo ? <Text style={{ color: t.texto, fontSize: TAMANO.texto, fontWeight: '700' }}>{titulo}</Text> : null}
-      {typeof children === 'string' ? <Text style={{ color: t.texto, fontSize: 16, lineHeight: 22 }}>{children}</Text> : children}
+      {titulo ? <Text style={[{ color: t.texto, fontSize: TAMANO.texto }, fuente('negrita')]}>{titulo}</Text> : null}
+      {typeof children === 'string' ? <Text style={[{ color: t.texto, fontSize: 16, lineHeight: 22 }, fuente('regular')]}>{children}</Text> : children}
       {accion ? <View style={{ marginTop: 4 }}>{accion}</View> : null}
     </View>
   )
@@ -395,9 +464,10 @@ interface PropsCampo extends Omit<TextInputProps, 'style' | 'value' | 'onChangeT
 
 export function Campo({ etiqueta, valor, alCambiar, error, ayuda, varias, ...resto }: PropsCampo) {
   const c = useColores()
+  const fuente = useFuente()
   return (
     <View style={{ gap: 6 }}>
-      <Text style={{ color: c.texto, fontSize: 15, fontWeight: '600' }}>{etiqueta}</Text>
+      <Text style={[{ color: c.texto, fontSize: 15 }, fuente('media')]}>{etiqueta}</Text>
       <TextInput
         {...resto}
         accessibilityLabel={etiqueta}
@@ -405,20 +475,27 @@ export function Campo({ etiqueta, valor, alCambiar, error, ayuda, varias, ...res
         onChangeText={alCambiar}
         multiline={varias}
         placeholderTextColor={c.textoSuave}
-        style={{
-          minHeight: varias ? 110 : TAMANO.boton,
-          borderRadius: 12,
-          borderWidth: 1.5,
-          borderColor: error ? c.peligro : c.borde,
-          backgroundColor: c.superficie,
-          color: c.texto,
-          fontSize: TAMANO.texto,
-          paddingHorizontal: 14,
-          paddingVertical: varias ? 12 : 8,
-          textAlignVertical: varias ? 'top' : 'center',
-        }}
+        style={[
+          {
+            minHeight: varias ? 110 : TAMANO.boton,
+            borderRadius: 12,
+            borderWidth: 1.5,
+            borderColor: error ? c.peligro : c.borde,
+            backgroundColor: c.superficie,
+            color: c.texto,
+            fontSize: TAMANO.texto,
+            paddingHorizontal: 14,
+            paddingVertical: varias ? 12 : 8,
+            textAlignVertical: varias ? 'top' : 'center',
+          },
+          fuente('regular'),
+        ]}
       />
-      {error ? <Text style={{ color: c.peligro, fontSize: 14 }}>{error}</Text> : ayuda ? <Text style={{ color: c.textoSuave, fontSize: 14 }}>{ayuda}</Text> : null}
+      {error ? (
+        <Text style={[{ color: c.peligro, fontSize: 14 }, fuente('regular')]}>{error}</Text>
+      ) : ayuda ? (
+        <Text style={[{ color: c.textoSuave, fontSize: 14 }, fuente('regular')]}>{ayuda}</Text>
+      ) : null}
     </View>
   )
 }

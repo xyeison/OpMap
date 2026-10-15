@@ -1,6 +1,6 @@
 /**
- * Hoy: meta del día frente a lo hecho, botón grande "Reportar", visitas guardadas sin señal, compromisos
- * vencidos y las visitas de hoy. Datos: POST /api/me/contexto (con la ubicación en el cuerpo si el teléfono la da;
+ * Hoy: meta del día frente a lo hecho, botón grande "Reportar", la agenda de hoy (F4.1: hora, con quién, sede y si ya
+ * se hizo, con "Agendar" y "Ver agenda"), visitas guardadas sin señal, compromisos vencidos y las visitas de hoy. Datos: POST /api/me/contexto (con la ubicación en el cuerpo si el teléfono la da;
  * se guarda en el teléfono para reportar sin señal) y GET /api/me/visitas?fecha=hoy. Si el servidor todavía no tiene
  * el reporte de visitas (404/503), se muestra el aviso y la cola sigue funcionando. Una visita de la cola que el
  * servidor no aceptó hoy se puede "Reportar de nuevo" (vuelve a Reportar como tarjeta, sin perder lo escrito).
@@ -8,16 +8,17 @@
 import { useFocusEffect, useRouter } from 'expo-router'
 import { useCallback, useRef, useState } from 'react'
 import { View } from 'react-native'
+import { FilaCita } from '../../components/reporte/FilaCita'
 import * as api from '../../lib/api'
 import { useCola } from '../../lib/cola-contexto'
 import { guardarContexto } from '../../lib/contexto-guardado'
 import { aApiError, esNoDisponible, type ApiError } from '../../lib/errores'
 import { fechaCorta, fechaLarga, horaBogota, hoyBogota } from '../../lib/fechas'
 import { textoDistancia, textoPrecision } from '../../lib/geo'
-import { avance, conQuien, detalleModalidad, fraccionBarra, numeroTexto, plural } from '../../lib/reglas'
+import { avance, conQuien, conQuienCita, detalleModalidad, fraccionBarra, numeroTexto, plural } from '../../lib/reglas'
 import { fijarReintento } from '../../lib/retorno'
 import { useSesion } from '../../lib/sesion'
-import type { ContextoResponse, VisitaItem, VisitasResponse } from '../../lib/tipos'
+import type { CitaItem, ContextoResponse, VisitaItem, VisitasResponse } from '../../lib/tipos'
 import { ETIQUETA_TIPO_VISITA } from '../../lib/tipos'
 import { pedirUbicacion, type ResultadoUbicacion } from '../../lib/ubicacion'
 import { Aviso, Barra, Boton, Cargando, Fila, Grupo, Insignia, Pantalla, Subtitulo, Tarjeta, Texto, Titulo, Vacio } from '../../lib/ui'
@@ -121,6 +122,15 @@ export default function Hoy() {
       <Boton titulo="Reportar visita" detalle="Dicta lo que pasó o repórtala por toques" grande alPresionar={() => router.push('/reportar')} />
 
       <MetaDelDia contexto={contexto} error={errorContexto} />
+
+      {contexto ? (
+        <AgendaDeHoy
+          citas={contexto.agenda_hoy ?? []}
+          alAgendar={() => router.push('/agenda/nueva')}
+          alVerAgenda={() => router.push('/agenda')}
+          alAbrirVisita={id => router.push(`/visita/${id}`)}
+        />
+      ) : null}
 
       {pendientes.length > 0 ? (
         <Aviso
@@ -238,6 +248,42 @@ function MetaDelDia({ contexto, error }: { contexto: ContextoResponse | null; er
         ) : null}
         {hechas.no_efectivas > 0 ? <Insignia texto={plural(hechas.no_efectivas, 'no efectiva', 'no efectivas')} tono="alerta" /> : null}
       </Grupo>
+    </Tarjeta>
+  )
+}
+
+/** Las citas de hoy (pendientes y hechas): la hecha abre su visita. "Agendar" y "Ver agenda" llevan a la agenda. */
+function AgendaDeHoy({
+  citas,
+  alAgendar,
+  alVerAgenda,
+  alAbrirVisita,
+}: {
+  citas: readonly CitaItem[]
+  alAgendar: () => void
+  alVerAgenda: () => void
+  alAbrirVisita: (visitaId: string) => void
+}) {
+  // Por hora (sin hora al final); el contexto con punto las trae por distancia, pero aquí se lee el día en orden.
+  const ordenadas = [...citas]
+    .filter(c => c.estado !== 'cancelada')
+    .sort((a, b) => (a.hora === b.hora ? conQuienCita(a).localeCompare(conQuienCita(b), 'es') : a.hora === null ? 1 : b.hora === null ? -1 : a.hora < b.hora ? -1 : 1))
+  const hechas = ordenadas.filter(c => c.estado === 'hecha').length
+  return (
+    <Tarjeta>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+        <Subtitulo>Tu agenda de hoy</Subtitulo>
+        {ordenadas.length > 0 ? <Insignia texto={`${numeroTexto(hechas)} de ${numeroTexto(ordenadas.length)} hechas`} tono={hechas === ordenadas.length ? 'exito' : 'neutro'} /> : null}
+      </View>
+      {ordenadas.length === 0 ? (
+        <Vacio texto="No tienes citas para hoy." />
+      ) : (
+        ordenadas.map(cita => <FilaCita key={cita.id} cita={cita} alPresionar={cita.visita_id ? () => alAbrirVisita(cita.visita_id as string) : undefined} />)
+      )}
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <Boton titulo="Agendar" variante="secundario" alPresionar={alAgendar} estilo={{ flex: 1 }} />
+        <Boton titulo="Ver agenda" variante="secundario" alPresionar={alVerAgenda} estilo={{ flex: 1 }} />
+      </View>
     </Tarjeta>
   )
 }

@@ -1,5 +1,5 @@
 // POST /api/me/voz/proponer (visits:report + Ejecutivo Comercial enlazado) — { transcript, lat?, lng?, precision?,
-// hora } → el contexto (el mismo de GET /api/me/contexto, recortado por contextoDictado: sin documentos ni
+// hora, cita_id? } → el contexto (el mismo de GET /api/me/contexto, recortado por contextoDictado: sin documentos ni
 // teléfonos) → Claude (claude-sonnet-5-5, herramienta proponer_visitas con esquema cerrado) → propuestaSchema →
 // normalizarPropuesta (descarta todo id que no esté en el contexto; un médico que no cruza sale como
 // medico_nombre_dicho con medico_id null y sugerir_crear_medico) → { visitas, aviso }.
@@ -7,6 +7,8 @@
 //   400 cuerpo · 429 demasiadas propuestas seguidas (LIMITES_VOZ, por persona) · 503 sin ANTHROPIC_API_KEY · 502 si
 //   Claude falla, rechaza o no devuelve una propuesta válida.
 // Costo estimado ≈ 0,005 USD por dictado (decisión 12). La transcripción no se registra en los logs.
+// F4.1 (0840): el contexto de Claude trae las citas pendientes de hoy y, si viene cita_id (la cita que eligió en
+// Reportar), cita_elegida: Claude prefiere esa cita (sus ids también valen en normalizarPropuesta).
 // Contrato: docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md (decisión 12 y sección "API").
 import { NextRequest, NextResponse } from 'next/server'
 import { jsonError, readJson, zodMessage } from '@/app/api/kams/_lib/kam-shared'
@@ -58,7 +60,7 @@ export async function POST(request: NextRequest) {
   if (limitado) return limitado
 
   try {
-    const entrada = await proponerVisitas({ contexto: contextoDictado(contexto, horaBogota(datos.hora)), transcript: datos.transcript })
+    const entrada = await proponerVisitas({ contexto: contextoDictado(contexto, horaBogota(datos.hora), datos.cita_id), transcript: datos.transcript })
     const cruda = propuestaSchema.safeParse(entrada)
     if (!cruda.success) {
       console.error('POST /api/me/voz/proponer: la propuesta de Claude no cumple el esquema')

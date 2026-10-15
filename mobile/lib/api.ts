@@ -17,6 +17,10 @@ import {
   type ValorQuery,
 } from './http'
 import type {
+  AgendaResponse,
+  CamposDictadoResponse,
+  CitaCreate,
+  CitaResponse,
   ContextoResponse,
   CuotaResponse,
   DiaLibreCreate,
@@ -26,6 +30,7 @@ import type {
   MisDiasLibresResponse,
   NumerosResponse,
   PropuestaResponse,
+  TipoVisita,
   TranscripcionResponse,
   VisitaCreate,
   VisitaCreateResponse,
@@ -233,10 +238,42 @@ export interface ProponerDatos {
   precision?: number | null
   /** Hora del teléfono (ISO con zona). */
   hora?: string
+  /** La cita de hoy que eligió antes de dictar (0840): la IA la toma como la visita de la que habla. */
+  cita_id?: string | null
 }
 
 export function proponer(datos: ProponerDatos): Promise<PropuestaResponse> {
   return peticion<PropuestaResponse>('/api/me/voz/proponer', { metodo: 'POST', cuerpo: datos, timeoutMs: TIEMPO_PROPONER_MS })
+}
+
+/**
+ * Dictado de un campo (F4.1): reparte lo dicho de UNA visita entre conclusión, compromisos y próxima reunión. Nada se
+ * guarda: la app lo añade a lo escrito y la persona confirma. 503 sin la llave de la IA; 429 comparte el tope de proponer.
+ */
+export function vozCampos(transcript: string, tipo: TipoVisita): Promise<CamposDictadoResponse> {
+  return peticion<CamposDictadoResponse>('/api/me/voz/campos', {
+    metodo: 'POST',
+    cuerpo: { transcript: transcript.slice(0, 8000), tipo },
+    timeoutMs: TIEMPO_PROPONER_MS,
+  })
+}
+
+// --- Agenda (F4.1, migración 0840) ---------------------------------------------------------------------------
+
+/** Sus citas (sin fechas: de hoy a hoy + 7; como mucho 31 días; sin las canceladas salvo `canceladas`). 503 sin la 0840. */
+export function agenda(desde?: string, hasta?: string, canceladas?: boolean): Promise<AgendaResponse> {
+  return peticion<AgendaResponse>('/api/me/agenda', { query: { desde, hasta, canceladas: canceladas ? 'true' : undefined } })
+}
+
+/** Agenda una cita (201). 400 con { error, errores? } por forma, ventana, día libre, perfil, médico, cuenta o subtipo; 409 repetida. */
+export function agendar(cuerpo: CitaCreate): Promise<CitaResponse> {
+  return peticion<CitaResponse>('/api/me/agenda', { metodo: 'POST', cuerpo })
+}
+
+/** Cancela una cita propia pendiente de hoy en adelante (el motivo es opcional, hasta 300 caracteres). */
+export function cancelarCita(id: string, motivo?: string | null): Promise<CitaResponse> {
+  const limpio = motivo?.trim() ? motivo.trim().slice(0, 300) : null
+  return peticion<CitaResponse>(`/api/me/agenda/${encodeURIComponent(id)}/cancelar`, { metodo: 'POST', cuerpo: { motivo: limpio } })
 }
 
 // --- Números y cuota -----------------------------------------------------------------------------------------

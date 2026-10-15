@@ -1,5 +1,5 @@
 // Fase 8 · F3 reporte de visitas y voz: validación (allow-list) de los cuerpos y consultas de /api/me/contexto,
-// /api/me/visitas, /api/me/voz/** y /api/me/numeros, y del login móvil. zod descarta cualquier clave no listada:
+// /api/me/visitas, /api/me/voz/**, /api/me/numeros y /api/me/agenda (0840), y del login móvil. zod descarta cualquier clave no listada:
 // nunca se pasa el body entero a una RPC. Mensajes en español, listos para la app.
 // Contrato: docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md (sección "Código puro"). Pruebas:
 // scripts/reporte-check.ts. Mismo estilo que lib/visits-config-schemas.ts (F2).
@@ -16,15 +16,23 @@ import {
   MAX_PREGUNTAS_PROPUESTA,
   MAX_TRANSCRIPT,
   MAX_VISITAS_PROPUESTA,
+  MAX_DIAS_CONSULTA_AGENDA,
+  MAX_MOTIVO_CANCELACION_CITA,
+  MAX_NOTA_CITA,
   VALORES_MODALIDAD,
   VALORES_MODO_ENTRADA,
   esInstanteIso,
+  horaCorta,
+  type CamposCrudos,
+  type CamposDictado,
+  type CitaCancelar,
+  type CitaCreate,
   type PropuestaCruda,
   type VisitaCreate,
   type VisitaCreateBase,
   type VisitaUpdate,
 } from './reporte-visitas'
-import { VALORES_MEDIO_TELEFONICA, VALORES_TIPO_VISITA, esFechaIso, esMesIso } from './visits-rules'
+import { VALORES_MEDIO_TELEFONICA, VALORES_TIPO_VISITA, diasEntre, esFechaIso, esMesIso } from './visits-rules'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -196,6 +204,8 @@ const camposVisita = {
   transcript: textoOpcional(MAX_TRANSCRIPT, 'Transcripción no válida'),
   input_mode: z.enum(VALORES_MODO_ENTRADA, { errorMap: () => ({ message: MENSAJE_INPUT }) }),
   lineas: lineasSchema,
+  // 0840: la cita de la agenda que se cumple (opcional; sin ella la base vincula sola la del mismo médico o cuenta).
+  agenda_id: idOpcional('Cita no válida'),
 }
 
 type VisitaPlana = z.infer<z.ZodObject<typeof camposVisita>>
@@ -246,6 +256,7 @@ function normalizarVisita(datos: VisitaPlana): VisitaCreate {
     transcript: datos.transcript,
     input_mode: datos.input_mode,
     lineas: datos.lineas,
+    agenda_id: datos.agenda_id,
   }
   const tipo =
     datos.tipo === 'medica'
@@ -329,6 +340,8 @@ export const proponerSchema = cuerpo({
   lng: coordenadaOpcional(180, MENSAJE_LNG),
   precision: precisionOpcional,
   hora: instante('Falta la hora del dictado'),
+  // 0840: la cita que la ejecutiva eligió antes de dictar (opcional): Claude prefiere esa cita.
+  cita_id: idOpcional('Cita no válida'),
 }).superRefine(revisarPunto)
 
 export type Proponer = z.infer<typeof proponerSchema>
@@ -408,4 +421,100 @@ const visitaPropuestaSchema = z.object({
 export const propuestaSchema: z.ZodType<PropuestaCruda, z.ZodTypeDef, unknown> = z.object({
   visitas: z.array(visitaPropuestaSchema).max(MAX_VISITAS_PROPUESTA, `Como máximo ${MAX_VISITAS_PROPUESTA} visitas por dictado`),
   aviso: textoONulo(300),
+})
+
+// ---------------------------------------------------------------------------------------------
+// Agenda (F4.1, migración 0840) y dictado por campo
+// ---------------------------------------------------------------------------------------------
+
+const MENSAJE_HORA = 'Hora no válida: usa HH:MM (de 00:00 a 23:59)'
+
+/** Hora opcional HH:MM (o HH:MM:SS): ausente, '' o null → null; queda en HH:MM. */
+const horaOpcional = z
+  .string({ invalid_type_error: MENSAJE_HORA })
+  .trim()
+  .nullish()
+  .transform(valor => (valor ? valor : null))
+  .refine(valor => valor === null || horaCorta(valor) !== null, { message: MENSAJE_HORA })
+  .transform(valor => (valor === null ? null : horaCorta(valor)))
+
+const camposCita = {
+  fecha: z
+    .string({ required_error: 'Elige la fecha de la cita', invalid_type_error: MENSAJE_FECHA })
+    .trim()
+    .refine(valor => esFechaIso(valor), { message: MENSAJE_FECHA }),
+  hora: horaOpcional,
+  tipo: z.enum(VALORES_TIPO_VISITA, { errorMap: () => ({ message: MENSAJE_TIPO }) }),
+  medico_id: idOpcional('Médico no válido'),
+  cuenta_id: idOpcional('Cuenta no válida'),
+  subtipo_id: idOpcional('Subtipo no válido'),
+  sede_id: idSchema('Elige la sede'),
+  nota: textoOpcional(MAX_NOTA_CITA, 'Nota no válida'),
+}
+
+type CitaPlana = z.infer<z.ZodObject<typeof camposCita>>
+
+/**
+ * POST /api/me/agenda: médica con médico; institucional con cuenta y subtipo (lo que no aplica al tipo queda en null).
+ * Que la fecha esté en la ventana, el perfil, el médico en esa sede, la cuenta, el subtipo vigente y los repetidos los
+ * revisa agenda_crear (la base); la ventana la repite la API con mensajeFechaCita para responder sin ir a la base.
+ */
+export const citaCreateSchema: z.ZodType<CitaCreate, z.ZodTypeDef, unknown> = cuerpo(camposCita)
+  .superRefine((datos: CitaPlana, ctx) => {
+    const falla = (campo: string, mensaje: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, path: [campo], message: mensaje })
+    if (datos.tipo === 'medica') {
+      if (!datos.medico_id) falla('medico_id', 'Elige el médico')
+    } else {
+      if (!datos.cuenta_id) falla('cuenta_id', 'Elige la cuenta')
+      if (!datos.subtipo_id) falla('subtipo_id', 'Elige el subtipo de la visita institucional')
+    }
+  })
+  .transform((datos: CitaPlana): CitaCreate => {
+    const base = { fecha: datos.fecha, hora: datos.hora, sede_id: datos.sede_id, nota: datos.nota }
+    return datos.tipo === 'medica'
+      ? { ...base, tipo: 'medica', medico_id: datos.medico_id as string, cuenta_id: null, subtipo_id: null }
+      : { ...base, tipo: 'institucional', medico_id: null, cuenta_id: datos.cuenta_id as string, subtipo_id: datos.subtipo_id as string }
+  })
+
+/** POST /api/me/agenda/[id]/cancelar: { motivo } opcional (hasta 300 caracteres). Cuerpo vacío = sin motivo. */
+export const citaCancelarSchema: z.ZodType<CitaCancelar, z.ZodTypeDef, unknown> = cuerpo({
+  motivo: textoOpcional(MAX_MOTIVO_CANCELACION_CITA, 'Motivo no válido'),
+}).transform(datos => ({ motivo: datos.motivo }))
+
+/**
+ * GET /api/me/agenda?desde=&hasta=&canceladas= (sin fechas: hoy a hoy + 7; sin hasta: desde + 7; como mucho 31 días;
+ * canceladas=1 o true las incluye). Los valores por defecto los pone la ruta (necesita la fecha de hoy).
+ */
+export const agendaQuerySchema = cuerpo({
+  desde: fechaOpcional,
+  hasta: fechaOpcional,
+  canceladas: z
+    .string({ invalid_type_error: 'canceladas: usa true o false' })
+    .trim()
+    .nullish()
+    .transform(valor => valor === '1' || valor === 'true'),
+}).superRefine((datos, ctx) => {
+  if (datos.desde && datos.hasta) {
+    if (datos.hasta < datos.desde) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['hasta'], message: 'La fecha final no puede ser anterior a la inicial' })
+    } else if (diasEntre(datos.desde, datos.hasta) + 1 > MAX_DIAS_CONSULTA_AGENDA) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['hasta'], message: `Como mucho ${MAX_DIAS_CONSULTA_AGENDA} días por consulta` })
+    }
+  }
+})
+
+/** POST /api/me/voz/campos: lo dictado para UNA visita (1..8000 caracteres) y su tipo. */
+export const camposDictadoSchema: z.ZodType<CamposDictado, z.ZodTypeDef, unknown> = cuerpo({
+  transcript: z
+    .string({ required_error: MENSAJE_TRANSCRIPT, invalid_type_error: MENSAJE_TRANSCRIPT })
+    .transform(valor => valor.trim().replace(/[ \t]+/g, ' '))
+    .pipe(z.string().min(1, MENSAJE_TRANSCRIPT).max(MAX_TRANSCRIPT, MENSAJE_TRANSCRIPT)),
+  tipo: z.enum(VALORES_TIPO_VISITA, { errorMap: () => ({ message: MENSAJE_TIPO }) }),
+})
+
+/** Lo que devuelve Claude por repartir_campos (tolerante con nulos y claves de más; normalizarCampos acota después). */
+export const camposSchema: z.ZodType<CamposCrudos, z.ZodTypeDef, unknown> = z.object({
+  conclusion: textoONulo(MAX_CONCLUSION),
+  compromisos: textoONulo(MAX_COMPROMISOS),
+  next_step_date: textoONulo(10),
 })
