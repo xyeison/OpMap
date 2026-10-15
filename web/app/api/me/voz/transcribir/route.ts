@@ -123,8 +123,8 @@ export async function POST(request: NextRequest) {
     const respuesta: TranscripcionResponse = { transcript: texto, duracion_s: duracion, modelo }
     return NextResponse.json(respuesta, { headers: { 'Cache-Control': 'no-store' } })
   } catch (error) {
-    // Nunca el contenido: solo el tipo y el estado del error.
-    console.error(`POST /api/me/voz/transcribir: fallo al transcribir (${resumenErrorVoz(error)})`)
+    // Nunca el contenido: estado, tipo, parámetro, request_id y el mensaje de la API saneado (resumenErrorVoz).
+    console.error(`POST /api/me/voz/transcribir: fallo al transcribir (${resumenErrorVoz(error, [nombre])})`)
     if (esErrorDeProveedor(error)) return jsonError(MENSAJE_FALLO_TRANSCRIPCION, 502)
     return jsonError('Error interno al transcribir el audio', 500)
   }

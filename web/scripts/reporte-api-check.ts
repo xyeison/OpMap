@@ -19,7 +19,10 @@
  * móvil y GET /api/auth/me), y los tipos de la app (mobile/lib/tipos.ts) se asignan a los del servidor al compilar;
  * los límites de la voz (6/min y 40/h al transcribir, 10/min y 60/h al proponer) con su 429 y Retry-After; los logs
  * sin la transcripción ni los textos de la visita aunque la base o Claude fallen; y el importador de VMO (deshabilitado
- * en la ruta): borra solo source = 'vmo_import' del mes y no inserta nada si el borrado falla. El portador en páginas,
+ * en la ruta): borra solo source = 'vmo_import' del mes y no inserta nada si el borrado falla. Si Anthropic rechaza la
+ * petición completa con un 400, proponer y campos reintentan UNA vez con la petición mínima (sin betas, fallbacks,
+ * thinking ni strict; solo effort low) y el aviso del log trae el tipo, el parámetro y el request_id sin nada de lo
+ * dictado ni del contexto; 429, 5xx, red, tiempo agotado y 'refusal' no usan ese respaldo. El portador en páginas,
  * el CORS de desarrollo y los límites del login están en scripts/reporte-check.ts.
  *
  * F4.1 (migración 0840, sección 14): GET/POST /api/me/agenda, POST /api/me/agenda/[id]/cancelar, el vínculo de
@@ -69,6 +72,7 @@ import {
   MENSAJE_CITA_REPETIDA_MEDICO,
   MENSAJE_CITA_YA_CANCELADA,
   MENSAJE_FALLO_CAMPOS,
+  MENSAJE_FALLO_PROPUESTA,
   MENSAJE_MEDICO_NO_EXISTE,
   MENSAJE_SEDE_NO_DE_LA_CUENTA,
   MENSAJE_SEDE_NO_DEL_MEDICO,
@@ -111,7 +115,24 @@ import type * as W from '../lib/reporte-visitas'
 import type { camposDictadoSchema, citaCancelarSchema, citaCreateSchema, visitaCreateSchema } from '../lib/reporte-visitas-schemas'
 import type * as M from '../../mobile/lib/tipos'
 import { CLAVES_API, clavesDe, tieneClaves, type FormaApi } from '../../mobile/lib/claves-api'
-import { MENSAJE_FALTA_MIGRACION_0830, MENSAJE_FALTA_MIGRACION_0840, TEXTO_OMITIDO_EN_LOG, fijarFabricasVoz, reiniciarLimitesVoz, type ClientePropuesta, type ClienteTranscripcion } from '../app/api/me/_lib/reporte-server'
+import {
+  MAX_MENSAJE_API_ANALIZAR,
+  MAX_TOKENS_CAMPOS,
+  MAX_TOKENS_PETICION_MINIMA,
+  MAX_TOKENS_PROPUESTA,
+  MENSAJE_API_OMITIDO,
+  MENSAJE_FALTA_MIGRACION_0830,
+  MENSAJE_FALTA_MIGRACION_0840,
+  TEXTO_OMITIDO_EN_LOG,
+  fijarFabricasVoz,
+  loEnviado,
+  mensajeApiSeguro,
+  parametroDelMensaje,
+  reiniciarLimitesVoz,
+  resumenErrorVoz,
+  type ClientePropuesta,
+  type ClienteTranscripcion,
+} from '../app/api/me/_lib/reporte-server'
 import { POST as login } from '../app/api/auth/login/route'
 import { GET as verMe } from '../app/api/auth/me/route'
 import { importarMesVmo } from '../app/api/visits/_lib/importar-vmo'
@@ -1196,7 +1217,8 @@ const TRANSCRIPCION = 'Estuve con la doctora Gómez en la Clínica Norte, le gus
 const llamadasOpenAI: { model: string; language?: string; prompt?: string; esArchivo: boolean; tamano: number; nombre: string }[] = []
 const llamadasClaude: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming[] = []
 let modoOpenAI: 'ok' | 'sin_modelo' | 'falla' = 'ok'
-let respuestaClaude: () => Anthropic.Beta.Messages.BetaMessage = () => mensajeClaude(entradaClaude())
+// Recibe la petición: así una prueba responde distinto a la petición completa y a la mínima de respaldo.
+let respuestaClaude: (body: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming) => Anthropic.Beta.Messages.BetaMessage = () => mensajeClaude(entradaClaude())
 
 function entradaClaude(): Fila {
   const base = { subtipo_codigo: null, cuenta_id: null, contacto_id: null, contacto_nombre_dicho: null, failure_reason: null, compromisos: null, next_step_date: null, preguntas: [] as string[] }
@@ -1224,6 +1246,41 @@ function mensajeClaude(entrada: unknown, stop: 'tool_use' | 'refusal' | 'end_tur
   } as unknown as Anthropic.Beta.Messages.BetaMessage
 }
 
+/** Un 400 invalid_request_error de Anthropic (Anthropic rechaza la PETICIÓN), con request-id en la cabecera. */
+const REQUEST_ID_PRUEBA = 'req_prueba_minima_01'
+function error400Claude(mensaje: string): InstanceType<typeof Anthropic.APIError> {
+  return Anthropic.APIError.generate(400, { type: 'error', error: { type: 'invalid_request_error', message: mensaje }, request_id: REQUEST_ID_PRUEBA }, undefined, new Headers({ 'request-id': REQUEST_ID_PRUEBA }))
+}
+
+/** ¿La petición lleva algo de lo que la mínima de respaldo quita? (betas, fallbacks, thinking, strict) */
+function esPeticionCompleta(body: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming | undefined): boolean {
+  if (!body) return false
+  const conStrict = (body.tools ?? []).some(tool => 'strict' in tool)
+  return Boolean(body.betas?.length) || 'fallbacks' in body || 'thinking' in body || conStrict
+}
+
+/**
+ * La petición mínima: ninguno de esos parámetros, output_config SOLO con effort 'low' (sin él Sonnet 5.5 razona con
+ * effort 'high' y no cabe en los 60 s), max_tokens MAX_TOKENS_PETICION_MINIMA y la herramienta sin strict, con
+ * tool_choice 'auto' (no forzado).
+ */
+function esPeticionMinima(body: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming | undefined, herramienta: string): boolean {
+  if (!body) return false
+  const tools = (body.tools ?? []) as Anthropic.Beta.Messages.BetaTool[]
+  return (
+    !('betas' in body) &&
+    !('fallbacks' in body) &&
+    !('thinking' in body) &&
+    JSON.stringify(body.output_config) === JSON.stringify({ effort: 'low' }) &&
+    body.max_tokens === MAX_TOKENS_PETICION_MINIMA &&
+    tools.length === 1 &&
+    tools[0].name === herramienta &&
+    !('strict' in tools[0]) &&
+    body.tool_choice?.type === 'auto' &&
+    body.tool_choice.disable_parallel_tool_use === true
+  )
+}
+
 const clienteOpenAI: ClienteTranscripcion = {
   audio: {
     transcriptions: {
@@ -1243,7 +1300,7 @@ const clienteClaude: ClientePropuesta = {
     messages: {
       create: async body => {
         llamadasClaude.push(body)
-        return respuestaClaude()
+        return respuestaClaude(body)
       },
     },
   },
@@ -1683,6 +1740,279 @@ async function main() {
       check('con las dos llaves, voz.transcribir y voz.proponer en true', contexto.body.voz.transcribir === true && contexto.body.voz.proponer === true)
     }
 
+    print('\n7b. Proponer: si Anthropic rechaza la petición completa (400), UN reintento con la petición mínima')
+    {
+      const cuerpo = { transcript: TRANSCRIPCION, lat: TEL.lat, lng: TEL.lng, precision: 12, hora: '2026-10-13T10:41:00.000-05:00' }
+      const respuestaOriginal = respuestaClaude
+      // Los console.warn aparte (el respaldo se avisa con warn), además de quedar en moduleLogs.
+      const avisos: string[] = []
+      const warnOriginal = console.warn
+      console.warn = (...args: unknown[]) => {
+        avisos.push(args.map(String).join(' '))
+        registrar(...args)
+      }
+      // Nada de lo dictado ni del contexto (médica, cuenta, especialidad, nombre de la ejecutiva) en los logs.
+      const PALABRAS_PRIVADAS = ['tornillo', 'canulado', 'Gómez', 'Gomez', 'doctora', 'Ramírez', 'Ramirez', 'Clínica', 'Norte', 'Luis', 'ortopedia', 'Ejecutiva']
+      // Sin tildes ni mayúsculas: "GOMEZ" o "gomez" en el log también cuentan.
+      const normal = (texto: string) => texto.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
+      const sinContenido = (logs: string[]) => logs.every(l => PALABRAS_PRIVADAS.every(palabra => !normal(l).includes(normal(palabra))))
+      try {
+        // (a) La completa da 400 (beta no habilitada) → la mínima → 200 con la propuesta.
+        reiniciarLimitesVoz()
+        const MOTIVO_BETA = 'Unexpected value(s) `server-side-fallback-2026-07-01` for the `anthropic-beta` header. Please consult our documentation at docs.claude.com or try again without the header.'
+        respuestaClaude = body => {
+          if (esPeticionCompleta(body)) throw error400Claude(MOTIVO_BETA)
+          return mensajeClaude(entradaClaude())
+        }
+        const desdeA = llamadasClaude.length
+        const avisosA = avisos.length
+        const logsA = moduleLogs.length
+        const conRespaldo = await pedir(proponer, '/api/me/voz/proponer', { method: 'POST', body: cuerpo, portador: true })
+        const [completa, minima] = llamadasClaude.slice(desdeA)
+        check(
+          'la completa da 400 → se reintenta UNA vez con la mínima y la ruta responde 200 con la propuesta (tres visitas, claves de la app)',
+          conRespaldo.status === 200 && ok('propuesta', conRespaldo.body) && todosCon('visitaPropuesta', conRespaldo.body.visitas) && conRespaldo.body.visitas.length === 3 && llamadasClaude.length === desdeA + 2,
+          { status: conRespaldo.status, body: conRespaldo.body, llamadas: llamadasClaude.length - desdeA }
+        )
+        check(
+          'la primera es la completa (beta server-side-fallback-2026-07-01, fallbacks default, thinking between_tools, effort low, herramienta estricta)',
+          esPeticionCompleta(completa) && completa?.betas?.includes('server-side-fallback-2026-07-01') === true && completa?.fallbacks === 'default' && completa?.thinking?.type === 'between_tools' && completa?.output_config?.effort === 'low' && (completa?.tools?.[0] as Anthropic.Beta.Messages.BetaTool | undefined)?.strict === true,
+          completa && { betas: completa.betas, fallbacks: completa.fallbacks, thinking: completa.thinking }
+        )
+        const herramientaMinima = minima?.tools?.[0] as Anthropic.Beta.Messages.BetaTool | undefined
+        check(
+          'la mínima NO lleva betas, fallbacks, thinking ni strict; sí effort low (output_config solo con eso) y max_tokens 8.000 (cabe en los 60 s); tool_choice auto con una sola llamada (Sonnet 5.5 rechaza con 400 el forzado, que haría fallar también la mínima)',
+          esPeticionMinima(minima, 'proponer_visitas') && !esPeticionCompleta(minima) && minima?.tool_choice?.type !== 'tool' && minima?.tool_choice?.type !== 'any',
+          minima && { claves: Object.keys(minima), tool_choice: minima.tool_choice, herramienta: herramientaMinima && Object.keys(herramientaMinima) }
+        )
+        check(
+          'la mínima: el mismo modelo, el mismo system (con cache_control), el mismo mensaje y el mismo esquema; max_tokens con margen para el razonamiento',
+          minima?.model === MODELO_PROPUESTA &&
+            JSON.stringify(minima?.system) === JSON.stringify(completa?.system) &&
+            (minima?.system as { text: string; cache_control?: { type: string } }[] | undefined)?.[0]?.cache_control?.type === 'ephemeral' &&
+            JSON.stringify(minima?.messages) === JSON.stringify(completa?.messages) &&
+            JSON.stringify(herramientaMinima?.input_schema) === JSON.stringify((completa?.tools?.[0] as Anthropic.Beta.Messages.BetaTool | undefined)?.input_schema) &&
+            completa?.max_tokens === MAX_TOKENS_PROPUESTA &&
+            (minima?.max_tokens ?? 0) > MAX_TOKENS_PROPUESTA,
+          minima && { model: minima.model, max_tokens: minima.max_tokens }
+        )
+        const avisoA = avisos.slice(avisosA).find(l => l.includes('petición mínima'))
+        check(
+          'console.warn del respaldo con el porqué: estado, tipo de la API, la cabecera (parámetro), el request_id y el mensaje de la API',
+          Boolean(avisoA) && avisoA!.includes('400') && avisoA!.includes('invalid_request_error') && avisoA!.includes('parámetro anthropic-beta') && avisoA!.includes(REQUEST_ID_PRUEBA) && avisoA!.includes('server-side-fallback-2026-07-01'),
+          avisoA ?? avisos.slice(avisosA)
+        )
+        check('con el respaldo, ni lo dictado ni el contexto salen en los logs', sinContenido(moduleLogs.slice(logsA)), moduleLogs.slice(logsA))
+
+        // La mínima también reintenta si no llama a la herramienta.
+        let minimas = 0
+        respuestaClaude = body => {
+          if (esPeticionCompleta(body)) throw error400Claude('"thinking.type.between_tools" is not supported for this model.')
+          minimas++
+          return minimas === 1 ? mensajeClaude(null, 'end_turn') : mensajeClaude(entradaClaude())
+        }
+        const desdeA2 = llamadasClaude.length
+        const avisosA2 = avisos.length
+        const sinHerramienta = await pedir(proponer, '/api/me/voz/proponer', { method: 'POST', body: cuerpo, portador: true })
+        const avisoA2 = avisos.slice(avisosA2).find(l => l.includes('petición mínima')) ?? ''
+        check(
+          'la mínima no llamó a la herramienta → su reintento (completa + 2 mínimas) → 200; el aviso nombra el parámetro (thinking.type.between_tools)',
+          sinHerramienta.status === 200 && sinHerramienta.body.visitas.length === 3 && llamadasClaude.length === desdeA2 + 3 && llamadasClaude.slice(desdeA2 + 1).every(b => esPeticionMinima(b, 'proponer_visitas')) && avisoA2.includes('parámetro thinking.type.between_tools') && avisoA2.includes('is not supported for this model'),
+          { status: sinHerramienta.status, llamadas: llamadasClaude.length - desdeA2, aviso: avisoA2 }
+        )
+
+        // (b) La mínima también da 400 → 502 con el mensaje de siempre; se lanza el error de la mínima.
+        respuestaClaude = () => {
+          throw error400Claude('tools.0.custom.input_schema: Schema is too complex for compilation.')
+        }
+        const desdeB = llamadasClaude.length
+        const logsB = moduleLogs.length
+        const avisosB = avisos.length
+        const ambas = await pedir(proponer, '/api/me/voz/proponer', { method: 'POST', body: cuerpo, portador: true })
+        const errorRuta = moduleLogs.slice(logsB).find(l => l.includes('fallo al proponer')) ?? ''
+        check(
+          `la mínima también da 400 → 502 "${MENSAJE_FALLO_PROPUESTA}" tras exactamente dos peticiones (completa y mínima)`,
+          ambas.status === 502 && ambas.body.error === MENSAJE_FALLO_PROPUESTA && llamadasClaude.length === desdeB + 2 && esPeticionCompleta(llamadasClaude[desdeB]) && esPeticionMinima(llamadasClaude[desdeB + 1], 'proponer_visitas'),
+          { status: ambas.status, body: ambas.body, llamadas: llamadasClaude.length - desdeB }
+        )
+        check(
+          'el log: un aviso del respaldo y el error de la ruta, los dos con el tipo, el parámetro y el request_id, sin contenido',
+          avisos.slice(avisosB).filter(l => l.includes('petición mínima')).length === 1 && errorRuta.includes('400 invalid_request_error') && errorRuta.includes('parámetro tools.0.custom.input_schema') && errorRuta.includes(REQUEST_ID_PRUEBA) && sinContenido(moduleLogs.slice(logsB)),
+          moduleLogs.slice(logsB)
+        )
+
+        // (c) 429, 5xx, 404, red, tiempo agotado y 'refusal' NO usan la mínima: una sola petición y 502.
+        reiniciarLimitesVoz()
+        const sinRespaldo: [string, () => Anthropic.Beta.Messages.BetaMessage][] = [
+          ['429', () => { throw Anthropic.APIError.generate(429, { type: 'error', error: { type: 'rate_limit_error', message: 'Number of request tokens has exceeded your per-minute rate limit' } }, undefined, new Headers()) }],
+          ['500', () => { throw Anthropic.APIError.generate(500, { type: 'error', error: { type: 'api_error', message: 'Internal server error' } }, undefined, new Headers()) }],
+          ['529', () => { throw Anthropic.APIError.generate(529, { type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } }, undefined, new Headers()) }],
+          ['404', () => { throw Anthropic.APIError.generate(404, { type: 'error', error: { type: 'not_found_error', message: 'model: claude-sonnet-5-5' } }, undefined, new Headers()) }],
+          ['sin conexión', () => { throw new Anthropic.APIConnectionError({ message: 'Connection error.' }) }],
+          ['tiempo agotado', () => { throw new Anthropic.APIConnectionTimeoutError() }],
+          ['refusal', () => mensajeClaude(null, 'refusal')],
+        ]
+        const logsDesdeC = moduleLogs.length
+        for (const [nombre, respuesta] of sinRespaldo) {
+          respuestaClaude = respuesta
+          const desdeC = llamadasClaude.length
+          const avisosC = avisos.length
+          const r = await pedir(proponer, '/api/me/voz/proponer', { method: 'POST', body: cuerpo, portador: true })
+          check(
+            `${nombre}: 502 sin respaldo (una sola petición, la completa; ningún aviso de petición mínima)`,
+            r.status === 502 && r.body.error === MENSAJE_FALLO_PROPUESTA && llamadasClaude.length === desdeC + 1 && esPeticionCompleta(llamadasClaude[desdeC]) && !avisos.slice(avisosC).some(l => l.includes('petición mínima')),
+            { status: r.status, llamadas: llamadasClaude.length - desdeC, avisos: avisos.slice(avisosC) }
+          )
+        }
+        const logsC = moduleLogs.slice(logsDesdeC)
+        check(
+          'el log de esos fallos dice qué pasó (429 rate_limit_error, tiempo agotado, sin conexión, rechazo) sin contenido',
+          logsC.some(l => l.includes('Anthropic 429 rate_limit_error')) && logsC.some(l => l.includes('Anthropic tiempo agotado')) && logsC.some(l => l.includes('Anthropic sin conexión')) && logsC.some(l => l.includes('rechazo')) && sinContenido(logsC),
+          logsC
+        )
+
+        // (e) El mensaje de la API repite lo enviado: el aviso lleva el tipo y el parámetro, nunca el contenido.
+        reiniciarLimitesVoz()
+        const filtraciones: [string, string, (aviso: string) => boolean][] = [
+          [
+            'repite la transcripción tal cual (sin comillas)',
+            `tool_choice: no se pudo con ${TRANSCRIPCION}`,
+            aviso => aviso.includes('parámetro tool_choice') && aviso.includes(MENSAJE_API_OMITIDO),
+          ],
+          [
+            'repite palabras del contexto en ASCII (especialidad y nombre de la ejecutiva)',
+            'messages.0.content: unexpected value near ortopedia and Ejecutiva',
+            aviso => aviso.includes('parámetro messages.0.content') && aviso.includes(MENSAJE_API_OMITIDO),
+          ],
+          [
+            'cita lo dictado entre comillas (se cambia por "..." y el resto del mensaje sí sirve)',
+            'output_config.effort: "Vi al doctor Ramirez" is not a valid effort level',
+            aviso => aviso.includes('parámetro output_config.effort') && aviso.includes('mensaje: output_config.effort: "..." is not a valid effort level'),
+          ],
+          [
+            'trae un teléfono, un correo y una llave (se tapan)',
+            'tool_choice: bad value 3001234567 for luis@clinica.test with sk-ant-api03-abcdefghijkl',
+            aviso => aviso.includes('parámetro tool_choice') && !aviso.includes('3001234567') && !aviso.includes('@clinica') && !aviso.includes('sk-ant-api03') && aviso.includes('[llave]'),
+          ],
+        ]
+        for (const [nombre, mensaje, esperado] of filtraciones) {
+          respuestaClaude = body => {
+            if (esPeticionCompleta(body)) throw error400Claude(mensaje)
+            return mensajeClaude(entradaClaude())
+          }
+          const avisosE = avisos.length
+          const logsE = moduleLogs.length
+          const r = await pedir(proponer, '/api/me/voz/proponer', { method: 'POST', body: cuerpo, portador: true })
+          const aviso = avisos.slice(avisosE).find(l => l.includes('petición mínima')) ?? ''
+          check(
+            `el mensaje de la API ${nombre}: 200 con el respaldo y el aviso con el tipo y el parámetro, sin nada de lo enviado`,
+            r.status === 200 && aviso.includes('400 invalid_request_error') && aviso.includes(REQUEST_ID_PRUEBA) && esperado(aviso) && sinContenido(moduleLogs.slice(logsE)),
+            { status: r.status, aviso }
+          )
+        }
+      } finally {
+        respuestaClaude = respuestaOriginal
+        console.warn = warnOriginal
+        reiniciarLimitesVoz()
+      }
+    }
+
+    print('\n7c. El log de la voz nunca repite lo enviado (saneado del mensaje de la API, funciones puras)')
+    {
+      // Lo que mandó la persona: apellidos con tilde y eñe, nombres cortos y números escritos como se escriben.
+      const DICHO = 'Hablé con la doctora Gómez Fernández y con Ana Gil; su teléfono es 300 123 4567, la cédula 1.020.304.050, NIT 900.123.456-7, extensión 45821.'
+      const CONTEXTO_7C = { medicos: [{ nombre: 'María Ramírez' }, { nombre: 'Luis Muñoz' }, { nombre: 'José Rodríguez' }], contactos: [{ nombre: 'Rey Gil', cargo: 'Compras' }] }
+      const enviado7c = loEnviado([DICHO, CONTEXTO_7C])
+      const resumen = (mensaje: string) => resumenErrorVoz(error400Claude(mensaje), [DICHO, CONTEXTO_7C])
+      check(
+        'loEnviado: palabras de 3 o más letras sin tildes (gomez, fernandez, ana, gil, rey, munoz) y números sin separadores (3001234567, 1020304050, 9001234567, 45821)',
+        ['gomez', 'fernandez', 'ana', 'gil', 'rey', 'munoz', 'rodriguez'].every(p => enviado7c.palabras.has(p)) &&
+          ['3001234567', '1020304050', '9001234567', '45821'].every(n => enviado7c.numeros.includes(n)) &&
+          !enviado7c.palabras.has('su') &&
+          !enviado7c.palabras.has('nombre'),
+        { palabras: [...enviado7c.palabras], numeros: enviado7c.numeros }
+      )
+      // [qué trae, mensaje de la API, trozos que NUNCA pueden salir en el log, lo que sí queda (por defecto: se omite)]
+      const filtraciones7c: [string, string, string[], string?][] = [
+        ['tilde escapada \\u (sin comillas)', 'invalid near Fern\\u00e1ndez', ['Fern', 'ndez']],
+        ['tilde escapada \\u en el nombre completo', 'invalid value Mar\\u00eda Ram\\u00edrez', ['Mar', 'Ram']],
+        ['tilde escapada \\x', 'invalid near Rodr\\xedguez', ['Rodr', 'guez']],
+        ['entidad HTML', 'invalid near Fern&aacute;ndez', ['Fern', 'ndez']],
+        ['eñe como entidad numérica', 'invalid near Mu&#241;oz', ['Mu&', 'oz']],
+        ['tilde en URL (%C3%A1)', 'invalid near Fern%C3%A1ndez', ['Fern', 'ndez']],
+        ['tilde escapada entre comillas', 'invalid near "Fern\\u00e1ndez"', ['Fern', 'ndez'], 'mensaje: invalid near "..."'],
+        ['teléfono con espacios', 'invalid near 300 123 4567 in text', ['300', '123', '4567'], 'mensaje: invalid near # in text'],
+        ['cédula con puntos', 'invalid near 1.020.304.050', ['020', '304', '050'], 'mensaje: invalid near #'],
+        ['NIT con puntos y guion', 'invalid near 900.123.456-7', ['900', '123', '456'], 'mensaje: invalid near #'],
+        ['teléfono con guiones entre comillas', 'invalid near "300-123-4567"', ['300', '123', '4567'], 'mensaje: invalid near "#"'],
+        ['teléfono con puntos entre comillas', 'invalid near "300.123.4567"', ['300', '123', '4567'], 'mensaje: invalid near "#"'],
+        ['extensión de 5 dígitos entre comillas', 'invalid near "45821"', ['45821']],
+        ['extensión de 5 dígitos sin comillas', 'invalid near 45821', ['45821']],
+        ['el final de un teléfono', 'invalid near 4567', ['4567']],
+        ['nombre y apellido cortos', 'invalid near Ana Gil', ['Ana', 'Gil']],
+        ['nombre corto del contexto', 'invalid value Rey Gil', ['Rey', 'Gil']],
+        ['apellido corto entre comillas', 'invalid near "Gil"', ['Gil']],
+        ['comillas desparejadas', 'invalid near "x and Rey Gil', ['Rey', 'Gil']],
+        ['apellido corto que NO está en lo enviado (lista cerrada)', 'invalid near Paz', ['Paz']],
+        ['inicio de un apellido entre comillas', 'invalid near "Fernand"', ['Fernand']],
+        ['final de un apellido entre comillas', 'invalid near "ernandez"', ['ernandez']],
+        ['inicio de un apellido sin comillas', 'invalid near Fernand', ['Fernand']],
+        ['apellido en mayúsculas', 'invalid near GOMEZ', ['GOMEZ']],
+        ['palabras pegadas', 'invalid near AnaGil', ['AnaGil']],
+        ['JSON del contexto', 'messages.0.content: {"medicos":[{"nombre":"Luis Munoz"}]}', ['Luis', 'Munoz', 'medicos']],
+        ['comillas tipográficas con tildes', 'invalid near “María Ramírez” and Ramirez', ['Mar', 'Ram']],
+        ['mensaje de más de MAX_MENSAJE_API_ANALIZAR caracteres', `tool_choice: invalid ${'value '.repeat(300)}near Gomez`, ['Gomez', 'value value']],
+      ]
+      for (const [nombre, mensaje, prohibidos, queda = MENSAJE_API_OMITIDO] of filtraciones7c) {
+        const log = resumen(mensaje)
+        check(
+          `el mensaje de la API trae ${nombre}: ${queda === MENSAJE_API_OMITIDO ? 'se omite' : `queda «${queda}»`} y no sale nada de lo enviado`,
+          log.endsWith(queda) && log.includes('400 invalid_request_error') && log.includes(REQUEST_ID_PRUEBA) && prohibidos.every(trozo => !log.includes(trozo)),
+          log
+        )
+      }
+      // Lo que SÍ sirve sigue saliendo entero (y con los números tapados o a la vista según la regla).
+      const utiles: [string, string, string][] = [
+        ['la beta rechazada', 'Unexpected value(s) `server-side-fallback-2026-07-01` for the `anthropic-beta` header.', 'mensaje: Unexpected value(s) `server-side-fallback-2026-07-01` for the `anthropic-beta` header.'],
+        ['el thinking no soportado', '"thinking.type.between_tools" is not supported for this model.', 'mensaje: "thinking.type.between_tools" is not supported for this model.'],
+        ['el tope de tokens (números cortos a la vista)', 'max_tokens: 16000 > 8192, which is the maximum allowed number of output tokens for claude-sonnet-5-5', 'mensaje: max_tokens: 16000 > 8192, which is the maximum allowed number of output tokens for claude-sonnet-5-5'],
+        ['un número largo que no es de lo enviado (se tapa)', 'prompt is too long: 250000 tokens > 200000 maximum', 'mensaje: prompt is too long: # tokens > # maximum'],
+        ['lo dictado entre comillas (se cambia por "...")', 'tool_choice: "Ana Gil dijo que no" is not a valid type', 'mensaje: tool_choice: "..." is not a valid type'],
+      ]
+      for (const [nombre, mensaje, esperado] of utiles) {
+        const log = resumen(mensaje)
+        check(`el mensaje de la API con ${nombre} sí sale (saneado)`, log.includes(esperado) && !log.includes(MENSAJE_API_OMITIDO), log)
+      }
+      check(
+        'mensajeApiSeguro y parametroDelMensaje directos: la tilde escapada se omite y el parámetro se reconoce sin repetir lo enviado',
+        mensajeApiSeguro('invalid near Fern\\u00e1ndez', enviado7c) === null &&
+          mensajeApiSeguro('fallbacks: Extra inputs are not permitted', enviado7c) === 'fallbacks: Extra inputs are not permitted' &&
+          parametroDelMensaje('output_config.effort: Input should be low', enviado7c) === 'output_config.effort' &&
+          parametroDelMensaje('messages.gomez: bad', enviado7c) === null
+      )
+      // OpenAI: code y param salen; el mensaje, con las mismas reglas.
+      const errorOpenAI = (mensaje: string) =>
+        OpenAI.APIError.generate(400, { error: { message: mensaje, type: 'invalid_request_error', code: 'invalid_value', param: 'file' } }, undefined, new Headers({ 'x-request-id': 'req_openai_7c' }))
+      const openaiBien = resumenErrorVoz(errorOpenAI('Audio file might be corrupted or unsupported'), ['grabacion-visita.m4a'])
+      const openaiFiltra = resumenErrorVoz(errorOpenAI('Invalid file name grabaci\\u00f3n de Ana Gil'), ['grabacion-visita.m4a'])
+      check(
+        'OpenAI: el log trae el estado, el tipo, el code, el param y el request_id; el mensaje técnico sale y uno con un nombre se omite',
+        openaiBien.startsWith('OpenAI 400 invalid_request_error (invalid_value)') && openaiBien.includes('parámetro file') && openaiBien.includes('request_id req_openai_7c') && openaiBien.includes('mensaje: Audio file might be corrupted or unsupported') &&
+          openaiFiltra.includes(MENSAJE_API_OMITIDO) && !openaiFiltra.includes('Ana') && !openaiFiltra.includes('Gil') && !openaiFiltra.includes('grabaci'),
+        { openaiBien, openaiFiltra }
+      )
+      // Un mensaje anómalo y enorme no bloquea la función (antes: segundos con 80.000 caracteres sin espacios).
+      const inicio = Date.now()
+      const enormes = [`tool_choice: ${'x'.repeat(160_000)}`, 'model:'.repeat(32_000), '"'.repeat(32_000), `anthropic-${'a-'.repeat(40_000)}`]
+      const logsEnormes = enormes.map(resumen)
+      const ms = Date.now() - inicio
+      check(
+        `un mensaje de la API de 64.000 a 160.000 caracteres se omite en milisegundos (${ms} ms; tope de análisis ${MAX_MENSAJE_API_ANALIZAR} caracteres)`,
+        ms < 500 && logsEnormes.every(log => log.includes(MENSAJE_API_OMITIDO) && log.length < 400),
+        { ms, logsEnormes }
+      )
+    }
+
     print('\n8. Médico completo y sede nueva con el GPS (F1 desde la app)')
     {
       const antes = tablas.medicos.length
@@ -1857,7 +2187,8 @@ async function main() {
       fake.estado.errorRpc = null
       check('PATCH y anular con un error de la base sin traducir: 500 y el log sin la corrección, los compromisos ni el motivo', corregida.status === 500 && anulada.status === 500 && sinSecretos(desde3) && moduleLogs.slice(desde3).some(l => l.includes('PATCH /api/me/visitas/[id]')) && moduleLogs.slice(desde3).some(l => l.includes('anular')), { corregida: corregida.body, anulada: anulada.body, logs: moduleLogs.slice(desde3) })
 
-      // Proponer: el SDK de Claude puede traer en su mensaje parte de lo enviado; el log solo dice el tipo y el estado.
+      // Proponer: el SDK de Claude puede traer en su mensaje parte de lo enviado; el log dice el estado, el tipo y el
+      // parámetro, nunca ese mensaje (aquí falla la completa y también la mínima de respaldo).
       reiniciarLimitesVoz()
       const cuerpoPropuesta = { transcript: TRANSCRIPCION, lat: TEL.lat, lng: TEL.lng, precision: 12, hora: '2026-10-13T10:41:00.000-05:00' }
       const respuestaOriginal = respuestaClaude
@@ -2182,6 +2513,47 @@ async function main() {
       respuestaClaude = () => mensajeClaude({ conclusion: 5 }, 'tool_use', 'repartir_campos')
       const invalido = await pedir(repartirCampos, '/api/me/voz/campos', { method: 'POST', body: { transcript: DICTADO, tipo: 'medica' }, portador: true })
       check('campos: Claude rechaza o devuelve algo que no cumple el esquema → 502 con el mensaje para escribir a mano', rechazo.status === 502 && rechazo.body.error === MENSAJE_FALLO_CAMPOS && invalido.status === 502, { rechazo: rechazo.body, invalido: invalido.body })
+      // Respaldo de petición mínima, igual que en proponer (comparten pedirHerramienta).
+      reiniciarLimitesVoz()
+      const sinDictado = (logs: string[]) => logs.every(l => !l.includes('tornillo') && !l.includes('canulado') && !l.includes('muestra') && !l.includes('3001234567'))
+      respuestaClaude = body => {
+        if (esPeticionCompleta(body)) throw error400Claude('fallbacks: Extra inputs are not permitted')
+        return mensajeClaude({ conclusion: 'Le gustó el tornillo canulado', compromisos: null, next_step_date: null }, 'tool_use', 'repartir_campos')
+      }
+      const desdeRespaldo = llamadasClaude.length
+      const logsRespaldo = moduleLogs.length
+      const conRespaldo = await pedir(repartirCampos, '/api/me/voz/campos', { method: 'POST', body: { transcript: DICTADO, tipo: 'medica' }, portador: true })
+      const [completaCampos, minimaCampos] = llamadasClaude.slice(desdeRespaldo)
+      const avisoCampos = moduleLogs.slice(logsRespaldo).find(l => l.includes('petición mínima')) ?? ''
+      check(
+        'campos: la completa da 400 → la mínima (sin betas, fallbacks, thinking ni strict; effort low; tool_choice auto) → 200 con el reparto',
+        conRespaldo.status === 200 && ok('campos', conRespaldo.body) && conRespaldo.body.conclusion === 'Le gustó el tornillo canulado' && llamadasClaude.length === desdeRespaldo + 2 && esPeticionCompleta(completaCampos) && esPeticionMinima(minimaCampos, 'repartir_campos') && (minimaCampos?.max_tokens ?? 0) > MAX_TOKENS_CAMPOS && JSON.stringify(minimaCampos?.messages) === JSON.stringify(completaCampos?.messages),
+        { status: conRespaldo.status, body: conRespaldo.body, llamadas: llamadasClaude.length - desdeRespaldo, minima: minimaCampos && Object.keys(minimaCampos) }
+      )
+      check('campos: el aviso del respaldo dice el parámetro (fallbacks), el tipo y el request_id, sin el dictado', avisoCampos.includes('repartir_campos') && avisoCampos.includes('parámetro fallbacks') && avisoCampos.includes('invalid_request_error') && avisoCampos.includes(REQUEST_ID_PRUEBA) && sinDictado(moduleLogs.slice(logsRespaldo)), moduleLogs.slice(logsRespaldo))
+      respuestaClaude = () => {
+        throw error400Claude(`messages.0.content: no se pudo con ${DICTADO}`)
+      }
+      const desdeAmbas = llamadasClaude.length
+      const logsAmbas = moduleLogs.length
+      const ambasCampos = await pedir(repartirCampos, '/api/me/voz/campos', { method: 'POST', body: { transcript: DICTADO, tipo: 'medica' }, portador: true })
+      check(
+        `campos: la mínima también da 400 → 502 "${MENSAJE_FALLO_CAMPOS}" tras dos peticiones; el log trae el parámetro y no el dictado`,
+        ambasCampos.status === 502 && ambasCampos.body.error === MENSAJE_FALLO_CAMPOS && llamadasClaude.length === desdeAmbas + 2 && esPeticionMinima(llamadasClaude[desdeAmbas + 1], 'repartir_campos') && moduleLogs.slice(logsAmbas).some(l => l.includes('fallo al repartir') && l.includes('parámetro messages.0.content') && l.includes(MENSAJE_API_OMITIDO)) && sinDictado(moduleLogs.slice(logsAmbas)),
+        { status: ambasCampos.status, llamadas: llamadasClaude.length - desdeAmbas, logs: moduleLogs.slice(logsAmbas) }
+      )
+      respuestaClaude = () => {
+        throw Anthropic.APIError.generate(429, { type: 'error', error: { type: 'rate_limit_error', message: 'Number of request tokens has exceeded your per-minute rate limit' } }, undefined, new Headers())
+      }
+      const desde429 = llamadasClaude.length
+      const logs429 = moduleLogs.length
+      const limitadoCampos = await pedir(repartirCampos, '/api/me/voz/campos', { method: 'POST', body: { transcript: DICTADO, tipo: 'medica' }, portador: true })
+      check(
+        'campos: un 429 de Anthropic NO usa la mínima (una sola petición) → 502',
+        limitadoCampos.status === 502 && llamadasClaude.length === desde429 + 1 && !moduleLogs.slice(logs429).some(l => l.includes('petición mínima')),
+        { status: limitadoCampos.status, llamadas: llamadasClaude.length - desde429 }
+      )
+      respuestaClaude = respuestaOriginal
       // Comparte los límites de proponer: 10 en el minuto entre los dos; el siguiente (proponer) → 429.
       respuestaClaude = () => mensajeClaude({ conclusion: 'Bien', compromisos: null, next_step_date: null }, 'tool_use', 'repartir_campos')
       reiniciarLimitesVoz()

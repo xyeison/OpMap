@@ -242,6 +242,25 @@ business_lines, PRIMARY KEY)`, RLS sin políticas, solo service_role.
 Ninguna ruta escribe el audio en disco ni lo registra; `transcript` no sale en logs. PostgREST corta en 1.000
 filas: `fetchAllRows` donde haga falta.
 
+**Logs de la voz** (`resumenErrorVoz`, 2026-10-14): ante un error de la API de Anthropic u OpenAI el log lleva el
+proveedor, el estado HTTP (o "tiempo agotado" / "sin conexión"), el tipo de error de la API (`invalid_request_error`,
+`rate_limit_error`…, y el `code` de OpenAI), el parámetro que nombra el mensaje si se reconoce (`tool_choice`,
+`thinking.type.between_tools`, `tools.0.custom.input_schema`, la cabecera `anthropic-beta`…; en OpenAI, su `param`), el
+`request_id` y el mensaje de la API **saneado**: uno de más de 1.000 caracteres no se analiza ni se imprime; lo que va
+entre comillas solo se queda si es un nombre técnico (sin espacios, ASCII); se tapan correos, llaves y los números de 6
+o más dígitos aunque vengan con espacios, puntos o guiones (300 123 4567, 1.020.304.050, 900.123.456-7; una fecha ISO
+como la de una beta queda a la vista). El mensaje **no** se imprime ("mensaje omitido") si tiene caracteres fuera del
+ASCII (los mensajes de la API vienen en inglés), una tilde escapada (`\u00e1`, `\xe1`, `&aacute;`, `%C3%A1`), una
+palabra fuera de la **lista cerrada** de vocabulario técnico en inglés de los errores de la API (`VOCABULARIO_API`: así
+no pasa ningún nombre, apellido corto como Gil o Paz, ni trozo de palabra, esté o no en lo enviado), una palabra de 3 o
+más letras de lo enviado (la transcripción y los valores del contexto: nombres de médicos, cuentas, sedes, contactos)
+o un número de 3 o más dígitos que sea parte de un número de lo enviado (una extensión, el final de un teléfono).
+Se recorta a 160 caracteres. Nunca audio, transcripción, contexto ni nombres. Si un mensaje técnico real sale omitido
+por una palabra que falta en la lista, se añade la palabra (nunca un nombre propio). Ejemplo: `POST
+/api/me/voz/proponer: fallo al proponer (Anthropic 400 invalid_request_error · parámetro anthropic-beta · request_id
+req_… · mensaje: Unexpected value(s) …)`. Pruebas: `web/scripts/reporte-api-check.ts`, secciones 7b y 7c (y campos en
+la 14).
+
 ## App móvil (`mobile/`)
 
 - Expo SDK 57, TypeScript estricto, `expo-router`, `react-native-web` para verificación; `app.json` con nombre
@@ -338,6 +357,20 @@ cuota) sigue igual.
     números de 7 dígitos o más por "[número omitido]". Claude Sonnet 5.5: `tool_choice: auto` + herramienta estricta +
     un reintento si no la llama, `thinking: between_tools` con `effort: low`, `fallbacks: 'default'` (beta
     `server-side-fallback-2026-07-01`; si cae a Sonnet 5 corre sin razonamiento), sin temperatura.
+    **Respaldo de petición mínima** (2026-10-14, `pedirHerramienta`, vale para proponer y para campos): en producción
+    Anthropic respondió 400 (`invalid_request_error`) a la petición completa y nunca se había probado con la API real.
+    Si la completa falla con un **400** de Anthropic, se reintenta UNA vez con la petición mínima: el mismo modelo,
+    system (con su `cache_control`) y mensaje; la herramienta **sin** `strict` (lo devuelto lo validan después
+    `propuestaSchema` / `camposSchema`); **sin** betas, `fallbacks` ni `thinking`; **con** `effort: low` (GA, sin beta: en
+    Sonnet 5.5 el effort de serie es `high` y, sin `between_tools`, el razonamiento adaptativo con `high` no cabría en los
+    60 s de la ruta, del SDK y de la app; si el effort fuera la causa del 400, la mínima también fallaría y el aviso diría
+    "parámetro output_config.effort"); `tool_choice` sigue en `auto` con una sola llamada (Sonnet 5.5 rechaza con 400 el
+    forzado `tool`/`any`, así que forzarlo haría fallar también la mínima); `max_tokens` 8.000 (el razonamiento cuenta
+    dentro del tope; solo se cobra lo generado). Si la mínima también falla, la ruta responde el 502 de siempre. Un
+    `refusal`, un 429, un 5xx, la red o el tiempo agotado **no** usan el respaldo (la mínima no los arreglaría). Cuando
+    se usa, queda un `console.warn` "Claude rechazó la petición completa de `<herramienta>` (…); se reintenta con la
+    petición mínima" con el resumen seguro del porqué (ver "Logs de la voz" abajo): en Vercel se ve qué parámetro rechazó
+    Anthropic. Cuando se sepa, se corrige ese parámetro en la completa y se recuperan los demás.
 22. **Tope de telefónicas en la app**: con la lista de hoy (servidor + cola) se cuentan ahí; nunca contexto + lista.
 23. **Crear desde Reportar**: Reportar pasa a Nuevo médico / Nueva sede un "pedido" en memoria (nombre dicho,
     municipio, sedes cercanas, punto), nunca en la URL; al volver, lo creado queda puesto en la tarjeta que lo pidió.

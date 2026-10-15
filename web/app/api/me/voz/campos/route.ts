@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
     const respuesta: CamposDictadoResponse = normalizarCampos(crudos.data, hoy)
     return NextResponse.json(respuesta, { headers: { 'Cache-Control': 'no-store' } })
   } catch (error) {
-    console.error(`POST /api/me/voz/campos: fallo al repartir el dictado (${resumenErrorVoz(error)})`)
+    console.error(`POST /api/me/voz/campos: fallo al repartir el dictado (${resumenErrorVoz(error, [datos.transcript])})`)
     if (esErrorDeProveedor(error)) return jsonError(MENSAJE_FALLO_CAMPOS, 502)
     return jsonError('Error interno al repartir el dictado', 500)
   }
