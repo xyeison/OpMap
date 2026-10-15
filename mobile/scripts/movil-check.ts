@@ -178,6 +178,12 @@ import {
   type Lectura,
   type ResultadoUbicacion,
 } from '../lib/ubicacion-pasos'
+import type { Probador } from './checks/probador'
+import { pruebas as pruebasNavegacion } from './checks/15-navegacion'
+import { pruebas as pruebasReportar } from './checks/16-reportar'
+import { pruebas as pruebasAgenda } from './checks/17-agenda'
+import { pruebas as pruebasTiempos } from './checks/18-tiempos'
+import { pruebas as pruebasPantallas } from './checks/19-pantallas'
 
 // Este archivo corre en Node (tsx), pero el programa de tipos es el de la app (sin @types/node, que chocaría con los
 // tipos de React Native): fs y path con lo mínimo que se usa aquí.
@@ -1178,7 +1184,7 @@ async function main() {
     check('total de Mi agenda: cuenta pendientes y hechas', textoTotalAgenda([citaPorto, citaHecha]) === '2 citas' && textoTotalAgenda([citaPorto]) === '1 cita' && textoTotalAgenda([]) === '0 citas')
     check('total de Mi agenda: la cancelada se muestra aparte ("· 1 cancelada")', textoTotalAgenda([citaPorto, cita('x-c1', { estado: 'cancelada' })]) === '1 cita · 1 cancelada' && textoTotalAgenda([cita('x-c1', { estado: 'cancelada' }), cita('x-c2', { estado: 'cancelada' })]) === '0 citas · 2 canceladas')
     const pantallaAgenda = readFileSync(path.resolve(__dirname, '../app/(app)/agenda.tsx'), 'utf8')
-    check('Mi agenda pide las canceladas (la confirmación promete "Queda en tu agenda como cancelada")', /api\.agenda\(undefined, undefined, true\)/.test(pantallaAgenda) && pantallaAgenda.includes('Queda en tu agenda como cancelada'))
+    check('Mi agenda pide las canceladas (la confirmación promete "Queda en tu agenda como cancelada")', /api\.agenda\([^)]*,\s*true\)/.test(pantallaAgenda) && pantallaAgenda.includes('Queda en tu agenda como cancelada'))
 
     // --- Reportar: sin cita ni sede elegida no se graba ni se llena por toques ---
     check('hayEleccion: con una cita sí', hayEleccion({ cita: citaPorto, sedeId: null, catalogo }))
@@ -1914,6 +1920,17 @@ async function main() {
     const hoyTs = readFileSync(path.resolve(__dirname, '../app/(app)/hoy.tsx'), 'utf8')
     check('Hoy: pide el contexto con la primera ubicación (no espera la de alta precisión)', /pedirUbicacionEnDosPasos\(\{ timeoutMs: 8_000 \}\)\.primera/.test(hoyTs) && !/pedirUbicacion\(/.test(hoyTs))
     check('lib/ubicacion.ts: la que vale sigue siendo de alta precisión; la rápida, de precisión media', /precisa:[^\n]*Accuracy\.High/.test(ubicacionTs) && /rapida:[^\n]*Accuracy\.Balanced/.test(ubicacionTs))
+  }
+
+  // -------------------------------------------------------------------------
+  // Secciones 15 a 19 (spec 2026-10-15): un archivo por paquete en scripts/checks/, con el mismo marco.
+  {
+    const probador: Probador = { check, seccion, lanza }
+    await pruebasNavegacion(probador)
+    await pruebasReportar(probador)
+    await pruebasAgenda(probador)
+    await pruebasTiempos(probador)
+    await pruebasPantallas(probador)
   }
 
   console.log(`\n${total - fallas}/${total} pruebas pasaron`)

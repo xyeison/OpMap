@@ -52,6 +52,8 @@ export interface Colores {
   /** Encabezado de las pantallas (negro de marca en los dos modos) y el texto/íconos que van encima. */
   encabezado: string
   sobreEncabezado: string
+  /** Borde de los controles (campo, chip inactivo, botón secundario): ≥ 3:1 sobre la superficie y el fondo. */
+  bordeControl: string
 }
 
 /** Marca VG Medical. Contrastes (WCAG): texto 13:1 y texto secundario 6,4:1 sobre el fondo; estados ≥ 5,2:1. */
@@ -74,6 +76,7 @@ export const COLORES_CLAROS: Colores = {
   fondoInfo: '#EFF6FF',
   encabezado: '#000000',
   sobreEncabezado: '#FFFFFF',
+  bordeControl: '#8A8A8A',
 }
 
 /** Modo oscuro monocromático: grises neutros (sin tinte azul) y acento blanco. Estados ≥ 8:1. */
@@ -96,6 +99,7 @@ export const COLORES_OSCUROS: Colores = {
   fondoInfo: '#14223A',
   encabezado: '#000000',
   sobreEncabezado: '#FFFFFF',
+  bordeControl: '#6B6B6B',
 }
 
 export const TAMANO = {
@@ -108,6 +112,9 @@ export const TAMANO = {
   radio: 14,
   espacio: 16,
 } as const
+
+/** Alto mínimo de todo lo que se toca (botón, chip, "Volver"): 44 pt, la guía de Apple. */
+export const ALTO_TOQUE_MIN = 44
 
 export function useColores(): Colores {
   return useColorScheme() === 'dark' ? COLORES_OSCUROS : COLORES_CLAROS
@@ -226,13 +233,19 @@ interface PropsPantalla {
   /** Sin desplazamiento (pantallas que se acomodan solas). */
   fija?: boolean
   estilo?: StyleProp<ViewStyle>
+  /**
+   * Pie fijo abajo (el botón principal: "Confirmar visita 1 de N", "Agendar · …"): queda fuera del desplazamiento,
+   * siempre a la vista y encima de la barra de pestañas. Sin pie, la pantalla es la de siempre.
+   */
+  pie?: ReactNode
 }
 
-/** Fondo y márgenes de una pantalla, con "tirar para actualizar" si se pasa alRefrescar. */
-export function Pantalla({ children, alRefrescar, refrescando = false, fija, estilo }: PropsPantalla) {
+/** Fondo y márgenes de una pantalla, con "tirar para actualizar" si se pasa alRefrescar y un pie fijo opcional. */
+export function Pantalla({ children, alRefrescar, refrescando = false, fija, estilo, pie }: PropsPantalla) {
   const c = useColores()
-  if (fija) return <View style={[{ flex: 1, backgroundColor: c.fondo, padding: TAMANO.espacio }, estilo]}>{children}</View>
-  return (
+  const cuerpo = fija ? (
+    <View style={[{ flex: 1, backgroundColor: c.fondo, padding: TAMANO.espacio }, estilo]}>{children}</View>
+  ) : (
     <ScrollView
       style={{ flex: 1, backgroundColor: c.fondo }}
       contentContainerStyle={[{ padding: TAMANO.espacio, paddingBottom: 48, gap: 14 }, estilo]}
@@ -241,6 +254,24 @@ export function Pantalla({ children, alRefrescar, refrescando = false, fija, est
     >
       {children}
     </ScrollView>
+  )
+  if (pie === undefined || pie === null || pie === false) return cuerpo
+  return (
+    <View style={{ flex: 1, backgroundColor: c.fondo }}>
+      {cuerpo}
+      <View
+        style={{
+          paddingHorizontal: TAMANO.espacio,
+          paddingVertical: 12,
+          gap: 8,
+          backgroundColor: c.superficie,
+          borderTopColor: c.borde,
+          borderTopWidth: StyleSheet.hairlineWidth * 2,
+        }}
+      >
+        {pie}
+      </View>
+    </View>
   )
 }
 
