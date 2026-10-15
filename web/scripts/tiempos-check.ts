@@ -21,7 +21,7 @@ import {
 } from '../app/api/me/_lib/tiempos'
 import { TROZOS_EN_PARALELO, leerPorIds } from '../app/api/terceros/_lib/terceros-server'
 import { contextoValidacion } from '../app/api/me/_lib/reporte-server'
-import type { PersonaVisitas } from '../app/api/config-visitas/_lib/visitas-server'
+import type { PersonaCampo, PersonaVisitas } from '../app/api/config-visitas/_lib/visitas-server'
 import type { VisitaCreate } from '../lib/reporte-visitas'
 
 let passed = 0
@@ -305,6 +305,10 @@ async function main() {
       ['dias-libres/[id]/anular/route.ts', ['POST /api/me/dias-libres/:id/anular']],
       ['agenda/route.ts', ['GET /api/me/agenda', 'POST /api/me/agenda']],
       ['agenda/[id]/cancelar/route.ts', ['POST /api/me/agenda/:id/cancelar']],
+      // F1a (0850): el ciclo de vida de la cita.
+      ['agenda/[id]/cerrar/route.ts', ['POST /api/me/agenda/:id/cerrar']],
+      ['agenda/[id]/eliminar/route.ts', ['POST /api/me/agenda/:id/eliminar']],
+      ['agenda/[id]/otra-fecha/route.ts', ['POST /api/me/agenda/:id/otra-fecha']],
     ]
     // "Cada ruta de /api/me/*" (spec, Medición): ningún route.ts de app/api/me queda fuera de esta lista.
     const archivosRuta: string[] = []
@@ -324,7 +328,7 @@ async function main() {
       const metodos = rutas.map(ruta => ruta.split(' ')[0])
       const exportados = Array.from(texto.matchAll(/export async function (GET|POST|PATCH|DELETE)\b/g)).map(m => m[1])
       const medidas = rutas.every(ruta => texto.includes(`medirRuta('${ruta}', async t => {`))
-      const auth = (texto.match(/t\.fase\('auth', \(\) => require(Ejecutiva|User)\(/g) ?? []).length === rutas.length
+      const auth = (texto.match(/t\.fase\('auth', \(\) => require(Ejecutiva|User|PersonaDeCampo)\(/g) ?? []).length === rutas.length
       check(
         `${archivo}: ${rutas.join(' y ')} con medirRuta y la fase auth`,
         medidas && auth && exportados.length === metodos.length && exportados.every(m => metodos.includes(m)),
@@ -344,7 +348,9 @@ async function main() {
     const primerAll = validacion.match(/await Promise\.all\(\[([\s\S]*?)\n {2}\]\)/)?.[1] ?? ''
     check(
       'contextoValidacion: la sede (con su cuenta) y el médico o el subtipo en el mismo Promise.all',
-      ['lineasDeEjecutiva(persona.id)', 'sedeParaValidar(datos.sede_id)', 'medicoParaValidar(', 'institucionalParaValidar('].every(parte => primerAll.includes(parte)),
+      // 0850: las líneas ya vienen en la persona de campo (no se leen aquí); el papel de la visita sale de ellas.
+      ['sedeParaValidar(datos.sede_id)', 'medicoParaValidar(', 'institucionalParaValidar('].every(parte => primerAll.includes(parte)) &&
+        validacion.includes('ejecutivoDeLaVisita(persona, datos.lineas)'),
       primerAll
     )
   }
@@ -364,7 +370,7 @@ async function main() {
       cuentas: [{ id: C, activo: true }],
       medicos: [{ id: M, nombre: 'Médico', activo: true }],
       medico_sedes: [{ sede_id: S }],
-      medico_visitantes: [{ desde: '2026-01-01', hasta: null }],
+      medico_visitantes: [{ medico_id: M, executive_id: 'e1', line_id: 'l1', desde: '2026-01-01', hasta: null }],
       subtipos_institucionales: [{ id: T, codigo: 'compras', vigente_desde: '2026-01-01', vigente_hasta: null }],
       executive_lines: [],
     }
@@ -385,8 +391,10 @@ async function main() {
       return new Response(JSON.stringify(FILAS[tabla] ?? []), { status: 200, headers: { 'content-type': 'application/json' } })
     }) as typeof fetch
     try {
-      const persona = { id: 'e1', nombre: 'Ana', status: 'active', userId: 'u1', kamId: 'k1', zona: 'Norte', municipio: '11001', startedAt: null, leftAt: null } as PersonaVisitas
-      const medica = { tipo: 'medica', medico_id: M, sede_id: S } as unknown as VisitaCreate
+      const ejecutiva = { id: 'e1', nombre: 'Ana', status: 'active', userId: 'u1', kamId: 'k1', zona: 'Norte', municipio: '11001', startedAt: null, leftAt: null } as PersonaVisitas
+      // 0850: la persona de campo (aquí, Ejecutiva Comercial con la línea l1).
+      const persona: PersonaCampo = { userId: 'u1', nombre: 'Ana', rol: 'ejecutivo', executiveId: 'e1', ejecutiva, lineasEc: ['l1'], lineasLider: [], lineas: ['l1'] }
+      const medica = { tipo: 'medica', medico_id: M, sede_id: S, lineas: ['l1'] } as unknown as VisitaCreate
       const resultado = await contextoValidacion(medica, persona, '2026-10-15')
       const de = (tabla: string) => consultas.find(consulta => consulta.tabla === tabla)
       const sede = de('sedes')
@@ -404,7 +412,7 @@ async function main() {
         consultas.map(c => `${c.tabla} ${Math.round(c.inicio)}-${Math.round(c.fin)}`)
       )
       consultas.length = 0
-      const institucional = { tipo: 'institucional', cuenta_id: C, subtipo_id: T, contacto_id: null, sede_id: S } as unknown as VisitaCreate
+      const institucional = { tipo: 'institucional', cuenta_id: C, subtipo_id: T, contacto_id: null, sede_id: S, lineas: ['l1'] } as unknown as VisitaCreate
       const inst = await contextoValidacion(institucional, persona, '2026-10-15')
       const sede2 = de('sedes')
       const subtipo = de('subtipos_institucionales')

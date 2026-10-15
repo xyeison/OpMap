@@ -1,12 +1,13 @@
 // Utilidades de servidor de la F3 de visitas (el reporte de la ejecutiva y la voz): /api/me/contexto,
 // /api/me/visitas/**, /api/me/voz/**, /api/me/numeros y, desde la F4.1 (migración 0840), /api/me/agenda/** y
 // /api/me/voz/campos. La carpeta empieza por "_" para que Next.js no la exponga como ruta. Contrato:
-// docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md (secciones "API", decisiones 3 a 16 y "F4.1").
+// docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md (secciones "API", decisiones 3 a 16, "F4.1" y "F4.2").
 // Todo con supabaseAdmin (service_role).
 //
-// Sin la 0840 aplicada: las rutas de la agenda y el dictado por campo responden 503 con MENSAJE_FALTA_MIGRACION_0840
-// (o sin llave, el de la voz); las demás siguen como antes (contexto con agenda_hoy [], visitas sin vínculo, Mis
-// números con agenda null): las lecturas de visits reintentan sin agenda_id ni agendada.
+// Desde F1a (migración 0850) todo es de la PERSONA de campo (PersonaCampo: el usuario, con o sin Ejecutivo Comercial):
+// las visitas y las citas se leen por user_id; una líder sin Ejecutivo Comercial reporta "como líder" (sin zona ni
+// cuota, con los médicos de sus líneas: C9). Sin la 0850 aplicada, las rutas de /api/me/* que la usan responden 503 con
+// MENSAJE_FALTA_MIGRACION_0850 (cuota y días libres siguen como antes).
 //
 // Aquí solo se LEEN filas y se pasan a la lógica pura (lib/reporte-visitas.ts, lib/visits-rules.ts): las reglas de la
 // visita (radio, mismo día, topes, perfil, líneas) están en validarVisita y, como última palabra, en
@@ -29,8 +30,10 @@ import {
   errorVisitas,
   leerGeneral,
   type CuotaDetallada,
-  type PersonaVisitas,
+  type PersonaCampo,
 } from '@/app/api/config-visitas/_lib/visitas-server'
+import { ejecutivoDeLaVisita, lineasDelMedico, visitanteVigenteEn, type ComoPersona, type VisitanteMedico } from '@/lib/persona-campo'
+import { estadoVisible, mensajeChoque } from '@/lib/agenda-ciclo'
 import {
   HERRAMIENTA_CAMPOS,
   HERRAMIENTA_PROPUESTA,
@@ -72,10 +75,14 @@ import {
   type ContextoValidacion,
   type EstadoCita,
   type LineaEjecutiva,
+  type LineaPersona,
   type MedicoContexto,
+  type MotivoCierre,
   type Modalidad,
   type ModoEntrada,
   type NumerosAgenda,
+  type PersonaContexto,
+  type PersonaMovil,
   type Punto,
   type SedeCerca,
   type SedeCita,
@@ -142,6 +149,24 @@ export function faltaMigracion0840(error: unknown): boolean {
   return /Could not find the (table|function)|Could not find the '[^']+' column|relation .* does not exist|function .* does not exist|column [\w."]+ does not exist/i.test(texto)
 }
 
+/** Mensaje del 503 de /api/me/* cuando la migración 0850 (la persona de campo) no está aplicada. */
+export const MENSAJE_FALTA_MIGRACION_0850 =
+  'El reporte de la persona de campo aún no está disponible: falta aplicar la migración 0850 en la base de datos'
+
+/**
+ * ¿El error dice que falta algo de la 0850? Las columnas visits.user_id o visitas_agenda.user_id / motivo_codigo /
+ * no_realizada_* / eliminada_* / viene_de, o las funciones agenda_cerrar / agenda_eliminar / agenda_otra_fecha /
+ * persona_*. Se mira ANTES que las de la 0840 y la 0830 (que toman por suyo cualquier columna que no existe).
+ */
+export function faltaMigracion0850(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const { code, message, details } = error as ErrorBase
+  const texto = `${message ?? ''} ${details ?? ''}`
+  if (!/user_id|motivo_codigo|no_realizada|eliminada_|viene_de|agenda_cerrar|agenda_eliminar|agenda_otra_fecha|persona_de_campo|persona_lineas/.test(texto)) return false
+  if (code && ['42P01', '42883', '42703', 'PGRST202', 'PGRST204', 'PGRST205'].includes(code)) return true
+  return /Could not find the (table|function)|Could not find the '[^']+' column|relation .* does not exist|function .* does not exist|column [\w."]+ does not exist/i.test(texto)
+}
+
 /** Lo que reemplaza en el log un texto de la visita que apareciera en el mensaje del error. */
 export const TEXTO_OMITIDO_EN_LOG = '[texto de la visita omitido]'
 const MAX_MENSAJE_LOG = 300
@@ -176,6 +201,10 @@ export function errorReporte(
   mensaje = 'Error interno del servidor',
   ocultar: readonly (string | null | undefined)[] = []
 ): NextResponse {
+  if (faltaMigracion0850(error)) {
+    console.error(`Error en ${contexto}: falta la migración 0850`)
+    return jsonError(MENSAJE_FALTA_MIGRACION_0850, 503)
+  }
   if (faltaMigracion0840(error)) {
     console.error(`Error en ${contexto}: falta la migración 0840`)
     return jsonError(MENSAJE_FALTA_MIGRACION_0840, 503)
@@ -194,6 +223,7 @@ export function errorReporte(
  */
 export function respuestaErrorVisita(error: ErrorBase | null | undefined, porDefecto: string): NextResponse | null {
   if (!error) return null
+  if (faltaMigracion0850(error)) return jsonError(MENSAJE_FALTA_MIGRACION_0850, 503)
   if (faltaMigracion0840(error)) return jsonError(MENSAJE_FALTA_MIGRACION_0840, 503)
   if (faltaMigracion0830(error)) return jsonError(MENSAJE_FALTA_MIGRACION_0830, 503)
   const texto = (error.message ?? '').trim()
@@ -218,15 +248,21 @@ export function respuestaErrorVisita(error: ErrorBase | null | undefined, porDef
 }
 
 /**
- * Traduce el error de agenda_crear / agenda_cancelar (0840): 23514 (regla) → 400 con el mensaje de la base · 22023
- * (forma) → 400 · 23505 (cita repetida) → 409 · P0002 (inexistente o ajena) → 404 · 23503 / 22P02 → 400 · falta la
- * 0840 → 503. null si no es uno que la API sepa explicar.
+ * Traduce el error de agenda_crear / agenda_cancelar / agenda_cerrar / agenda_eliminar / agenda_otra_fecha (0840, 0850):
+ * 23514 (regla) → 400 con el mensaje de la base · 22023 (forma) → 400 · 23505 (cita repetida, segunda "otra fecha") →
+ * 409 · 23P01 (choque de media hora) → 409 con el error en `hora` · P0002 (inexistente o ajena) → 404 · 23503 / 22P02
+ * → 400 · falta la 0850 o la 0840 → 503. null si no es uno que la API sepa explicar.
  */
 export function respuestaErrorAgenda(error: ErrorBase | null | undefined, porDefecto: string): NextResponse | null {
   if (!error) return null
+  if (faltaMigracion0850(error)) return jsonError(MENSAJE_FALTA_MIGRACION_0850, 503)
   if (faltaMigracion0840(error)) return jsonError(MENSAJE_FALTA_MIGRACION_0840, 503)
   const texto = (error.message ?? '').trim()
   switch (error.code) {
+    case '23P01': {
+      const mensaje = texto || mensajeChoque('esa hora', 'otra cita')
+      return jsonError(mensaje, 409, { errores: [{ campo: 'hora', mensaje }] })
+    }
     case '23514':
       return jsonError(mensajeRegla(error, porDefecto), 400)
     case '22023':
@@ -256,18 +292,38 @@ export const DIAS_COMPROMISOS = 180
 export const RADIO_SEDES_CERCA_M = 1000
 export const MAX_SEDES_CERCA = 20
 
+/** Líneas de negocio por id (business_lines), por nombre. */
+export async function lineasDePersona(ids: readonly string[]): Promise<LineaEjecutiva[]> {
+  const lineas = await leerPorIds<{ id: string; code: string; name: string }>(Array.from(new Set(ids)), (trozo, from, to) =>
+    supabaseAdmin.from('business_lines').select('id, code, name').in('id', trozo).order('id').range(from, to)
+  )
+  return lineas
+    .map(linea => ({ id: linea.id, code: linea.code, name: linea.name }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }))
+}
+
 /** Líneas de la ejecutiva (executive_lines → business_lines), por nombre. */
 export async function lineasDeEjecutiva(executiveId: string): Promise<LineaEjecutiva[]> {
   const vinculos = await fetchAllRows<{ line_id: string }>((from, to) =>
     supabaseAdmin.from('executive_lines').select('line_id').eq('executive_id', executiveId).order('line_id').range(from, to)
   )
-  const lineas = await leerPorIds<{ id: string; code: string; name: string }>(
-    vinculos.map(vinculo => vinculo.line_id),
-    (trozo, from, to) => supabaseAdmin.from('business_lines').select('id, code, name').in('id', trozo).order('id').range(from, to)
-  )
-  return lineas
-    .map(linea => ({ id: linea.id, code: linea.code, name: linea.name }))
-    .sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }))
+  return lineasDePersona(vinculos.map(vinculo => vinculo.line_id))
+}
+
+/** "Como qué" lleva la persona cada línea: como Ejecutivo Comercial si es de su Ejecutivo Comercial; si no, como líder. */
+export function comoDeLinea(persona: Pick<PersonaCampo, 'lineasEc'>, lineaId: string): ComoPersona {
+  return persona.lineasEc.includes(lineaId) ? 'ejecutivo' : 'lider'
+}
+
+/** La persona de campo para /api/auth/me (MeResponse.persona): su papel y sus líneas con "como qué". */
+export function personaMovil(persona: Pick<PersonaCampo, 'rol' | 'lineasEc'>, lineas: readonly LineaEjecutiva[]): PersonaMovil {
+  const conComo: LineaPersona[] = lineas.map(linea => ({ id: linea.id, nombre: linea.name, como: comoDeLinea(persona, linea.id) }))
+  return { rol: persona.rol, lineas: conComo }
+}
+
+/** La persona de campo del contexto (ContextoResponse.persona). */
+export function personaContexto(persona: PersonaCampo, lineas: readonly LineaEjecutiva[]): PersonaContexto {
+  return { user_id: persona.userId, nombre: persona.nombre, executive_id: persona.executiveId, ...personaMovil(persona, lineas) }
 }
 
 /** Subtipos institucionales vigentes en la fecha, en su orden. */
@@ -294,14 +350,16 @@ export async function subtiposVigentes(fecha: string): Promise<SubtipoContexto[]
 export function configDeHoy(
   general: readonly GeneralVigencia[],
   personas: readonly PersonaVigencia[],
-  executiveId: string,
+  executiveId: string | null,
   hoy: string
 ): ConfigContexto {
-  const persona = configPersonaVigente(personas, general, executiveId, hoy)
+  // Sin Ejecutivo Comercial (como líder, 0850: visitas_config_persona): la general, médica e institucional y sin
+  // telefónica.
+  const persona = configPersonaVigente(executiveId ? personas : [], general, executiveId ?? '', hoy)
   return {
     radio_m: Number(persona.radioM),
     telefonica: {
-      habilitada: persona.telefonicaHabilitada,
+      habilitada: executiveId ? persona.telefonicaHabilitada : false,
       tope_dia: Number(persona.topeTelefonicasDia),
       medios: [...generalVigente(general, 'telefonicas', hoy).medios],
     },
@@ -315,6 +373,9 @@ export interface FilaVisita {
   id: string
   client_id: string | null
   source: 'vmo_import' | 'app'
+  /** 0850: la persona que la reportó. */
+  user_id: string | null
+  /** Su Ejecutivo Comercial; null en las de VMO y en las de una líder (como líder, 0850). */
   executive_id: string | null
   tipo: TipoVisita
   subtipo_id: string | null
@@ -336,61 +397,43 @@ export interface FilaVisita {
   out_of_territory: boolean
   visit_date: string
   deleted_at: string | null
-  /** Cita que cumplió (0840; null sin cita o sin la 0840). */
+  /** Cita que cumplió (0840; null sin cita). */
   agenda_id: string | null
-  /** Agendada: cita creada antes del día de la visita (0840; false sin la 0840). */
+  /** Agendada: cita creada antes del día de la visita (0840). */
   agendada: boolean
 }
 
-const COLUMNAS_VISITA_0830 =
-  'id, client_id, source, executive_id, tipo, subtipo_id, subtipo_codigo, medico_id, cuenta_id, sede_id, contacto_id, modalidad, medio, efectiva, failure_reason, checked_in_at, distance_m, conclusion, compromisos, next_step_date, input_mode, out_of_territory, visit_date, deleted_at'
-
-export const COLUMNAS_VISITA = `${COLUMNAS_VISITA_0830}, agenda_id, agendada`
+export const COLUMNAS_VISITA =
+  'id, client_id, source, user_id, executive_id, tipo, subtipo_id, subtipo_codigo, medico_id, cuenta_id, sede_id, contacto_id, modalidad, medio, efectiva, failure_reason, checked_in_at, distance_m, conclusion, compromisos, next_step_date, input_mode, out_of_territory, visit_date, deleted_at, agenda_id, agendada'
 
 /**
- * Lee visitas con las columnas de la 0840 y, si la base aún no las tiene, otra vez sin ellas (agenda_id null, agendada
- * false): así contexto, visitas y números siguen funcionando antes de aplicar la 0840.
+ * Visitas de la app de una PERSONA (0850: por user_id, con o sin Ejecutivo Comercial) entre dos fechas (visit_date), sin
+ * las anuladas salvo `conAnuladas`.
  */
-async function conColumnasDeAgenda(leer: (columnas: string) => Promise<FilaVisita[]>): Promise<FilaVisita[]> {
-  try {
-    return await leer(COLUMNAS_VISITA)
-  } catch (error) {
-    if (!faltaMigracion0840(error)) throw error
-    const filas = await leer(COLUMNAS_VISITA_0830)
-    return filas.map(fila => ({ ...fila, agenda_id: null, agendada: false }))
-  }
-}
-
-/** Visitas de la app de una ejecutiva entre dos fechas (visit_date), sin las anuladas salvo `conAnuladas`. */
 export async function leerVisitas(
-  executiveId: string,
+  userId: string,
   desde: string,
   hasta: string,
   opciones: { conAnuladas?: boolean } = {}
 ): Promise<FilaVisita[]> {
-  return conColumnasDeAgenda(columnas =>
-    fetchAllRows<FilaVisita>((from, to) => {
-      let consulta = supabaseAdmin
-        .from('visits')
-        .select(columnas)
-        .eq('source', 'app')
-        .eq('executive_id', executiveId)
-        .gte('visit_date', desde)
-        .lte('visit_date', hasta)
-      if (!opciones.conAnuladas) consulta = consulta.is('deleted_at', null)
-      return consulta.order('checked_in_at').order('id').range(from, to) as unknown as PromiseLike<{ data: FilaVisita[] | null; error: { message: string } | null }>
-    })
-  )
+  return fetchAllRows<FilaVisita>((from, to) => {
+    let consulta = supabaseAdmin
+      .from('visits')
+      .select(COLUMNAS_VISITA)
+      .eq('source', 'app')
+      .eq('user_id', userId)
+      .gte('visit_date', desde)
+      .lte('visit_date', hasta)
+    if (!opciones.conAnuladas) consulta = consulta.is('deleted_at', null)
+    return consulta.order('checked_in_at').order('id').range(from, to) as unknown as PromiseLike<{ data: FilaVisita[] | null; error: { message: string } | null }>
+  })
 }
 
 /** Una visita por un campo único (id o client_id), o null. */
 async function visitaPor(campo: 'id' | 'client_id', valor: string): Promise<FilaVisita | null> {
-  const filas = await conColumnasDeAgenda(async columnas => {
-    const { data, error } = await supabaseAdmin.from('visits').select(columnas).eq(campo, valor).limit(1)
-    if (error) throw error
-    return (data ?? []) as unknown as FilaVisita[]
-  })
-  return filas[0] ?? null
+  const { data, error } = await supabaseAdmin.from('visits').select(COLUMNAS_VISITA).eq(campo, valor).limit(1)
+  if (error) throw error
+  return ((data ?? []) as unknown as FilaVisita[])[0] ?? null
 }
 
 /** Una visita por id (o null). */
@@ -476,7 +519,7 @@ async function nombresPorId(tabla: 'medicos' | 'cuentas' | 'sedes' | 'contactos'
  */
 export async function armarVisitaItems(
   filas: readonly FilaVisita[],
-  entrada: { persona: PersonaVisitas; hoy: string; conteo: readonly ConteoVigencia[]; general: readonly GeneralVigencia[] }
+  entrada: { persona: Pick<PersonaCampo, 'userId'>; hoy: string; conteo: readonly ConteoVigencia[]; general: readonly GeneralVigencia[] }
 ): Promise<VisitaItem[]> {
   if (filas.length === 0) return []
   const ids = filas.map(fila => fila.id)
@@ -497,7 +540,6 @@ export async function armarVisitaItems(
   const lineasPorVisita = new Map<string, string[]>()
   for (const fila of lineas) lineasPorVisita.set(fila.visit_id, [...(lineasPorVisita.get(fila.visit_id) ?? []), fila.line_id])
 
-  const activa = entrada.persona.status === 'active'
   const confirmadas = new Map(Array.from(sedes.entries()).map(([id, sede]) => [id, sede.confirmada]))
   return filas.map(fila => {
     const valor = valorDe(fila, { conteo: entrada.conteo, general: entrada.general, confirmadas })
@@ -528,7 +570,7 @@ export async function armarVisitaItems(
       cuenta_para: valor.meta,
       peso: valor.peso,
       sede_por_confirmar: valor.sede_por_confirmar,
-      editable: activa && visitaEditable(fila, entrada.persona.id, entrada.hoy),
+      editable: visitaEditable(fila, entrada.persona.userId, entrada.hoy),
       agenda_id: fila.agenda_id ?? null,
       agendada: fila.agendada === true,
     }
@@ -538,7 +580,7 @@ export async function armarVisitaItems(
 /** Una visita armada como elemento de la lista (o null si no existe). */
 export async function cargarVisitaItem(
   id: string,
-  entrada: { persona: PersonaVisitas; hoy: string; conteo?: readonly ConteoVigencia[]; general?: readonly GeneralVigencia[] }
+  entrada: { persona: Pick<PersonaCampo, 'userId'>; hoy: string; conteo?: readonly ConteoVigencia[]; general?: readonly GeneralVigencia[] }
 ): Promise<VisitaItem | null> {
   const fila = await leerVisita(id)
   if (!fila) return null
@@ -628,26 +670,89 @@ export async function sedesCercaDe(punto: Punto): Promise<SedeCerca[]> {
 }
 
 /** ¿Rige hoy esa asignación de visitante? */
-const visitanteVigente = (fila: { desde: string; hasta: string | null }, fecha: string) =>
-  fila.desde <= fecha && (fila.hasta === null || fila.hasta >= fecha)
+const visitanteVigente = visitanteVigenteEn
+
+const COLUMNAS_VISITANTE = 'medico_id, executive_id, line_id, desde, hasta'
 
 /**
- * Médicos activos que ella visita hoy (medico_visitantes vigente) con sus especialidades, ciudad, líneas por las que
- * los visita y sedes activas donde atienden (con la distancia al punto, si se mandó). NUNCA el documento.
+ * Ejecutivos Comerciales ACTIVOS de unas asignaciones de visitante (o de unas líneas), con TODAS sus líneas: lo que
+ * medico_de_lineas (C9) mira para decir de qué líneas "es" un médico.
  */
-export async function misMedicos(executiveId: string, hoy: string, punto: Punto | null): Promise<MedicoContexto[]> {
-  const visitantes = await fetchAllRows<{ medico_id: string; line_id: string; desde: string; hasta: string | null }>((from, to) =>
-    supabaseAdmin
-      .from('medico_visitantes')
-      .select('medico_id, line_id, desde, hasta')
-      .eq('executive_id', executiveId)
-      .order('medico_id')
-      .order('line_id')
-      .range(from, to)
+async function lineasDeEjecutivasActivas(executiveIds: Iterable<string>): Promise<Map<string, string[]>> {
+  const ids = Array.from(new Set(executiveIds))
+  if (ids.length === 0) return new Map()
+  const [ejecutivas, vinculos] = await Promise.all([
+    leerPorIds<{ id: string; status: string }>(ids, (trozo, from, to) =>
+      supabaseAdmin.from('executives').select('id, status').in('id', trozo).order('id').range(from, to)
+    ),
+    leerPorIds<{ executive_id: string; line_id: string }>(ids, (trozo, from, to) =>
+      supabaseAdmin.from('executive_lines').select('executive_id, line_id').in('executive_id', trozo).order('executive_id').order('line_id').range(from, to)
+    ),
+  ])
+  const activas = new Set(ejecutivas.filter(e => e.status === 'active').map(e => e.id))
+  const mapa = new Map<string, string[]>()
+  for (const vinculo of vinculos) {
+    if (!activas.has(vinculo.executive_id)) continue
+    mapa.set(vinculo.executive_id, [...(mapa.get(vinculo.executive_id) ?? []), vinculo.line_id])
+  }
+  return mapa
+}
+
+/**
+ * C9 (0850): los médicos de las líneas L en una fecha, con las líneas de L por las que lo son: los que tienen un
+ * visitante vigente en una línea de L y los cuyo visitante vigente es un Ejecutivo Comercial activo con alguna de L.
+ */
+export async function medicosDeLineas(lineas: readonly string[], fecha: string): Promise<Map<string, Set<string>>> {
+  const resultado = new Map<string, Set<string>>()
+  if (lineas.length === 0) return resultado
+  const enLineas = await leerPorIds<{ executive_id: string; line_id: string }>(lineas, (trozo, from, to) =>
+    supabaseAdmin.from('executive_lines').select('executive_id, line_id').in('line_id', trozo).order('executive_id').order('line_id').range(from, to)
   )
-  const vigentes = visitantes.filter(fila => visitanteVigente(fila, hoy))
+  const ecs = await lineasDeEjecutivasActivas(enLineas.map(v => v.executive_id))
+  const [porLinea, porEjecutiva] = await Promise.all([
+    leerPorIds<VisitanteMedico>(lineas, (trozo, from, to) =>
+      supabaseAdmin.from('medico_visitantes').select(COLUMNAS_VISITANTE).in('line_id', trozo).order('medico_id').order('id').range(from, to)
+    ),
+    leerPorIds<VisitanteMedico>(Array.from(ecs.keys()), (trozo, from, to) =>
+      supabaseAdmin.from('medico_visitantes').select(COLUMNAS_VISITANTE).in('executive_id', trozo).order('medico_id').order('id').range(from, to)
+    ),
+  ])
+  const visitantes = [...porLinea, ...porEjecutiva]
+  for (const medicoId of new Set(visitantes.map(v => v.medico_id))) {
+    const de = Array.from(lineasDelMedico(medicoId, visitantes, ecs, fecha)).filter(linea => lineas.includes(linea))
+    if (de.length > 0) resultado.set(medicoId, new Set(de))
+  }
+  return resultado
+}
+
+/**
+ * Médicos activos de la persona hoy con sus especialidades, ciudad, líneas y sedes activas donde atienden (con la
+ * distancia al punto, si se mandó). NUNCA el documento. Como Ejecutivo Comercial: los que visita (medico_visitantes
+ * vigente). Como líder (0850, C9): los médicos de las líneas que lidera. Paola: los dos.
+ */
+export async function misMedicos(persona: Pick<PersonaCampo, 'executiveId' | 'lineasLider'>, hoy: string, punto: Punto | null): Promise<MedicoContexto[]> {
   const lineasPorMedico = new Map<string, Set<string>>()
-  for (const fila of vigentes) lineasPorMedico.set(fila.medico_id, (lineasPorMedico.get(fila.medico_id) ?? new Set()).add(fila.line_id))
+  const sumar = (medicoId: string, lineas: Iterable<string>) => {
+    const conjunto = lineasPorMedico.get(medicoId) ?? new Set<string>()
+    for (const linea of lineas) conjunto.add(linea)
+    lineasPorMedico.set(medicoId, conjunto)
+  }
+  const [visitantes, deLineas] = await Promise.all([
+    persona.executiveId
+      ? fetchAllRows<{ medico_id: string; line_id: string; desde: string; hasta: string | null }>((from, to) =>
+          supabaseAdmin
+            .from('medico_visitantes')
+            .select('medico_id, line_id, desde, hasta')
+            .eq('executive_id', persona.executiveId as string)
+            .order('medico_id')
+            .order('line_id')
+            .range(from, to)
+        )
+      : Promise.resolve([]),
+    medicosDeLineas(persona.lineasLider, hoy),
+  ])
+  for (const fila of visitantes.filter(fila => visitanteVigente(fila, hoy))) sumar(fila.medico_id, [fila.line_id])
+  deLineas.forEach((lineas, medicoId) => sumar(medicoId, lineas))
   const ids = Array.from(lineasPorMedico.keys())
   if (ids.length === 0) return []
 
@@ -714,9 +819,9 @@ export async function contactosDeCuentas(cuentaIds: Iterable<string | null | und
     .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }))
 }
 
-/** Compromisos vencidos de ella (visitas de los últimos DIAS_COMPROMISOS días, con el nombre del médico o cuenta). */
-export async function compromisosDe(executiveId: string, hoy: string): Promise<ContextoResponse['compromisos_vencidos']> {
-  const filas = await leerVisitas(executiveId, sumarDias(hoy, -DIAS_COMPROMISOS), hoy)
+/** Compromisos vencidos de la persona (visitas de los últimos DIAS_COMPROMISOS días, con el nombre del médico o cuenta). */
+export async function compromisosDe(userId: string, hoy: string): Promise<ContextoResponse['compromisos_vencidos']> {
+  const filas = await leerVisitas(userId, sumarDias(hoy, -DIAS_COMPROMISOS), hoy)
   const conCompromiso = filas.filter(fila => fila.next_step_date && fila.next_step_date < hoy)
   if (conCompromiso.length === 0) return []
   const [medicos, cuentas] = await Promise.all([
@@ -743,42 +848,55 @@ export function vozDisponible(): ContextoResponse['voz'] {
  * Todo lo que la app necesita para reportar (GET /api/me/contexto), y lo que recibe Claude (recortado por
  * contextoDictado). Sin punto: sedes_cerca y contactos vacíos y mis_medicos sin distancias. La meta del día es el
  * aporte de hoy de la cuota del mes (calcularCuotaDetallada de F2: un solo cálculo); la configuración, la vigente hoy.
+ * 0850: de la persona de campo. Sin Ejecutivo Comercial (una líder) no hay cuota (meta 0) y la configuración es la
+ * general (sin telefónica); `ejecutiva` la describe a ella (id del usuario, sin zona) y `persona` dice su papel.
  */
-export async function cargarContexto(persona: PersonaVisitas, punto: Punto | null, hoy: string): Promise<ContextoResponse> {
+export async function cargarContexto(persona: PersonaCampo, punto: Punto | null, hoy: string, ahora: Date = new Date()): Promise<ContextoResponse> {
   // Cada lectura que depende de otra arranca apenas llega la suya (spec 2026-10-15, paquete 4): los contactos no esperan
   // a la cuota del mes ni la confirmación de las sedes a los médicos. La respuesta es la misma.
-  const detalleP = calcularCuotaDetallada(persona, mesDe(hoy), hoy)
-  const visitasHoyP = leerVisitas(persona.id, hoy, hoy)
+  const ejecutiva = persona.ejecutiva
+  const detalleP: Promise<CuotaDetallada | null> = ejecutiva ? calcularCuotaDetallada(ejecutiva, mesDe(hoy), hoy) : Promise.resolve(null)
+  const generalP: Promise<readonly GeneralVigencia[]> = detalleP.then(detalle => (detalle ? detalle.general : leerGeneral()))
+  const configP = Promise.all([detalleP, generalP]).then(([detalle, general]) =>
+    configDeHoy(general, detalle ? detalle.personas : [], persona.executiveId, hoy)
+  )
+  const visitasHoyP = leerVisitas(persona.userId, hoy, hoy)
   const sedesP = punto ? sedesCercaDe(punto) : Promise.resolve([] as SedeCerca[])
-  const citasHoyP = citasSinMigracion(() => leerCitas(persona.id, hoy, hoy))
-  const [detalle, lineas, subtipos, visitasHoy, medicos, sedes, compromisos, contactos, confirmadas, agendaHoy] = await Promise.all([
+  const citasHoyP = leerCitas(persona.userId, hoy, hoy)
+  const [detalle, general, config, lineas, subtipos, visitasHoy, medicos, sedes, compromisos, contactos, confirmadas, agendaHoy] = await Promise.all([
     detalleP,
-    lineasDeEjecutiva(persona.id),
+    generalP,
+    configP,
+    lineasDePersona(persona.lineas),
     subtiposVigentes(hoy),
     visitasHoyP,
-    misMedicos(persona.id, hoy, punto),
+    misMedicos(persona, hoy, punto),
     sedesP,
-    compromisosDe(persona.id, hoy),
+    compromisosDe(persona.userId, hoy),
     sedesP.then(lista => contactosDeCuentas(lista.map(sede => sede.cuenta_id))),
     visitasHoyP.then(lista => confirmacionDeSedes(lista.map(visita => visita.sede_id))),
-    Promise.all([citasHoyP, detalleP]).then(([citasHoy, cuota]) =>
-      citasHoy
-        ? armarCitaItems(citasHoy, { hoy, punto, radio_m: configDeHoy(cuota.general, cuota.personas, persona.id, hoy).radio_m })
-        : ([] as CitaItem[])
-    ),
+    Promise.all([citasHoyP, configP]).then(([citasHoy, cfg]) => armarCitaItems(citasHoy, { hoy, punto, radio_m: cfg.radio_m, ahora })),
   ])
-  const config = configDeHoy(detalle.general, detalle.personas, persona.id, hoy)
-  const meta = metaDelDia(detalle, hoy)
-  // La meta del día solo se cumple con lo que suma: las de sedes por confirmar no (aún) y la telefónica con su peso.
+  const meta = detalle ? metaDelDia(detalle, hoy) : { medica: 0, institucional: 0 }
+  const conteo = detalle ? detalle.conteo : await leerConteo()
+  // La meta del día solo se cumple con lo que suma: las de sedes por confirmar no (aún) y la telefónica con su peso. Lo
+  // que hace como líder no suma a su cuota de Ejecutivo Comercial (C4): con Ejecutivo Comercial, solo sus visitas.
+  const deLaCuota = ejecutiva ? visitasHoy.filter(visita => visita.executive_id === persona.executiveId) : visitasHoy
   const resumen = resumenHoy(
-    visitasHoy.map(visita => {
-      const valor = valorDe(visita, { conteo: detalle.conteo, general: detalle.general, confirmadas })
+    deLaCuota.map(visita => {
+      const valor = valorDe(visita, { conteo, general, confirmadas })
       return { tipo: visita.tipo, modalidad: visita.modalidad, efectiva: Boolean(visita.efectiva), cuenta_para: valor.meta, peso: valor.peso }
     }),
     meta
   )
   return {
-    ejecutiva: { id: persona.id, nombre: persona.nombre, zona: persona.zona, municipio: persona.municipio, lineas },
+    ejecutiva: {
+      id: persona.executiveId ?? persona.userId,
+      nombre: ejecutiva?.nombre ?? persona.nombre,
+      zona: ejecutiva?.zona ?? null,
+      municipio: ejecutiva?.municipio ?? null,
+      lineas,
+    },
     hoy: { fecha: hoy, meta: resumen.meta, hechas: resumen.hechas, cuota_dia_ok: resumen.cuota_dia_ok },
     config,
     sedes_cerca: sedes,
@@ -788,6 +906,7 @@ export async function cargarContexto(persona: PersonaVisitas, punto: Punto | nul
     compromisos_vencidos: compromisos,
     voz: vozDisponible(),
     agenda_hoy: agendaHoy,
+    persona: personaContexto(persona, lineas),
   }
 }
 
@@ -807,23 +926,33 @@ export function puntoDe(datos: { lat: number | null; lng: number | null }): Punt
 // ---------------------------------------------------------------------------------------------
 
 /**
- * Carga, por los ids del cuerpo, la ejecutiva (activa, con zona, sus líneas), la sede (activa, y si su cuenta está
- * activa), el médico (activo, sus sedes, si ella es su visitante vigente hoy), el subtipo y el contacto (con su
- * estado). Lo que no existe queda null.
+ * Carga, por los ids del cuerpo, la persona (0850: sus líneas y si la visita es como líder: ninguna de sus líneas es de
+ * su Ejecutivo Comercial), la sede (activa, y si su cuenta está activa), el médico (activo, sus sedes, si ella es su
+ * visitante vigente hoy y, como líder, si es de las líneas de la visita: C9), el subtipo y el contacto (con su estado).
+ * Lo que no existe queda null.
  */
-export async function contextoValidacion(datos: VisitaCreate, persona: PersonaVisitas, hoy: string): Promise<ContextoValidacion> {
+export async function contextoValidacion(datos: VisitaCreate, persona: PersonaCampo, hoy: string): Promise<ContextoValidacion> {
+  const ejecutivoVisita = ejecutivoDeLaVisita(persona, datos.lineas)
+  const comoLider = ejecutivoVisita === null
   // La sede (con su cuenta) y el médico o el subtipo no dependen entre sí: van en paralelo (spec 2026-10-15, paquete 4).
-  const [lineas, sede, porTipo] = await Promise.all([
-    lineasDeEjecutiva(persona.id),
+  const [sede, porTipo] = await Promise.all([
     sedeParaValidar(datos.sede_id),
-    datos.tipo === 'medica' ? medicoParaValidar(datos.medico_id, persona.id, hoy) : institucionalParaValidar(datos.subtipo_id, datos.contacto_id),
+    datos.tipo === 'medica'
+      ? medicoParaValidar(datos.medico_id, ejecutivoVisita, hoy, comoLider ? datos.lineas : null)
+      : institucionalParaValidar(datos.subtipo_id, datos.contacto_id),
   ])
   return {
-    ejecutiva: { id: persona.id, activa: persona.status === 'active', con_zona: Boolean(persona.kamId), lineas: lineas.map(linea => linea.id) },
+    ejecutiva: {
+      id: ejecutivoVisita ?? persona.userId,
+      activa: true,
+      con_zona: Boolean(persona.ejecutiva?.kamId),
+      lineas: persona.lineas,
+    },
     sede,
     medico: porTipo.medico,
     subtipo: porTipo.subtipo,
     contacto: porTipo.contacto,
+    como_lider: comoLider,
   }
 }
 
@@ -845,25 +974,28 @@ async function sedeParaValidar(sedeId: string): Promise<ContextoValidacion['sede
 
 type PorTipoValidacion = Pick<ContextoValidacion, 'medico' | 'subtipo' | 'contacto'>
 
-/** El médico (activo, sus sedes, si ella es su visitante vigente hoy); null si no existe. */
-async function medicoParaValidar(medicoId: string, executiveId: string, hoy: string): Promise<PorTipoValidacion> {
+/**
+ * El médico (activo, sus sedes, si el Ejecutivo Comercial de la visita es su visitante vigente hoy y, como líder, si es
+ * de las líneas de la visita: C9); null si no existe.
+ */
+async function medicoParaValidar(medicoId: string, executiveId: string | null, hoy: string, lineasLider: readonly string[] | null): Promise<PorTipoValidacion> {
   const [medicoData, vinculos, visitantes] = await Promise.all([
     supabaseAdmin.from('medicos').select('id, nombre, activo').eq('id', medicoId).limit(1),
     fetchAllRows<{ sede_id: string }>((from, to) =>
       supabaseAdmin.from('medico_sedes').select('sede_id').eq('medico_id', medicoId).order('sede_id').range(from, to)
     ),
-    fetchAllRows<{ desde: string; hasta: string | null }>((from, to) =>
-      supabaseAdmin
-        .from('medico_visitantes')
-        .select('desde, hasta')
-        .eq('medico_id', medicoId)
-        .eq('executive_id', executiveId)
-        .order('desde')
-        .range(from, to)
+    fetchAllRows<VisitanteMedico>((from, to) =>
+      supabaseAdmin.from('medico_visitantes').select(COLUMNAS_VISITANTE).eq('medico_id', medicoId).order('desde').order('id').range(from, to)
     ),
   ])
   if (medicoData.error) throw medicoData.error
   const medico = (medicoData.data ?? [])[0] as { id: string; nombre: string; activo: boolean } | undefined
+  let deMisLineas: boolean | undefined
+  if (lineasLider) {
+    const ecs = await lineasDeEjecutivasActivas(visitantes.filter(v => visitanteVigente(v, hoy)).map(v => v.executive_id))
+    const delMedico = lineasDelMedico(medicoId, visitantes, ecs, hoy)
+    deMisLineas = lineasLider.some(linea => delMedico.has(linea))
+  }
   return {
     medico: medico
       ? {
@@ -871,7 +1003,8 @@ async function medicoParaValidar(medicoId: string, executiveId: string, hoy: str
           nombre: medico.nombre,
           activo: Boolean(medico.activo),
           sede_ids: vinculos.map(vinculo => vinculo.sede_id),
-          es_visitante: visitantes.some(fila => visitanteVigente(fila, hoy)),
+          es_visitante: executiveId !== null && visitantes.some(fila => fila.executive_id === executiveId && visitanteVigente(fila, hoy)),
+          ...(deMisLineas === undefined ? {} : { de_mis_lineas: deMisLineas }),
         }
       : null,
     subtipo: null,
@@ -904,12 +1037,13 @@ export function visitasParaTopes(filas: readonly FilaVisita[]): VisitaDeHoy[] {
 }
 
 /**
- * El jsonb de visitas_registrar, campo a campo (allow-list: nunca el body entero), con la ejecutiva de la sesión.
- * Claves: las de la 0830 (client_id, executive_id, tipo, subtipo_id, medico_id, cuenta_id, sede_id, contacto_id,
- * modalidad, medio, efectiva, failure_reason, retry_date, checked_in_at, reported_at, lat, lng, gps_accuracy_m,
- * conclusion, compromisos, next_step_date, transcript, input_mode, lineas).
+ * El jsonb de visitas_registrar, campo a campo (allow-list: nunca el body entero), con el Ejecutivo Comercial de la
+ * persona de la sesión (0850: null si no lo tiene; la base saca la persona de p_user y el Ejecutivo Comercial de la
+ * visita de sus líneas). Claves: las de la 0830 (client_id, executive_id, tipo, subtipo_id, medico_id, cuenta_id,
+ * sede_id, contacto_id, modalidad, medio, efectiva, failure_reason, retry_date, checked_in_at, reported_at, lat, lng,
+ * gps_accuracy_m, conclusion, compromisos, next_step_date, transcript, input_mode, lineas) y agenda_id (0840).
  */
-export function jsonbRegistrar(datos: VisitaCreate, executiveId: string): Record<string, unknown> {
+export function jsonbRegistrar(datos: VisitaCreate, executiveId: string | null): Record<string, unknown> {
   return {
     client_id: datos.client_id,
     executive_id: executiveId,
@@ -947,7 +1081,10 @@ export function jsonbRegistrar(datos: VisitaCreate, executiveId: string): Record
 /** Fila de visitas_agenda que lee la API. */
 export interface FilaCita {
   id: string
-  executive_id: string
+  /** 0850: la persona dueña de la cita. */
+  user_id: string
+  /** Como Ejecutivo Comercial (su id) o como líder (null, 0850). */
+  executive_id: string | null
   fecha: string
   hora: string | null
   tipo: TipoVisita
@@ -961,59 +1098,66 @@ export interface FilaCita {
   cancelada_at: string | null
   cancelada_motivo: string | null
   created_at: string
+  // 0850
+  motivo_codigo: MotivoCierre | null
+  no_realizada_at: string | null
+  no_realizada_motivo: string | null
+  viene_de: string | null
 }
 
 export const COLUMNAS_CITA =
-  'id, executive_id, fecha, hora, tipo, medico_id, cuenta_id, subtipo_id, sede_id, nota, estado, visita_id, cancelada_at, cancelada_motivo, created_at'
+  'id, user_id, executive_id, fecha, hora, tipo, medico_id, cuenta_id, subtipo_id, sede_id, nota, estado, visita_id, cancelada_at, cancelada_motivo, created_at, motivo_codigo, no_realizada_at, no_realizada_motivo, viene_de'
 
-/** Citas de una persona entre dos fechas (sin las canceladas salvo `conCanceladas`), por fecha y hora. */
+/** Estados que GET /api/me/agenda trae por defecto (las vivas) y con canceladas=true (también las cerradas sin hacer). */
+const ESTADOS_VIVOS: readonly EstadoCita[] = ['pendiente', 'hecha']
+const ESTADOS_CON_CERRADAS: readonly EstadoCita[] = ['pendiente', 'hecha', 'no_realizada', 'cancelada']
+
+/**
+ * Citas de una PERSONA (0850: por user_id, con sus dos papeles si los tiene) entre dos fechas, por fecha y hora. Nunca
+ * las eliminadas por error; sin las canceladas ni las que no se hicieron salvo `conCanceladas`.
+ */
 export async function leerCitas(
-  executiveId: string,
+  userId: string,
   desde: string,
   hasta: string,
   opciones: { conCanceladas?: boolean } = {}
 ): Promise<FilaCita[]> {
-  return fetchAllRows<FilaCita>((from, to) => {
-    let consulta = supabaseAdmin
+  return fetchAllRows<FilaCita>((from, to) =>
+    supabaseAdmin
       .from('visitas_agenda')
       .select(COLUMNAS_CITA)
-      .eq('executive_id', executiveId)
+      .eq('user_id', userId)
       .gte('fecha', desde)
       .lte('fecha', hasta)
-    if (!opciones.conCanceladas) consulta = consulta.neq('estado', 'cancelada')
-    return consulta.order('fecha').order('hora').order('id').range(from, to)
-  })
+      .in('estado', [...(opciones.conCanceladas ? ESTADOS_CON_CERRADAS : ESTADOS_VIVOS)])
+      .order('fecha')
+      .order('hora')
+      .order('id')
+      .range(from, to)
+  )
 }
 
-/** Una cita por id (o null). */
+/** Una cita por id (o null; también las eliminadas: quien llama decide). */
 export async function leerCita(id: string): Promise<FilaCita | null> {
   const { data, error } = await supabaseAdmin.from('visitas_agenda').select(COLUMNAS_CITA).eq('id', id).limit(1)
   if (error) throw error
   return data && data.length > 0 ? (data[0] as unknown as FilaCita) : null
 }
 
-/** Corre una lectura de la agenda; si falta la 0840 devuelve null (quien llama sigue sin agenda). */
-export async function citasSinMigracion<T>(leer: () => Promise<T>): Promise<T | null> {
-  try {
-    return await leer()
-  } catch (error) {
-    if (faltaMigracion0840(error)) return null
-    throw error
-  }
-}
-
 /**
  * Filas de visitas_agenda → CitaItem: nombres del médico, la cuenta y el subtipo; la sede con su cuenta, coordenadas
- * y si está confirmada; la distancia al punto y si queda dentro del radio (solo con punto); anticipada y cancelable.
- * Orden: con punto, la más cercana primero; sin punto, por fecha y hora. Nunca documentos ni teléfonos.
+ * y si está confirmada; la distancia al punto y si queda dentro del radio (solo con punto); anticipada y cancelable; y
+ * (0850) el motivo, "no se hizo", viene_de, su sucesora, como qué y el estado visible (C6, con `ahora`). Orden: con
+ * punto, la más cercana primero; sin punto, por fecha y hora. Nunca documentos ni teléfonos. Las eliminadas no salen.
  */
 export async function armarCitaItems(
-  filas: readonly FilaCita[],
-  entrada: { hoy: string; punto?: Punto | null; radio_m?: number }
+  todas: readonly FilaCita[],
+  entrada: { hoy: string; punto?: Punto | null; radio_m?: number; ahora?: Date }
 ): Promise<CitaItem[]> {
+  const filas = todas.filter(fila => fila.estado !== 'eliminada')
   if (filas.length === 0) return []
   type SedeFilaCita = { id: string; nombre: string; cuenta_id: string | null; lat: number | string | null; lng: number | string | null; ubicacion_confirmada: boolean | null }
-  const [medicos, sedes, subtipos] = await Promise.all([
+  const [medicos, sedes, subtipos, sucesoras] = await Promise.all([
     nombresPorId('medicos', filas.map(fila => fila.medico_id)),
     leerPorIds<SedeFilaCita>(filas.map(fila => fila.sede_id), (trozo, from, to) =>
       supabaseAdmin.from('sedes').select('id, nombre, cuenta_id, lat, lng, ubicacion_confirmada').in('id', trozo).order('id').range(from, to)
@@ -1022,12 +1166,18 @@ export async function armarCitaItems(
       filas.map(fila => fila.subtipo_id).filter((id): id is string => Boolean(id)),
       (trozo, from, to) => supabaseAdmin.from('subtipos_institucionales').select('id, codigo, nombre').in('id', trozo).order('id').range(from, to)
     ),
+    // Su "otra fecha" (0850): la sucesora no eliminada (a lo sumo una).
+    leerPorIds<{ id: string; viene_de: string; estado: EstadoCita }>(filas.map(fila => fila.id), (trozo, from, to) =>
+      supabaseAdmin.from('visitas_agenda').select('id, viene_de, estado').in('viene_de', trozo).neq('estado', 'eliminada').order('id').range(from, to)
+    ),
   ])
   const sedePorId = new Map(sedes.map(sede => [sede.id, sede]))
   const cuentas = await nombresPorId('cuentas', [...filas.map(fila => fila.cuenta_id), ...sedes.map(sede => sede.cuenta_id)])
   const subtipoPorId = new Map(subtipos.map(subtipo => [subtipo.id, subtipo]))
+  const sucesoraDe = new Map(sucesoras.map(fila => [fila.viene_de, fila.id]))
   const punto = entrada.punto ?? null
   const radio = Number(entrada.radio_m ?? 0)
+  const ahora = entrada.ahora ?? new Date()
 
   const items: CitaItem[] = filas.map(fila => {
     const sedeFila = sedePorId.get(fila.sede_id)
@@ -1042,10 +1192,11 @@ export async function armarCitaItems(
     }
     const subtipo = fila.subtipo_id ? subtipoPorId.get(fila.subtipo_id) : undefined
     const distancia = distanciaACita(sede, punto, radio)
+    const hora = horaCorta(fila.hora)
     return {
       id: fila.id,
       fecha: fila.fecha,
-      hora: horaCorta(fila.hora),
+      hora,
       tipo: fila.tipo,
       medico: fila.medico_id ? { id: fila.medico_id, nombre: medicos.get(fila.medico_id) ?? 'Médico' } : null,
       cuenta: fila.tipo === 'institucional' && fila.cuenta_id ? { id: fila.cuenta_id, nombre: cuentas.get(fila.cuenta_id) ?? 'Cuenta' } : null,
@@ -1058,20 +1209,27 @@ export async function armarCitaItems(
       dentro_del_radio: distancia.dentro_del_radio,
       anticipada: citaAnticipada(fila.created_at, fila.fecha),
       cancelable: citaCancelable(fila, entrada.hoy),
+      motivo_codigo: fila.motivo_codigo ?? null,
+      no_realizada_at: fila.no_realizada_at ?? null,
+      no_realizada_motivo: fila.no_realizada_motivo ?? null,
+      viene_de: fila.viene_de ?? null,
+      sucesora_id: sucesoraDe.get(fila.id) ?? null,
+      como: fila.executive_id ? 'ejecutivo' : 'lider',
+      estado_visible: estadoVisible({ estado: fila.estado, fecha: fila.fecha, hora }, ahora),
     }
   })
   return ordenarCitas(items, { porDistancia: punto !== null })
 }
 
-/** Una cita armada como CitaItem (o null si no existe). */
-export async function cargarCitaItem(id: string, hoy: string): Promise<CitaItem | null> {
+/** Una cita armada como CitaItem (o null si no existe o se eliminó por error). */
+export async function cargarCitaItem(id: string, hoy: string, ahora: Date = new Date()): Promise<CitaItem | null> {
   const fila = await leerCita(id)
-  if (!fila) return null
-  const [item] = await armarCitaItems([fila], { hoy })
+  if (!fila || fila.estado === 'eliminada') return null
+  const [item] = await armarCitaItems([fila], { hoy, ahora })
   return item ?? null
 }
 
-/** El jsonb de agenda_crear, campo a campo (allow-list: nunca el body entero). */
+/** El jsonb de agenda_crear, campo a campo (allow-list: nunca el body entero); 0850: con `como` (C12). */
 export function jsonbCita(datos: CitaCreate): Record<string, unknown> {
   return {
     fecha: datos.fecha,
@@ -1082,21 +1240,21 @@ export function jsonbCita(datos: CitaCreate): Record<string, unknown> {
     subtipo_id: datos.subtipo_id,
     sede_id: datos.sede_id,
     nota: datos.nota,
+    como: datos.como ?? null,
   }
 }
 
 /**
- * Indicador de la agenda del mes (decisión 8) con las visitas del mes ya leídas (sin anuladas, con agendada) y las
- * citas del mes; null si la 0840 no está aplicada.
+ * Indicador de la agenda del mes (decisión 8; 0850: "no se hizo" aparte y sin las eliminadas) con las visitas del mes ya
+ * leídas (sin anuladas, con agendada) y las citas del mes de la persona.
  */
 export async function numerosDeAgenda(
-  executiveId: string,
+  userId: string,
   rango: { desde: string; hasta: string },
   visitas: readonly Pick<FilaVisita, 'efectiva' | 'agendada'>[],
   hoy: string
-): Promise<NumerosAgenda | null> {
-  const citas = await citasSinMigracion(() => leerCitas(executiveId, rango.desde, rango.hasta, { conCanceladas: true }))
-  if (!citas) return null
+): Promise<NumerosAgenda> {
+  const citas = await leerCitas(userId, rango.desde, rango.hasta, { conCanceladas: true })
   return cuentasAgenda({
     visitas: visitas.map(visita => ({ efectiva: Boolean(visita.efectiva), agendada: visita.agendada === true })),
     citas: citas.map(cita => ({ fecha: cita.fecha, estado: cita.estado })),

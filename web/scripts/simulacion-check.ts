@@ -28,6 +28,7 @@ import {
   diasDeAgenda,
   documentoPrueba,
   esDocumentoPrueba,
+  filasDeCitas,
   hastaVisitante,
   nadaPendiente,
   nadaQueBorrar,
@@ -263,6 +264,12 @@ console.log('4. Agenda del plan')
   check('las demás se crean al aplicar (antes de su día)', PLAN.citas.filter(c => c.fecha !== HOY).every(c => c.created_at === null && citaAnticipada(`${HOY}T15:00:00.000Z`, c.fecha)))
   check('ordenadas por fecha y hora', PLAN.citas.every((c, i, l) => i === 0 || l[i - 1].fecha < c.fecha || (l[i - 1].fecha === c.fecha && (l[i - 1].hora ?? '99:99') <= (c.hora ?? '99:99'))))
   check('la plantilla solo usa médicos del plan', AGENDA_BASE.every(b => !('medico' in b) || MEDICOS_BASE.some(m => m.n === b.medico)))
+
+  // 0850 (F1a): quien agenda es el usuario; cada fila lleva user_id (NOT NULL) además del Ejecutivo Comercial.
+  const idsMedicos = new Map(PLAN.medicos.map((m, i) => [m.clave, `medico-${i}`]))
+  const filas = filasDeCitas(PLAN.citas, idsMedicos, 'admin-1', `${HOY}T15:00:00.000Z`)
+  check('las filas de las citas simuladas llevan user_id (el de Carmen) y su Ejecutivo Comercial', filas.length === PLAN.citas.length && filas.every(f => f.user_id === CARMEN.user_id && f.executive_id === CARMEN.executive_id), filas[0])
+  check('las de hoy conservan su created_at de ayer; las demás, el de al aplicar', filas.every((f, i) => f.created_at === (PLAN.citas[i].created_at ?? `${HOY}T15:00:00.000Z`)))
 
   const hoyLibre = planDe(HOY, [{ fecha: HOY, fraccion: 1, estado: 'aprobado' }])
   eq('con hoy libre no hay citas de hoy', hoyLibre.citas.filter(c => c.fecha === HOY).length, 0)

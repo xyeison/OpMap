@@ -27,13 +27,25 @@ import {
   type CamposCrudos,
   type CamposDictado,
   type CitaCancelar,
+  type CitaCerrar,
   type CitaCreate,
+  type CitaOtraFecha,
   type PropuestaCruda,
   type VisitaCreate,
   type VisitaCreateBase,
   type VisitaUpdate,
 } from './reporte-visitas'
 import { VALORES_MEDIO_TELEFONICA, VALORES_TIPO_VISITA, diasEntre, esFechaIso, esMesIso } from './visits-rules'
+import { MENSAJE_COMO_NO_VALIDO, VALORES_COMO } from './persona-campo'
+import {
+  MAX_MOTIVO_CIERRE,
+  MENSAJE_CANCELAR_SIN_MOTIVO,
+  MENSAJE_MOTIVO_NO_VALIDO,
+  MENSAJE_MOTIVO_SALIDA,
+  VALORES_MOTIVO_CIERRE,
+  revisarMotivo,
+  type MotivoElegible,
+} from './agenda-ciclo'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -447,11 +459,23 @@ const horaObligatoria = z.unknown().transform((valor, ctx): string => {
   return hora
 })
 
+/** "Como qué" (0850, C12): ausente, '' o null → null (la base elige: como Ejecutivo Comercial si lo tiene). */
+const comoOpcional = z
+  .string({ invalid_type_error: MENSAJE_COMO_NO_VALIDO })
+  .trim()
+  .nullish()
+  .transform(valor => (valor ? valor : null))
+  .refine((valor): valor is (typeof VALORES_COMO)[number] | null => valor === null || (VALORES_COMO as readonly string[]).includes(valor), {
+    message: MENSAJE_COMO_NO_VALIDO,
+  })
+
+const fechaCita = z
+  .string({ required_error: 'Elige la fecha de la cita', invalid_type_error: MENSAJE_FECHA })
+  .trim()
+  .refine(valor => esFechaIso(valor), { message: MENSAJE_FECHA })
+
 const camposCita = {
-  fecha: z
-    .string({ required_error: 'Elige la fecha de la cita', invalid_type_error: MENSAJE_FECHA })
-    .trim()
-    .refine(valor => esFechaIso(valor), { message: MENSAJE_FECHA }),
+  fecha: fechaCita,
   hora: horaObligatoria,
   tipo: z.enum(VALORES_TIPO_VISITA, { errorMap: () => ({ message: MENSAJE_TIPO }) }),
   medico_id: idOpcional('Médico no válido'),
@@ -459,15 +483,17 @@ const camposCita = {
   subtipo_id: idOpcional('Subtipo no válido'),
   sede_id: idSchema('Elige la sede'),
   nota: textoOpcional(MAX_NOTA_CITA, 'Nota no válida'),
+  como: comoOpcional,
 }
 
 type CitaPlana = z.infer<z.ZodObject<typeof camposCita>>
 
 /**
  * POST /api/me/agenda: fecha, HORA (obligatoria desde el 2026-10-15), médica con médico; institucional con cuenta y
- * subtipo (lo que no aplica al tipo queda en null).
- * Que la fecha esté en la ventana, el perfil, el médico en esa sede, la cuenta, el subtipo vigente y los repetidos los
- * revisa agenda_crear (la base); la ventana la repite la API con mensajeFechaCita para responder sin ir a la base.
+ * subtipo (lo que no aplica al tipo queda en null); 0850: `como` opcional ('ejecutivo' | 'lider', C12).
+ * Que la fecha sea de hoy en adelante (sin tope, A4), la hora no haya pasado, el perfil, el médico en esa sede (como
+ * líder, de sus líneas), la cuenta, el subtipo vigente, los repetidos y el choque de media hora los revisa agenda_crear
+ * (la base); la API repite el pasado y la hora pasada (mensajeFechaCita, mensajeHoraCita) para responder sin ir a la base.
  */
 export const citaCreateSchema: z.ZodType<CitaCreate, z.ZodTypeDef, unknown> = cuerpo(camposCita)
   .superRefine((datos: CitaPlana, ctx) => {
@@ -480,16 +506,83 @@ export const citaCreateSchema: z.ZodType<CitaCreate, z.ZodTypeDef, unknown> = cu
     }
   })
   .transform((datos: CitaPlana): CitaCreate => {
-    const base = { fecha: datos.fecha, hora: datos.hora, sede_id: datos.sede_id, nota: datos.nota }
+    const base = { fecha: datos.fecha, hora: datos.hora, sede_id: datos.sede_id, nota: datos.nota, como: datos.como }
     return datos.tipo === 'medica'
       ? { ...base, tipo: 'medica', medico_id: datos.medico_id as string, cuenta_id: null, subtipo_id: null }
       : { ...base, tipo: 'institucional', medico_id: null, cuenta_id: datos.cuenta_id as string, subtipo_id: datos.subtipo_id as string }
   })
 
-/** POST /api/me/agenda/[id]/cancelar: { motivo } opcional (hasta 300 caracteres). Cuerpo vacío = sin motivo. */
+/** Código de motivo (0850, C10): de la lista; 'salida' solo lo pone el sistema. */
+const motivoCodigo = (requerido: boolean) =>
+  z
+    .string({ invalid_type_error: MENSAJE_MOTIVO_NO_VALIDO, required_error: MENSAJE_MOTIVO_NO_VALIDO })
+    .trim()
+    .nullish()
+    .transform(valor => (valor ? valor : null))
+    .superRefine((valor, ctx) => {
+      if (valor === null) {
+        if (requerido) ctx.addIssue({ code: z.ZodIssueCode.custom, message: MENSAJE_MOTIVO_NO_VALIDO })
+        return
+      }
+      if (!(VALORES_MOTIVO_CIERRE as readonly string[]).includes(valor)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: MENSAJE_MOTIVO_NO_VALIDO })
+      else if (valor === 'salida') ctx.addIssue({ code: z.ZodIssueCode.custom, message: MENSAJE_MOTIVO_SALIDA })
+    })
+
+/**
+ * POST /api/me/agenda/[id]/cancelar (0850, A8): el motivo es OBLIGATORIO. { motivo_codigo?, motivo? }: sin código y con
+ * texto = 'otro' (la app de hoy solo manda el texto); con 'otro', texto de 3 a 300; sin nada → 400
+ * MENSAJE_CANCELAR_SIN_MOTIVO. Cuerpo vacío = sin nada.
+ */
 export const citaCancelarSchema: z.ZodType<CitaCancelar, z.ZodTypeDef, unknown> = cuerpo({
   motivo: textoOpcional(MAX_MOTIVO_CANCELACION_CITA, 'Motivo no válido'),
-}).transform(datos => ({ motivo: datos.motivo }))
+  motivo_codigo: motivoCodigo(false),
+})
+  .superRefine((datos, ctx) => {
+    if (datos.motivo_codigo === null && datos.motivo === null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['motivo'], message: MENSAJE_CANCELAR_SIN_MOTIVO })
+      return
+    }
+    const error = revisarMotivo(datos.motivo_codigo, datos.motivo, 'cancelar')
+    if (error) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['motivo'], message: error })
+  })
+  .transform(datos => ({ motivo: datos.motivo, motivo_codigo: (datos.motivo_codigo ?? 'otro') as MotivoElegible }))
+
+/** POST /api/me/agenda/[id]/cerrar ("no se hizo", 0850): { motivo_codigo, motivo? }; con 'otro', texto de 3 a 300. */
+export const citaCerrarSchema: z.ZodType<CitaCerrar, z.ZodTypeDef, unknown> = cuerpo({
+  motivo_codigo: motivoCodigo(true),
+  motivo: textoOpcional(MAX_MOTIVO_CIERRE, 'Motivo no válido'),
+})
+  .superRefine((datos, ctx) => {
+    if (datos.motivo_codigo === null) return
+    const error = revisarMotivo(datos.motivo_codigo, datos.motivo, 'cerrar')
+    if (error) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['motivo'], message: error })
+  })
+  .transform(datos => ({ motivo_codigo: datos.motivo_codigo as MotivoElegible, motivo: datos.motivo }))
+
+/**
+ * POST /api/me/agenda/[id]/otra-fecha (0850, A7): { fecha, hora (obligatoria), sede_id?, nota?, como? }. Sin nota: la
+ * de la anterior (la clave ausente); nota null o '': sin nota.
+ */
+export const citaOtraFechaSchema: z.ZodType<CitaOtraFecha, z.ZodTypeDef, unknown> = cuerpo({
+  fecha: fechaCita,
+  hora: horaObligatoria,
+  sede_id: idOpcional('Sede no válida'),
+  nota: z.unknown().optional(),
+  como: comoOpcional,
+})
+  .superRefine((datos, ctx) => {
+    if (datos.nota === undefined || datos.nota === null) return
+    if (typeof datos.nota !== 'string') ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['nota'], message: 'Nota no válida' })
+    else if (datos.nota.trim().length > MAX_NOTA_CITA) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['nota'], message: `El texto no puede superar ${MAX_NOTA_CITA} caracteres` })
+  })
+  .transform((datos): CitaOtraFecha => {
+    const salida: CitaOtraFecha = { fecha: datos.fecha, hora: datos.hora, sede_id: datos.sede_id, como: datos.como }
+    if (datos.nota !== undefined) {
+      const texto = typeof datos.nota === 'string' ? datos.nota.trim().replace(/\s+/g, ' ') : ''
+      salida.nota = texto ? texto : null
+    }
+    return salida
+  })
 
 /**
  * GET /api/me/agenda?desde=&hasta=&canceladas= (sin fechas: hoy a hoy + 7; sin hasta: desde + 7; como mucho 31 días;

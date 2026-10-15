@@ -62,7 +62,6 @@ import {
   MENSAJE_CITA_CANCELADA,
   MENSAJE_CITA_DIA_LIBRE,
   MENSAJE_CITA_HECHA_NO_SE_CANCELA,
-  MENSAJE_CITA_LEJANA,
   MENSAJE_CITA_NO_EXISTE,
   MENSAJE_CITA_OTRO_DIA,
   MENSAJE_CITA_OTRO_MEDICO,
@@ -83,6 +82,7 @@ import {
   citaParaVincular,
   revisarCitaElegida,
   type CitaVinculo,
+  type VisitaParaVinculo,
   MENSAJE_AUDIO_SIN_DURACION,
   MENSAJE_CONTACTO_INACTIVO,
   MENSAJE_CUENTA_INACTIVA,
@@ -113,6 +113,41 @@ import {
   mensajeTopeTelefonicas,
 } from '../lib/reporte-visitas'
 import type * as W from '../lib/reporte-visitas'
+import {
+  MENSAJE_CAMBIO_DE_PAPEL,
+  MENSAJE_COMO_NO_VALIDO,
+  MENSAJE_DIRECCION_NO_REPORTA,
+  MENSAJE_EJECUTIVA_AJENA,
+  MENSAJE_MEDICO_AJENO,
+  MENSAJE_SIN_LINEAS,
+  ejecutivoDeLaCita,
+  ejecutivoDeLaVisita,
+  medicoDeLineas as medicoDeLineasPura,
+  personaDeCampo as personaDeCampoPura,
+  type LineaCampo,
+  type PersonaCampoPura,
+  type VisitanteMedico,
+} from '../lib/persona-campo'
+import {
+  MENSAJE_CANCELAR_SIN_MOTIVO,
+  MENSAJE_CITA_CERRADA,
+  MENSAJE_CITA_NO_LLEGA,
+  MENSAJE_CITA_SIGUE_PROGRAMADA,
+  MENSAJE_CITA_YA_TIENE_OTRA_FECHA,
+  MENSAJE_HORA_PASADA,
+  MENSAJE_MOTIVO_NO_VALIDO,
+  MENSAJE_OTRA_FECHA_DISTINTA,
+  MENSAJE_SOLO_PENDIENTE_SE_ELIMINA,
+  agendaChoca,
+  mensajeChoque,
+  mensajeHoraCita,
+  origenParaOtraFecha,
+  revisarCancelar,
+  revisarCerrar,
+  revisarEliminar,
+  revisarMotivo,
+  type CitaParaChoque,
+} from '../lib/agenda-ciclo'
 import type { camposDictadoSchema, citaCancelarSchema, citaCreateSchema, visitaCreateSchema } from '../lib/reporte-visitas-schemas'
 import type * as M from '../../mobile/lib/tipos'
 import type { cuerpoCitaConHora } from '../../mobile/lib/agenda'
@@ -125,6 +160,7 @@ import {
   MENSAJE_API_OMITIDO,
   MENSAJE_FALTA_MIGRACION_0830,
   MENSAJE_FALTA_MIGRACION_0840,
+  MENSAJE_FALTA_MIGRACION_0850,
   TEXTO_OMITIDO_EN_LOG,
   fijarFabricasVoz,
   loEnviado,
@@ -150,6 +186,10 @@ import { GET as verNumeros } from '../app/api/me/numeros/route'
 import { GET as verCuota } from '../app/api/me/cuota/route'
 import { GET as verAgenda, POST as agendar } from '../app/api/me/agenda/route'
 import { POST as cancelarCita } from '../app/api/me/agenda/[id]/cancelar/route'
+import { POST as cerrarCita } from '../app/api/me/agenda/[id]/cerrar/route'
+import { POST as eliminarCita } from '../app/api/me/agenda/[id]/eliminar/route'
+import { POST as otraFechaCita } from '../app/api/me/agenda/[id]/otra-fecha/route'
+import { GET as misDiasLibres } from '../app/api/me/dias-libres/route'
 import { POST as repartirCampos } from '../app/api/me/voz/campos/route'
 import { POST as crearSede } from '../app/api/terceros/sedes/route'
 import { POST as crearMedico } from '../app/api/terceros/medicos/route'
@@ -163,10 +203,28 @@ import { GET as zonasSinVisitar } from '../app/api/visits/unvisited-zones/route'
 
 type Asignable<A, B> = [A] extends [B] ? true : false
 type Afirmar<T extends true> = T
+type Iguales<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
+
+// F1a (0850): lo que la app de hoy (hasta F1b) recibe. Las respuestas solo GANAN claves (la app no las lee) y los
+// estados nuevos de la cita solo los producen rutas que la app de hoy no llama (no_realizada solo sale con
+// canceladas=true después de "cerrar"; eliminada nunca sale). Sin Ejecutivo Comercial (una líder, que no se invita hasta
+// F1b) Mis números trae cuota null; max_fecha es null (sin tope, A4): la app no la lee (lo comprueba la sección 15).
+type ClavesCitaF1a = 'motivo_codigo' | 'no_realizada_at' | 'no_realizada_motivo' | 'viene_de' | 'sucesora_id' | 'como' | 'estado_visible'
+type CitaVieja = Omit<W.CitaItem, ClavesCitaF1a | 'estado'> & { estado: M.EstadoCita }
+type ContextoViejo = Omit<W.ContextoResponse, 'persona' | 'agenda_hoy'> & { agenda_hoy: CitaVieja[] }
+type AgendaVieja = Omit<W.AgendaResponse, 'items' | 'max_fecha'> & { items: CitaVieja[] }
+type AgendaAppSinTope = Omit<M.AgendaResponse, 'max_fecha'>
+type NumerosAgendaViejo = Omit<W.NumerosAgenda, 'citas_no_realizadas'>
+type NumerosViejos = Omit<W.NumerosResponse, 'cuota' | 'agenda'> & { cuota: CuotaResponse; agenda: NumerosAgendaViejo | null }
 // Respuestas: lo que manda el servidor cabe en lo que espera la app (y las de F3, también al revés: son copias).
 export type TiposDeLaApp = [
-  Afirmar<Asignable<W.ContextoResponse, M.ContextoResponse>>,
-  Afirmar<Asignable<M.ContextoResponse, W.ContextoResponse>>,
+  // F1a: las claves nuevas son exactamente las de CLAVES_F1A (ni una de más ni de menos).
+  Afirmar<Iguales<Exclude<keyof W.CitaItem, keyof M.CitaItem>, ClavesCitaF1a>>,
+  Afirmar<Iguales<Exclude<keyof W.ContextoResponse, keyof M.ContextoResponse>, 'persona'>>,
+  Afirmar<Iguales<Exclude<keyof W.MeResponse, keyof M.MeResponse>, 'persona'>>,
+  Afirmar<Iguales<Exclude<keyof W.NumerosAgenda, keyof M.NumerosAgenda>, 'citas_no_realizadas'>>,
+  Afirmar<Asignable<ContextoViejo, M.ContextoResponse>>,
+  Afirmar<Asignable<M.ContextoResponse, ContextoViejo>>,
   Afirmar<Asignable<W.VisitaItem, M.VisitaItem>>,
   Afirmar<Asignable<M.VisitaItem, W.VisitaItem>>,
   Afirmar<Asignable<W.VisitasResponse, M.VisitasResponse>>,
@@ -175,20 +233,20 @@ export type TiposDeLaApp = [
   Afirmar<Asignable<M.TranscripcionResponse, W.TranscripcionResponse>>,
   Afirmar<Asignable<W.PropuestaResponse, M.PropuestaResponse>>,
   Afirmar<Asignable<M.PropuestaResponse, W.PropuestaResponse>>,
-  Afirmar<Asignable<W.NumerosResponse, M.NumerosResponse>>,
-  Afirmar<Asignable<M.NumerosResponse, W.NumerosResponse>>,
+  Afirmar<Asignable<NumerosViejos, M.NumerosResponse>>,
+  Afirmar<Asignable<M.NumerosResponse, NumerosViejos>>,
   Afirmar<Asignable<CuotaResponse, M.CuotaResponse>>,
   Afirmar<Asignable<W.LoginMovilResponse, M.LoginMovilResponse>>,
   Afirmar<Asignable<W.MeResponse, M.MeResponse>>,
   Afirmar<Asignable<W.ErrorResponse, M.ErrorResponse>>,
-  // F4.1 (0840): agenda, indicador y dictado por campo.
-  Afirmar<Asignable<W.CitaItem, M.CitaItem>>,
-  Afirmar<Asignable<M.CitaItem, W.CitaItem>>,
-  Afirmar<Asignable<W.AgendaResponse, M.AgendaResponse>>,
-  Afirmar<Asignable<M.AgendaResponse, W.AgendaResponse>>,
-  Afirmar<Asignable<W.CitaResponse, M.CitaResponse>>,
+  // F4.1 (0840): agenda, indicador y dictado por campo (F1a: con lo que la app de hoy ve de cada una).
+  Afirmar<Asignable<CitaVieja, M.CitaItem>>,
+  Afirmar<Asignable<M.CitaItem, CitaVieja>>,
+  Afirmar<Asignable<AgendaVieja, AgendaAppSinTope>>,
+  Afirmar<Asignable<AgendaAppSinTope, AgendaVieja>>,
+  Afirmar<Asignable<{ cita: CitaVieja }, M.CitaResponse>>,
   Afirmar<Asignable<W.NumerosAgenda, M.NumerosAgenda>>,
-  Afirmar<Asignable<M.NumerosAgenda, W.NumerosAgenda>>,
+  Afirmar<Asignable<M.NumerosAgenda, NumerosAgendaViejo>>,
   Afirmar<Asignable<W.CamposDictadoResponse, M.CamposDictadoResponse>>,
   Afirmar<Asignable<M.CamposDictadoResponse, W.CamposDictadoResponse>>,
   // La hora es obligatoria desde el 2026-10-15 (W.CitaCreate.hora: string): lo que manda la app (cuerpoCitaConHora,
@@ -331,9 +389,26 @@ function likeRegex(pattern: string, flags: string): RegExp {
   return new RegExp(`^${regex}$`, flags)
 }
 
+/** Un filtro `columna.op.valor` de un `or=(…)` de PostgREST (los que usa la API: eq, neq, is.null, not.is.null). */
+function cumpleCondicion(row: Fila, condicion: string): boolean {
+  const [columna, ...resto] = condicion.split('.')
+  const operacion = resto.join('.')
+  const valor = row[columna] === null || row[columna] === undefined ? 'null' : String(row[columna])
+  if (operacion === 'is.null') return valor === 'null'
+  if (operacion === 'not.is.null') return valor !== 'null'
+  if (operacion.startsWith('eq.')) return valor === operacion.slice(3)
+  if (operacion.startsWith('neq.')) return valor !== operacion.slice(4)
+  throw new Error(`Supabase falso: condición de or no soportada ${condicion}`)
+}
+
 function matchesFilters(row: Fila, params: URLSearchParams): boolean {
   for (const [key, raw] of Array.from(params.entries())) {
     if (POSTGREST_CONTROL_PARAMS.has(key)) continue
+    if (key === 'or') {
+      const condiciones = raw.replace(/^\(|\)$/g, '').split(',')
+      if (!condiciones.some(condicion => cumpleCondicion(row, condicion))) return false
+      continue
+    }
     const original = row[key]
     const value = original === null || original === undefined ? 'null' : String(original)
     if (raw.startsWith('eq.')) {
@@ -391,6 +466,9 @@ const COLUMNAS_0830 = ['source', 'executive_id', 'client_id', 'tipo', 'subtipo_i
 /** Columnas de visits de la 0840: con `sin0840` cualquier consulta que las nombre falla como antes de aplicarla. */
 const COLUMNAS_0840 = ['agenda_id', 'agendada']
 
+/** Columnas de la 0850 (visits.user_id y las nuevas de visitas_agenda): con `sin0850` fallan como antes de aplicarla. */
+const COLUMNAS_0850 = ['user_id', 'motivo_codigo', 'no_realizada_at', 'no_realizada_motivo', 'eliminada_at', 'eliminada_por', 'viene_de']
+
 const CONFIG_GENERAL_DEFECTO = GENERAL_POR_DEFECTO as unknown as Record<string, any>
 
 function fakeSupabase(tablas: Tablas) {
@@ -401,6 +479,8 @@ function fakeSupabase(tablas: Tablas) {
     sin0830: false,
     /** La base sin la 0840: sin visitas_agenda, agenda_crear, agenda_cancelar ni visits.agenda_id/agendada. */
     sin0840: false,
+    /** La base sin la 0850: sin las columnas user_id, motivo_codigo, no_realizada_*, eliminada_*, viene_de ni las funciones nuevas. */
+    sin0850: false,
     rechazoForzado: null as string | null,
     /** Error crudo de PostgREST que devuelve la próxima RPC visitas_* (para probar qué sale en los logs). */
     errorRpc: null as Fila | null,
@@ -412,14 +492,15 @@ function fakeSupabase(tablas: Tablas) {
   const store = (table: string) => (tablas[table] = tablas[table] ?? [])
   const hoyFalso = () => hoyBogota(new Date())
 
-  // --- Espejo de visitas_config_vigente (0830) ---
+  // --- Espejo de visitas_config_vigente (0830) y de visitas_config_persona (0850: sin Ejecutivo Comercial, la general
+  //     con médica e institucional y sin telefónica) ---
   function vigente(filas: Fila[], fecha: string): Fila | undefined {
     return filas
       .filter(f => !f.anulado_at && f.vigente_desde <= fecha && (f.vigente_hasta === null || f.vigente_hasta >= fecha))
       .sort((a, b) => compareValues(b.vigente_desde, a.vigente_desde))[0]
   }
-  function configVigente(executiveId: string, fecha: string) {
-    const persona = vigente(store('config_personas').filter(f => f.executive_id === executiveId), fecha)
+  function configVigente(executiveId: string | null, fecha: string) {
+    const persona = executiveId ? vigente(store('config_personas').filter(f => f.executive_id === executiveId), fecha) : undefined
     const general = (parametro: string) => vigente(store('config_general').filter(f => f.parametro === parametro), fecha)?.valor ?? CONFIG_GENERAL_DEFECTO[parametro]
     const telefonicas = general('telefonicas') as { tope_dia: number; medios: string[] }
     return {
@@ -427,23 +508,46 @@ function fakeSupabase(tablas: Tablas) {
       radio_m: persona?.radio_m ?? Math.round(Number(general('radio_presencial_m'))),
       tope_visitas_medico_dia: Math.round(Number(general('tope_visitas_medico_dia'))),
       telefonica: {
-        habilitada: persona?.telefonica_habilitada ?? false,
+        habilitada: executiveId ? (persona?.telefonica_habilitada ?? false) : false,
         tope_dia: persona?.tope_telefonicas_dia ?? Math.round(Number(telefonicas.tope_dia)),
         medios: telefonicas.medios,
       },
     }
   }
 
-  const deHoy = (exec: string, fecha: string, extra: (v: Fila) => boolean, excluir?: string) =>
-    store('visits').filter(v => v.source === 'app' && v.executive_id === exec && v.visit_date === fecha && v.efectiva && !v.deleted_at && v.id !== excluir && extra(v)).length
+  // --- Espejo de persona_de_campo / persona_lineas (0850) con las reglas puras de lib/persona-campo.ts ---
+  function personaFalsa(userId: string): { ok: true; persona: PersonaCampoPura & { nombre: string } } | { ok: false; error: string } {
+    const usuario = store('users').find(u => u.id === userId)
+    if (!usuario) return { ok: false, error: MENSAJE_SIN_LINEAS }
+    const ejecutiva = store('executives').find(e => e.user_id === userId && e.status === 'active') ?? null
+    const resultado = personaDeCampoPura({
+      usuario: { id: usuario.id, role: usuario.role, active: usuario.active },
+      ejecutiva: ejecutiva ? { id: ejecutiva.id, status: ejecutiva.status, base_kam_id: ejecutiva.base_kam_id } : null,
+      lineasEjecutiva: ejecutiva ? store('executive_lines').filter(el => el.executive_id === ejecutiva.id).map(el => el.line_id) : [],
+      lineas: store('business_lines') as LineaCampo[],
+    })
+    return resultado.ok ? { ok: true, persona: { ...resultado.persona, nombre: usuario.full_name } } : resultado
+  }
+  /** executive_lines de los Ejecutivos Comerciales activos (lo que mira medico_de_lineas, C9). */
+  const lineasEjecutivasActivas = () => {
+    const mapa = new Map<string, string[]>()
+    for (const e of store('executives').filter(e => e.status === 'active')) mapa.set(e.id, store('executive_lines').filter(el => el.executive_id === e.id).map(el => el.line_id))
+    return mapa
+  }
+  const medicoEsDeLineas = (medicoId: string, lineas: readonly string[], fecha: string) =>
+    medicoDeLineasPura(medicoId, lineas, store('medico_visitantes') as VisitanteMedico[], lineasEjecutivasActivas(), fecha)
 
-  // --- Espejo de visitas_registrar (0830): mismos pasos, mensajes y SQLSTATE ---
+  /** Visitas efectivas de la PERSONA (0850: por user_id) ese día, no anuladas, para los topes. */
+  const deHoy = (user: string, fecha: string, extra: (v: Fila) => boolean, excluir?: string) =>
+    store('visits').filter(v => v.source === 'app' && v.user_id === user && v.visit_date === fecha && v.efectiva && !v.deleted_at && v.id !== excluir && extra(v)).length
+
+  // --- Espejo de visitas_registrar (0850): mismos pasos, mensajes y SQLSTATE ---
   function visitasRegistrar(args: Fila): Response {
     const p = (args.p ?? {}) as Fila
     const regla = (mensaje: string) => pgError('23514', mensaje)
     const forma = (mensaje: string) => pgError('22023', mensaje)
+    if (!args.p_user) return forma('Falta el usuario que reporta')
     if (!p.client_id) return forma('Falta el client_id de la visita (uuid que genera la app)')
-    if (!p.executive_id) return forma('Falta el Ejecutivo Comercial de la visita')
     if (!['medica', 'institucional'].includes(p.tipo)) return forma('Tipo de visita no válido: medica o institucional')
     if (!p.sede_id) return forma('Elige la sede')
     if (!['presencial', 'telefonica'].includes(p.modalidad)) return forma('Modalidad no válida: presencial o telefonica')
@@ -452,17 +556,23 @@ function fakeSupabase(tablas: Tablas) {
     const efectiva = p.efectiva as boolean
     if (!efectiva && !String(p.failure_reason ?? '').trim()) return regla('Indica el motivo de la visita no efectiva (hasta 300 caracteres)')
 
-    // 1. Idempotencia por client_id
+    // 1. Idempotencia por client_id (por persona)
     const previa = store('visits').find(v => v.client_id === p.client_id)
     if (previa) {
-      if (previa.executive_id !== p.executive_id) return pgError('23505', 'Ese client_id ya se usó en otra visita', 409)
-      const vinculo = estado.sin0840 ? {} : { agenda_id: previa.agenda_id ?? null, agendada: previa.agendada === true }
-      return json({ visita_id: previa.id, repetida: true, out_of_territory: previa.out_of_territory, distance_m: previa.distance_m, visit_date: previa.visit_date, ...vinculo })
+      if (previa.user_id !== args.p_user) return pgError('23505', 'Ese client_id ya se usó en otra visita', 409)
+      return json({ visita_id: previa.id, repetida: true, out_of_territory: previa.out_of_territory, distance_m: previa.distance_m, visit_date: previa.visit_date, agenda_id: previa.agenda_id ?? null, agendada: previa.agendada === true })
     }
-    // 2. Ejecutiva, mismo día, horas
-    const ejecutiva = store('executives').find(e => e.id === p.executive_id)
-    if (!ejecutiva || ejecutiva.status !== 'active') return regla(MENSAJE_SIN_EJECUTIVA)
-    if (!ejecutiva.base_kam_id) return regla(MENSAJE_SIN_ZONA)
+    // 2. Persona de campo, líneas suyas, el Ejecutivo Comercial de la visita (o como líder), mismo día, horas
+    const resultado = personaFalsa(args.p_user)
+    if (!resultado.ok) return regla(resultado.error)
+    const persona = resultado.persona
+    if (p.executive_id && p.executive_id !== persona.executiveId) return regla(MENSAJE_EJECUTIVA_AJENA)
+    const lineas = p.lineas as string[]
+    if (lineas.length === 0) return regla('Elige al menos una línea')
+    if (lineas.some(id => !persona.lineas.includes(id))) return regla(MENSAJE_LINEAS_AJENAS)
+    const exec = ejecutivoDeLaVisita(persona, lineas)
+    const ejecutiva = exec ? store('executives').find(e => e.id === exec) : null
+    if (exec && !ejecutiva?.base_kam_id) return regla(MENSAJE_SIN_ZONA)
     const fecha = fechaBogota(p.checked_in_at)
     if (fecha !== hoyFalso()) return regla(MENSAJE_SOLO_HOY)
     if (Date.parse(p.checked_in_at) > Date.now() + TOLERANCIA_RELOJ_SEGUNDOS * 1000) return regla(MENSAJE_LLEGADA_FUTURA)
@@ -470,8 +580,8 @@ function fakeSupabase(tablas: Tablas) {
     if (Date.parse(p.reported_at) > Date.now() + TOLERANCIA_RELOJ_SEGUNDOS * 1000) return regla(MENSAJE_REPORTE_FUTURO)
     if (p.next_step_date && p.next_step_date < fecha) return regla(MENSAJE_PROXIMA_ANTES_DE_VISITA)
     if (!efectiva && p.retry_date && p.retry_date < fecha) return regla(MENSAJE_REINTENTO_ANTES_DE_VISITA)
-    // 3. Perfil
-    const cfg = configVigente(p.executive_id, fecha)
+    // 3. Perfil (como líder: la configuración general)
+    const cfg = configVigente(exec, fecha)
     if (!cfg.perfil.includes(p.tipo)) return regla(mensajePerfil(p.tipo))
     // 4. Sede; médica o institucional
     const sede = store('sedes').find(s => s.id === p.sede_id)
@@ -482,7 +592,11 @@ function fakeSupabase(tablas: Tablas) {
     if (p.tipo === 'medica') {
       if (!store('medicos').some(m => m.id === p.medico_id && m.activo)) return regla('Ese médico no existe o está inactivo')
       if (!store('medico_sedes').some(ms => ms.medico_id === p.medico_id && ms.sede_id === p.sede_id)) return regla('El médico no atiende en esa sede')
-      oot = !store('medico_visitantes').some(mv => mv.medico_id === p.medico_id && mv.executive_id === p.executive_id && mv.desde <= fecha && (mv.hasta === null || mv.hasta >= fecha))
+      if (!exec) {
+        if (!medicoEsDeLineas(p.medico_id, lineas, fecha)) return regla(MENSAJE_MEDICO_AJENO)
+      } else {
+        oot = !store('medico_visitantes').some(mv => mv.medico_id === p.medico_id && mv.executive_id === exec && mv.desde <= fecha && (mv.hasta === null || mv.hasta >= fecha))
+      }
     } else {
       if (sede.cuenta_id !== p.cuenta_id) return regla('Esa sede no es de la cuenta elegida')
       const subtipo = store('subtipos_institucionales').find(s => s.id === p.subtipo_id && s.vigente_desde <= fecha && (s.vigente_hasta === null || s.vigente_hasta >= fecha))
@@ -494,7 +608,7 @@ function fakeSupabase(tablas: Tablas) {
         if (contacto.activo === false) return regla(MENSAJE_CONTACTO_INACTIVO)
       }
     }
-    // 5. Presencial o telefónica
+    // 5. Presencial o telefónica (tope por persona)
     let distancia: number | null = null
     if (p.modalidad === 'presencial') {
       if (p.lat === null || p.lat === undefined) return regla('La ubicación del teléfono es obligatoria en una visita presencial')
@@ -504,37 +618,30 @@ function fakeSupabase(tablas: Tablas) {
     } else {
       if (!cfg.telefonica.habilitada) return regla(MENSAJE_TELEFONICA_NO_HABILITADA)
       if (!cfg.telefonica.medios.includes(p.medio)) return regla(`Medio no válido: ${cfg.telefonica.medios.join(' o ')}`)
-      if (deHoy(p.executive_id, fecha, v => v.modalidad === 'telefonica') >= cfg.telefonica.tope_dia) return regla(mensajeTopeTelefonicas(cfg.telefonica.tope_dia))
+      if (deHoy(args.p_user, fecha, v => v.modalidad === 'telefonica') >= cfg.telefonica.tope_dia) return regla(mensajeTopeTelefonicas(cfg.telefonica.tope_dia))
     }
-    // 6. Tope por médico
-    if (p.tipo === 'medica' && efectiva && deHoy(p.executive_id, fecha, v => v.medico_id === p.medico_id) >= cfg.tope_visitas_medico_dia) return regla(MENSAJE_TOPE_MEDICO)
-    // 7. Líneas
-    if (p.lineas.length === 0) return regla('Elige al menos una línea')
-    if ((p.lineas as string[]).some(id => !store('executive_lines').some(el => el.executive_id === p.executive_id && el.line_id === id))) return regla(MENSAJE_LINEAS_AJENAS)
-    // 7b. Agenda (0840): la cita de agenda_id (revisada) o la del vínculo automático; agendada si se creó antes del día.
-    //     Con las reglas puras de lib/reporte-visitas.ts (las mismas que prueba el bloque DO de la 0840). Sin la 0840, la
-    //     función de la 0830 ignora agenda_id.
+    // 6. Tope por médico (por persona)
+    if (p.tipo === 'medica' && efectiva && deHoy(args.p_user, fecha, v => v.medico_id === p.medico_id) >= cfg.tope_visitas_medico_dia) return regla(MENSAJE_TOPE_MEDICO)
+    // 7b. Agenda (0840; 0850: por persona y del mismo papel): con las reglas puras de lib/reporte-visitas.ts.
     let citaVinculada: Fila | null = null
     let agendada = false
-    if (!estado.sin0840) {
-      const visitaVinculo = { executive_id: p.executive_id, fecha, tipo: p.tipo, medico_id: p.tipo === 'medica' ? p.medico_id : null, cuenta_id: p.tipo === 'institucional' ? p.cuenta_id : null, subtipo_id: p.tipo === 'institucional' ? p.subtipo_id : null }
-      const citas = store('visitas_agenda')
-      if (p.agenda_id) {
-        const cita = citas.find(c => c.id === p.agenda_id) ?? null
-        const error = revisarCitaElegida(cita ? aVinculo(cita) : null, visitaVinculo)
-        if (error) return regla(error)
-        citaVinculada = cita
-      } else {
-        const elegida = citaParaVincular(citas.map(aVinculo), visitaVinculo)
-        citaVinculada = elegida ? (citas.find(c => c.id === elegida.id) ?? null) : null
-      }
-      agendada = citaVinculada ? citaAnticipada(citaVinculada.created_at, fecha) : false
+    const visitaVinculo: VisitaParaVinculo = { user_id: args.p_user, executive_id: exec, fecha, tipo: p.tipo, medico_id: p.tipo === 'medica' ? p.medico_id : null, cuenta_id: p.tipo === 'institucional' ? p.cuenta_id : null, subtipo_id: p.tipo === 'institucional' ? p.subtipo_id : null }
+    const citas = store('visitas_agenda')
+    if (p.agenda_id) {
+      const cita = citas.find(c => c.id === p.agenda_id) ?? null
+      const error = revisarCitaElegida(cita ? aVinculo(cita) : null, visitaVinculo)
+      if (error) return regla(error)
+      citaVinculada = cita
+    } else {
+      const elegida = citaParaVincular(citas.map(aVinculo), visitaVinculo)
+      citaVinculada = elegida ? (citas.find(c => c.id === elegida.id) ?? null) : null
     }
-    // Lo que la pre-validación no puede ver (otra visita que entró en el mismo instante, con el candado por ejecutiva)
+    agendada = citaVinculada ? citaAnticipada(citaVinculada.created_at, fecha) : false
+    // Lo que la pre-validación no puede ver (otra visita que entró en el mismo instante, con el candado por persona)
     if (estado.rechazoForzado) return regla(estado.rechazoForzado)
     // 8. Punto del mapa de calor e inserción. Telefónica: la sede, su municipio o la zona; NUNCA el GPS del teléfono.
     const municipio = store('municipalities').find(m => m.code === sede.municipality_id)
-    const zona = store('kams').find(k => k.id === ejecutiva.base_kam_id)
+    const zona = ejecutiva ? store('kams').find(k => k.id === ejecutiva.base_kam_id) : undefined
     const punto =
       p.modalidad === 'presencial'
         ? { lat: Number(p.lat), lng: Number(p.lng) }
@@ -546,8 +653,8 @@ function fakeSupabase(tablas: Tablas) {
     const id = randomUUID()
     store('visits').push({
       id,
-      kam_id: ejecutiva.base_kam_id,
-      kam_name: ejecutiva.full_name,
+      kam_id: ejecutiva?.base_kam_id ?? null,
+      kam_name: ejecutiva?.full_name ?? persona.nombre,
       visit_type: efectiva ? 'Visita efectiva' : 'Visita no efectiva',
       contact_type: p.modalidad === 'presencial' ? 'Visita presencial' : 'Visita virtual',
       lat: Math.round(punto.lat * 1e6) / 1e6,
@@ -560,7 +667,8 @@ function fakeSupabase(tablas: Tablas) {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       source: 'app',
-      executive_id: p.executive_id,
+      user_id: args.p_user,
+      executive_id: exec,
       client_id: p.client_id,
       tipo: p.tipo,
       subtipo_id: p.tipo === 'institucional' ? p.subtipo_id : null,
@@ -588,17 +696,18 @@ function fakeSupabase(tablas: Tablas) {
       updated_by: args.p_user,
       deleted_at: null,
       deleted_reason: null,
-      ...(estado.sin0840 ? {} : { agenda_id: citaVinculada?.id ?? null, agendada }),
+      agenda_id: citaVinculada?.id ?? null,
+      agendada,
     })
-    for (const line_id of Array.from(new Set(p.lineas as string[]))) store('visit_lines').push({ visit_id: id, line_id })
+    for (const line_id of Array.from(new Set(lineas))) store('visit_lines').push({ visit_id: id, line_id })
     if (citaVinculada) Object.assign(citaVinculada, { estado: 'hecha', visita_id: id, updated_at: new Date().toISOString() })
-    const vinculo = estado.sin0840 ? {} : { agenda_id: citaVinculada?.id ?? null, agendada }
-    return json({ visita_id: id, repetida: false, out_of_territory: oot, distance_m: distancia, visit_date: fecha, ...vinculo })
+    return json({ visita_id: id, repetida: false, out_of_territory: oot, distance_m: distancia, visit_date: fecha, agenda_id: citaVinculada?.id ?? null, agendada })
   }
 
   const aVinculo = (cita: Fila): CitaVinculo => ({
     id: cita.id,
-    executive_id: cita.executive_id,
+    user_id: cita.user_id,
+    executive_id: cita.executive_id ?? null,
     fecha: cita.fecha,
     hora: cita.hora ? String(cita.hora).slice(0, 5) : null,
     tipo: cita.tipo,
@@ -609,65 +718,110 @@ function fakeSupabase(tablas: Tablas) {
     created_at: cita.created_at,
   })
 
-  // --- Espejo de agenda_crear (0840): mismos pasos, mensajes y SQLSTATE ---
+  /** Con quién es una cita (para el mensaje del choque): el médico o la cuenta · subtipo. */
+  const conQuienCita = (cita: Fila): string => {
+    if (cita.medico_id) return store('medicos').find(m => m.id === cita.medico_id)?.nombre ?? 'otra cita'
+    const cuenta = store('cuentas').find(c => c.id === cita.cuenta_id)?.nombre
+    const subtipo = store('subtipos_institucionales').find(s => s.id === cita.subtipo_id)?.nombre
+    return cuenta ? `${cuenta}${subtipo ? ` · ${subtipo}` : ''}` : 'otra cita'
+  }
+
+  // --- Espejo de agenda_crear (0850): mismos pasos, mensajes y SQLSTATE ---
   function agendaCrear(args: Fila): Response {
     const p = (args.p ?? {}) as Fila
     const regla = (mensaje: string) => pgError('23514', mensaje)
     const forma = (mensaje: string) => pgError('22023', mensaje)
     if (!args.p_user) return forma('Falta el usuario que agenda')
     if (!p.fecha) return forma('Elige la fecha de la cita')
+    if (!p.hora) return forma(MENSAJE_HORA_OBLIGATORIA)
     if (!['medica', 'institucional'].includes(p.tipo)) return forma('Tipo de visita no válido: medica o institucional')
     if (!p.sede_id) return forma('Elige la sede')
     if (p.tipo === 'medica' && !p.medico_id) return forma('Elige el médico')
     if (p.tipo === 'institucional' && !p.cuenta_id) return forma('Elige la cuenta')
     if (p.tipo === 'institucional' && !p.subtipo_id) return forma('Elige el subtipo de la visita institucional')
     if (p.nota && String(p.nota).length > 300) return forma('La nota no puede superar 300 caracteres')
-    const ejecutiva = store('executives').find(e => e.user_id === args.p_user)
-    if (!ejecutiva || ejecutiva.status !== 'active') return regla(MENSAJE_SIN_EJECUTIVA)
-    if (!ejecutiva.base_kam_id) return regla(MENSAJE_SIN_ZONA)
+    if (p.como && !['ejecutivo', 'lider'].includes(p.como)) return forma(MENSAJE_COMO_NO_VALIDO)
+    const medica = p.tipo === 'medica'
+    const medicoId = medica ? p.medico_id : null
+    const cuentaId = medica ? null : p.cuenta_id
+    const subtipoId = medica ? null : p.subtipo_id
+    // 1. Persona (y el candado)
+    const resultado = personaFalsa(args.p_user)
+    if (!resultado.ok) return regla(resultado.error)
+    const persona = resultado.persona
+    const citas = store('visitas_agenda')
+    // 2. Otra fecha (A7)
+    if (p.viene_de) {
+      const origen = citas.find(c => c.id === p.viene_de)
+      if (!origen || origen.user_id !== args.p_user || origen.estado === 'eliminada') return pgError('P0002', MENSAJE_CITA_NO_EXISTE, 404)
+      const visitaOrigen = origen.estado === 'hecha' ? store('visits').find(v => v.id === origen.visita_id) : undefined
+      const error = origenParaOtraFecha({ estado: origen.estado, motivo_codigo: origen.motivo_codigo ?? null, visita_efectiva: visitaOrigen ? visitaOrigen.efectiva === true : null, tiene_sucesora: false })
+      if (error) return regla(error)
+      if (citas.some(c => c.viene_de === origen.id && c.estado !== 'eliminada')) return pgError('23505', MENSAJE_CITA_YA_TIENE_OTRA_FECHA, 409)
+      if (origen.tipo !== p.tipo || (origen.medico_id ?? null) !== medicoId || (origen.cuenta_id ?? null) !== cuentaId || (origen.subtipo_id ?? null) !== subtipoId) {
+        return regla(MENSAJE_OTRA_FECHA_DISTINTA)
+      }
+    }
+    // 2b. Como qué (C12)
+    const papel = ejecutivoDeLaCita(persona, p.como ?? null)
+    if (!papel.ok) return regla(papel.error)
+    const exec = papel.executiveId
+    // 3. Ventana: de hoy en adelante (sin tope), hoy no a una hora que ya pasó; con Ejecutivo Comercial, el día libre
     const hoy = hoyFalso()
+    const hora = String(p.hora).slice(0, 5)
     if (p.fecha < hoy) return regla(MENSAJE_CITA_PASADA)
-    if (p.fecha > sumarDias(hoy, 30)) return regla(MENSAJE_CITA_LEJANA)
-    if (store('dias_libres').some(d => d.executive_id === ejecutiva.id && d.fecha === p.fecha && ['registrado', 'aprobado'].includes(d.estado) && Number(d.fraccion) >= 1)) {
+    const pasada = mensajeHoraCita(p.fecha, hora, new Date())
+    if (pasada) return regla(pasada)
+    if (exec && store('dias_libres').some(d => d.executive_id === exec && d.fecha === p.fecha && ['registrado', 'aprobado'].includes(d.estado) && Number(d.fraccion) >= 1)) {
       return regla(MENSAJE_CITA_DIA_LIBRE)
     }
-    const cfg = configVigente(ejecutiva.id, p.fecha)
+    // 4. Perfil; 5. sede, médico (como líder: de sus líneas de líder) o cuenta y subtipo
+    const cfg = configVigente(exec, p.fecha)
     if (!cfg.perfil.includes(p.tipo)) return regla(mensajePerfil(p.tipo))
     const sede = store('sedes').find(s => s.id === p.sede_id)
     if (!sede || !sede.activo) return regla('Esa sede no existe')
     if (store('cuentas').find(c => c.id === sede.cuenta_id)?.activo !== true) return regla(MENSAJE_CUENTA_INACTIVA)
-    const medica = p.tipo === 'medica'
     if (medica) {
-      if (!store('medicos').some(m => m.id === p.medico_id && m.activo)) return regla(MENSAJE_MEDICO_NO_EXISTE)
-      if (!store('medico_sedes').some(ms => ms.medico_id === p.medico_id && ms.sede_id === p.sede_id)) return regla(MENSAJE_SEDE_NO_DEL_MEDICO)
+      if (!store('medicos').some(m => m.id === medicoId && m.activo)) return regla(MENSAJE_MEDICO_NO_EXISTE)
+      if (!store('medico_sedes').some(ms => ms.medico_id === medicoId && ms.sede_id === p.sede_id)) return regla(MENSAJE_SEDE_NO_DEL_MEDICO)
+      if (!exec && !medicoEsDeLineas(medicoId, persona.lineasLider, p.fecha)) return regla(MENSAJE_MEDICO_AJENO)
     } else {
-      if (sede.cuenta_id !== p.cuenta_id) return regla(MENSAJE_SEDE_NO_DE_LA_CUENTA)
-      if (!store('subtipos_institucionales').some(s => s.id === p.subtipo_id && s.vigente_desde <= p.fecha && (s.vigente_hasta === null || s.vigente_hasta >= p.fecha))) {
+      if (sede.cuenta_id !== cuentaId) return regla(MENSAJE_SEDE_NO_DE_LA_CUENTA)
+      if (!store('subtipos_institucionales').some(s => s.id === subtipoId && s.vigente_desde <= p.fecha && (s.vigente_hasta === null || s.vigente_hasta >= p.fecha))) {
         return regla(MENSAJE_SUBTIPO_NO_VIGENTE)
       }
     }
-    const citas = store('visitas_agenda')
-    const vivas = citas.filter(c => c.executive_id === ejecutiva.id && c.fecha === p.fecha && c.tipo === p.tipo && c.estado !== 'cancelada')
-    if (medica && vivas.some(c => c.medico_id === p.medico_id)) return pgError('23505', MENSAJE_CITA_REPETIDA_MEDICO, 409)
-    if (!medica && vivas.some(c => c.cuenta_id === p.cuenta_id && c.subtipo_id === p.subtipo_id)) return pgError('23505', MENSAJE_CITA_REPETIDA_CUENTA, 409)
+    // 6. Duplicados por persona entre pendientes y hechas; 7. choque de media hora
+    const vivas = citas.filter(c => c.user_id === args.p_user && c.fecha === p.fecha && c.tipo === p.tipo && ['pendiente', 'hecha'].includes(c.estado))
+    if (medica && vivas.some(c => c.medico_id === medicoId)) return pgError('23505', MENSAJE_CITA_REPETIDA_MEDICO, 409)
+    if (!medica && vivas.some(c => c.cuenta_id === cuentaId && c.subtipo_id === subtipoId)) return pgError('23505', MENSAJE_CITA_REPETIDA_CUENTA, 409)
+    const choque = agendaChoca({ fecha: p.fecha, hora }, citas.filter(c => c.user_id === args.p_user) as unknown as CitaParaChoque[])
+    if (choque) return pgError('23P01', mensajeChoque(String(choque.hora).slice(0, 5), conQuienCita(choque as unknown as Fila)), 409)
     const id = randomUUID()
     const ahora = new Date().toISOString()
     citas.push({
       id,
-      executive_id: ejecutiva.id,
+      user_id: args.p_user,
+      executive_id: exec,
       fecha: p.fecha,
       // PostgreSQL devuelve time con segundos.
-      hora: p.hora ? `${String(p.hora).slice(0, 5)}:00` : null,
+      hora: `${hora}:00`,
       tipo: p.tipo,
-      medico_id: medica ? p.medico_id : null,
-      cuenta_id: medica ? null : p.cuenta_id,
-      subtipo_id: medica ? null : p.subtipo_id,
+      medico_id: medicoId,
+      cuenta_id: cuentaId,
+      subtipo_id: subtipoId,
       sede_id: p.sede_id,
       nota: p.nota ? String(p.nota).trim() : null,
       estado: 'pendiente',
       visita_id: null,
       cancelada_at: null,
       cancelada_motivo: null,
+      motivo_codigo: null,
+      no_realizada_at: null,
+      no_realizada_motivo: null,
+      eliminada_at: null,
+      eliminada_por: null,
+      viene_de: p.viene_de ?? null,
       created_by: args.p_user,
       created_at: ahora,
       updated_at: ahora,
@@ -675,37 +829,112 @@ function fakeSupabase(tablas: Tablas) {
     return json({ cita_id: id })
   }
 
-  // --- Espejo de agenda_cancelar (0840) ---
+  /** La cita propia (no eliminada) o el 404 de la base. */
+  const citaPropia = (id: unknown, user: unknown): Fila | Response => {
+    const cita = store('visitas_agenda').find(c => c.id === id)
+    if (!cita || cita.user_id !== user || cita.estado === 'eliminada') return pgError('P0002', MENSAJE_CITA_NO_EXISTE, 404)
+    return cita
+  }
+  /** El error de un motivo con su SQLSTATE (22023 el que no es de la lista; 23514 los demás). */
+  const errorMotivo = (mensaje: string | null): Response | null =>
+    mensaje === null ? null : pgError(mensaje === MENSAJE_MOTIVO_NO_VALIDO ? '22023' : '23514', mensaje)
+
+  // --- Espejo de agenda_cancelar (0850: motivo obligatorio) ---
   function agendaCancelar(args: Fila): Response {
     if (!args.p_id) return pgError('22023', 'Falta la cita')
     if (!args.p_user) return pgError('22023', 'Falta el usuario que cancela')
+    const codigo = typeof args.p_motivo_codigo === 'string' && args.p_motivo_codigo.trim() ? args.p_motivo_codigo.trim() : 'otro'
     const motivo = typeof args.p_motivo === 'string' && args.p_motivo.trim() ? args.p_motivo.trim() : null
-    if (motivo && motivo.length > 300) return pgError('23514', 'El motivo no puede superar 300 caracteres')
-    const ejecutiva = store('executives').find(e => e.user_id === args.p_user)
-    if (!ejecutiva || ejecutiva.status !== 'active') return pgError('23514', MENSAJE_SIN_EJECUTIVA)
-    const cita = store('visitas_agenda').find(c => c.id === args.p_id)
-    if (!cita || cita.executive_id !== ejecutiva.id) return pgError('P0002', MENSAJE_CITA_NO_EXISTE, 404)
-    if (cita.estado === 'cancelada') return pgError('23514', MENSAJE_CITA_YA_CANCELADA)
-    if (cita.estado === 'hecha') return pgError('23514', MENSAJE_CITA_HECHA_NO_SE_CANCELA)
-    if (cita.fecha < hoyFalso()) return pgError('23514', MENSAJE_CITA_PASADA_NO_SE_CANCELA)
-    Object.assign(cita, { estado: 'cancelada', cancelada_at: new Date().toISOString(), cancelada_motivo: motivo, updated_at: new Date().toISOString() })
+    const malMotivo = errorMotivo(revisarMotivo(codigo, motivo, 'cancelar'))
+    if (malMotivo) return malMotivo
+    const resultado = personaFalsa(args.p_user)
+    if (!resultado.ok) return pgError('23514', resultado.error)
+    const cita = citaPropia(args.p_id, args.p_user)
+    if (cita instanceof Response) return cita
+    const error = revisarCancelar({ estado: cita.estado, fecha: cita.fecha }, hoyFalso())
+    if (error) return pgError('23514', error)
+    Object.assign(cita, { estado: 'cancelada', cancelada_at: new Date().toISOString(), cancelada_motivo: motivo, motivo_codigo: codigo, updated_at: new Date().toISOString() })
     return json(null)
+  }
+
+  // --- Espejo de agenda_cerrar (0850: "no se hizo") ---
+  function agendaCerrar(args: Fila): Response {
+    if (!args.p_id) return pgError('22023', 'Falta la cita')
+    if (!args.p_user) return pgError('22023', 'Falta el usuario que cierra la cita')
+    const p = (args.p ?? {}) as Fila
+    const codigo = typeof p.motivo_codigo === 'string' && p.motivo_codigo.trim() ? p.motivo_codigo.trim() : null
+    const motivo = typeof p.motivo === 'string' && p.motivo.trim() ? p.motivo.trim() : null
+    const malMotivo = errorMotivo(revisarMotivo(codigo, motivo, 'cerrar'))
+    if (malMotivo) return malMotivo
+    const resultado = personaFalsa(args.p_user)
+    if (!resultado.ok) return pgError('23514', resultado.error)
+    const cita = citaPropia(args.p_id, args.p_user)
+    if (cita instanceof Response) return cita
+    const error = revisarCerrar({ estado: cita.estado, fecha: cita.fecha }, hoyFalso())
+    if (error) return pgError('23514', error)
+    Object.assign(cita, { estado: 'no_realizada', no_realizada_at: new Date().toISOString(), no_realizada_motivo: motivo, motivo_codigo: codigo, updated_at: new Date().toISOString() })
+    return json({ cita_id: cita.id, estado: 'no_realizada' })
+  }
+
+  // --- Espejo de agenda_eliminar (0850: por error) ---
+  function agendaEliminar(args: Fila): Response {
+    if (!args.p_id) return pgError('22023', 'Falta la cita')
+    if (!args.p_user) return pgError('22023', 'Falta el usuario que elimina la cita')
+    const resultado = personaFalsa(args.p_user)
+    if (!resultado.ok) return pgError('23514', resultado.error)
+    const cita = citaPropia(args.p_id, args.p_user)
+    if (cita instanceof Response) return cita
+    const error = revisarEliminar({ estado: cita.estado, fecha: cita.fecha }, hoyFalso())
+    if (error) return pgError('23514', error)
+    Object.assign(cita, { estado: 'eliminada', eliminada_at: new Date().toISOString(), eliminada_por: args.p_user, updated_at: new Date().toISOString() })
+    return json({ cita_id: cita.id })
+  }
+
+  // --- Espejo de agenda_otra_fecha (0850): una cita nueva con viene_de, por agenda_crear ---
+  function agendaOtraFecha(args: Fila): Response {
+    if (!args.p_id) return pgError('22023', 'Falta la cita')
+    if (!args.p_user) return pgError('22023', 'Falta el usuario que agenda')
+    const p = (args.p ?? {}) as Fila
+    const origen = citaPropia(args.p_id, args.p_user)
+    if (origen instanceof Response) return origen
+    const respuesta = agendaCrear({
+      p_user: args.p_user,
+      p: {
+        fecha: p.fecha,
+        hora: p.hora,
+        tipo: origen.tipo,
+        medico_id: origen.medico_id,
+        cuenta_id: origen.cuenta_id,
+        subtipo_id: origen.subtipo_id,
+        sede_id: p.sede_id || origen.sede_id,
+        nota: 'nota' in p ? p.nota : origen.nota,
+        como: p.como || (origen.executive_id ? 'ejecutivo' : 'lider'),
+        viene_de: origen.id,
+      },
+    })
+    if (!respuesta.ok) return respuesta
+    const nueva = store('visitas_agenda').find(c => c.viene_de === origen.id && c.estado !== 'eliminada') as Fila
+    return json({ cita_id: nueva.id, viene_de: origen.id })
   }
 
   const C_NO_EDITABLE = MENSAJE_VISITA_NO_EDITABLE
   const EDITABLES = ['conclusion', 'compromisos', 'next_step_date', 'efectiva', 'failure_reason', 'retry_date', 'lineas']
 
-  // --- Espejo de visitas_editar (0830) ---
+  // --- Espejo de visitas_editar (0850: por persona; las líneas no cambian el papel) ---
   function visitasEditar(args: Fila): Response {
     const p = (args.p ?? {}) as Fila
+    if (!args.p_user) return pgError('22023', 'Falta el usuario que corrige')
     const ajenas = Object.keys(p).filter(k => k !== 'executive_id' && !EDITABLES.includes(k))
     if (ajenas.length > 0) return pgError('23514', `Solo se corrigen la conclusión, los compromisos, la próxima reunión, si fue efectiva (con su motivo) y las líneas; para cambiar el tipo, el médico, la cuenta o la sede, anula la visita y repórtala de nuevo (${ajenas.sort().join(', ')})`)
     if (!Object.keys(p).some(k => EDITABLES.includes(k))) return pgError('22023', 'No hay campos para corregir')
     const visita = store('visits').find(v => v.id === args.p_id)
     if (!visita) return pgError('P0002', 'Esa visita no existe', 404)
     if (visita.source !== 'app') return pgError('23514', C_NO_EDITABLE)
-    if (visita.executive_id !== p.executive_id) return pgError('P0002', 'Esa visita no existe', 404)
+    if (visita.user_id !== args.p_user) return pgError('P0002', 'Esa visita no existe', 404)
     if (visita.deleted_at || visita.visit_date !== hoyFalso()) return pgError('23514', C_NO_EDITABLE)
+    const resultado = personaFalsa(args.p_user)
+    if (!resultado.ok) return pgError('23514', resultado.error)
+    const persona = resultado.persona
     const efectiva = 'efectiva' in p ? p.efectiva : visita.efectiva
     const failure = efectiva ? null : 'failure_reason' in p ? p.failure_reason : visita.failure_reason
     if (!efectiva && !failure) return pgError('23514', 'Indica el motivo de la visita no efectiva (hasta 300 caracteres)')
@@ -714,18 +943,20 @@ function fakeSupabase(tablas: Tablas) {
     if (proxima && proxima < visita.visit_date) return pgError('23514', MENSAJE_PROXIMA_ANTES_DE_VISITA)
     if (reintento && reintento < visita.visit_date) return pgError('23514', MENSAJE_REINTENTO_ANTES_DE_VISITA)
     if (efectiva && !visita.efectiva) {
-      const cfg = configVigente(visita.executive_id, visita.visit_date)
-      if (visita.tipo === 'medica' && deHoy(visita.executive_id, visita.visit_date, v => v.medico_id === visita.medico_id, visita.id) >= cfg.tope_visitas_medico_dia) {
+      const cfg = configVigente(visita.executive_id ?? null, visita.visit_date)
+      if (visita.tipo === 'medica' && deHoy(args.p_user, visita.visit_date, v => v.medico_id === visita.medico_id, visita.id) >= cfg.tope_visitas_medico_dia) {
         return pgError('23514', MENSAJE_TOPE_MEDICO)
       }
-      if (visita.modalidad === 'telefonica' && deHoy(visita.executive_id, visita.visit_date, v => v.modalidad === 'telefonica', visita.id) >= cfg.telefonica.tope_dia) {
+      if (visita.modalidad === 'telefonica' && deHoy(args.p_user, visita.visit_date, v => v.modalidad === 'telefonica', visita.id) >= cfg.telefonica.tope_dia) {
         return pgError('23514', mensajeTopeTelefonicas(cfg.telefonica.tope_dia))
       }
     }
     if ('lineas' in p) {
       const lineas = p.lineas as string[]
       if (lineas.length === 0) return pgError('23514', 'Elige al menos una línea')
-      if (lineas.some(id => !store('executive_lines').some(el => el.executive_id === visita.executive_id && el.line_id === id))) return pgError('23514', MENSAJE_LINEAS_AJENAS)
+      if (lineas.some(id => !persona.lineas.includes(id))) return pgError('23514', MENSAJE_LINEAS_AJENAS)
+      if (ejecutivoDeLaVisita(persona, lineas) !== (visita.executive_id ?? null)) return pgError('23514', MENSAJE_CAMBIO_DE_PAPEL)
+      if (!visita.executive_id && visita.tipo === 'medica' && !medicoEsDeLineas(visita.medico_id, lineas, visita.visit_date)) return pgError('23514', MENSAJE_MEDICO_AJENO)
       tablas.visit_lines = store('visit_lines').filter(vl => vl.visit_id !== visita.id)
       for (const line_id of lineas) store('visit_lines').push({ visit_id: visita.id, line_id })
     }
@@ -740,27 +971,25 @@ function fakeSupabase(tablas: Tablas) {
     return json(null)
   }
 
-  // --- Espejo de visitas_anular (0830) ---
+  // --- Espejo de visitas_anular (0850: por persona) ---
   function visitasAnular(args: Fila): Response {
     const motivo = String(args.p_motivo ?? '').trim()
     if (motivo.length < 5) return pgError('23514', 'Escribe el motivo (al menos 5 caracteres)')
     if (motivo.length > 300) return pgError('23514', 'El motivo no puede superar 300 caracteres')
-    const ejecutiva = store('executives').find(e => e.user_id === args.p_user)
-    if (!ejecutiva || ejecutiva.status !== 'active') return pgError('23514', MENSAJE_SIN_EJECUTIVA)
+    const resultado = personaFalsa(args.p_user)
+    if (!resultado.ok) return pgError('23514', resultado.error)
     const visita = store('visits').find(v => v.id === args.p_id)
     if (!visita) return pgError('P0002', 'Esa visita no existe', 404)
     if (visita.source !== 'app') return pgError('23514', C_NO_EDITABLE)
-    if (visita.executive_id !== ejecutiva.id) return pgError('P0002', 'Esa visita no existe', 404)
+    if (visita.user_id !== args.p_user) return pgError('P0002', 'Esa visita no existe', 404)
     if (visita.deleted_at) return pgError('23514', 'Esa visita ya está anulada')
     if (visita.visit_date !== hoyFalso()) return pgError('23514', C_NO_EDITABLE)
     visita.deleted_at = new Date().toISOString()
     visita.deleted_reason = motivo
     visita.updated_by = args.p_user
-    // 0840: la cita que cumplía vuelve a pendiente (la visita anulada conserva agenda_id).
-    if (!estado.sin0840) {
-      for (const cita of store('visitas_agenda')) {
-        if (cita.visita_id === visita.id && cita.estado === 'hecha') Object.assign(cita, { estado: 'pendiente', visita_id: null })
-      }
+    // La cita que cumplía vuelve a pendiente (la visita anulada conserva agenda_id).
+    for (const cita of store('visitas_agenda')) {
+      if (cita.visita_id === visita.id && cita.estado === 'hecha') Object.assign(cita, { estado: 'pendiente', visita_id: null })
     }
     return json(null)
   }
@@ -792,6 +1021,22 @@ function fakeSupabase(tablas: Tablas) {
       }
     }
 
+    // Sin la 0850 (la 0830 y la 0840 la implican): sus columnas no existen y sus funciones tampoco.
+    if (estado.sin0850 || estado.sin0840 || estado.sin0830) {
+      if (['rpc/agenda_cerrar', 'rpc/agenda_eliminar', 'rpc/agenda_otra_fecha'].includes(table)) {
+        return pgError('PGRST202', `Could not find the function public.${table.slice(4)} in the schema cache`, 404)
+      }
+      // La de la 0840 no tiene el cuarto argumento: PostgREST no encuentra la firma con p_motivo_codigo.
+      if (table === 'rpc/agenda_cancelar' && body && typeof body === 'object' && 'p_motivo_codigo' in (body as Fila)) {
+        return pgError('PGRST202', 'Could not find the function public.agenda_cancelar(p_id, p_motivo, p_motivo_codigo, p_user) in the schema cache', 404)
+      }
+      if (table === 'visits' || table === 'visitas_agenda') {
+        const nombradas = [...(select ?? '').split(',').map(c => c.trim()), ...Array.from(url.searchParams.keys())]
+        const nueva = nombradas.find(c => COLUMNAS_0850.includes(c))
+        if (nueva && !(estado.sin0830 && table === 'visits')) return pgError('42703', `column ${table}.${nueva} does not exist`, 400)
+      }
+    }
+
     if (estado.sin0840) {
       if (table === 'rpc/agenda_crear' || table === 'rpc/agenda_cancelar') return pgError('PGRST202', `Could not find the function public.${table.slice(4)} in the schema cache`, 404)
       if (table === 'visitas_agenda') return pgError('PGRST205', "Could not find the table 'public.visitas_agenda' in the schema cache", 404)
@@ -819,6 +1064,9 @@ function fakeSupabase(tablas: Tablas) {
         visitas_anular: visitasAnular,
         agenda_crear: agendaCrear,
         agenda_cancelar: agendaCancelar,
+        agenda_cerrar: agendaCerrar,
+        agenda_eliminar: agendaEliminar,
+        agenda_otra_fecha: agendaOtraFecha,
         // Importador de VMO: ninguna IPS a menos de 5 km en estas pruebas.
         find_nearest_hospital: () => json(null),
       }
@@ -900,6 +1148,10 @@ function fakeSupabase(tablas: Tablas) {
 const VENTAS_ID = '33333333-3333-4333-8333-333333333333' // sales_manager enlazada con Ana (EJEC_A)
 const OTRA_ID = '44444444-4444-4444-8444-444444444444' // sales_manager enlazada con Berta (EJEC_B)
 const DIRECTORA_ID = '55555555-5555-4555-8555-555555555555' // commercial_director SIN ejecutiva enlazada
+// F1a (0850): personas de campo sin Ejecutivo Comercial o con los dos papeles, y un usuario sin líneas.
+const SIN_LINEAS_ID = '66666666-6666-4666-8666-666666666666' // sales_manager SIN Ejecutivo Comercial ni líneas
+const LIDER_ID = '77777777-7777-4777-8777-777777777777' // line_leader de la deportiva, sin Ejecutivo Comercial
+const PAOLA_ID = '88888888-8888-4888-8888-888888888888' // line_leader de trauma y Ejecutiva Comercial de sustitutos
 const VIEWER_ID = '22222222-2222-4222-8222-222222222222'
 const ADMIN_ID = '11111111-1111-4111-8111-111111111111'
 
@@ -992,6 +1244,8 @@ const filaVisitaApp = (extra: Fila): Fila => ({
   deleted_reason: null,
   agenda_id: null,
   agendada: false,
+  // 0850: la persona que la reportó.
+  user_id: VENTAS_ID,
   ...extra,
 })
 
@@ -1017,7 +1271,7 @@ function datosIniciales(): Tablas {
     ...extra,
   })
   return {
-    users: [user(VENTAS_ID, 'sales_manager', 'Ventas'), user(OTRA_ID, 'sales_manager', 'Otra'), user(DIRECTORA_ID, 'commercial_director', 'Directora'), user(VIEWER_ID, 'viewer', 'Viewer'), user(ADMIN_ID, 'admin', 'Admin')],
+    users: [user(VENTAS_ID, 'sales_manager', 'Ventas'), user(OTRA_ID, 'sales_manager', 'Otra'), user(DIRECTORA_ID, 'commercial_director', 'Directora'), user(VIEWER_ID, 'viewer', 'Viewer'), user(ADMIN_ID, 'admin', 'Admin'), user(SIN_LINEAS_ID, 'sales_manager', 'Sinlineas'), user(LIDER_ID, 'line_leader', 'Lucía Líder'), user(PAOLA_ID, 'line_leader', 'Paola Dos Papeles')],
     municipalities: [
       { code: '68001', name: 'Bucaramanga', department_code: '68', lat: 7.119349, lng: -73.122741 },
       { code: '05001', name: 'Medellín', department_code: '05', lat: 6.2442, lng: -75.5812 },
@@ -1111,7 +1365,7 @@ function datosIniciales(): Tablas {
       filaVisitaApp({ visit_date: '2026-10-01', tipo: 'institucional', medico_id: null, cuenta_id: C2, sede_id: S2, subtipo_id: SUBTIPO_ID.compras, subtipo_codigo: 'compras', next_step_date: '2026-10-10' }),
       filaVisitaApp({ id: AYER_ID, visit_date: AYER, checked_in_at: '2026-10-12T09:00:00.000-05:00', reported_at: '2026-10-12T09:05:00.000-05:00' }),
       // De Berta, anulada, junto al Hospital del sur: no debe marcarlo como visitado ni sumar en las estadísticas.
-      filaVisitaApp({ id: ANULADA_ID, executive_id: EJEC_B, visit_date: '2026-10-02', checked_in_at: '2026-10-02T09:00:00.000-05:00', reported_at: '2026-10-02T09:05:00.000-05:00', lat: alNorte(-50_000).lat, lng: TEL.lng, deleted_at: '2026-10-02T15:00:00.000Z', deleted_reason: 'Reporté el médico equivocado' }),
+      filaVisitaApp({ id: ANULADA_ID, executive_id: EJEC_B, user_id: OTRA_ID, visit_date: '2026-10-02', checked_in_at: '2026-10-02T09:00:00.000-05:00', reported_at: '2026-10-02T09:05:00.000-05:00', lat: alNorte(-50_000).lat, lng: TEL.lng, deleted_at: '2026-10-02T15:00:00.000Z', deleted_reason: 'Reporté el médico equivocado' }),
     ],
     visit_lines: [],
     visitas_agenda: [],
@@ -1212,8 +1466,25 @@ function cuerpoVisita(extra: Fila = {}): Fila {
   }
 }
 
-const ok = (forma: FormaApi, objeto: unknown) => tieneClaves(objeto, forma)
-const todosCon = (forma: FormaApi, lista: unknown) => Array.isArray(lista) && lista.every(item => tieneClaves(item, forma))
+/**
+ * F1a (0850): las claves que la API AÑADE a cada forma de la app (aditivas: la app de hoy no las lee; las tipa F1b). Lo
+ * demás, exactamente las de mobile/lib/claves-api.ts: ni falta una que la app lee ni sobra una que no esté aquí.
+ */
+const CLAVES_F1A: Partial<Record<FormaApi, readonly string[]>> = {
+  me: ['persona'],
+  contexto: ['persona'],
+  cita: ['motivo_codigo', 'no_realizada_at', 'no_realizada_motivo', 'viene_de', 'sucesora_id', 'como', 'estado_visible'],
+  numerosAgenda: ['citas_no_realizadas'],
+}
+const ok = (forma: FormaApi, objeto: unknown) => {
+  const esperadas = [...CLAVES_API[forma], ...(CLAVES_F1A[forma] ?? [])].sort()
+  const reales = clavesDe(objeto)
+  return reales.length === esperadas.length && reales.every((clave, i) => clave === esperadas[i])
+}
+const todosCon = (forma: FormaApi, lista: unknown) => Array.isArray(lista) && lista.every(item => ok(forma, item))
+/** Compatibilidad con la app de hoy: trae TODAS las claves que la app lee (puede traer más). */
+const conClavesDeLaApp = (forma: FormaApi, objeto: unknown) => CLAVES_API[forma].every(clave => clavesDe(objeto).includes(clave))
+void tieneClaves
 
 // ---------------------------------------------------------------------------
 // Proveedores de voz FALSOS
@@ -1341,13 +1612,17 @@ async function main() {
       for (const [nombre, handler, path, method] of rutas) {
         const viewer = await pedir(handler, path, { method, userId: VIEWER_ID, id: X, body: method ? {} : undefined })
         check(`viewer → 403 en ${nombre}`, viewer.status === 403, viewer)
+        // F1a (0850): la dirección comercial no agenda ni reporta (A1); un usuario sin líneas tampoco entra.
         const directora = await pedir(handler, path, { method, userId: DIRECTORA_ID, id: X, body: method ? {} : undefined, portador: true })
-        check(`usuario sin Ejecutivo Comercial → 403 "${MENSAJE_SIN_EJECUTIVA}" en ${nombre}`, directora.status === 403 && directora.body?.error === MENSAJE_SIN_EJECUTIVA, directora)
+        check(`la dirección comercial → 403 "${MENSAJE_DIRECCION_NO_REPORTA}" en ${nombre}`, directora.status === 403 && directora.body?.error === MENSAJE_DIRECCION_NO_REPORTA, directora)
+        const sinLineas = await pedir(handler, path, { method, userId: SIN_LINEAS_ID, id: X, body: method ? {} : undefined, portador: true })
+        check(`usuario sin Ejecutivo Comercial ni líneas → 403 "${MENSAJE_SIN_LINEAS}" en ${nombre}`, sinLineas.status === 403 && sinLineas.body?.error === MENSAJE_SIN_LINEAS, sinLineas)
         const anonimo = await pedir(handler, path, { method, userId: null, id: X, body: method ? {} : undefined })
         check(`sin sesión → 401 en ${nombre}`, anonimo.status === 401, anonimo)
       }
       const audioDirectora = await subirAudio(new Blob([new Uint8Array(10)], { type: 'audio/m4a' }), { userId: DIRECTORA_ID })
-      check('usuario sin Ejecutivo Comercial → 403 en POST /api/me/voz/transcribir', audioDirectora.status === 403, audioDirectora)
+      const audioSinLineas = await subirAudio(new Blob([new Uint8Array(10)], { type: 'audio/m4a' }), { userId: SIN_LINEAS_ID })
+      check('la dirección comercial y un usuario sin líneas → 403 en POST /api/me/voz/transcribir', audioDirectora.status === 403 && audioDirectora.body?.error === MENSAJE_DIRECCION_NO_REPORTA && audioSinLineas.status === 403 && audioSinLineas.body?.error === MENSAJE_SIN_LINEAS, { audioDirectora, audioSinLineas })
       check('ningún rechazo escribió nada', fake.writes().length === antes, fake.writes().slice(antes))
     }
 
@@ -2372,11 +2647,12 @@ async function main() {
       const MANANA = '2026-10-14'
       const cita = (extra: Fila = {}): Fila => ({ fecha: MANANA, hora: '09:30', tipo: 'medica', medico_id: M3, sede_id: S1, nota: 'Llevar muestras', ...extra })
       const agendarComo = (cuerpo: Fila, userId = VENTAS_ID) => pedir(agendar, '/api/me/agenda', { method: 'POST', body: cuerpo, portador: true, userId })
-      const cancelar = (id: string, cuerpo: Fila = {}, userId = VENTAS_ID) => pedir(cancelarCita, `/api/me/agenda/${id}/cancelar`, { method: 'POST', body: cuerpo, id, portador: true, userId })
+      // 0850 (A8): cancelar exige motivo; por defecto, uno de texto (lo que manda la app de hoy).
+      const cancelar = (id: string, cuerpo: Fila = { motivo: 'Prueba de la API' }, userId = VENTAS_ID) => pedir(cancelarCita, `/api/me/agenda/${id}/cancelar`, { method: 'POST', body: cuerpo, id, portador: true, userId })
       const citaPorId = (id: string | undefined) => tablas.visitas_agenda.find(c => c.id === id)
       /** Una cita insertada directo (como la simulación), con la fecha de creación que se quiera. */
       const citaDirecta = (extra: Fila): string => {
-        const fila: Fila = { id: randomUUID(), executive_id: EJEC_A, fecha: HOY, hora: null, tipo: 'medica', medico_id: M3, cuenta_id: null, subtipo_id: null, sede_id: S1, nota: null, estado: 'pendiente', visita_id: null, cancelada_at: null, cancelada_motivo: null, created_by: VENTAS_ID, created_at: '2026-10-12T15:00:00.000Z', updated_at: '2026-10-12T15:00:00.000Z', ...extra }
+        const fila: Fila = { id: randomUUID(), user_id: VENTAS_ID, executive_id: EJEC_A, fecha: HOY, hora: null, tipo: 'medica', medico_id: M3, cuenta_id: null, subtipo_id: null, sede_id: S1, nota: null, estado: 'pendiente', visita_id: null, cancelada_at: null, cancelada_motivo: null, motivo_codigo: null, no_realizada_at: null, no_realizada_motivo: null, eliminada_at: null, eliminada_por: null, viene_de: null, created_by: VENTAS_ID, created_at: '2026-10-12T15:00:00.000Z', updated_at: '2026-10-12T15:00:00.000Z', ...extra }
         tablas.visitas_agenda.push(fila)
         return fila.id as string
       }
@@ -2387,14 +2663,18 @@ async function main() {
         ['GET /api/me/agenda', verAgenda, '/api/me/agenda'],
         ['POST /api/me/agenda', agendar, '/api/me/agenda', 'POST'],
         ['POST /api/me/agenda/[id]/cancelar', cancelarCita, `/api/me/agenda/${X}/cancelar`, 'POST'],
+        ['POST /api/me/agenda/[id]/cerrar', cerrarCita, `/api/me/agenda/${X}/cerrar`, 'POST'],
+        ['POST /api/me/agenda/[id]/eliminar', eliminarCita, `/api/me/agenda/${X}/eliminar`, 'POST'],
+        ['POST /api/me/agenda/[id]/otra-fecha', otraFechaCita, `/api/me/agenda/${X}/otra-fecha`, 'POST'],
         ['POST /api/me/voz/campos', repartirCampos, '/api/me/voz/campos', 'POST'],
       ]
       const escriturasAntes = fake.writes().length
       for (const [nombre, handler, path, method] of rutas) {
         const viewer = await pedir(handler, path, { method, userId: VIEWER_ID, id: X, body: method ? {} : undefined })
         const directora = await pedir(handler, path, { method, userId: DIRECTORA_ID, id: X, body: method ? {} : undefined, portador: true })
+        const sinLineas = await pedir(handler, path, { method, userId: SIN_LINEAS_ID, id: X, body: method ? {} : undefined, portador: true })
         const anonimo = await pedir(handler, path, { method, userId: null, id: X, body: method ? {} : undefined })
-        check(`${nombre}: viewer 403, usuario sin Ejecutivo Comercial 403, sin sesión 401`, viewer.status === 403 && directora.status === 403 && directora.body?.error === MENSAJE_SIN_EJECUTIVA && anonimo.status === 401, { viewer: viewer.status, directora: directora.body, anonimo: anonimo.status })
+        check(`${nombre}: viewer 403, la dirección comercial 403 (A1), sin líneas 403, sin sesión 401`, viewer.status === 403 && directora.status === 403 && directora.body?.error === MENSAJE_DIRECCION_NO_REPORTA && sinLineas.status === 403 && sinLineas.body?.error === MENSAJE_SIN_LINEAS && anonimo.status === 401, { viewer: viewer.status, directora: directora.body, sinLineas: sinLineas.body, anonimo: anonimo.status })
       }
       check('ningún rechazo de permisos escribió nada', fake.writes().length === escriturasAntes)
 
@@ -2408,7 +2688,7 @@ async function main() {
         c1
       )
       const rpcCita = fake.rpcs.filter(r => r.nombre === 'agenda_crear').at(-1)
-      check('el jsonb de agenda_crear: solo las claves del contrato, con el usuario de la sesión', clavesDe(rpcCita?.args.p).join() === [...CLAVES_API.citaCreate].sort().join() && rpcCita?.args.p_user === VENTAS_ID && rpcCita?.args.p.cuenta_id === null, rpcCita?.args)
+      check('el jsonb de agenda_crear: solo las claves del contrato (0850: + como), con el usuario de la sesión', clavesDe(rpcCita?.args.p).join() === [...CLAVES_API.citaCreate, 'como'].sort().join() && rpcCita?.args.p_user === VENTAS_ID && rpcCita?.args.p.cuenta_id === null && rpcCita?.args.p.como === null, rpcCita?.args)
       check('nunca el documento ni el teléfono del médico en la cita', !nueva.texto.includes('5550') && !nueva.texto.includes('3157778899'))
 
       tablas.dias_libres.push({ id: randomUUID(), executive_id: EJEC_A, fecha: '2026-10-20', fraccion: 1, motivo: 'vacaciones', nota: null, estado: 'aprobado', registrado_por: VENTAS_ID, registrado_at: '2026-10-01T15:00:00Z', fuera_de_plazo: false, justificacion: null, revisado_por: ADMIN_ID, revisado_at: '2026-10-02T15:00:00Z', motivo_revision: null, created_at: '2026-10-01T15:00:00Z', updated_at: '2026-10-02T15:00:00Z' })
@@ -2420,7 +2700,9 @@ async function main() {
         check(nombre, r.status === status && r.body?.error === mensaje && (!opciones.sinBase || llamadas === 0), { status: r.status, body: r.body, llamadas })
       }
       await rechazoCita('del pasado: 400 (sin ir a la base)', cita({ fecha: AYER }), 400, MENSAJE_CITA_PASADA, { sinBase: true })
-      await rechazoCita('a más de 30 días: 400 (sin ir a la base)', cita({ fecha: '2026-11-13' }), 400, MENSAJE_CITA_LEJANA, { sinBase: true })
+      // 0850 (A4): sin tope hacia adelante.
+      const lejana = await agendarComo(cita({ fecha: '2027-11-17', medico_id: M4 }))
+      check('a hoy + 400 días (0850, A4: sin tope hacia adelante): 201', lejana.status === 201 && lejana.body?.cita?.fecha === '2027-11-17', lejana.body)
       await rechazoCita('en un día libre aprobado: 400', cita({ fecha: '2026-10-20' }), 400, MENSAJE_CITA_DIA_LIBRE)
       await rechazoCita('con un médico que no atiende en esa sede: 400', cita({ medico_id: M4, sede_id: S2 }), 400, MENSAJE_SEDE_NO_DEL_MEDICO)
       await rechazoCita('institucional con una cuenta ajena a la sede: 400', { fecha: MANANA, hora: '11:00', tipo: 'institucional', cuenta_id: C1, subtipo_id: SUBTIPO_ID.compras, sede_id: S2 }, 400, MENSAJE_SEDE_NO_DE_LA_CUENTA)
@@ -2443,7 +2725,7 @@ async function main() {
           r.body
         )
       }
-      check('ningún rechazo guardó una cita', tablas.visitas_agenda.length === citasAntes)
+      check('ningún rechazo guardó una cita (la de hoy + 400 sí)', tablas.visitas_agenda.length === citasAntes + 1)
       const subtipoAntes = await agendarComo({ fecha: '2026-10-15', hora: '11:00', tipo: 'institucional', cuenta_id: C1, subtipo_id: SUB_VIEJO, sede_id: S1 })
       check('el mismo subtipo el último día de su vigencia: sí', subtipoAntes.status === 201, subtipoAntes.body)
       const inst = await agendarComo({ fecha: MANANA, hora: '11:00', tipo: 'institucional', cuenta_id: C1, subtipo_id: SUBTIPO_ID.compras, sede_id: S1 })
@@ -2452,12 +2734,12 @@ async function main() {
 
       // GET /api/me/agenda
       const lista = await pedir(verAgenda, '/api/me/agenda', { portador: true })
-      check('GET /api/me/agenda: de hoy a hoy + 7, max_fecha hoy + 30, claves de la app, por fecha y hora', lista.status === 200 && ok('agenda', lista.body) && todosCon('cita', lista.body.items) && lista.body.desde === HOY && lista.body.hasta === '2026-10-20' && lista.body.max_fecha === '2026-11-12' && lista.body.items.length === 3 && lista.body.items[0].id === c1.id, lista.body)
+      check('GET /api/me/agenda: de hoy a hoy + 7, max_fecha null (0850: sin tope), claves de la app, por fecha y hora', lista.status === 200 && ok('agenda', lista.body) && todosCon('cita', lista.body.items) && lista.body.desde === HOY && lista.body.hasta === '2026-10-20' && lista.body.max_fecha === null && lista.body.items.length === 3 && lista.body.items[0].id === c1.id, lista.body)
       check('más de 31 días: 400', (await pedir(verAgenda, '/api/me/agenda?desde=2026-10-01&hasta=2026-11-15', { portador: true })).status === 400)
       check('la agenda es propia: Berta no ve las de Ana', (await pedir(verAgenda, '/api/me/agenda', { portador: true, userId: OTRA_ID })).body.items.length === 0)
 
       // Cancelar
-      const ajena = await cancelar(inst.body.cita.id, {}, OTRA_ID)
+      const ajena = await cancelar(inst.body.cita.id, { motivo: 'Prueba ajena' }, OTRA_ID)
       check('cancelar la cita de otra persona: 404', ajena.status === 404 && ajena.body.error === MENSAJE_CITA_NO_EXISTE, ajena.body)
       const cancelada = await cancelar(inst.body.cita.id, { motivo: '  Compras no recibe esta semana ' })
       check('cancelar la propia pendiente (futura): 200 { cita } cancelada y ya no cancelable; el motivo queda', cancelada.status === 200 && ok('citaResponse', cancelada.body) && cancelada.body.cita.estado === 'cancelada' && !cancelada.body.cita.cancelable && citaPorId(inst.body.cita.id)?.cancelada_motivo === 'Compras no recibe esta semana', cancelada.body)
@@ -2481,17 +2763,19 @@ async function main() {
       // Citas de HOY: M3 creada AYER (agendada) en Clínica Norte; M4 creada hoy; M5 creada ayer en la Clínica Sur (800 m);
       // una cancelada con M5; otra de Berta con M5; y M5 mañana.
       const CITA_M3 = citaDirecta({ medico_id: M3, hora: '08:00:00' })
-      const citaM4 = (await agendarComo(cita({ fecha: HOY, medico_id: M4, hora: '10:00' }))).body.cita as W.CitaItem
+      // 0850 (C13): hoy, una hora que no haya pasado (el reloj marca las 10:42).
+      const citaM4 = (await agendarComo(cita({ fecha: HOY, medico_id: M4, hora: '11:30' }))).body.cita as W.CitaItem
       const CITA_M5 = citaDirecta({ medico_id: M5, sede_id: S2, hora: '07:00:00' })
       const CITA_CANCELADA = citaDirecta({ medico_id: M5, estado: 'cancelada', cancelada_at: '2026-10-12T20:00:00.000Z' })
-      const CITA_B = citaDirecta({ executive_id: EJEC_B, tipo: 'institucional', medico_id: null, cuenta_id: C2, subtipo_id: SUBTIPO_ID.compras, sede_id: S2 })
-      const CITA_M5_MANANA = (await agendarComo(cita({ medico_id: M5 }))).body.cita.id as string
+      const CITA_B = citaDirecta({ user_id: OTRA_ID, executive_id: EJEC_B, tipo: 'institucional', medico_id: null, cuenta_id: C2, subtipo_id: SUBTIPO_ID.compras, sede_id: S2 })
+      // 0850: a las 14:00 (a las 09:30 de mañana ya está la de M3: chocarían en su media hora).
+      const CITA_M5_MANANA = (await agendarComo(cita({ medico_id: M5, hora: '14:00' }))).body.cita.id as string
 
       // Hoy y Reportar: agenda_hoy con la distancia (la más cercana primero) y sin punto por hora
       const ctx = await pedir(pedirContexto, '/api/me/contexto', { method: 'POST', body: { lat: TEL.lat, lng: TEL.lng, precision: 10 }, portador: true })
       const hoyIds = (ctx.body?.agenda_hoy ?? []).map((c: W.CitaItem) => c.id)
       check('contexto: agenda_hoy con las de hoy (sin canceladas, ni de otros días, ni de otra persona) y las claves de la app', ctx.status === 200 && ok('contexto', ctx.body) && todosCon('cita', ctx.body.agenda_hoy) && todosCon('sedeCita', ctx.body.agenda_hoy.map((c: W.CitaItem) => c.sede)) && hoyIds.length === 3, ctx.body?.agenda_hoy)
-      check('con el punto: la más cercana primero (Clínica Norte a 120 m: 08:00 y 10:00; Clínica Sur a 800 m)', hoyIds.join() === [CITA_M3, citaM4.id, CITA_M5].join(), hoyIds)
+      check('con el punto: la más cercana primero (Clínica Norte a 120 m: 08:00 y 11:30; Clínica Sur a 800 m)', hoyIds.join() === [CITA_M3, citaM4.id, CITA_M5].join(), hoyIds)
       const [h1, , h3] = ctx.body.agenda_hoy as W.CitaItem[]
       check('distancia a la sede y si está dentro del radio (500 m)', Math.abs((h1.distancia_m ?? 0) - 120) <= 1 && h1.dentro_del_radio === true && Math.abs((h3.distancia_m ?? 0) - 800) <= 1 && h3.dentro_del_radio === false, [h1, h3])
       check('anticipada: la creada ayer sí, la creada hoy no', h1.anticipada && !(ctx.body.agenda_hoy[1] as W.CitaItem).anticipada)
@@ -2639,23 +2923,209 @@ async function main() {
       check('campos comparte los límites de proponer: 10 dictados en el minuto pasan y la propuesta siguiente → 429', estados.every(st => st === 200) && undecima.status === 429, { estados, undecima: undecima.status })
       reiniciarLimitesVoz()
 
-      // Sin la 0840: la agenda 503 con un mensaje claro; lo demás igual que antes
-      fake.estado.sin0840 = true
-      const agendaVieja = await pedir(verAgenda, '/api/me/agenda', { portador: true })
-      const agendarViejo = await agendarComo(cita({ fecha: '2026-10-22', medico_id: M4 }))
-      const cancelarViejo = await cancelar(otraVez.body.cita.id)
-      const ctxViejo = await pedir(pedirContexto, '/api/me/contexto', { method: 'POST', body: { lat: TEL.lat, lng: TEL.lng }, portador: true })
-      const visitasViejas = await pedir(verVisitas, '/api/me/visitas', { portador: true })
-      const numerosViejos = await pedir(verNumeros, '/api/me/numeros?mes=2026-10', { portador: true })
-      const reporteViejo = await pedir(reportarVisita, '/api/me/visitas', { method: 'POST', body: cuerpoVisita({ medico_id: M4, efectiva: false, failure_reason: 'No estaba', agenda_id: randomUUID() }), portador: true })
-      fake.estado.sin0840 = false
-      for (const [nombre, respuesta] of [['GET /api/me/agenda', agendaVieja], ['POST /api/me/agenda', agendarViejo], ['POST /api/me/agenda/[id]/cancelar', cancelarViejo]] as const) {
-        check(`sin la 0840, ${nombre}: 503 "${MENSAJE_FALTA_MIGRACION_0840}"`, respuesta.status === 503 && respuesta.body.error === MENSAJE_FALTA_MIGRACION_0840, respuesta)
+      // Sin la 0850 (y por tanto sin la 0840): /api/me/* de la persona de campo responde 503 con un mensaje claro (la 0850
+      // va en la misma ventana que el código de F1a); la cuota y los días libres (aún de F2) siguen respondiendo.
+      const faltaMigracion = (r: { status: number; body: any }) =>
+        r.status === 503 && [MENSAJE_FALTA_MIGRACION_0850, MENSAJE_FALTA_MIGRACION_0840, MENSAJE_FALTA_MIGRACION_0830].includes(r.body?.error)
+      for (const [bandera, nombreBandera] of [['sin0850', 'la 0850'], ['sin0840', 'la 0840 (ni la 0850)']] as const) {
+        fake.estado[bandera] = true
+        const agendaVieja = await pedir(verAgenda, '/api/me/agenda', { portador: true })
+        const cancelarViejo = await cancelar(otraVez.body.cita.id)
+        const cerrarViejo = await pedir(cerrarCita, `/api/me/agenda/${CITA_AYER}/cerrar`, { method: 'POST', body: { motivo_codigo: 'cliente' }, id: CITA_AYER, portador: true })
+        const eliminarViejo = await pedir(eliminarCita, `/api/me/agenda/${otraVez.body.cita.id}/eliminar`, { method: 'POST', id: otraVez.body.cita.id, portador: true })
+        const ctxViejo = await pedir(pedirContexto, '/api/me/contexto', { method: 'POST', body: { lat: TEL.lat, lng: TEL.lng }, portador: true })
+        const visitasViejas = await pedir(verVisitas, '/api/me/visitas', { portador: true })
+        const numerosViejos = await pedir(verNumeros, '/api/me/numeros?mes=2026-10', { portador: true })
+        const cuotaVieja = await pedir(verCuota, '/api/me/cuota', { portador: true })
+        fake.estado[bandera] = false
+        for (const [nombre, respuesta] of [['GET /api/me/agenda', agendaVieja], ['POST /api/me/agenda/[id]/cancelar', cancelarViejo], ['POST /api/me/agenda/[id]/cerrar', cerrarViejo], ['POST /api/me/agenda/[id]/eliminar', eliminarViejo], ['POST /api/me/contexto', ctxViejo], ['GET /api/me/visitas', visitasViejas], ['GET /api/me/numeros', numerosViejos]] as const) {
+          check(`sin ${nombreBandera}, ${nombre}: 503 con el mensaje de la migración que falta`, faltaMigracion(respuesta), respuesta)
+        }
+        check(`sin ${nombreBandera}, GET /api/me/cuota (F2) sigue funcionando`, cuotaVieja.status === 200, cuotaVieja)
       }
-      check('sin la 0840, el contexto sigue (agenda_hoy vacía) con las claves de la app', ctxViejo.status === 200 && ok('contexto', ctxViejo.body) && ctxViejo.body.agenda_hoy.length === 0, ctxViejo.body)
-      check('sin la 0840, GET /api/me/visitas sigue (agenda_id null, agendada false)', visitasViejas.status === 200 && todosCon('visitaItem', visitasViejas.body.items) && visitasViejas.body.items.every((v: W.VisitaItem) => v.agenda_id === null && v.agendada === false), visitasViejas.body)
-      check('sin la 0840, Mis números sigue con agenda null', numerosViejos.status === 200 && ok('numeros', numerosViejos.body) && numerosViejos.body.agenda === null, numerosViejos.body)
-      check('sin la 0840, POST /api/me/visitas registra como hoy (la función de la 0830 ignora agenda_id)', reporteViejo.status === 201 && reporteViejo.body.visita.agenda_id === null, reporteViejo.body)
+      check('sin la 0850, el mensaje dice que falta la 0850', (await (async () => {
+        fake.estado.sin0850 = true
+        const r = await pedir(verAgenda, '/api/me/agenda', { portador: true })
+        fake.estado.sin0850 = false
+        return r.status === 503 && r.body?.error === MENSAJE_FALTA_MIGRACION_0850
+      })()))
+      check('nada de lo anterior cambió una cita', citaPorId(otraVez.body.cita.id)?.estado === 'pendiente' && citaPorId(CITA_AYER)?.estado === 'pendiente')
+    }
+
+    print('\n15. F1a (0850): la persona de campo (líder y Paola), el choque de media hora y el ciclo de vida de la cita')
+    {
+      const MANANA = '2026-10-14'
+      const L_DEP = 'aaaaaaaa-0000-4000-8000-000000000015' // deportiva: la lidera Lucía (sin Ejecutivo Comercial)
+      const L_TRA = 'aaaaaaaa-0000-4000-8000-000000000016' // trauma: la lidera Paola
+      const L_SUS = 'aaaaaaaa-0000-4000-8000-000000000017' // sustitutos: Paola es su Ejecutiva Comercial
+      const EJEC_P = 'eeeeeeee-0000-4000-8000-000000000015'
+      const M_DEP = 'f1f1f1f1-0000-4000-8000-000000000015' // de la deportiva (visitante: Berta, en esa línea)
+      const M_TRA = 'f1f1f1f1-0000-4000-8000-000000000016' // de trauma (visitante: Berta, en esa línea)
+      const M_SUS = 'f1f1f1f1-0000-4000-8000-000000000017' // de sustitutos (visitante: Paola como Ejecutiva)
+      tablas.business_lines.push(
+        { id: L_DEP, code: 'deportiva', name: 'Medicina deportiva', leader_user_id: LIDER_ID, active: true },
+        { id: L_TRA, code: 'trauma', name: 'Trauma', leader_user_id: PAOLA_ID, active: true },
+        { id: L_SUS, code: 'perossal', name: 'Sustitutos óseos', leader_user_id: null, active: true }
+      )
+      tablas.executives.push({ id: EJEC_P, full_name: 'Paola Ejecutiva', status: 'active', user_id: PAOLA_ID, base_kam_id: KAM_BGA, started_at: '2026-01-15', left_at: null })
+      tablas.executive_lines.push({ executive_id: EJEC_P, line_id: L_SUS })
+      for (const [id, nombre] of [[M_DEP, 'Dr. Deportiva'], [M_TRA, 'Dra. Trauma'], [M_SUS, 'Dr. Sustitutos']] as const) {
+        tablas.medicos.push({ id, nombre, especialidades: ['ortopedia'], municipality_id: '68001', tipo_documento: 'CC', numero_documento: `7770${id.slice(-2)}111`, telefono: null, email: null, activo: true })
+        tablas.medico_sedes.push({ medico_id: id, sede_id: S1, rol: 'atiende', principal: true })
+      }
+      tablas.medico_visitantes.push(
+        { id: randomUUID(), medico_id: M_DEP, executive_id: EJEC_B, line_id: L_DEP, desde: '2026-01-15', hasta: null },
+        { id: randomUUID(), medico_id: M_TRA, executive_id: EJEC_B, line_id: L_TRA, desde: '2026-01-15', hasta: null },
+        { id: randomUUID(), medico_id: M_SUS, executive_id: EJEC_P, line_id: L_SUS, desde: '2026-01-15', hasta: null }
+      )
+      const visitaDe = (userId: string, cuerpo: Fila) => pedir(reportarVisita, '/api/me/visitas', { method: 'POST', body: cuerpo, portador: true, userId })
+      const agendaDe = (userId: string, cuerpo: Fila) => pedir(agendar, '/api/me/agenda', { method: 'POST', body: cuerpo, portador: true, userId })
+      const filaCita = (id: string | undefined) => tablas.visitas_agenda.find(c => c.id === id)
+      /** Una cita insertada directo (como la simulación) de Ana como Ejecutiva Comercial. */
+      const citaDirecta = (extra: Fila): string => {
+        const fila: Fila = { id: randomUUID(), user_id: VENTAS_ID, executive_id: EJEC_A, fecha: HOY, hora: null, tipo: 'medica', medico_id: M_DEP, cuenta_id: null, subtipo_id: null, sede_id: S1, nota: null, estado: 'pendiente', visita_id: null, cancelada_at: null, cancelada_motivo: null, motivo_codigo: null, no_realizada_at: null, no_realizada_motivo: null, eliminada_at: null, eliminada_por: null, viene_de: null, created_by: VENTAS_ID, created_at: '2026-10-12T15:00:00.000Z', updated_at: '2026-10-12T15:00:00.000Z', ...extra }
+        tablas.visitas_agenda.push(fila)
+        return fila.id as string
+      }
+
+      // Una líder sin Ejecutivo Comercial
+      const ctxLider = await pedir(pedirContexto, '/api/me/contexto', { method: 'POST', body: { lat: TEL.lat, lng: TEL.lng }, portador: true, userId: LIDER_ID })
+      const cl = ctxLider.body as W.ContextoResponse
+      check('líder: GET /api/me/contexto → 200 con persona.rol "lider", sin Ejecutivo Comercial, y las claves de la app (+ persona)', ctxLider.status === 200 && ok('contexto', cl) && cl.persona?.rol === 'lider' && cl.persona.executive_id === null && cl.persona.lineas.map(l => `${l.id}:${l.como}`).join() === `${L_DEP}:lider` && cl.ejecutiva.id === LIDER_ID && cl.ejecutiva.zona === null && cl.ejecutiva.lineas.map(l => l.id).join() === L_DEP, cl && { persona: cl.persona, ejecutiva: cl.ejecutiva })
+      check('líder: sus médicos son los de sus líneas (C9: Dr. Deportiva, no los de Ana), sin cuota (meta 0) y sin telefónica', cl.mis_medicos.map(m => m.id).join() === M_DEP && cl.mis_medicos[0].lineas.join() === L_DEP && cl.hoy.meta.medica === 0 && cl.hoy.meta.institucional === 0 && !cl.config.telefonica.habilitada && cl.config.perfil.join() === 'medica,institucional', { medicos: cl.mis_medicos, hoy: cl.hoy, config: cl.config })
+      const antesRechazos = visitasApp().length
+      const lineaAjena = await visitaDe(LIDER_ID, cuerpoVisita({ medico_id: M_DEP, lineas: [L1] }))
+      const medicoAjeno = await visitaDe(LIDER_ID, cuerpoVisita({ medico_id: M1, lineas: [L_DEP] }))
+      check(`líder: una línea ajena → 400 "${MENSAJE_LINEAS_AJENAS}"; un médico de otra línea → 400 "${MENSAJE_MEDICO_AJENO}"; nada guardado`, lineaAjena.status === 400 && lineaAjena.body?.error === MENSAJE_LINEAS_AJENAS && medicoAjeno.status === 400 && medicoAjeno.body?.error === MENSAJE_MEDICO_AJENO && visitasApp().length === antesRechazos, { lineaAjena: lineaAjena.body, medicoAjeno: medicoAjeno.body })
+      const visitaLider = await visitaDe(LIDER_ID, cuerpoVisita({ medico_id: M_DEP, lineas: [L_DEP] }))
+      const filaLider = porId(visitaLider.body?.visita?.id)
+      check('líder: POST /api/me/visitas con su línea y un médico de su línea → 201, sin Ejecutivo Comercial ni zona, nunca fuera de territorio', visitaLider.status === 201 && filaLider?.executive_id === null && filaLider?.kam_id === null && filaLider?.user_id === LIDER_ID && filaLider?.kam_name === 'Lucía Líder' && filaLider?.out_of_territory === false && visitaLider.body.visita.editable === true, { status: visitaLider.status, body: visitaLider.body, fila: filaLider })
+      const rpcLider = fake.rpcs.filter(r => r.nombre === 'visitas_registrar').at(-1)
+      check('líder: el jsonb de visitas_registrar va con executive_id null y el usuario de la sesión', rpcLider?.args.p.executive_id === null && rpcLider?.args.p_user === LIDER_ID, rpcLider?.args)
+      const numerosLider = await pedir(verNumeros, '/api/me/numeros?mes=2026-10', { portador: true, userId: LIDER_ID })
+      check('líder: GET /api/me/numeros → 200 con cuota null (sin Ejecutivo Comercial no hay cuota), las hechas y el bloque agenda', numerosLider.status === 200 && ok('numeros', numerosLider.body) && numerosLider.body.cuota === null && numerosLider.body.hechas.medica === 1 && numerosLider.body.cumplimiento.medica === null && ok('numerosAgenda', numerosLider.body.agenda), numerosLider.body)
+      const diasLider = await pedir(misDiasLibres, '/api/me/dias-libres', { portador: true, userId: LIDER_ID })
+      check(`líder: GET /api/me/dias-libres → 403 "${MENSAJE_SIN_EJECUTIVA}" (sigue siendo del Ejecutivo Comercial hasta F3)`, diasLider.status === 403 && diasLider.body?.error === MENSAJE_SIN_EJECUTIVA, diasLider)
+      const citaLider = await agendaDe(LIDER_ID, { fecha: MANANA, hora: '09:00', tipo: 'medica', medico_id: M_DEP, sede_id: S1 })
+      check('líder: agenda con su médico → 201 como líder (sin Ejecutivo Comercial)', citaLider.status === 201 && citaLider.body.cita.como === 'lider' && filaCita(citaLider.body.cita.id)?.executive_id === null && filaCita(citaLider.body.cita.id)?.user_id === LIDER_ID, citaLider.body)
+      const citaLiderAjena = await agendaDe(LIDER_ID, { fecha: MANANA, hora: '11:00', tipo: 'medica', medico_id: M1, sede_id: S1 })
+      check(`líder: agendar un médico que no es de sus líneas → 400 "${MENSAJE_MEDICO_AJENO}"`, citaLiderAjena.status === 400 && citaLiderAjena.body?.error === MENSAJE_MEDICO_AJENO, citaLiderAjena.body)
+      const comoEjecutiva = await agendaDe(LIDER_ID, { fecha: MANANA, hora: '12:00', tipo: 'medica', medico_id: M_DEP, sede_id: S1, como: 'ejecutivo' })
+      check(`líder: agendar "como Ejecutiva Comercial" sin serlo → 400 "${MENSAJE_SIN_EJECUTIVA}"`, comoEjecutiva.status === 400 && comoEjecutiva.body?.error === MENSAJE_SIN_EJECUTIVA, comoEjecutiva.body)
+      const meLider = await leer(await verMe(new NextRequest('http://localhost:3000/api/auth/me', { headers: { authorization: `Bearer ${tokenDe(LIDER_ID)}` } })))
+      check('líder: GET /api/auth/me → ejecutiva null y persona { rol lider, sus líneas con "como" }', meLider.status === 200 && ok('me', meLider.body) && meLider.body.ejecutiva === null && meLider.body.persona?.rol === 'lider' && JSON.stringify(meLider.body.persona.lineas) === JSON.stringify([{ id: L_DEP, nombre: 'Medicina deportiva', como: 'lider' }]), meLider.body)
+      const meDirectora = await leer(await verMe(new NextRequest('http://localhost:3000/api/auth/me', { headers: { authorization: `Bearer ${tokenDe(DIRECTORA_ID)}` } })))
+      check('la dirección comercial: GET /api/auth/me → persona null (A1)', meDirectora.status === 200 && meDirectora.body.persona === null, meDirectora.body)
+
+      // Paola: líder de trauma y Ejecutiva Comercial de sustitutos, con una sola agenda
+      const ctxPaola = await pedir(verContexto, '/api/me/contexto', { portador: true, userId: PAOLA_ID })
+      check('Paola: contexto con persona.rol "lider_y_ejecutivo" y cada línea con su "como"', ctxPaola.status === 200 && ctxPaola.body.persona?.rol === 'lider_y_ejecutivo' && ctxPaola.body.persona.executive_id === EJEC_P && ctxPaola.body.persona.lineas.map((l: W.LineaPersona) => `${l.id}:${l.como}`).sort().join() === [`${L_SUS}:ejecutivo`, `${L_TRA}:lider`].sort().join() && ctxPaola.body.mis_medicos.map((m: W.MedicoContexto) => m.id).sort().join() === [M_SUS, M_TRA].sort().join(), ctxPaola.body?.persona)
+      const trauma = await visitaDe(PAOLA_ID, cuerpoVisita({ medico_id: M_TRA, lineas: [L_TRA] }))
+      const sustitutos = await visitaDe(PAOLA_ID, cuerpoVisita({ medico_id: M_SUS, lineas: [L_SUS] }))
+      check('Paola: una visita de trauma queda sin Ejecutivo Comercial (como líder) y una de sustitutos con el suyo', trauma.status === 201 && porId(trauma.body.visita.id)?.executive_id === null && porId(trauma.body.visita.id)?.kam_id === null && sustitutos.status === 201 && porId(sustitutos.body.visita.id)?.executive_id === EJEC_P && porId(sustitutos.body.visita.id)?.kam_id === KAM_BGA, { trauma: trauma.body, sustitutos: sustitutos.body })
+      const papel = await pedir(corregirVisita, `/api/me/visitas/${trauma.body.visita.id}`, { method: 'PATCH', body: { lineas: [L_SUS] }, id: trauma.body.visita.id, portador: true, userId: PAOLA_ID })
+      check(`Paola: corregir la de trauma a sustitutos (cambia el papel) → 400 "${MENSAJE_CAMBIO_DE_PAPEL}"`, papel.status === 400 && papel.body?.error === MENSAJE_CAMBIO_DE_PAPEL, papel.body)
+      const citaPaolaLider = await agendaDe(PAOLA_ID, { fecha: MANANA, hora: '10:00', tipo: 'medica', medico_id: M_TRA, sede_id: S1, como: 'lider' })
+      const choquePapeles = await agendaDe(PAOLA_ID, { fecha: MANANA, hora: '10:15', tipo: 'medica', medico_id: M_SUS, sede_id: S1, como: 'ejecutivo' })
+      check('Paola: una sola agenda: la de Ejecutiva a las 10:15 choca con la de líder de las 10:00 (409)', choquePapeles.status === 409 && choquePapeles.body?.error === mensajeChoque('10:00', 'Dra. Trauma'), choquePapeles.body)
+      const citaPaolaEc = await agendaDe(PAOLA_ID, { fecha: MANANA, hora: '11:00', tipo: 'medica', medico_id: M_SUS, sede_id: S1 })
+      check('Paola: una cita como líder va sin Ejecutivo Comercial; sin "como", como Ejecutiva (con el suyo)', citaPaolaLider.status === 201 && citaPaolaLider.body.cita.como === 'lider' && filaCita(citaPaolaLider.body.cita.id)?.executive_id === null && citaPaolaEc.status === 201 && citaPaolaEc.body.cita.como === 'ejecutivo' && filaCita(citaPaolaEc.body.cita.id)?.executive_id === EJEC_P, { lider: citaPaolaLider.body, ec: citaPaolaEc.body })
+      const comoMalo = await agendaDe(PAOLA_ID, { fecha: MANANA, hora: '16:00', tipo: 'medica', medico_id: M_SUS, sede_id: S1, como: 'jefe' })
+      check(`"como" no válido → 400 "${MENSAJE_COMO_NO_VALIDO}" (del esquema, sin ir a la base)`, comoMalo.status === 400 && comoMalo.body?.error === MENSAJE_COMO_NO_VALIDO, comoMalo.body)
+
+      // Choque de media hora (Ana tiene a la de M3 mañana a las 09:30), hora pasada y sin tope
+      const antesChoque = tablas.visitas_agenda.length
+      const choque = await agendaDe(VENTAS_ID, { fecha: MANANA, hora: '09:45', tipo: 'medica', medico_id: M_DEP, sede_id: S1 })
+      check('POST /api/me/agenda que se cruza en su media hora → 409 con el error en `hora` ("A las 09:30 ya tienes cita con …") y nada guardado', choque.status === 409 && choque.body?.error === mensajeChoque('09:30', 'Dra. Agenda Tres') && choque.body.errores?.some((e: { campo: string }) => e.campo === 'hora') && tablas.visitas_agenda.length === antesChoque, choque.body)
+      const media = await agendaDe(VENTAS_ID, { fecha: MANANA, hora: '10:00', tipo: 'medica', medico_id: M_DEP, sede_id: S1 })
+      check('a 30 minutos justos (09:30 y 10:00) sí se agenda', media.status === 201, media.body)
+      const rpcAntes = fake.rpcs.filter(r => r.nombre === 'agenda_crear').length
+      const pasada = await agendaDe(VENTAS_ID, { fecha: HOY, hora: '10:00', tipo: 'medica', medico_id: M_DEP, sede_id: S1 })
+      check(`hoy a una hora que ya pasó (son las 10:42) → 400 "${MENSAJE_HORA_PASADA}" con el error en hora, sin ir a la base`, pasada.status === 400 && pasada.body?.error === MENSAJE_HORA_PASADA && pasada.body.errores?.[0]?.campo === 'hora' && fake.rpcs.filter(r => r.nombre === 'agenda_crear').length === rpcAntes, pasada.body)
+
+      // Cancelar con motivo (A8)
+      const paraCancelar = (await agendaDe(VENTAS_ID, { fecha: '2026-10-16', hora: '09:00', tipo: 'medica', medico_id: M_DEP, sede_id: S1 })).body.cita as W.CitaItem
+      const sinMotivo = await pedir(cancelarCita, `/api/me/agenda/${paraCancelar.id}/cancelar`, { method: 'POST', body: {}, id: paraCancelar.id, portador: true })
+      check(`cancelar sin motivo → 400 "${MENSAJE_CANCELAR_SIN_MOTIVO}" (A8) y la cita sigue pendiente`, sinMotivo.status === 400 && sinMotivo.body?.error === MENSAJE_CANCELAR_SIN_MOTIVO && filaCita(paraCancelar.id)?.estado === 'pendiente', sinMotivo.body)
+      const soloTexto = await pedir(cancelarCita, `/api/me/agenda/${paraCancelar.id}/cancelar`, { method: 'POST', body: { motivo: 'El médico viaja' }, id: paraCancelar.id, portador: true })
+      check('cancelar con solo el texto (como la app de hoy) → 200 con motivo_codigo otro', soloTexto.status === 200 && soloTexto.body.cita.estado === 'cancelada' && soloTexto.body.cita.motivo_codigo === 'otro' && filaCita(paraCancelar.id)?.cancelada_motivo === 'El médico viaja' && ok('cita', soloTexto.body.cita), soloTexto.body)
+      const rpcCancelar = fake.rpcs.filter(r => r.nombre === 'agenda_cancelar').at(-1)
+      check('el RPC de cancelar va con p_motivo_codigo', rpcCancelar?.args.p_motivo_codigo === 'otro' && rpcCancelar?.args.p_motivo === 'El médico viaja', rpcCancelar?.args)
+
+      // Cerrar ("no se hizo"): la de ayer sí; la de mañana no; la ajena 404
+      const ayerNoHecha = citaDirecta({ fecha: AYER, medico_id: M_DEP, hora: '15:00:00', created_at: '2026-10-08T15:00:00.000Z' })
+      const cerrar = (id: string, cuerpo: Fila, userId = VENTAS_ID) => pedir(cerrarCita, `/api/me/agenda/${id}/cerrar`, { method: 'POST', body: cuerpo, id, portador: true, userId })
+      const cerrada = await cerrar(ayerNoHecha, { motivo_codigo: 'cliente' })
+      check('cerrar la propia de ayer → 200 "no se hizo" con su motivo (y estado visible no_realizada)', cerrada.status === 200 && cerrada.body.cita.estado === 'no_realizada' && cerrada.body.cita.estado_visible === 'no_realizada' && cerrada.body.cita.motivo_codigo === 'cliente' && filaCita(ayerNoHecha)?.no_realizada_at !== null, cerrada.body)
+      const deManana = await cerrar(citaLider.body.cita.id, { motivo_codigo: 'cliente' }, LIDER_ID)
+      check(`cerrar la de mañana → 400 "${MENSAJE_CITA_NO_LLEGA}"`, deManana.status === 400 && deManana.body?.error === MENSAJE_CITA_NO_LLEGA, deManana.body)
+      const cerrarAjena = await cerrar(citaLider.body.cita.id, { motivo_codigo: 'cliente' })
+      check('cerrar la de otra persona → 404', cerrarAjena.status === 404 && cerrarAjena.body?.error === MENSAJE_CITA_NO_EXISTE, cerrarAjena.body)
+      const sinCodigo = await cerrar(ayerNoHecha, {})
+      const salida = await cerrar(ayerNoHecha, { motivo_codigo: 'salida' })
+      check('cerrar sin motivo o con "salida" → 400 (del esquema)', sinCodigo.status === 400 && sinCodigo.body?.error === MENSAJE_MOTIVO_NO_VALIDO && salida.status === 400, { sinCodigo: sinCodigo.body, salida: salida.body })
+      const dosVecesCerrada = await cerrar(ayerNoHecha, { motivo_codigo: 'cliente' })
+      check(`cerrar dos veces → 400 "${MENSAJE_CITA_CERRADA}"`, dosVecesCerrada.status === 400 && dosVecesCerrada.body?.error === MENSAJE_CITA_CERRADA, dosVecesCerrada.body)
+
+      // Otra fecha: de la que no se hizo sí (con viene_de); de una pendiente no; dos veces 409
+      const otra = await pedir(otraFechaCita, `/api/me/agenda/${ayerNoHecha}/otra-fecha`, { method: 'POST', body: { fecha: '2026-10-19', hora: '09:00' }, id: ayerNoHecha, portador: true })
+      check('otra fecha de la que no se hizo → 201 con viene_de, el mismo médico y la misma sede', otra.status === 201 && otra.body.cita.viene_de === ayerNoHecha && otra.body.cita.medico?.id === M_DEP && otra.body.cita.sede.id === S1 && otra.body.cita.fecha === '2026-10-19' && ok('cita', otra.body.cita), otra.body)
+      const dosVecesOtra = await pedir(otraFechaCita, `/api/me/agenda/${ayerNoHecha}/otra-fecha`, { method: 'POST', body: { fecha: '2026-10-21', hora: '09:00' }, id: ayerNoHecha, portador: true })
+      check(`otra fecha dos veces → 409 "${MENSAJE_CITA_YA_TIENE_OTRA_FECHA}"`, dosVecesOtra.status === 409 && dosVecesOtra.body?.error === MENSAJE_CITA_YA_TIENE_OTRA_FECHA, dosVecesOtra.body)
+      const dePendiente = await pedir(otraFechaCita, `/api/me/agenda/${media.body.cita.id}/otra-fecha`, { method: 'POST', body: { fecha: '2026-10-21', hora: '09:00' }, id: media.body.cita.id, portador: true })
+      check(`otra fecha de una pendiente → 400 "${MENSAJE_CITA_SIGUE_PROGRAMADA}"`, dePendiente.status === 400 && dePendiente.body?.error === MENSAJE_CITA_SIGUE_PROGRAMADA, dePendiente.body)
+      const conCerradas = await pedir(verAgenda, `/api/me/agenda?desde=${AYER}&hasta=2026-10-20&canceladas=true`, { portador: true })
+      const laDeAyer = (conCerradas.body?.items ?? []).find((c: W.CitaItem) => c.id === ayerNoHecha)
+      check('GET /api/me/agenda?canceladas=true trae la que no se hizo con su sucesora; sin canceladas=true no sale', laDeAyer?.estado === 'no_realizada' && laDeAyer.sucesora_id === otra.body.cita.id && !(await pedir(verAgenda, `/api/me/agenda?desde=${AYER}&hasta=2026-10-20`, { portador: true })).body.items.some((c: W.CitaItem) => c.id === ayerNoHecha), laDeAyer)
+
+      // Eliminar por error: sale de todas las lecturas; una hecha no
+      const eliminar = (id: string) => pedir(eliminarCita, `/api/me/agenda/${id}/eliminar`, { method: 'POST', id, portador: true })
+      const eliminada = await eliminar(media.body.cita.id)
+      const tras = await pedir(verAgenda, `/api/me/agenda?desde=${MANANA}&hasta=${MANANA}&canceladas=true`, { portador: true })
+      check('eliminar la propia pendiente → 200 { cita_id } y ya no sale en GET /api/me/agenda (ni con canceladas=true); la fila se queda', eliminada.status === 200 && eliminada.body?.cita_id === media.body.cita.id && !tras.body.items.some((c: W.CitaItem) => c.id === media.body.cita.id) && filaCita(media.body.cita.id)?.estado === 'eliminada' && filaCita(media.body.cita.id)?.eliminada_por === VENTAS_ID, { eliminada: eliminada.body, items: tras.body?.items?.length })
+      const otraVezMedia = await agendaDe(VENTAS_ID, { fecha: MANANA, hora: '10:00', tipo: 'medica', medico_id: M_DEP, sede_id: S1 })
+      check('lo eliminado ya no ocupa la hora ni el médico: se vuelve a agendar igual', otraVezMedia.status === 201, otraVezMedia.body)
+      const hecha = tablas.visitas_agenda.find(c => c.user_id === VENTAS_ID && c.estado === 'hecha')
+      const eliminarHecha = await eliminar(hecha?.id as string)
+      check(`eliminar una hecha → 400 "${MENSAJE_SOLO_PENDIENTE_SE_ELIMINA}"`, eliminarHecha.status === 400 && eliminarHecha.body?.error === MENSAJE_SOLO_PENDIENTE_SE_ELIMINA, eliminarHecha.body)
+      check('eliminar una eliminada → 404', (await eliminar(media.body.cita.id)).status === 404)
+
+      // Estado visible (C6): hoy pasada la hora "atrasada"; de ayer "sin cerrar"
+      const atrasada = citaDirecta({ fecha: HOY, medico_id: M_DEP, hora: '09:00:00' })
+      const sinCerrar = citaDirecta({ fecha: AYER, medico_id: M_TRA, hora: '09:00:00' })
+      const porVenir = citaDirecta({ fecha: HOY, medico_id: M_SUS, hora: '17:00:00' })
+      const visibles = await pedir(verAgenda, `/api/me/agenda?desde=${AYER}&hasta=${HOY}`, { portador: true })
+      const visible = (id: string) => (visibles.body?.items ?? []).find((c: W.CitaItem) => c.id === id)?.estado_visible
+      check('estado_visible: hoy pasada su hora → atrasada; de ayer → sin_cerrar; la de hoy por venir → programada', visible(atrasada) === 'atrasada' && visible(sinCerrar) === 'sin_cerrar' && visible(porVenir) === 'programada', (visibles.body?.items ?? []).map((c: W.CitaItem) => [c.id.slice(-4), c.estado, c.estado_visible]))
+
+      // Compatibilidad con la app de hoy: cada respuesta trae TODAS las claves que la app lee
+      check('compatibilidad: contexto, cita, agenda, Mis números y me traen todas las claves de la app de hoy', conClavesDeLaApp('contexto', ctxPaola.body) && conClavesDeLaApp('cita', otra.body.cita) && conClavesDeLaApp('agenda', visibles.body) && conClavesDeLaApp('numeros', numerosLider.body) && conClavesDeLaApp('numerosAgenda', numerosLider.body.agenda) && conClavesDeLaApp('me', meLider.body))
+      // La app de hoy no lee max_fecha (desde la 0850 es null): solo la declaran sus tipos y su lista de claves.
+      const raizMovil = new URL('../../mobile/', import.meta.url).pathname
+      const leeMaxFecha: string[] = []
+      const recorrerMovil = (dir: string) => {
+        for (const nombre of fs.readdirSync(dir)) {
+          const ruta = `${dir}/${nombre}`
+          if (fs.statSync(ruta).isDirectory()) recorrerMovil(ruta)
+          else if (/\.(ts|tsx)$/.test(nombre) && !/ 2\./.test(nombre) && fs.readFileSync(ruta, 'utf8').includes('max_fecha')) leeMaxFecha.push(ruta.slice(raizMovil.length))
+        }
+      }
+      for (const carpeta of ['app', 'lib', 'components']) if (fs.existsSync(`${raizMovil}${carpeta}`)) recorrerMovil(`${raizMovil}${carpeta}`)
+      check('la app de hoy no lee max_fecha (solo lib/tipos.ts y lib/claves-api.ts la nombran)', leeMaxFecha.sort().join() === ['lib/claves-api.ts', 'lib/tipos.ts'].join(), leeMaxFecha)
+
+      // El mapa de asignación no muestra las visitas de la app sin Ejecutivo Comercial (como líder); las de VMO sí
+      const LIDER_LEJOS = randomUUID()
+      tablas.visits.push(filaVisitaApp({ id: LIDER_LEJOS, user_id: LIDER_ID, executive_id: null, kam_id: null, kam_name: 'Lucía Líder', medico_id: M_DEP, lat: alNorte(-50_000).lat, lng: TEL.lng, visit_date: '2026-10-05', checked_in_at: '2026-10-05T09:00:00.000-05:00', reported_at: '2026-10-05T09:05:00.000-05:00' }))
+      const sinEjecutiva = tablas.visits.filter(v => v.source === 'app' && v.executive_id === null).map(v => v.id)
+      const mapa = await pedir(visitasDelMapa, '/api/visits/filtered?year=2026&month=10', { userId: ADMIN_ID })
+      check('GET /api/visits/filtered: sin las visitas de la app sin Ejecutivo Comercial, con las de VMO y las de Ana', mapa.status === 200 && sinEjecutiva.length >= 3 && !(mapa.body as Fila[]).some(f => sinEjecutiva.includes(f.id)) && (mapa.body as Fila[]).some(f => f.id === VMO_ID) && (mapa.body as Fila[]).some(f => f.kam_name === 'Ana Ejecutiva'), { sinEjecutiva, ids: (mapa.body as Fila[]).map(f => f.id) })
+      const filtro = fake.requests.filter(r => r.table === 'visits' && r.params.get('or')).at(-1)
+      check('el filtro del mapa es source <> app OR executive_id IS NOT NULL', filtro?.params.get('or') === '(source.neq.app,executive_id.not.is.null)', filtro?.params.toString())
+      const deMapa = tablas.visits.filter(v => !v.deleted_at && (v.source !== 'app' || v.executive_id !== null))
+      const stats = await pedir(estadisticasVisitas, '/api/visits/stats', { userId: ADMIN_ID })
+      check('GET /api/visits/stats: no cuenta las de la app sin Ejecutivo Comercial', stats.status === 200 && stats.body.totalVisits === deMapa.length && stats.body.effectiveVisits === deMapa.filter(v => v.visit_type === 'Visita efectiva').length, { stats: stats.body, deMapa: deMapa.length })
+      const zonas = await pedir(zonasSinVisitar, '/api/visits/unvisited-zones?year=2026&month=10', { userId: ADMIN_ID })
+      check('GET /api/visits/unvisited-zones: una visita como líder junto al Hospital del sur no lo marca como visitado', zonas.status === 200 && zonas.body.unvisitedHospitalsList.some((h: { id: string }) => h.id === H_LEJOS), zonas.body)
     }
 
     check('nada salió a la red salvo al Supabase falso', fake.external.length === 0, fake.external)

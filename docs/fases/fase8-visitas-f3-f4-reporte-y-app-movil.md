@@ -789,3 +789,94 @@ Spec: `docs/specs/2026-10-15-usabilidad-y-agenda-con-hora.md` ("Revisión de la 
   pendientes se avisa en Mi agenda y al pedirlo en Días libres (que marca las citas de hoy a hoy + 30).
 - **Barra**: la caja del ícono mide 24 pt (`tabBarIconStyle`): sin margen inferior (iPhone SE u 8) el nombre ya no toca
   el borde.
+
+## F4.2 Persona de campo y agenda con resultado (F1a de actividades de campo, 2026-10-15)
+
+Spec: `docs/specs/2026-10-15-actividades-de-campo.md` (fase F1a; las decisiones A1 a A17 del dueño mandan, ver
+`docs/decisiones/`). Migración `database/migrations/2026-10-15_0850_persona_de_campo_y_agenda.sql`, rollback
+`2026-10-15_9945_persona_de_campo_y_agenda_rollback.sql` (**ESCRITA, SIN APLICAR**; el ensayo con su bloque DO `P0850` lo
+hace el orquestador en una base de prueba). Tablas y funciones: `docs/base-de-datos.md` (sección "0850"). La app móvil
+no cambia en F1a (F1b la rediseña); la API de hoy le sigue sirviendo igual.
+
+### Quién es quién
+
+- **Persona de campo**: usuario activo, que no es `commercial_director` (A1), con al menos una línea para reportar = las
+  `executive_lines` de su Ejecutivo Comercial ACTIVO ∪ las líneas activas que lidera (`business_lines.leader_user_id`).
+  Quien agenda y visita es el USUARIO (`visits.user_id`, `visitas_agenda.user_id`); el Ejecutivo Comercial es opcional.
+- **Rol**: `ejecutivo` (solo Ejecutivo Comercial), `lider` (solo líder) o `lider_y_ejecutivo` (Paola: una sola agenda).
+- **Como líder** (ninguna línea de la visita es suya como Ejecutivo Comercial): sin zona (`executive_id` y `kam_id`
+  NULL, `kam_name` = su nombre), nunca fuera de territorio, configuración general sin telefónica, sin cuota y el médico
+  debe ser "de sus líneas" (C9: un visitante vigente en una de ellas, o su visitante es un Ejecutivo Comercial activo con
+  una de ellas). Corregir las líneas de una visita no puede cambiar su papel.
+- **La dirección comercial** no agenda ni reporta (pierde `visits:report`; conserva `calendar:manage`, `visits:config`
+  y `daysoff:approve`): vigila (Equipo llega en F4).
+
+### API (cambios; todo lo demás igual)
+
+Todas las rutas de `/api/me/*` salvo `dias-libres*` y `cuota` usan `requirePersonaDeCampo`: 401 sin sesión; 403 "Acceso
+denegado" sin `visits:report`; 403 "La dirección comercial no agenda ni reporta: sigue a tu equipo en Equipo"; 403 "Tu
+usuario no tiene líneas para reportar"; 503 "…falta aplicar la migración 0850…" si la base no la tiene. `dias-libres*` y
+`cuota` siguen siendo del Ejecutivo Comercial (`requireEjecutiva`) hasta F3.
+
+| Ruta | Cambio |
+| --- | --- |
+| `GET/POST /api/me/contexto` | + `persona: { user_id, nombre, executive_id, rol, lineas: [{ id, nombre, como }] }`. Sin Ejecutivo Comercial: `ejecutiva.id` = el usuario, `zona` null, `mis_medicos` los de sus líneas, meta 0, telefónica apagada |
+| `POST /api/me/visitas` | El servidor decide el Ejecutivo Comercial de la visita; línea ajena → 400 "Alguna de las líneas no es tuya"; como líder, médico ajeno → 400 "Ese médico no es de tus líneas" |
+| `PATCH /api/me/visitas/[id]` | Cambiar el papel → 400 "Para cambiar el papel de la visita …, anúlala y repórtala de nuevo" |
+| `GET /api/me/numeros` | Sin Ejecutivo Comercial: `cuota: null` y cumplimiento null; con él, la cuota solo cuenta sus visitas como Ejecutivo Comercial. `agenda` + `citas_no_realizadas` (las eliminadas no cuentan) |
+| `GET /api/auth/me` | + `persona: { rol, lineas } \| null` (null sin `visits:report` o sin líneas) |
+| `GET /api/me/agenda` | `max_fecha: null` (sin tope, A4). `canceladas=true` trae también las que no se hicieron; las eliminadas nunca |
+| `POST /api/me/agenda` | + `como?: 'ejecutivo' \| 'lider'` (sin él: como Ejecutivo Comercial si lo tiene). Hoy a una hora pasada → 400 "Esa hora ya pasó" en `hora`, sin ir a la base. Choque de media hora → 409 "A las 09:30 ya tienes cita con …: elige otra hora" con `errores: [{ campo: 'hora' }]`. Sin tope hacia adelante |
+| `POST /api/me/agenda/[id]/cancelar` | `{ motivo_codigo?, motivo? }`: el motivo es OBLIGATORIO (A8); solo texto (la app de hoy) = `otro`; nada → 400 "Elige o escribe el motivo de la cancelación"; `salida` no se elige |
+| `POST /api/me/agenda/[id]/cerrar` (nueva) | `{ motivo_codigo, motivo? }` ("no se hizo", desde su día): 200 `{ cita }` · 400 "Esa cita todavía no llega: cancélala" / "Esa cita ya está cerrada" · 404 ajena |
+| `POST /api/me/agenda/[id]/eliminar` (nueva) | `{}` (por error; pendiente de hoy en adelante; no cuenta en nada): 200 `{ cita_id }` · 400 "Solo se elimina una cita pendiente" · 404 |
+| `POST /api/me/agenda/[id]/otra-fecha` (nueva) | `{ fecha, hora, sede_id?, nota?, como? }`: 201 `{ cita }` con `viene_de` (mismo médico o cuenta y subtipo; sin `nota`, la de la anterior) · 400 "Esa cita sigue programada: ciérrala o cancélala antes" (o el mensaje de una hecha efectiva o de una cancelada por salida) · 409 "Esa cita ya tiene otra fecha" o choque · 404 |
+
+- `CitaItem` suma (aditivo) `motivo_codigo`, `no_realizada_at`, `no_realizada_motivo`, `viene_de`, `sucesora_id`, `como`
+  y `estado_visible` (`programada`, `atrasada`: hoy pasada su hora; `sin_cerrar`: de un día anterior; o su estado
+  cerrado). Nunca documentos ni teléfonos.
+- **Compatibilidad con la app de hoy**: las respuestas solo ganan claves (la prueba compila los tipos de
+  `mobile/lib/tipos.ts` contra los de la web y comprueba que cada respuesta trae todas las claves de
+  `mobile/lib/claves-api.ts`); cancelar con solo el texto sigue funcionando; la app no lee `max_fecha` (prueba estática) y
+  su calendario sigue llegando a hoy + 30. Una líder que abra la app de hoy ya no recibe 403: reporta y agenda.
+- **Mapa de asignación**: `GET /api/visits/filtered`, `/stats` y `/unvisited-zones` dejan fuera las visitas de la app sin
+  Ejecutivo Comercial (`FILTRO_MAPA_ASIGNACION` en `web/app/api/visits/_lib/visitas-mapa.ts`); las de VMO siguen.
+
+### Código
+
+- Puro: `web/lib/persona-campo.ts` (`lineasParaReportar`, `rolDePersona`, `personaDeCampo`, `ejecutivoDeLaVisita`,
+  `ejecutivoDeLaCita`, `medicoDeLineas`, mensajes) y `web/lib/agenda-ciclo.ts` (`ESTADOS_CITA`, `MOTIVOS_CIERRE`,
+  `agendaChoca`, `mensajeHoraCita`, `revisarCancelar/Cerrar/Eliminar`, `revisarMotivo`, `origenParaOtraFecha`,
+  `estadoVisible`, `cuentasAgenda`, mensajes), espejo de las funciones de la 0850 (los mensajes se comparan con el SQL).
+  `web/lib/reporte-visitas.ts` los re-exporta; se quitaron `DIAS_AGENDA_ADELANTE`, `MENSAJE_CITA_LEJANA` y
+  `ventanaAgenda`. Esquemas nuevos: `citaCerrarSchema`, `citaOtraFechaSchema`; `citaCancelarSchema` exige motivo.
+- Servidor: `personaDeCampo` y `requirePersonaDeCampo` (`web/app/api/config-visitas/_lib/visitas-server.ts`);
+  `web/app/api/me/_lib/reporte-server.ts` lee por `user_id` (`leerVisitas`, `leerCitas`, `numerosDeAgenda`), arma
+  `persona` y los médicos de sus líneas, y traduce 23P01 → 409.
+- Pruebas: `web/scripts/persona-campo-check.ts` y `web/scripts/agenda-ciclo-check.ts` (nuevas, puras),
+  `reporte-api-check.ts` (sección 15: líder, Paola, choque, hora pasada, cancelar, cerrar, eliminar, otra fecha, estado
+  visible, compatibilidad y mapa), `reporte-check.ts`, `visits-check.ts`, `visits-api-check.ts`, `simulacion-check.ts`
+  (las citas simuladas llevan `user_id`) y `tiempos-check.ts`.
+
+### Decisiones de implementación (Claude; el dueño puede cambiarlas)
+
+1. Un Ejecutivo Comercial que pasa a inactivo mientras la persona sigue como líder cancela solo sus citas como Ejecutivo
+   Comercial ("Dejó de ser Ejecutivo Comercial", motivo `salida`); si la persona se queda sin líneas, todas.
+2. La "otra fecha" única no cuenta las eliminadas: si la sucesora se eliminó por error, se puede pedir otra vez.
+3. El disparador que exige motivo al cancelar solo mira cancelaciones nuevas: las canceladas de la 0840 sin código
+   quedan como están.
+4. Sin la 0850 aplicada, `/api/me/*` responde 503 (no hay modo de compatibilidad con la 0840): código y migración se
+   despliegan en la misma ventana.
+5. La persona en `/api/auth/me` solo se arma con `visits:report`.
+6. Las pruebas del mapa con visitas de líder viven en `reporte-api-check.ts` (sección 15), donde están los datos de la app.
+
+### Verificación (2026-10-15)
+
+- `web`: `GOOGLE_ROUTES_DISABLED=true npm run check` → typecheck y lint sin errores y las 26 suites en verde
+  (`reporte-check` 373, `reporte-api-check` 410, `persona-campo-check` 40, `agenda-ciclo-check` 50, `simulacion-check`
+  140, `visits-check` 418).
+- Cada prueba nueva se verificó rompiendo lo que vigila (mutaciones en `agenda-ciclo.ts`, `persona-campo.ts`,
+  `permissions.ts`, `reporte-server.ts`, `visitas-server.ts`, `visitas-mapa.ts`, `auth/me` y `simulacion-carmen.ts`): todas
+  fallaron y se revirtieron.
+- 0850 y 9945: sin ensayar aquí (no hay Postgres local); estructura revisada y huellas md5 recalculadas. El ensayo con
+  `BEGIN; … ROLLBACK;` queda para el orquestador.

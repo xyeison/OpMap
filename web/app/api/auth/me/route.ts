@@ -1,10 +1,14 @@
 // GET /api/auth/me: el usuario de la sesión (cookie de la web o, sin cookie, el token de portador de la app
-// móvil) y el Ejecutivo Comercial enlazado con él (id, full_name, zona) o null. `user` es lo que ya usaba la
-// web (contexts/UserContext.tsx); `ejecutiva` es lo que la app necesita al abrir. Forma: MeResponse en
-// lib/reporte-visitas.ts. Si la base falla al buscar la ejecutiva, se responde igual con ejecutiva null.
+// móvil), el Ejecutivo Comercial enlazado con él (id, full_name, zona) o null y (F1a, 0850) la persona de campo
+// ({ rol, lineas: [{ id, nombre, como }] }) o null (la dirección comercial, A1, o un usuario sin líneas). `user` es lo
+// que ya usaba la web (contexts/UserContext.tsx); `ejecutiva` y `persona`, lo que la app necesita al abrir. Forma:
+// MeResponse en lib/reporte-visitas.ts. Si la base falla al buscar la ejecutiva o la persona, se responde igual con null.
 import { NextResponse, NextRequest } from 'next/server'
 import { ejecutivaEnlazada, getUserFromRequest } from '@/lib/auth-server'
 import type { MeResponse } from '@/lib/reporte-visitas'
+import { hasPermission } from '@/lib/permissions'
+import { personaDeCampo } from '@/app/api/config-visitas/_lib/visitas-server'
+import { lineasDePersona, personaMovil } from '@/app/api/me/_lib/reporte-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -17,10 +21,18 @@ export async function GET(request: NextRequest) {
     }
 
     let ejecutiva: MeResponse['ejecutiva'] = null
+    let persona: MeResponse['persona'] = null
     try {
       ejecutiva = await ejecutivaEnlazada(user.id)
     } catch (error) {
       console.error('No se pudo cargar el Ejecutivo Comercial enlazado en /api/auth/me:', error)
+    }
+    try {
+      // Solo quien reporta (visits:report; la dirección comercial ya no lo tiene, A1).
+      const resultado = hasPermission(user.role, 'visits:report') ? await personaDeCampo(user) : null
+      if (resultado && resultado.ok) persona = personaMovil(resultado.persona, await lineasDePersona(resultado.persona.lineas))
+    } catch (error) {
+      console.error('No se pudo cargar la persona de campo en /api/auth/me:', error)
     }
 
     const respuesta: MeResponse = {
@@ -32,6 +44,7 @@ export async function GET(request: NextRequest) {
         active: user.active,
       },
       ejecutiva,
+      persona,
     }
     return NextResponse.json(respuesta, { headers: { 'Cache-Control': 'no-store' } })
   } catch (error) {

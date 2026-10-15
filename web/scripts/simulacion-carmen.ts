@@ -36,13 +36,19 @@ import {
   type PersonaVigencia,
   type TipoVisita,
 } from '../lib/visits-rules'
-import { DIAS_AGENDA_ADELANTE, esDiaLibreCompleto, mensajeFechaCita, type DiaLibreAgenda } from '../lib/reporte-visitas'
+import { esDiaLibreCompleto, mensajeFechaCita, type DiaLibreAgenda } from '../lib/reporte-visitas'
 import { normalizarIdentificacion, type EspecialidadMedico } from '../lib/terceros'
 import type { SupabaseAdminClient } from '../lib/supabase-admin'
 
 // ---------------------------------------------------------------------------------------------
 // 1. Datos fijos (comprobados en la base el 2026-10-14) y marcas de prueba
 // ---------------------------------------------------------------------------------------------
+
+/**
+ * Hasta cuántos días adelante se buscan los días hábiles de la plantilla (y se leen el calendario y los días libres).
+ * No es un tope de la agenda: desde la 0850 se agenda sin tope hacia adelante (A4).
+ */
+export const DIAS_BUSQUEDA_PLANTILLA = 30
 
 export const CARMEN = {
   executive_id: 'f97112f5-1642-4403-990d-791089c15e57',
@@ -229,7 +235,7 @@ export function diasDeAgenda(entrada: {
   } else {
     dias.push(entrada.hoy)
   }
-  const tope = sumarDias(entrada.hoy, DIAS_AGENDA_ADELANTE)
+  const tope = sumarDias(entrada.hoy, DIAS_BUSQUEDA_PLANTILLA)
   for (let fecha = sumarDias(entrada.hoy, 1); fecha <= tope && dias.length <= cuantos; fecha = sumarDias(fecha, 1)) {
     const habil = resolverDiaHabil({
       fecha,
@@ -286,6 +292,32 @@ export interface CitaPlan {
   nota: string
   /** Solo las de hoy: ayer en Bogotá (ver creadaAtCita). null = ahora. */
   created_at: string | null
+}
+
+/**
+ * Las filas de visitas_agenda de las citas del plan (lo que inserta --aplicar): de la persona (0850: user_id) y como
+ * Ejecutiva Comercial (executive_id); el médico por su clave. Lanza si falta un médico. PURA: la prueba
+ * (scripts/simulacion-check.ts) la usa sin red.
+ */
+export function filasDeCitas(citas: readonly CitaPlan[], ids: ReadonlyMap<string, string>, adminId: string, ahora: string) {
+  return citas.map(c => {
+    const medicoId = c.medico ? ids.get(c.medico) : null
+    if (c.medico && !medicoId) throw new Error(`No se encontró el médico ${c.medico} de la cita del ${c.fecha}`)
+    return {
+      user_id: CARMEN.user_id,
+      executive_id: CARMEN.executive_id,
+      fecha: c.fecha,
+      hora: c.hora,
+      tipo: c.tipo,
+      medico_id: medicoId ?? null,
+      cuenta_id: c.cuenta_id,
+      subtipo_id: c.subtipo_id,
+      sede_id: c.sede_id,
+      nota: c.nota,
+      created_by: adminId,
+      created_at: c.created_at ?? ahora,
+    }
+  })
 }
 
 export interface ConfigPlan {
@@ -886,7 +918,7 @@ async function leerContexto(db: SupabaseAdminClient): Promise<Contexto> {
   )
   if (!subtipos[0]) throw new Error('No existe el subtipo institucional de compras')
 
-  const tope = sumarDias(hoy, DIAS_AGENDA_ADELANTE)
+  const tope = sumarDias(hoy, DIAS_BUSQUEDA_PLANTILLA)
   const calendario = await una<DiaCalendarioEntrada>(
     'calendario',
     db
@@ -1197,24 +1229,7 @@ async function aplicar(ctx: Contexto, plan: Plan, acciones: Acciones) {
     const despues = await leerExistentes(ctx)
     const problemas = problemasDelPlan({ ...plan, citas: acciones.citasCrear }, { config: despues.config, subtipo: ctx.subtipo, diasLibres: ctx.diasLibres })
     if (problemas.length > 0) throw new Error(`Las citas no cumplen las reglas de la agenda:\n  - ${problemas.join('\n  - ')}`)
-    const ahora = new Date().toISOString()
-    const filas = acciones.citasCrear.map(c => {
-      const medicoId = c.medico ? ids.get(c.medico) : null
-      if (c.medico && !medicoId) throw new Error(`No se encontró el médico ${c.medico} de la cita del ${c.fecha}`)
-      return {
-        executive_id: CARMEN.executive_id,
-        fecha: c.fecha,
-        hora: c.hora,
-        tipo: c.tipo,
-        medico_id: medicoId ?? null,
-        cuenta_id: c.cuenta_id,
-        subtipo_id: c.subtipo_id,
-        sede_id: c.sede_id,
-        nota: c.nota,
-        created_by: adminId,
-        created_at: c.created_at ?? ahora,
-      }
-    })
+    const filas = filasDeCitas(acciones.citasCrear, ids, adminId, new Date().toISOString())
     const { error } = await db.from('visitas_agenda').insert(filas)
     if (error) fallar('crear las citas simuladas', error)
     console.log(`   citas creadas: ${filas.length}`)
@@ -1237,7 +1252,8 @@ async function borrar(ctx: Contexto, acciones: AccionesBorrar) {
   if (acciones.citasCancelar.length > 0) {
     const { error } = await db
       .from('visitas_agenda')
-      .update({ estado: 'cancelada', visita_id: null, cancelada_at: ahora, cancelada_motivo: MOTIVO_BORRAR })
+      // 0850: cancelar exige motivo (motivo_codigo 'otro' con su texto).
+      .update({ estado: 'cancelada', visita_id: null, cancelada_at: ahora, cancelada_motivo: MOTIVO_BORRAR, motivo_codigo: 'otro' })
       .in('id', acciones.citasCancelar)
       .neq('estado', 'cancelada')
     if (error) fallar('cancelar las citas simuladas', error)

@@ -2,7 +2,17 @@
 // de la app (migración 0830): las anuladas (deleted_at) no cuentan en ninguna. Antes de la 0830 la columna deleted_at
 // no existe: la consulta se hace sin ese filtro (no hay visitas de la app). La carpeta empieza por "_" para que
 // Next.js no la exponga como ruta. Contrato: docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md.
+//
+// F1a (0850): el mapa de asignación no cambia. Las visitas de la app SIN Ejecutivo Comercial (las de una líder, como
+// líder: sin zona) no van al mapa de calor, a las estadísticas ni a la cobertura: FILTRO_MAPA_ASIGNACION (las de VMO no
+// tienen executive_id y siguen saliendo). Dónde ha estado cada persona se verá en el mapa de calor de /equipo (F4, A3).
 import { supabaseAdmin } from '@/lib/supabase-admin'
+
+/**
+ * Filtro de PostgREST (`.or(...)`) que deja fuera las visitas de la app sin Ejecutivo Comercial:
+ * source <> 'app' OR executive_id IS NOT NULL. Usa columnas de la 0830 (source, executive_id): solo cuando existen.
+ */
+export const FILTRO_MAPA_ASIGNACION = 'source.neq.app,executive_id.not.is.null'
 
 /** ¿El error dice que una columna no existe? (la migración 0830 aún no está aplicada) */
 export function esColumnaInexistente(error: unknown): boolean {
