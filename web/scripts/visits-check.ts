@@ -568,6 +568,17 @@ const c72 = cuotaPeriodo({ ...base, hoy: '2027-02-12', persona: linda, tipo: 'me
 eq('meta de zona 6 y excepción de 4, 20 días hábiles y 2 libres aprobados: cuota 72', c72.cuota, 72)
 eq('… 20 días hábiles y 2 libres', [c72.diasHabiles, c72.diasLibres], [20, 2])
 eq('… al día hábil 10 (viernes 12) van 10 transcurridos', c72.diasHabilesTranscurridos, 10)
+eq('… y quedan 10 días hábiles por delante (los libres ya pasaron)', c72.diasHabilesPorDelante, 10)
+// Revisión 2026-10-15: los días libres que VIENEN no son días para visitar ("Te faltan …: X por día hábil").
+const conLibresQueVienen = cuotaPeriodo({
+  ...base,
+  hoy: '2027-02-12',
+  persona: linda,
+  tipo: 'medica',
+  diasLibres: [...dosLibres, { executive_id: EJ, fecha: '2027-02-17', fraccion: 1, estado: 'aprobado' }, { executive_id: EJ, fecha: '2027-02-19', fraccion: 0.5, estado: 'aprobado' }, { executive_id: EJ, fecha: '2027-02-22', fraccion: 1, estado: 'por_aprobar' }],
+})
+eq('… con un libre aprobado el 17 y medio el 19 por delante: 8,5 días por delante (el por aprobar no resta)', conLibresQueVienen.diasHabilesPorDelante, 8.5)
+eq('… hábiles y transcurridos no cambian (diasHabiles sigue contando los libres)', [conLibresQueVienen.diasHabiles, conLibresQueVienen.diasHabilesTranscurridos], [20, 10])
 eq('… ritmo 50 %', ritmo(c72.diasHabilesTranscurridos, c72.diasHabiles), 0.5)
 eq('… meta de hoy 4, de la excepción', [c72.metaDiaHoy, c72.origenMeta, c72.aplicaPerfil], [4, 'ejecutiva', true])
 eq('… resumen para la API', resumenCuotaTipo(c72), { cuota: 72, meta_dia_hoy: 4, origen: 'ejecutiva', aplica: true })

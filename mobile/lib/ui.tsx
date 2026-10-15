@@ -3,7 +3,11 @@
  * principal y encabezado negros, texto carbón #2E2D2D, texto secundario gris #5C5B5B, fondo #F8F9FA, tarjetas
  * blancas; en modo oscuro se invierten) y letra DM Sans. Los colores de estado (éxito, alerta, peligro, info) se
  * quedan con contraste AA sobre esos fondos. Tamaños grandes para usar en la calle, con una mano: botones de 56 px
- * de alto, texto de 17 px, áreas táctiles amplias.
+ * de alto, texto de 17 px, áreas táctiles amplias (nada que se toque mide menos de ALTO_TOQUE_MIN, 44 pt). La paleta,
+ * los tamaños y contraste() viven en lib/paleta.ts (puro); aquí se siguen exportando igual.
+ *
+ * Teclado (spec 2026-10-15): Pantalla nunca deja el campo que se escribe debajo del teclado y deslizar lo cierra.
+ * Los controles (campo, chip inactivo, botón secundario) llevan `bordeControl` (≥ 3:1); la tarjeta, el borde suave.
  *
  * Letra: app/_layout.tsx carga DM Sans (Regular, Medium, Bold) con useFonts y avisa con <ProveedorFuentes>. Mientras
  * no esté (o si falla) todo usa la fuente del sistema con el peso equivalente: la app nunca se queda en blanco.
@@ -13,6 +17,7 @@ import { createContext, useContext, type ReactNode } from 'react'
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
   Platform,
   Pressable,
   RefreshControl,
@@ -27,87 +32,16 @@ import {
   type TextStyle,
   type ViewStyle,
 } from 'react-native'
+import { HeaderHeightContext } from 'expo-router/react-navigation'
+import { ALTO_TOQUE_MIN, COLORES_CLAROS, COLORES_OSCUROS, TAMANO, type Colores } from './paleta'
 
 // ---------------------------------------------------------------------------------------------
-// Colores y tamaños
+// Colores y tamaños (viven en lib/paleta.ts, puro, para que las pruebas los lean en Node)
 // ---------------------------------------------------------------------------------------------
 
-export interface Colores {
-  fondo: string
-  superficie: string
-  superficieSuave: string
-  texto: string
-  textoSuave: string
-  borde: string
-  acento: string
-  sobreAcento: string
-  peligro: string
-  fondoPeligro: string
-  exito: string
-  fondoExito: string
-  alerta: string
-  fondoAlerta: string
-  info: string
-  fondoInfo: string
-  /** Encabezado de las pantallas (negro de marca en los dos modos) y el texto/íconos que van encima. */
-  encabezado: string
-  sobreEncabezado: string
-}
-
-/** Marca VG Medical. Contrastes (WCAG): texto 13:1 y texto secundario 6,4:1 sobre el fondo; estados ≥ 5,2:1. */
-export const COLORES_CLAROS: Colores = {
-  fondo: '#F8F9FA',
-  superficie: '#FFFFFF',
-  superficieSuave: '#EEEFF1',
-  texto: '#2E2D2D',
-  textoSuave: '#5C5B5B',
-  borde: '#E2E3E5',
-  acento: '#000000',
-  sobreAcento: '#FFFFFF',
-  peligro: '#B91C1C',
-  fondoPeligro: '#FEF2F2',
-  exito: '#047857',
-  fondoExito: '#ECFDF5',
-  alerta: '#92400E',
-  fondoAlerta: '#FFFBEB',
-  info: '#1E40AF',
-  fondoInfo: '#EFF6FF',
-  encabezado: '#000000',
-  sobreEncabezado: '#FFFFFF',
-}
-
-/** Modo oscuro monocromático: grises neutros (sin tinte azul) y acento blanco. Estados ≥ 8:1. */
-export const COLORES_OSCUROS: Colores = {
-  fondo: '#0A0A0A',
-  superficie: '#161616',
-  superficieSuave: '#222222',
-  texto: '#EDEDED',
-  textoSuave: '#A3A3A3',
-  borde: '#2E2E2E',
-  acento: '#FFFFFF',
-  sobreAcento: '#000000',
-  peligro: '#FCA5A5',
-  fondoPeligro: '#3A1414',
-  exito: '#6EE7B7',
-  fondoExito: '#0F2A22',
-  alerta: '#FCD34D',
-  fondoAlerta: '#33270B',
-  info: '#93C5FD',
-  fondoInfo: '#14223A',
-  encabezado: '#000000',
-  sobreEncabezado: '#FFFFFF',
-}
-
-export const TAMANO = {
-  texto: 17,
-  textoPeque: 14,
-  titulo: 26,
-  subtitulo: 19,
-  boton: 56,
-  botonGrande: 72,
-  radio: 14,
-  espacio: 16,
-} as const
+export { ALTO_TOQUE_MIN, COLORES_CLAROS, COLORES_OSCUROS, TAMANO }
+export { contraste } from './paleta'
+export type { Colores }
 
 export function useColores(): Colores {
   return useColorScheme() === 'dark' ? COLORES_OSCUROS : COLORES_CLAROS
@@ -226,21 +160,63 @@ interface PropsPantalla {
   /** Sin desplazamiento (pantallas que se acomodan solas). */
   fija?: boolean
   estilo?: StyleProp<ViewStyle>
+  /**
+   * Pie fijo abajo (el botón principal: "Confirmar visita 1 de N", "Agendar · …"): queda fuera del desplazamiento,
+   * siempre a la vista y encima de la barra de pestañas. Sin pie, la pantalla es la de siempre.
+   */
+  pie?: ReactNode
 }
 
-/** Fondo y márgenes de una pantalla, con "tirar para actualizar" si se pasa alRefrescar. */
-export function Pantalla({ children, alRefrescar, refrescando = false, fija, estilo }: PropsPantalla) {
+/**
+ * Fondo y márgenes de una pantalla, con "tirar para actualizar" si se pasa alRefrescar y un pie fijo opcional.
+ *
+ * Teclado: en el iPhone el ScrollView corre su contenido lo que tapa el teclado y lleva el campo enfocado a la vista
+ * (`automaticallyAdjustKeyboardInsets`); deslizar hacia abajo lo cierra ('interactive' en iOS, 'on-drag' en el
+ * resto). En Android (de borde a borde desde SDK 54 la ventana ya no se achica sola) un KeyboardAvoidingView deja el
+ * contenido y el pie encima del teclado; mide desde debajo del encabezado. En el navegador no hace falta nada.
+ */
+export function Pantalla({ children, alRefrescar, refrescando = false, fija, estilo, pie }: PropsPantalla) {
   const c = useColores()
-  if (fija) return <View style={[{ flex: 1, backgroundColor: c.fondo, padding: TAMANO.espacio }, estilo]}>{children}</View>
-  return (
+  const alturaEncabezado = useContext(HeaderHeightContext) ?? 0
+  const cuerpo = fija ? (
+    <View style={[{ flex: 1, backgroundColor: c.fondo, padding: TAMANO.espacio }, estilo]}>{children}</View>
+  ) : (
     <ScrollView
       style={{ flex: 1, backgroundColor: c.fondo }}
       contentContainerStyle={[{ padding: TAMANO.espacio, paddingBottom: 48, gap: 14 }, estilo]}
       keyboardShouldPersistTaps="handled"
+      automaticallyAdjustKeyboardInsets
+      keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
       refreshControl={alRefrescar ? <RefreshControl refreshing={refrescando} onRefresh={alRefrescar} tintColor={c.textoSuave} /> : undefined}
     >
       {children}
     </ScrollView>
+  )
+  const conPie =
+    pie === undefined || pie === null || pie === false ? (
+      cuerpo
+    ) : (
+      <View style={{ flex: 1, backgroundColor: c.fondo }}>
+        {cuerpo}
+        <View
+          style={{
+            paddingHorizontal: TAMANO.espacio,
+            paddingVertical: 12,
+            gap: 8,
+            backgroundColor: c.superficie,
+            borderTopColor: c.borde,
+            borderTopWidth: StyleSheet.hairlineWidth * 2,
+          }}
+        >
+          {pie}
+        </View>
+      </View>
+    )
+  if (Platform.OS !== 'android') return conPie
+  return (
+    <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={alturaEncabezado} style={{ flex: 1, backgroundColor: c.fondo }}>
+      {conPie}
+    </KeyboardAvoidingView>
   )
 }
 
@@ -318,7 +294,7 @@ export function Boton({ titulo, alPresionar, variante = 'primario', grande, carg
   const inactivo = deshabilitado || cargando
   const fondo = variante === 'primario' ? c.acento : variante === 'peligro' ? c.fondoPeligro : variante === 'texto' ? 'transparent' : c.superficie
   const colorTexto = variante === 'primario' ? c.sobreAcento : variante === 'peligro' ? c.peligro : c.texto
-  const borde = variante === 'secundario' ? c.borde : variante === 'peligro' ? c.peligro : 'transparent'
+  const borde = variante === 'secundario' ? c.bordeControl : variante === 'peligro' ? c.peligro : 'transparent'
   return (
     <Pressable
       accessibilityRole="button"
@@ -374,12 +350,12 @@ export function Chip({ texto, activo, alPresionar, deshabilitado }: PropsChip) {
       disabled={deshabilitado}
       onPress={alPresionar}
       style={({ pressed }) => ({
-        minHeight: 44,
+        minHeight: ALTO_TOQUE_MIN,
         paddingHorizontal: 16,
         paddingVertical: 10,
         borderRadius: 999,
         borderWidth: 1.5,
-        borderColor: activo ? c.acento : c.borde,
+        borderColor: activo ? c.acento : c.bordeControl,
         backgroundColor: activo ? c.acento : c.superficie,
         justifyContent: 'center',
         opacity: deshabilitado ? 0.45 : pressed ? 0.75 : 1,
@@ -414,7 +390,10 @@ export function Insignia({ texto, tono = 'neutro' }: { texto: string; tono?: Ton
   const t = coloresTono(c, tono)
   return (
     <View style={{ alignSelf: 'flex-start', backgroundColor: t.fondo, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3 }}>
-      <Text style={[{ color: t.texto, fontSize: 13 }, fuente('negrita')]}>{texto}</Text>
+      {/* Con el texto grande del sistema crece hasta 1,3 veces (más, se sale de la pastilla). */}
+      <Text maxFontSizeMultiplier={1.3} style={[{ color: t.texto, fontSize: 13 }, fuente('negrita')]}>
+        {texto}
+      </Text>
     </View>
   )
 }
@@ -480,7 +459,7 @@ export function Campo({ etiqueta, valor, alCambiar, error, ayuda, varias, ...res
             minHeight: varias ? 110 : TAMANO.boton,
             borderRadius: 12,
             borderWidth: 1.5,
-            borderColor: error ? c.peligro : c.borde,
+            borderColor: error ? c.peligro : c.bordeControl,
             backgroundColor: c.superficie,
             color: c.texto,
             fontSize: TAMANO.texto,

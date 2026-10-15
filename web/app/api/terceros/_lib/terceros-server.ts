@@ -122,20 +122,41 @@ export function enTrozos<T>(lista: readonly T[], tamano = 150): T[][] {
   return trozos
 }
 
+/** Trozos de leerPorIds que se piden a la vez, como mucho (spec 2026-10-15, paquete 4). */
+export const TROZOS_EN_PARALELO = 4
+
 /**
  * Lee todas las filas de una consulta filtrada por una lista de ids: en trozos de 150 ids (para no pasar el
  * largo de URL) y páginas de 1.000 (límite de PostgREST). La consulta debe tener un orden estable y usar
- * .range(from, to).
+ * .range(from, to). Los trozos se piden en paralelo, `enParalelo` a la vez como mucho (4), y las filas salen en el
+ * mismo orden que si se pidieran uno tras otro. Si un trozo falla, no se piden más y se lanza ese error.
  */
 export async function leerPorIds<T>(
   ids: Iterable<string>,
-  build: (trozo: string[], from: number, to: number) => PromiseLike<Pagina<T>>
+  build: (trozo: string[], from: number, to: number) => PromiseLike<Pagina<T>>,
+  enParalelo: number = TROZOS_EN_PARALELO
 ): Promise<T[]> {
   const unicos = Array.from(new Set(Array.from(ids).filter(Boolean)))
-  const filas: T[] = []
-  for (const trozo of enTrozos(unicos)) {
-    filas.push(...(await fetchAllRows<T>((from, to) => build(trozo, from, to))))
+  const trozos = enTrozos(unicos)
+  if (trozos.length === 0) return []
+  const porTrozo: T[][] = new Array(trozos.length)
+  let siguiente = 0
+  let fallo = false
+  const trabajador = async () => {
+    while (!fallo && siguiente < trozos.length) {
+      const i = siguiente++
+      try {
+        porTrozo[i] = await fetchAllRows<T>((from, to) => build(trozos[i], from, to))
+      } catch (error) {
+        fallo = true
+        throw error
+      }
+    }
   }
+  const trabajadores = Math.max(1, Math.min(Math.floor(enParalelo) || 1, trozos.length))
+  await Promise.all(Array.from({ length: trabajadores }, trabajador))
+  const filas: T[] = []
+  for (const lista of porTrozo) filas.push(...lista)
   return filas
 }
 

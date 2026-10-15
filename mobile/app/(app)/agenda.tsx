@@ -1,90 +1,194 @@
 /**
- * Mi agenda (F4.1, spec 2026-10-14 decisiones 1 a 4): las citas de hoy y de los próximos 7 días, agrupadas por día, con
- * la hora, con quién (médico, o cuenta y subtipo), la sede, la nota y si ya se hizo. Una cita pendiente de hoy en adelante
- * se puede cancelar (con confirmación y motivo opcional): no se borra, queda cancelada y se sigue viendo aquí con la
- * insignia "Cancelada" (por eso la lista se pide con canceladas=true). "Agendar" lleva a agenda/nueva.
- * Datos: GET /api/me/agenda?canceladas=true (sin fechas: hoy a hoy + 7) y POST /api/me/agenda/[id]/cancelar. Sin la
- * migración 0840 el servidor responde 503 y se muestra su aviso.
+ * Mi agenda como calendario (F4.1; spec 2026-10-15, decisión 2 del dueño): arriba la semana (o el mes, con "Ver mes")
+ * con la cantidad de citas por día y los días libres, y se puede ir a cualquier mes; debajo, el día elegido como línea
+ * de tiempo por medias horas (components/agenda/LineaDelDia) con la línea "Ahora". Tocar una franja libre que aún se
+ * puede agendar abre Agendar a esa hora; tocar una cita abre su detalle ahí mismo (nota, sede, "Ver la visita",
+ * "Cancelar esta cita" con motivo). Una cita no se borra: cancelada se sigue viendo en "Ver canceladas (n)" (por eso se
+ * pide con canceladas=true). Las viejas sin hora van al final del día. Toda cita de hoy a hoy + 30 se ve y se puede
+ * cancelar: se pide por MES (rangoDeMes, como mucho 31 días), se guarda por mes y se vuelve a pedir al recibir el foco.
+ * Datos: GET /api/me/agenda?desde=&hasta=&canceladas=true, GET /api/me/dias-libres?desde=&hasta= y
+ * POST /api/me/agenda/[id]/cancelar. Sin la migración 0840 el servidor responde 503 y se muestra su aviso.
+ *
+ * Revisión 2026-10-15: el error es POR MES (el de un mes que falla no lo borra otro que llega bien: si no, quedaba
+ * "Cargando tu agenda…" sin "Reintentar"); "Cancelaste la cita…" sale junto al día (no arriba, fuera de la vista);
+ * "Hoy" en el calendario vuelve a hoy; y si un día libre tiene citas pendientes, se dice.
  */
-import { useFocusEffect, useRouter } from 'expo-router'
-import { useCallback, useState } from 'react'
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { View } from 'react-native'
-import { FilaCita } from '../../components/reporte/FilaCita'
+import { CalendarioMes } from '../../components/agenda/CalendarioMes'
+import { DetalleCita } from '../../components/agenda/DetalleCita'
+import { LineaDelDia } from '../../components/agenda/LineaDelDia'
+import { bloqueaAgendar, fechaBoton, marcasDelMes, puedeAgendarProxima, rutaAgendar, tomarCitaResaltada } from '../../lib/agenda'
 import * as api from '../../lib/api'
+import { lunesDe, mesDe, mesesDeRango, rangoDeMes } from '../../lib/calendario'
+import { invalidarContexto } from '../../lib/contexto-memoria'
 import { aApiError, esNoDisponible, mensajeDeError, type ApiError } from '../../lib/errores'
-import { hoyBogota } from '../../lib/fechas'
-import { agruparCitasPorDia, conQuienCita, textoTotalAgenda, tituloDiaAgenda } from '../../lib/reglas'
-import { MAX_MOTIVO_CANCELACION_CITA, type AgendaResponse, type CitaItem } from '../../lib/tipos'
-import { Aviso, Boton, Campo, Cargando, Pantalla, Subtitulo, Texto, type Tono } from '../../lib/ui'
+import { esFechaIso, hoyBogota, sumarDias } from '../../lib/fechas'
+import { vibrarExito } from '../../lib/haptica'
+import { conQuienCita, textoTotalAgenda, tituloDiaAgenda } from '../../lib/reglas'
+import type { CitaItem, DiaLibreItem } from '../../lib/tipos'
+import { Aviso, Boton, Cargando, Pantalla, Subtitulo, Tarjeta, Texto, type Tono } from '../../lib/ui'
+
+interface DatosMes {
+  citas: CitaItem[]
+  libres: DiaLibreItem[]
+  requiereAprobacion: boolean
+}
+
+/** Los meses que hay que tener para ver ese día: el suyo y, en la vista de semana, el otro que toque su semana. */
+function mesesNecesarios(dia: string, vista: 'semana' | 'mes'): string[] {
+  if (vista === 'mes') return [mesDe(dia)]
+  const lunes = lunesDe(dia)
+  return mesesDeRango(lunes, sumarDias(lunes, 6))
+}
 
 export default function Agenda() {
   const router = useRouter()
-  const [datos, setDatos] = useState<AgendaResponse | null>(null)
-  const [error, setError] = useState<ApiError | null>(null)
-  const [cargando, setCargando] = useState(true)
+  const { fecha: fechaParam } = useLocalSearchParams<{ fecha?: string }>()
+  const hoy = hoyBogota()
+  const [dia, setDia] = useState(() => (esFechaIso(fechaParam) ? fechaParam : hoy))
+  const [vista, setVista] = useState<'semana' | 'mes'>('semana')
+  const [meses, setMeses] = useState<Record<string, DatosMes>>({})
+  const [cargando, setCargando] = useState<Record<string, boolean>>({})
+  /** El error de cada mes (AAAA-MM): uno que llega bien no borra el de otro. */
+  const [errores, setErrores] = useState<Record<string, ApiError>>({})
   const [refrescando, setRefrescando] = useState(false)
-  const [cancelando, setCancelando] = useState<string | null>(null)
-  const [motivo, setMotivo] = useState('')
-  const [enviando, setEnviando] = useState(false)
+  const [abierta, setAbierta] = useState<string | null>(null)
+  const [resaltada, setResaltada] = useState<string | null>(null)
   const [mensaje, setMensaje] = useState<{ tono: Tono; texto: string } | null>(null)
+  const [ahora, setAhora] = useState(() => new Date())
+  const diaActual = useRef(dia)
+  diaActual.current = dia
+  const vistaActual = useRef(vista)
+  vistaActual.current = vista
 
-  const cargar = useCallback(async () => {
+  // Los meses que se están pidiendo y los ya traídos (refs: dos efectos del mismo montaje no piden dos veces).
+  const enCurso = useRef(new Set<string>())
+  const traidos = useRef(new Set<string>())
+
+  /** Pide las citas (con las canceladas) y los días libres de un mes. `siFalta`: solo si aún no se trajo. */
+  const cargarMes = useCallback(async (mes: string, siFalta = false) => {
+    if (enCurso.current.has(mes) || (siFalta && traidos.current.has(mes))) return
+    enCurso.current.add(mes)
+    const rango = rangoDeMes(mes)
+    setCargando(prev => ({ ...prev, [mes]: true }))
     try {
-      // Con las canceladas: la confirmación promete que la cita "queda en tu agenda como cancelada".
-      setDatos(await api.agenda(undefined, undefined, true))
-      setError(null)
+      // Con las canceladas: se ven en "Ver canceladas" y la confirmación promete que la cita queda en la agenda.
+      const [agenda, libres] = await Promise.all([
+        api.agenda(rango.desde, rango.hasta, true),
+        // Los días libres solo marcan el calendario: si fallan, la agenda se ve igual.
+        api.diasLibres(rango.desde, rango.hasta).catch(() => null),
+      ])
+      traidos.current.add(mes)
+      setMeses(prev => ({
+        ...prev,
+        [mes]: {
+          citas: agenda.items,
+          libres: libres?.items ?? prev[mes]?.libres ?? [],
+          requiereAprobacion: libres?.requiere_aprobacion ?? prev[mes]?.requiereAprobacion ?? true,
+        },
+      }))
+      setErrores(prev => {
+        if (!(mes in prev)) return prev
+        const { [mes]: _resuelto, ...resto } = prev
+        return resto
+      })
     } catch (e) {
-      setError(aApiError(e))
+      setErrores(prev => ({ ...prev, [mes]: aApiError(e) }))
     } finally {
-      setCargando(false)
-      setRefrescando(false)
+      enCurso.current.delete(mes)
+      setCargando(prev => ({ ...prev, [mes]: false }))
     }
   }, [])
 
+  const recargar = useCallback(
+    () => Promise.all(mesesNecesarios(diaActual.current, vistaActual.current).map(mes => cargarMes(mes))),
+    [cargarMes]
+  )
+
+  // Al recibir el foco: lo de este momento (citas agendadas o hechas en otra pantalla) y la cita recién agendada.
   useFocusEffect(
     useCallback(() => {
+      setAhora(new Date())
       setMensaje(null)
-      setCancelando(null)
-      void cargar()
-    }, [cargar])
+      const nueva = tomarCitaResaltada()
+      if (nueva) {
+        setResaltada(nueva.id)
+        setAbierta(nueva.id)
+        setDia(nueva.fecha)
+        diaActual.current = nueva.fecha
+      } else {
+        setResaltada(null)
+      }
+      void recargar()
+      const reloj = setInterval(() => setAhora(new Date()), 60_000)
+      return () => clearInterval(reloj)
+    }, [recargar])
   )
+
+  // Un enlace a /agenda?fecha=… lleva a ese día.
+  useEffect(() => {
+    if (esFechaIso(fechaParam)) setDia(fechaParam)
+  }, [fechaParam])
+
+  // Otro día u otra vista: pide los meses que falten (los ya traídos no se vuelven a pedir aquí).
+  useEffect(() => {
+    for (const mes of mesesNecesarios(dia, vista)) void cargarMes(mes, true)
+  }, [dia, vista, cargarMes])
 
   const refrescar = () => {
     setRefrescando(true)
-    void cargar()
+    void recargar().finally(() => setRefrescando(false))
   }
 
-  const cancelar = async (cita: CitaItem) => {
-    setEnviando(true)
-    setMensaje(null)
+  const todas = useMemo(() => Object.values(meses), [meses])
+  const marcas = useMemo(
+    () => marcasDelMes(todas.flatMap(m => m.citas), todas.flatMap(m => m.libres)),
+    [todas]
+  )
+  const datosDelMes = meses[mesDe(dia)]
+  const citasDelDia = useMemo(() => (datosDelMes?.citas ?? []).filter(cita => cita.fecha === dia), [datosDelMes, dia])
+  const libreQueBloquea = (datosDelMes?.libres ?? []).find(l => l.fecha === dia && bloqueaAgendar(l, datosDelMes?.requiereAprobacion ?? true))
+  const agendable = puedeAgendarProxima(dia, hoy) && !libreQueBloquea
+  const citaResaltada = resaltada ? todas.flatMap(m => m.citas).find(cita => cita.id === resaltada) : undefined
+  const citaAbierta = abierta ? citasDelDia.find(cita => cita.id === abierta) : undefined
+  // El error que importa es el de los meses que se ven (el del día elegido primero).
+  const error = [mesDe(dia), ...mesesNecesarios(dia, vista)].map(mes => errores[mes]).find(Boolean) ?? null
+  const errorDelDia = errores[mesDe(dia)] ?? null
+  /** Día libre (aprobado o registrado) con citas pendientes: hay que cancelarlas o moverlas. */
+  const libreDelDia = (datosDelMes?.libres ?? []).find(l => l.fecha === dia && (l.estado === 'aprobado' || l.estado === 'registrado'))
+  const pendientesEnLibre = libreDelDia ? citasDelDia.filter(cita => cita.estado === 'pendiente').length : 0
+
+  const elegirDia = (fecha: string) => {
+    setDia(fecha)
+    setAbierta(null)
+  }
+
+  const cancelar = async (cita: CitaItem, motivo: string): Promise<string | null> => {
     try {
-      await api.cancelarCita(cita.id, motivo)
-      setMensaje({ tono: 'info', texto: `Cancelaste la cita con ${conQuienCita(cita)}.` })
-      setCancelando(null)
-      setMotivo('')
-      await cargar()
+      const { cita: cancelada } = await api.cancelarCita(cita.id, motivo)
+      invalidarContexto('cita')
+      vibrarExito()
+      const mes = mesDe(cita.fecha)
+      setMeses(prev => (prev[mes] ? { ...prev, [mes]: { ...prev[mes], citas: prev[mes].citas.map(x => (x.id === cancelada.id ? cancelada : x)) } } : prev))
+      setAbierta(null)
+      setResaltada(null)
+      setMensaje({ tono: 'info', texto: `Cancelaste la cita con ${conQuienCita(cita)}. Queda en "Ver canceladas".` })
+      void cargarMes(mes)
+      return null
     } catch (e) {
-      setMensaje({ tono: 'peligro', texto: mensajeDeError(e) })
-    } finally {
-      setEnviando(false)
+      return mensajeDeError(e)
     }
   }
 
-  if (cargando && !datos) return <Cargando texto="Cargando tu agenda…" />
-
-  const hoy = datos?.hoy ?? hoyBogota()
-  const dias = datos ? agruparCitasPorDia(datos.items, datos.desde, datos.hasta) : []
-
   return (
     <Pantalla alRefrescar={refrescar} refrescando={refrescando}>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-        <View style={{ flexShrink: 1 }}>
-          <Texto suave>Hoy y los próximos 7 días</Texto>
-          {datos ? <Texto negrita>{textoTotalAgenda(datos.items)}</Texto> : null}
-        </View>
-        <Boton titulo="Agendar" alPresionar={() => router.push('/agenda/nueva')} estilo={{ minWidth: 130 }} />
-      </View>
-
+      {citaResaltada ? (
+        <Aviso tono="exito" titulo="Cita agendada">
+          {`${fechaBoton(citaResaltada.fecha)} · ${citaResaltada.hora ?? 'Sin hora'} · ${conQuienCita(citaResaltada)}`}
+        </Aviso>
+      ) : null}
       {error ? (
         <Aviso
           tono={esNoDisponible(error) ? 'info' : error.tipo === 'red' || error.tipo === 'tiempo' ? 'alerta' : 'peligro'}
@@ -94,55 +198,81 @@ export default function Agenda() {
           {error.message}
         </Aviso>
       ) : null}
+
+      <Tarjeta estilo={{ gap: 6, paddingHorizontal: 8 }}>
+        <CalendarioMes
+          valor={dia}
+          alCambiar={elegirDia}
+          hoy={hoy}
+          marcas={marcas}
+          vista={vista}
+          alCambiarMes={mes => void cargarMes(mes, true)}
+          conHoy
+        />
+        <Boton
+          titulo={vista === 'semana' ? 'Ver mes' : 'Ver semana'}
+          variante="texto"
+          estilo={{ minHeight: 44, alignSelf: 'center', paddingVertical: 4 }}
+          alPresionar={() => setVista(vista === 'semana' ? 'mes' : 'semana')}
+        />
+      </Tarjeta>
+
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <Boton
+          titulo="Agendar"
+          estilo={{ flex: 1 }}
+          alPresionar={() => router.push(rutaAgendar({ fecha: agendable ? dia : undefined }))}
+        />
+        <Boton titulo="Días libres" variante="secundario" estilo={{ flex: 1 }} alPresionar={() => router.push('/dias-libres')} />
+      </View>
+
+      <View style={{ gap: 2 }}>
+        <Subtitulo>{tituloDiaAgenda(dia, hoy)}</Subtitulo>
+        {datosDelMes ? <Texto suave>{textoTotalAgenda(citasDelDia)}</Texto> : null}
+        {libreQueBloquea ? (
+          <Texto suave peque>
+            Día libre: no se agenda este día.
+          </Texto>
+        ) : dia >= hoy && !agendable ? (
+          <Texto suave peque>
+            Solo se agenda de hoy a 30 días adelante.
+          </Texto>
+        ) : null}
+      </View>
+
+      {pendientesEnLibre > 0 ? (
+        <Aviso tono="alerta">
+          {`Ese día lo tienes libre y ${pendientesEnLibre === 1 ? 'tienes 1 cita pendiente' : `tienes ${pendientesEnLibre} citas pendientes`}: cancélala${pendientesEnLibre === 1 ? '' : 's'} o agéndala${pendientesEnLibre === 1 ? '' : 's'} otro día.`}
+        </Aviso>
+      ) : null}
+      {/* Junto al día (no arriba): quien canceló estaba mirando la línea del día. */}
       {mensaje ? <Aviso tono={mensaje.tono}>{mensaje.texto}</Aviso> : null}
 
-      {dias.map(dia => (
-        <View key={dia.fecha} style={{ gap: 8 }}>
-          <Subtitulo>{tituloDiaAgenda(dia.fecha, hoy)}</Subtitulo>
-          {dia.citas.length === 0 ? (
-            <Texto suave peque>
-              Sin citas
-            </Texto>
-          ) : (
-            dia.citas.map(cita => (
-              <FilaCita
-                key={cita.id}
-                cita={cita}
-                conTipo
-                conNota
-                alPresionar={cita.visita_id ? () => router.push(`/visita/${cita.visita_id}?fecha=${cita.fecha}`) : undefined}
-              >
-                {cita.cancelable && cancelando !== cita.id ? (
-                  <Boton
-                    titulo="Cancelar esta cita"
-                    variante="texto"
-                    estilo={{ minHeight: 40, alignSelf: 'flex-end', paddingHorizontal: 8 }}
-                    alPresionar={() => {
-                      setCancelando(cita.id)
-                      setMotivo('')
-                      setMensaje(null)
-                    }}
-                  />
-                ) : null}
-                {cancelando === cita.id ? (
-                  <View style={{ gap: 8 }}>
-                    <Texto>{`¿Cancelas la cita con ${conQuienCita(cita)}? Queda en tu agenda como cancelada.`}</Texto>
-                    <Campo
-                      etiqueta="Motivo (opcional)"
-                      valor={motivo}
-                      alCambiar={setMotivo}
-                      maxLength={MAX_MOTIVO_CANCELACION_CITA}
-                      placeholder="El médico no atiende ese día, se movió la cita…"
-                    />
-                    <Boton titulo="Sí, cancelar la cita" variante="peligro" cargando={enviando} alPresionar={() => void cancelar(cita)} />
-                    <Boton titulo="No, dejarla" variante="texto" deshabilitado={enviando} alPresionar={() => setCancelando(null)} />
-                  </View>
-                ) : null}
-              </FilaCita>
-            ))
-          )}
-        </View>
-      ))}
+      {!datosDelMes ? (
+        errorDelDia && !cargando[mesDe(dia)] ? null : <Cargando texto="Cargando tu agenda…" />
+      ) : (
+        <LineaDelDia
+          fecha={dia}
+          citas={citasDelDia}
+          agendable={agendable}
+          ahora={ahora}
+          alTocarFranja={hora => router.push(rutaAgendar({ fecha: dia, hora }))}
+          alTocarCita={cita => setAbierta(abierta === cita.id ? null : cita.id)}
+          abierta={abierta}
+          resaltada={resaltada}
+          detalle={
+            citaAbierta ? (
+              <DetalleCita
+                cita={citaAbierta}
+                alVerVisita={citaAbierta.visita_id ? () => router.push(`/visita/${citaAbierta.visita_id}?fecha=${citaAbierta.fecha}`) : undefined}
+                preguntaCancelar={`¿Cancelas la cita con ${conQuienCita(citaAbierta)}? Queda en tu agenda como cancelada.`}
+                alCancelar={motivo => cancelar(citaAbierta, motivo)}
+                alCerrar={() => setAbierta(null)}
+              />
+            ) : null
+          }
+        />
+      )}
     </Pantalla>
   )
 }

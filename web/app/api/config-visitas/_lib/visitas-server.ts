@@ -733,6 +733,7 @@ export async function calcularCuotaDetallada(persona: PersonaVisitas, mes: strin
     subtipos,
     dias_habiles: medica.diasHabiles,
     dias_habiles_transcurridos: medica.diasHabilesTranscurridos,
+    dias_habiles_por_delante: medica.diasHabilesPorDelante,
     dias_libres: medica.diasLibres,
     dias_por_aprobar: medica.diasPorAprobar,
     ritmo: ritmo(medica.diasHabilesTranscurridos, medica.diasHabiles),

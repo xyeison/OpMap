@@ -8,6 +8,11 @@
  * las citas de Reportar por distancia, la tarjeta armada desde la cita con su agenda_id, el dictado de un campo que se
  * añade sin borrar, el formulario de Agendar y los textos de la agenda; Reportar no abre tarjetas sin cita o sede
  * elegida, Mi agenda muestra las canceladas; y la marca (app.json, pantalla de inicio, módulos de Expo Go y textos).
+ * Secciones 15 a 19 (spec docs/specs/2026-10-15-usabilidad-y-agenda-con-hora.md), un archivo por paquete en
+ * scripts/checks/ (cada uno se corre solo con `npx tsx scripts/checks/correr.ts NN-nombre`): 15 navegación y kit visual
+ * (pestañas con ícono, contraste, teclado, pie fijo, háptica), 16 Reportar (tarjeta en resumen, pie "Confirmar visita i
+ * de N", médicos por sede y cercanía, buscador al escribir, carga desde memoria, cita desde Hoy), 17 agenda con hora y
+ * calendario, 18 tiempos y contexto en memoria (token, sesión, audio) y 19 el resto de pantallas.
  * Contrato: docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md (secciones "App móvil", "Pruebas" y "F4.1").
  *
  * Uso (desde mobile/): npx tsx scripts/movil-check.ts   (va dentro de npm run check)
@@ -178,6 +183,12 @@ import {
   type Lectura,
   type ResultadoUbicacion,
 } from '../lib/ubicacion-pasos'
+import type { Probador } from './checks/probador'
+import { pruebas as pruebasNavegacion } from './checks/15-navegacion'
+import { pruebas as pruebasReportar } from './checks/16-reportar'
+import { pruebas as pruebasAgenda } from './checks/17-agenda'
+import { pruebas as pruebasTiempos } from './checks/18-tiempos'
+import { pruebas as pruebasPantallas } from './checks/19-pantallas'
 
 // Este archivo corre en Node (tsx), pero el programa de tipos es el de la app (sin @types/node, que chocaría con los
 // tipos de React Native): fs y path con lo mínimo que se usa aquí.
@@ -1178,7 +1189,7 @@ async function main() {
     check('total de Mi agenda: cuenta pendientes y hechas', textoTotalAgenda([citaPorto, citaHecha]) === '2 citas' && textoTotalAgenda([citaPorto]) === '1 cita' && textoTotalAgenda([]) === '0 citas')
     check('total de Mi agenda: la cancelada se muestra aparte ("· 1 cancelada")', textoTotalAgenda([citaPorto, cita('x-c1', { estado: 'cancelada' })]) === '1 cita · 1 cancelada' && textoTotalAgenda([cita('x-c1', { estado: 'cancelada' }), cita('x-c2', { estado: 'cancelada' })]) === '0 citas · 2 canceladas')
     const pantallaAgenda = readFileSync(path.resolve(__dirname, '../app/(app)/agenda.tsx'), 'utf8')
-    check('Mi agenda pide las canceladas (la confirmación promete "Queda en tu agenda como cancelada")', /api\.agenda\(undefined, undefined, true\)/.test(pantallaAgenda) && pantallaAgenda.includes('Queda en tu agenda como cancelada'))
+    check('Mi agenda pide las canceladas (la confirmación promete "Queda en tu agenda como cancelada")', /api\.agenda\([^)]*,\s*true\)/.test(pantallaAgenda) && pantallaAgenda.includes('Queda en tu agenda como cancelada'))
 
     // --- Reportar: sin cita ni sede elegida no se graba ni se llena por toques ---
     check('hayEleccion: con una cita sí', hayEleccion({ cita: citaPorto, sedeId: null, catalogo }))
@@ -1221,6 +1232,13 @@ async function main() {
     archivos.push(path.join(raiz, 'app.json'), path.join(raiz, 'README.md'))
     const prohibidos = archivos.filter(ruta => /OpMap Visitas|\bKAM\b|representante|\bpanel\b/i.test(readFileSync(ruta, 'utf8')))
     check('no queda "OpMap Visitas", "KAM", "representante" ni "panel" en app/, components/, lib/, app.json ni README.md', prohibidos.length === 0, prohibidos.map(ruta => path.relative(raiz, ruta)))
+    // Spec 2026-10-15 (integración): "data manager" no sale en ningún texto visible ("el equipo de datos"). Los
+    // comentarios no se ven: se quitan antes de buscar (el código del rol, data_manager, sí puede quedar).
+    const sinComentarios = (texto: string) => texto.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').replace(/\s\/\/\s.*$/gm, '')
+    const conDataManager = archivos
+      .filter(ruta => /\.tsx?$/.test(ruta))
+      .filter(ruta => /data manager/i.test(sinComentarios(readFileSync(ruta, 'utf8'))))
+    check('ningún texto visible de app/, components/ ni lib/ dice "data manager" (dice "el equipo de datos")', conDataManager.length === 0, conDataManager.map(ruta => path.relative(raiz, ruta)))
   }
 
   // -------------------------------------------------------------------------
@@ -1867,12 +1885,14 @@ async function main() {
       /\n\s*const final = finalPendiente\.current\n/.test(cuerpoConfirmar) &&
         cuerpoConfirmar.indexOf('const final = finalPendiente.current') < cuerpoConfirmar.indexOf('await datosParaConfirmar(')
     )
+    // Spec 2026-10-15 (paquete 2): la cita tocada en Hoy entra como aplazada (mismas reglas de "Reportar de nuevo").
     check(
       'Reportar: al recibir el foco cuenta los envíos en curso, la fase y las tarjetas de lo último (pasoDelReporte con motivo foco)',
       /const reintento = tomarReintento\(\)/.test(alEnfocarTs) &&
+        /const citaDeHoy = pedidoDeCita\(tomarCitaParaReportar\(\)\)/.test(alEnfocarTs) &&
         /const \{ llegada: llegadaActual, fase: faseActual, borradores: pendientes \} = ultimo\.current/.test(alEnfocarTs) &&
         /const ocupada = esFaseOcupada\(faseActual\)/.test(alEnfocarTs) &&
-        /pasoDelReporte\(\{\s*motivo: 'foco',\s*iniciado: iniciado\.current,\s*nuevo: reintento,\s*aplazado: reintentoAplazado\.current,\s*enviando: enviosEnCurso\.current,\s*ocupada,\s*abiertas: pendientes,\s*volviendoDeCrear: volviendo,\s*reiniciar: debeReiniciarReporte\(/.test(alEnfocarTs) &&
+        /pasoDelReporte\(\{\s*motivo: 'foco',\s*iniciado: iniciado\.current,\s*nuevo: pedidoDeReintento\(reintento\),\s*aplazado: citaDeHoy \?\? reintentoAplazado\.current,\s*enviando: enviosEnCurso\.current,\s*ocupada,\s*abiertas: pendientes,\s*volviendoDeCrear: volviendo,\s*reiniciar: debeReiniciarReporte\(/.test(alEnfocarTs) &&
         /aplicarPaso\(paso, reintentoAplazado, r => void iniciarRef\.current\(r\)\)/.test(alEnfocarTs)
     )
     check(
@@ -1880,7 +1900,7 @@ async function main() {
       cuerpoConfirmar.indexOf('enviosEnCurso.current++') > -1 &&
         cuerpoConfirmar.indexOf('enviosEnCurso.current++') < cuerpoConfirmar.indexOf('await datosParaConfirmar(') &&
         /^\} finally \{\s*enviosEnCurso\.current--/.test(finallyConfirmar) &&
-        /aplicarPaso\(\s*pasoDelReporte\(\{\s*motivo: 'envio',\s*iniciado: true,\s*nuevo: null,\s*aplazado: reintentoAplazado\.current,\s*enviando: enviosEnCurso\.current,\s*ocupada: esFaseOcupada\(ultimo\.current\.fase\),\s*abiertas: abiertasAlTerminarEnvio\(ultimo\.current\.tarjetas, guardada\),\s*volviendoDeCrear: false,\s*reiniciar: false,?\s*\}\),\s*reintentoAplazado,\s*r => void iniciarRef\.current\(r\)\s*\)/.test(finallyConfirmar) &&
+        /aplicarPaso\(\s*pasoDelReporte\(\{\s*motivo: 'envio',\s*iniciado: true,\s*nuevo: null,\s*aplazado: soloReintento\(reintentoAplazado\.current\),\s*enviando: enviosEnCurso\.current,\s*ocupada: esFaseOcupada\(ultimo\.current\.fase\),\s*abiertas: abiertasAlTerminarEnvio\(ultimo\.current\.tarjetas, guardada\),\s*volviendoDeCrear: false,\s*reiniciar: false,?\s*\}\),\s*reintentoAplazado,\s*r => void iniciarRef\.current\(r\)\s*\)/.test(finallyConfirmar) &&
         !/tomarReintento\(\)/.test(finallyConfirmar)
     )
     const guardadaEn = cuerpoConfirmar.indexOf('guardada = clave')
@@ -1902,7 +1922,12 @@ async function main() {
       'Reportar: lo último (ultimo.current, cada render) lleva la fase, las tarjetas, la sede y la CITA elegidas tal cual',
       /\n\s*ultimo\.current = \{ contexto, puntoContexto, extras, punto, catalogo, sinSenal, llegada, fase, borradores: borradores\.length, tarjetas: borradores, sedeElegida, cita \}\n/.test(reportar)
     )
-    check('Reportar: al recargar usa contextoAlRecargar con lo último', /contextoAlRecargar\(ultimo\.current, ctx\)/.test(afinarTs))
+    // Spec 2026-10-15 (paquete 2): la recarga sin tapar (la de la final y el refresco de lo pintado de memoria) es una sola.
+    const recargarTs = bloque(reportar, 'const recargarSinTapar = useCallback(', 'const afinar = useCallback(')
+    check(
+      'Reportar: al recargar usa contextoAlRecargar con lo último (afinar recarga con recargarSinTapar)',
+      /contextoAlRecargar\(ultimo\.current, ctx\)/.test(recargarTs) && /await recargarSinTapar\(gen, lugar\)/.test(afinarTs)
+    )
     check('Reportar: "afinando" se muestra con estaAfinando (la generación de ahora)', /const afinando = estaAfinando\(afinandoDe, generacion\.current\)/.test(reportar))
     check('Reportar: la final no se suelta al llegar (sin carrera con el siguiente render); "Actualizar" sí la suelta', !/finalPendiente\.current = null/.test(afinarTs) && /finalPendiente\.current = null/.test(reportar.slice(reportar.indexOf('const reubicar = useCallback('))))
     check('Reportar: Nuevo médico recibe la final (puntoFinal) para el consultorio', /puntoFinal: lugarDeLaVisita\(finalPendiente\.current/.test(reportar))
@@ -1914,6 +1939,17 @@ async function main() {
     const hoyTs = readFileSync(path.resolve(__dirname, '../app/(app)/hoy.tsx'), 'utf8')
     check('Hoy: pide el contexto con la primera ubicación (no espera la de alta precisión)', /pedirUbicacionEnDosPasos\(\{ timeoutMs: 8_000 \}\)\.primera/.test(hoyTs) && !/pedirUbicacion\(/.test(hoyTs))
     check('lib/ubicacion.ts: la que vale sigue siendo de alta precisión; la rápida, de precisión media', /precisa:[^\n]*Accuracy\.High/.test(ubicacionTs) && /rapida:[^\n]*Accuracy\.Balanced/.test(ubicacionTs))
+  }
+
+  // -------------------------------------------------------------------------
+  // Secciones 15 a 19 (spec 2026-10-15): un archivo por paquete en scripts/checks/, con el mismo marco.
+  {
+    const probador: Probador = { check, seccion, lanza }
+    await pruebasNavegacion(probador)
+    await pruebasReportar(probador)
+    await pruebasAgenda(probador)
+    await pruebasTiempos(probador)
+    await pruebasPantallas(probador)
   }
 
   console.log(`\n${total - fallas}/${total} pruebas pasaron`)

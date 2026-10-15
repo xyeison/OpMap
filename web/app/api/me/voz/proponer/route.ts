@@ -10,6 +10,8 @@
 // F4.1 (0840): el contexto de Claude trae las citas pendientes de hoy y, si viene cita_id (la cita que eligió en
 // Reportar), cita_elegida: Claude prefiere esa cita (sus ids también valen en normalizarPropuesta).
 // Contrato: docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md (decisión 12 y sección "API").
+// Tiempos (spec 2026-10-15): Server-Timing (auth, ctx, claude, total) y la línea [tiempos] sin contenido
+// (_lib/tiempos.ts), con el `usage` de Claude solo como números (claude_in, claude_out, claude_cache, claude_n).
 import { NextRequest, NextResponse } from 'next/server'
 import { jsonError, readJson, zodMessage } from '@/app/api/kams/_lib/kam-shared'
 import { propuestaSchema, proponerSchema } from '@/lib/reporte-visitas-schemas'
@@ -26,52 +28,58 @@ import {
   respuestaSinLlave,
   resumenErrorVoz,
 } from '../../_lib/reporte-server'
+import { anotarUsoClaude, medirRuta, sumarUsoClaude } from '../../_lib/tiempos'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 export async function POST(request: NextRequest) {
-  const auth = await requireEjecutiva(request, 'POST /api/me/voz/proponer')
-  if (!auth.ok) return auth.response
+  return medirRuta('POST /api/me/voz/proponer', async t => {
+    const auth = await t.fase('auth', () => requireEjecutiva(request, 'POST /api/me/voz/proponer'))
+    if (!auth.ok) return auth.response
 
-  const sinLlave = respuestaSinLlave('anthropic')
-  if (sinLlave) return sinLlave
+    const sinLlave = respuestaSinLlave('anthropic')
+    if (sinLlave) return sinLlave
 
-  const cuerpo = await readJson(request)
-  // Sin hora del dictado, la del servidor (la app la manda; así un cliente viejo no recibe un 400).
-  const conHora =
-    cuerpo && typeof cuerpo === 'object' && !Array.isArray(cuerpo) && (cuerpo as Record<string, unknown>).hora === undefined
-      ? { ...(cuerpo as Record<string, unknown>), hora: ahora().toISOString() }
-      : cuerpo
-  const parsed = proponerSchema.safeParse(conHora)
-  if (!parsed.success) return jsonError(zodMessage(parsed.error), 400)
-  const datos = parsed.data
+    const cuerpo = await readJson(request)
+    // Sin hora del dictado, la del servidor (la app la manda; así un cliente viejo no recibe un 400).
+    const conHora =
+      cuerpo && typeof cuerpo === 'object' && !Array.isArray(cuerpo) && (cuerpo as Record<string, unknown>).hora === undefined
+        ? { ...(cuerpo as Record<string, unknown>), hora: ahora().toISOString() }
+        : cuerpo
+    const parsed = proponerSchema.safeParse(conHora)
+    if (!parsed.success) return jsonError(zodMessage(parsed.error), 400)
+    const datos = parsed.data
 
-  let contexto
-  try {
-    contexto = await cargarContexto(auth.persona, puntoDe(datos), hoyBogota(ahora()))
-  } catch (error) {
-    return errorReporte('POST /api/me/voz/proponer', error, 'Error al cargar el contexto del dictado')
-  }
-
-  // Límite por persona: solo cuentan las llamadas que de verdad van a Claude.
-  const limitado = limiteVoz('proponer', auth.persona.id)
-  if (limitado) return limitado
-
-  try {
-    const entrada = await proponerVisitas({ contexto: contextoDictado(contexto, horaBogota(datos.hora), datos.cita_id), transcript: datos.transcript })
-    const cruda = propuestaSchema.safeParse(entrada)
-    if (!cruda.success) {
-      console.error('POST /api/me/voz/proponer: la propuesta de Claude no cumple el esquema')
-      return jsonError(MENSAJE_FALLO_PROPUESTA, 502)
+    let contexto
+    try {
+      contexto = await t.fase('ctx', () => cargarContexto(auth.persona, puntoDe(datos), hoyBogota(ahora())))
+    } catch (error) {
+      return errorReporte('POST /api/me/voz/proponer', error, 'Error al cargar el contexto del dictado')
     }
-    const respuesta: PropuestaResponse = normalizarPropuesta(cruda.data, contexto)
-    return NextResponse.json(respuesta, { headers: { 'Cache-Control': 'no-store' } })
-  } catch (error) {
-    // El resumen nunca repite lo dictado ni el contexto (nombres de médicos, cuentas, sedes): resumenErrorVoz.
-    console.error(`POST /api/me/voz/proponer: fallo al proponer (${resumenErrorVoz(error, [datos.transcript, contexto])})`)
-    if (esErrorDeProveedor(error)) return jsonError(MENSAJE_FALLO_PROPUESTA, 502)
-    return jsonError('Error interno al armar la propuesta', 500)
-  }
+
+    // Límite por persona: solo cuentan las llamadas que de verdad van a Claude.
+    const limitado = limiteVoz('proponer', auth.persona.id)
+    if (limitado) return limitado
+
+    try {
+      const dictado = contextoDictado(contexto, horaBogota(datos.hora), datos.cita_id)
+      const entrada = await t.fase('claude', () =>
+        proponerVisitas({ contexto: dictado, transcript: datos.transcript }, usage => anotarUsoClaude(t, sumarUsoClaude(null, usage)))
+      )
+      const cruda = propuestaSchema.safeParse(entrada)
+      if (!cruda.success) {
+        console.error('POST /api/me/voz/proponer: la propuesta de Claude no cumple el esquema')
+        return jsonError(MENSAJE_FALLO_PROPUESTA, 502)
+      }
+      const respuesta: PropuestaResponse = normalizarPropuesta(cruda.data, contexto)
+      return NextResponse.json(respuesta, { headers: { 'Cache-Control': 'no-store' } })
+    } catch (error) {
+      // El resumen nunca repite lo dictado ni el contexto (nombres de médicos, cuentas, sedes): resumenErrorVoz.
+      console.error(`POST /api/me/voz/proponer: fallo al proponer (${resumenErrorVoz(error, [datos.transcript, contexto])})`)
+      if (esErrorDeProveedor(error)) return jsonError(MENSAJE_FALLO_PROPUESTA, 502)
+      return jsonError('Error interno al armar la propuesta', 500)
+    }
+  })
 }

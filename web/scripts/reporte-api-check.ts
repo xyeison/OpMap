@@ -73,6 +73,7 @@ import {
   MENSAJE_CITA_YA_CANCELADA,
   MENSAJE_FALLO_CAMPOS,
   MENSAJE_FALLO_PROPUESTA,
+  MENSAJE_HORA_OBLIGATORIA,
   MENSAJE_MEDICO_NO_EXISTE,
   MENSAJE_SEDE_NO_DE_LA_CUENTA,
   MENSAJE_SEDE_NO_DEL_MEDICO,
@@ -114,6 +115,7 @@ import {
 import type * as W from '../lib/reporte-visitas'
 import type { camposDictadoSchema, citaCancelarSchema, citaCreateSchema, visitaCreateSchema } from '../lib/reporte-visitas-schemas'
 import type * as M from '../../mobile/lib/tipos'
+import type { cuerpoCitaConHora } from '../../mobile/lib/agenda'
 import { CLAVES_API, clavesDe, tieneClaves, type FormaApi } from '../../mobile/lib/claves-api'
 import {
   MAX_MENSAJE_API_ANALIZAR,
@@ -189,7 +191,10 @@ export type TiposDeLaApp = [
   Afirmar<Asignable<M.NumerosAgenda, W.NumerosAgenda>>,
   Afirmar<Asignable<W.CamposDictadoResponse, M.CamposDictadoResponse>>,
   Afirmar<Asignable<M.CamposDictadoResponse, W.CamposDictadoResponse>>,
-  Afirmar<Asignable<M.CitaCreate, W.CitaCreate>>,
+  // La hora es obligatoria desde el 2026-10-15 (W.CitaCreate.hora: string): lo que manda la app (cuerpoCitaConHora,
+  // siempre con hora) cabe en el servidor; mobile/lib/tipos.ts sigue con hora string | null hasta igualarlo.
+  Afirmar<Asignable<ReturnType<typeof cuerpoCitaConHora>, W.CitaCreate>>,
+  Afirmar<Asignable<M.CitaCreate & { hora: string }, W.CitaCreate>>,
   Afirmar<Asignable<W.CitaCreate, M.CitaCreate>>,
   Afirmar<Asignable<M.CitaCreate, z.input<typeof citaCreateSchema>>>,
   Afirmar<Asignable<M.CitaCancelar, W.CitaCancelar>>,
@@ -2418,17 +2423,31 @@ async function main() {
       await rechazoCita('a más de 30 días: 400 (sin ir a la base)', cita({ fecha: '2026-11-13' }), 400, MENSAJE_CITA_LEJANA, { sinBase: true })
       await rechazoCita('en un día libre aprobado: 400', cita({ fecha: '2026-10-20' }), 400, MENSAJE_CITA_DIA_LIBRE)
       await rechazoCita('con un médico que no atiende en esa sede: 400', cita({ medico_id: M4, sede_id: S2 }), 400, MENSAJE_SEDE_NO_DEL_MEDICO)
-      await rechazoCita('institucional con una cuenta ajena a la sede: 400', { fecha: MANANA, tipo: 'institucional', cuenta_id: C1, subtipo_id: SUBTIPO_ID.compras, sede_id: S2 }, 400, MENSAJE_SEDE_NO_DE_LA_CUENTA)
-      await rechazoCita('con un subtipo vencido en esa fecha: 400', { fecha: '2026-10-16', tipo: 'institucional', cuenta_id: C1, subtipo_id: SUB_VIEJO, sede_id: S1 }, 400, MENSAJE_SUBTIPO_NO_VIGENTE)
+      await rechazoCita('institucional con una cuenta ajena a la sede: 400', { fecha: MANANA, hora: '11:00', tipo: 'institucional', cuenta_id: C1, subtipo_id: SUBTIPO_ID.compras, sede_id: S2 }, 400, MENSAJE_SEDE_NO_DE_LA_CUENTA)
+      await rechazoCita('con un subtipo vencido en esa fecha: 400', { fecha: '2026-10-16', hora: '11:00', tipo: 'institucional', cuenta_id: C1, subtipo_id: SUB_VIEJO, sede_id: S1 }, 400, MENSAJE_SUBTIPO_NO_VIGENTE)
       await rechazoCita('perfil solo institucional (Berta) y una cita médica: 400', cita(), 400, mensajePerfil('medica'), { userId: OTRA_ID })
       await rechazoCita('repetida (mismo médico y día): 409', cita({ hora: '15:00', nota: null }), 409, MENSAJE_CITA_REPETIDA_MEDICO)
       const malaHora = await agendarComo(cita({ hora: '25:00' }))
       check('hora no válida: 400 con errores por campo (hora)', malaHora.status === 400 && malaHora.body.errores?.some((e: { campo: string }) => e.campo === 'hora'), malaHora.body)
+      // Decisión del dueño 2026-10-15: la cita nueva lleva hora siempre (400 sin ir a la base, nada guardado).
+      for (const [nombre, sinHora] of [
+        ['sin la clave hora', { fecha: MANANA, tipo: 'medica', medico_id: M4, sede_id: S1 }],
+        ['con hora null', cita({ medico_id: M4, hora: null })],
+        ["con hora ''", cita({ medico_id: M4, hora: '' })],
+      ] as const) {
+        const rpcAntes = fake.rpcs.filter(r => r.nombre === 'agenda_crear').length
+        const r = await agendarComo(sinHora)
+        check(
+          `POST /api/me/agenda ${nombre}: 400 "${MENSAJE_HORA_OBLIGATORIA}" con el error en hora, sin ir a la base`,
+          r.status === 400 && r.body?.error === MENSAJE_HORA_OBLIGATORIA && r.body.errores?.some((e: { campo: string; mensaje: string }) => e.campo === 'hora' && e.mensaje === MENSAJE_HORA_OBLIGATORIA) && fake.rpcs.filter(x => x.nombre === 'agenda_crear').length === rpcAntes,
+          r.body
+        )
+      }
       check('ningún rechazo guardó una cita', tablas.visitas_agenda.length === citasAntes)
-      const subtipoAntes = await agendarComo({ fecha: '2026-10-15', tipo: 'institucional', cuenta_id: C1, subtipo_id: SUB_VIEJO, sede_id: S1 })
+      const subtipoAntes = await agendarComo({ fecha: '2026-10-15', hora: '11:00', tipo: 'institucional', cuenta_id: C1, subtipo_id: SUB_VIEJO, sede_id: S1 })
       check('el mismo subtipo el último día de su vigencia: sí', subtipoAntes.status === 201, subtipoAntes.body)
-      const inst = await agendarComo({ fecha: MANANA, tipo: 'institucional', cuenta_id: C1, subtipo_id: SUBTIPO_ID.compras, sede_id: S1 })
-      check('institucional válida: 201 con la cuenta y el subtipo, sin médico ni hora', inst.status === 201 && inst.body.cita.cuenta?.id === C1 && inst.body.cita.subtipo?.codigo === 'compras' && inst.body.cita.medico === null && inst.body.cita.hora === null, inst.body)
+      const inst = await agendarComo({ fecha: MANANA, hora: '11:00', tipo: 'institucional', cuenta_id: C1, subtipo_id: SUBTIPO_ID.compras, sede_id: S1 })
+      check('institucional válida (con hora 11:00): 201 con la cuenta, el subtipo y la hora, sin médico', inst.status === 201 && inst.body.cita.cuenta?.id === C1 && inst.body.cita.subtipo?.codigo === 'compras' && inst.body.cita.medico === null && inst.body.cita.hora === '11:00', inst.body)
       await rechazoCita('institucional repetida (misma cuenta, subtipo y día): 409', { fecha: MANANA, tipo: 'institucional', cuenta_id: C1, subtipo_id: SUBTIPO_ID.compras, sede_id: S1, hora: '11:00' }, 409, MENSAJE_CITA_REPETIDA_CUENTA)
 
       // GET /api/me/agenda
@@ -2447,11 +2466,15 @@ async function main() {
       const sinCanceladas = await pedir(verAgenda, '/api/me/agenda', { portador: true })
       const conCanceladas = await pedir(verAgenda, '/api/me/agenda?canceladas=true', { portador: true })
       check('la cancelada sale de la agenda; con canceladas=true vuelve', !sinCanceladas.body.items.some((c: W.CitaItem) => c.id === inst.body.cita.id) && conCanceladas.body.items.some((c: W.CitaItem) => c.id === inst.body.cita.id))
-      const otraVez = await agendarComo({ fecha: MANANA, tipo: 'institucional', cuenta_id: C1, subtipo_id: SUBTIPO_ID.compras, sede_id: S1 })
+      const otraVez = await agendarComo({ fecha: MANANA, hora: '11:00', tipo: 'institucional', cuenta_id: C1, subtipo_id: SUBTIPO_ID.compras, sede_id: S1 })
       check('cancelada: lo mismo se vuelve a agendar', otraVez.status === 201, otraVez.body)
       const CITA_AYER = citaDirecta({ fecha: AYER, medico_id: M4, created_at: '2026-10-10T15:00:00.000Z' })
       const deAyer = await cancelar(CITA_AYER)
       check('cancelar una de ayer: 400', deAyer.status === 400 && deAyer.body.error === MENSAJE_CITA_PASADA_NO_SE_CANCELA, deAyer.body)
+      // Las citas viejas sin hora (antes del 2026-10-15; la base acepta NULL) se siguen leyendo.
+      const agendaDeAyer = await pedir(verAgenda, `/api/me/agenda?desde=${AYER}&hasta=${AYER}`, { portador: true })
+      const citaSinHora = (agendaDeAyer.body?.items ?? []).find((c: W.CitaItem) => c.id === CITA_AYER)
+      check('GET /api/me/agenda sigue devolviendo una cita vieja sin hora: hora null y las claves de la app', agendaDeAyer.status === 200 && !!citaSinHora && citaSinHora.hora === null && ok('cita', citaSinHora), agendaDeAyer.body)
       check('id que no es uuid o que no existe: 404', (await cancelar('no-es-uuid')).status === 404 && (await cancelar(randomUUID())).status === 404)
       check('motivo de 301 caracteres: 400', (await cancelar(otraVez.body.cita.id, { motivo: 'x'.repeat(301) })).status === 400)
 

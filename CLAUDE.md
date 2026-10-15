@@ -121,7 +121,7 @@ nada llama a Google.
   por `config_registrar`/`config_cerrar`), calendario y festivos, días libres con aprobación en bloque, rol `hr`,
   cuota del periodo; `/configuracion` y `/calendario` (migración 0810 aplicada 2026-10-12).
 - `docs/specs/2026-10-12-traspaso-ejecutivo-comercial.md` – traspaso de un Ejecutivo Comercial y "Contratar" (0820 aplicada 2026-10-12).
-- `docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md` – app de visita F3+F4: visitas de la app en `visits` + `visit_lines`, `visitas_registrar/editar/anular`, `/api/me/*` (contexto, visitas, voz, números), token de portador, app Expo en `mobile/` (migración 0830 aplicada 2026-10-14); F4.1 agenda (`visitas_agenda`, `/api/me/agenda*`, `/api/me/voz/campos`; 0840 aplicada 2026-10-14).
+- `docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md` – app de visita F3+F4: visitas de la app en `visits` + `visit_lines`, `visitas_registrar/editar/anular`, `/api/me/*` (contexto, visitas, voz, números), token de portador, app Expo en `mobile/` (migración 0830 aplicada 2026-10-14); F4.1 agenda (`visitas_agenda`, `/api/me/agenda*`, `/api/me/voz/campos`; 0840 aplicada 2026-10-14); desde 2026-10-15 la cita lleva hora obligatoria y la agenda es un calendario, y `/api/me/*` mide con `Server-Timing` y líneas `[tiempos]` (`docs/specs/2026-10-15-usabilidad-y-agenda-con-hora.md`).
 - `docs/arquitectura-y-scripts.md` – scripts Python, estructura de carpetas, archivos clave.
 - `docs/historico-resultados.md` – cifras de 2025 y colores originales (histórico, no vigente).
 - `docs/FLUJO_DE_TRABAJO_IA.md` – cómo trabajamos con Claude Code en este repo y por qué.
