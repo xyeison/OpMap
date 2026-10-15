@@ -426,7 +426,7 @@ paquetes 6 y 7.
 | D7 | ¿Se graba más liviano, a 32 kbps y 22,05 kHz? | Solo después de que el dueño compare el mismo dictado, con nombres de médicos, productos y líneas, en los dos perfiles (`EXPO_PUBLIC_PERFIL_AUDIO`). Sube la mitad de bytes con mala señal; el riesgo está en los nombres propios. |
 | D8 | ¿El servidor rechaza una cita de hoy a una hora que ya pasó? Hoy solo lo revisa la app ("Esa hora ya pasó"). | Sí, en `citaCreateSchema` con la hora de Bogotá, cuando haya otro cambio de la API de agenda. Una app vieja podría crear una cita "Atrasada" al nacer. |
 | D9 | ¿Agendar abre en el siguiente día HÁBIL (sin sábados, domingos ni festivos) en vez de mañana? | Sí si el dueño lo pide: el calendario de días hábiles es del servidor (`/api/me/cuota`); hoy salta solo los días libres que impiden agendar. |
-| D10 | Línea de fase 8 de `CLAUDE.md`: añadir "hora obligatoria y agenda como calendario desde 2026-10-15; Server-Timing y `[tiempos]` en /api/me/*". | Que el dueño la cambie o la apruebe: un agente no edita `CLAUDE.md`. |
+| D10 | Línea de fase 8 de `CLAUDE.md`: añadir "hora obligatoria y agenda como calendario desde 2026-10-15; Server-Timing y `[tiempos]` en /api/me/*". | Hecho por la sesión principal al entregar (2026-10-15). |
 
 ## Impacto
 
