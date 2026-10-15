@@ -1,23 +1,36 @@
 /**
- * Paleta y tamaños de la app (puro, sin react-native: lo leen las pruebas en Node). lib/ui.tsx los sigue exportando
- * tal cual, así que las pantallas no cambian sus imports.
+ * Paleta, letra y tamaños de la app (puro, sin react-native: lo leen las pruebas en Node). lib/ui.tsx los sigue
+ * exportando tal cual, así que las pantallas no cambian sus imports.
  *
- * Marca VG Medical (spec 2026-10-14, decisión 10): botón principal y encabezado negros, texto carbón #2E2D2D, texto
- * secundario gris #5C5B5B, fondo #F8F9FA y tarjetas blancas; en modo oscuro se invierten. Los colores de estado
- * (éxito, alerta, peligro, info) se quedan con contraste AA sobre esos fondos.
+ * Dirección visual A, "estilo Uber" (elegida por el dueño el 2026-10-15; artboards de diseno-vg: Hoy, Reportar,
+ * Tarjeta, Mi agenda y Agendar): negro y blanco, títulos fuertes (30/36, 700, −0,02 em), encabezado BLANCO con el
+ * título grande (ya no la barra negra), botones negros a ancho completo de 52 pt, chips y botones secundarios
+ * rellenos de #EEEEEE, filas con separadores finos (#EEEEEE), bloques #F6F6F6, radios 10 (botón, chip, campo), 12
+ * (bloque, tarjeta) y 20 (la hoja sobre el mapa), y el estado "dentro" en verde #047857 sobre #E7F4EE. En modo
+ * oscuro se invierte: fondo negro, texto blanco, acento blanco y los mismos papeles.
  *
- * `contraste(a, b)` es la fórmula de WCAG 2.x: las pruebas (sección 15 de scripts/movil-check.ts) exigen que el borde
- * de los controles dé ≥ 3:1 (WCAG 1.4.11, componentes) y el texto secundario ≥ 4,5:1 (1.4.3) en los dos modos.
+ * `contraste(a, b)` es la fórmula de WCAG 2.x: las pruebas (scripts/checks/15-navegacion.ts y 20-estilo.ts) exigen
+ * ≥ 4,5:1 para todo texto sobre los fondos donde va (1.4.3), ≥ 3:1 para el borde de los campos (1.4.11) y que lo
+ * elegido (acento) se distinga de lo no elegido (relleno) a ≥ 3:1, en los dos modos.
  */
 
 export interface Colores {
+  /** Fondo de la pantalla (y del encabezado blanco). */
   fondo: string
+  /** Tarjetas, la hoja sobre el mapa, la barra de pestañas y el pie fijo. */
   superficie: string
+  /** Bloques destacados (#F6F6F6): "Compromiso pendiente", "Lo que dijiste", la cita ya reportada. */
   superficieSuave: string
+  /** Relleno de chips, botones secundarios, botones de ícono y campos (#EEEEEE). */
+  relleno: string
   texto: string
   textoSuave: string
-  /** Borde suave de tarjetas y separadores (decorativo: no tiene que llegar a 3:1). */
+  /** Texto de lo que no se puede tocar (días pasados, horas ocupadas). WCAG 1.4.3 no lo exige a 4,5:1. */
+  textoInactivo: string
+  /** Separadores de filas y borde de las tarjetas (decorativo: no tiene que llegar a 3:1). */
   borde: string
+  /** Raya de arriba de la barra de pestañas y del pie fijo (#E6E6E6). */
+  bordeFuerte: string
   acento: string
   sobreAcento: string
   peligro: string
@@ -28,44 +41,53 @@ export interface Colores {
   fondoAlerta: string
   info: string
   fondoInfo: string
-  /** Encabezado de las pantallas (negro de marca en los dos modos) y el texto/íconos que van encima. */
+  /** Negro de marca en los dos modos: la portada (pantalla de inicio) y lo que va encima. */
   encabezado: string
   sobreEncabezado: string
-  /** Borde de los controles (campo, chip inactivo, botón secundario): ≥ 3:1 sobre la superficie y el fondo. */
+  /** Borde de los campos de texto y del selector: ≥ 3:1 sobre la superficie y el fondo (WCAG 1.4.11). */
   bordeControl: string
+  /** La agarradera de la hoja sobre el mapa. */
+  agarradera: string
 }
 
-/** Marca VG Medical. Contrastes (WCAG): texto 13:1 y texto secundario 6,4:1 sobre el fondo; estados ≥ 5,2:1. */
+/** Claro: blanco y negro. Texto 21:1, texto secundario 6,6:1 sobre blanco y 5,8:1 sobre #EEEEEE; estados ≥ 4,8:1. */
 export const COLORES_CLAROS: Colores = {
-  fondo: '#F8F9FA',
+  fondo: '#FFFFFF',
   superficie: '#FFFFFF',
-  superficieSuave: '#EEEFF1',
-  texto: '#2E2D2D',
+  superficieSuave: '#F6F6F6',
+  relleno: '#EEEEEE',
+  texto: '#000000',
   textoSuave: '#5C5B5B',
-  borde: '#E2E3E5',
+  textoInactivo: '#A3A3A3',
+  borde: '#EEEEEE',
+  bordeFuerte: '#E6E6E6',
   acento: '#000000',
   sobreAcento: '#FFFFFF',
   peligro: '#B91C1C',
-  fondoPeligro: '#FEF2F2',
+  fondoPeligro: '#FDF0F0',
   exito: '#047857',
-  fondoExito: '#ECFDF5',
+  fondoExito: '#E7F4EE',
   alerta: '#92400E',
-  fondoAlerta: '#FFFBEB',
+  fondoAlerta: '#FFF6E5',
   info: '#1E40AF',
-  fondoInfo: '#EFF6FF',
+  fondoInfo: '#EEF3FE',
   encabezado: '#000000',
   sobreEncabezado: '#FFFFFF',
   bordeControl: '#8A8A8A',
+  agarradera: '#D4D4D4',
 }
 
-/** Modo oscuro monocromático: grises neutros (sin tinte azul) y acento blanco. Estados ≥ 8:1. */
+/** Oscuro: fondo negro, superficies grises neutras (sin tinte azul) y acento blanco. Estados ≥ 8:1. */
 export const COLORES_OSCUROS: Colores = {
-  fondo: '#0A0A0A',
+  fondo: '#000000',
   superficie: '#161616',
-  superficieSuave: '#222222',
-  texto: '#EDEDED',
-  textoSuave: '#A3A3A3',
-  borde: '#2E2E2E',
+  superficieSuave: '#1F1F1F',
+  relleno: '#2C2C2C',
+  texto: '#FFFFFF',
+  textoSuave: '#A6A6A6',
+  textoInactivo: '#666666',
+  borde: '#2A2A2A',
+  bordeFuerte: '#333333',
   acento: '#FFFFFF',
   sobreAcento: '#000000',
   peligro: '#FCA5A5',
@@ -79,22 +101,74 @@ export const COLORES_OSCUROS: Colores = {
   encabezado: '#000000',
   sobreEncabezado: '#FFFFFF',
   bordeControl: '#6B6B6B',
+  agarradera: '#4A4A4A',
 }
 
-/** Tamaños grandes para usar en la calle, con una mano: botones de 56 pt, texto de 17 pt. */
+/**
+ * Colores del croquis (components/Croquis.tsx): suelo y manzanas decorativas. El círculo del radio usa `exito` (borde)
+ * y el mismo color al 8 % (relleno), para que se vean las manzanas debajo.
+ */
+export interface ColoresMapa {
+  suelo: string
+  manzana: string
+}
+
+export const MAPA_CLARO: ColoresMapa = { suelo: '#FFFFFF', manzana: '#ECEEF1' }
+export const MAPA_OSCURO: ColoresMapa = { suelo: '#0B0B0C', manzana: '#1B1C1F' }
+
+/**
+ * Tamaños (en pt). Botón principal de 52 a ancho completo, todo lo que se toca ≥ 44 (ALTO_TOQUE_MIN), márgenes de
+ * 20 a los lados como en los artboards.
+ */
 export const TAMANO = {
-  texto: 17,
+  /** Texto de lectura (nombres, valores). */
+  texto: 16,
+  /** Texto secundario (sede, detalle). */
   textoPeque: 14,
-  titulo: 26,
-  subtitulo: 19,
-  boton: 56,
-  botonGrande: 72,
-  radio: 14,
-  espacio: 16,
+  /** Título de la pantalla (30/36). */
+  titulo: 30,
+  /** Título de un paso o de un bloque grande ("¿A qué hora?", el nombre de la cita): 20/26. */
+  subtitulo: 20,
+  /** Título de una sección ("Más citas de hoy", "Octubre 2026"): 17/22. */
+  seccion: 17,
+  /** Alto del botón (principal negro y secundario #EEEEEE). */
+  boton: 52,
+  /** Alto del botón grande (con una línea de detalle debajo). */
+  botonGrande: 64,
+  /** Radio de botones, chips, campos y botones de ícono. */
+  radio: 10,
+  /** Radio de tarjetas y bloques. */
+  radioTarjeta: 12,
+  /** Radio de arriba de la hoja sobre el mapa. */
+  radioHoja: 20,
+  /** Margen de los lados de la pantalla. */
+  espacio: 20,
+} as const
+
+/** Escala de letra (tamaño / alto de línea / espaciado) de los artboards. */
+export const LETRA = {
+  titulo: { fontSize: 30, lineHeight: 36, letterSpacing: -0.6 },
+  /** Título de una pantalla abierta con "Volver" (Agendar, Nuevo médico…): un poco menor, cabe junto a "Volver". */
+  tituloPaso: { fontSize: 28, lineHeight: 34, letterSpacing: -0.56 },
+  subtitulo: { fontSize: 20, lineHeight: 26, letterSpacing: -0.2 },
+  seccion: { fontSize: 17, lineHeight: 22, letterSpacing: 0 },
+  cuerpo: { fontSize: 16, lineHeight: 22, letterSpacing: 0 },
+  peque: { fontSize: 14, lineHeight: 20, letterSpacing: 0 },
+  etiqueta: { fontSize: 13, lineHeight: 16, letterSpacing: 0 },
+  boton: { fontSize: 17, lineHeight: 22, letterSpacing: 0 },
 } as const
 
 /** Alto mínimo de todo lo que se toca (botón, chip, "Volver"): 44 pt, la guía de Apple. */
 export const ALTO_TOQUE_MIN = 44
+
+/** Tope del texto grande del sistema donde el espacio es fijo (insignias, chips de hora, días del calendario). */
+export const MAX_ESCALA_TEXTO = 1.3
+
+/** Sombras (boxShadow, iOS/Android/web): lo que flota sobre el mapa y la hoja que sube sobre él. */
+export const SOMBRA = {
+  flotante: '0px 2px 8px rgba(0, 0, 0, 0.16)',
+  hoja: '0px -6px 24px rgba(0, 0, 0, 0.10)',
+} as const
 
 /** Canal sRGB (0..255) → lineal, como lo define WCAG 2.x. */
 function canalLineal(canal: number): number {

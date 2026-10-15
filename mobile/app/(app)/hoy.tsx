@@ -9,10 +9,16 @@
  * teléfono) con "Actualizando…"; al volver a Hoy no se pide de nuevo antes de 60 s (debeRecargarHoy) salvo que algo lo
  * invalide (visita guardada, cita, día libre: escucharInvalidacion) o se tire para actualizar. Una cita pendiente se
  * toca para reportarla: Reportar la abre ya elegida (fijarCitaParaReportar).
+ *
+ * Estilo Uber (2026-10-15, spec 2026-10-15-movil-estilo-uber): sin encabezado; arriba el croquis (tu punto, las sedes
+ * cercanas y el radio de la sede de la cita "de ahora") con el logotipo, y la hoja blanca con "Hola, …", "Agendar" y
+ * el resto en secciones con filas de separador fino.
  */
 import { useFocusEffect, useRouter } from 'expo-router'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { View } from 'react-native'
+import { Croquis, PastillaLogo } from '../../components/Croquis'
+import { Logo } from '../../components/Logo'
 import { FilaCita } from '../../components/reporte/FilaCita'
 import * as api from '../../lib/api'
 import { useCola } from '../../lib/cola-contexto'
@@ -20,15 +26,16 @@ import { guardarContexto, leerContextoGuardado } from '../../lib/contexto-guarda
 import { FRESCURA_PINTAR_MS, FRESCURA_SIN_PEDIR_MS, contextoReciente, escucharInvalidacion } from '../../lib/contexto-memoria'
 import { aApiError, esNoDisponible, type ApiError } from '../../lib/errores'
 import { fechaCorta, fechaLarga, horaBogota, hoyBogota } from '../../lib/fechas'
-import { textoDistancia } from '../../lib/geo'
+import { textoDistancia, textoPrecision } from '../../lib/geo'
+import { Icono } from '../../lib/iconos'
 import { citaAtrasada, citaDeAhora, debeRecargarHoy, textoSiguienteCita, textoUbicacionTomada } from '../../lib/pantallas'
-import { avance, conQuien, conQuienCita, detalleModalidad, fraccionBarra, numeroTexto, plural } from '../../lib/reglas'
+import { avance, conQuien, conQuienCita, detalleModalidad, fraccionBarra, numeroTexto, plural, sinCortes } from '../../lib/reglas'
 import { fijarCitaParaReportar, fijarReintento } from '../../lib/retorno'
 import { useSesion } from '../../lib/sesion'
 import type { CitaItem, ContextoResponse, VisitaItem, VisitasResponse } from '../../lib/tipos'
 import { ETIQUETA_TIPO_VISITA } from '../../lib/tipos'
 import { pedirUbicacionEnDosPasos, type ResultadoUbicacion } from '../../lib/ubicacion'
-import { Aviso, Barra, Boton, Cargando, Fila, Grupo, Insignia, Pantalla, Subtitulo, Tarjeta, Texto, Titulo, Vacio } from '../../lib/ui'
+import { Aviso, Barra, Bloque, BordeHoja, Boton, Cargando, Fila, FilaLista, Grupo, Insignia, Pantalla, Seccion, Texto, Titulo, Vacio, useColores } from '../../lib/ui'
 
 /** Cada cuánto se mueve el reloj de la cita "de ahora" ("en 25 min", "Atrasada") mientras Hoy está a la vista. */
 const RELOJ_MS = 30_000
@@ -41,6 +48,7 @@ export default function Hoy() {
   sesion.current = { sinConfirmar, refrescarSesion, usuarioId: perfil?.usuario.id ?? null }
   const cola = useCola()
   const { reintentar } = cola
+  const c = useColores()
   const [contexto, setContexto] = useState<ContextoResponse | null>(null)
   const [errorContexto, setErrorContexto] = useState<ApiError | null>(null)
   const [visitas, setVisitas] = useState<VisitasResponse | null>(null)
@@ -206,17 +214,42 @@ export default function Hoy() {
   const items = (visitas?.items ?? []).slice().sort((a, b) => b.checked_in_at.localeCompare(a.checked_in_at))
   const textoUbicacion = ubicacion?.ubicacion ? textoUbicacionTomada(ubicacion.ubicacion.precision, ubicacion.ubicacion.aproximada) : (ubicacion?.error ?? '')
 
+  // Croquis: tu punto, las sedes cercanas y el radio de la sede de la cita "de ahora" (o la más cercana).
+  const deAhoraCroquis = contexto ? citaDeAhora((contexto.agenda_hoy ?? []).filter(c => c.estado !== 'cancelada'), ahora) : null
+  const sedesCroquis = [...(contexto?.sedes_cerca ?? []), ...(deAhoraCroquis ? [deAhoraCroquis.sede] : [])]
+  const punto = ubicacion?.ubicacion ?? null
+  const precisionTexto = punto ? textoPrecision(punto.precision) : null
+
   return (
     <Pantalla alRefrescar={refrescar} refrescando={refrescando}>
-      <View style={{ gap: 2 }}>
-        <Texto suave>{capitalizar(fechaLarga(hoy))}</Texto>
-        <Titulo>{nombre ? `Hola, ${primerNombre(nombre)}` : 'Hoy'}</Titulo>
-        {zona ? <Texto suave>Zona {zona}</Texto> : null}
-        {actualizando && !refrescando ? (
-          <Texto suave peque>
-            Actualizando…
-          </Texto>
-        ) : null}
+      <Croquis
+        yo={punto}
+        sedes={sedesCroquis}
+        foco={deAhoraCroquis?.sede.id ?? null}
+        radioM={contexto?.config.radio_m ?? null}
+        etiquetaYo={punto ? `Estás aquí${precisionTexto ? ` · ${precisionTexto}` : ''}` : null}
+        arribaIzquierda={
+          <PastillaLogo>
+            <Logo ancho={82} />
+          </PastillaLogo>
+        }
+      />
+      <BordeHoja />
+
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <View style={{ gap: 2, flexShrink: 1 }}>
+          <Titulo>{nombre ? `Hola, ${primerNombre(nombre)}` : 'Hoy'}</Titulo>
+          <Texto suave>{capitalizar(fechaLarga(hoy))}</Texto>
+          {zona ? <Texto suave>Zona {zona}</Texto> : null}
+          {actualizando && !refrescando ? (
+            <Texto suave peque>
+              Actualizando…
+            </Texto>
+          ) : null}
+        </View>
+        {/* Como antes del estilo Uber (estaba en "Tu agenda de hoy"): solo con el contexto del día, no sin él ni sin
+            Ejecutivo Comercial enlazado. */}
+        {contexto ? <Boton titulo="Agendar" variante="secundario" compacto icono="agregar" alPresionar={() => router.push('/agenda/nueva')} /> : null}
       </View>
 
       {sinEjecutiva ? (
@@ -230,7 +263,7 @@ export default function Hoy() {
         </Aviso>
       ) : null}
 
-      <Boton titulo="Reportar visita" detalle="Dicta lo que pasó o repórtala por toques" grande alPresionar={() => router.push('/reportar')} />
+      <Boton titulo="Reportar visita" detalle="Dicta lo que pasó o repórtala por toques" grande icono="microfono" alPresionar={() => router.push('/reportar')} />
 
       <MetaDelDia contexto={contexto} error={errorContexto} />
       {contexto && errorContexto && !actualizando ? (
@@ -244,7 +277,6 @@ export default function Hoy() {
           citas={contexto.agenda_hoy ?? []}
           ahora={ahora}
           alReportarCita={reportarCita}
-          alAgendar={() => router.push('/agenda/nueva')}
           alVerAgenda={() => router.push('/agenda')}
           alAbrirVisita={id => router.push(`/visita/${id}`)}
         />
@@ -305,21 +337,30 @@ export default function Hoy() {
       ))}
 
       {contexto && contexto.compromisos_vencidos.length > 0 ? (
-        <Tarjeta>
-          <Subtitulo>Compromisos vencidos</Subtitulo>
+        <View style={{ gap: 8 }}>
+          <Seccion titulo="Compromisos vencidos" />
           {contexto.compromisos_vencidos.map(compromiso => (
-            <Tarjeta key={compromiso.visita_id} alPresionar={() => router.push(`/visita/${compromiso.visita_id}?fecha=${compromiso.fecha}`)} estilo={{ padding: 12 }}>
-              <Texto negrita>{compromiso.con}</Texto>
-              <Texto suave peque>
-                Próxima reunión era el {fechaCorta(compromiso.next_step_date)} · visita del {fechaCorta(compromiso.fecha)}
-              </Texto>
-            </Tarjeta>
+            <Bloque
+              key={compromiso.visita_id}
+              alPresionar={() => router.push(`/visita/${compromiso.visita_id}?fecha=${compromiso.fecha}`)}
+              etiquetaAccesible={`Compromiso vencido con ${compromiso.con}`}
+              estilo={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}
+            >
+              <Icono nombre="compromiso" tamano={22} />
+              <View style={{ flex: 1, gap: 2 }}>
+                <Texto media>{compromiso.con}</Texto>
+                <Texto suave peque>
+                  Próxima reunión era el {fechaCorta(compromiso.next_step_date)} · visita del {fechaCorta(compromiso.fecha)}
+                </Texto>
+              </View>
+              <Icono nombre="adelante" tamano={18} color={c.textoSuave} />
+            </Bloque>
           ))}
-        </Tarjeta>
+        </View>
       ) : null}
 
-      <Tarjeta>
-        <Subtitulo>Visitas de hoy</Subtitulo>
+      <View>
+        <Seccion titulo="Visitas de hoy" estilo={{ marginBottom: 4 }} />
         {errorVisitas ? (
           <Aviso tono={esNoDisponible(errorVisitas) ? 'info' : errorVisitas.tipo === 'red' || errorVisitas.tipo === 'tiempo' ? 'alerta' : 'peligro'}>
             {esNoDisponible(errorVisitas) ? 'El reporte de visitas todavía no está activo en el servidor.' : errorVisitas.message}
@@ -329,9 +370,9 @@ export default function Hoy() {
         ) : items.length === 0 ? (
           <Vacio texto="Todavía no has reportado visitas hoy." />
         ) : (
-          items.map(visita => <FilaVisita key={visita.id} visita={visita} alPresionar={() => router.push(`/visita/${visita.id}`)} />)
+          items.map((visita, i) => <FilaVisita key={visita.id} visita={visita} primera={i === 0} alPresionar={() => router.push(`/visita/${visita.id}`)} />)
         )}
-      </Tarjeta>
+      </View>
 
       <Texto suave peque>
         {textoUbicacion}
@@ -353,11 +394,8 @@ function MetaDelDia({ contexto, error }: { contexto: ContextoResponse | null; er
   const { meta, hechas, cuota_dia_ok } = contexto.hoy
   const perfil = contexto.config.perfil
   return (
-    <Tarjeta>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Subtitulo>Meta de hoy</Subtitulo>
-        {cuota_dia_ok ? <Insignia texto="Cumplida" tono="exito" /> : null}
-      </View>
+    <View style={{ gap: 10 }}>
+      <Seccion titulo="Meta de hoy" derecha={cuota_dia_ok ? <Insignia texto="Cumplida" tono="exito" /> : undefined} />
       {perfil.includes('medica') ? <Avance etiqueta="Médicas" hechas={hechas.medicas} meta={meta.medica} /> : null}
       {perfil.includes('institucional') ? <Avance etiqueta="Institucionales" hechas={hechas.institucionales} meta={meta.institucional} /> : null}
       <Grupo>
@@ -366,27 +404,26 @@ function MetaDelDia({ contexto, error }: { contexto: ContextoResponse | null; er
         ) : null}
         {hechas.no_efectivas > 0 ? <Insignia texto={plural(hechas.no_efectivas, 'no efectiva', 'no efectivas')} tono="alerta" /> : null}
       </Grupo>
-    </Tarjeta>
+    </View>
   )
 }
 
 /**
- * Las citas de hoy (pendientes y hechas). La pendiente se toca para reportarla (Reportar la abre elegida) y lleva
- * "Atrasada" si ya pasó su hora; la hecha abre su visita. Arriba, la cita "de ahora" ("Siguiente: 10:30 · …"). "Agendar"
- * y "Ver agenda" llevan a la agenda.
+ * Las citas de hoy (pendientes y hechas), en filas con separador. La pendiente se toca para reportarla (Reportar la
+ * abre elegida) y lleva "Atrasada" si ya pasó su hora; la hecha abre su visita. Arriba, la cita "de ahora"
+ * ("Siguiente: 10:30 · …") en un bloque destacado que también lleva a reportarla. "Ver agenda" abre Mi agenda
+ * ("Agendar" está junto al saludo).
  */
 function AgendaDeHoy({
   citas,
   ahora,
   alReportarCita,
-  alAgendar,
   alVerAgenda,
   alAbrirVisita,
 }: {
   citas: readonly CitaItem[]
   ahora: Date
   alReportarCita: (cita: CitaItem) => void
-  alAgendar: () => void
   alVerAgenda: () => void
   alAbrirVisita: (visitaId: string) => void
 }) {
@@ -397,29 +434,59 @@ function AgendaDeHoy({
   const hechas = ordenadas.filter(c => c.estado === 'hecha').length
   const deAhora = citaDeAhora(ordenadas, ahora)
   return (
-    <Tarjeta>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-        <Subtitulo>Tu agenda de hoy</Subtitulo>
-        {ordenadas.length > 0 ? <Insignia texto={`${numeroTexto(hechas)} de ${numeroTexto(ordenadas.length)} hechas`} tono={hechas === ordenadas.length ? 'exito' : 'neutro'} /> : null}
-      </View>
-      {deAhora ? <Boton titulo={textoSiguienteCita(deAhora, ahora)} detalle="Toca para reportarla" variante="secundario" alPresionar={() => alReportarCita(deAhora)} /> : null}
+    <View style={{ gap: 10 }}>
+      {/* "x de y hechas" en gris; en verde (insignia de éxito) cuando están todas, como antes. */}
+      <Seccion
+        titulo="Tu agenda de hoy"
+        derecha={
+          ordenadas.length === 0 ? undefined : hechas === ordenadas.length ? (
+            <Insignia texto={`${numeroTexto(hechas)} de ${numeroTexto(ordenadas.length)} hechas`} tono="exito" />
+          ) : (
+            `${numeroTexto(hechas)} de ${numeroTexto(ordenadas.length)} hechas`
+          )
+        }
+      />
+      {deAhora ? <SiguienteCita cita={deAhora} titulo={textoSiguienteCita(deAhora, ahora)} alPresionar={() => alReportarCita(deAhora)} /> : null}
       {ordenadas.length === 0 ? (
         <Vacio texto="No tienes citas para hoy." />
       ) : (
-        ordenadas.map(cita => (
-          <FilaCita
-            key={cita.id}
-            cita={cita}
-            atrasada={citaAtrasada(cita, ahora)}
-            alPresionar={cita.estado === 'pendiente' ? () => alReportarCita(cita) : cita.visita_id ? () => alAbrirVisita(cita.visita_id as string) : undefined}
-          />
-        ))
+        <View>
+          {ordenadas.map((cita, i) => (
+            <FilaCita
+              key={cita.id}
+              cita={cita}
+              primera={i === 0}
+              atrasada={citaAtrasada(cita, ahora)}
+              alPresionar={cita.estado === 'pendiente' ? () => alReportarCita(cita) : cita.visita_id ? () => alAbrirVisita(cita.visita_id as string) : undefined}
+            />
+          ))}
+        </View>
       )}
-      <View style={{ flexDirection: 'row', gap: 8 }}>
-        <Boton titulo="Agendar" variante="secundario" alPresionar={alAgendar} estilo={{ flex: 1 }} />
-        <Boton titulo="Ver agenda" variante="secundario" alPresionar={alVerAgenda} estilo={{ flex: 1 }} />
+      <Boton titulo="Ver agenda" variante="secundario" alPresionar={alVerAgenda} />
+    </View>
+  )
+}
+
+/** La cita "de ahora": bloque #F6F6F6 con la hora y con quién, la sede, si estás dentro del radio y "Toca para reportarla". */
+function SiguienteCita({ cita, titulo, alPresionar }: { cita: CitaItem; titulo: string; alPresionar: () => void }) {
+  const c = useColores()
+  return (
+    <Bloque alPresionar={alPresionar} etiquetaAccesible={`${titulo}. Toca para reportarla`} estilo={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14 }}>
+      <View style={{ flex: 1, gap: 4 }}>
+        <Texto negrita>{titulo}</Texto>
+        <Texto suave peque>
+          {cita.sede.nombre}
+          {cita.distancia_m !== null ? ` · a ${sinCortes(textoDistancia(cita.distancia_m))}` : ''}
+        </Texto>
+        <Grupo estilo={{ marginTop: 2, alignItems: 'center' }}>
+          {cita.dentro_del_radio === true ? <Insignia texto="Dentro del radio" tono="exito" /> : null}
+          <Texto peque negrita>
+            Toca para reportarla
+          </Texto>
+        </Grupo>
       </View>
-    </Tarjeta>
+      <Icono nombre="adelante" tamano={20} color={c.textoSuave} />
+    </Bloque>
   )
 }
 
@@ -433,25 +500,28 @@ function Avance({ etiqueta, hechas, meta }: { etiqueta: string; hechas: number; 
   )
 }
 
-function FilaVisita({ visita, alPresionar }: { visita: VisitaItem; alPresionar: () => void }) {
+/** Una visita de hoy: fila con separador (con quién y la hora; tipo, sede y modalidad; su estado). */
+function FilaVisita({ visita, primera, alPresionar }: { visita: VisitaItem; primera: boolean; alPresionar: () => void }) {
   return (
-    <Tarjeta alPresionar={alPresionar} estilo={{ padding: 12 }} etiquetaAccesible={`Visita a ${conQuien(visita)}`}>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
-        <Texto negrita estilo={{ flexShrink: 1 }}>
-          {conQuien(visita)}
+    <FilaLista alPresionar={alPresionar} primera={primera} etiquetaAccesible={`Visita a ${conQuien(visita)}`}>
+      <View style={{ flex: 1, gap: 4 }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
+          <Texto media estilo={{ flexShrink: 1 }}>
+            {conQuien(visita)}
+          </Texto>
+          <Texto suave estilo={{ fontVariant: ['tabular-nums'] }}>{horaBogota(visita.checked_in_at)}</Texto>
+        </View>
+        <Texto suave peque>
+          {ETIQUETA_TIPO_VISITA[visita.tipo]} · {visita.sede.nombre} · {detalleModalidad(visita, textoDistancia)}
         </Texto>
-        <Texto suave>{horaBogota(visita.checked_in_at)}</Texto>
+        <Grupo>
+          <Insignia texto={visita.efectiva ? 'Efectiva' : 'No efectiva'} tono={visita.efectiva ? 'exito' : 'alerta'} />
+          {visita.out_of_territory ? <Insignia texto="Fuera de tu territorio" tono="info" /> : null}
+          {visita.sede_por_confirmar ? <Insignia texto="Sede por confirmar: aún no suma" tono="alerta" /> : null}
+          {visita.input_mode === 'voz' ? <Insignia texto="Por voz" /> : null}
+        </Grupo>
       </View>
-      <Texto suave peque>
-        {ETIQUETA_TIPO_VISITA[visita.tipo]} · {visita.sede.nombre} · {detalleModalidad(visita, textoDistancia)}
-      </Texto>
-      <Grupo>
-        <Insignia texto={visita.efectiva ? 'Efectiva' : 'No efectiva'} tono={visita.efectiva ? 'exito' : 'alerta'} />
-        {visita.out_of_territory ? <Insignia texto="Fuera de tu territorio" tono="info" /> : null}
-        {visita.sede_por_confirmar ? <Insignia texto="Sede por confirmar: aún no suma" tono="alerta" /> : null}
-        {visita.input_mode === 'voz' ? <Insignia texto="Por voz" /> : null}
-      </Grupo>
-    </Tarjeta>
+    </FilaLista>
   )
 }
 

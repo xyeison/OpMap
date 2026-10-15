@@ -45,6 +45,17 @@ export interface OpcionesCalendario {
 /** Letras de los días, de lunes a domingo. */
 export const LETRAS_SEMANA = ['L', 'M', 'M', 'J', 'V', 'S', 'D'] as const
 
+/**
+ * Separación entre los días de una semana del calendario (pt). Revisión 2026-10-15: con 4 y los márgenes de 20 del
+ * estilo Uber, en un Android de 360 dp cada día quedaba de 42,3 pt de ancho (menos de los 44 que se tocan bien).
+ */
+export const SEPARACION_DIAS = 2
+
+/** Ancho de cada día en una fila de 7 que mide `anchoFila`, con `separacion` entre los días. */
+export function anchoDia(anchoFila: number, separacion: number = SEPARACION_DIAS): number {
+  return (anchoFila - 6 * separacion) / 7
+}
+
 const MESES_CORTOS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'] as const
 
 /** ¿Se puede elegir ese día? Dentro de desde..hasta (si se dan) y sin marca de apagado. */

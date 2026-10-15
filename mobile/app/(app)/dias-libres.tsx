@@ -23,7 +23,7 @@ import { avisoCitasEnDiaLibre, marcasConCitas, marcasDiasLibres, primerDiaRegist
 import { ejecutivaPuedeAnular, ordenarDiasLibres, textoFraccion } from '../../lib/reglas'
 import type { CitaItem, DiaLibreItem, EstadoDiaLibre, MisDiasLibresResponse } from '../../lib/tipos'
 import { DIAS_AGENDA_ADELANTE, ETIQUETA_ESTADO_DIA_LIBRE } from '../../lib/tipos'
-import { Aviso, Boton, Campo, Cargando, Chip, Grupo, Insignia, Pantalla, Subtitulo, Tarjeta, Texto, confirmar, type Tono } from '../../lib/ui'
+import { Aviso, Boton, Campo, Cargando, Chip, Grupo, Insignia, Pantalla, Subtitulo, Texto, confirmar, useColores, type Tono } from '../../lib/ui'
 
 const DIAS_ATRAS = 90
 
@@ -36,6 +36,7 @@ const TONO_ESTADO: Record<EstadoDiaLibre, Tono> = {
 }
 
 export default function DiasLibres() {
+  const c = useColores()
   const router = useRouter()
   const [datos, setDatos] = useState<MisDiasLibresResponse | null>(null)
   /** Citas de hoy a hoy + 30 (las que se pueden tener por delante): solo para marcar y avisar. */
@@ -159,12 +160,10 @@ export default function DiasLibres() {
       ) : null}
 
       {datos ? (
-        <Tarjeta>
+        <View style={{ gap: 10 }}>
           <Subtitulo>Registrar un día libre</Subtitulo>
 
-          <Texto suave peque>
-            Fecha
-          </Texto>
+          <Etiqueta texto="Fecha" />
           <CalendarioMes valor={fecha} alCambiar={setFecha} hoy={hoy} desde={primerDia} marcas={marcas} vista="mes" />
           <Texto negrita>{`${capitalizar(fechaLarga(fecha))} (${fechaRelativa(fecha)})`}</Texto>
 
@@ -182,17 +181,13 @@ export default function DiasLibres() {
             </Aviso>
           ) : null}
 
-          <Texto suave peque>
-            Cuánto
-          </Texto>
+          <Etiqueta texto="Cuánto" />
           <Grupo>
             <Chip texto="Día completo" activo={fraccion === 1} alPresionar={() => setFraccion(1)} />
             <Chip texto="Medio día" activo={fraccion === 0.5} alPresionar={() => setFraccion(0.5)} />
           </Grupo>
 
-          <Texto suave peque>
-            Motivo
-          </Texto>
+          <Etiqueta texto="Motivo" />
           <Grupo>
             {datos.motivos.map(m => (
               <Chip key={m.codigo} texto={m.nombre} activo={motivo === m.codigo} alPresionar={() => setMotivo(m.codigo)} />
@@ -210,15 +205,15 @@ export default function DiasLibres() {
           {mensaje ? <Aviso tono={mensaje.tono}>{mensaje.texto}</Aviso> : null}
 
           <Boton titulo="Registrar día libre" alPresionar={registrar} cargando={guardando} deshabilitado={!puedeGuardar} />
-        </Tarjeta>
+        </View>
       ) : null}
 
-      {datos ? <Subtitulo>Registrados</Subtitulo> : null}
+      {datos ? <Subtitulo estilo={{ borderTopWidth: 1, borderTopColor: c.borde, paddingTop: 16 }}>Registrados</Subtitulo> : null}
       {!datos ? null : lista.length === 0 ? (
         <Texto suave>No tienes días libres en los últimos {DIAS_ATRAS} días ni por venir.</Texto>
       ) : (
-        lista.map(dia => (
-          <Tarjeta key={dia.id}>
+        lista.map((dia, i) => (
+          <View key={dia.id} style={{ gap: 6, paddingTop: i === 0 ? 0 : 12, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: c.borde }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
               <View style={{ flexShrink: 1, gap: 2 }}>
                 <Texto negrita>{capitalizar(fechaLarga(dia.fecha))}</Texto>
@@ -235,12 +230,22 @@ export default function DiasLibres() {
               </Texto>
             ) : null}
             {ejecutivaPuedeAnular(dia, hoy) ? (
-              <Boton titulo="Anular" variante="peligro" cargando={anulando === dia.id} alPresionar={() => void anular(dia)} />
+              <Boton titulo="Anular" variante="peligro" compacto cargando={anulando === dia.id} alPresionar={() => void anular(dia)} />
             ) : null}
-          </Tarjeta>
+          </View>
         ))
       )}
     </Pantalla>
+  )
+}
+
+/** Rótulo de un campo del formulario ("Fecha", "Cuánto", "Motivo"): 13 en negrita, gris. */
+function Etiqueta({ texto }: { texto: string }) {
+  const c = useColores()
+  return (
+    <Texto peque negrita color={c.textoSuave} estilo={{ fontSize: 13, lineHeight: 16, marginTop: 6 }}>
+      {texto}
+    </Texto>
   )
 }
 

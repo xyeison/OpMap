@@ -1,13 +1,14 @@
 /**
- * Paso 1 de Reportar: las sedes a menos de 1 km (sin mapa), la más cercana arriba, con su distancia y si está dentro
- * del radio para la visita presencial. Tocar una la deja elegida para las visitas que se reporten.
+ * Paso 1 de Reportar: las sedes a menos de 1 km (también en el croquis de arriba), la más cercana arriba, con su
+ * distancia y si está dentro del radio para la visita presencial. Tocar una la deja elegida para las visitas que se
+ * reporten. Estilo Uber (2026-10-15): filas con separador fino; la elegida, con borde negro y "✓".
  */
-import { View } from 'react-native'
+import { Pressable, View } from 'react-native'
 import { sinCortes } from '../../lib/reglas'
 import { textoDistancia } from '../../lib/geo'
 import type { SedeOpcion } from '../../lib/propuesta'
 import { etiquetaClaseCuenta } from '../../lib/terceros'
-import { Grupo, Insignia, Tarjeta, Texto, Vacio, useColores } from '../../lib/ui'
+import { FilaLista, Grupo, Insignia, TAMANO, Texto, Vacio, useColores } from '../../lib/ui'
 
 interface Props {
   sedes: readonly SedeOpcion[]
@@ -24,23 +25,19 @@ export function ListaSedes({ sedes, radioM, elegida, alElegir, max = 12, vacio =
   const ordenadas = [...sedes].sort((a, b) => (a.distancia_m ?? Infinity) - (b.distancia_m ?? Infinity)).slice(0, max)
   if (ordenadas.length === 0) return <Vacio texto={vacio} />
   return (
-    <View style={{ gap: 8 }}>
-      {ordenadas.map(sede => {
+    <View>
+      {ordenadas.map((sede, i) => {
         const dentro = sede.distancia_m !== null && sede.distancia_m <= radioM
         const activa = sede.id === elegida
-        return (
-          <Tarjeta
-            key={sede.id}
-            alPresionar={() => alElegir(activa ? null : sede.id)}
-            etiquetaAccesible={`${sede.nombre}${sede.distancia_m !== null ? `, a ${textoDistancia(sede.distancia_m)}` : ''}`}
-            estilo={{ padding: 12, ...(activa ? { borderWidth: 2.5, borderColor: c.acento } : null) }}
-          >
+        const etiqueta = `${sede.nombre}${sede.distancia_m !== null ? `, a ${textoDistancia(sede.distancia_m)}` : ''}`
+        const contenido = (
+          <View style={{ flex: 1, gap: 2 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
-              <Texto negrita estilo={{ flexShrink: 1 }}>
+              <Texto negrita={activa} media={!activa} estilo={{ flexShrink: 1 }}>
                 {activa ? '✓ ' : ''}
                 {sede.nombre}
               </Texto>
-              {sede.distancia_m !== null ? <Texto negrita>{sinCortes(textoDistancia(sede.distancia_m))}</Texto> : null}
+              {sede.distancia_m !== null ? <Texto negrita peque>{sinCortes(textoDistancia(sede.distancia_m))}</Texto> : null}
             </View>
             {sede.cuenta_nombre && sede.cuenta_nombre !== sede.nombre ? (
               <Texto suave peque>
@@ -48,11 +45,30 @@ export function ListaSedes({ sedes, radioM, elegida, alElegir, max = 12, vacio =
                 {sede.cuenta_clase ? ` · ${etiquetaClaseCuenta(sede.cuenta_clase)}` : ''}
               </Texto>
             ) : null}
-            <Grupo>
+            <Grupo estilo={{ marginTop: 4 }}>
               <Insignia texto={dentro ? 'Dentro del radio' : `Fuera del radio (${sinCortes(textoDistancia(radioM))})`} tono={dentro ? 'exito' : 'alerta'} />
               {sede.ubicacion_confirmada === false ? <Insignia texto="Ubicación sin confirmar" tono="neutro" /> : null}
             </Grupo>
-          </Tarjeta>
+          </View>
+        )
+        if (activa) {
+          return (
+            <Pressable
+              key={sede.id}
+              accessibilityRole="button"
+              accessibilityLabel={etiqueta}
+              accessibilityState={{ selected: true }}
+              onPress={() => alElegir(null)}
+              style={({ pressed }) => ({ padding: 14, borderRadius: TAMANO.radioTarjeta, borderWidth: 2, borderColor: c.acento, backgroundColor: c.superficie, opacity: pressed ? 0.7 : 1 })}
+            >
+              {contenido}
+            </Pressable>
+          )
+        }
+        return (
+          <FilaLista key={sede.id} primera={i === 0} alPresionar={() => alElegir(sede.id)} etiquetaAccesible={etiqueta}>
+            {contenido}
+          </FilaLista>
         )
       })}
     </View>

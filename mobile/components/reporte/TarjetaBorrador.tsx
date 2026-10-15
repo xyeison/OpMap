@@ -56,7 +56,7 @@ import { sinCortes, textoHoraCita } from '../../lib/reglas'
 import { filasResumen, modoTarjeta, textoPieConfirmar, type CampoResumen, type FilaResumen } from '../../lib/tarjeta-resumen'
 import { etiquetaClaseCuenta, etiquetaEspecialidad } from '../../lib/terceros'
 import { ETIQUETA_MEDIO, ETIQUETA_TIPO_VISITA, type CitaItem, type CuentaListItem, type MedicoPublico, type TipoVisita } from '../../lib/tipos'
-import { ALTO_TOQUE_MIN, Aviso, Boton, Chip, Grupo, Insignia, Separador, Tarjeta, Texto, useColores, useFuente } from '../../lib/ui'
+import { ALTO_TOQUE_MIN, Aviso, Boton, Chip, Grupo, Insignia, Separador, Texto, useColores, useFuente } from '../../lib/ui'
 import { Buscador } from './Buscador'
 import { CamposVisita, type CampoVisita } from './CamposVisita'
 import { Selector } from './Selector'
@@ -497,11 +497,20 @@ export function TarjetaBorrador(props: Props) {
   return (
     // Mientras se confirma (también mientras espera la ubicación final) la tarjeta no se toca: lo que se manda es lo
     // que hay en ella.
-    <Tarjeta estilo={estado.enviando ? { gap: 14, pointerEvents: 'none', opacity: 0.7 } : { gap: 14 }}>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-        <Texto negrita>
-          Visita {props.numero} de {props.total}
-        </Texto>
+    <View style={[{ paddingTop: props.numero > 1 ? 16 : 0, borderTopWidth: props.numero > 1 ? 6 : 0, borderTopColor: c.superficieSuave }, estado.enviando ? { gap: 14, pointerEvents: 'none', opacity: 0.7 } : { gap: 14 }]}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <Texto peque media suave>
+            Visita {props.numero} de {props.total}
+          </Texto>
+          {props.total > 1 ? (
+            <View accessible={false} style={{ flexDirection: 'row', gap: 4 }}>
+              {Array.from({ length: props.total }, (_, i) => (
+                <View key={i} style={{ width: 20, height: 4, borderRadius: 2, backgroundColor: i < props.numero ? c.acento : c.agarradera }} />
+              ))}
+            </View>
+          ) : null}
+        </View>
         <Grupo>
           {borrador.agenda_id ? <Insignia texto="De tu agenda" tono="info" /> : null}
           <Insignia texto={borrador.origen === 'voz' ? 'Por voz' : 'Por toques'} tono="neutro" />
@@ -610,7 +619,7 @@ export function TarjetaBorrador(props: Props) {
       )}
       {/* Aparte y en rojo (no junto a "Editar todo" con el mismo estilo); Reportar pregunta antes de borrar. */}
       <Boton titulo="Descartar esta visita" variante="peligro" deshabilitado={estado.enviando} alPresionar={props.alDescartar} estilo={{ marginTop: 6 }} />
-    </Tarjeta>
+    </View>
   )
 }
 
@@ -628,11 +637,15 @@ function FilaDelResumen({ fila, abierta, alPresionar, children }: { fila: FilaRe
         style={({ pressed }) => ({ minHeight: ALTO_TOQUE_MIN, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 10, opacity: pressed ? 0.7 : 1 })}
       >
         <View style={{ flex: 1, gap: 2 }}>
-          <Text style={[{ color: c.textoSuave, fontSize: 13 }, fuente('media')]}>{fila.etiqueta}</Text>
+          <Text style={[{ color: c.textoSuave, fontSize: 13, lineHeight: 16 }, fuente('media')]}>{fila.etiqueta}</Text>
           {/* Abierta, el valor está en el campo de abajo: no se repite. */}
-          {abierta ? null : <Texto lineas={fila.lineas}>{fila.valor}</Texto>}
+          {abierta ? null : (
+            <Texto media lineas={fila.lineas}>
+              {fila.valor}
+            </Texto>
+          )}
         </View>
-        <Text style={[{ color: c.textoSuave, fontSize: 14 }, fuente('media')]}>{abierta ? 'Cerrar' : 'Cambiar'}</Text>
+        <Text style={[{ color: c.texto, fontSize: 14, lineHeight: 20 }, fuente('negrita')]}>{abierta ? 'Cerrar' : 'Cambiar'}</Text>
       </Pressable>
       {children}
     </View>

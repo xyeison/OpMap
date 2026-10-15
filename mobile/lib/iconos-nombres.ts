@@ -2,6 +2,10 @@
  * Íconos de la app (puro, sin react-native: lo leen las pruebas en Node). Cada nombre propio va a un glifo de
  * Ionicons (@expo/vector-icons, incluido en Expo Go SDK 57): `relleno` para la pestaña activa o lo elegido,
  * `contorno` para el resto. lib/iconos.tsx dibuja el ícono con este mapa (spec 2026-10-15, decisión 10).
+ *
+ * Estilo Uber (2026-10-15): las pestañas siguen los artboards (sol para Hoy, micrófono para Reportar, controles para
+ * Ajustes) y se suman compromiso (portapapeles) y agregar ("+ Agendar"). La revisión quitó ubicación y buscar, que
+ * no usaba ninguna pantalla (el croquis no se desplaza: no hay nada que centrar).
  */
 
 export type NombreIcono =
@@ -19,6 +23,8 @@ export type NombreIcono =
   | 'check'
   | 'cerrar'
   | 'alerta'
+  | 'compromiso'
+  | 'agregar'
 
 export interface GlifosIcono {
   /** Glifo de Ionicons para lo activo o elegido. */
@@ -30,11 +36,11 @@ export interface GlifosIcono {
 const glifos = (base: string): GlifosIcono => ({ relleno: base, contorno: `${base}-outline` })
 
 export const GLIFOS_ICONOS: Readonly<Record<NombreIcono, GlifosIcono>> = {
-  hoy: glifos('today'),
-  reportar: glifos('create'),
+  hoy: glifos('sunny'),
+  reportar: glifos('mic'),
   agenda: glifos('calendar'),
   numeros: glifos('stats-chart'),
-  ajustes: glifos('settings'),
+  ajustes: glifos('options'),
   microfono: glifos('mic'),
   calendario: glifos('calendar-number'),
   reloj: glifos('time'),
@@ -44,6 +50,8 @@ export const GLIFOS_ICONOS: Readonly<Record<NombreIcono, GlifosIcono>> = {
   check: glifos('checkmark-circle'),
   cerrar: glifos('close'),
   alerta: glifos('alert-circle'),
+  compromiso: glifos('clipboard'),
+  agregar: glifos('add'),
 }
 
 /** Glifo de Ionicons de un ícono: relleno si está activo, contorno si no. */

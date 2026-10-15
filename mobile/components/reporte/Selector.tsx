@@ -114,8 +114,8 @@ export function Selector({ etiqueta, valor, opciones, alElegir, placeholder, err
         onPress={() => (abierto ? cerrar() : setAbierto(true))}
         style={({ pressed }) => ({
           minHeight: TAMANO.boton,
-          borderRadius: 12,
-          borderWidth: 1.5,
+          borderRadius: TAMANO.radio,
+          borderWidth: abierto ? 2 : 1,
           borderColor: error ? c.peligro : abierto ? c.acento : c.bordeControl,
           backgroundColor: c.superficie,
           paddingHorizontal: 14,
@@ -128,7 +128,7 @@ export function Selector({ etiqueta, valor, opciones, alElegir, placeholder, err
       >
         <View style={{ flex: 1 }}>
           <Text style={[{ color: c.textoSuave, fontSize: 13 }, fuente('media')]}>{etiqueta}</Text>
-          <Text style={[{ color: valor ? c.texto : c.textoSuave, fontSize: TAMANO.texto }, fuente(valor ? 'negrita' : 'media')]} numberOfLines={2}>
+          <Text style={[{ color: valor ? c.texto : c.textoSuave, fontSize: TAMANO.texto, lineHeight: 22 }, fuente(valor ? 'negrita' : 'media')]} numberOfLines={2}>
             {tituloCerrado}
           </Text>
           {elegida?.detalle && !abierto ? (
@@ -137,11 +137,11 @@ export function Selector({ etiqueta, valor, opciones, alElegir, placeholder, err
             </Text>
           ) : null}
         </View>
-        <Text style={[{ color: c.textoSuave, fontSize: 15 }, fuente('media')]}>{abierto ? 'Cerrar' : valor ? 'Cambiar' : 'Elegir'}</Text>
+        <Text style={[{ color: c.texto, fontSize: 14 }, fuente('negrita')]}>{abierto ? 'Cerrar' : valor ? 'Cambiar' : 'Elegir'}</Text>
       </Pressable>
 
       {abierto ? (
-        <View style={{ borderRadius: 12, borderWidth: 1, borderColor: c.borde, backgroundColor: c.superficie, overflow: 'hidden' }}>
+        <View style={{ borderRadius: TAMANO.radioTarjeta, borderWidth: 1, borderColor: c.bordeFuerte, backgroundColor: c.superficie, overflow: 'hidden' }}>
           {conBuscador ? (
             <TextInput
               accessibilityLabel={buscarFuera ? `Buscar ${etiqueta.toLowerCase()} por su nombre` : `Buscar en ${etiqueta}`}

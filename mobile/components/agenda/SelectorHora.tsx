@@ -12,7 +12,7 @@ import { Pressable, Text, View } from 'react-native'
 import { citasQueChocan, franjaPasada, franjasHorario, INICIO_TARDE, OTRA_HORA } from '../../lib/agenda'
 import { Icono } from '../../lib/iconos'
 import type { CitaItem } from '../../lib/tipos'
-import { ALTO_TOQUE_MIN, useColores, useFuente } from '../../lib/ui'
+import { ALTO_TOQUE_MIN, TAMANO, useColores, useFuente } from '../../lib/ui'
 
 /** Hasta cuánto crece el texto de los chips con el texto grande del sistema (si no, "07:00" se parte o se corta). */
 const MAX_ESCALA_TEXTO = 1.3
@@ -52,20 +52,25 @@ export function SelectorHora({ valor, alCambiar, fecha, citasDelDia, error, ahor
         onPress={opciones.alPresionar}
         style={({ pressed }) => ({
           minHeight: ALTO_TOQUE_MIN,
-          borderRadius: 12,
-          borderWidth: 1.5,
-          borderColor: opciones.activo ? c.acento : c.bordeControl,
-          backgroundColor: opciones.activo ? c.acento : c.superficie,
+          borderRadius: TAMANO.radio,
+          // Estilo Uber: rellena de #EEEEEE; la elegida, negra; la que ya pasó, blanca con borde fino y gris.
+          borderWidth: opciones.deshabilitado && !opciones.activo ? 1 : 0,
+          borderColor: c.bordeFuerte,
+          backgroundColor: opciones.activo ? c.acento : opciones.deshabilitado ? c.fondo : c.relleno,
           alignItems: 'center',
           justifyContent: 'center',
-          opacity: opciones.deshabilitado ? 0.35 : pressed ? 0.7 : 1,
+          opacity: pressed ? 0.7 : 1,
         })}
       >
-        <Text maxFontSizeMultiplier={MAX_ESCALA_TEXTO} numberOfLines={1} style={[{ color: opciones.activo ? c.sobreAcento : c.texto, fontSize: 16 }, fuente(opciones.activo ? 'negrita' : 'media')]}>
+        <Text
+          maxFontSizeMultiplier={MAX_ESCALA_TEXTO}
+          numberOfLines={1}
+          style={[{ color: opciones.activo ? c.sobreAcento : opciones.deshabilitado ? c.textoInactivo : c.texto, fontSize: 15, fontVariant: ['tabular-nums'] }, fuente(opciones.activo ? 'negrita' : 'media')]}
+        >
           {texto}
         </Text>
         {opciones.marcada ? (
-          <View style={{ position: 'absolute', top: 5, right: 6, width: 7, height: 7, borderRadius: 4, backgroundColor: opciones.activo ? c.sobreAcento : c.info }} />
+          <View style={{ position: 'absolute', top: 5, right: 6, width: 6, height: 6, borderRadius: 3, backgroundColor: opciones.activo ? c.sobreAcento : c.acento }} />
         ) : null}
       </Pressable>
     </View>
@@ -73,7 +78,9 @@ export function SelectorHora({ valor, alCambiar, fecha, citasDelDia, error, ahor
 
   const grupo = (titulo: string, lista: readonly string[]) => (
     <View style={{ gap: 4 }}>
-      <Text style={[{ color: c.textoSuave, fontSize: 14 }, fuente('media')]}>{titulo}</Text>
+      <Text accessibilityRole="header" style={[{ color: c.textoSuave, fontSize: 13, lineHeight: 16 }, fuente('negrita')]}>
+        {titulo}
+      </Text>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -3 }}>
         {lista.map(franja => {
           const ocupada = citasQueChocan(franja, citasDelDia).length > 0
@@ -116,7 +123,7 @@ export function SelectorHora({ valor, alCambiar, fecha, citasDelDia, error, ahor
       {otraAbierta ? (
         <View style={{ gap: 8 }}>
           <View style={{ gap: 4 }}>
-            <Text style={[{ color: c.textoSuave, fontSize: 14 }, fuente('media')]}>Hora</Text>
+            <Text style={[{ color: c.textoSuave, fontSize: 13 }, fuente('negrita')]}>Hora</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -3 }}>
               {OTRA_HORA.horas.map(h => {
                 const libre = primerMinuto(h)
@@ -132,7 +139,7 @@ export function SelectorHora({ valor, alCambiar, fecha, citasDelDia, error, ahor
             </View>
           </View>
           <View style={{ gap: 4 }}>
-            <Text style={[{ color: c.textoSuave, fontSize: 14 }, fuente('media')]}>Minutos</Text>
+            <Text style={[{ color: c.textoSuave, fontSize: 13 }, fuente('negrita')]}>Minutos</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -3 }}>
               {OTRA_HORA.minutos.map(m => {
                 const hora = horaOtra && (OTRA_HORA.horas as readonly string[]).includes(horaOtra) ? horaOtra : '08'

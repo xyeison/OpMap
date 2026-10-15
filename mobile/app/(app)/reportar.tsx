@@ -1,7 +1,7 @@
 /**
  * Reportar (contrato fase 8, sección "App móvil"; F4.1 agenda, spec 2026-10-14):
  *   1. ¿Dónde estás?: arriba las citas PENDIENTES de hoy, la más cercana primero, con su distancia y si está dentro del
- *      radio (ListaCitas); debajo "Visita no agendada" con las sedes a menos de 1 km (sin mapa), un buscador de sedes y
+ *      radio (ListaCitas); debajo "Visita no agendada" con las sedes a menos de 1 km (y en el croquis), un buscador y
  *      "Crear sede aquí". Hablar y Por toques se habilitan solo después de elegir una cita o una sede. Con una cita, la
  *      tarjeta sale ya armada (tipo, médico o cuenta y subtipo, sede y agenda_id) y el dictado va con esa cita.
  *   2. Hablar (graba hasta 3 minutos con el nivel visible; el audio se borra al llegar la transcripción o al
@@ -53,10 +53,14 @@
  *   - La cita tocada en Hoy que quedó pendiente se ve (con "Reportar esa cita" y "Olvidarla") y NO arranca sola al
  *     terminar un envío: no borra lo recién confirmado ni "Agendar esa reunión".
  *   - "Descartar" pide confirmación.
+ *
+ * Estilo Uber (2026-10-15): sin encabezado; mientras se elige, el croquis arriba (tu punto, las sedes y el radio de la
+ * cita o la sede elegida, components/Croquis.tsx) y la hoja con "¿Dónde estás?"; con tarjetas, "Revisa la visita".
  */
 import { useFocusEffect, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, View } from 'react-native'
+import { Croquis } from '../../components/Croquis'
 import { Buscador } from '../../components/reporte/Buscador'
 import { Grabador, pedirPermisoMicrofono } from '../../components/reporte/Grabador'
 import { ListaCitas } from '../../components/reporte/ListaCitas'
@@ -73,6 +77,7 @@ import { fechaLarga, horaBogota, hoyBogota, isoBogota } from '../../lib/fechas'
 import { textoDistancia, textoPrecision, type Punto } from '../../lib/geo'
 import { segundosDe } from '../../lib/grabacion'
 import { vibrarAviso, vibrarExito } from '../../lib/haptica'
+import { Icono } from '../../lib/iconos'
 import { nuevoClientId } from '../../lib/id'
 import {
   AVISO_EN_COLA,
@@ -127,7 +132,7 @@ import {
   planCargaReportar,
   type PasoDelReporte,
 } from '../../lib/ubicacion-pasos'
-import { Aviso, Boton, Cargando, Grupo, Insignia, Pantalla, Subtitulo, Tarjeta, Texto, Titulo, confirmar, useColores } from '../../lib/ui'
+import { Aviso, Bloque, BordeHoja, Boton, Cargando, Grupo, Insignia, Pantalla, Seccion, Subtitulo, Tarjeta, Texto, Titulo, confirmar, useColores } from '../../lib/ui'
 
 type Fase = 'ubicando' | 'lista' | 'grabando' | 'transcribiendo' | 'proponiendo' | 'tarjetas'
 
@@ -1043,6 +1048,19 @@ export default function Reportar() {
 
   return (
     <Pantalla pie={pie}>
+      {/* Estilo Uber: mientras se elige, el croquis arriba (tu punto, las sedes y el radio de la elegida) y la hoja. */}
+      {fase === 'lista' ? (
+        <Croquis
+          yo={punto}
+          sedes={[...catalogo.sedes, ...citasHoy.map(c => c.sede)]}
+          foco={cita?.sede.id ?? sede?.id ?? null}
+          radioM={radioM}
+          etiquetaYo={punto ? `Estás aquí${punto.precision != null ? ` · ${textoPrecision(punto.precision)}` : ''}` : null}
+        />
+      ) : null}
+      {fase === 'lista' ? <BordeHoja /> : null}
+      {fase === 'tarjetas' && borradores.length > 0 ? <Titulo>{borradores.length > 1 ? 'Revisa las visitas' : 'Revisa la visita'}</Titulo> : null}
+
       {/* 1. Dónde estás (con tarjetas abiertas, en una línea: la tarjeta va primero) */}
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: fase === 'tarjetas' ? 'center' : 'flex-start', gap: 8 }}>
         <View style={{ gap: 4, flexShrink: 1 }}>
@@ -1079,7 +1097,7 @@ export default function Reportar() {
       {fase === 'lista' && eligio ? (
         // Ya eligió: solo lo elegido, con "Cambiar"; debajo, Hablar y Por toques.
         <View style={{ gap: 10 }}>
-          <Subtitulo>{cita ? 'Tu cita' : 'Visita no agendada'}</Subtitulo>
+          <Seccion titulo={cita ? 'Tu cita' : 'Visita no agendada'} />
           {cita ? (
             <ListaCitas citas={[cita]} radioM={radioM} elegida={cita.id} alElegir={elegirCita} />
           ) : sede ? (
@@ -1091,8 +1109,8 @@ export default function Reportar() {
 
       {fase === 'lista' && !eligio ? (
         <>
-          <View style={{ gap: 10 }}>
-            <Subtitulo>Tus citas de hoy</Subtitulo>
+          <View style={{ gap: 6 }}>
+            <Seccion titulo="Tus citas de hoy" />
             <ListaCitas
               citas={citasHoy}
               radioM={radioM}
@@ -1101,8 +1119,8 @@ export default function Reportar() {
               vacio={citasUsadas.length > 0 ? 'Ya reportaste las citas de hoy que tenías aquí.' : 'No tienes citas pendientes para hoy.'}
             />
           </View>
-          <View style={{ gap: 10 }}>
-            <Subtitulo>Visita no agendada</Subtitulo>
+          <View style={{ gap: 6 }}>
+            <Seccion titulo="Visita no agendada" />
             <Texto suave peque>
               Si no estaba en tu agenda, elige la sede donde estás.
             </Texto>
@@ -1155,6 +1173,7 @@ export default function Reportar() {
           {vozLista ? (
             <Boton
               titulo="Hablar"
+              icono="microfono"
               detalle={cita ? `Cuenta qué pasó con ${conQuienCita(cita)}` : 'Cuenta qué pasó: con quién, qué quedó pendiente'}
               grande
               cargando={comprobandoSenal}
@@ -1303,24 +1322,32 @@ function EnCurso({ texto }: { texto: string }) {
  * despliega completa o la vuelve a plegar.
  */
 function LoQueDijiste({ texto, abiertoInicial = false }: { texto: string; abiertoInicial?: boolean }) {
+  const c = useColores()
   const [abierto, setAbierto] = useState(abiertoInicial)
   const largo = texto.length > 160 || texto.split('\n').length > 3
   return (
-    <Tarjeta
-      estilo={{ gap: 6 }}
+    <Bloque
+      estilo={{ gap: 4 }}
       alPresionar={largo ? () => setAbierto(!abierto) : undefined}
       etiquetaAccesible={largo ? `Lo que dijiste. ${abierto ? 'Toca para plegarlo' : 'Toca para verlo completo'}` : undefined}
     >
-      <Texto negrita>Lo que dijiste</Texto>
-      <Texto suave peque lineas={abierto ? undefined : 3}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Icono nombre="microfono" tamano={16} color={c.textoSuave} />
+          <Texto peque negrita color={c.textoSuave}>
+            Lo que dijiste
+          </Texto>
+        </View>
+        {largo ? (
+          <Texto peque negrita>
+            {abierto ? 'Ver menos' : 'Ver todo'}
+          </Texto>
+        ) : null}
+      </View>
+      <Texto lineas={abierto ? undefined : 3} estilo={{ fontSize: 15, lineHeight: 20 }}>
         {texto}
       </Texto>
-      {largo ? (
-        <Texto peque negrita>
-          {abierto ? 'Ver menos' : 'Ver todo'}
-        </Texto>
-      ) : null}
-    </Tarjeta>
+    </Bloque>
   )
 }
 
@@ -1333,10 +1360,10 @@ function SedeElegida({ sede, radioM, alQuitar }: { sede: SedeOpcion; radioM: num
     <Tarjeta
       alPresionar={alQuitar}
       etiquetaAccesible={`${sede.nombre}, elegida. Toca para quitarla`}
-      estilo={{ padding: 12, gap: 6, borderWidth: 2.5, borderColor: c.acento }}
+      estilo={{ padding: 14, gap: 6, borderWidth: 2, borderColor: c.acento }}
     >
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
-        <Texto negrita estilo={{ flexShrink: 1 }}>
+        <Texto negrita estilo={{ flexShrink: 1, fontSize: 17 }}>
           ✓ {sede.nombre}
         </Texto>
         {sede.distancia_m !== null ? <Texto negrita>{sinCortes(textoDistancia(sede.distancia_m))}</Texto> : null}

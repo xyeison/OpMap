@@ -1,17 +1,21 @@
 /**
  * Calendario de la agenda (spec 2026-10-15): el mes en cuadrícula (o una semana), lunes primero, celdas de 44 pt, hoy
  * marcado con un borde, el día elegido relleno, los días fuera de desde..hasta (o apagados) atenuados y sin toque, la
- * cantidad de citas en una insignia sobre el día y los días libres con fondo ámbar (borde punteado si están por
- * aprobar). Lo usan Agendar, Mi agenda, Días libres y la próxima reunión de la visita.
+ * cantidad de citas en pequeño debajo del número y los días libres con fondo ámbar (borde punteado si están por
+ * aprobar). Lo usan Agendar, Mi agenda, Días libres y la próxima reunión de la visita. Estilo Uber (2026-10-15):
+ * celdas cuadradas de radio 10, el elegido negro y hoy con borde negro, como en el artboard de Agendar.
  *
  * Con `vista` 'mes' las flechas pasan de mes; con 'semana', de semana. Al pasar a otro mes avisa `alCambiarMes` (en la
  * vista de semana, cada mes que toca la semana nueva) para que la pantalla pida sus citas. Si `valor` cambia desde
  * afuera, el calendario va a su mes o su semana. Las reglas puras están en lib/calendario.ts.
  *
  * Revisión 2026-10-15: con `conHoy` (Mi agenda), un "Hoy" en la cabecera vuelve a hoy (lo elige) cuando se ve otro día
- * u otra semana. La leyenda de las citas es una insignia sin cifra ("número de citas del día"; con un "2" fijo se leía
- * como un total). Los números no crecen más de 1,3 veces con el texto grande del sistema (círculos de 38 pt e insignias
- * de 17).
+ * u otra semana. La leyenda de las citas no lleva una cifra de muestra (con un "2" fijo se leía como un total). Los
+ * números no crecen más de 1,3 veces con el texto grande del sistema.
+ *
+ * Revisión del estilo (2026-10-15): los días van a SEPARACION_DIAS (2 pt), no a 4: así miden ≥ 44 pt de ancho también
+ * en un Android de 360 dp con los márgenes de 20 de la pantalla (lib/calendario.ts, anchoDia). La leyenda dice "Bajo
+ * cada día, en pequeño: cuántas citas tienes".
  */
 import { useEffect, useMemo, useState, type JSX } from 'react'
 import { Pressable, Text, View } from 'react-native'
@@ -26,6 +30,7 @@ import {
   mesesDeRango,
   mesSiguiente,
   rangoDeMes,
+  SEPARACION_DIAS,
   semanasVisibles,
   tituloMes,
   tituloSemana,
@@ -35,7 +40,7 @@ import {
 import { fechaLarga, sumarDias } from '../../lib/fechas'
 import { Icono } from '../../lib/iconos'
 import { ETIQUETA_ESTADO_DIA_LIBRE, type EstadoDiaLibre } from '../../lib/tipos'
-import { ALTO_TOQUE_MIN, useColores, useFuente } from '../../lib/ui'
+import { ALTO_TOQUE_MIN, TAMANO, useColores, useFuente } from '../../lib/ui'
 
 export type { MarcaDia } from '../../lib/calendario'
 
@@ -131,13 +136,14 @@ export function CalendarioMes({ valor, alCambiar, hoy, desde, hasta, marcas, vis
       style={({ pressed }) => ({
         width: ALTO_TOQUE_MIN,
         height: ALTO_TOQUE_MIN,
-        borderRadius: ALTO_TOQUE_MIN / 2,
+        borderRadius: TAMANO.radio,
+        backgroundColor: c.relleno,
         alignItems: 'center',
         justifyContent: 'center',
-        opacity: !habilitada ? 0.3 : pressed ? 0.6 : 1,
+        opacity: !habilitada ? 0.35 : pressed ? 0.6 : 1,
       })}
     >
-      <Icono nombre={direccion} tamano={24} />
+      <Icono nombre={direccion} tamano={22} />
     </Pressable>
   )
 
@@ -145,7 +151,7 @@ export function CalendarioMes({ valor, alCambiar, hoy, desde, hasta, marcas, vis
     <View style={{ gap: 6 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
         {flecha('atras', puedeAnterior, anterior)}
-        <Text accessibilityRole="header" style={[{ color: c.texto, fontSize: 17, textAlign: 'center', flex: 1 }, fuente('negrita')]}>
+        <Text accessibilityRole="header" style={[{ color: c.texto, fontSize: 17, lineHeight: 22, textAlign: 'center', flex: 1 }, fuente('negrita')]}>
           {vista === 'semana' ? tituloSemana(lunes) : tituloMes(mes)}
         </Text>
         {verHoy ? (
@@ -154,9 +160,9 @@ export function CalendarioMes({ valor, alCambiar, hoy, desde, hasta, marcas, vis
             accessibilityLabel="Ir a hoy"
             onPress={irAHoy}
             hitSlop={4}
-            style={({ pressed }) => ({ minHeight: ALTO_TOQUE_MIN, paddingHorizontal: 10, justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}
+            style={({ pressed }) => ({ minHeight: ALTO_TOQUE_MIN, paddingHorizontal: 12, marginRight: 8, borderRadius: TAMANO.radio, backgroundColor: c.relleno, justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}
           >
-            <Text maxFontSizeMultiplier={MAX_ESCALA_TEXTO} style={[{ color: c.texto, fontSize: 15, textDecorationLine: 'underline' }, fuente('media')]}>
+            <Text maxFontSizeMultiplier={MAX_ESCALA_TEXTO} style={[{ color: c.texto, fontSize: 15 }, fuente('negrita')]}>
               Hoy
             </Text>
           </Pressable>
@@ -164,7 +170,7 @@ export function CalendarioMes({ valor, alCambiar, hoy, desde, hasta, marcas, vis
         {flecha('adelante', puedeSiguiente, siguiente)}
       </View>
 
-      <View style={{ flexDirection: 'row' }}>
+      <View style={{ flexDirection: 'row', gap: SEPARACION_DIAS }}>
         {LETRAS_SEMANA.map((letra, i) => (
           <Text key={i} importantForAccessibility="no" style={[{ flex: 1, textAlign: 'center', color: c.textoSuave, fontSize: 13 }, fuente('media')]}>
             {letra}
@@ -173,15 +179,15 @@ export function CalendarioMes({ valor, alCambiar, hoy, desde, hasta, marcas, vis
       </View>
 
       {semanas.map(semana => (
-        <View key={semana[0].fecha} style={{ flexDirection: 'row' }}>
+        <View key={semana[0].fecha} style={{ flexDirection: 'row', gap: SEPARACION_DIAS }}>
           {semana.map(dia => {
             const marca = marcas?.[dia.fecha]
             const elegido = dia.fecha === valor
             const libre = marca?.estadoLibre ?? null
             const lleno = !!libre && LIBRE_LLENO.includes(libre)
             const fondo = elegido ? c.acento : lleno ? c.fondoAlerta : 'transparent'
-            const colorNumero = elegido ? c.sobreAcento : libre ? c.alerta : dia.delMes ? c.texto : c.textoSuave
-            const borde = dia.esHoy && !elegido ? c.texto : libre && !lleno && !elegido ? c.alerta : 'transparent'
+            const colorNumero = elegido ? c.sobreAcento : !dia.elegible ? c.textoInactivo : libre ? c.alerta : dia.delMes ? c.texto : c.textoSuave
+            const borde = dia.esHoy && !elegido ? c.acento : libre && !lleno && !elegido ? c.alerta : 'transparent'
             return (
               <Pressable
                 key={dia.fecha}
@@ -193,49 +199,31 @@ export function CalendarioMes({ valor, alCambiar, hoy, desde, hasta, marcas, vis
                 style={({ pressed }) => ({
                   flex: 1,
                   height: ALTO_TOQUE_MIN,
+                  borderRadius: TAMANO.radio,
                   alignItems: 'center',
                   justifyContent: 'center',
-                  opacity: !dia.elegible ? 0.3 : pressed ? 0.6 : 1,
+                  backgroundColor: fondo,
+                  borderWidth: 1.5,
+                  borderColor: borde,
+                  borderStyle: libre && !lleno && !elegido ? 'dashed' : 'solid',
+                  opacity: pressed ? 0.6 : 1,
                 })}
               >
-                <View
-                  style={{
-                    width: 38,
-                    height: 38,
-                    borderRadius: 19,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    backgroundColor: fondo,
-                    borderWidth: 1.5,
-                    borderColor: borde,
-                    borderStyle: libre && !lleno && !elegido ? 'dashed' : 'solid',
-                  }}
-                >
-                  <Text maxFontSizeMultiplier={MAX_ESCALA_TEXTO} style={[{ color: colorNumero, fontSize: 16 }, fuente(elegido || dia.esHoy ? 'negrita' : 'regular')]}>
-                    {dia.numero}
-                  </Text>
-                </View>
+                <Text maxFontSizeMultiplier={MAX_ESCALA_TEXTO} style={[{ color: colorNumero, fontSize: 16, lineHeight: 20 }, fuente(elegido || dia.esHoy ? 'negrita' : 'media')]}>
+                  {dia.numero}
+                </Text>
+                {/* Las citas del día: la cifra pequeña debajo del número (en el elegido, en blanco). */}
                 {marca?.citas ? (
-                  <View
+                  <Text
                     importantForAccessibility="no"
-                    style={{
-                      position: 'absolute',
-                      top: 0,
-                      right: '8%',
-                      minWidth: 17,
-                      height: 17,
-                      borderRadius: 9,
-                      paddingHorizontal: 4,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      backgroundColor: c.info,
-                    }}
+                    maxFontSizeMultiplier={MAX_ESCALA_TEXTO}
+                    style={[{ color: elegido ? c.sobreAcento : dia.elegible ? c.texto : c.textoInactivo, fontSize: 11, lineHeight: 13 }, fuente('negrita')]}
                   >
-                    <Text maxFontSizeMultiplier={MAX_ESCALA_TEXTO} style={[{ color: c.superficie, fontSize: 11, lineHeight: 13 }, fuente('negrita')]}>
-                      {marca.citas}
-                    </Text>
-                  </View>
-                ) : null}
+                    {marca.citas}
+                  </Text>
+                ) : (
+                  <View style={{ height: 13 }} />
+                )}
               </Pressable>
             )
           })}
@@ -245,20 +233,19 @@ export function CalendarioMes({ valor, alCambiar, hoy, desde, hasta, marcas, vis
       {hayCitas || hayLibres || hayPorAprobar ? (
         <View importantForAccessibility="no-hide-descendants" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 14, paddingHorizontal: 4 }}>
           {hayCitas ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <View style={{ width: 17, height: 17, borderRadius: 9, backgroundColor: c.info }} />
-              <Text style={[{ color: c.textoSuave, fontSize: 13 }, fuente('regular')]}>número de citas del día</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', minHeight: 22 }}>
+              <Text style={[{ color: c.textoSuave, fontSize: 13 }, fuente('regular')]}>Bajo cada día, en pequeño: cuántas citas tienes</Text>
             </View>
           ) : null}
           {hayLibres ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <View style={{ width: 17, height: 17, borderRadius: 9, backgroundColor: c.fondoAlerta }} />
+              <View style={{ width: 20, height: 22, borderRadius: 6, backgroundColor: c.fondoAlerta }} />
               <Text style={[{ color: c.textoSuave, fontSize: 13 }, fuente('regular')]}>día libre</Text>
             </View>
           ) : null}
           {hayPorAprobar ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <View style={{ width: 17, height: 17, borderRadius: 9, borderWidth: 1.5, borderStyle: 'dashed', borderColor: c.alerta }} />
+              <View style={{ width: 20, height: 22, borderRadius: 6, borderWidth: 1.5, borderStyle: 'dashed', borderColor: c.alerta }} />
               <Text style={[{ color: c.textoSuave, fontSize: 13 }, fuente('regular')]}>por aprobar</Text>
             </View>
           ) : null}
