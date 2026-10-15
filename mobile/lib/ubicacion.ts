@@ -2,75 +2,50 @@
  * Ubicación del teléfono (expo-location; en el navegador, la del navegador). Solo con la app abierta y solo al
  * consultar Hoy o al reportar: nunca en segundo plano. El punto y su precisión viajan a la API como referencia;
  * la distancia que vale la calcula el servidor contra la sede elegida (decisión 6 del contrato fase 8).
+ * La lógica (tiempos, respaldo con la última conocida, los dos pasos de Reportar) está en lib/ubicacion-pasos.ts.
  */
 import * as Location from 'expo-location'
-import { isoBogota } from './fechas'
+import { registroDeRapidas, ubicacionEnDosPasos, ubicacionFinal, type FuentesUbicacion, type Lectura, type ResultadoUbicacion, type UbicacionEnDosPasos } from './ubicacion-pasos'
 
-export interface Ubicacion {
-  lat: number
-  lng: number
-  /** Precisión del GPS en metros (null si el teléfono no la da). */
-  precision: number | null
-  /** Instante en que se tomó (ISO con zona de Bogotá). */
-  tomada_at: string
-  /** Es la última posición conocida (no se pudo tomar una nueva a tiempo). */
-  aproximada: boolean
+export {
+  MENSAJE_SIN_PERMISO_UBICACION,
+  MENSAJE_SIN_UBICACION,
+  type ResultadoUbicacion,
+  type Ubicacion,
+  type UbicacionEnDosPasos,
+} from './ubicacion-pasos'
+
+function aLectura(posicion: Location.LocationObject): Lectura {
+  return { lat: posicion.coords.latitude, lng: posicion.coords.longitude, precision: posicion.coords.accuracy, timestamp: posicion.timestamp }
 }
 
-export interface ResultadoUbicacion {
-  ubicacion: Ubicacion | null
-  error: string | null
-}
-
-export const MENSAJE_SIN_PERMISO_UBICACION =
-  'La app no tiene permiso de ubicación. Actívalo en los ajustes del teléfono para ver las sedes cercanas y reportar presencial.'
-export const MENSAJE_SIN_UBICACION = 'No se pudo tomar la ubicación. Sal a un lugar abierto o revisa que el GPS esté encendido.'
-
-function aUbicacion(posicion: Location.LocationObject, aproximada: boolean): Ubicacion {
-  const precision = posicion.coords.accuracy
-  return {
-    lat: Math.round(posicion.coords.latitude * 1e6) / 1e6,
-    lng: Math.round(posicion.coords.longitude * 1e6) / 1e6,
-    precision: precision !== null && precision !== undefined && Number.isFinite(precision) ? Math.round(precision) : null,
-    tomada_at: isoBogota(new Date(posicion.timestamp || Date.now())),
-    aproximada,
-  }
-}
-
-function conTiempo<T>(promesa: Promise<T>, ms: number): Promise<T | null> {
-  return new Promise(resolve => {
-    const temporizador = setTimeout(() => resolve(null), ms)
-    promesa.then(
-      valor => {
-        clearTimeout(temporizador)
-        resolve(valor)
-      },
-      () => {
-        clearTimeout(temporizador)
-        resolve(null)
-      }
-    )
-  })
+const fuentes: FuentesUbicacion = {
+  permiso: async () => {
+    const permiso = await Location.getForegroundPermissionsAsync()
+    return permiso.granted || (permiso.canAskAgain && (await Location.requestForegroundPermissionsAsync()).granted)
+  },
+  precisa: async () => aLectura(await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High })),
+  rapida: async () => aLectura(await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })),
+  ultima: async edadMaximaMs => {
+    const posicion = await Location.getLastKnownPositionAsync({ maxAge: edadMaximaMs })
+    return posicion ? aLectura(posicion) : null
+  },
+  // Uno solo para toda la app: Hoy y Reportar toman lecturas rápidas; la final y Nueva sede no las usan de respaldo.
+  rapidasPropias: registroDeRapidas(),
 }
 
 /**
  * Pide permiso (si hace falta) y toma la ubicación con alta precisión. Si no llega a tiempo, usa la última
  * conocida de hace menos de 2 minutos (marcada `aproximada`). Nunca lanza.
  */
-export async function pedirUbicacion(opciones: { timeoutMs?: number } = {}): Promise<ResultadoUbicacion> {
-  const timeoutMs = opciones.timeoutMs ?? 10_000
-  try {
-    const permiso = await Location.getForegroundPermissionsAsync()
-    const concedido = permiso.granted || (permiso.canAskAgain && (await Location.requestForegroundPermissionsAsync()).granted)
-    if (!concedido) return { ubicacion: null, error: MENSAJE_SIN_PERMISO_UBICACION }
+export function pedirUbicacion(opciones: { timeoutMs?: number } = {}): Promise<ResultadoUbicacion> {
+  return ubicacionFinal(fuentes, opciones)
+}
 
-    const actual = await conTiempo(Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }), timeoutMs)
-    if (actual) return { ubicacion: aUbicacion(actual, false), error: null }
-
-    const ultima = await conTiempo(Location.getLastKnownPositionAsync({ maxAge: 120_000 }), 2_000)
-    if (ultima) return { ubicacion: aUbicacion(ultima, true), error: null }
-    return { ubicacion: null, error: MENSAJE_SIN_UBICACION }
-  } catch {
-    return { ubicacion: null, error: MENSAJE_SIN_UBICACION }
-  }
+/**
+ * Reportar: una primera ubicación para mostrar ya la lista y la final (la de pedirUbicacion) para la visita. Ver
+ * lib/ubicacion-pasos.ts.
+ */
+export function pedirUbicacionEnDosPasos(opciones: { timeoutMs?: number } = {}): UbicacionEnDosPasos {
+  return ubicacionEnDosPasos(fuentes, opciones)
 }

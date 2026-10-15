@@ -15,6 +15,17 @@
  * Reportar es una pestaña y queda montada: cada vez que se vuelve a ella se decide si es una llegada nueva (punto,
  * hora y sedes nuevos) o el mismo reporte (debeReiniciarReporte de lib/propuesta.ts). Sin señal al abrir, usa el
  * contexto guardado HOY (lib/contexto-guardado.ts) para que la visita quede en la cola con el punto y la hora del sitio.
+ *
+ * Ubicación en dos pasos (lib/ubicacion-pasos.ts, 2026-10-14): la lista sale con la primera ubicación (la última
+ * conocida reciente o una lectura rápida) mientras llega la final (alta precisión, la regla de siempre). Las visitas de
+ * hoy se piden a la vez que la ubicación. Confirmar (y el consultorio de Nuevo médico) usa siempre la final: la espera
+ * si aún no llegó, con la tarjeta bloqueada (lugarDeLaVisita, datosParaConfirmar). Si la final se aleja más de 100 m de
+ * la primera, se vuelve a pedir el contexto sin tapar la pantalla (conservando las sedes y contactos en uso:
+ * contextoAlRecargar); mientras no llegue, las distancias que el servidor midió desde la primera no se usan (decide el
+ * servidor). Mientras una tarjeta se envía no empieza otra llegada (pasoDelReporte): un "Reportar de nuevo" de Hoy se
+ * arma cuando termina el envío si no queda ninguna tarjeta abierta (la rechazada sigue a la vista); si queda, al
+ * siguiente envío sin nada abierto o al volver a Reportar. El orden de la llegada (la final pendiente queda puesta
+ * antes de mostrar la lista) está en arrancarLlegada. Todo eso es puro y se prueba en scripts/movil-check.ts (sección 14).
  */
 import { useFocusEffect, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -60,8 +71,19 @@ import {
 import { conQuienCita, cuentaDistinta, plural, sinCortes, textoHoraCita } from '../../lib/reglas'
 import { escucharRetorno, fijarPedido, fijarReintento, tomarReintento, type ReintentoReporte, type Retorno } from '../../lib/retorno'
 import { useSesion } from '../../lib/sesion'
-import type { CitaItem, ContextoResponse, SedeBusquedaItem, VisitaItem } from '../../lib/tipos'
-import { pedirUbicacion, type Ubicacion } from '../../lib/ubicacion'
+import type { CitaItem, ContextoResponse, SedeBusquedaItem, VisitaItem, VisitasResponse } from '../../lib/tipos'
+import { pedirUbicacion, pedirUbicacionEnDosPasos, type ResultadoUbicacion, type Ubicacion } from '../../lib/ubicacion'
+import {
+  abiertasAlTerminarEnvio,
+  arrancarLlegada,
+  contextoAlRecargar,
+  datosParaConfirmar,
+  debeRecargarContexto,
+  estaAfinando,
+  lugarDeLaVisita,
+  pasoDelReporte,
+  type PasoDelReporte,
+} from '../../lib/ubicacion-pasos'
 import { Aviso, Boton, Cargando, Grupo, Insignia, Pantalla, Subtitulo, Tarjeta, Texto, Titulo, useColores } from '../../lib/ui'
 
 type Fase = 'ubicando' | 'lista' | 'grabando' | 'transcribiendo' | 'proponiendo' | 'tarjetas'
@@ -82,10 +104,24 @@ interface Extras {
 
 const EXTRAS_VACIOS: Extras = { sedes: [], medicos: [] }
 
+const TEXTO_TOMANDO_UBICACION = 'Tomando tu ubicación…'
+const TEXTO_CARGANDO_SEDES = 'Cargando tus citas y las sedes cercanas…'
+
 /** Une una opción nueva a la lista (la nueva reemplaza a la vieja del mismo id). */
 function unir<T extends { id: string }>(lista: readonly T[], nuevas: readonly T[]): T[] {
   const ids = new Set(nuevas.map(n => n.id))
   return [...lista.filter(x => !ids.has(x.id)), ...nuevas]
+}
+
+/** Ubicando, grabando, transcribiendo o armando la propuesta: no se reinicia el reporte. */
+function esFaseOcupada(fase: Fase): boolean {
+  return fase === 'ubicando' || fase === 'grabando' || fase === 'transcribiendo' || fase === 'proponiendo'
+}
+
+/** Aplica lo que decidió pasoDelReporte: empezar una llegada, aplazar el reintento (fijarReintento) o seguir. */
+function aplicarPaso(paso: PasoDelReporte<ReintentoReporte>, iniciar: (reintento: ReintentoReporte | null) => void) {
+  if (paso.accion === 'iniciar') iniciar(paso.reintento)
+  else if (paso.accion === 'aplazar') fijarReintento(paso.reintento)
 }
 
 export default function Reportar() {
@@ -98,6 +134,8 @@ export default function Reportar() {
   const [errorUbicacion, setErrorUbicacion] = useState<string | null>(null)
   const [llegada, setLlegada] = useState<string>(() => isoBogota())
   const [contexto, setContexto] = useState<ContextoResponse | null>(null)
+  /** El punto con que se pidió el contexto en uso (null: sin punto, o el guardado sin señal). */
+  const [puntoContexto, setPuntoContexto] = useState<Ubicacion | null>(null)
   const [errorContexto, setErrorContexto] = useState<ApiError | null>(null)
   const [visitasServidor, setVisitasServidor] = useState<VisitaItem[]>([])
   const [sedeElegida, setSedeElegida] = useState<string | null>(null)
@@ -117,15 +155,34 @@ export default function Reportar() {
   /** Sin señal al cargar: instante en que se guardó el contexto que se está usando (null: el contexto es de ahora). */
   const [sinSenalDesde, setSinSenalDesde] = useState<string | null>(null)
   const [errorReintento, setErrorReintento] = useState<string | null>(null)
+  /** Mientras fase === 'ubicando': qué se está esperando (la ubicación o el contexto). */
+  const [textoCarga, setTextoCarga] = useState(TEXTO_TOMANDO_UBICACION)
+  /** Generación cuya final se está esperando (la lista ya salió con la primera); null: ninguna. Ver estaAfinando. */
+  const [afinandoDe, setAfinandoDe] = useState<number | null>(null)
+  /** "Actualizar" está tomando la ubicación otra vez. */
+  const [reubicando, setReubicando] = useState(false)
   const iniciado = useRef(false)
+  /** Cada llegada (iniciar) o "Actualizar" es una generación: lo que llega de una anterior no se aplica. */
+  const generacion = useRef(0)
+  /**
+   * La ubicación final de esta llegada (la promesa, haya llegado o no): Confirmar y Nuevo médico la leen con
+   * lugarDeLaVisita para no usar nunca la primera, tampoco en el instante entre que llega y la pantalla se vuelve a
+   * pintar. null cuando lo que muestra la pantalla ya es final (no hubo dos pasos, o se tocó "Actualizar").
+   */
+  const finalPendiente = useRef<Promise<ResultadoUbicacion> | null>(null)
   /** Reportar mandó a Nuevo médico o Nueva sede: la próxima vez que reciba el foco es la vuelta (no se reinicia). */
   const esperandoCreacion = useRef(false)
+  /** Tarjetas que se están enviando (esperando la final o la cola): mientras haya, no empieza otra llegada. */
+  const enviosEnCurso = useRef(0)
 
   const punto: (Punto & { precision: number | null }) | null = ubicacion ? { lat: ubicacion.lat, lng: ubicacion.lng, precision: ubicacion.precision } : null
   const sinSenal = sinSenalDesde !== null
+  // Si el contexto se pidió con un punto lejos del de ahora, las distancias de las sedes de los médicos que midió el
+  // servidor ya no valen (decide el servidor) hasta que llegue el contexto del punto nuevo.
+  const distanciasDeOtroPunto = debeRecargarContexto(puntoContexto, punto)
   const catalogo = useMemo<Catalogo | null>(
-    () => (contexto ? catalogoDesdeContexto(contexto, extras, punto, { sinSenal }) : null),
-    [contexto, extras, punto?.lat, punto?.lng, sinSenal] // eslint-disable-line react-hooks/exhaustive-deps
+    () => (contexto ? catalogoDesdeContexto(contexto, extras, punto, { sinSenal, distanciasDeOtroPunto }) : null),
+    [contexto, extras, punto?.lat, punto?.lng, sinSenal, distanciasDeOtroPunto] // eslint-disable-line react-hooks/exhaustive-deps
   )
 
   /** Citas ya usadas en este reporte (una tarjeta confirmada la cumplió): no se vuelven a ofrecer. */
@@ -146,9 +203,10 @@ export default function Reportar() {
   /** Paso 1 hecho: hay una cita o una sede elegida. Sin eso no se graba ni se abre una tarjeta por toques. */
   const eligio = hayEleccion({ cita, sedeId: sedeElegida, catalogo })
 
-  // Lo último, para los manejadores que viven más que un render (retorno de las pantallas de creación, foco).
-  const ultimo = useRef({ contexto, extras, punto, catalogo, sinSenal, llegada, fase, borradores: borradores.length })
-  ultimo.current = { contexto, extras, punto, catalogo, sinSenal, llegada, fase, borradores: borradores.length }
+  // Lo último, para los manejadores que viven más que un render (retorno de las pantallas de creación, foco, la espera
+  // de la final al confirmar y la recarga del contexto: EstadoDelReporte de lib/ubicacion-pasos.ts).
+  const ultimo = useRef({ contexto, puntoContexto, extras, punto, catalogo, sinSenal, llegada, fase, borradores: borradores.length, tarjetas: borradores, sedeElegida, cita })
+  ultimo.current = { contexto, puntoContexto, extras, punto, catalogo, sinSenal, llegada, fase, borradores: borradores.length, tarjetas: borradores, sedeElegida, cita }
 
   /** Visitas de hoy para los topes: las del servidor más las de la cola de hoy (sin repetir client_id). */
   const visitasHoy = useMemo<VisitaHoyTope[]>(() => {
@@ -163,19 +221,26 @@ export default function Reportar() {
   }, [visitasServidor, cola.items])
 
   /**
-   * Contexto (con el punto) y visitas de hoy. Sin señal (red, tiempo agotado o servidor caído) usa el contexto que se
-   * guardó hoy; si no hay, el error. Devuelve el contexto que quedó en uso (o null) y si es el guardado.
+   * Contexto (con el punto) y visitas de hoy (las ya pedidas, si vienen). Sin señal (red, tiempo agotado o servidor
+   * caído) usa el contexto que se guardó hoy; si no hay, el error. Devuelve el contexto que quedó en uso (o null) y si
+   * es el guardado. Con `vigente` que da false (otra llegada empezó mientras tanto), no cambia nada.
    */
   const cargarContexto = useCallback(
-    async (nuevo: Ubicacion | null): Promise<{ contexto: ContextoResponse; sinSenal: boolean } | null> => {
+    async (
+      nuevo: Ubicacion | null,
+      opciones: { visitas?: Promise<VisitasResponse>; vigente?: () => boolean } = {}
+    ): Promise<{ contexto: ContextoResponse; sinSenal: boolean } | null> => {
       const hoy = hoyBogota()
+      const vigente = opciones.vigente ?? (() => true)
       const [ctx, vis] = await Promise.allSettled([
         api.contexto(nuevo ? { lat: nuevo.lat, lng: nuevo.lng, precision: nuevo.precision } : null),
-        api.visitas(hoy),
+        opciones.visitas ?? api.visitas(hoy),
       ])
+      if (!vigente()) return null
       if (vis.status === 'fulfilled') setVisitasServidor(vis.value.items)
       if (ctx.status === 'fulfilled') {
         setContexto(ctx.value)
+        setPuntoContexto(nuevo)
         setErrorContexto(null)
         setSinSenalDesde(null)
         void guardarContexto(usuarioId, ctx.value)
@@ -184,8 +249,10 @@ export default function Reportar() {
       const error = aApiError(ctx.reason)
       if (esTransitorio(error)) {
         const guardado = await leerContextoGuardado(usuarioId)
+        if (!vigente()) return null
         if (guardado) {
           setContexto(guardado.contexto)
+          setPuntoContexto(null)
           setErrorContexto(null)
           setSinSenalDesde(guardado.guardado_at)
           return { contexto: guardado.contexto, sinSenal: true }
@@ -198,11 +265,54 @@ export default function Reportar() {
   )
 
   /**
+   * Paso 2 de la ubicación: llega la final (la que vale para la visita) y reemplaza a la primera en la pantalla
+   * (finalPendiente sigue apuntando a ella). Si se alejó más de DISTANCIA_RECARGA_M, se vuelve a pedir el contexto
+   * (las sedes cercanas son las del punto con que se pidió) sin tapar la pantalla, conservando las sedes y los
+   * contactos en uso (contextoAlRecargar); sin respuesta queda el de antes, con las distancias medidas desde el punto
+   * nuevo (las de las sedes de médicos sin coordenadas, desconocidas: decide el servidor).
+   */
+  const afinar = useCallback(
+    async (gen: number, final: Promise<ResultadoUbicacion>, primera: Ubicacion | null) => {
+      const resultado = await final
+      // Si empezó otra generación, su "afinando" es suyo (y el de esta ya no se muestra: estaAfinando).
+      if (gen !== generacion.current) return
+      setAfinandoDe(null)
+      // La regla de siempre: si no hubo lectura nueva ni última conocida de menos de 2 minutos, no hay ubicación.
+      setUbicacion(resultado.ubicacion)
+      setErrorUbicacion(resultado.error)
+      if (resultado.ubicacion) setLlegada(resultado.ubicacion.tomada_at)
+      const lugar = resultado.ubicacion
+      if (!lugar || !debeRecargarContexto(primera, lugar)) return
+      try {
+        const ctx = await api.contexto({ lat: lugar.lat, lng: lugar.lng, precision: lugar.precision })
+        if (gen !== generacion.current) return
+        const { contexto: conservado, sedes: conservar } = contextoAlRecargar(ultimo.current, ctx)
+        if (conservar.length > 0) setExtras(prev => ({ ...prev, sedes: unir(prev.sedes, conservar) }))
+        setContexto(conservado)
+        setPuntoContexto(lugar)
+        setErrorContexto(null)
+        setSinSenalDesde(null)
+        void guardarContexto(usuarioId, ctx)
+      } catch {
+        // Sin respuesta: queda el contexto de antes.
+      }
+    },
+    [usuarioId]
+  )
+
+  /**
    * Empieza un reporte: ubicación del sitio (instante de llegada), contexto y visitas de hoy. Con `reintento` (una
    * visita de la cola que el servidor no aceptó, desde Hoy) la vuelve a armar como tarjeta con el motivo del rechazo.
    */
   const iniciar = useCallback(
     async (reintento: ReintentoReporte | null = null) => {
+      const gen = ++generacion.current
+      // Si otra llegada empezó mientras tanto, esta no aplica nada (la visita por rehacer sigue en la cola, en Hoy).
+      const vigente = () => gen === generacion.current
+      finalPendiente.current = null
+      setAfinandoDe(null)
+      setReubicando(false)
+      setTextoCarga(TEXTO_TOMANDO_UBICACION)
       setFase('ubicando')
       setBorradores([])
       setEstados({})
@@ -217,17 +327,32 @@ export default function Reportar() {
       setCitaElegida(null)
       setBuscandoSede(false)
       esperandoCreacion.current = false
-      const resultado = await pedirUbicacion({ timeoutMs: 10_000 })
-      setUbicacion(resultado.ubicacion)
-      setErrorUbicacion(resultado.error)
-      setLlegada(resultado.ubicacion?.tomada_at ?? isoBogota())
-      const cargado = await cargarContexto(resultado.ubicacion)
+      // Las visitas de hoy no dependen del punto: se piden ya, a la vez que la ubicación.
+      const pedidoVisitas = api.visitas(hoyBogota())
+      pedidoVisitas.catch(() => undefined) // el error lo lee cargarContexto
+      // arrancarLlegada (lib/ubicacion-pasos.ts) pone la final pendiente al recibir la primera, pide el contexto con la
+      // primera y afina con la final; la lista se muestra solo cuando resuelve.
+      const llegadaNueva = await arrancarLlegada(pedirUbicacionEnDosPasos({ timeoutMs: 10_000 }), {
+        vigente,
+        conLaPrimera: estado => {
+          finalPendiente.current = estado.finalPendiente
+          setAfinandoDe(estado.finalPendiente ? gen : null)
+          setUbicacion(estado.ubicacion)
+          setErrorUbicacion(estado.error)
+          setLlegada(estado.llegada)
+          setTextoCarga(TEXTO_CARGANDO_SEDES)
+        },
+        cargar: primera => cargarContexto(primera, { visitas: pedidoVisitas, vigente }),
+        afinar: (final, primera) => void afinar(gen, final, primera),
+      })
+      if (!llegadaNueva) return
+      const { primera, cargado } = llegadaNueva
       if (reintento) {
         if (!cargado) {
           fijarReintento(reintento) // se arma la próxima vez que haya contexto
           setErrorReintento('No se pudo cargar tus sedes y médicos para volver a armar la visita. Reintenta con señal.')
         } else {
-          const p = resultado.ubicacion ? { lat: resultado.ubicacion.lat, lng: resultado.ubicacion.lng } : null
+          const p = primera.ubicacion ? { lat: primera.ubicacion.lat, lng: primera.ubicacion.lng } : null
           const cat = catalogoDesdeContexto(cargado.contexto, EXTRAS_VACIOS, p, { sinSenal: cargado.sinSenal })
           const borrador = borradorDesdeCuerpo(reintento.cuerpo, cat, { nuevoId: nuevoClientId, motivo: reintento.error })
           setBorradores([borrador])
@@ -241,42 +366,60 @@ export default function Reportar() {
       }
       setFase('lista')
     },
-    [cargarContexto, cola]
+    [cargarContexto, cola, afinar]
   )
 
-  /** Vuelve a tomar la ubicación sin perder las tarjetas (el instante de llegada pasa a ser este). */
+  /**
+   * Vuelve a tomar la ubicación sin perder las tarjetas (el instante de llegada pasa a ser este). No se ofrece mientras
+   * se afina la primera (ya se está tomando).
+   */
   const reubicar = useCallback(async () => {
-    const resultado = await pedirUbicacion({ timeoutMs: 10_000 })
-    if (resultado.ubicacion) {
-      setUbicacion(resultado.ubicacion)
-      setLlegada(resultado.ubicacion.tomada_at)
-      setErrorUbicacion(null)
-      await cargarContexto(resultado.ubicacion)
-    } else {
-      setErrorUbicacion(resultado.error)
+    const gen = ++generacion.current
+    const vigente = () => gen === generacion.current
+    // Desde aquí vale lo que muestre la pantalla (la final de antes y, cuando llegue, la de ahora).
+    finalPendiente.current = null
+    setReubicando(true)
+    try {
+      const resultado = await pedirUbicacion({ timeoutMs: 10_000 })
+      if (!vigente()) return
+      if (resultado.ubicacion) {
+        setUbicacion(resultado.ubicacion)
+        setLlegada(resultado.ubicacion.tomada_at)
+        setErrorUbicacion(null)
+        await cargarContexto(resultado.ubicacion, { vigente })
+      } else {
+        setErrorUbicacion(resultado.error)
+      }
+    } finally {
+      if (vigente()) setReubicando(false)
     }
   }, [cargarContexto])
 
   // Cada vez que Reportar recibe el foco (la primera vez, al volver de Hoy o de otra pestaña): llegada nueva salvo que
-  // esté grabando, vuelva de crear un médico o una sede, o tenga tarjetas recientes sin confirmar. Lee el estado de
-  // `ultimo` para que esto corra SOLO al recibir el foco (no cada vez que cambian las tarjetas o la fase).
+  // esté grabando, vuelva de crear un médico o una sede, tenga tarjetas recientes sin confirmar o alguna tarjeta se
+  // esté enviando (pasoDelReporte: un "Reportar de nuevo" se aplaza hasta que termine el envío sin dejar nada
+  // abierto). Lee el estado de `ultimo` para que esto corra SOLO al recibir el foco (no cada vez que cambian las
+  // tarjetas o la fase).
   const iniciarRef = useRef(iniciar)
   iniciarRef.current = iniciar
   useFocusEffect(
     useCallback(() => {
       const reintento = tomarReintento()
-      if (!iniciado.current || reintento) {
-        iniciado.current = true
-        void iniciarRef.current(reintento)
-        return
-      }
       const { llegada: llegadaActual, fase: faseActual, borradores: pendientes } = ultimo.current
       const volviendo = esperandoCreacion.current
       esperandoCreacion.current = false
-      const ocupada = faseActual === 'ubicando' || faseActual === 'grabando' || faseActual === 'transcribiendo' || faseActual === 'proponiendo'
-      if (debeReiniciarReporte({ llegada: llegadaActual, ahora: new Date(), borradores: pendientes, ocupada, esperandoCreacion: volviendo })) {
-        void iniciarRef.current(null)
-      }
+      const ocupada = esFaseOcupada(faseActual)
+      const paso = pasoDelReporte({
+        motivo: 'foco',
+        iniciado: iniciado.current,
+        reintento,
+        enviando: enviosEnCurso.current,
+        ocupada,
+        abiertas: pendientes,
+        reiniciar: debeReiniciarReporte({ llegada: llegadaActual, ahora: new Date(), borradores: pendientes, ocupada, esperandoCreacion: volviendo }),
+      })
+      iniciado.current = true
+      aplicarPaso(paso, r => void iniciarRef.current(r))
     }, [])
   )
 
@@ -428,42 +571,78 @@ export default function Reportar() {
   }
 
   const confirmarTarjeta = async (clave: string) => {
-    const borrador = borradores.find(b => b.clave === clave)
-    if (!borrador || !catalogo) return
-    const revision = validarBorrador(borrador, catalogo, { punto, checked_in_at: llegada, ahora: new Date(), visitasHoy })
-    if (!revision.ok) {
-      fijarEstado(clave, { intentado: true, rechazo: null })
-      return
-    }
-    fijarEstado(clave, { intentado: true, enviando: true, rechazo: null })
+    const enPantalla = borradores.find(b => b.clave === clave)
+    if (!enPantalla || !catalogo) return
+    // Mientras se envía, Reportar no empieza otra llegada (pasoDelReporte): la visita confirmada no se pierde.
+    enviosEnCurso.current++
+    /** Clave de esta tarjeta si quedó guardada (enviada o en la cola); si no, sigue abierta (abiertasAlTerminarEnvio). */
+    let guardada: string | null = null
     try {
-      const ahora = new Date()
-      const reportado = Date.parse(llegada) > ahora.getTime() ? llegada : isoBogota(ahora)
-      const cuerpo = cuerpoDesdeBorrador(borrador, { punto, checked_in_at: llegada, reported_at: reportado, transcript })
-      const resumen = resumenBorrador(borrador, catalogo)
-      const { elemento } = await cola.encolarYEnviar(cuerpo, resumen)
-      if (elemento.estado === 'no_enviada') {
-        // El servidor no la aceptó (nada quedó guardado allá): sale de la cola y la tarjeta sigue aquí para corregirla.
-        // Si fue por la cita (ya tiene su visita, la cancelaron…), la tarjeta sigue sin ella: queda como no agendada.
-        await cola.quitar(elemento.client_id)
-        const rechazo = interpretarRechazo({ message: elemento.error ?? 'No se pudo guardar la visita' })
-        setBorradores(prev =>
-          prev.map(b => (b.clave === clave ? { ...b, client_id: nuevoClientId(), agenda_id: rechazo.clase === 'cita' ? null : b.agenda_id } : b))
-        )
-        fijarEstado(clave, { enviando: false, rechazo })
+      // La visita nunca sale con la primera ubicación (datosParaConfirmar → lugarDeLaVisita): si la final aún no llega
+      // se espera (como mucho el tiempo máximo de la lectura precisa) con la tarjeta bloqueada y SIN marcarla intentada
+      // (sus errores se miden con la final); después se usan la final, el catálogo de ahora medido desde ella y la
+      // tarjeta como quedó.
+      const final = finalPendiente.current
+      if (final) fijarEstado(clave, { enviando: true, rechazo: null })
+      const datos = await datosParaConfirmar({ clave, final, enPantalla: { punto, llegada, catalogo, borrador: enPantalla }, generacion, ultimo })
+      if (!datos) {
+        fijarEstado(clave, { enviando: false }) // empezó otra llegada o la tarjeta ya no está: no se manda
         return
       }
-      setResultados(prev => [
-        ...prev,
-        { clave, client_id: elemento.client_id, resumen, estado: elemento.estado === 'enviada' ? 'enviada' : 'pendiente', visita_id: elemento.visita_id, repetida: elemento.repetida },
-      ])
-      setConfirmadas(prev => [...prev, borrador])
-      setBorradores(prev => prev.filter(b => b.clave !== clave))
-      fijarEstado(clave, { enviando: false })
-    } catch (lanzado) {
-      const rechazo = interpretarRechazo({ message: mensajeDeError(lanzado) })
-      if (rechazo.clase === 'cita') setBorradores(prev => prev.map(b => (b.clave === clave ? { ...b, agenda_id: null } : b)))
-      fijarEstado(clave, { enviando: false, rechazo })
+      const { borrador, catalogo: catalogoVisita, punto: puntoVisita, llegada: llegadaVisita } = datos
+      const revision = validarBorrador(borrador, catalogoVisita, { punto: puntoVisita, checked_in_at: llegadaVisita, ahora: new Date(), visitasHoy })
+      if (!revision.ok) {
+        fijarEstado(clave, { intentado: true, enviando: false, rechazo: null })
+        return
+      }
+      fijarEstado(clave, { intentado: true, enviando: true, rechazo: null })
+      try {
+        const ahora = new Date()
+        const reportado = Date.parse(llegadaVisita) > ahora.getTime() ? llegadaVisita : isoBogota(ahora)
+        const cuerpo = cuerpoDesdeBorrador(borrador, { punto: puntoVisita, checked_in_at: llegadaVisita, reported_at: reportado, transcript })
+        const resumen = resumenBorrador(borrador, catalogoVisita)
+        const { elemento } = await cola.encolarYEnviar(cuerpo, resumen)
+        if (elemento.estado === 'no_enviada') {
+          // El servidor no la aceptó (nada quedó guardado allá): sale de la cola y la tarjeta sigue aquí para
+          // corregirla. Si fue por la cita (ya tiene su visita, la cancelaron…), la tarjeta sigue sin ella: queda como
+          // no agendada.
+          await cola.quitar(elemento.client_id)
+          const rechazo = interpretarRechazo({ message: elemento.error ?? 'No se pudo guardar la visita' })
+          setBorradores(prev =>
+            prev.map(b => (b.clave === clave ? { ...b, client_id: nuevoClientId(), agenda_id: rechazo.clase === 'cita' ? null : b.agenda_id } : b))
+          )
+          fijarEstado(clave, { enviando: false, rechazo })
+          return
+        }
+        setResultados(prev => [
+          ...prev,
+          { clave, client_id: elemento.client_id, resumen, estado: elemento.estado === 'enviada' ? 'enviada' : 'pendiente', visita_id: elemento.visita_id, repetida: elemento.repetida },
+        ])
+        setConfirmadas(prev => [...prev, borrador])
+        setBorradores(prev => prev.filter(b => b.clave !== clave))
+        fijarEstado(clave, { enviando: false })
+        guardada = clave
+      } catch (lanzado) {
+        const rechazo = interpretarRechazo({ message: mensajeDeError(lanzado) })
+        if (rechazo.clase === 'cita') setBorradores(prev => prev.map(b => (b.clave === clave ? { ...b, agenda_id: null } : b)))
+        fijarEstado(clave, { enviando: false, rechazo })
+      }
+    } finally {
+      enviosEnCurso.current--
+      // Si Hoy pidió "Reportar de nuevo" mientras esta tarjeta se enviaba (se aplazó), se arma ahora, salvo que borre
+      // algo sin guardar (esta tarjeta rechazada, otra abierta, una grabación): entonces sigue aplazado.
+      aplicarPaso(
+        pasoDelReporte({
+          motivo: 'envio',
+          iniciado: true,
+          reintento: tomarReintento(),
+          enviando: enviosEnCurso.current,
+          ocupada: esFaseOcupada(ultimo.current.fase),
+          abiertas: abiertasAlTerminarEnvio(ultimo.current.tarjetas, guardada),
+          reiniciar: false,
+        }),
+        r => void iniciarRef.current(r)
+      )
     }
   }
 
@@ -477,6 +656,8 @@ export default function Reportar() {
       municipio: contexto?.ejecutiva.municipio ?? null,
       sedes: catalogo?.sedes ?? [],
       punto,
+      // El consultorio se crea con la final (se espera si aún no llega), nunca con la primera.
+      puntoFinal: lugarDeLaVisita(finalPendiente.current, { punto, llegada }).then(lugar => lugar.punto),
     })
     router.push('/medico/nuevo')
   }
@@ -515,7 +696,9 @@ export default function Reportar() {
   // Pantalla
   // ---------------------------------------------------------------------------------------------
 
-  if (fase === 'ubicando') return <Cargando texto="Tomando tu ubicación y las sedes cercanas…" />
+  if (fase === 'ubicando') return <Cargando texto={textoCarga} />
+
+  const afinando = estaAfinando(afinandoDe, generacion.current)
 
   if (errorContexto && !contexto) {
     return (
@@ -557,10 +740,12 @@ export default function Reportar() {
           <Texto suave>
             Llegada {horaBogota(llegada)}
             {ubicacion?.precision != null ? ` · ${textoPrecision(ubicacion.precision)}` : ''}
-            {ubicacion?.aproximada ? ' · ubicación aproximada' : ''}
+            {afinando ? ' · afinando la ubicación…' : ubicacion?.aproximada ? ' · ubicación aproximada' : ''}
           </Texto>
         </View>
-        {ubicacion && (fase === 'lista' || fase === 'tarjetas') ? <Boton titulo="Actualizar" variante="texto" alPresionar={() => void reubicar()} /> : null}
+        {ubicacion && !afinando && (fase === 'lista' || fase === 'tarjetas') ? (
+          <Boton titulo="Actualizar" variante="texto" cargando={reubicando} alPresionar={() => void reubicar()} />
+        ) : null}
       </View>
 
       {sinSenalDesde ? (
@@ -570,7 +755,7 @@ export default function Reportar() {
       ) : null}
 
       {errorUbicacion ? (
-        <Aviso tono="alerta" accion={<Boton titulo="Volver a intentar" variante="secundario" alPresionar={() => void reubicar()} />}>
+        <Aviso tono="alerta" accion={<Boton titulo="Volver a intentar" variante="secundario" cargando={reubicando} alPresionar={() => void reubicar()} />}>
           {`${errorUbicacion} Sin ubicación solo puedes reportar telefónica (si la tienes habilitada).`}
         </Aviso>
       ) : null}

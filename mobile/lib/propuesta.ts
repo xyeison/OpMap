@@ -159,6 +159,9 @@ export interface ExtrasCatalogo {
  * las distancias de las sedes con coordenadas se recalculan desde ahí (el contexto pudo cargarse en otro punto).
  * `sinSenal`: el contexto es el guardado (otro punto, otra hora): las distancias de las sedes de los médicos ya no
  * valen y quedan "desconocidas" (decide el servidor al enviar la cola), salvo las de sedes con coordenadas.
+ * `distanciasDeOtroPunto`: lo mismo para las sedes de los médicos cuando el contexto se pidió con un punto lejos de
+ * `punto` (Reportar: la final se alejó de la primera y aún no llega el contexto pedido con ella, o no llegó): esas
+ * distancias las midió el servidor desde el otro punto y no se pueden volver a medir aquí.
  *
  * F4.1: las citas de hoy (contexto.agenda_hoy) también entran: su sede (con sus coordenadas, aunque esté a más de 1 km)
  * y su médico (si no es de "mis médicos", como uno traído del buscador: fuera de su territorio). Así la tarjeta de la
@@ -168,7 +171,7 @@ export function catalogoDesdeContexto(
   contexto: ContextoResponse,
   extras: ExtrasCatalogo = {},
   punto: Punto | null = null,
-  opciones: { sinSenal?: boolean } = {}
+  opciones: { sinSenal?: boolean; distanciasDeOtroPunto?: boolean } = {}
 ): Catalogo {
   const sedes: SedeOpcion[] = contexto.sedes_cerca.map(sede => ({
     id: sede.id,
@@ -209,7 +212,9 @@ export function catalogoDesdeContexto(
     nombre: medico.nombre,
     especialidades: medico.especialidades,
     lineas: medico.lineas,
-    sedes: medico.sedes.map(sede => (opciones.sinSenal ? { ...sede, distancia_m: null, coordenadas_desconocidas: true } : { ...sede })),
+    sedes: medico.sedes.map(sede =>
+      opciones.sinSenal || opciones.distanciasDeOtroPunto ? { ...sede, distancia_m: null, coordenadas_desconocidas: true } : { ...sede }
+    ),
     propio: true,
   }))
   for (const cita of citas) {
@@ -1206,7 +1211,7 @@ export function citasParaReportar(
 }
 
 /** Cuenta de una cita institucional (la de la cita o, si no viene, la de su sede). */
-function cuentaDeCita(cita: CitaItem): string | null {
+export function cuentaDeCita(cita: CitaItem): string | null {
   return cita.cuenta?.id ?? cita.sede.cuenta_id ?? null
 }
 

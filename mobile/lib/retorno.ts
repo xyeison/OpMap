@@ -57,8 +57,13 @@ export interface PedidoCreacion {
   municipio?: string | null
   /** Sedes cercanas del contexto (para elegir dónde atiende el médico, o la cuenta de la sede nueva). */
   sedes?: readonly SedeOpcion[]
-  /** Ubicación del sitio, si ya se tomó. */
+  /** Ubicación del sitio, si ya se tomó (para mostrar: en Reportar puede ser aún la primera). */
   punto?: (Punto & { precision?: number | null }) | null
+  /**
+   * La ubicación que VALE (la final de Reportar, que puede no haber llegado al pedir): Nuevo médico la espera antes de
+   * crear el consultorio con ella, nunca con `punto`.
+   */
+  puntoFinal?: Promise<(Punto & { precision?: number | null }) | null>
 }
 
 let pedidoActual: PedidoCreacion | null = null

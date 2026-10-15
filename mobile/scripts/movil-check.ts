@@ -152,6 +152,32 @@ import {
 } from '../lib/propuesta'
 import { departamentoDe, municipioDe, tipoIdCuentaDeMedico, validarDocumentoMedico, validarRepsCode } from '../lib/terceros'
 import { parteAudio, tipoAudio } from '../lib/subida-audio'
+import {
+  DISTANCIA_RECARGA_M,
+  EDAD_MAXIMA_ULTIMA_MS,
+  MENSAJE_SIN_PERMISO_UBICACION,
+  MENSAJE_SIN_UBICACION,
+  aUbicacion,
+  abiertasAlTerminarEnvio,
+  arrancarLlegada,
+  contactosQueSeConservan,
+  contextoAlRecargar,
+  datosParaConfirmar,
+  debeRecargarContexto,
+  enUsoAlRecargar,
+  estaAfinando,
+  lugarDeLaVisita,
+  pasoDelReporte,
+  sedesQueSeConservan,
+  registroDeRapidas,
+  ubicacionEnDosPasos,
+  ubicacionFinal,
+  type EstadoConLaPrimera,
+  type EstadoDelReporte,
+  type FuentesUbicacion,
+  type Lectura,
+  type ResultadoUbicacion,
+} from '../lib/ubicacion-pasos'
 
 // Este archivo corre en Node (tsx), pero el programa de tipos es el de la app (sin @types/node, que chocaría con los
 // tipos de React Native): fs y path con lo mínimo que se usa aquí.
@@ -836,6 +862,28 @@ async function main() {
       Math.abs((validarBorrador(enSinSenal, sinSenal, entrada({ punto: norte(40) })).distancia_m ?? -1) - 80) <= 1 && sinSenal.medicos[0].sedes.every(x => x.coordenadas_desconocidas === true && x.distancia_m === null),
       sinSenal.medicos[0].sedes
     )
+    // Reportar: la final se alejó de la primera y el contexto pedido con ella no llegó (o aún no): una sede del médico
+    // que no está entre las cercanas trae la distancia que el servidor midió desde la PRIMERA (1,2 km) y no se puede
+    // volver a medir aquí. No bloquea con esa distancia vieja: queda desconocida y decide el servidor.
+    const S_MEDICO = 'aaaaaaaa-0000-4000-8000-000000000004'
+    const conLejana: ContextoResponse = {
+      ...contexto,
+      mis_medicos: [{ ...contexto.mis_medicos[0], sedes: [...contexto.mis_medicos[0].sedes, { id: S_MEDICO, nombre: 'Consultorio del Dr. X', cuenta_nombre: 'Consultorio', distancia_m: 1_200 }] }],
+    }
+    const viejo = catalogoDesdeContexto(conLejana, {}, norte(40))
+    const desdeOtro = catalogoDesdeContexto(conLejana, {}, norte(40), { distanciasDeOtroPunto: true })
+    const enLaDelMedico = cambiarBorrador(borradorVacio(desdeOtro, { nuevoId }), { medico_id: M1, sede_id: S_MEDICO, lineas: [L1] }, desdeOtro)
+    check(
+      'contexto de otro punto: con la distancia vieja del servidor se bloquearía ("Estás a 1200 m…"); marcada, la sede del médico queda desconocida y no bloquea',
+      validarBorrador(enLaDelMedico, viejo, entrada({ punto: norte(40) })).errores.some(e => e.mensaje.startsWith('Estás a 1200 m')) &&
+        validarBorrador(enLaDelMedico, desdeOtro, entrada({ punto: norte(40) })).ok &&
+        !distanciaASede(enLaDelMedico, desdeOtro, norte(40)).conocida,
+      { viejo: validarBorrador(enLaDelMedico, viejo, entrada({ punto: norte(40) })).errores, nuevo: validarBorrador(enLaDelMedico, desdeOtro, entrada({ punto: norte(40) })).errores }
+    )
+    check(
+      'contexto de otro punto: las sedes con coordenadas se siguen midiendo desde el punto de ahora (Clínica Norte a 80 m)',
+      Math.abs((desdeOtro.sedes.find(x => x.id === S1)?.distancia_m ?? -1) - 80) <= 1 && validarBorrador(cambiarBorrador(enLaDelMedico, { sede_id: S1 }, desdeOtro), desdeOtro, entrada({ punto: norte(40) })).distancia_m !== null
+    )
   }
 
   seccion('9. Grabación y terceros (médico completo, sede nueva)')
@@ -1227,6 +1275,620 @@ async function main() {
 
     const api = readFileSync(path.resolve(__dirname, '../lib/api.ts'), 'utf8')
     check('lib/api.ts sube el audio con parteAudio y bytes(), sin { uri, name, type }', /parteAudio\(uri, \(\) => archivo\.bytes\(\)\)/.test(api) && !/\{ uri, name:/.test(api))
+  }
+
+  // -------------------------------------------------------------------------
+  seccion('14. Ubicación en dos pasos (Reportar no espera el GPS para mostrar la lista)')
+  {
+    const AHORA = Date.parse('2026-10-14T15:00:00.000Z')
+    const nunca = <T,>() => new Promise<T>(() => undefined)
+    const demora = <T,>(ms: number, valor: T) => new Promise<T>(resolve => setTimeout(() => resolve(valor), ms))
+    const lectura = (extra: Partial<Lectura> = {}): Lectura => ({ lat: 4.6097104, lng: -74.0817503, precision: 12.4, timestamp: AHORA - 1_000, ...extra })
+    interface Llamadas {
+      permiso: number
+      precisa: number
+      rapida: number
+      ultima: number[]
+    }
+    const fuentesFalsas = (f: Partial<FuentesUbicacion> = {}): FuentesUbicacion & { llamadas: Llamadas } => {
+      const llamadas: Llamadas = { permiso: 0, precisa: 0, rapida: 0, ultima: [] }
+      return {
+        llamadas,
+        permiso: () => {
+          llamadas.permiso++
+          return f.permiso ? f.permiso() : Promise.resolve(true)
+        },
+        precisa: () => {
+          llamadas.precisa++
+          return f.precisa ? f.precisa() : Promise.resolve(lectura())
+        },
+        rapida: () => {
+          llamadas.rapida++
+          return f.rapida ? f.rapida() : nunca<Lectura>()
+        },
+        ultima: edad => {
+          llamadas.ultima.push(edad)
+          return f.ultima ? f.ultima(edad) : Promise.resolve(null)
+        },
+        ahora: () => AHORA,
+        rapidasPropias: f.rapidasPropias,
+      }
+    }
+
+    // La final: la regla de siempre (alta precisión con tiempo máximo; si no, la última de < 2 min, aproximada).
+    check('la edad máxima de la última conocida sigue en 2 minutos (no se afloja)', EDAD_MAXIMA_ULTIMA_MS === 120_000)
+    const conFix = await ubicacionFinal(fuentesFalsas(), { timeoutMs: 50 })
+    check(
+      'final: la lectura precisa, con 6 decimales y precisión entera, no aproximada',
+      conFix.error === null && conFix.ubicacion?.lat === 4.60971 && conFix.ubicacion?.lng === -74.08175 && conFix.ubicacion?.precision === 12 && conFix.ubicacion?.aproximada === false,
+      conFix
+    )
+    const sinFixF = fuentesFalsas({ precisa: () => nunca(), ultima: () => Promise.resolve(lectura({ timestamp: AHORA - 90_000, precision: 65 })) })
+    const sinFix = await ubicacionFinal(sinFixF, { timeoutMs: 30 })
+    check('final: sin lectura precisa a tiempo, la última de hace 90 s (aproximada), pedida con 2 minutos', sinFix.ubicacion?.aproximada === true && sinFix.ubicacion?.precision === 65 && sinFixF.llamadas.ultima[0] === 120_000, { sinFix, llamadas: sinFixF.llamadas })
+    const vieja = await ubicacionFinal(fuentesFalsas({ precisa: () => nunca(), ultima: () => Promise.resolve(lectura({ timestamp: AHORA - 150_000 })) }), { timeoutMs: 30 })
+    check('final: una última de hace 2 min 30 s no sirve (aunque la plataforma la devuelva): sin ubicación', vieja.ubicacion === null && vieja.error === MENSAJE_SIN_UBICACION, vieja)
+    const rara = await ubicacionFinal(fuentesFalsas({ precisa: () => Promise.resolve(lectura({ lat: Number.NaN })), ultima: () => Promise.resolve(null) }), { timeoutMs: 30 })
+    check('final: coordenadas que no son un punto no se usan', rara.ubicacion === null && rara.error === MENSAJE_SIN_UBICACION)
+    const sinPermisoF = fuentesFalsas({ permiso: () => Promise.resolve(false) })
+    const sinPermiso = await ubicacionFinal(sinPermisoF, { timeoutMs: 30 })
+    check('final: sin permiso, el mensaje del permiso y no se lee el GPS', sinPermiso.error === MENSAJE_SIN_PERMISO_UBICACION && sinPermisoF.llamadas.precisa === 0)
+    const fallaPermiso = await ubicacionFinal(fuentesFalsas({ permiso: () => Promise.reject(new Error('x')) }), { timeoutMs: 30 })
+    check('final: nunca lanza (si el permiso falla, "no se pudo tomar la ubicación")', fallaPermiso.error === MENSAJE_SIN_UBICACION)
+    check('aUbicacion: sin timestamp usa la hora de ahora (ISO de Bogotá)', aUbicacion(lectura({ timestamp: 0 }), false, AHORA)?.tomada_at === '2026-10-14T10:00:00.000-05:00')
+
+    // Dos pasos: la primera para mostrar ya; la final para la visita.
+    {
+      const f = fuentesFalsas({ precisa: () => demora(80, lectura({ lat: 4.611, precision: 9 })), ultima: () => Promise.resolve(lectura({ timestamp: AHORA - 20_000, precision: 65 })) })
+      const pasos = ubicacionEnDosPasos(f, { timeoutMs: 500 })
+      let finalLista = false
+      void pasos.final.then(() => (finalLista = true))
+      const primera = await pasos.primera
+      check(
+        'dos pasos: con una última de hace 20 s, la primera es esa (aproximada) y llega antes que la final',
+        primera.esFinal === false && primera.resultado.ubicacion?.precision === 65 && primera.resultado.ubicacion.aproximada && !finalLista,
+        primera
+      )
+      const final = await pasos.final
+      check('dos pasos: la final es la lectura precisa (no aproximada)', final.ubicacion?.precision === 9 && final.ubicacion.aproximada === false && final.ubicacion.lat === 4.611)
+      check('dos pasos: el permiso se pide una sola vez', f.llamadas.permiso === 1, f.llamadas)
+    }
+    {
+      const f = fuentesFalsas({ precisa: () => demora(80, lectura({ precision: 8 })), rapida: () => demora(5, lectura({ precision: 70 })) })
+      const pasos = ubicacionEnDosPasos(f, { timeoutMs: 500 })
+      const primera = await pasos.primera
+      check('dos pasos: sin última conocida, la lectura rápida (nueva, no aproximada)', primera.esFinal === false && primera.resultado.ubicacion?.precision === 70 && primera.resultado.ubicacion.aproximada === false, primera)
+      check('dos pasos: y la final sigue siendo la precisa', (await pasos.final).ubicacion?.precision === 8)
+    }
+    {
+      const pasos = ubicacionEnDosPasos(fuentesFalsas({ precisa: () => demora(5, lectura({ precision: 6 })), rapida: () => demora(60, lectura({ precision: 70 })) }), { timeoutMs: 500 })
+      const primera = await pasos.primera
+      check('dos pasos: si la precisa llega antes que la rápida, la primera ya es la final', primera.esFinal === true && primera.resultado.ubicacion?.precision === 6, primera)
+    }
+    {
+      const pasos = ubicacionEnDosPasos(fuentesFalsas({ precisa: () => demora(20, lectura({ precision: 6 })), rapida: () => Promise.reject(new Error('sin wifi')) }), { timeoutMs: 500 })
+      const primera = await pasos.primera
+      check('dos pasos: si la rápida falla, se espera la final', primera.esFinal === true && primera.resultado.ubicacion?.precision === 6, primera)
+    }
+    {
+      const f = fuentesFalsas({ precisa: () => nunca(), rapida: () => nunca(), ultima: () => Promise.resolve(null) })
+      const pasos = ubicacionEnDosPasos(f, { timeoutMs: 30 })
+      const primera = await pasos.primera
+      check('dos pasos: sin nada a tiempo, la primera es el error de la final ("no se pudo tomar")', primera.esFinal === true && primera.resultado.ubicacion === null && primera.resultado.error === MENSAJE_SIN_UBICACION, primera)
+    }
+    {
+      const f = fuentesFalsas({ permiso: () => Promise.resolve(false) })
+      const primera = await ubicacionEnDosPasos(f, { timeoutMs: 30 }).primera
+      check('dos pasos: sin permiso, el aviso del permiso y nada se lee', primera.esFinal && primera.resultado.error === MENSAJE_SIN_PERMISO_UBICACION && f.llamadas.precisa === 0 && f.llamadas.rapida === 0 && f.llamadas.ultima.length === 0, f.llamadas)
+    }
+
+    // ¿Volver a pedir el contexto con el punto final?
+    const base = { lat: 4.6097, lng: -74.0817 }
+    const a50 = { lat: base.lat + 50 / 111_320, lng: base.lng }
+    const a150 = { lat: base.lat + 150 / 111_320, lng: base.lng }
+    // La lectura rápida de la propia app (que queda en el caché del sistema como "última conocida") no sirve de respaldo
+    // a la final ni a pedirUbicacion (Nueva sede): sin dos pasos ese caso terminaba sin punto, y así sigue.
+    {
+      const registro = registroDeRapidas(2)
+      const a = lectura({ timestamp: AHORA - 500, precision: 90 })
+      const b = lectura({ timestamp: AHORA - 400, lat: 4.62 })
+      const c = lectura({ timestamp: AHORA - 300, lat: 4.63 })
+      registro.registrar(a)
+      check('registro de rápidas: reconoce la misma lectura (hora y coordenadas) y no otra', registro.contiene({ ...a }) && !registro.contiene(lectura({ timestamp: AHORA - 501, precision: 90 })) && !registro.contiene(b))
+      registro.registrar(b)
+      registro.registrar(c)
+      check('registro de rápidas: guarda solo las últimas (las viejas ya no son recientes)', !registro.contiene(a) && registro.contiene(b) && registro.contiene(c))
+    }
+    {
+      const registro = registroDeRapidas()
+      const rapida = lectura({ timestamp: AHORA - 500, precision: 95 })
+      const f = fuentesFalsas({ precisa: () => nunca(), rapida: () => demora(5, rapida), ultima: () => Promise.resolve(null), rapidasPropias: registro })
+      const pasos = ubicacionEnDosPasos(f, { timeoutMs: 60 })
+      const primera = await pasos.primera
+      check('rápida propia: la primera es la lectura rápida (para mostrar)', primera.esFinal === false && primera.resultado.ubicacion?.precision === 95)
+      check('rápida propia: queda registrada al llegar', registro.contiene(rapida))
+      // El sistema devuelve ahora la rápida como "última conocida".
+      const f2 = fuentesFalsas({ precisa: () => nunca(), ultima: () => Promise.resolve({ ...rapida }), rapidasPropias: registro })
+      const final = await ubicacionFinal(f2, { timeoutMs: 30 })
+      check('rápida propia: la final NO la toma de respaldo (sin punto, como antes de los dos pasos)', final.ubicacion === null && final.error === MENSAJE_SIN_UBICACION, final)
+      const otra = await ubicacionFinal(fuentesFalsas({ precisa: () => nunca(), ultima: () => Promise.resolve(lectura({ timestamp: AHORA - 30_000, precision: 40 })), rapidasPropias: registro }), { timeoutMs: 30 })
+      check('rápida propia: otra última conocida reciente sí sirve (aproximada), la regla de siempre', otra.ubicacion?.precision === 40 && otra.ubicacion.aproximada === true, otra)
+      const otraEntrada = ubicacionEnDosPasos(fuentesFalsas({ precisa: () => nunca(), ultima: () => Promise.resolve({ ...rapida }), rapidasPropias: registro }), { timeoutMs: 30 })
+      const primeraOtra = await otraEntrada.primera
+      check('rápida propia: al volver a Reportar sí se usa para mostrar (la primera)', primeraOtra.esFinal === false && primeraOtra.resultado.ubicacion?.precision === 95, primeraOtra)
+      check('rápida propia: y la final de esa entrada tampoco la toma', (await otraEntrada.final).ubicacion === null)
+    }
+    {
+      const registro = registroDeRapidas()
+      const tardia = lectura({ timestamp: AHORA - 200, precision: 120 })
+      const pasos = ubicacionEnDosPasos(fuentesFalsas({ precisa: () => nunca(), rapida: () => demora(60, tardia), ultima: () => Promise.resolve(null), rapidasPropias: registro }), { timeoutMs: 20 })
+      await pasos.primera
+      await demora(80, null)
+      check('rápida propia: se registra aunque llegue después del tiempo máximo', registro.contiene(tardia))
+    }
+
+    check('recargar: el umbral es 100 m', DISTANCIA_RECARGA_M === 100)
+    check('recargar: a 50 m no (solo se vuelven a medir las distancias)', !debeRecargarContexto(base, a50))
+    check('recargar: a 150 m sí (las sedes a menos de 1 km pueden ser otras)', debeRecargarContexto(base, a150))
+    check('recargar: si la primera no tenía punto, sí; si la final no tiene, no', debeRecargarContexto(null, base) && !debeRecargarContexto(base, null))
+
+    const viejas = [
+      { id: 's-elegida', nombre: 'Elegida', de_agenda: false },
+      { id: 's-tarjeta', nombre: 'En tarjeta' },
+      { id: 's-sigue', nombre: 'Sigue cerca' },
+      { id: 's-suelta', nombre: 'Nadie la usa' },
+    ]
+    const conservadas = sedesQueSeConservan(viejas, ['s-sigue', 's-nueva'], ['s-elegida', null, 's-tarjeta', 's-sigue', undefined])
+    check(
+      'recargar: se conservan la sede elegida y las de las tarjetas que ya no vienen; las que siguen o nadie usa, no',
+      JSON.stringify(conservadas.map(s => s.id)) === JSON.stringify(['s-elegida', 's-tarjeta']),
+      conservadas
+    )
+    const contactosViejos = [
+      { id: 'k-a', cuenta_id: 'c-a', nombre: 'De la cuenta en la tarjeta' },
+      { id: 'k-elegida', cuenta_id: 'c-elegida', nombre: 'De la cuenta de la sede elegida' },
+      { id: 'k-sigue', cuenta_id: 'c-a', nombre: 'Sigue en el contexto nuevo' },
+      { id: 'k-otra', cuenta_id: 'c-otra', nombre: 'De una cuenta que nadie usa' },
+    ]
+    const contactosConservados = contactosQueSeConservan(contactosViejos, ['k-sigue', 'k-nuevo'], ['c-a', null, 'c-elegida', undefined])
+    check(
+      'recargar: se conservan los contactos de las cuentas en uso (tarjeta o sede elegida) que ya no vienen (antes: "Ese contacto no es de la cuenta elegida")',
+      JSON.stringify(contactosConservados.map(k => k.id)) === JSON.stringify(['k-a', 'k-elegida']),
+      contactosConservados
+    )
+
+    // Con qué punto y hora sale la visita (lugarDeLaVisita): NUNCA la primera, tampoco en el instante entre que llega
+    // la final y la pantalla se vuelve a pintar con ella.
+    {
+      const enPantalla = { punto: { lat: 4.6, lng: -74.08, precision: 150 }, llegada: '2026-10-14T09:58:30.000-05:00' }
+      const ubicacionFinalOk = aUbicacion(lectura({ lat: 4.611, precision: 9, timestamp: AHORA }), false, AHORA)
+      const yaLlego = await lugarDeLaVisita(Promise.resolve({ ubicacion: ubicacionFinalOk, error: null }), enPantalla)
+      check(
+        'lugar de la visita: la final ya llegó pero la pantalla aún muestra la primera → sale con la final y su hora',
+        yaLlego.punto?.lat === 4.611 && yaLlego.punto.precision === 9 && yaLlego.llegada === '2026-10-14T10:00:00.000-05:00',
+        yaLlego
+      )
+      let entregar: (valor: { ubicacion: typeof ubicacionFinalOk; error: string | null }) => void = () => undefined
+      const pendiente = new Promise<{ ubicacion: typeof ubicacionFinalOk; error: string | null }>(resolve => (entregar = resolve))
+      let salio = false
+      const esperando = lugarDeLaVisita(pendiente, enPantalla).then(lugar => {
+        salio = true
+        return lugar
+      })
+      await demora(15, null)
+      check('lugar de la visita: si la final aún no llega, espera (no sale con la primera)', !salio)
+      entregar({ ubicacion: ubicacionFinalOk, error: null })
+      check('lugar de la visita: cuando llega, sale con la final', (await esperando).punto?.lat === 4.611)
+      const sinPuntoFinal = await lugarDeLaVisita(Promise.resolve({ ubicacion: null, error: MENSAJE_SIN_UBICACION }), enPantalla)
+      check(
+        'lugar de la visita: si la final no trae punto, sale SIN punto (solo telefónica), nunca con la primera; la llegada, la de la pantalla',
+        sinPuntoFinal.punto === null && sinPuntoFinal.llegada === enPantalla.llegada
+      )
+      check('lugar de la visita: sin dos pasos (o tras "Actualizar"), lo de la pantalla', (await lugarDeLaVisita(null, enPantalla)) === enPantalla)
+    }
+
+    // --- Lo que Reportar hace con los dos pasos (funciones puras que reportar.tsx usa tal cual) ---
+    // Datos: la primera a ~1,2 km al sur de la final (el GPS afinó); la sede S_AQUI a 50 m de la final.
+    const PRIMERA = { lat: 4.6, lng: -74.08 }
+    const FINAL = { lat: 4.611, lng: -74.08 }
+    const cerca = (p: { lat: number; lng: number }, m: number) => ({ lat: Math.round((p.lat + m / 111_195) * 1e6) / 1e6, lng: p.lng })
+    const S_AQUI = 'aaaaaaaa-0000-4000-8000-0000000014a1'
+    const S_LEJOS = 'aaaaaaaa-0000-4000-8000-0000000014a2'
+    const S_ELEGIDA = 'aaaaaaaa-0000-4000-8000-0000000014a3'
+    const S_TARJETA = 'aaaaaaaa-0000-4000-8000-0000000014a4'
+    const S_SUELTA = 'aaaaaaaa-0000-4000-8000-0000000014a5'
+    const S_CITA = 'aaaaaaaa-0000-4000-8000-0000000014a6'
+    const S_NUEVA = 'aaaaaaaa-0000-4000-8000-0000000014a7'
+    const S_CONSULTORIO = 'aaaaaaaa-0000-4000-8000-0000000014a8'
+    const C_AQUI = 'cccccccc-0000-4000-8000-0000000014c1'
+    const C_ELEGIDA = 'cccccccc-0000-4000-8000-0000000014c2'
+    const C_TARJETA = 'cccccccc-0000-4000-8000-0000000014c3'
+    const C_CITA = 'cccccccc-0000-4000-8000-0000000014c4'
+    const C_OTRA = 'cccccccc-0000-4000-8000-0000000014c5'
+    const M_14 = 'dddddddd-0000-4000-8000-0000000014d1'
+    const L_14 = 'eeeeeeee-0000-4000-8000-0000000014e1'
+    const SUB_14 = 'ffffffff-0000-4000-8000-0000000014f1'
+    const sedeCerca = (id: string, nombre: string, cuenta_id: string, p: { lat: number; lng: number }, distancia_m: number): ContextoResponse['sedes_cerca'][number] => ({
+      id,
+      nombre,
+      cuenta_id,
+      cuenta_nombre: nombre,
+      cuenta_clase: 'clinica',
+      ciudad: 'Bogotá',
+      ...p,
+      distancia_m,
+      hospital_id: null,
+      ubicacion_confirmada: true,
+    })
+    const contexto14 = (extra: Partial<ContextoResponse> = {}): ContextoResponse => ({
+      ejecutiva: { id: 'e14', nombre: 'Ejecutivo de prueba', zona: 'Bogotá', municipio: '11001', lineas: [{ id: L_14, code: 'osteo', name: 'Osteosíntesis' }] },
+      hoy: { fecha: '2026-10-14', meta: { medica: 6, institucional: 1 }, hechas: { medicas: 0, institucionales: 0, telefonicas: 0, no_efectivas: 0 }, cuota_dia_ok: false },
+      config: { radio_m: 500, telefonica: { habilitada: true, tope_dia: 2, medios: ['llamada'] }, tope_visitas_medico_dia: 1, perfil: ['medica', 'institucional'] },
+      sedes_cerca: [],
+      // Su consultorio sin coordenadas: la distancia la midió el servidor desde el punto con que se pidió el contexto.
+      mis_medicos: [{ id: M_14, nombre: 'Dr. Prueba', especialidades: [], municipality_id: '11001', lineas: [L_14], sedes: [{ id: S_CONSULTORIO, nombre: 'Consultorio', cuenta_nombre: null, distancia_m: 30 }] }],
+      contactos: [],
+      subtipos: [{ id: SUB_14, codigo: 'compras', nombre: 'Compras', roles_sugeridos: ['compras'] }],
+      compromisos_vencidos: [],
+      voz: { transcribir: false, proponer: false },
+      agenda_hoy: [],
+      ...extra,
+    })
+    let n14 = 0
+    const nuevoId14 = () => `00000000-0000-4000-8000-14${String(++n14).padStart(10, '0')}`
+    const finalOk = aUbicacion(lectura({ ...FINAL, precision: 9, timestamp: AHORA }), false, AHORA)
+    const primeraUb = aUbicacion(lectura({ ...PRIMERA, precision: 65 }), true, AHORA)
+
+    // (a) arrancarLlegada: la final pendiente queda puesta al recibir la primera, ANTES de que la lista se pueda tocar.
+    {
+      const eventos: string[] = []
+      let finalPuesta: EstadoConLaPrimera['finalPendiente'] | undefined
+      const final = nunca<ResultadoUbicacion>()
+      let entregarContexto: (valor: string) => void = () => undefined
+      const llegada = arrancarLlegada(
+        { primera: Promise.resolve({ resultado: { ubicacion: primeraUb, error: null }, esFinal: false }), final },
+        {
+          vigente: () => true,
+          conLaPrimera: estado => {
+            eventos.push('primera')
+            finalPuesta = estado.finalPendiente
+          },
+          cargar: ubicacion => {
+            eventos.push(`cargar:${ubicacion?.precision}`)
+            return new Promise<string>(resolve => (entregarContexto = resolve))
+          },
+          afinar: (f, primera) => eventos.push(`afinar:${f === final}:${primera?.precision}`),
+        }
+      ).then(resultado => {
+        eventos.push(`lista:${finalPuesta === final}`)
+        return resultado
+      })
+      await demora(5, null)
+      check('(a) llegada: al recibir la primera queda puesta la final pendiente, antes de pedir el contexto', eventos.join() === 'primera,cargar:65' && finalPuesta === final, eventos)
+      entregarContexto('contexto')
+      const resultado = await llegada
+      check(
+        '(a) llegada: la lista se muestra (arrancarLlegada resuelve) solo después, con la final pendiente ya puesta; afina después de cargar',
+        eventos.join() === 'primera,cargar:65,afinar:true:65,lista:true' && resultado?.cargado === 'contexto' && resultado.primera.llegada === primeraUb?.tomada_at,
+        eventos
+      )
+    }
+    {
+      let afino = false
+      let estado: EstadoConLaPrimera | null = null
+      const final = Promise.resolve({ ubicacion: finalOk, error: null })
+      const resultado = await arrancarLlegada({ primera: Promise.resolve({ resultado: { ubicacion: finalOk, error: null }, esFinal: true }), final }, {
+        vigente: () => true,
+        conLaPrimera: e => (estado = e),
+        cargar: async () => 'ok',
+        afinar: () => (afino = true),
+      })
+      const sinFinal = estado as EstadoConLaPrimera | null
+      check('(a) llegada: si la primera ya es la final, no queda final pendiente ni se afina', resultado !== null && sinFinal !== null && sinFinal.finalPendiente === null && !afino)
+    }
+    {
+      const eventos: string[] = []
+      let vigente = true
+      const efectos = {
+        vigente: () => vigente,
+        conLaPrimera: () => eventos.push('primera'),
+        cargar: async () => {
+          eventos.push('cargar')
+          vigente = false // otra llegada empezó mientras se cargaba
+          return 'ok'
+        },
+        afinar: () => eventos.push('afinar'),
+      }
+      const pasos = { primera: Promise.resolve({ resultado: { ubicacion: primeraUb, error: null }, esFinal: false }), final: nunca<ResultadoUbicacion>() }
+      const tarde = await arrancarLlegada(pasos, efectos)
+      vigente = false
+      const vieja = await arrancarLlegada(pasos, efectos)
+      check('(a) llegada: si otra llegada empezó (tras cargar o antes de la primera), devuelve null y no aplica nada más', tarde === null && vieja === null && eventos.join() === 'primera,cargar', eventos)
+    }
+
+    // Nota del revisor: "afinando la ubicación…" no se queda pegado cuando empieza otra generación.
+    check(
+      'afinando: solo mientras se espera la final de la generación de ahora (otra llegada o "Actualizar" lo apaga)',
+      estaAfinando(4, 4) && !estaAfinando(4, 5) && !estaAfinando(null, 4)
+    )
+
+    // (b) datosParaConfirmar: con qué sale la tarjeta. La pantalla aún tiene el contexto de la primera; mientras se
+    // esperaba, llegó la final y se recargó el contexto (ahora trae S_AQUI) y la tarjeta cambió.
+    const ctxPrimera = contexto14({ sedes_cerca: [sedeCerca(S_LEJOS, 'Clínica de la primera', C_OTRA, cerca(PRIMERA, 40), 40)] })
+    const ctxFinal = contexto14({ sedes_cerca: [sedeCerca(S_AQUI, 'Clínica Aquí', C_AQUI, cerca(FINAL, 50), 50)] })
+    const catalogoPrimera = catalogoDesdeContexto(ctxPrimera, {}, PRIMERA)
+    const tarjetaAlTocar = { ...borradorVacio(catalogoPrimera, { nuevoId: nuevoId14, sedeElegida: null }), conclusion: 'al tocar' }
+    const tarjetaComoQuedo = { ...tarjetaAlTocar, sede_id: S_AQUI, conclusion: 'como quedó' }
+    const enPantalla14 = { punto: { ...PRIMERA, precision: 65 }, llegada: primeraUb?.tomada_at ?? '', catalogo: catalogoPrimera, borrador: tarjetaAlTocar }
+    const estado14 = (extra: Partial<EstadoDelReporte> = {}): EstadoDelReporte => ({
+      contexto: ctxFinal,
+      puntoContexto: FINAL,
+      extras: {},
+      sinSenal: false,
+      catalogo: catalogoDesdeContexto(ctxFinal, {}, FINAL),
+      sedeElegida: null,
+      cita: null,
+      tarjetas: [tarjetaComoQuedo],
+      ...extra,
+    })
+    {
+      const generacion = { current: 3 }
+      const ultimo = { current: estado14({ contexto: ctxPrimera, puntoContexto: PRIMERA, tarjetas: [tarjetaAlTocar] }) }
+      let entregar: (valor: ResultadoUbicacion) => void = () => undefined
+      const final = new Promise<ResultadoUbicacion>(resolve => (entregar = resolve))
+      const esperando = datosParaConfirmar({ clave: tarjetaAlTocar.clave, final, enPantalla: enPantalla14, generacion, ultimo })
+      // Mientras espera: llega la final, se recarga el contexto con ella y la tarjeta queda como quedó.
+      ultimo.current = estado14()
+      entregar({ ubicacion: finalOk, error: null })
+      const datos = await esperando
+      const aqui = datos?.catalogo.sedes.find(s => s.id === S_AQUI)
+      check(
+        '(b) confirmar: sale con la final y su hora, no con la primera',
+        datos?.punto?.lat === FINAL.lat && datos.punto.precision === 9 && datos.llegada === finalOk?.tomada_at,
+        datos?.punto
+      )
+      check(
+        '(b) confirmar: el catálogo es el de AHORA (contexto recargado) medido desde la final, no el de la pantalla',
+        !!aqui && Math.abs((aqui.distancia_m ?? 0) - 50) <= 1 && !datos?.catalogo.sedes.some(s => s.id === S_LEJOS),
+        datos?.catalogo.sedes.map(s => [s.id, s.distancia_m])
+      )
+      check('(b) confirmar: la tarjeta es la de ahora (como quedó), no la del toque', datos?.borrador.conclusion === 'como quedó' && datos.borrador.sede_id === S_AQUI)
+      const consultorio = datos?.catalogo.medicos.find(m => m.id === M_14)?.sedes.find(s => s.id === S_CONSULTORIO)
+      check('(b) confirmar: con el contexto pedido con la final, la distancia del consultorio que midió el servidor vale', consultorio?.distancia_m === 30, consultorio)
+    }
+    {
+      // Sin recarga aún (el contexto es el de la primera, a 1,2 km): la distancia que midió el servidor no se usa.
+      const ultimo = { current: estado14({ contexto: ctxPrimera, puntoContexto: PRIMERA, tarjetas: [tarjetaAlTocar] }) }
+      const datos = await datosParaConfirmar({ clave: tarjetaAlTocar.clave, final: Promise.resolve({ ubicacion: finalOk, error: null }), enPantalla: enPantalla14, generacion: { current: 1 }, ultimo })
+      const consultorio = datos?.catalogo.medicos.find(m => m.id === M_14)?.sedes.find(s => s.id === S_CONSULTORIO)
+      check('(b) confirmar: con el contexto de la primera (lejos de la final), la distancia del servidor queda desconocida', consultorio?.distancia_m === null && consultorio.coordenadas_desconocidas === true, consultorio)
+    }
+    {
+      const generacion = { current: 3 }
+      let entregar: (valor: ResultadoUbicacion) => void = () => undefined
+      const final = new Promise<ResultadoUbicacion>(resolve => (entregar = resolve))
+      const esperando = datosParaConfirmar({ clave: tarjetaAlTocar.clave, final, enPantalla: enPantalla14, generacion, ultimo: { current: estado14() } })
+      generacion.current++ // empezó otra llegada mientras esperaba
+      entregar({ ubicacion: finalOk, error: null })
+      const sinTarjeta = await datosParaConfirmar({ clave: tarjetaAlTocar.clave, final: Promise.resolve({ ubicacion: finalOk, error: null }), enPantalla: enPantalla14, generacion: { current: 1 }, ultimo: { current: estado14({ tarjetas: [] }) } })
+      check('(b) confirmar: si cambió la generación o la tarjeta ya no está, no se manda (null)', (await esperando) === null && sinTarjeta === null)
+      check('(b) confirmar: sin final pendiente, lo de la pantalla tal cual', (await datosParaConfirmar({ clave: tarjetaAlTocar.clave, final: null, enPantalla: enPantalla14, generacion: { current: 1 }, ultimo: { current: estado14() } })) === enPantalla14)
+    }
+
+    // (c) y hallazgo 2: lo que se conserva al recargar el contexto con la final.
+    {
+      const sedeVieja = (id: string, cuenta_id: string) => ({ ...sedeCerca(id, id, cuenta_id, cerca(PRIMERA, 10), 10) })
+      const citaInst14: CitaItem = {
+        id: '11111111-0000-4000-8000-0000000014b1',
+        fecha: '2026-10-14',
+        hora: '10:00',
+        tipo: 'institucional',
+        medico: null,
+        cuenta: { id: C_CITA, nombre: 'Cuenta de la cita' },
+        subtipo: { id: SUB_14, codigo: 'compras', nombre: 'Compras' },
+        sede: { id: S_CITA, nombre: 'Sede de la cita', cuenta_id: C_CITA, cuenta_nombre: 'Cuenta de la cita', ...cerca(FINAL, 20), ubicacion_confirmada: true },
+        nota: null,
+        estado: 'pendiente',
+        visita_id: null,
+        distancia_m: null,
+        dentro_del_radio: null,
+        anticipada: true,
+        cancelable: true,
+      }
+      const ctxAntes = contexto14({
+        sedes_cerca: [sedeVieja(S_ELEGIDA, C_ELEGIDA), sedeVieja(S_TARJETA, C_TARJETA), sedeVieja(S_SUELTA, C_OTRA)],
+        contactos: [
+          { id: 'k-cita', cuenta_id: C_CITA, sede_id: null, nombre: 'Compras de la cuenta de la cita', cargo_texto: null, rol: 'compras' },
+          { id: 'k-elegida', cuenta_id: C_ELEGIDA, sede_id: null, nombre: 'De la sede elegida', cargo_texto: null, rol: 'compras' },
+          { id: 'k-tarjeta', cuenta_id: C_TARJETA, sede_id: null, nombre: 'De la tarjeta', cargo_texto: null, rol: 'compras' },
+          { id: 'k-otra', cuenta_id: C_OTRA, sede_id: null, nombre: 'De una cuenta que nadie usa', cargo_texto: null, rol: 'compras' },
+        ],
+        agenda_hoy: [citaInst14],
+      })
+      const catalogoAntes = catalogoDesdeContexto(ctxAntes, {}, PRIMERA)
+      const tarjeta = { ...borradorVacio(catalogoAntes, { nuevoId: nuevoId14, tipo: 'institucional', sedeElegida: S_TARJETA }), cuenta_id: C_TARJETA, sede_id: S_TARJETA }
+      const antes = { contexto: ctxAntes, catalogo: catalogoAntes, sedeElegida: S_ELEGIDA, cita: citaInst14, tarjetas: [tarjeta] }
+      const enUso = enUsoAlRecargar(antes)
+      check(
+        'recargar: en uso, la sede elegida, la de la cita y las de las tarjetas; y sus cuentas (también la de la CITA elegida)',
+        JSON.stringify(enUso) === JSON.stringify({ sedes: [S_ELEGIDA, S_CITA, S_TARJETA], cuentas: [C_TARJETA, C_ELEGIDA, C_CITA] }),
+        enUso
+      )
+      // El contexto pedido con la final trae otras sedes cercanas, solo sus contactos y la misma cita.
+      const ctxNuevo = contexto14({
+        sedes_cerca: [sedeCerca(S_NUEVA, 'Nueva cercana', C_AQUI, cerca(FINAL, 30), 30)],
+        contactos: [{ id: 'k-nuevo', cuenta_id: C_AQUI, sede_id: null, nombre: 'De la nueva', cargo_texto: null, rol: 'compras' }],
+        agenda_hoy: [citaInst14],
+      })
+      const recargado = contextoAlRecargar(antes, ctxNuevo)
+      check(
+        'recargar: se conservan la sede elegida y la de la tarjeta (la de la cita sigue en la agenda nueva; la suelta no)',
+        JSON.stringify(recargado.sedes.map(s => s.id)) === JSON.stringify([S_ELEGIDA, S_TARJETA]),
+        recargado.sedes.map(s => s.id)
+      )
+      check(
+        'recargar: se conservan los contactos de las cuentas en uso, incluida la de la cita elegida (antes se perdía)',
+        JSON.stringify(recargado.contexto.contactos.map(k => k.id)) === JSON.stringify(['k-nuevo', 'k-cita', 'k-elegida', 'k-tarjeta']),
+        recargado.contexto.contactos.map(k => k.id)
+      )
+      const porToquesConCita = borradorDesdeCita(citaInst14, catalogoDesdeContexto(recargado.contexto, { sedes: recargado.sedes }, FINAL), { nuevoId: nuevoId14 })
+      check('recargar: "Por toques" con la cita sigue sugiriendo el contacto de compras de su cuenta', porToquesConCita.contacto_id === 'k-cita', porToquesConCita.contacto_id)
+      const conCitaCancelada = contextoAlRecargar(antes, { ...ctxNuevo, agenda_hoy: [{ ...citaInst14, estado: 'cancelada' }] })
+      check('recargar: si en el contexto nuevo la cita viene cancelada, su sede se conserva (el catálogo nuevo no la trae)', conCitaCancelada.sedes.some(s => s.id === S_CITA))
+      check('recargar: sin nada que conservar, el contexto nuevo tal cual', contextoAlRecargar({ contexto: ctxAntes, catalogo: catalogoAntes, sedeElegida: null, cita: null, tarjetas: [] }, ctxNuevo).contexto === ctxNuevo)
+    }
+
+    // Hallazgo 3: mientras una tarjeta se envía no empieza otra llegada; "Reportar de nuevo" se aplaza y se arma después.
+    {
+      const R = { client_id: 'rechazada', cuerpo: visita(), error: 'Fuera del radio' }
+      const paso = (extra: Partial<Parameters<typeof pasoDelReporte<typeof R>>[0]>) =>
+        pasoDelReporte<typeof R>({ motivo: 'foco', iniciado: true, reintento: null, enviando: 0, ocupada: false, abiertas: 0, reiniciar: false, ...extra })
+      check('paso: la primera vez que recibe el foco, empieza (con el reintento si lo hay)', JSON.stringify(paso({ iniciado: false, reintento: R })) === JSON.stringify({ accion: 'iniciar', reintento: R }))
+      const aplazado = paso({ reintento: R, enviando: 1 })
+      check('paso: foco con "Reportar de nuevo" mientras una tarjeta se envía → se aplaza, no empieza otra llegada', aplazado.accion === 'aplazar' && aplazado.reintento === R, aplazado)
+      check('paso: foco sin reintento mientras una tarjeta se envía → sigue aunque tocaría reiniciar', paso({ enviando: 2, reiniciar: true }).accion === 'seguir')
+      check('paso: foco con reintento y sin envíos → empieza con él (aunque esté grabando, como siempre)', JSON.stringify(paso({ reintento: R, ocupada: true })) === JSON.stringify({ accion: 'iniciar', reintento: R }))
+      check('paso: foco sin reintento → reinicia solo si debeReiniciarReporte', JSON.stringify(paso({ reiniciar: true })) === JSON.stringify({ accion: 'iniciar', reintento: null }) && paso({}).accion === 'seguir')
+      check('paso: termina el último envío con un reintento aplazado → empieza con él', JSON.stringify(paso({ motivo: 'envio', reintento: R })) === JSON.stringify({ accion: 'iniciar', reintento: R }))
+      check('paso: termina un envío pero queda otro, o está grabando → se aplaza otra vez', paso({ motivo: 'envio', reintento: R, enviando: 1 }).accion === 'aplazar' && paso({ motivo: 'envio', reintento: R, ocupada: true }).accion === 'aplazar')
+      check('paso: termina un envío sin reintento → sigue (nunca reinicia por eso)', paso({ motivo: 'envio', reiniciar: true }).accion === 'seguir')
+      const conAbierta = paso({ motivo: 'envio', reintento: R, abiertas: 1 })
+      check('paso: termina el último envío pero queda una tarjeta abierta (rechazada o sin confirmar) → se aplaza otra vez, no la borra', conAbierta.accion === 'aplazar' && conAbierta.reintento === R, conAbierta)
+      check('paso: al recibir el foco con reintento, las tarjetas abiertas no lo detienen (como siempre: lo pidió en Hoy)', paso({ reintento: R, abiertas: 2 }).accion === 'iniciar')
+
+      // Tarjetas abiertas al terminar un envío: lo último pintado menos la que se acaba de guardar.
+      const tA = { clave: 'A' }
+      const tD = { clave: 'D' }
+      check(
+        'abiertas al terminar: la guardada no cuenta (la pantalla aún la tiene); la rechazada o sin guardar sí',
+        abiertasAlTerminarEnvio([tA], 'A') === 0 && abiertasAlTerminarEnvio([tA], null) === 1 && abiertasAlTerminarEnvio([tA, tD], 'A') === 1 && abiertasAlTerminarEnvio([], null) === 0
+      )
+
+      // El caso del revisor de punta a punta: la tarjeta espera la final, la persona va a Hoy y toca "Reportar de nuevo".
+      const generacion = { current: 9 }
+      let enviando = 1
+      let entregar: (valor: ResultadoUbicacion) => void = () => undefined
+      const final = new Promise<ResultadoUbicacion>(resolve => (entregar = resolve))
+      const esperando = datosParaConfirmar({ clave: tarjetaComoQuedo.clave, final, enPantalla: { ...enPantalla14, borrador: tarjetaComoQuedo }, generacion, ultimo: { current: estado14() } })
+      const alEnfocar = paso({ reintento: R, enviando })
+      if (alEnfocar.accion === 'iniciar') generacion.current++ // lo que haría iniciar: otra generación (y borra las tarjetas)
+      entregar({ ubicacion: finalOk, error: null })
+      const datos = await esperando
+      check('paso: la visita que esperaba la final no se pierde: sigue y sale con la final', alEnfocar.accion === 'aplazar' && datos !== null && datos.punto?.lat === FINAL.lat, { alEnfocar, datos: datos?.punto })
+      enviando--
+      const alTerminar = paso({
+        motivo: 'envio',
+        reintento: alEnfocar.accion === 'aplazar' ? alEnfocar.reintento : null,
+        enviando,
+        abiertas: abiertasAlTerminarEnvio([tarjetaComoQuedo], tarjetaComoQuedo.clave),
+      })
+      check('paso: y al terminar ese envío (guardada) se arma el "Reportar de nuevo" aplazado', alTerminar.accion === 'iniciar' && alTerminar.reintento === R)
+
+      // Hallazgo 2 (verificación): la tarjeta que esperaba la final sale y el servidor la RECHAZA. Sale de la cola y
+      // queda abierta con su rechazo: el "Reportar de nuevo" aplazado no la borra, sigue aplazado.
+      const rechazada = paso({ motivo: 'envio', reintento: R, enviando: 0, abiertas: abiertasAlTerminarEnvio([tarjetaComoQuedo], null) })
+      check('paso: si el servidor rechazó la tarjeta enviada, el reintento sigue aplazado (no borra la rechazada)', rechazada.accion === 'aplazar' && rechazada.reintento === R, rechazada)
+
+      // Hallazgo 3 (verificación): aplazado otra vez por grabar; la propuesta trae C y D; confirmar C no lo arma (D sigue
+      // abierta y no se borra); al guardar D, la última, sí.
+      const grabando = paso({ motivo: 'envio', reintento: R, ocupada: true, abiertas: abiertasAlTerminarEnvio([tarjetaComoQuedo], tarjetaComoQuedo.clave) })
+      const tC = { clave: 'C' }
+      const alGuardarC = paso({ motivo: 'envio', reintento: grabando.accion === 'aplazar' ? grabando.reintento : null, abiertas: abiertasAlTerminarEnvio([tC, tD], 'C') })
+      const alGuardarD = paso({ motivo: 'envio', reintento: alGuardarC.accion === 'aplazar' ? alGuardarC.reintento : null, abiertas: abiertasAlTerminarEnvio([tD], 'D') })
+      check(
+        'paso: aplazado por grabar, otro Confirmar con tarjetas abiertas no lo arma (no borra la dictada sin confirmar); al guardar la última, sí',
+        grabando.accion === 'aplazar' && alGuardarC.accion === 'aplazar' && alGuardarD.accion === 'iniciar' && alGuardarD.reintento === R,
+        { grabando: grabando.accion, alGuardarC: alGuardarC.accion, alGuardarD: alGuardarD.accion }
+      )
+    }
+
+    // La pantalla usa esas funciones (la lógica no se duplica en reportar.tsx) y no manda la visita con la primera.
+    const reportar = readFileSync(path.resolve(__dirname, '../app/(app)/reportar.tsx'), 'utf8')
+    const ubicacionTs = readFileSync(path.resolve(__dirname, '../lib/ubicacion.ts'), 'utf8')
+    const iniciar = reportar.slice(reportar.indexOf('const iniciar = useCallback('), reportar.indexOf('const reubicar = useCallback('))
+    const antesDeArrancar = iniciar.slice(0, iniciar.indexOf('await arrancarLlegada('))
+    check('Reportar: pide las visitas de hoy antes de esperar la ubicación', iniciar.indexOf('api.visitas(') > -1 && iniciar.indexOf('api.visitas(') < iniciar.indexOf('await arrancarLlegada('))
+    check(
+      'Reportar: arranca con arrancarLlegada (pone la final pendiente en conLaPrimera, afina con la final) y solo después muestra la lista',
+      /await arrancarLlegada\(pedirUbicacionEnDosPasos\(/.test(iniciar) &&
+        /finalPendiente\.current = estado\.finalPendiente/.test(iniciar) &&
+        /afinar: \(final, primera\) => void afinar\(gen, final, primera\)/.test(iniciar) &&
+        (antesDeArrancar.match(/setFase\([^)]*\)/g) ?? []).every(llamada => llamada === "setFase('ubicando')") &&
+        iniciar.indexOf("setFase('lista')") > iniciar.indexOf('await arrancarLlegada(') &&
+        !/finalPendiente\.current = pasos\.final/.test(reportar)
+    )
+    const confirmar = reportar.slice(reportar.indexOf('const confirmarTarjeta = async'), reportar.indexOf('const descartar = '))
+    const afinarTs = reportar.slice(reportar.indexOf('const afinar = useCallback('), reportar.indexOf('const iniciar = useCallback('))
+    check(
+      'Reportar: Confirmar sale con datosParaConfirmar (refs de generación y de lo último) y valida y manda ESO',
+      /await datosParaConfirmar\(\{ clave, final, enPantalla: \{ punto, llegada, catalogo, borrador: enPantalla \}, generacion, ultimo \}\)/.test(confirmar) &&
+        /const \{ borrador, catalogo: catalogoVisita, punto: puntoVisita, llegada: llegadaVisita \} = datos/.test(confirmar) &&
+        /validarBorrador\(borrador, catalogoVisita, \{ punto: puntoVisita, checked_in_at: llegadaVisita/.test(confirmar) &&
+        /cuerpoDesdeBorrador\(borrador, \{ punto: puntoVisita, checked_in_at: llegadaVisita/.test(confirmar) &&
+        !/lugarDeLaVisita\(/.test(confirmar)
+    )
+    check('Reportar: mientras espera la final, la tarjeta se bloquea sin marcarse intentada', /if \(final\) fijarEstado\(clave, \{ enviando: true, rechazo: null \}\)/.test(confirmar))
+    // Cada llamada se revisa dentro de SU bloque (una regex que se extiende hasta otro bloque no cuida nada). Si un
+    // marcador no está, el bloque queda vacío y la prueba falla.
+    const bloque = (texto: string, desde: string, hasta: string) => {
+      const i = texto.indexOf(desde)
+      const j = i > -1 ? texto.indexOf(hasta, i + desde.length) : -1
+      return i > -1 && j > -1 ? texto.slice(i, j) : ''
+    }
+    const finIntento = confirmar.lastIndexOf('} finally {')
+    const cuerpoConfirmar = finIntento > -1 ? confirmar.slice(0, finIntento) : ''
+    const finallyConfirmar = finIntento > -1 ? confirmar.slice(finIntento) : ''
+    const alEnfocarTs = bloque(reportar, '  useFocusEffect(', '// Lo que se creó en Nuevo médico')
+    const aplicarPasoTs = bloque(reportar, 'function aplicarPaso(', '\n}\n')
+    check(
+      'Reportar: Confirmar espera la final de ESTA llegada (const final = finalPendiente.current, antes de datosParaConfirmar)',
+      /\n\s*const final = finalPendiente\.current\n/.test(cuerpoConfirmar) &&
+        cuerpoConfirmar.indexOf('const final = finalPendiente.current') < cuerpoConfirmar.indexOf('await datosParaConfirmar(')
+    )
+    check(
+      'Reportar: al recibir el foco cuenta los envíos en curso, la fase y las tarjetas de lo último (pasoDelReporte con motivo foco)',
+      /const reintento = tomarReintento\(\)/.test(alEnfocarTs) &&
+        /const \{ llegada: llegadaActual, fase: faseActual, borradores: pendientes \} = ultimo\.current/.test(alEnfocarTs) &&
+        /const ocupada = esFaseOcupada\(faseActual\)/.test(alEnfocarTs) &&
+        /pasoDelReporte\(\{\s*motivo: 'foco',\s*iniciado: iniciado\.current,\s*reintento,\s*enviando: enviosEnCurso\.current,\s*ocupada,\s*abiertas: pendientes,\s*reiniciar: debeReiniciarReporte\(/.test(alEnfocarTs) &&
+        /aplicarPaso\(paso, r => void iniciarRef\.current\(r\)\)/.test(alEnfocarTs)
+    )
+    check(
+      'Reportar: cuenta los envíos (sube antes de esperar la final, baja en el finally) y al terminar cada envío decide con pasoDelReporte',
+      cuerpoConfirmar.indexOf('enviosEnCurso.current++') > -1 &&
+        cuerpoConfirmar.indexOf('enviosEnCurso.current++') < cuerpoConfirmar.indexOf('await datosParaConfirmar(') &&
+        /^\} finally \{\s*enviosEnCurso\.current--/.test(finallyConfirmar) &&
+        /aplicarPaso\(\s*pasoDelReporte\(\{\s*motivo: 'envio',\s*iniciado: true,\s*reintento: tomarReintento\(\),\s*enviando: enviosEnCurso\.current,\s*ocupada: esFaseOcupada\(ultimo\.current\.fase\),\s*abiertas: abiertasAlTerminarEnvio\(ultimo\.current\.tarjetas, guardada\),\s*reiniciar: false,?\s*\}\),\s*r => void iniciarRef\.current\(r\)\s*\)/.test(finallyConfirmar)
+    )
+    const guardadaEn = cuerpoConfirmar.indexOf('guardada = clave')
+    check(
+      'Reportar: la tarjeta solo cuenta como guardada (no abierta) en el camino que la guarda; rechazada o con error sigue abierta',
+      /let guardada: string \| null = null\n/.test(cuerpoConfirmar) &&
+        (cuerpoConfirmar.match(/\bguardada = /g) ?? []).length === 1 &&
+        guardadaEn > cuerpoConfirmar.indexOf('setBorradores(prev => prev.filter(b => b.clave !== clave))') &&
+        guardadaEn > cuerpoConfirmar.indexOf("if (elemento.estado === 'no_enviada') {") &&
+        guardadaEn < cuerpoConfirmar.indexOf('} catch (lanzado) {')
+    )
+    check(
+      'Reportar: aplicarPaso inicia con el reintento o lo vuelve a guardar (fijarReintento) al aplazarlo',
+      /if \(paso\.accion === 'iniciar'\) iniciar\(paso\.reintento\)/.test(aplicarPasoTs) && /else if \(paso\.accion === 'aplazar'\) fijarReintento\(paso\.reintento\)/.test(aplicarPasoTs)
+    )
+    check(
+      'Reportar: lo último (ultimo.current, cada render) lleva la fase, las tarjetas, la sede y la CITA elegidas tal cual',
+      /\n\s*ultimo\.current = \{ contexto, puntoContexto, extras, punto, catalogo, sinSenal, llegada, fase, borradores: borradores\.length, tarjetas: borradores, sedeElegida, cita \}\n/.test(reportar)
+    )
+    check('Reportar: al recargar usa contextoAlRecargar con lo último', /contextoAlRecargar\(ultimo\.current, ctx\)/.test(afinarTs))
+    check('Reportar: "afinando" se muestra con estaAfinando (la generación de ahora)', /const afinando = estaAfinando\(afinandoDe, generacion\.current\)/.test(reportar))
+    check('Reportar: la final no se suelta al llegar (sin carrera con el siguiente render); "Actualizar" sí la suelta', !/finalPendiente\.current = null/.test(afinarTs) && /finalPendiente\.current = null/.test(reportar.slice(reportar.indexOf('const reubicar = useCallback('))))
+    check('Reportar: Nuevo médico recibe la final (puntoFinal) para el consultorio', /puntoFinal: lugarDeLaVisita\(finalPendiente\.current/.test(reportar))
+    const nuevoMedicoTs = readFileSync(path.resolve(__dirname, '../app/(app)/medico/nuevo.tsx'), 'utf8')
+    check('Nuevo médico: crea el consultorio con la final (await pedido.puntoFinal), no con la primera', /const punto = pedido\?\.puntoFinal \? await pedido\.puntoFinal/.test(nuevoMedicoTs) && !/pedido\?\.punto\?\.lat/.test(nuevoMedicoTs))
+    const tarjetaTs = readFileSync(path.resolve(__dirname, '../components/reporte/TarjetaBorrador.tsx'), 'utf8')
+    check('TarjetaBorrador: mientras se confirma no se toca (pointerEvents none)', /estado\.enviando \? \{ gap: 14, pointerEvents: 'none'/.test(tarjetaTs))
+    check('Reportar: lo que llega de una llegada anterior no se aplica (generación)', /if \(gen !== generacion\.current\) return/.test(reportar) && /\+\+generacion\.current/.test(reportar))
+    const hoyTs = readFileSync(path.resolve(__dirname, '../app/(app)/hoy.tsx'), 'utf8')
+    check('Hoy: pide el contexto con la primera ubicación (no espera la de alta precisión)', /pedirUbicacionEnDosPasos\(\{ timeoutMs: 8_000 \}\)\.primera/.test(hoyTs) && !/pedirUbicacion\(/.test(hoyTs))
+    check('lib/ubicacion.ts: la que vale sigue siendo de alta precisión; la rápida, de precisión media', /precisa:[^\n]*Accuracy\.High/.test(ubicacionTs) && /rapida:[^\n]*Accuracy\.Balanced/.test(ubicacionTs))
   }
 
   console.log(`\n${total - fallas}/${total} pruebas pasaron`)
