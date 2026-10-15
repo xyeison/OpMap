@@ -33,6 +33,18 @@ Para que la aplicación funcione correctamente en Vercel, necesitas configurar l
    - Ejemplo: `AIzaSy...`
    - Dónde encontrarla: Google Cloud Console > APIs & Services > Credentials
 
+5. **OPENAI_API_KEY** y **ANTHROPIC_API_KEY** (app de visita: voz)
+   - `OPENAI_API_KEY`: transcribe el dictado (gpt-4o-transcribe). Sin ella, `/api/me/voz/transcribir` responde 503.
+   - `ANTHROPIC_API_KEY`: arma la visita desde el texto (Claude). Sin ella, `/api/me/voz/proponer` y `/campos` responden 503.
+   - Lo más simple: crear la llave de Anthropic **asignada a un workspace** (Claude Console → API keys → Create key →
+     elegir el workspace). Así no hace falta nada más.
+
+6. **ANTHROPIC_WORKSPACE_ID** (opcional)
+   - Solo si la llave de Anthropic es personal o de cuenta de servicio y **no** está asignada a un workspace: entonces
+     Anthropic exige saber en qué workspace actúa cada petición y, sin esto, responde 400 ("anthropic-workspace-id is
+     required…"). Valor: el ID del workspace, con forma `wrkspc_…` (Claude Console → Settings → Workspaces → columna ID).
+   - Si trae otra cosa (por ejemplo la llave pegada por error) no se envía y el log lo avisa sin mostrar el valor.
+
 ## Cómo configurar en Vercel
 
 1. Ve a tu proyecto en [Vercel Dashboard](https://vercel.com/dashboard)

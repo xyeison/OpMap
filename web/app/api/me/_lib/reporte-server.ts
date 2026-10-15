@@ -1104,13 +1104,14 @@ export interface ClientePropuesta {
 
 export interface FabricasVoz {
   openai: (apiKey: string) => ClienteTranscripcion
-  anthropic: (apiKey: string) => ClientePropuesta
+  /** `cabeceras`: las de cabecerasAnthropic (el workspace), o undefined. */
+  anthropic: (apiKey: string, cabeceras?: Record<string, string>) => ClientePropuesta
 }
 
 const FABRICAS_REALES: FabricasVoz = {
   // Un reintento (el SDK reintenta 408/409/429/5xx y errores de red); 60 s por intento.
   openai: apiKey => new OpenAI({ apiKey, maxRetries: 1, timeout: 60_000 }),
-  anthropic: apiKey => new Anthropic({ apiKey, maxRetries: 1, timeout: 60_000 }),
+  anthropic: (apiKey, cabeceras) => new Anthropic({ apiKey, maxRetries: 1, timeout: 60_000, ...(cabeceras ? { defaultHeaders: cabeceras } : {}) }),
 }
 
 let fabricas: FabricasVoz = FABRICAS_REALES
@@ -1121,9 +1122,33 @@ export function fijarFabricasVoz(nuevas: Partial<FabricasVoz> | null): void {
 }
 
 /** Valor de una variable de entorno (sin espacios) o null. Nunca se imprime. */
-function llave(nombre: 'OPENAI_API_KEY' | 'ANTHROPIC_API_KEY'): string | null {
+function llave(nombre: 'OPENAI_API_KEY' | 'ANTHROPIC_API_KEY' | 'ANTHROPIC_WORKSPACE_ID'): string | null {
   const valor = process.env[nombre]
   return typeof valor === 'string' && valor.trim() ? valor.trim() : null
+}
+
+/** Forma de un ID de workspace de Anthropic (`wrkspc_…`). */
+const ID_WORKSPACE_ANTHROPIC = /^wrkspc_[A-Za-z0-9]{8,64}$/
+
+/**
+ * Cabecera `anthropic-workspace-id` para una llave personal o de cuenta de servicio que NO está asignada a un
+ * workspace: con esas llaves Anthropic responde 400 ("anthropic-workspace-id is required when authenticating with an
+ * identity-linked API key") si la petición no dice en qué workspace actúa (platform.claude.com/docs, Authentication →
+ * Select a workspace). Una llave asignada a un workspace no la necesita. Solo se manda un valor con forma de ID
+ * (`wrkspc_…`): si la variable trae otra cosa (por ejemplo, la llave pegada por error) no se manda ni se imprime.
+ */
+export function cabecerasAnthropic(workspaceId: string | null | undefined): Record<string, string> | undefined {
+  const id = typeof workspaceId === 'string' ? workspaceId.trim() : ''
+  return ID_WORKSPACE_ANTHROPIC.test(id) ? { 'anthropic-workspace-id': id } : undefined
+}
+
+/** Las cabeceras de ANTHROPIC_WORKSPACE_ID (opcional); avisa en el log, sin el valor, si no tiene forma de ID. */
+function cabecerasDelWorkspace(): Record<string, string> | undefined {
+  const valor = llave('ANTHROPIC_WORKSPACE_ID')
+  if (!valor) return undefined
+  const cabeceras = cabecerasAnthropic(valor)
+  if (!cabeceras) console.warn('ANTHROPIC_WORKSPACE_ID no tiene la forma de un ID de workspace (wrkspc_…): no se envía')
+  return cabeceras
 }
 
 /** 503 con el mensaje del contrato si falta la llave de ese proveedor; null si está. */
@@ -1272,8 +1297,9 @@ const ESCAPE = /\\(?:u[0-9a-f]{4}|u\{[0-9a-f]+\}|x[0-9a-f]{2})|&(?:#\d+|#x[0-9a-
  */
 const VOCABULARIO_API: ReadonlySet<string> = new Set(
   `
-  a about above access account actual adaptive add added additional after again all allow allowed alongside also
-  alternate an and anthropic any api are argument arguments array as assistant at audio auto available avoid bad
+  a about above access account actions acts actual adaptive add added additional after again all allow allowed alongside also
+  alternate an and anthropic any api are argument arguments array as assistant at audio authenticating authentication auto
+  available avoid bad belongs
   balance be been before beta betas between billing block blocks body boolean both budget but by bytes cache call
   called can cannot cause change character characters check choice claude code codes com combination combined
   compatible compilation complex config configuration connection consecutive consult contact contain contains content
@@ -1283,17 +1309,17 @@ const VOCABULARIO_API: ReadonlySet<string> = new Set(
   entry enum ephemeral equal error errors exceed exceeded exceeds except exist exists expected extra extract fail
   failed fallback fallbacks false feature features field fields file files final find first flac follow following for
   format formats found from function further given go got gpt greater guides had haiku has have header headers help
-  high higher http https id if image in include included includes incompatible incorrect increase information input
+  high higher http https id identity if image in include included includes incompatible incorrect increase information input
   inputs integer internal into invalid is iso it item items its json key keys language large larger last learn least
-  length less level levels limit limits list literal long longer low lower malformed match matches max maximum may
+  length less level levels limit limits linked list literal long longer low lower malformed match matches max maximum may
   media medium message messages metadata might mime min mini minimum minute missing mode model models more most mp
   mpeg mpga multiple must name names near needs new no non none not null number numbers object objects of oga ogg on
   one only openai optional options or org organization other our output outputs over overloaded parallel param
   parameter parameters params pattern per permission permissions permitted plan plans platform please possible
   prefill processing prompt properties property provide provided purchase quota range rate reached read reason
   received recognized reduce region request requested requests require required requires response responses result
-  role roles row rpm sales schema second seconds see sequence sequences server service set should side single size
-  sonnet sorry specified specify speed status stop stream streaming strict string strings supplied support supported
+  role roles row rpm sales schema scope scoped second seconds see send sequence sequences server service set should side single size
+  so sonnet sorry specified specify speed status stop stream streaming strict string strings supplied support supported
   supports system tag tags temperature temporarily text than that the their then these thinking this those tier time
   to token tokens too tool tools top total tpm transcribe transcription transcriptions true try ttl turn turns type
   types unable unavailable unexpected union unknown unrecognized unsupported upgrade uri url usage use used user
@@ -1387,7 +1413,8 @@ const PARAMETROS_RAIZ = new Set([
 export function parametroDelMensaje(mensaje: unknown, enviado: LoEnviado): string | null {
   const texto = comoTexto(mensaje)?.slice(0, MAX_MENSAJE_API_ANALIZAR)
   if (!texto) return null
-  const cabecera = texto.match(/\b(anthropic-[a-z-]+|x-api-key)[`'"]?\s+header\b/i)?.[1]
+  // "… the `anthropic-beta` header", o la cabecera nombrada sin "header" ("anthropic-workspace-id is required …").
+  const cabecera = texto.match(/\b(anthropic-[a-z-]+|x-api-key)[`'"]?\s+header\b/i)?.[1] ?? texto.match(/\b(anthropic-(?:workspace-id|beta|version))\b/i)?.[1]
   if (cabecera) return cabecera.toLowerCase()
   for (const m of texto.matchAll(/(["'`]?)([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z0-9_[\]]+)*)(["'`]?)(\s*:)?/g)) {
     const candidato = m[2]
@@ -1666,7 +1693,7 @@ async function llamarHerramienta(cliente: ClientePropuesta, peticion: Anthropic.
 async function pedirHerramienta(entrada: PedidoHerramienta): Promise<unknown> {
   const apiKey = llave('ANTHROPIC_API_KEY')
   if (!apiKey) throw new ErrorProveedorVoz('anthropic', 'sin llave')
-  const cliente = fabricas.anthropic(apiKey)
+  const cliente = fabricas.anthropic(apiKey, cabecerasDelWorkspace())
   try {
     return await llamarHerramienta(cliente, peticionCompleta(entrada), entrada.herramienta.name)
   } catch (error) {
