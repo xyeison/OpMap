@@ -8,19 +8,24 @@
 // En quitar_ajuste la línea es la del ajuste activo (400 si no existe). La respuesta (SimularResponse) trae el diff de
 // celdas que cambian de kind o de persona, con nombres (línea, Zona, quién antes y después, estados), y el resumen por
 // estado de cada línea del usuario DESPUÉS de los cambios; las dos cosas recortadas a sus líneas, aunque el cambio
-// mueva celdas de otras (una persona que pierde una línea, por ejemplo).
+// mueva celdas de otras (una persona que pierde una línea, por ejemplo). Y, por cada linea_quitar, cuántos médicos de
+// esa persona en esa línea perderían visitante al guardar (medico_visitantes vigentes; el disparador de la 0820 los
+// termina y nada los reabre): la pantalla lo muestra y exige confirmarlo antes de habilitar "Quitarle" (spec E2).
 // NUNCA escribe: carga las entradas del motor (loadCoverageInputs), calcula antes y después en memoria
-// (simularCobertura, lib/cobertura-simulacion.ts) y responde. Sin Google: la matriz sale de las distancias ya pagadas.
+// (simularCobertura, lib/cobertura-simulacion.ts), cuenta médicos con una lectura y responde. Sin Google: la matriz
+// sale de las distancias ya pagadas.
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { requireUser } from '@/lib/require-role'
+import { supabaseAdmin } from '@/lib/supabase-admin'
 import { jsonError, readJson, zodMessage } from '@/app/api/kams/_lib/kam-shared'
 import { UUID_RE } from '@/lib/fase1-schemas'
 import { computeZoneMatrix, loadCoverageInputs, resolveUserLines } from '@/lib/coverage'
 import { estadoDePlaza, resumenPorEstado, simularCobertura } from '@/lib/cobertura-simulacion'
 import { zoneDisplayName } from '@/lib/zone-names'
-import type { CoverageKind } from '@/lib/types/coverage'
-import type { Cambio, SimularDiffCelda, SimularResponse } from '@/lib/types/zonas'
+import { isMissingRelationError } from '@/app/api/intelligence/_lib/giros-server'
+import type { CoverageKind, CoverageInputs } from '@/lib/types/coverage'
+import type { Cambio, MedicosQuePierdenVisitante, SimularDiffCelda, SimularResponse } from '@/lib/types/zonas'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
@@ -53,6 +58,44 @@ const bodySchema = z.object({
     .max(MAX_CAMBIOS, `Máximo ${MAX_CAMBIOS} cambios por vista previa`),
 })
 
+/**
+ * Médicos distintos con visitante vigente (hasta IS NULL) de esa persona en esa línea: los que el disparador de la 0820
+ * terminaría al borrar la fila de executive_lines. Sin la tabla (migración 0800 sin aplicar) no hay médicos: 0.
+ */
+async function contarMedicosVigentes(executiveId: string, lineId: string): Promise<number> {
+  const { data, error } = await supabaseAdmin
+    .from('medico_visitantes')
+    .select('medico_id')
+    .eq('executive_id', executiveId)
+    .eq('line_id', lineId)
+    .is('hasta', null)
+    .range(0, 9999)
+  if (error) {
+    if (isMissingRelationError(error)) return 0
+    throw error
+  }
+  return new Set(((data || []) as Array<{ medico_id: string }>).map(row => row.medico_id)).size
+}
+
+/**
+ * Por cada linea_quitar (sin repetir persona y línea), la cuenta de médicos que perderían visitante. Si la persona no
+ * lleva la línea hoy, el disparador no correría: 0 sin leer nada.
+ */
+async function medicosQuePierden(inputs: CoverageInputs, cambios: Cambio[]): Promise<MedicosQuePierdenVisitante[]> {
+  const lleva = new Set(inputs.executiveLines.map(link => `${link.executive_id}:${link.line_id}`))
+  const vistos = new Set<string>()
+  const out: MedicosQuePierdenVisitante[] = []
+  for (const cambio of cambios) {
+    if (cambio.tipo !== 'linea_quitar') continue
+    const clave = `${cambio.executive_id}:${cambio.line_id}`
+    if (vistos.has(clave)) continue
+    vistos.add(clave)
+    const medicos = lleva.has(clave) ? await contarMedicosVigentes(cambio.executive_id, cambio.line_id) : 0
+    out.push({ executive_id: cambio.executive_id, line_id: cambio.line_id, medicos })
+  }
+  return out
+}
+
 export async function POST(request: NextRequest) {
   const auth = await requireUser(request)
   if (!auth.ok) return auth.response
@@ -80,6 +123,8 @@ export async function POST(request: NextRequest) {
 
     const matrix = computeZoneMatrix(inputs.zones, inputs.hospitals, inputs.distances)
     const { despues, diff } = simularCobertura(inputs, matrix, cambios)
+    // Solo después de comprobar las líneas: quien no ve la línea no dispara ni esta lectura.
+    const medicosQuePierdenVisitante = await medicosQuePierden(inputs, cambios)
 
     const lineasUsuario = inputs.lines.filter(line => line.active && veLinea(line.id))
     const lineaPorId = new Map(lineasUsuario.map(line => [line.id, line]))
@@ -114,7 +159,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const body: SimularResponse = { diff: diffVisible, resumen }
+    const body: SimularResponse = { diff: diffVisible, resumen, medicosQuePierdenVisitante }
     return NextResponse.json(body, { headers: { 'Cache-Control': 'no-store' } })
   } catch (error) {
     console.error('Error en POST /api/coverage/simular:', error)

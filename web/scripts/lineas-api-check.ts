@@ -9,7 +9,9 @@
  *     (también en quitar_ajuste, por la línea del ajuste); máximo 20 cambios y mínimo 1; el diff trae nombres (línea,
  *     Zona, quién antes y después y sus estados): dar la línea a Beto en Neiva, donde ya vive Vacante Neiva con ella →
  *     conflicto, y Garzón pasa de la vacante a Beto por alcance (empate a 95 min, orden alfabético); quitar el ajuste de
- *     Pitalito → Ana por alcance.
+ *     Pitalito → Ana por alcance. Por cada linea_quitar trae medicosQuePierdenVisitante (la cuenta de médicos vigentes de
+ *     esa persona en esa línea, que el disparador 0820 terminaría): 2 para Sofía; 0 sin leer nada si no lleva la línea;
+ *     0 si la tabla medico_visitantes no existe; nada en un 403.
  *   - Dar la línea: executives:lines (viewer, user, hr y sales_manager → 403); la líder solo en la que lidera (403 en
  *     otra); ejecutivo inactivo o sin zona base → 400; línea inactiva → 400; inexistentes → 404; ids no válidos → 400;
  *     200 inserta la fila, recalcula la cobertura (upsert + delete en coverage) y responde las líneas por código;
@@ -454,10 +456,13 @@ async function main() {
       ['local', VACANTE, 'conflict', null, 'Sustitutos óseos'],
     ])
     eq('resumen DESPUÉS del cambio, solo de su línea', body.resumen, { sustitutos: { ocupada: 1, reservada: 0, alcance: 1, sin_cobertura: 0, conflicto: 1 } })
+    eq('dar una línea: nadie pierde visitante (lista vacía) y no lee medico_visitantes', [body.medicosQuePierdenVisitante, r.requests.some(request => request.table === 'medico_visitantes')], [[], false])
     eq('no escribe nada', escrituras(r.requests), [])
 
     const ajena = await previsualizar(LIDER_A, { cambios: [{ tipo: 'linea_agregar', executive_id: BETO, line_id: LB }] })
     check('un cambio de otra línea: 403', ajena.status === 403, ajena.body)
+    const quitarAjena = await previsualizar(LIDER_A, { cambios: [{ tipo: 'linea_quitar', executive_id: ANA, line_id: LB }] })
+    check('quitar en otra línea: 403 sin contar médicos', quitarAjena.status === 403 && !quitarAjena.requests.some(request => request.table === 'medico_visitantes'), quitarAjena.body)
     const ajusteAjeno = await previsualizar(LIDER_A, { cambios: [{ tipo: 'quitar_ajuste', override_id: OVR_PIT_B }] })
     check('quitar un ajuste de otra línea: 403 (la línea es la del ajuste)', ajusteAjeno.status === 403, ajusteAjeno.body)
     const sinAjuste = await previsualizar(LIDER_B, { cambios: [{ tipo: 'quitar_ajuste', override_id: OVR_NADIE }] })
@@ -475,11 +480,29 @@ async function main() {
     ])
     const nada = await previsualizar(ADMIN, { cambios: [{ tipo: 'linea_quitar', executive_id: BETO, line_id: LA }] })
     eq('un cambio que no cambia nada: diff vacío', [nada.status, nada.body.diff], [200, []])
+    eq('quitar una línea que no lleva: 0 médicos sin leer medico_visitantes (el disparador no correría)', [nada.body.medicosQuePierdenVisitante, nada.requests.some(request => request.table === 'medico_visitantes')], [
+      [{ executive_id: BETO, line_id: LA, medicos: 0 }],
+      false,
+    ])
     const ajuste = await previsualizar(LIDER_A, { cambios: [{ tipo: 'ajuste', line_id: LA, kam_id: GAR, executive_id: SOFIA }] })
     eq('forzar a Sofía en Garzón: ocupada por ajuste (antes la vacante por alcance)', [ajuste.status, resumenDiff(ajuste.body)], [200, ['sustitutos/Garzón: alcance(Vacante · Neiva) → ocupada(Sofía Gómez)']])
 
     const vendedora = await previsualizar(VENDEDOR, { cambios: [{ tipo: 'linea_quitar', executive_id: SOFIA, line_id: LA }] })
     eq('sales_manager que lleva la línea: puede ver la vista previa de su línea (Pitalito queda por alcance de la vacante)', [vendedora.status, resumenDiff(vendedora.body)], [200, ['sustitutos/Pitalito: ocupada(Sofía Gómez) → alcance(Vacante · Neiva)']])
+    eq('quitarle Sustitutos óseos a Sofía: la vista previa cuenta los 2 médicos que perderían visitante (dos filas del mismo médico cuentan una; la cerrada no) y no escribe', [vendedora.body.medicosQuePierdenVisitante, escrituras(vendedora.requests)], [
+      [{ executive_id: SOFIA, line_id: LA, medicos: 2 }],
+      [],
+    ])
+    const repetido = await previsualizar(LIDER_A, { cambios: [{ tipo: 'linea_quitar', executive_id: SOFIA, line_id: LA }, { tipo: 'linea_quitar', executive_id: SOFIA, line_id: LA }, { tipo: 'linea_agregar', executive_id: BETO, line_id: LA }] })
+    eq('el mismo quitar dos veces cuenta una sola vez; el agregar no suma', repetido.body.medicosQuePierdenVisitante, [{ executive_id: SOFIA, line_id: LA, medicos: 2 }])
+    {
+      // Sin la migración 0800 (tabla medico_visitantes ausente): 0, nunca 500
+      const visitantes = fake.tablas.medico_visitantes
+      delete fake.tablas.medico_visitantes
+      const sinTabla = await previsualizar(LIDER_A, { cambios: [{ tipo: 'linea_quitar', executive_id: SOFIA, line_id: LA }] })
+      fake.tablas.medico_visitantes = visitantes
+      eq('sin la tabla medico_visitantes: 200 y 0 médicos', [sinTabla.status, sinTabla.body.medicosQuePierdenVisitante], [200, [{ executive_id: SOFIA, line_id: LA, medicos: 0 }]])
+    }
     const vendedoraAjena = await previsualizar(VENDEDOR, { cambios: [{ tipo: 'linea_agregar', executive_id: SOFIA, line_id: LB }] })
     check('sales_manager en una línea que no lleva: 403', vendedoraAjena.status === 403, vendedoraAjena.body)
     const sinLineas = await previsualizar(USUARIO, { cambios: [{ tipo: 'linea_agregar', executive_id: BETO, line_id: LA }] })

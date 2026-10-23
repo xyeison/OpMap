@@ -207,7 +207,7 @@ gerencia y cuenta como una persona (elegible como local y por alcance).
 
 | Permiso | Para qué | Roles |
 |---------|----------|-------|
-| `executives:lines` | Dar o quitar la propia línea a un Ejecutivo Comercial o vacante que vive en la Zona (`PUT`/`DELETE /api/executives/[id]/lineas/[lineId]`, que recalcula la cobertura sin Google); vista previa con `POST /api/coverage/simular` (nunca escribe; recorta el resultado a las líneas del usuario) | admin, commercial_director, line_leader (solo en las líneas donde `business_lines.leader_user_id` es su usuario; lo limita la API con `canEditCoverageLine`, igual que `coverage:edit`) |
+| `executives:lines` | Dar o quitar la propia línea a un Ejecutivo Comercial o vacante que vive en la Zona (`PUT`/`DELETE /api/executives/[id]/lineas/[lineId]`, que recalcula la cobertura sin Google); vista previa con `POST /api/coverage/simular` (nunca escribe; recorta el resultado a las líneas del usuario y, por cada línea que se quita, trae la cuenta de médicos que perderían visitante, sin nombres, que la pantalla exige confirmar antes de guardar) | admin, commercial_director, line_leader (solo en las líneas donde `business_lines.leader_user_id` es su usuario; lo limita la API con `canEditCoverageLine`, igual que `coverage:edit`) |
 
 Qué no cambia: `executives:edit` sigue siendo la puerta para editar la ficha completa (todas las líneas, la zona base y
 el campo "Líneas permitidas"); `coverage:edit` para los ajustes manuales y el recálculo; y las cifras de `/kams`

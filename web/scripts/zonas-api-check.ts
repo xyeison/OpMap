@@ -1,5 +1,6 @@
 /**
- * Zonas por línea (spec 2026-10-23) · pruebas de GET /api/kams/zonas?line=<code> (SIN RED, sin Supabase real, sin Google).
+ * Zonas por línea (spec 2026-10-23) · pruebas de GET /api/kams/zonas?line=<code> y de GET /api/kams/[id]/estadisticas
+ * ("Datos de la zona" de una Zona, sin persona) (SIN RED, sin Supabase real, sin Google).
  *
  * Llama al handler real contra un Supabase FALSO en memoria (PostgREST mínimo: eq/neq/in/is/not.is/gte/lte/gt/lt, orden,
  * rango, proyección, RPC sembradas; solo la tabla coverage admite escrituras: upsert con on_conflict y delete, lo que
@@ -24,6 +25,11 @@
  *     (migración 0860 sin aplicar), null para todos, una nota y nunca 500.
  *   - acceso según rol y línea: la líder asigna y ajusta solo en la suya; dirección comercial asigna pero no administra
  *     Zonas; viewer y sales_manager no asignan; admin todo.
+ *   - GET /api/kams/[id]/estadisticas: misma puerta (hr 403 sin leer nada; 401 sin sesión; 400 id no UUID; 404 Zona que
+ *     no existe); las cifras de la Zona son las MISMAS que su fila de /kams (mismo cargador, app/api/kams/_lib/zonas-server.ts);
+ *     la cobertura solo en las líneas que el usuario ve y leída solo de esas (coberturaDeZona sobre la tabla coverage);
+ *     SECOP del NIT repartido por sedes solo con intelligence:view (sales_manager: null y sin llamar a secop_hechos);
+ *     user sin líneas: cifras sí, cobertura ninguna; una Zona inactiva responde marcada inactiva. Nunca escribe.
  *   - Ninguna petición sale del Supabase falso (nada de Google).
  *
  * El patrón del Supabase falso viene de scripts/zona-estadisticas-api-check.ts y terceros-api-check.ts (copiado).
@@ -33,7 +39,9 @@ import { randomUUID } from 'node:crypto'
 import { NextRequest } from 'next/server'
 import { passwordVersion, SESSION_COOKIE_NAME, signSession } from '../lib/session'
 import type { ZonaFila, ZonasResponse } from '../lib/types/zonas'
+import type { ZonaDatosResponse } from '../lib/zona-estadisticas'
 import { GET as zonasGet } from '../app/api/kams/zonas/route'
+import { GET as estadisticasGet } from '../app/api/kams/[id]/estadisticas/route'
 
 for (const key of [
   'GOOGLE_MAPS_API_KEY',
@@ -337,6 +345,7 @@ const OVR_VVC = id('50000000', 1) // ajuste manual: Sustitutos óseos × Villavi
 
 const NIT_COSTA = '890102345' // tres sedes: dos en Barranquilla (150 y 50 camas) y una en Cartagena (100)
 const GIRO_NIT_COSTA = 1_000_000
+const SECOP_NIT_COSTA = 30_000_000
 const CALCULO_VIEJO = '2026-10-11T15:00:00.000Z'
 
 function usuario(uid: string, role: string, nombre: string): Fila {
@@ -581,6 +590,8 @@ function datosIniciales(): Tablas {
     ],
     // Identifica tu Giro cargado de oct-2025 a sep-2026 (sin Reporte 29 ni bitácora: la fuente automática es Identifica)
     adres_giros_detalle: [{ fecha_giro: '2025-10-15' }, { fecha_giro: '2026-09-20' }],
+    // Estado de las cargas automáticas (loadSecopActualizado): sin filas → sin fecha de actualización
+    fuentes_estado: [],
   }
 }
 
@@ -595,23 +606,34 @@ const RPCS: Rpcs = {
     nombres: {},
   }),
   adres_giros_intel: () => ({ nits: [{ nit: NIT_COSTA, contributivo: 600_000, subsidiado: 400_000 }] }),
+  // Un contrato de VG Medical con el NIT de la Costa (línea trauma: entra en el total ortopédico); construirBloque lo
+  // reparte entre sus tres sedes por camas (Barranquilla 2/3, Cartagena 1/3). Solo lo pide /api/kams/[id]/estadisticas.
+  secop_hechos: () => [
+    { e: NIT_COSTA, en: 'Clínica de la Costa', d: '901080496', h: null, pn: 'VG MEDICAL SAS', p: false, es: null, l: 'trauma', a: false, f: '2026-09-01', v: SECOP_NIT_COSTA, n: 1 },
+  ],
 }
 
 // Solo la tabla coverage se escribe (recomputeAndSaveCoverage); cualquier otra escritura es un error de la ruta.
 const ESCRIBIBLES = new Set(['coverage'])
 
-function apiRequest(query: string, userId: string | null) {
+function apiRequest(path: string, userId: string | null) {
   const headers: Record<string, string> = {}
   if (userId) headers.cookie = `${SESSION_COOKIE_NAME}=${encodeURIComponent(signSession(userId, passwordVersion(`hash-${userId}`)))}`
-  return new NextRequest(`http://localhost:3000/api/kams/zonas${query}`, { method: 'GET', headers })
+  return new NextRequest(`http://localhost:3000/api/kams/${path}`, { method: 'GET', headers })
 }
 
 let fake = fakeSupabase(datosIniciales(), RPCS, ESCRIBIBLES)
 fetchHandler = fake.handler
 
-async function pedir(userId: string | null, query = ''): Promise<{ status: number; body: any; text: string; requests: FakeRequest[]; cache: string | null }> {
-  const antes = fake.requests.length
-  const response = await zonasGet(apiRequest(query, userId))
+interface Resultado {
+  status: number
+  body: any
+  text: string
+  requests: FakeRequest[]
+  cache: string | null
+}
+
+async function leer(response: Response, antes: number): Promise<Resultado> {
   const text = await response.text()
   let body: any = null
   try {
@@ -620,6 +642,18 @@ async function pedir(userId: string | null, query = ''): Promise<{ status: numbe
     body = text
   }
   return { status: response.status, body, text, requests: fake.requests.slice(antes), cache: response.headers.get('cache-control') }
+}
+
+/** GET /api/kams/zonas<query> */
+async function pedir(userId: string | null, query = ''): Promise<Resultado> {
+  const antes = fake.requests.length
+  return leer(await zonasGet(apiRequest(`zonas${query}`, userId)), antes)
+}
+
+/** GET /api/kams/[id]/estadisticas */
+async function pedirDatos(userId: string | null, kamId: string): Promise<Resultado> {
+  const antes = fake.requests.length
+  return leer(await estadisticasGet(apiRequest(`${kamId}/estadisticas`, userId), { params: { id: kamId } }), antes)
 }
 
 // Ayudas de lectura
@@ -826,6 +860,80 @@ async function main() {
     check('lineasPermitidas null para todos', body.zonas.every(zona => zona.residentes.every(residente => residente.lineasPermitidas === null)), zonaDe(body, 'Barranquilla')?.residentes)
     check('una nota lo dice', body.notas.some(nota => nota.startsWith('Líneas permitidas: no se pudieron leer')), body.notas)
     eq('lo demás igual (recalcula la cobertura vieja de este juego de datos)', [body.zonas.length, body.cobertura.recalculada, estadoDe(body, 'Neiva')], [16, true, 'reservada:Vacante · Neiva'])
+  }
+
+  print('\nGET /api/kams/[id]/estadisticas · "Datos de la zona" de una Zona, sin persona')
+  {
+    fake = fakeSupabase(datosIniciales(), RPCS, ESCRIBIBLES)
+    fetchHandler = fake.handler
+    // La tabla coverage del juego de datos está vieja: la pantalla Zonas la recalcula y guarda al abrirse, como en producción.
+    await pedir(ADMIN)
+    const escritasAntes = fake.writes().length
+    const calculadaEn = fake.tablas.coverage.reduce<string | null>((acc, row) => (typeof row.computed_at === 'string' && (!acc || row.computed_at > acc) ? row.computed_at : acc), null)
+    const lineasDe = (body: ZonaDatosResponse) => body.coberturaBase.map(fila => [fila.line.code, fila.kind, fila.executive?.full_name ?? null, fila.travel_minutes])
+
+    const rrhh = await pedirDatos(RRHH, IBE)
+    check('hr: 403 sin leer nada más que su sesión', rrhh.status === 403 && rrhh.requests.every(request => request.table === 'users'), { status: rrhh.status, tablas: rrhh.requests.map(request => request.table) })
+    const sinSesion = await pedirDatos(null, IBE)
+    check('sin sesión: 401', sinSesion.status === 401, sinSesion.body)
+    const idMalo = await pedirDatos(ADMIN, 'ibague')
+    eq('id que no es UUID: 400', [idMalo.status, idMalo.body?.error], [400, 'ID de Zona no válido'])
+    const nadie = await pedirDatos(ADMIN, id('20000000', 99))
+    eq('Zona que no existe: 404', [nadie.status, nadie.body?.error], [404, 'Zona no encontrada'])
+
+    const r = await pedirDatos(LIDER_S, IBE)
+    const body = r.body as ZonaDatosResponse
+    check('líder de Sustitutos óseos · Ibagué (nadie vive allí): 200 con Cache-Control: no-store', r.status === 200 && r.cache === 'no-store', { status: r.status, cache: r.cache, body: r.body })
+    eq('zona: Ibagué, activa, ciudad base Ibagué', body.zona, { kam_id: IBE, nombre: 'Ibagué', ciudad_base: 'Ibagué', activa: true })
+    eq('bloque: 1 IPS, 90 camas, 1 municipio del Tolima, 540.000 hab. (DANE 2026), afiliados 0 con su único municipio sin dato (como en la ventana de /executives), giros 0', [
+      body.bloque.ips.total, body.bloque.ips.camas, body.bloque.municipios.total, body.bloque.municipios.departamentos.map(departamento => departamento.nombre),
+      body.bloque.poblacion?.total, body.bloque.poblacion?.anio, body.bloque.afiliados?.total, body.bloque.afiliados?.municipiosSinDato, body.bloque.giros?.valor,
+    ], [1, 90, 1, ['Tolima'], 540_000, 2026, 0, 1, 0])
+    eq('cobertura solo en su línea: Ibagué por alcance desde Neiva por la vacante (210 min)', lineasDe(body), [['sustitutos', 'reach', 'Vacante · Neiva', 210]])
+    eq('acceso: compras públicas (intelligence:view), no todas las líneas, solo la suya', body.acceso, { comprasPublicas: true, todasLasLineas: false, lineasCobertura: [{ id: L_SUS, code: 'sustitutos', name: 'Sustitutos óseos' }] })
+    eq('coberturaCalculada: la fecha del recálculo guardado', body.coberturaCalculada, calculadaEn)
+    eq('fuentes: municipios calculados, DANE 2026, BDUA 30 jun 2026', body.fuentes, { municipiosCalculados: CALCULO_VIEJO, poblacionAnio: 2026, bduaCorte: '2026-06-30' })
+    check('solo lee la cobertura de su línea', r.requests.some(request => request.table === 'coverage') && r.requests.filter(request => request.table === 'coverage').every(request => request.params.get('line_id') === `eq.${L_SUS}`), r.requests.filter(request => request.table === 'coverage').map(request => request.params.get('line_id')))
+    eq('nada de las otras líneas en la respuesta (ni ids, ni códigos, ni nombres)', queTraeDe(r.text, TOKENS_OTRAS_LINEAS), [])
+    check('notas: solo en sus líneas, cómo se suma SECOP y "Nada de esta ventana…"', body.notas.some(nota => nota.includes('solo en las líneas que lideras o llevas (Sustitutos óseos)')) && body.notas.some(nota => nota.startsWith('Compras públicas (SECOP)')) && body.notas.includes('Nada de esta ventana recalcula asignaciones ni consulta Google.'), body.notas)
+    check('generado: marca de tiempo ISO', typeof body.generado === 'string' && !Number.isNaN(Date.parse(body.generado)), body.generado)
+
+    const admin = await pedirDatos(ADMIN, BAQ)
+    const baq = admin.body as ZonaDatosResponse
+    check('admin · Barranquilla: 200', admin.status === 200, admin.body)
+    eq('las 5 líneas, en orden: Carmen local en dos; la vacante local en tres', lineasDe(baq), [
+      ['sustitutos', 'local', 'Carmen López', 0],
+      ['reemplazo', 'local', 'Carmen López', 0],
+      ['medicina', 'local', 'Vacante · Barranquilla', 0],
+      ['columna', 'local', 'Vacante · Barranquilla', 0],
+      ['trauma', 'local', 'Vacante · Barranquilla', 0],
+    ])
+    eq('las mismas cifras que su fila de /kams: 2 IPS, 200 camas, 2 municipios, 2.000.000 hab., 1.200.000 afiliados, giro 2/3 del NIT', [
+      baq.bloque.ips.total, baq.bloque.ips.camas, baq.bloque.municipios.total, baq.bloque.poblacion?.total, baq.bloque.afiliados?.total, baq.bloque.giros?.valor,
+    ], [2, 200, 2, 2_000_000, 1_200_000, 666_666.67])
+    eq('SECOP de la Zona: el contrato del NIT repartido por camas (2/3 de 30 M), todo de VG Medical, ventana de 12 meses', [baq.bloque.secop?.valor, baq.bloque.secop?.vg.valor, baq.bloque.secop?.entidades, baq.bloque.secop?.actualizado], [20_000_000, 20_000_000, 1, null])
+    check('lee SECOP (secop_hechos) porque tiene intelligence:view', admin.requests.some(request => request.table === 'rpc/secop_hechos'), admin.requests.map(request => request.table))
+    eq('acceso admin: todas las líneas', [baq.acceso.todasLasLineas, baq.acceso.lineasCobertura.map(line => line.code)], [true, ['sustitutos', 'reemplazo', 'medicina', 'columna', 'trauma']])
+    const ctg = (await pedirDatos(ADMIN, CTG)).body as ZonaDatosResponse
+    eq('Cartagena recibe el otro tercio del SECOP y del giro: nada se suma dos veces', [ctg.bloque.secop?.valor, Math.round(((baq.bloque.secop?.valor ?? 0) + (ctg.bloque.secop?.valor ?? 0)) * 100) / 100, ctg.bloque.giros?.valor], [10_000_000, SECOP_NIT_COSTA, 333_333.33])
+
+    const vendedor = await pedirDatos(VENDEDOR, BAQ)
+    const v = vendedor.body as ZonaDatosResponse
+    eq('sales_manager (sin intelligence:view): SECOP null y sin llamar a secop_hechos; cobertura en sus dos líneas; IPS y camas iguales', [
+      vendedor.status, v.acceso.comprasPublicas, v.bloque.secop, vendedor.requests.some(request => request.table === 'rpc/secop_hechos'), v.coberturaBase.map(fila => fila.line.code), v.bloque.ips.total, v.bloque.ips.camas,
+    ], [200, false, null, false, ['sustitutos', 'reemplazo'], 2, 200])
+    check('nota: SECOP se ve con Inteligencia', v.notas.some(nota => nota.includes('acceso a Inteligencia')), v.notas)
+    eq('nada de Medicina deportiva, Columna ni Trauma en su respuesta', queTraeDe(vendedor.text, [L_MED, L_COL, L_TRA, 'medicina', 'Medicina deportiva', 'columna', 'Columna', 'trauma', 'Trauma']), [])
+
+    const usuario = await pedirDatos(USUARIO, PEI)
+    const u = usuario.body as ZonaDatosResponse
+    eq('user sin líneas · Pereira: cifras sí, cobertura ninguna y no lee coverage', [usuario.status, u.bloque.ips.total, u.coberturaBase, u.acceso.lineasCobertura, usuario.requests.some(request => request.table === 'coverage')], [200, 1, [], [], false])
+    check('nota: su usuario no tiene líneas', u.notas.some(nota => nota.includes('tu usuario no tiene ninguna')), u.notas)
+
+    const inactiva = await pedirDatos(ADMIN, SIN)
+    const sin = inactiva.body as ZonaDatosResponse
+    eq('Zona inactiva (Sincelejo): 200, marcada inactiva, con su nota', [inactiva.status, sin.zona.activa, sin.notas.some(nota => nota.startsWith('La Zona está inactiva'))], [200, false, true])
+    eq('ninguna de estas peticiones escribió', fake.writes().length, escritasAntes)
   }
 
   print('\nGenerales')

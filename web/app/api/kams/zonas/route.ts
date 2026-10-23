@@ -22,8 +22,8 @@
 // (como /api/map/data). Los residentes sí salen todos: la líder necesita ver quién vive en la Zona para darle su línea.
 // Nada de esta ruta calcula rutas ni consulta Google.
 //
-// `cargarDatosZonas` vive aquí mientras no exista app/api/kams/_lib/zonas-server.ts (la spec la extrae de
-// app/api/executives/[id]/estadisticas/route.ts); cuando exista, se sustituye este bloque por el import.
+// Las cifras salen de `cargarDatosZonas` (app/api/kams/_lib/zonas-server.ts), el mismo cargador que usa
+// GET /api/kams/[id]/estadisticas ("Datos de la zona"): así la tabla y la ventana no pueden divergir.
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { requireUser } from '@/lib/require-role'
@@ -31,6 +31,7 @@ import { hasPermission } from '@/lib/permissions'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { fetchAllRows, serverError } from '@/app/api/_lib/api-error'
 import { jsonError, zodMessage } from '@/app/api/kams/_lib/kam-shared'
+import { cargarDatosZonas, dbError, type DatosCargados } from '@/app/api/kams/_lib/zonas-server'
 import {
   LINE_CODE_RE,
   canEditCoverageLine,
@@ -43,30 +44,8 @@ import {
 } from '@/lib/coverage'
 import { coberturaDesactualizada, estadoDePlaza, type CeldaComparable } from '@/lib/cobertura-simulacion'
 import { zoneDisplayName } from '@/lib/zone-names'
-import { hospitalGiroMap, municipioZoneShares, pickDaneYear } from '@/lib/poblacion-intelligence'
-import {
-  construirBloque,
-  fechaEs,
-  municipiosConIps,
-  puedeVerDatosDeZona,
-  rangoMesesEs,
-  veComprasPublicas,
-  type BloqueZona,
-  type DaneFila,
-  type DatosZonas,
-  type HospitalZona,
-  type ZonaRef,
-} from '@/lib/zona-estadisticas'
-import {
-  loadBduaResumen,
-  loadGirosTotales,
-  loadMunicipalityBase,
-  loadPoblacionCortes,
-  loadPoblacionHospitals,
-  loadReachZones,
-} from '@/app/api/intelligence/_lib/poblacion-server'
+import { construirBloque, fechaEs, puedeVerDatosDeZona, rangoMesesEs, veComprasPublicas, type BloqueZona } from '@/lib/zona-estadisticas'
 import { isMissingRelationError } from '@/app/api/intelligence/_lib/giros-server'
-import { hoyBogota } from '@/app/api/secop/_lib/hoy'
 import type { ComputedCoverage, CoverageInputs, CoverageLineInfo } from '@/lib/types/coverage'
 import type { EjecutivoRef, ZonaCifras, ZonaEnLinea, ZonaFila, ZonaResidente, ZonasResponse } from '@/lib/types/zonas'
 
@@ -88,114 +67,6 @@ const querySchema = z.object({
 const GIROS_FUENTE_LABEL: Record<'identifica' | 'reporte29', string> = {
   identifica: 'Identifica tu Giro, contributivo y subsidiado',
   reporte29: 'Reporte 29, solo subsidiado',
-}
-
-const toNumber = (value: unknown): number | null => {
-  if (value === null || value === undefined || value === '') return null
-  const n = typeof value === 'number' ? value : Number(value)
-  return Number.isFinite(n) ? n : null
-}
-
-function dbError(label: string, error: unknown): Error {
-  const message = (error as { message?: string } | null)?.message ?? String(error)
-  return Object.assign(new Error(`Error leyendo ${label}: ${message}`), { dbError: error })
-}
-
-/**
- * Una fuente opcional: si falla (tabla o función ausente, tiempo de espera…), esa cifra sale "sin datos" con una nota y
- * el resto responde. El error queda en el registro del servidor.
- */
-async function opcional<T>(label: string, avisos: string[], load: () => Promise<T>): Promise<T | null> {
-  try {
-    return await load()
-  } catch (error) {
-    console.error(`[api] kams/zonas · ${label}:`, error)
-    avisos.push(`No se pudo leer ${label}: esa cifra aparece como "sin datos".`)
-    return null
-  }
-}
-
-// ---------------------------------------------------------------------------
-// cargarDatosZonas — lo que construirBloque necesita, una sola vez por petición (sin visitas, médicos ni SECOP:
-// ZonaCifras no los trae). Sustituir por `import { cargarDatosZonas } from '../_lib/zonas-server'` cuando exista.
-// ---------------------------------------------------------------------------
-
-async function loadZonas(): Promise<Map<string, ZonaRef>> {
-  const { data, error } = await supabaseAdmin.from('kams').select('id, name, base_city, active').range(0, 9999)
-  if (error) throw dbError('kams', error)
-  const map = new Map<string, ZonaRef>()
-  for (const row of (data || []) as Array<{ id: string; name: string | null; base_city: string | null; active: boolean | null }>) {
-    map.set(row.id, { kam_id: row.id, nombre: zoneDisplayName(row.name) || 'Zona sin nombre', ciudad_base: row.base_city ?? null, activa: row.active === true })
-  }
-  return map
-}
-
-/** Proyección DANE (total, cabecera, resto) de un año, por municipio. */
-async function loadDaneAreas(anio: number): Promise<Map<string, DaneFila>> {
-  const { data, error } = await fetchAllRows<{ municipality_code: string; total: unknown; cabecera: unknown; resto: unknown }>((from, to) =>
-    supabaseAdmin.from('dane_proyecciones').select('municipality_code, total, cabecera, resto').eq('anio', anio).order('municipality_code').range(from, to)
-  )
-  if (error) throw dbError('dane_proyecciones', error)
-  const map = new Map<string, DaneFila>()
-  for (const row of data) {
-    const total = toNumber(row.total)
-    if (total !== null) map.set(row.municipality_code, { total, cabecera: toNumber(row.cabecera), resto: toNumber(row.resto) })
-  }
-  return map
-}
-
-interface DatosCargados {
-  datos: DatosZonas
-  /** municipality_zone existe (sin ella los municipios sin IPS no se cuentan). */
-  alcanceDisponible: boolean
-  /** Hay tablas de giros pero ninguna fuente con giros cargados. */
-  girosSinCargar: boolean
-}
-
-async function cargarDatosZonas(avisos: string[]): Promise<DatosCargados> {
-  const hoy = hoyBogota()
-  const [zonas, hospitalData, reach, base, cortes] = await Promise.all([
-    loadZonas(),
-    loadPoblacionHospitals(null),
-    loadReachZones(),
-    loadMunicipalityBase(),
-    loadPoblacionCortes(),
-  ])
-  // Los servicios del REPS no entran en las cifras de esta pantalla: se dejan vacíos para no leer hospitals dos veces.
-  const hospitals: HospitalZona[] = hospitalData.hospitals.map(hospital => ({ ...hospital, service_flags: null, reps_updated_at: null }))
-
-  const daneAnio = cortes.dane.length > 0 ? pickDaneYear(hoy, cortes.dane) : Number(hoy.slice(0, 4))
-  const bduaCorte = cortes.bdua.length > 0 ? cortes.bdua[cortes.bdua.length - 1] : null
-
-  const [dane, bdua, giros] = await Promise.all([
-    daneAnio !== null ? opcional('las proyecciones del DANE', avisos, () => loadDaneAreas(daneAnio)) : Promise.resolve(null),
-    bduaCorte ? opcional('los afiliados de la BDUA', avisos, () => loadBduaResumen(bduaCorte)) : Promise.resolve(null),
-    opcional('los giros de la ADRES', avisos, () => loadGirosTotales(hospitals.map(hospital => hospital.code))),
-  ])
-
-  const datos: DatosZonas = {
-    zonas,
-    hospitals,
-    shares: municipioZoneShares(hospitals, reach.value),
-    conIps: municipiosConIps(hospitals),
-    municipios: new Map(base.municipalities.map(m => [m.code, { name: m.name, department_code: m.department_code }])),
-    departamentos: base.departmentNames,
-    dane: dane && dane.size > 0 && daneAnio !== null ? { anio: daneAnio, filas: dane } : null,
-    bdua: bdua && bduaCorte ? { corte: bduaCorte, regimen: bdua.regimen, eps: bdua.eps } : null,
-    giros:
-      giros && giros.info.fuente && giros.info.desde && giros.info.hasta
-        ? {
-            porIps: hospitalGiroMap(hospitals, giros.totals),
-            fuente: giros.info.fuente,
-            desde: giros.info.desde,
-            hasta: giros.info.hasta,
-            regimenes: giros.info.regimenes,
-          }
-        : null,
-    secop: null,
-    visitas: null,
-  }
-  return { datos, alcanceDisponible: reach.available, girosSinCargar: Boolean(giros && !giros.info.fuente) }
 }
 
 // ---------------------------------------------------------------------------
@@ -303,7 +174,7 @@ export async function GET(request: NextRequest) {
       loadCoberturaGuardada(),
       loadKamsDetalle(),
       loadLineasPermitidas(avisos),
-      cargarDatosZonas(avisos),
+      cargarDatosZonas(avisos, { contexto: 'kams/zonas' }),
     ])
     const { datos } = cargados
 

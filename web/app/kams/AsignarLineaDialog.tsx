@@ -7,8 +7,10 @@
 //      celdas (línea, Zona) que cambian, con nombres, y el resumen por estado. Para Bogotá, al elegir a quien vive en
 //      una celda la vista previa muestra las cuatro (las otras tres le llegan por alcance si nadie local las lleva).
 //   2. Guardar: PUT (dar) o DELETE (quitar) /api/executives/[id]/lineas/[lineId], que inserta o borra executive_lines y
-//      recalcula la cobertura sin Google. Al quitar, la respuesta trae medicosTerminados: los médicos de esa línea que
-//      pierden visitante (disparador 0820); se muestran al terminar.
+//      recalcula la cobertura sin Google. Al quitar, la vista previa ya trae medicosQuePierdenVisitante (la cuenta de
+//      médicos de esa persona en esa línea con visitante vigente, que el disparador 0820 termina sin vuelta atrás): se
+//      muestra y, si hay alguno, hay que marcar "Entiendo…" antes de que "Quitarle" se habilite (spec E2). La respuesta
+//      del DELETE trae medicosTerminados, la cifra real, que va en el mensaje final.
 // La restricción de la dirección (lineasPermitidas) deshabilita la opción con el texto "La dirección limitó a <nombre>
 // a: <líneas>"; la API vuelve a validarlo (409). Escape cierra y el foco entra al título.
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -80,6 +82,8 @@ export default function AsignarLineaDialog({
     return posibles.length === 1 ? posibles[0].id : ''
   })
   const [simulacion, setSimulacion] = useState<SimularResponse | null>(null)
+  // Quitar: "Entiendo que N médicos quedan sin visitante" (se desmarca al cambiar de persona o volver a calcular)
+  const [confirmaMedicos, setConfirmaMedicos] = useState(false)
   const [simulando, setSimulando] = useState(false)
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState('')
@@ -90,6 +94,7 @@ export default function AsignarLineaDialog({
   const elegir = (id: string) => {
     setExecutiveId(id)
     setSimulacion(null)
+    setConfirmaMedicos(false)
     setError('')
   }
 
@@ -110,6 +115,7 @@ export default function AsignarLineaDialog({
       if (!body || !Array.isArray(body.diff) || !body.resumen || typeof body.resumen !== 'object') {
         throw new Error('Respuesta inesperada del servidor')
       }
+      setConfirmaMedicos(false)
       setSimulacion(body)
     } catch (err: unknown) {
       console.error('Error simulando el cambio de línea:', err)
@@ -119,8 +125,19 @@ export default function AsignarLineaDialog({
     }
   }
 
+  // Quitar: cuántos médicos de esta persona en esta línea perderían visitante (de la vista previa). null = la ruta no lo
+  // trajo (versión vieja del servidor): se pide confirmar igual, porque el borrado no tiene vuelta atrás.
+  const medicosQuePierden = useMemo<number | null>(() => {
+    if (modo !== 'quitar' || !simulacion || !elegido) return null
+    const lista = Array.isArray(simulacion.medicosQuePierdenVisitante) ? simulacion.medicosQuePierdenVisitante : null
+    const fila = lista?.find(item => item.executive_id === elegido.id && item.line_id === linea.id)
+    return fila && Number.isFinite(fila.medicos) ? fila.medicos : null
+  }, [modo, simulacion, elegido, linea.id])
+  const requiereConfirmacion = modo === 'quitar' && simulacion !== null && (medicosQuePierden === null || medicosQuePierden > 0)
+  const faltaConfirmar = requiereConfirmacion && !confirmaMedicos
+
   const guardar = async () => {
-    if (!elegido || motivo || !simulacion) return
+    if (!elegido || motivo || !simulacion || faltaConfirmar) return
     setGuardando(true)
     setError('')
     try {
@@ -174,7 +191,7 @@ export default function AsignarLineaDialog({
           <p className="-mt-3 text-sm text-gray-600">
             {modo === 'dar'
               ? `Solo a quien vive en ${zonaNombre}: un Ejecutivo Comercial o una vacante autorizada por la gerencia (cuenta como una persona y queda "Reservada"). Si otra persona de la Zona ya lleva la línea, la Zona queda en conflicto hasta que lo resuelvas con un ajuste manual.`
-              : `Al quitarle la línea, la Zona vuelve a cubrirse por alcance desde la Zona más cercana que la lleve dentro del tope, o queda sin cobertura. Sus médicos de esta línea quedan sin visitante; la cuenta sale al terminar.`}
+              : `Al quitarle la línea, la Zona vuelve a cubrirse por alcance desde la Zona más cercana que la lleve dentro del tope, o queda sin cobertura. Sus médicos de esta línea quedan sin visitante: la vista previa dice cuántos y hay que confirmarlo antes de guardar.`}
           </p>
           {esBogota && modo === 'dar' && (
             <AvisoAtencion>
@@ -299,6 +316,38 @@ export default function AsignarLineaDialog({
                     ))}
                   </div>
                 )}
+
+                {/* Quitar: médicos que pierden visitante (disparador 0820, sin vuelta atrás) y confirmación */}
+                {modo === 'quitar' && (
+                  medicosQuePierden === 0 ? (
+                    <p className="text-sm text-gray-600">Ningún médico de {linea.name} tiene a {elegido.nombre} como visitante: nadie queda sin visitante.</p>
+                  ) : (
+                    <AvisoAtencion>
+                      <p className="font-semibold">
+                        {medicosQuePierden === null
+                          ? `No se pudo contar cuántos médicos de ${linea.name} tienen a ${elegido.nombre} como visitante.`
+                          : `${numero(medicosQuePierden)} ${medicosQuePierden === 1 ? 'médico' : 'médicos'} de ${linea.name} ${medicosQuePierden === 1 ? 'tiene' : 'tienen'} a ${elegido.nombre} como visitante.`}
+                      </p>
+                      <p className="mt-1">
+                        Al quitarle la línea {medicosQuePierden === 1 ? 'queda' : 'quedan'} sin visitante hoy mismo y nada lo deshace: habría que reasignarlos desde Terceros.
+                      </p>
+                      <label className="mt-3 flex items-start gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={confirmaMedicos}
+                          onChange={event => setConfirmaMedicos(event.target.checked)}
+                          disabled={guardando}
+                          className="mt-0.5 h-4 w-4 rounded border-amber-400 text-gray-900 focus:ring-gray-700"
+                        />
+                        <span className="text-sm">
+                          {medicosQuePierden === null
+                            ? `Entiendo que los médicos de ${linea.name} que visita ${elegido.nombre} quedan sin visitante.`
+                            : `Entiendo que ${numero(medicosQuePierden)} ${medicosQuePierden === 1 ? 'médico queda' : 'médicos quedan'} sin visitante.`}
+                        </span>
+                      </label>
+                    </AvisoAtencion>
+                  )
+                )}
               </div>
             )}
           </div>
@@ -306,7 +355,11 @@ export default function AsignarLineaDialog({
 
         <div className="sticky bottom-0 bg-white border-t border-gray-200 px-4 sm:px-6 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <span className="text-xs text-gray-500">
-            {simulacion ? '3. Si la vista previa es lo que quieres, guarda.' : 'Guardar se habilita después de la vista previa.'}
+            {!simulacion
+              ? 'Guardar se habilita después de la vista previa.'
+              : faltaConfirmar
+                ? '3. Marca "Entiendo…" para habilitar Quitarle.'
+                : '3. Si la vista previa es lo que quieres, guarda.'}
           </span>
           <div className="flex justify-end gap-3">
             <button type="button" onClick={onCerrar} disabled={guardando} className={claseBotonSecundario}>
@@ -315,7 +368,8 @@ export default function AsignarLineaDialog({
             <button
               type="button"
               onClick={guardar}
-              disabled={!elegido || !!motivo || !simulacion || guardando || simulando}
+              disabled={!elegido || !!motivo || !simulacion || faltaConfirmar || guardando || simulando}
+              title={faltaConfirmar ? 'Marca primero "Entiendo…"' : undefined}
               className={
                 modo === 'quitar'
                   ? 'px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed'

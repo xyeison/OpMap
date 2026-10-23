@@ -114,7 +114,10 @@ Lo que sí cambia alrededor:
   Columna y Trauma), identificadas por zona base, estado y respaldo (sin nombres en el SQL; `RAISE` si no encuentra
   exactamente una de cada). **Solo con autorización del dueño, en la ventana del despliegue y seguida del recálculo de
   cobertura.** El disparador 0820 termina los visitantes de las líneas borradas; el rollback restaura las líneas desde
-  el respaldo (sin borrarlo) pero no reabre esos visitantes.
+  el respaldo (sin borrarlo) pero no reabre esos visitantes. **No es re-ejecutable**: si el respaldo ya tiene filas,
+  aborta con `RAISE` antes de tocar nada (volver a correrla después de que las líderes asignen borraría lo asignado sin
+  respaldarlo y el rollback no lo recuperaría); para repetirla a conciencia, primero el rollback 9947 y luego renombrar
+  o borrar el respaldo a mano, con autorización del dueño.
 - **Mapa por línea**: Zonas sin cobertura en gris con un tono por Zona (`grisDeZona`; `docs/mapa-estetica.md`,
   sección "2026-10-23 · Grises por Zona"). Nada más de la estética cambia.
 

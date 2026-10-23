@@ -141,8 +141,24 @@ export type SimularDiffCelda = DiffCelda & {
   despuesNombre: string | null
 }
 
-/** POST /api/coverage/simular → { diff recortado a las líneas del usuario, resumen por código de línea }. */
+/**
+ * Por cada cambio linea_quitar: cuántos médicos de esa persona en esa línea (medico_visitantes vigentes, hasta IS NULL)
+ * perderían visitante al guardar, porque el disparador executive_lines_termina_visitantes (migración 0820) los termina
+ * al borrar la fila y nada los reabre. Solo la cuenta, sin nombres ni cédulas; 0 si no lleva la línea (el disparador no
+ * correría) o si la tabla medico_visitantes no existe.
+ */
+export interface MedicosQuePierdenVisitante {
+  executive_id: string
+  line_id: string
+  medicos: number
+}
+
+/**
+ * POST /api/coverage/simular → { diff recortado a las líneas del usuario, resumen por código de línea, y la cuenta de
+ * médicos que perderían visitante por cada linea_quitar (E2: "Confirmación con la cuenta de médicos de esa línea") }.
+ */
 export interface SimularResponse {
   diff: SimularDiffCelda[]
   resumen: Record<string, Record<EstadoPlaza, number>>
+  medicosQuePierdenVisitante: MedicosQuePierdenVisitante[]
 }

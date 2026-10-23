@@ -2,47 +2,23 @@
 
 // Ventana "Datos de la zona" de /kams: las cifras de UNA Zona (ciudad base), sin cabecera de persona, para que una Zona
 // sin nadie (Ibagué, Engativá…) también tenga dónde verlas (spec 2026-10-23, E1 "Ver datos"). Solo lectura:
-// GET /api/kams/[id]/estadisticas (la ruta la construye otro agente contra el contrato de abajo). Reutiliza las
-// tarjetas, la lista "Quién cubre <zona> en cada línea" y las notas de app/executives/zona-bloques.tsx, así se ve
-// igual que la ventana de /executives. Nada de esta ventana calcula rutas ni consulta Google.
+// GET /api/kams/[id]/estadisticas (app/api/kams/[id]/estadisticas/route.ts; contrato ZonaDatosResponse en
+// lib/zona-estadisticas.ts). Reutiliza las tarjetas, la lista "Quién cubre <zona> en cada línea" y las notas de
+// app/executives/zona-bloques.tsx, así se ve igual que la ventana de /executives. Nada de esta ventana calcula rutas ni
+// consulta Google.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Modal } from '@/components/terceros/comun'
 import { readError } from '@/app/lines/coverage-shared'
 import { Bloque, CargandoDatos, CoberturaBase, ErrorDatos, NotasCalculo, useVentanaAccesible } from '@/app/executives/zona-bloques'
-import { fechaEs, type BloqueZona, type CoberturaZonaLinea, type LineaRef, type ZonaRef } from '@/lib/zona-estadisticas'
+import { fechaEs, type BloqueZona, type ZonaDatosResponse } from '@/lib/zona-estadisticas'
 import { nombreZona } from './zonas-ui'
-
-/**
- * Respuesta de GET /api/kams/[id]/estadisticas: "Datos de la zona" por Zona (la ruta de la spec 2026-10-23). Es la de
- * /api/executives/[id]/estadisticas sin persona, territorio ni médicos. Contrato local mientras lib/zona-estadisticas.ts
- * no lo exporte; si la ruta llama `base` al bloque (como la de ejecutivos), también se acepta.
- */
-export interface ZonaDatosResponse {
-  zona: ZonaRef
-  bloque: BloqueZona
-  /** Quién cubre la Zona en cada línea, solo en las de acceso.lineasCobertura. */
-  coberturaBase: CoberturaZonaLinea[]
-  /** Fecha del último cálculo de la cobertura (coverage.computed_at) de esas líneas. */
-  coberturaCalculada: string | null
-  fuentes: {
-    municipiosCalculados: string | null
-    poblacionAnio: number | null
-    bduaCorte: string | null
-  }
-  acceso: {
-    comprasPublicas: boolean
-    todasLasLineas: boolean
-    lineasCobertura: LineaRef[]
-  }
-  notas: string[]
-}
 
 interface Props {
   zona: { kam_id: string; nombre: string; ciudad_base?: string | null }
   onCerrar: () => void
 }
 
-/** Acepta la respuesta tal cual o con el bloque bajo `base`; null si no tiene lo mínimo (zona y bloque). */
+/** Acepta la respuesta tal cual o con el bloque bajo `base` (como la ruta de ejecutivos); null si falta zona o bloque. */
 function normalizar(body: unknown): ZonaDatosResponse | null {
   if (!body || typeof body !== 'object') return null
   const objeto = body as Partial<ZonaDatosResponse> & { base?: BloqueZona | null }
@@ -56,6 +32,7 @@ function normalizar(body: unknown): ZonaDatosResponse | null {
     fuentes: objeto.fuentes ?? { municipiosCalculados: null, poblacionAnio: null, bduaCorte: null },
     acceso: objeto.acceso ?? { comprasPublicas: false, todasLasLineas: false, lineasCobertura: [] },
     notas: Array.isArray(objeto.notas) ? objeto.notas : [],
+    generado: objeto.generado ?? '',
   }
 }
 

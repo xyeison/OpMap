@@ -210,6 +210,34 @@ export interface ZonaEstadisticasResponse {
   generado: string
 }
 
+/**
+ * GET /api/kams/[id]/estadisticas: "Datos de la zona" de UNA Zona (ciudad base), sin persona, territorio, médicos ni
+ * visitas, para que una Zona sin nadie (Ibagué, Engativá…) también tenga dónde verlas (spec 2026-10-23, E1 "Ver datos").
+ * Mismas reglas y la misma puerta (puedeVerDatosDeZona, veComprasPublicas, lineasConCobertura) que la ventana de
+ * /executives. La UI (app/kams/ZonaDatosModal.tsx) lo importa con `import type`.
+ */
+export interface ZonaDatosResponse {
+  zona: ZonaRef
+  /** construirBloque([kam_id]): IPS y camas, municipios, población, afiliados, giros y, con intelligence:view, SECOP. */
+  bloque: BloqueZona
+  /** Quién cubre la Zona en cada línea, solo en las de acceso.lineasCobertura (coberturaDeZona). */
+  coberturaBase: CoberturaZonaLinea[]
+  /** Fecha del último cálculo de la cobertura (coverage.computed_at) de esas líneas. */
+  coberturaCalculada: string | null
+  fuentes: {
+    municipiosCalculados: string | null
+    poblacionAnio: number | null
+    bduaCorte: string | null
+  }
+  acceso: {
+    comprasPublicas: boolean
+    todasLasLineas: boolean
+    lineasCobertura: LineaRef[]
+  }
+  notas: string[]
+  generado: string
+}
+
 // ---------------------------------------------------------------------------
 // Quién ve qué
 // ---------------------------------------------------------------------------

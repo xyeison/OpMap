@@ -74,7 +74,7 @@ Estilo autorizado por el dueño el 2026-10-11 (rama `ui/mapa-estetica`; constant
   100 camas y 7 desde 300 camas; compactos (2.5 px) por debajo de zoom 6. IPS sin zona en la vista
   (incluye departamentos excluidos, p. ej. San Andrés): gris claro #9ca3af de 3.5 px (`IPS_UNZONED_COLOR`).
   IPS de una zona vacante en la línea: pizarra #64748b (`VACANT_STATE_COLOR`) a tamaño normal; la
-  leyenda los explica en filas separadas ("IPS sin zona", "IPS de zona vacante en la línea"). En celular los
+  leyenda los explica en filas separadas ("IPS sin zona", "IPS de Zona sin cobertura en la línea"). En celular los
   puntos se ven desde zoom 5. Van en un panel SVG propio (`opmapIps`, z 460) por encima de los nombres;
   el panel no recibe eventos, solo los círculos. Tocar un punto abre su tarjeta (en táctil, área de toque
   transparente de 11 px).

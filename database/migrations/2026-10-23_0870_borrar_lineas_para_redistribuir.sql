@@ -15,10 +15,10 @@
 --
 -- Qué hace (una sola transacción, todo o nada), en este orden:
 --   1. Precondiciones: 0860 aplicada (executive_allowed_lines), executive_lines, kams, business_lines con los 5
---      códigos; disparador executive_lines_termina_visitantes de la 0820 presente (ver consecuencias).
+--      códigos; disparador executive_lines_termina_visitantes de la 0820 presente (ver consecuencias); y que el
+--      respaldo NO exista ya con filas: si existe, la 0870 ya se aplicó y se ABORTA con RAISE (ver "Re-ejecutable").
 --   2. Respaldo: CREATE TABLE IF NOT EXISTS public.executive_lines_respaldo_20261023 AS SELECT el.*, now() AS
---      respaldado_en FROM executive_lines; si la tabla ya existe pero está vacía, se llena. Nunca se pisa un respaldo
---      con filas (así la migración es re-ejecutable sin perder el respaldo original). RLS sin políticas y REVOKE a
+--      respaldado_en FROM executive_lines; si la tabla ya existía vacía, se llena. RLS sin políticas y REVOKE a
 --      anon/authenticated también en el respaldo.
 --   3. Identifica, SIN NOMBRES DE PERSONA EN ESTE SQL (solo por zona base, estado y líneas del respaldo):
 --        - la persona ACTIVE con zona base en la Zona cuyo area_id = '08001' (Barranquilla) que llevaba perossal en el
@@ -37,7 +37,10 @@
 --     'linea_quitada'. Hoy son los visitantes de los 10 médicos de prueba. El rollback 9947 NO los reabre.
 --   - La tabla coverage queda desactualizada hasta el recálculo (de ahí el paso obligatorio que sigue).
 --
--- Re-ejecutable: sí (el respaldo no se pisa; DELETE sobre una tabla vacía no hace nada; INSERT con ON CONFLICT).
+-- Re-ejecutable: NO. Si el respaldo ya tiene filas, la migración ya corrió y se aborta con RAISE antes de tocar nada:
+--   volver a correrla después de que las líderes asignen desde Zonas borraría lo asignado SIN respaldarlo (el respaldo
+--   original se conserva y no se pisa), y el rollback 9947 no lo recuperaría. Para repetirla a conciencia: primero el
+--   rollback 9947, luego renombrar o borrar el respaldo a mano (con autorización del dueño) y volver a aplicar.
 -- Rollback: 2026-10-23_9947_borrar_lineas_para_redistribuir_rollback.sql (quita las dos restricciones y restaura
 --   executive_lines desde el respaldo; no borra el respaldo). Después del rollback, recalcular la cobertura.
 -- No cambia el esquema de PostgREST salvo la tabla de respaldo (que la API no usa): no hace falta NOTIFY.
@@ -51,8 +54,10 @@ BEGIN;
 
 DO $$
 DECLARE
-  v_codigos int;
-  v_zonas   int;
+  v_codigos  int;
+  v_zonas    int;
+  v_respaldo bigint;
+  v_actuales bigint;
 BEGIN
   IF to_regclass('public.executive_allowed_lines') IS NULL THEN
     RAISE EXCEPTION '0870 Redistribuir: falta public.executive_allowed_lines (aplicar primero la 0860)';
@@ -74,11 +79,20 @@ BEGIN
     -- Sin el disparador de la 0820 los visitantes de las líneas borradas quedarían abiertos sin nadie que los lleve.
     RAISE EXCEPTION '0870 Redistribuir: falta el disparador executive_lines_termina_visitantes (migración 0820)';
   END IF;
+  -- Ya aplicada: el respaldo existe con filas. Volver a borrar executive_lines pisaría lo que las líderes asignaron
+  -- desde Zonas sin respaldarlo (el respaldo no se pisa) y el rollback 9947 no lo recuperaría. Se aborta antes de tocar nada.
+  IF to_regclass('public.executive_lines_respaldo_20261023') IS NOT NULL THEN
+    SELECT count(*) INTO v_respaldo FROM public.executive_lines_respaldo_20261023;
+    IF v_respaldo > 0 THEN
+      SELECT count(*) INTO v_actuales FROM public.executive_lines;
+      RAISE EXCEPTION '0870 Redistribuir: ya se aplicó (el respaldo executive_lines_respaldo_20261023 tiene % fila(s); executive_lines tiene hoy %). No se vuelve a ejecutar: borraría lo asignado desde Zonas sin respaldo. Para repetirla: rollback 9947, renombrar o borrar el respaldo a mano con autorización del dueño, y volver a aplicar.', v_respaldo, v_actuales;
+    END IF;
+  END IF;
 END;
 $$;
 
 -- -------------------------------------------------------------------------------------
--- 2. Respaldo de executive_lines (nunca se pisa un respaldo con filas)
+-- 2. Respaldo de executive_lines (la precondición ya garantizó que no existe un respaldo con filas)
 -- -------------------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS public.executive_lines_respaldo_20261023 AS
@@ -151,7 +165,7 @@ BEGIN
   -- 4. Borrado de todas las líneas asignadas (el disparador de la 0820 termina los visitantes de cada línea borrada).
   DELETE FROM public.executive_lines;
   GET DIAGNOSTICS v_borradas = ROW_COUNT;
-  RAISE NOTICE '0870 Redistribuir: borradas % fila(s) de executive_lines (0 si se re-ejecuta)', v_borradas;
+  RAISE NOTICE '0870 Redistribuir: borradas % fila(s) de executive_lines', v_borradas;
 
   -- 5. Restricciones iniciales (created_by NULL: las puso la migración, no un usuario de la app).
   INSERT INTO public.executive_allowed_lines (executive_id, line_id, created_by)
