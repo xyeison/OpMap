@@ -16,6 +16,12 @@ import {
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
+// Zonas por línea (spec 2026-10-23): "Líneas permitidas", la restricción de la dirección sobre qué líneas puede tener
+// la persona o vacante (vacío = sin restricción; con valores = solo esas; la API de líneas rechaza con 409 las demás y
+// PATCH exige lines ⊆ lineas_permitidas). GET /api/executives aún puede no traer el campo (lo añade la API de esa misma
+// spec), por eso la intersección local en vez de tocar lib/types/lines.ts.
+type ExecutiveConPermitidas = Executive & { lineas_permitidas?: string[] | null }
+
 interface ExecutiveModalProps {
   executive: Executive | null // null = crear
   zones: ZoneOption[] // todas las zonas (activas e inactivas)
@@ -38,6 +44,10 @@ export default function ExecutiveModal({ executive, zones, lines, onClose, onSav
   const [baseKamId, setBaseKamId] = useState(executive?.base_kam_id ?? '')
   const [status, setStatus] = useState<ExecutiveStatus>(executive?.status ?? 'active')
   const [selectedLines, setSelectedLines] = useState<string[]>(executive?.lines ?? [])
+  // Líneas permitidas por la dirección: ids de business_lines; vacío = sin restricción
+  const [allowedLines, setAllowedLines] = useState<string[]>(
+    (executive as ExecutiveConPermitidas | null)?.lineas_permitidas ?? []
+  )
   const [odooId, setOdooId] = useState(executive?.odoo_employee_id != null ? String(executive.odoo_employee_id) : '')
   const [notes, setNotes] = useState(executive?.notes ?? '')
   // Fase 2: color en el mapa por línea (la API lo devuelve como `color`)
@@ -63,6 +73,14 @@ export default function ExecutiveModal({ executive, zones, lines, onClose, onSav
   const toggleLine = (lineId: string) => {
     setSelectedLines(prev => (prev.includes(lineId) ? prev.filter(id => id !== lineId) : [...prev, lineId]))
   }
+
+  const toggleAllowedLine = (lineId: string) => {
+    setAllowedLines(prev => (prev.includes(lineId) ? prev.filter(id => id !== lineId) : [...prev, lineId]))
+  }
+
+  // Líneas que lleva (marcadas arriba) y que la restricción no permite: la API responde 400, así que se avisa antes
+  const linesOutsideAllowed = allowedLines.length > 0 ? selectedLines.filter(lineId => !allowedLines.includes(lineId)) : []
+  const lineName = (lineId: string) => lines.find(line => line.id === lineId)?.name ?? 'una línea'
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -92,6 +110,14 @@ export default function ExecutiveModal({ executive, zones, lines, onClose, onSav
       odooEmployeeId = parsed
     }
 
+    if (linesOutsideAllowed.length > 0) {
+      return setError(
+        `Las líneas asignadas deben estar entre las permitidas: ${linesOutsideAllowed.map(lineName).join(', ')} no lo ${
+          linesOutsideAllowed.length === 1 ? 'está' : 'están'
+        }. Permítela o quítasela.`
+      )
+    }
+
     const body: Record<string, unknown> = {
       full_name: trimmedName,
       email: trimmedEmail || null,
@@ -101,6 +127,8 @@ export default function ExecutiveModal({ executive, zones, lines, onClose, onSav
       lines: selectedLines,
       odoo_employee_id: odooEmployeeId,
       notes: notes.trim() || null,
+      // null = sin restricción (la API borra las filas de executive_allowed_lines)
+      lineas_permitidas: allowedLines.length > 0 ? allowedLines : null,
     }
     // El color solo se envía si se eligió uno (al crear) o si cambió (al editar)
     const normalizedColor = trimmedColor.toLowerCase()
@@ -278,6 +306,49 @@ export default function ExecutiveModal({ executive, zones, lines, onClose, onSav
                   </button>
                 )}
               </div>
+            )}
+          </div>
+
+          <div>
+            <span className="block text-sm font-medium text-gray-700 mb-1">Líneas permitidas (restricción de la dirección)</span>
+            <p className="text-xs text-gray-500 mb-2">
+              Vacío = sin restricción: cualquier líder puede darle su línea desde Zonas. Con casillas marcadas, solo esas. Las líneas
+              asignadas deben estar entre las permitidas.
+            </p>
+            {lines.length === 0 ? (
+              <p className="text-sm text-gray-500">No hay líneas de negocio configuradas.</p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {lines.map(line => {
+                  const permitida = allowedLines.includes(line.id)
+                  const fuera = linesOutsideAllowed.includes(line.id)
+                  return (
+                    <label
+                      key={line.id}
+                      className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
+                        fuera ? 'border-amber-400 bg-amber-50' : permitida ? 'border-gray-900 bg-gray-50' : 'border-gray-200 hover:bg-gray-50'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={permitida}
+                        onChange={() => toggleAllowedLine(line.id)}
+                        className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-700"
+                      />
+                      <span className="text-sm text-gray-900">
+                        {line.name}
+                        {!line.active && <span className="text-xs text-gray-400"> (inactiva)</span>}
+                        {fuera && <span className="block text-xs text-amber-700">La lleva, pero no está permitida</span>}
+                      </span>
+                    </label>
+                  )
+                })}
+              </div>
+            )}
+            {allowedLines.length > 0 && (
+              <p className="text-xs text-gray-500 mt-2">
+                Solo puede tener: {allowedLines.map(lineName).join(', ')}. La API rechaza darle cualquier otra línea.
+              </p>
             )}
           </div>
 

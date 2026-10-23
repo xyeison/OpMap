@@ -1,163 +1,86 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { zoneDisplayName } from '@/lib/zone-names'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+// Página "Zonas" (/kams): la entrada de las líderes (spec docs/specs/2026-10-23-zonas-por-linea-para-lideres.md, E1 y
+// E2; decisión del dueño en docs/decisiones/2026-10-23-zonas-por-linea-las-lideres-asignan.md). Una fila por Zona
+// activa con lo que hay en ella (IPS, camas, municipios, población, afiliados, giros), quién vive en ella (Ejecutivos
+// Comerciales y vacantes con sus líneas) y su estado en la línea elegida (Ocupada, Reservada, Por alcance, Sin
+// cobertura, Conflicto). Bogotá va agrupada con su total y sus cuatro celdas plegables. Acciones, solo para quien puede
+// asignar en la línea: "Darle <línea> a…" y "Quitarle <línea>" con vista previa simulada (AsignarLineaDialog);
+// "Forzar a alguien de otra ciudad" y "Quitar ajuste" siguen en /lines (AdjustModal no se exporta de CoveragePanel).
+// Los datos salen de GET /api/kams/zonas?line=<code> (ZonasResponse, web/lib/types/zonas.ts; la ruta la hace otro
+// agente): nada de esta pantalla calcula rutas ni consulta Google. La administración de Zonas (agregar, colores,
+// editar, desactivar, Bogotá, valor de contratos) queda plegada al final y solo con kams:edit / kams:bogota-config /
+// contracts:view: antes se mostraba a quien recibía 403 al usarla.
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { useQueryClient } from '@tanstack/react-query'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import ProtectedRoute from '@/components/ProtectedRoute'
+import PermissionGuard from '@/components/PermissionGuard'
+import BogotaConfigCard from '@/components/BogotaConfigCard'
 import KamDeactivateButton from '@/components/KamDeactivateButton'
 import KamActivateButton from '@/components/KamActivateButton'
 import EditKamModal from '@/components/EditKamModal'
 import AddKamModal from '@/components/AddKamModal'
-import ProtectedRoute from '@/components/ProtectedRoute'
-import PermissionGuard from '@/components/PermissionGuard'
-import BogotaConfigCard from '@/components/BogotaConfigCard'
+import { AvisoAtencion, AvisoError, AvisoOk, claseBotonChico } from '@/components/terceros/comun'
+import { usePermissions } from '@/hooks/usePermissions'
+import { readError } from '@/app/lines/coverage-shared'
+import { ESTADOS_PLAZA, type ZonaCifras, type ZonaEnLinea, type ZonaFila, type ZonaResidente, type ZonasResponse } from '@/lib/types/zonas'
+import { fechaEs } from '@/lib/zona-estadisticas'
+import AsignarLineaDialog, { type ModoAsignar, type ResidenteElegible } from './AsignarLineaDialog'
+import ZonaDatosModal from './ZonaDatosModal'
+import {
+  agruparBogota,
+  CLASE_SIN_EQUIPO,
+  ESTADO_BADGE,
+  ESTADO_PLAZA_PLURAL,
+  filaDeZona,
+  filtrarFilas,
+  motivoNoPuedeDar,
+  nombreLinea,
+  nombreZona,
+  puedeQuitar,
+  resumenCifras,
+  resumenEstados,
+  textoEstado,
+  textoRestriccion,
+  zonasDeFila,
+  type FilaZonas,
+} from './zonas-ui'
 
-interface KamStats {
-  kam_id: string
-  hospital_count: number
-  municipality_count: number
-  contract_value_total: number
-  avg_travel_time: number | null
-  area_name: string | null
-}
+// ---------------------------------------------------------------------------
+// ?line=<code> en la URL (como CoveragePanel): se lee al entrar y se escribe sin recargar ni añadir historial
+// ---------------------------------------------------------------------------
 
-// Lista de KAMs desde el servidor (service_role); activos primero y luego por nombre
-async function fetchKams(): Promise<KamWithData[]> {
-  const response = await fetch('/api/kams')
-  const data = await response.json().catch(() => null)
-  if (!response.ok) {
-    throw new Error((data && data.error) || `Error al cargar las zonas (${response.status})`)
+function readLineFromUrl(): string | null {
+  if (typeof window === 'undefined') return null
+  try {
+    return new URLSearchParams(window.location.search).get('line')
+  } catch {
+    return null
   }
-  const list: KamWithData[] = Array.isArray(data) ? data : []
-  return list.sort((a, b) => Number(b.active) - Number(a.active) || zoneDisplayName(a.name).localeCompare(zoneDisplayName(b.name), 'es'))
 }
 
-interface KamWithData {
-  id: string
-  name: string
-  area_id: string
-  base_city?: string | null // Fase 2: ciudad/localidad base ("Barranquilla", "Chapinero"...)
-  lat: number
-  lng: number
-  color: string
-  active: boolean
-  max_travel_time: number
-  enable_level2: boolean
-  priority: number
-  participates_in_assignment?: boolean
-  municipalityName?: string
-  hospitalCount?: number
-  municipalityCount?: number
-  avgTravelTime?: number | null
-  contractsValue?: number
+function writeLineToUrl(code: string) {
+  if (typeof window === 'undefined') return
+  try {
+    const url = new URL(window.location.href)
+    if (url.searchParams.get('line') === code) return
+    url.searchParams.set('line', code)
+    window.history.replaceState(window.history.state, '', url.toString())
+  } catch {
+    // Sin URL persistida: no es crítico
+  }
 }
+
+// ---------------------------------------------------------------------------
+// Página
+// ---------------------------------------------------------------------------
 
 export default function KamsPage() {
-  const [showForm, setShowForm] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [kamsWithData, setKamsWithData] = useState<KamWithData[]>([])
-  const [statsError, setStatsError] = useState('')
-  const [editingKam, setEditingKam] = useState<KamWithData | null>(null)
-  const [showEditModal, setShowEditModal] = useState(false)
-  const [searchTerm, setSearchTerm] = useState('')
-  const queryClient = useQueryClient()
-  const router = useRouter()
-  
-  const { data: kams, isLoading } = useQuery({
-    queryKey: ['kams'],
-    queryFn: fetchKams,
-  })
-
-  useEffect(() => {
-    if (kams) {
-      loadAdditionalData()
-    }
-  }, [kams])
-
-  const loadAdditionalData = async () => {
-    if (!kams) return
-
-    // A-10: las métricas se calculan en el servidor; con la anon key RLS devolvía todo en cero
-    let statsById = new Map<string, KamStats>()
-    setStatsError('')
-    try {
-      const response = await fetch('/api/kams/stats')
-      const data = await response.json().catch(() => null)
-      if (!response.ok) {
-        throw new Error((data && data.error) || `Error al cargar las estadísticas (${response.status})`)
-      }
-      statsById = new Map((Array.isArray(data) ? data : []).map((stat: KamStats) => [stat.kam_id, stat]))
-    } catch (error: any) {
-      console.error('Error cargando estadísticas de KAMs:', error)
-      setStatsError(error?.message || 'Error al cargar las estadísticas de zonas')
-    }
-
-    const updatedKams = kams.map((kam) => {
-      const stat = statsById.get(kam.id)
-      return {
-        ...kam,
-        municipalityName: stat?.area_name || undefined,
-        hospitalCount: stat?.hospital_count || 0,
-        municipalityCount: stat?.municipality_count || 0,
-        avgTravelTime: stat?.avg_travel_time ?? null,
-        contractsValue: stat?.contract_value_total || 0
-      }
-    })
-
-    setKamsWithData(updatedKams)
-  }
-
-  const handleUpdate = () => {
-    queryClient.invalidateQueries({ queryKey: ['kams'] })
-    router.refresh()
-  }
-
-  const handleEditClick = (kam: KamWithData) => {
-    setEditingKam(kam)
-    setShowEditModal(true)
-  }
-
-  const handleEditClose = () => {
-    setEditingKam(null)
-    setShowEditModal(false)
-  }
-
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('es-CO', {
-      style: 'currency',
-      currency: 'COP',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0
-    }).format(value)
-  }
-
-  const filteredKams = kamsWithData.filter(kam => 
-    kam.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (kam.base_city?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-    (kam.municipalityName?.toLowerCase() || '').includes(searchTerm.toLowerCase())
-  )
-
-  const activeKams = filteredKams.filter(k => k.active).length
-  const totalHospitals = filteredKams.reduce((sum, k) => sum + (k.hospitalCount || 0), 0)
-  const totalValue = filteredKams.reduce((sum, k) => sum + (k.contractsValue || 0), 0)
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-white via-gray-50 to-white flex items-center justify-center">
-        <div className="text-center">
-          <svg className="animate-spin h-12 w-12 text-gray-700 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-          </svg>
-          <p className="text-gray-600">Cargando zonas...</p>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <ProtectedRoute>
-      <PermissionGuard 
+      <PermissionGuard
         permission="kams:view"
         fallback={
           <div className="container mx-auto p-6">
@@ -175,389 +98,910 @@ export default function KamsPage() {
           </div>
         }
       >
-        <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          {/* Header con gradiente */}
-          <div className="bg-gradient-to-r from-gray-900 to-gray-700 rounded-2xl shadow-xl p-6 mb-8">
-            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
-              <div>
-                <h1 className="text-3xl lg:text-4xl font-bold text-white">Zonas</h1>
-                <p className="text-gray-300 mt-2">Zonas geográficas con su ciudad base y tiempo máximo de viaje</p>
-              </div>
-              <div className="flex flex-wrap gap-3">
-                <button
-                  onClick={() => router.push('/kams/colors')}
-                  className="px-4 sm:px-6 py-2.5 sm:py-3 bg-white/10 backdrop-blur-sm text-white rounded-lg hover:bg-white/20 transform hover:-translate-y-0.5 transition-all duration-200 shadow-md hover:shadow-lg font-medium flex items-center gap-2 text-sm sm:text-base"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"></path>
-                  </svg>
-                  <span className="hidden sm:inline">Configurar</span> Colores
-                </button>
-                <button
-                  onClick={() => setShowForm(true)}
-                  className="px-4 sm:px-6 py-2.5 sm:py-3 bg-white text-gray-900 rounded-lg hover:bg-gray-100 transform hover:-translate-y-0.5 transition-all duration-200 shadow-md hover:shadow-lg font-medium flex items-center gap-2 text-sm sm:text-base"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
-                  </svg>
-                  Agregar Zona
-                </button>
-              </div>
-            </div>
+        <ZonasContent />
+      </PermissionGuard>
+    </ProtectedRoute>
+  )
+}
+
+interface DialogoAsignar {
+  modo: ModoAsignar
+  zonaNombre: string
+  esBogota: boolean
+  residentes: ResidenteElegible[]
+  residenteInicial: string | null
+}
+
+/** Lo que las filas necesitan de la página. */
+interface ContextoFila {
+  linea: ZonasResponse['linea']
+  lineas: ZonasResponse['lineas']
+  acceso: ZonasResponse['acceso']
+  onVerDatos: (zona: ZonaFila) => void
+  onDar: (fila: FilaZonas) => void
+  onQuitar: (fila: FilaZonas) => void
+}
+
+const SIN_ACCESO: ZonasResponse['acceso'] = { asignar: false, ajustar: false, comprasPublicas: false, administrar: false }
+
+function ZonasContent() {
+  const { can } = usePermissions()
+  const puedeEditarZonas = can('kams:edit')
+  const puedeBogota = can('kams:bogota-config')
+  const veContratos = can('contracts:view')
+
+  const [requestedCode, setRequestedCode] = useState<string | null>(() => readLineFromUrl())
+  const [data, setData] = useState<ZonasResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [busqueda, setBusqueda] = useState('')
+  const [bogotaAbierta, setBogotaAbierta] = useState(false)
+  const [adminAbierta, setAdminAbierta] = useState(false)
+  const [datosDe, setDatosDe] = useState<ZonaFila | null>(null)
+  const [dialogo, setDialogo] = useState<DialogoAsignar | null>(null)
+  // Líneas que la API rechazó con 403 (por ejemplo una ?line= ajena en la URL): no se vuelven a pedir
+  const rechazadas = useRef(new Set<string>())
+
+  const load = useCallback(async (code: string | null, silencioso = false) => {
+    if (!silencioso) setLoading(true)
+    setError('')
+    try {
+      const url = code ? `/api/kams/zonas?line=${encodeURIComponent(code)}` : '/api/kams/zonas'
+      const response = await fetch(url, { cache: 'no-store' })
+      if (response.status === 403 && code && !rechazadas.current.has(code)) {
+        // La línea pedida no es del usuario: se pide sin línea y la página elige la primera suya
+        rechazadas.current.add(code)
+        setRequestedCode(null)
+        return
+      }
+      if (!response.ok) throw new Error(await readError(response, 'Error al cargar las zonas'))
+      const body = (await response.json().catch(() => null)) as ZonasResponse | null
+      if (!body || !Array.isArray(body.zonas) || !Array.isArray(body.lineas)) throw new Error('Respuesta inesperada del servidor')
+      setData(body)
+    } catch (err: unknown) {
+      console.error('Error cargando las zonas:', err)
+      setError(err instanceof Error ? err.message : 'Error al cargar las zonas')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void load(requestedCode)
+  }, [requestedCode, load])
+
+  // La API fija la línea (la pedida o, sin ?line=, la primera del usuario): se refleja en la URL. Si no fijó ninguna
+  // y el usuario sí tiene líneas, se pide la primera que no haya sido rechazada.
+  useEffect(() => {
+    if (!data) return
+    if (data.linea) {
+      writeLineToUrl(data.linea.code)
+      return
+    }
+    if (requestedCode === null) {
+      const primera = data.lineas.find(line => !rechazadas.current.has(line.code))
+      if (primera) setRequestedCode(primera.code)
+    }
+  }, [data, requestedCode])
+
+  const linea = data?.linea ?? null
+  const selectedCode = linea?.code ?? requestedCode
+  const acceso = data?.acceso ?? SIN_ACCESO
+  const recargar = useCallback(() => load(selectedCode, true), [load, selectedCode])
+
+  const filas = useMemo(() => (data ? agruparBogota(data) : []), [data])
+  const filasVisibles = useMemo(() => filtrarFilas(filas, busqueda), [filas, busqueda])
+  const resumen = useMemo(() => (data ? resumenEstados(data.zonas) : null), [data])
+
+  const puedeAdministrar = puedeEditarZonas || acceso.administrar
+  const hayAdministracion = puedeAdministrar || puedeBogota || veContratos
+
+  const abrirDialogo = useCallback(
+    (modo: ModoAsignar, fila: FilaZonas) => {
+      if (!linea) return
+      const residentes: ResidenteElegible[] = zonasDeFila(fila).flatMap(zona =>
+        zona.residentes.map(residente => ({ ...residente, kam_id: zona.kam_id, zonaNombre: nombreZona(zona.nombre) }))
+      )
+      setNotice('')
+      setDialogo({ modo, zonaNombre: fila.nombre, esBogota: fila.tipo === 'bogota', residentes, residenteInicial: null })
+    },
+    [linea]
+  )
+
+  const contexto: ContextoFila = {
+    linea,
+    lineas: data?.lineas ?? [],
+    acceso,
+    onVerDatos: zona => setDatosDe(zona),
+    onDar: fila => abrirDialogo('dar', fila),
+    onQuitar: fila => abrirDialogo('quitar', fila),
+  }
+
+  const handleGuardado = async (mensaje: string) => {
+    setDialogo(null)
+    setNotice(mensaje)
+    await recargar()
+  }
+
+  if (loading && !data) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-white via-gray-50 to-white flex items-center justify-center">
+        <div className="text-center" role="status">
+          <svg className="animate-spin h-12 w-12 text-gray-700 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          <p className="text-gray-600">Cargando zonas...</p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {/* Encabezado */}
+      <div className="bg-gradient-to-r from-gray-900 to-gray-700 rounded-2xl shadow-xl p-6 mb-6">
+        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+          <div>
+            <h1 className="text-3xl lg:text-4xl font-bold text-white">Zonas</h1>
+            <p className="text-gray-300 mt-2">Ciudades base, qué cubre cada una y quién la atiende en tu línea</p>
           </div>
-
-          {statsError && (
-            <div className="mb-4 p-4 bg-red-50 border border-red-200 text-red-700 rounded-xl">
-              {statsError}. Los totales de hospitales y contratos pueden no estar actualizados.
-            </div>
-          )}
-
-          {/* Estadísticas */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-            <div className="bg-white rounded-xl shadow-md border border-gray-100 p-6 hover:shadow-lg transition-shadow">
-              <div className="flex items-center justify-between mb-3">
-                <div className="w-12 h-12 bg-gradient-to-br from-gray-700 to-gray-900 rounded-xl flex items-center justify-center">
-                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
-                  </svg>
-                </div>
-              </div>
-              <p className="text-sm font-medium text-gray-600">Total Zonas</p>
-              <p className="text-2xl font-bold text-gray-900">{filteredKams.length}</p>
-            </div>
-
-            <div className="bg-white rounded-xl shadow-md border border-gray-100 p-6 hover:shadow-lg transition-shadow">
-              <div className="flex items-center justify-between mb-3">
-                <div className="w-12 h-12 bg-gradient-to-br from-green-600 to-green-700 rounded-xl flex items-center justify-center">
-                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                  </svg>
-                </div>
-                <span className="text-xs font-semibold text-green-700 bg-green-100 px-2 py-1 rounded-full">
-                  {filteredKams.length > 0 ? Math.round((activeKams / filteredKams.length) * 100) : 0}%
-                </span>
-              </div>
-              <p className="text-sm font-medium text-gray-600">Zonas Activas</p>
-              <p className="text-2xl font-bold text-gray-900">{activeKams}</p>
-            </div>
-
-            <div className="bg-white rounded-xl shadow-md border border-gray-100 p-6 hover:shadow-lg transition-shadow">
-              <div className="flex items-center justify-between mb-3">
-                <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-blue-700 rounded-xl flex items-center justify-center">
-                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
-                  </svg>
-                </div>
-              </div>
-              <p className="text-sm font-medium text-gray-600">Hospitales Asignados</p>
-              <p className="text-2xl font-bold text-gray-900">{totalHospitals}</p>
-            </div>
-
-            <div className="bg-white rounded-xl shadow-md border border-gray-100 p-6 hover:shadow-lg transition-shadow">
-              <div className="flex items-center justify-between mb-3">
-                <div className="w-12 h-12 bg-gradient-to-br from-purple-600 to-purple-700 rounded-xl flex items-center justify-center">
-                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                  </svg>
-                </div>
-              </div>
-              <p className="text-sm font-medium text-gray-600">Valor Contratos</p>
-              <p className="text-lg font-bold text-gray-900">{formatCurrency(totalValue)}</p>
-            </div>
-          </div>
-
-          {/* Bogotá hacia afuera: k zonas, corredores y tope único (solo admin) */}
-          <PermissionGuard permission="kams:bogota-config">
-            <BogotaConfigCard />
-          </PermissionGuard>
-
-          {/* Barra de búsqueda */}
-          <div className="bg-white rounded-xl shadow-md border border-gray-100 p-4 mb-6">
-            <div className="relative">
-              <svg className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+          {selectedCode && (
+            <Link
+              href={`/map?line=${encodeURIComponent(selectedCode)}`}
+              className="px-4 sm:px-6 py-2.5 sm:py-3 bg-white/10 backdrop-blur-sm text-white rounded-lg hover:bg-white/20 transition-all duration-200 shadow-md font-medium flex items-center gap-2 text-sm sm:text-base"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
               </svg>
-              <input
-                type="text"
-                placeholder="Buscar por zona, ciudad base o municipio..."
-                className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent transition-all"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
-          </div>
+              Ver en el mapa
+            </Link>
+          )}
+        </div>
+      </div>
 
-          {/* Tabla en escritorio y tarjetas en móvil */}
-          <div className="hidden lg:block bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
-            <table className="min-w-full">
+      {/* Selector de línea */}
+      {data && data.lineas.length > 0 ? (
+        <div className="flex flex-wrap gap-2 mb-4" role="tablist" aria-label="Línea de negocio">
+          {data.lineas.map(line => (
+            <button
+              key={line.id}
+              type="button"
+              role="tab"
+              aria-selected={line.code === selectedCode}
+              onClick={() => {
+                setNotice('')
+                setRequestedCode(line.code)
+              }}
+              className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                line.code === selectedCode ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+              }`}
+            >
+              {line.name}
+            </button>
+          ))}
+        </div>
+      ) : (
+        data && (
+          <p className="mb-4 text-sm text-gray-600">
+            Tu usuario no tiene líneas: se muestran las Zonas y quién vive en cada una, sin estado por línea.
+          </p>
+        )
+      )}
+
+      <div className="space-y-3 mb-4">
+        {error && <AvisoError onReintentar={() => load(requestedCode)}>{error}</AvisoError>}
+        {notice && <AvisoOk>{notice}</AvisoOk>}
+        {data?.cobertura.recalculada && (
+          <AvisoOk>
+            Cobertura actualizada ahora: la cobertura guardada no coincidía con la calculada y se volvió a guardar (sin Google). El mapa ya la refleja.
+          </AvisoOk>
+        )}
+        {data && data.cobertura.desactualizada && !data.cobertura.recalculada && (
+          <AvisoAtencion>La cobertura guardada no coincide con la calculada: lo que ves aquí es lo calculado ahora; el mapa puede ir atrasado.</AvisoAtencion>
+        )}
+      </div>
+
+      {/* Chips de la línea */}
+      {linea && resumen && (
+        <div className="flex flex-wrap gap-2 mb-4 text-xs" aria-label={`Resumen de ${linea.name}`}>
+          {ESTADOS_PLAZA.map(estado => (
+            <span key={estado} className={`inline-flex items-center px-2.5 py-1 rounded-lg font-semibold border ${ESTADO_BADGE[estado]}`}>
+              {ESTADO_PLAZA_PLURAL[estado]}: {resumen.porEstado[estado]}
+            </span>
+          ))}
+          <span className="inline-flex items-center px-2.5 py-1 rounded-lg font-semibold border bg-white text-gray-700 border-gray-300 border-dashed">
+            Sin equipo: {resumen.sinEquipo}
+          </span>
+        </div>
+      )}
+
+      {/* Búsqueda */}
+      <div className="bg-white rounded-xl shadow-md border border-gray-100 p-4 mb-6">
+        <label className="relative block">
+          <span className="sr-only">Buscar Zona</span>
+          <svg className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+          </svg>
+          <input
+            type="search"
+            placeholder="Buscar por Zona, ciudad base, departamento o quien vive en ella..."
+            className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent transition-all"
+            value={busqueda}
+            onChange={e => setBusqueda(e.target.value)}
+          />
+        </label>
+      </div>
+
+      {data && filasVisibles.length === 0 ? (
+        <div className="text-center py-12 bg-white rounded-xl shadow-md border border-gray-100">
+          <h3 className="text-sm font-medium text-gray-900">No se encontraron Zonas</h3>
+          <p className="mt-1 text-sm text-gray-500">{busqueda ? 'Intenta con otros términos de búsqueda' : 'No hay Zonas activas'}</p>
+        </div>
+      ) : (
+        <>
+          {/* Tabla en escritorio */}
+          <div className={`hidden lg:block bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden ${loading ? 'opacity-60' : ''}`}>
+            <table className="min-w-full text-sm">
               <thead>
                 <tr className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
-                  <th className="px-6 py-5 text-left">
-                    <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Zona</span>
-                  </th>
-                  <th className="px-6 py-5 text-left">
-                    <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Ubicación</span>
-                  </th>
-                  <th className="px-6 py-5 text-center">
-                    <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Hospitales</span>
-                  </th>
-                  <th className="px-6 py-5 text-left">
-                    <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Configuración</span>
-                  </th>
-                  <th className="px-6 py-5 text-center">
-                    <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Tipo</span>
-                  </th>
-                  <th className="px-6 py-5 text-center">
-                    <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Estado</span>
-                  </th>
-                  <th className="px-6 py-5 text-center">
-                    <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Acciones</span>
-                  </th>
+                  <Th>Zona</Th>
+                  <Th>Qué hay</Th>
+                  <Th>Vive aquí</Th>
+                  {linea && <Th>En {linea.name}</Th>}
+                  <Th>Acciones</Th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-100">
-                {filteredKams.map((kam, index) => (
-                  <tr 
-                    key={kam.id} 
-                    className="hover:bg-gray-50 transition-all duration-150"
-                    style={{ animationDelay: `${index * 50}ms` }}
-                  >
-                    <td className="px-6 py-5">
-                      <div className="flex items-center">
-                        <div className="flex-shrink-0">
-                          <div 
-                            className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold shadow-md ${!kam.active ? 'opacity-50' : ''}`}
-                            style={{ backgroundColor: kam.color }}
-                          >
-                            {zoneDisplayName(kam.name).substring(0, 2).toUpperCase()}
-                          </div>
-                        </div>
-                        <div className="ml-4">
-                          <div className={`text-sm font-semibold ${kam.active ? 'text-gray-900' : 'text-gray-400'}`}>
-                            {zoneDisplayName(kam.name)}
-                          </div>
-                          <div className="text-xs text-gray-500">
-                            Ciudad base: {kam.base_city || '—'}
-                          </div>
-                          {!kam.active && (
-                            <span className="text-xs text-gray-500">Inactiva</span>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-5">
-                      <div className="flex items-center">
-                        <svg className="w-4 h-4 text-gray-400 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path>
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path>
-                        </svg>
-                        <div>
-                          <div className="text-sm font-medium text-gray-900">
-                            {kam.municipalityName || kam.area_id}
-                          </div>
-                          <div className="text-xs text-gray-500">
-                            Código: {kam.area_id}
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-5 text-center">
-                      <div className="flex flex-col items-center">
-                        <span className="text-2xl font-bold text-gray-900">{kam.hospitalCount || 0}</span>
-                        <span className="text-xs text-gray-500">hospitales</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-5">
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2">
-                          <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                          </svg>
-                          <span className="text-sm text-gray-600">Máx: {kam.max_travel_time} min</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold ${
-                            kam.enable_level2 
-                              ? 'bg-gradient-to-r from-green-50 to-emerald-50 text-green-700 border border-green-200' 
-                              : 'bg-gray-100 text-gray-600 border border-gray-200'
-                          }`}>
-                            {kam.enable_level2 ? '✓ Nivel 2 activo' : 'Solo nivel 1'}
-                          </span>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-5 text-center">
-                      <span className={`inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-bold ${
-                        kam.participates_in_assignment !== false
-                          ? 'bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-700 border border-blue-200'
-                          : 'bg-gradient-to-r from-gray-50 to-slate-50 text-gray-700 border border-gray-300'
-                      }`}>
-                        <svg className={`w-4 h-4 mr-1.5 ${kam.participates_in_assignment !== false ? 'text-blue-600' : 'text-gray-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          {kam.participates_in_assignment !== false ? (
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
-                          ) : (
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1" />
-                          )}
-                        </svg>
-                        {kam.participates_in_assignment !== false ? 'Territorial' : 'Administrativo'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-5 text-center">
-                      <span className={`inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-bold ${
-                        kam.active 
-                          ? 'bg-gradient-to-r from-green-50 to-emerald-50 text-green-700 border border-green-200' 
-                          : 'bg-gradient-to-r from-red-50 to-pink-50 text-red-700 border border-red-200'
-                      }`}>
-                        <span className={`w-2 h-2 rounded-full mr-2 ${kam.active ? 'bg-green-500' : 'bg-red-500'}`}></span>
-                        {kam.active ? 'Activa' : 'Inactiva'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-5">
-                      <div className="flex items-center justify-center gap-1">
-                        <button 
-                          onClick={() => handleEditClick(kam)}
-                          className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-all group"
-                          title="Editar zona"
-                        >
-                          <svg className="w-4 h-4 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
-                          </svg>
-                        </button>
-                        {kam.active ? (
-                          <KamDeactivateButton 
-                            kam={kam} 
-                            onUpdate={handleUpdate}
-                            className="p-2 text-orange-600 hover:text-orange-700 hover:bg-orange-50 rounded-lg transition-all group"
-                          />
-                        ) : (
-                          <KamActivateButton 
-                            kam={kam} 
-                            onUpdate={handleUpdate}
-                            className="p-2 text-green-600 hover:text-green-700 hover:bg-green-50 rounded-lg transition-all group"
-                          />
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {filasVisibles.map(fila =>
+                  fila.tipo === 'zona' ? (
+                    <FilaZona key={fila.clave} zona={fila.zona} ctx={contexto} />
+                  ) : (
+                    <FilaBogota key={fila.clave} fila={fila} abierta={bogotaAbierta} onToggle={() => setBogotaAbierta(value => !value)} ctx={contexto} />
+                  )
+                )}
               </tbody>
             </table>
           </div>
 
-          {/* Vista de tarjetas para móvil */}
-          <div className="lg:hidden grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {filteredKams.map((kam) => (
-              <div 
-                key={kam.id} 
-                className={`bg-white rounded-xl shadow-md border border-gray-100 p-5 hover:shadow-lg transition-all ${
-                  !kam.active ? 'opacity-75' : ''
-                }`}
-              >
-                <div className="flex justify-between items-start mb-4">
-                  <div className="flex items-center">
-                    <div 
-                      className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-bold shadow-md ${!kam.active ? 'opacity-50' : ''}`}
-                      style={{ backgroundColor: kam.color }}
-                    >
-                      {zoneDisplayName(kam.name).substring(0, 2).toUpperCase()}
-                    </div>
-                    <div className="ml-3">
-                      <h3 className={`text-lg font-semibold ${kam.active ? 'text-gray-900' : 'text-gray-400'}`}>
-                        {zoneDisplayName(kam.name)}
-                      </h3>
-                      <p className="text-sm text-gray-500">Ciudad base: {kam.base_city || '—'}</p>
-                      <p className="text-xs text-gray-400">{kam.municipalityName || kam.area_id}</p>
-                    </div>
-                  </div>
-                  <span className={`inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold ${
-                    kam.active 
-                      ? 'bg-green-100 text-green-700' 
-                      : 'bg-red-100 text-red-700'
-                  }`}>
-                    {kam.active ? 'Activa' : 'Inactiva'}
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3 mb-4">
-                  <div className="text-center p-3 bg-gray-50 rounded-lg">
-                    <p className="text-2xl font-bold text-gray-900">{kam.hospitalCount || 0}</p>
-                    <p className="text-xs text-gray-500">Hospitales</p>
-                  </div>
-                  <div className="text-center p-3 bg-gray-50 rounded-lg">
-                    <p className="text-sm font-bold text-gray-900">{kam.max_travel_time} min</p>
-                    <p className="text-xs text-gray-500">Tiempo máx</p>
-                  </div>
-                </div>
-
-                <div className="mb-4">
-                  <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold ${
-                    kam.enable_level2
-                      ? 'bg-green-50 text-green-700 border border-green-200'
-                      : 'bg-gray-100 text-gray-600 border border-gray-200'
-                  }`}>
-                    {kam.enable_level2 ? '✓ Nivel 2 activo' : 'Solo nivel 1'}
-                  </span>
-                </div>
-
-                <div className="flex gap-2">
-                  <button 
-                    onClick={() => handleEditClick(kam)}
-                    className="flex-1 px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm font-medium"
-                  >
-                    Editar
-                  </button>
-                  {kam.active ? (
-                    <KamDeactivateButton 
-                      kam={kam} 
-                      onUpdate={handleUpdate}
-                      className="flex-1 px-3 py-2 bg-orange-100 text-orange-700 rounded-lg hover:bg-orange-200 transition-colors text-sm font-medium"
-                    />
-                  ) : (
-                    <KamActivateButton 
-                      kam={kam} 
-                      onUpdate={handleUpdate}
-                      className="flex-1 px-3 py-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-colors text-sm font-medium"
-                    />
-                  )}
-                </div>
-              </div>
-            ))}
+          {/* Tarjetas en el celular */}
+          <div className={`lg:hidden space-y-4 ${loading ? 'opacity-60' : ''}`}>
+            {filasVisibles.map(fila =>
+              fila.tipo === 'zona' ? (
+                <TarjetaZona key={fila.clave} zona={fila.zona} ctx={contexto} />
+              ) : (
+                <TarjetaBogota key={fila.clave} fila={fila} abierta={bogotaAbierta} onToggle={() => setBogotaAbierta(value => !value)} ctx={contexto} />
+              )
+            )}
           </div>
+        </>
+      )}
 
-          {filteredKams.length === 0 && (
-            <div className="text-center py-12 bg-white rounded-xl shadow-md border border-gray-100">
-              <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
-              </svg>
-              <h3 className="mt-2 text-sm font-medium text-gray-900">No se encontraron zonas</h3>
-              <p className="mt-1 text-sm text-gray-500">
-                {searchTerm ? 'Intenta con otros términos de búsqueda' : 'Agrega la primera zona para comenzar'}
-              </p>
+      {/* Pie: fuentes, cortes y notas */}
+      {data && (
+        <div className="mt-6 text-xs text-gray-500 space-y-2">
+          <p>
+            Cobertura calculada el {fechaEs(data.cobertura.calculadaEn)}
+            {data.cobertura.recalculada ? ' (actualizada ahora)' : ''}
+            {linea ? ` · ${linea.name}: alcance hasta ${linea.max_reach_minutes} minutos de ciudad base a ciudad base` : ''}.
+          </p>
+          {data.notas.length > 0 && (
+            <ul className="list-disc pl-5 space-y-1">
+              {data.notas.map(nota => (
+                <li key={nota}>{nota}</li>
+              ))}
+            </ul>
+          )}
+          <p className="font-medium text-gray-600">Nada de esta pantalla calcula rutas ni consulta Google.</p>
+        </div>
+      )}
+
+      {/* Administración de Zonas: plegada y solo con permiso */}
+      {hayAdministracion && (
+        <details
+          className="mt-8 bg-white rounded-2xl shadow-md border border-gray-100"
+          onToggle={event => setAdminAbierta((event.currentTarget as HTMLDetailsElement).open)}
+        >
+          <summary className="cursor-pointer px-6 py-4 text-sm font-bold text-gray-800 select-none">
+            Administración de Zonas
+            <span className="ml-2 text-xs font-normal text-gray-500">
+              {[puedeAdministrar && 'agregar, colores, editar y desactivar', puedeBogota && 'Bogotá hacia afuera', veContratos && 'valor de contratos']
+                .filter(Boolean)
+                .join(' · ')}
+            </span>
+          </summary>
+          {adminAbierta && (
+            <div className="px-6 pb-6">
+              <AdministracionZonas editar={puedeAdministrar} bogota={puedeBogota} contratos={veContratos} onCambio={recargar} />
             </div>
           )}
+        </details>
+      )}
 
-          {/* Modal de edición */}
-          {editingKam && (
-            <EditKamModal
-              kam={editingKam}
-              isOpen={showEditModal}
-              onClose={handleEditClose}
-              onUpdate={handleUpdate}
-            />
+      {datosDe && (
+        <ZonaDatosModal zona={{ kam_id: datosDe.kam_id, nombre: nombreZona(datosDe.nombre), ciudad_base: datosDe.ciudad_base }} onCerrar={() => setDatosDe(null)} />
+      )}
+
+      {dialogo && linea && (
+        <AsignarLineaDialog
+          modo={dialogo.modo}
+          linea={linea}
+          lineas={data?.lineas ?? []}
+          zonaNombre={dialogo.zonaNombre}
+          esBogota={dialogo.esBogota}
+          residentes={dialogo.residentes}
+          residenteInicial={dialogo.residenteInicial}
+          onCerrar={() => setDialogo(null)}
+          onGuardado={handleGuardado}
+        />
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Celdas comunes (tabla y tarjetas)
+// ---------------------------------------------------------------------------
+
+function Th({ children }: { children: React.ReactNode }) {
+  return (
+    <th className="px-4 py-4 text-left">
+      <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">{children}</span>
+    </th>
+  )
+}
+
+function NombreZona({ zona }: { zona: ZonaFila }) {
+  const nombre = nombreZona(zona.nombre)
+  return (
+    <div className="flex items-start gap-3 min-w-0">
+      <span className="mt-1 w-3 h-3 rounded-full shrink-0 border border-gray-300" style={{ backgroundColor: zona.color ?? '#9ca3af' }} aria-hidden="true" />
+      <div className="min-w-0">
+        <p className="font-semibold text-gray-900 break-words">{nombre}</p>
+        <p className="text-xs text-gray-500 break-words">
+          {zona.ciudad_base && zona.ciudad_base !== nombre ? `Ciudad base: ${zona.ciudad_base}` : null}
+          {zona.ciudad_base && zona.ciudad_base !== nombre && zona.departamento ? ' · ' : null}
+          {zona.departamento ?? (!zona.ciudad_base || zona.ciudad_base === nombre ? 'Ciudad base' : null)}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function QueHay({ cifras }: { cifras: ZonaCifras }) {
+  const r = resumenCifras(cifras)
+  return (
+    <div className="space-y-1 text-sm text-gray-700 min-w-0">
+      <p className="font-medium text-gray-900">{r.ips}</p>
+      <p>
+        {r.municipios} <span className="text-gray-500">· {r.municipiosDetalle}</span>
+      </p>
+      <p>
+        {r.poblacion ? (
+          <>
+            {r.poblacion} <span className="text-gray-500">({r.poblacionFuente})</span>
+          </>
+        ) : (
+          <span className="text-gray-400">Población: sin datos</span>
+        )}
+      </p>
+      <p>
+        {r.afiliados ? (
+          <>
+            {r.afiliados} <span className="text-gray-500">({r.afiliadosFuente})</span>
+          </>
+        ) : (
+          <span className="text-gray-400">Afiliados: sin datos</span>
+        )}
+      </p>
+      <p>
+        {r.giros ? (
+          <>
+            Giros 12 m: <strong className="text-gray-900 tabular-nums">{r.giros}</strong> <span className="text-gray-500">({r.girosFuente})</span>
+          </>
+        ) : (
+          <span className="text-gray-400">Giros ADRES: sin datos</span>
+        )}
+      </p>
+      {r.departamentos.length > 0 && <p className="text-xs text-gray-500 break-words">{r.departamentos.join(', ')}</p>}
+    </div>
+  )
+}
+
+function ViveAqui({
+  residentes,
+  lineaCode,
+  lineas,
+}: {
+  residentes: Array<ZonaResidente & { zonaNombre?: string }>
+  lineaCode: string | null
+  lineas: ReadonlyArray<{ code: string; name: string }>
+}) {
+  if (residentes.length === 0) return <span className="text-sm text-gray-400">Nadie vive aquí</span>
+  return (
+    <ul className="space-y-2.5">
+      {residentes.map(residente => {
+        const restriccion = textoRestriccion(residente, lineas)
+        return (
+          <li key={residente.id} className="text-sm min-w-0">
+            <p className="font-medium text-gray-900 break-words">
+              {residente.nombre}
+              {residente.status === 'placeholder' && <span className="ml-1 text-xs font-normal text-amber-700">(por contratar)</span>}
+              {residente.zonaNombre && <span className="ml-1 text-xs font-normal text-gray-500">· {residente.zonaNombre}</span>}
+            </p>
+            <div className="mt-0.5 flex flex-wrap gap-1">
+              {residente.lineas.length === 0 ? (
+                <span className="text-xs text-gray-400">No lleva líneas</span>
+              ) : (
+                residente.lineas.map(code => (
+                  <span
+                    key={code}
+                    className={`px-2 py-0.5 rounded-full text-xs border ${
+                      code === lineaCode ? 'bg-gray-900 text-white border-gray-900' : 'bg-gray-100 text-gray-700 border-gray-200'
+                    }`}
+                  >
+                    {nombreLinea(code, lineas)}
+                  </span>
+                ))
+              )}
+            </div>
+            {restriccion && <p className="mt-0.5 text-xs text-amber-700 break-words">{restriccion}</p>}
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+function EnLinea({ enLinea }: { enLinea: ZonaEnLinea | null }) {
+  if (!enLinea) return <span className="text-sm text-gray-400">—</span>
+  const { titulo, detalle } = textoEstado(enLinea)
+  return (
+    <div className="space-y-1 min-w-0">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold border whitespace-nowrap ${ESTADO_BADGE[enLinea.estado]}`}>{titulo}</span>
+        {enLinea.sinEquipo && <span className={CLASE_SIN_EQUIPO}>Sin equipo</span>}
+      </div>
+      {detalle && <p className="text-sm text-gray-700 break-words">{detalle}</p>}
+      {enLinea.ajuste && <p className="text-xs text-purple-700 break-words">Ajuste manual: {enLinea.ajuste.motivo}</p>}
+      {enLinea.nota && enLinea.estado !== 'conflicto' && <p className="text-xs text-gray-500 break-words">{enLinea.nota}</p>}
+    </div>
+  )
+}
+
+/** Estados de las celdas de Bogotá en una línea, como chips pequeños. */
+function EstadosBogota({ celdas }: { celdas: ZonaFila[] }) {
+  const resumen = resumenEstados(celdas)
+  if (resumen.conLinea === 0) return <span className="text-sm text-gray-400">—</span>
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {ESTADOS_PLAZA.filter(estado => resumen.porEstado[estado] > 0).map(estado => (
+        <span key={estado} className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold border ${ESTADO_BADGE[estado]}`}>
+          {ESTADO_PLAZA_PLURAL[estado]}: {resumen.porEstado[estado]}
+        </span>
+      ))}
+      {resumen.sinEquipo > 0 && <span className={CLASE_SIN_EQUIPO}>Sin equipo: {resumen.sinEquipo}</span>}
+    </div>
+  )
+}
+
+function Acciones({ fila, ctx }: { fila: FilaZonas; ctx: ContextoFila }) {
+  const { linea, acceso, lineas } = ctx
+  const residentes = zonasDeFila(fila).flatMap(zona => zona.residentes)
+  const conLinea = linea ? residentes.filter(residente => puedeQuitar(residente, linea.code)) : []
+  const ajusteActivo = fila.tipo === 'zona' ? fila.zona.enLinea?.ajuste ?? null : null
+  // "Darle" se deshabilita si nadie vive en la Zona o si a nadie se le puede dar (ya la llevan todos, o la dirección
+  // los limitó a otras líneas): el motivo sale debajo del botón, con el texto de la spec.
+  const motivosDar = linea ? residentes.map(residente => motivoNoPuedeDar(residente, linea, lineas)) : []
+  const nadiePuedeRecibir = linea !== null && residentes.length > 0 && motivosDar.every(motivo => motivo !== null)
+  const motivoDar =
+    residentes.length === 0 ? 'Nadie vive en esta Zona' : nadiePuedeRecibir ? motivosDar.filter((motivo): motivo is string => motivo !== null).join(' · ') : null
+  return (
+    <div className="flex flex-wrap lg:flex-col items-stretch gap-1.5">
+      {fila.tipo === 'zona' && (
+        <button type="button" onClick={() => ctx.onVerDatos(fila.zona)} className={claseBotonChico}>
+          Ver datos
+        </button>
+      )}
+      {linea && acceso.asignar && (
+        <>
+          <button type="button" onClick={() => ctx.onDar(fila)} disabled={motivoDar !== null} title={motivoDar ?? undefined} className={claseBotonChico}>
+            {fila.tipo === 'bogota' ? `Darle ${linea.name} en Bogotá…` : `Darle ${linea.name} a…`}
+          </button>
+          {motivoDar && nadiePuedeRecibir && <p className="text-xs text-amber-700 break-words lg:max-w-[14rem]">{motivoDar}</p>}
+          {conLinea.length > 0 && (
+            <button
+              type="button"
+              onClick={() => ctx.onQuitar(fila)}
+              className="px-3 py-1.5 text-sm text-red-700 bg-white border border-red-200 hover:bg-red-50 rounded-lg font-medium"
+            >
+              Quitarle {linea.name}
+            </button>
           )}
+        </>
+      )}
+      {linea && acceso.ajustar && fila.tipo === 'zona' && (
+        <Link
+          href={`/lines?line=${encodeURIComponent(linea.code)}`}
+          className="px-3 py-1.5 text-xs text-gray-600 hover:text-gray-900 underline underline-offset-2 text-center"
+          title="El ajuste manual (forzar a alguien de otra ciudad o quitar el ajuste) se hace en Líneas, en la cobertura de esta línea"
+        >
+          {ajusteActivo ? 'Quitar ajuste (en Líneas)' : 'Forzar a alguien de otra ciudad… (en Líneas)'}
+        </Link>
+      )}
+    </div>
+  )
+}
 
-          {/* Modal de agregar */}
-          <AddKamModal
-            isOpen={showForm}
-            onClose={() => setShowForm(false)}
-            onSuccess={() => {
-              setShowForm(false)
-              queryClient.invalidateQueries({ queryKey: ['kams'] })
-              loadAdditionalData()
-            }}
-          />
+// ---------------------------------------------------------------------------
+// Filas de la tabla (escritorio)
+// ---------------------------------------------------------------------------
+
+function FilaZona({ zona, ctx, celda = false }: { zona: ZonaFila; ctx: ContextoFila; celda?: boolean }) {
+  return (
+    <tr className={`align-top transition-colors ${celda ? 'bg-gray-50/70 hover:bg-gray-100/70' : 'hover:bg-gray-50'}`}>
+      <td className={`px-4 py-4 ${celda ? 'pl-12' : ''}`}>
+        <NombreZona zona={zona} />
+      </td>
+      <td className="px-4 py-4">
+        <QueHay cifras={zona.cifras} />
+      </td>
+      <td className="px-4 py-4">
+        <ViveAqui residentes={zona.residentes} lineaCode={ctx.linea?.code ?? null} lineas={ctx.lineas} />
+      </td>
+      {ctx.linea && (
+        <td className="px-4 py-4">
+          <EnLinea enLinea={zona.enLinea} />
+        </td>
+      )}
+      <td className="px-4 py-4">
+        <Acciones fila={filaDeZona(zona)} ctx={ctx} />
+      </td>
+    </tr>
+  )
+}
+
+function FilaBogota({
+  fila,
+  abierta,
+  onToggle,
+  ctx,
+}: {
+  fila: Extract<FilaZonas, { tipo: 'bogota' }>
+  abierta: boolean
+  onToggle: () => void
+  ctx: ContextoFila
+}) {
+  const residentes = fila.celdas.flatMap(celda => celda.residentes.map(residente => ({ ...residente, zonaNombre: nombreZona(celda.nombre) })))
+  return (
+    <>
+      <tr className="align-top bg-gray-50">
+        <td className="px-4 py-4">
+          <button type="button" onClick={onToggle} aria-expanded={abierta} className="flex items-start gap-2 text-left min-w-0">
+            <svg className={`mt-1 w-4 h-4 shrink-0 text-gray-500 transition-transform ${abierta ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
+            </svg>
+            <span className="min-w-0">
+              <span className="block font-semibold text-gray-900">{fila.nombre}</span>
+              <span className="block text-xs text-gray-500">Hacia afuera compite como una ciudad; dentro, {fila.celdas.length} celdas</span>
+            </span>
+          </button>
+        </td>
+        <td className="px-4 py-4">
+          <QueHay cifras={fila.cifras} />
+        </td>
+        <td className="px-4 py-4">
+          <ViveAqui residentes={residentes} lineaCode={ctx.linea?.code ?? null} lineas={ctx.lineas} />
+        </td>
+        {ctx.linea && (
+          <td className="px-4 py-4">
+            <EstadosBogota celdas={fila.celdas} />
+          </td>
+        )}
+        <td className="px-4 py-4">
+          <div className="flex flex-col items-stretch gap-1.5">
+            <button type="button" onClick={onToggle} aria-expanded={abierta} className={claseBotonChico}>
+              {abierta ? 'Ocultar las celdas' : `Ver las ${fila.celdas.length} zonas`}
+            </button>
+            <Acciones fila={fila} ctx={ctx} />
+          </div>
+        </td>
+      </tr>
+      {abierta && fila.celdas.map(celda => <FilaZona key={celda.kam_id} zona={celda} ctx={ctx} celda />)}
+    </>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Tarjetas (celular, 390 px)
+// ---------------------------------------------------------------------------
+
+function Seccion({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">{titulo}</p>
+      {children}
+    </div>
+  )
+}
+
+function TarjetaZona({ zona, ctx, celda = false }: { zona: ZonaFila; ctx: ContextoFila; celda?: boolean }) {
+  return (
+    <div className={`bg-white rounded-xl shadow-md border border-gray-100 p-4 min-w-0 ${celda ? 'ml-4 border-l-4 border-l-gray-300' : ''}`}>
+      <div className="flex items-start justify-between gap-3">
+        <NombreZona zona={zona} />
+        {ctx.linea && zona.enLinea && (
+          <span className={`shrink-0 inline-flex items-center px-2 py-0.5 rounded-md text-xs font-bold border ${ESTADO_BADGE[zona.enLinea.estado]}`}>
+            {textoEstado(zona.enLinea).titulo}
+          </span>
+        )}
+      </div>
+      <div className="mt-3 space-y-3">
+        <Seccion titulo="Qué hay">
+          <QueHay cifras={zona.cifras} />
+        </Seccion>
+        <Seccion titulo="Vive aquí">
+          <ViveAqui residentes={zona.residentes} lineaCode={ctx.linea?.code ?? null} lineas={ctx.lineas} />
+        </Seccion>
+        {ctx.linea && (
+          <Seccion titulo={`En ${ctx.linea.name}`}>
+            <EnLinea enLinea={zona.enLinea} />
+          </Seccion>
+        )}
+      </div>
+      <div className="mt-3 pt-3 border-t border-gray-100">
+        <Acciones fila={filaDeZona(zona)} ctx={ctx} />
+      </div>
+    </div>
+  )
+}
+
+function TarjetaBogota({
+  fila,
+  abierta,
+  onToggle,
+  ctx,
+}: {
+  fila: Extract<FilaZonas, { tipo: 'bogota' }>
+  abierta: boolean
+  onToggle: () => void
+  ctx: ContextoFila
+}) {
+  const residentes = fila.celdas.flatMap(celda => celda.residentes.map(residente => ({ ...residente, zonaNombre: nombreZona(celda.nombre) })))
+  return (
+    <div className="space-y-3">
+      <div className="bg-gray-50 rounded-xl shadow-md border border-gray-200 p-4 min-w-0">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="font-semibold text-gray-900">{fila.nombre}</p>
+            <p className="text-xs text-gray-500">Hacia afuera compite como una ciudad; dentro, {fila.celdas.length} celdas</p>
+          </div>
         </div>
-      </PermissionGuard>
-    </ProtectedRoute>
+        <div className="mt-3 space-y-3">
+          <Seccion titulo="Qué hay">
+            <QueHay cifras={fila.cifras} />
+          </Seccion>
+          <Seccion titulo="Vive aquí">
+            <ViveAqui residentes={residentes} lineaCode={ctx.linea?.code ?? null} lineas={ctx.lineas} />
+          </Seccion>
+          {ctx.linea && (
+            <Seccion titulo={`En ${ctx.linea.name}`}>
+              <EstadosBogota celdas={fila.celdas} />
+            </Seccion>
+          )}
+        </div>
+        <div className="mt-3 pt-3 border-t border-gray-200 flex flex-wrap gap-1.5">
+          <button type="button" onClick={onToggle} aria-expanded={abierta} className={claseBotonChico}>
+            {abierta ? 'Ocultar las celdas' : `Ver las ${fila.celdas.length} zonas`}
+          </button>
+          <Acciones fila={fila} ctx={ctx} />
+        </div>
+      </div>
+      {abierta && fila.celdas.map(celda => <TarjetaZona key={celda.kam_id} zona={celda} ctx={ctx} celda />)}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Administración de Zonas (lo que antes era toda la página): agregar, colores, editar, desactivar, Bogotá, contratos.
+// Solo se monta cuando se abre el plegable y el rol tiene permiso; así nadie recibe un 403 por algo que no puede usar.
+// ---------------------------------------------------------------------------
+
+interface KamAdmin {
+  id: string
+  name: string
+  area_id: string
+  base_city?: string | null
+  lat: number
+  lng: number
+  color: string
+  active: boolean
+  max_travel_time: number
+  enable_level2: boolean
+  priority: number
+  participates_in_assignment?: boolean
+}
+
+interface KamStat {
+  kam_id: string
+  hospital_count: number
+  municipality_count: number
+  contract_value_total: number
+  avg_travel_time: number | null
+  area_name: string | null
+}
+
+const formatCurrency = (value: number) =>
+  new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value)
+
+function AdministracionZonas({ editar, bogota, contratos, onCambio }: { editar: boolean; bogota: boolean; contratos: boolean; onCambio: () => void }) {
+  const router = useRouter()
+  const queryClient = useQueryClient()
+  const [kams, setKams] = useState<KamAdmin[]>([])
+  const [stats, setStats] = useState<Map<string, KamStat>>(new Map())
+  const [cargando, setCargando] = useState(true)
+  const [error, setError] = useState('')
+  const [aviso, setAviso] = useState('')
+  const [showForm, setShowForm] = useState(false)
+  const [editingKam, setEditingKam] = useState<KamAdmin | null>(null)
+  const listar = editar || contratos
+
+  const cargar = useCallback(async () => {
+    if (!listar) {
+      setCargando(false)
+      return
+    }
+    setCargando(true)
+    setError('')
+    setAviso('')
+    try {
+      const [kamsResponse, statsResponse] = await Promise.all([
+        fetch('/api/kams', { cache: 'no-store' }),
+        contratos ? fetch('/api/kams/stats', { cache: 'no-store' }) : Promise.resolve(null),
+      ])
+      if (!kamsResponse.ok) throw new Error(await readError(kamsResponse, 'Error al cargar las zonas'))
+      const lista = (await kamsResponse.json().catch(() => null)) as KamAdmin[] | null
+      setKams(
+        (Array.isArray(lista) ? lista : []).sort(
+          (a, b) => Number(b.active) - Number(a.active) || nombreZona(a.name).localeCompare(nombreZona(b.name), 'es')
+        )
+      )
+      if (statsResponse) {
+        if (statsResponse.ok) {
+          const datos = (await statsResponse.json().catch(() => null)) as KamStat[] | null
+          setStats(new Map((Array.isArray(datos) ? datos : []).map(stat => [stat.kam_id, stat])))
+        } else {
+          setAviso(`${await readError(statsResponse, 'No se pudo cargar el valor de contratos')}. El valor de contratos puede no estar actualizado.`)
+        }
+      }
+    } catch (err: unknown) {
+      console.error('Error cargando la administración de zonas:', err)
+      setError(err instanceof Error ? err.message : 'Error al cargar las zonas')
+    } finally {
+      setCargando(false)
+    }
+  }, [listar, contratos])
+
+  useEffect(() => {
+    void cargar()
+  }, [cargar])
+
+  const handleUpdate = () => {
+    queryClient.invalidateQueries({ queryKey: ['kams'] })
+    router.refresh()
+    void cargar()
+    onCambio()
+  }
+
+  const totalContratos = kams.reduce((sum, kam) => sum + (stats.get(kam.id)?.contract_value_total || 0), 0)
+
+  return (
+    <div className="space-y-6">
+      {editar && (
+        <div className="flex flex-wrap gap-3">
+          <button type="button" onClick={() => router.push('/kams/colors')} className={claseBotonChico}>
+            Configurar colores
+          </button>
+          <button type="button" onClick={() => setShowForm(true)} className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 font-medium text-sm">
+            Agregar Zona
+          </button>
+        </div>
+      )}
+
+      {bogota && <BogotaConfigCard />}
+
+      {listar && (
+        <>
+          {error && <AvisoError onReintentar={cargar}>{error}</AvisoError>}
+          {aviso && <AvisoAtencion>{aviso}</AvisoAtencion>}
+          {contratos && !cargando && (
+            <div className="bg-white rounded-xl border border-gray-200 p-4 inline-block">
+              <p className="text-sm font-medium text-gray-600">Valor de contratos</p>
+              <p className="text-lg font-bold text-gray-900 tabular-nums">{formatCurrency(totalContratos)}</p>
+            </div>
+          )}
+          {cargando ? (
+            <p className="text-sm text-gray-500">Cargando zonas…</p>
+          ) : (
+            <div className="overflow-x-auto border border-gray-100 rounded-xl">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200">
+                    <Th>Zona</Th>
+                    <Th>Código</Th>
+                    <Th>Configuración</Th>
+                    <Th>Tipo</Th>
+                    <Th>Estado</Th>
+                    {contratos && <Th>Contratos</Th>}
+                    {editar && <Th>Acciones</Th>}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {kams.map(kam => {
+                    const stat = stats.get(kam.id)
+                    return (
+                      <tr key={kam.id} className="hover:bg-gray-50 align-top">
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-3">
+                            <span className={`w-3 h-3 rounded-full shrink-0 border border-gray-300 ${!kam.active ? 'opacity-50' : ''}`} style={{ backgroundColor: kam.color }} aria-hidden="true" />
+                            <div>
+                              <p className={`font-medium ${kam.active ? 'text-gray-900' : 'text-gray-400'}`}>{nombreZona(kam.name)}</p>
+                              <p className="text-xs text-gray-500">Ciudad base: {kam.base_city || stat?.area_name || '—'}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-gray-700 whitespace-nowrap">{kam.area_id}</td>
+                        <td className="px-4 py-3 text-gray-700 whitespace-nowrap">
+                          Máx: {kam.max_travel_time} min · {kam.enable_level2 ? 'Nivel 2 activo' : 'Solo nivel 1'}
+                        </td>
+                        <td className="px-4 py-3 text-gray-700 whitespace-nowrap">{kam.participates_in_assignment !== false ? 'Territorial' : 'Administrativo'}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-bold border ${kam.active ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                            {kam.active ? 'Activa' : 'Inactiva'}
+                          </span>
+                        </td>
+                        {contratos && <td className="px-4 py-3 text-gray-700 whitespace-nowrap tabular-nums">{formatCurrency(stat?.contract_value_total || 0)}</td>}
+                        {editar && (
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => setEditingKam(kam)}
+                                className="px-3 py-1.5 text-xs text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-lg font-medium"
+                                title="Editar zona"
+                              >
+                                Editar
+                              </button>
+                              {kam.active ? (
+                                <KamDeactivateButton kam={kam} onUpdate={handleUpdate} className="px-3 py-1.5 text-xs text-orange-700 hover:bg-orange-50 rounded-lg font-medium" />
+                              ) : (
+                                <KamActivateButton kam={kam} onUpdate={handleUpdate} className="px-3 py-1.5 text-xs text-green-700 hover:bg-green-50 rounded-lg font-medium" />
+                              )}
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+
+      {editar && editingKam && <EditKamModal kam={editingKam} isOpen onClose={() => setEditingKam(null)} onUpdate={handleUpdate} />}
+      {editar && (
+        <AddKamModal
+          isOpen={showForm}
+          onClose={() => setShowForm(false)}
+          onSuccess={() => {
+            setShowForm(false)
+            handleUpdate()
+          }}
+        />
+      )}
+    </div>
   )
 }
