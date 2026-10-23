@@ -34,6 +34,13 @@ Medicina deportiva y Columna; ninguna lleva Sustitutos óseos). Las cifras de un
 - Encabezado "Zonas" · "Ciudades base, qué cubre cada una y quién la atiende en tu línea". Selector de línea (pestañas
   con `?line=<code>`; las líneas de `resolveUserLines`; por defecto la primera).
 - Una fila por Zona activa (16). Bogotá va agrupada como "Bogotá (4 zonas)" con su total y sus cuatro celdas debajo.
+  Dentro de Bogotá, quien vive en una celda atiende las otras tres como si viviera ahí (dueño, 2026-10-23: "la vacante
+  de Bogotá sí o sí tiene que tener las cuatro zonas"): esas celdas salen Ocupadas o Reservadas, con la celda donde vive,
+  no "por alcance". Es una regla de lectura de `/api/kams/zonas` y `/api/coverage/simular`; el motor no cambia.
+- Junto a cada persona o vacante sale siempre qué puede tener ("Puede tener cualquier línea" o "Solo puede tener: …") y
+  un interruptor "<línea>: Sí/No" para darle o quitarle la línea de la líder; a quien la dirección limitó a otras líneas
+  no le sale el interruptor sino "No puede tener <línea>". En Ejecutivos Comerciales, "Líneas permitidas" son etiquetas
+  que la dirección agrega o quita.
   - **Qué hay en la Zona** (igual para todas las líneas): IPS y camas; municipios (con IPS, de alcance, compartidos);
     departamentos; población DANE del año; afiliados BDUA con su corte; giros ADRES de 12 meses con su fuente y ventana.
     Las cuentas salen de `construirBloque([kam_id], datos)` (`lib/zona-estadisticas.ts:708`): mismas reglas que

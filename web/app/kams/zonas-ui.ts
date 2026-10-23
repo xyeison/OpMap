@@ -93,14 +93,18 @@ export function textoEstado(enLinea: ZonaEnLinea, linea?: LineaParaTexto | null)
   const nombreLinea = linea?.name ?? 'la línea'
   const porCarretera = (minutos: number | null | undefined) => (minutos !== null && minutos !== undefined && minutos > 0 ? `, a ${minutosCortos(minutos)} por carretera` : '')
   switch (enLinea.estado) {
+    // Ocupada/Reservada con `desde`: por ajuste manual (ajuste ≠ null) o, dentro de Bogotá, porque vive en otra celda de
+    // la misma ciudad (la ruta lo marca así: "Bogotá compite como una ciudad").
     case 'ocupada': {
       if (!quien) return { titulo, detalle: null }
-      if (enLinea.desde) return { titulo, detalle: `La atiende ${quien} por ajuste manual desde ${enLinea.desde.nombre}${porCarretera(enLinea.minutos)}.` }
+      if (enLinea.desde && enLinea.ajuste) return { titulo, detalle: `La atiende ${quien} por ajuste manual desde ${enLinea.desde.nombre}${porCarretera(enLinea.minutos)}.` }
+      if (enLinea.desde) return { titulo, detalle: `La atiende ${quien}, que vive en ${enLinea.desde.nombre} (Bogotá).` }
       return { titulo, detalle: `La atiende ${quien}, que vive en la Zona.` }
     }
     case 'reservada': {
       if (!quien) return { titulo, detalle: null }
-      if (enLinea.desde) return { titulo, detalle: `Reservada para ${quien} por ajuste manual desde ${enLinea.desde.nombre}${porCarretera(enLinea.minutos)}.` }
+      if (enLinea.desde && enLinea.ajuste) return { titulo, detalle: `Reservada para ${quien} por ajuste manual desde ${enLinea.desde.nombre}${porCarretera(enLinea.minutos)}.` }
+      if (enLinea.desde) return { titulo, detalle: `Reservada para ${quien}, que vive en ${enLinea.desde.nombre} (Bogotá).` }
       return { titulo, detalle: `Reservada para ${quien}, que vive en la Zona.` }
     }
     case 'alcance': {

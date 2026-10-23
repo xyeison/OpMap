@@ -351,11 +351,12 @@ function ZonasContent() {
             <table className="min-w-full text-sm">
               <thead>
                 <tr className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
-                  <Th>Zona</Th>
-                  <Th>Qué hay</Th>
-                  <Th>Vive aquí</Th>
-                  {linea && <Th>En {linea.name}</Th>}
-                  <Th>Acciones</Th>
+                  {/* Anchos: "Vive aquí" holgada (nombres, qué puede tener y el interruptor) y "En la línea" más angosta (dueño, 2026-10-23) */}
+                  <Th ancho="w-[14%]">Zona</Th>
+                  <Th ancho="w-[23%]">Qué hay</Th>
+                  <Th ancho={linea ? 'w-[28%]' : 'w-[40%]'}>Vive aquí</Th>
+                  {linea && <Th ancho="w-[23%]">En {linea.name}</Th>}
+                  <Th ancho="w-[12%]">Acciones</Th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-100">
@@ -449,9 +450,9 @@ function ZonasContent() {
 // Celdas comunes (tabla y tarjetas)
 // ---------------------------------------------------------------------------
 
-function Th({ children }: { children: React.ReactNode }) {
+function Th({ children, ancho }: { children: React.ReactNode; ancho?: string }) {
   return (
-    <th className="px-4 py-4 text-left">
+    <th className={`px-4 py-4 text-left ${ancho ?? ''}`}>
       <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">{children}</span>
     </th>
   )
@@ -563,24 +564,28 @@ function ViveAqui({ residentes, fila, ctx }: { residentes: Array<ZonaResidente &
             )}
             {linea && acceso.asignar && (
               <div className="mt-1.5">
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={llevaLaLinea}
-                  aria-label={`${residente.nombre}: ${linea.name}`}
-                  disabled={!llevaLaLinea && motivoDar !== null}
-                  title={llevaLaLinea ? `Quitarle ${linea.name}` : motivoDar ?? `Darle ${linea.name}`}
-                  onClick={() => (llevaLaLinea ? ctx.onQuitar(fila, residente.id) : ctx.onDar(fila, residente.id))}
-                  className={`inline-flex items-center gap-2 pl-1 pr-2.5 py-1 rounded-full border text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                    llevaLaLinea ? 'bg-gray-900 border-gray-900 text-white hover:bg-gray-800' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
-                  }`}
-                >
-                  <span aria-hidden="true" className={`relative inline-block h-4 w-7 rounded-full transition-colors ${llevaLaLinea ? 'bg-green-400' : 'bg-gray-300'}`}>
-                    <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform ${llevaLaLinea ? 'left-3.5' : 'left-0.5'}`} />
-                  </span>
-                  {linea.name}: {llevaLaLinea ? 'Sí' : 'No'}
-                </button>
-                {!llevaLaLinea && motivoDar && <p className="mt-1 text-xs text-amber-700 break-words">{motivoDar}</p>}
+                {!llevaLaLinea && motivoDar ? (
+                  // La dirección la limitó a otras líneas: a esta líder no le sale el interruptor (dueño, 2026-10-23:
+                  // "Paola no debería salirle a Estefanía como de Medicina deportiva")
+                  <p className="text-xs text-gray-500 break-words">No puede tener {linea.name}.</p>
+                ) : (
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={llevaLaLinea}
+                    aria-label={`${residente.nombre}: ${linea.name}`}
+                    title={llevaLaLinea ? `Quitarle ${linea.name}` : `Darle ${linea.name}`}
+                    onClick={() => (llevaLaLinea ? ctx.onQuitar(fila, residente.id) : ctx.onDar(fila, residente.id))}
+                    className={`inline-flex items-center gap-2 pl-1 pr-2.5 py-1 rounded-full border text-xs font-medium whitespace-nowrap transition-colors ${
+                      llevaLaLinea ? 'bg-gray-900 border-gray-900 text-white hover:bg-gray-800' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    <span aria-hidden="true" className={`relative inline-block h-4 w-7 shrink-0 rounded-full transition-colors ${llevaLaLinea ? 'bg-green-400' : 'bg-gray-300'}`}>
+                      <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform ${llevaLaLinea ? 'left-3.5' : 'left-0.5'}`} />
+                    </span>
+                    {linea.name}: {llevaLaLinea ? 'Sí' : 'No'}
+                  </button>
+                )}
               </div>
             )}
           </li>

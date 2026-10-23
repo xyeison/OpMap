@@ -128,6 +128,16 @@ console.log('\n6. textoEstado: el estado en lenguaje llano (dueño 2026-10-23: "
     'Reservada para Vacante Barranquilla (por contratar), que vive en la Zona.'
   )
   eq(
+    'reservada en otra celda de Bogotá (desde sin ajuste) → "…, que vive en Chapinero (Bogotá)."',
+    textoEstado(celda({ estado: 'reservada', ejecutivo: { id: 'v2', nombre: 'Vacante Bogotá', status: 'placeholder' }, desde: { kam_id: 'k2', nombre: 'Chapinero' }, minutos: 26 }), DEPORTIVA).detalle,
+    'Reservada para Vacante Bogotá (por contratar), que vive en Chapinero (Bogotá).'
+  )
+  eq(
+    'ocupada por ajuste manual (desde con ajuste) → "por ajuste manual desde …"',
+    textoEstado(celda({ estado: 'ocupada', ejecutivo: joana, desde: { kam_id: 'k3', nombre: 'Cali' }, minutos: 190, ajuste: { id: 'o1', motivo: 'Cubre Pereira' } }), DEPORTIVA).detalle,
+    'La atiende Joana por ajuste manual desde Cali, a 3 h 10 por carretera.'
+  )
+  eq(
     'por alcance → "La atiende … desde Barranquilla, a 2 h 26 por carretera."',
     textoEstado(celda({ estado: 'alcance', ejecutivo: vacanteBaq, desde: { kam_id: 'k1', nombre: 'Barranquilla' }, minutos: 146 }), DEPORTIVA).detalle,
     'La atiende Vacante Barranquilla (por contratar) desde Barranquilla, a 2 h 26 por carretera.'

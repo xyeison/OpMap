@@ -756,10 +756,10 @@ async function main() {
     check('200', r.status === 200, r.body)
     eq('ve las 5 líneas activas (no la inactiva)', body.lineas.map(line => line.code), ['sustitutos', 'reemplazo', 'medicina', 'columna', 'trauma'])
     eq('Bogotá Chapinero: reservada por Vacante · Bogotá', estadoDe(body, 'Bogotá Chapinero'), 'reservada:Vacante · Bogotá')
-    eq('las otras tres celdas le llegan por alcance desde Chapinero (26 a 30 min)', ['Bogotá Engativá', 'Bogotá Kennedy', 'Bogotá San Cristóbal'].map(nombre => estadoDe(body, nombre)), [
-      'alcance:Vacante · Bogotá desde Bogotá Chapinero 26 min',
-      'alcance:Vacante · Bogotá desde Bogotá Chapinero 30 min',
-      'alcance:Vacante · Bogotá desde Bogotá Chapinero 28 min',
+    eq('las otras tres celdas también quedan reservadas para ella (dentro de Bogotá, quien vive en una celda atiende las cuatro; `desde` dice en cuál vive)', ['Bogotá Engativá', 'Bogotá Kennedy', 'Bogotá San Cristóbal'].map(nombre => estadoDe(body, nombre)), [
+      'reservada:Vacante · Bogotá desde Bogotá Chapinero 26 min',
+      'reservada:Vacante · Bogotá desde Bogotá Chapinero 30 min',
+      'reservada:Vacante · Bogotá desde Bogotá Chapinero 28 min',
     ])
     eq('Pereira: Lucía por alcance desde Cali; Ibagué sin cobertura con Lucía a 300 min', [estadoDe(body, 'Pereira'), estadoDe(body, 'Ibagué'), zonaDe(body, 'Ibagué')?.enLinea?.masCercano?.nombre], ['alcance:Lucía Páez desde Cali 190 min', 'sin_cobertura:-', 'Lucía Páez'])
     eq('Cali: ocupada por Lucía, con equipo (la fila de line_zones es de otra línea)', [estadoDe(body, 'Cali'), zonaDe(body, 'Cali')?.enLinea?.sinEquipo], ['ocupada:Lucía Páez', false])

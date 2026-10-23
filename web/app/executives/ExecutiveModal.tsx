@@ -312,37 +312,43 @@ export default function ExecutiveModal({ executive, zones, lines, onClose, onSav
           <div>
             <span className="block text-sm font-medium text-gray-700 mb-1">Líneas permitidas (restricción de la dirección)</span>
             <p className="text-xs text-gray-500 mb-2">
-              Vacío = sin restricción: cualquier líder puede darle su línea desde Zonas. Con casillas marcadas, solo esas. Las líneas
-              asignadas deben estar entre las permitidas.
+              Toca una línea para permitirla o quitarla (etiquetas). Sin ninguna marcada, puede tener cualquier línea y cualquier líder
+              puede darle la suya desde Zonas. Las líneas asignadas deben estar entre las permitidas.
             </p>
             {lines.length === 0 ? (
               <p className="text-sm text-gray-500">No hay líneas de negocio configuradas.</p>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Líneas permitidas">
                 {lines.map(line => {
                   const permitida = allowedLines.includes(line.id)
                   const fuera = linesOutsideAllowed.includes(line.id)
                   return (
-                    <label
+                    <button
                       key={line.id}
-                      className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
-                        fuera ? 'border-amber-400 bg-amber-50' : permitida ? 'border-gray-900 bg-gray-50' : 'border-gray-200 hover:bg-gray-50'
+                      type="button"
+                      aria-pressed={permitida}
+                      onClick={() => toggleAllowedLine(line.id)}
+                      title={fuera ? 'La lleva, pero no está permitida: permítela o quítasela' : permitida ? 'Quitar de las permitidas' : 'Permitir'}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-sm font-medium transition-colors ${
+                        fuera
+                          ? 'border-amber-400 bg-amber-50 text-amber-800'
+                          : permitida
+                            ? 'border-gray-900 bg-gray-900 text-white hover:bg-gray-800'
+                            : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
                       }`}
                     >
-                      <input
-                        type="checkbox"
-                        checked={permitida}
-                        onChange={() => toggleAllowedLine(line.id)}
-                        className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-700"
-                      />
-                      <span className="text-sm text-gray-900">
-                        {line.name}
-                        {!line.active && <span className="text-xs text-gray-400"> (inactiva)</span>}
-                        {fuera && <span className="block text-xs text-amber-700">La lleva, pero no está permitida</span>}
-                      </span>
-                    </label>
+                      <span aria-hidden="true" className="text-xs">{permitida ? '✓' : '+'}</span>
+                      {line.name}
+                      {!line.active && <span className="text-xs opacity-70">(inactiva)</span>}
+                    </button>
                   )
                 })}
+                <span className="text-xs text-gray-500">
+                  {allowedLines.length === 0 ? 'Sin restricción: puede tener cualquier línea.' : `Solo puede tener ${allowedLines.length === 1 ? 'esta línea' : `estas ${allowedLines.length} líneas`}.`}
+                </span>
+                {linesOutsideAllowed.length > 0 && (
+                  <span className="basis-full text-xs text-amber-700">Lleva líneas que no están permitidas (en ámbar): permítelas o quítaselas antes de guardar.</span>
+                )}
               </div>
             )}
             {allowedLines.length > 0 && (

@@ -273,13 +273,19 @@ function armarRespuesta(params: ArmarParams): ZonasResponse {
 
   const motivoAjuste = new Map(inputs.overrides.map(override => [override.id, override.reason]))
   const celdasLinea = linea ? new Map(calculada.filter(row => row.line_id === linea.id).map(row => [row.kam_id, row])) : null
+  // Dentro de Bogotá, quien vive en una celda atiende las otras tres como si viviera ahí (dueño, 2026-10-23: "la vacante
+  // de Bogotá sí o sí tiene que tener las cuatro zonas"; CLAUDE.md: Bogotá compite como UNA ciudad): la celda sale
+  // Ocupada o Reservada con `desde` = su celda, no "por alcance". El motor no cambia: solo la lectura para la líder.
+  const areaIdDe = new Map(inputs.zones.map(zone => [zone.id, zone.area_id]))
+  const esCeldaBogota = (kamId: string | null | undefined) => !!kamId && (areaIdDe.get(kamId) ?? '').trim().length === 7
   const enLineaDe = (kamId: string): ZonaEnLinea | null => {
     const row = celdasLinea?.get(kamId)
     if (!row) return null
     const ejecutivo = row.executive_id ? refDe(row.executive_id) : null
     const local = row.kind === 'local' || row.source_kam_id === kamId
+    const mismaCiudad = row.kind === 'reach' && esCeldaBogota(kamId) && esCeldaBogota(row.source_kam_id)
     return {
-      estado: estadoDePlaza(row.kind, ejecutivo, row.has_equipment),
+      estado: estadoDePlaza(mismaCiudad ? 'local' : row.kind, ejecutivo, row.has_equipment),
       ejecutivo,
       desde: !local && row.source_kam_id ? { kam_id: row.source_kam_id, nombre: nombreZona.get(row.source_kam_id) ?? 'Zona sin nombre' } : null,
       minutos: row.travel_minutes,

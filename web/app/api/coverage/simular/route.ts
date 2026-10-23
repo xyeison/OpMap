@@ -25,7 +25,7 @@ import { computeZoneMatrix, loadCoverageInputs, resolveUserLines } from '@/lib/c
 import { estadoDePlaza, resumenPorEstado, simularCobertura } from '@/lib/cobertura-simulacion'
 import { zoneDisplayName } from '@/lib/zone-names'
 import { isMissingRelationError } from '@/app/api/intelligence/_lib/giros-server'
-import type { CoverageKind, CoverageInputs } from '@/lib/types/coverage'
+import type { ComputedCoverage, CoverageKind, CoverageInputs } from '@/lib/types/coverage'
 import type { Cambio, MedicosQuePierdenVisitante, SimularDiffCelda, SimularResponse } from '@/lib/types/zonas'
 
 export const dynamic = 'force-dynamic'
@@ -129,7 +129,7 @@ export async function POST(request: NextRequest) {
     }
 
     const matrix = computeZoneMatrix(inputs.zones, inputs.hospitals, inputs.distances)
-    const { despues, diff } = simularCobertura(inputs, matrix, cambios)
+    const { antes, despues, diff } = simularCobertura(inputs, matrix, cambios)
     // Solo después de comprobar las líneas: quien no ve la línea no dispara ni esta lectura.
     const medicosQuePierdenVisitante = await medicosQuePierden(inputs, cambios)
 
@@ -138,8 +138,15 @@ export async function POST(request: NextRequest) {
     const nombreZona = new Map(inputs.zones.map(zone => [zone.id, zoneDisplayName(zone.name) || 'Zona sin nombre']))
     const ejecutivos = new Map(inputs.executives.map(executive => [executive.id, executive]))
     const nombreDe = (executiveId: string | null) => (executiveId ? ejecutivos.get(executiveId)?.full_name ?? 'Ejecutivo Comercial' : null)
-    const estadoDe = (kind: CoverageKind, executiveId: string | null) =>
-      estadoDePlaza(kind, executiveId ? ejecutivos.get(executiveId) ?? null : null, true)
+    // Dentro de Bogotá, quien vive en una celda atiende las otras como si viviera ahí: Ocupada/Reservada, no "por
+    // alcance" (misma regla de lectura que GET /api/kams/zonas; el motor no cambia).
+    const areaIdDe = new Map(inputs.zones.map(zone => [zone.id, zone.area_id]))
+    const esCeldaBogota = (kamId: string | null | undefined) => !!kamId && (areaIdDe.get(kamId) ?? '').trim().length === 7
+    const kindVisible = (row: Pick<ComputedCoverage, 'kind' | 'kam_id' | 'source_kam_id'> | undefined, kind: CoverageKind): CoverageKind =>
+      kind === 'reach' && !!row && esCeldaBogota(row.kam_id) && esCeldaBogota(row.source_kam_id) ? 'local' : kind
+    const filaDe = (filas: ComputedCoverage[], lineId: string, kamId: string) => filas.find(row => row.line_id === lineId && row.kam_id === kamId)
+    const estadoDe = (kind: CoverageKind, executiveId: string | null, fila: ComputedCoverage | undefined) =>
+      estadoDePlaza(kindVisible(fila, kind), executiveId ? ejecutivos.get(executiveId) ?? null : null, true)
 
     const diffVisible: SimularDiffCelda[] = diff
       .filter(celda => lineaPorId.has(celda.line_id))
@@ -150,8 +157,8 @@ export async function POST(request: NextRequest) {
           line_code: line.code,
           line_name: line.name,
           zona: nombreZona.get(celda.kam_id) ?? 'Zona sin nombre',
-          antesEstado: estadoDe(celda.antes.kind, celda.antes.executive_id),
-          despuesEstado: estadoDe(celda.despues.kind, celda.despues.executive_id),
+          antesEstado: estadoDe(celda.antes.kind, celda.antes.executive_id, filaDe(antes, celda.line_id, celda.kam_id)),
+          despuesEstado: estadoDe(celda.despues.kind, celda.despues.executive_id, filaDe(despues, celda.line_id, celda.kam_id)),
           antesNombre: nombreDe(celda.antes.executive_id),
           despuesNombre: nombreDe(celda.despues.executive_id),
         }
@@ -162,7 +169,7 @@ export async function POST(request: NextRequest) {
       resumen[line.code] = resumenPorEstado(
         despues
           .filter(row => row.line_id === line.id)
-          .map(row => ({ kind: row.kind, executive: row.executive_id ? ejecutivos.get(row.executive_id) ?? null : null }))
+          .map(row => ({ kind: kindVisible(row, row.kind), executive: row.executive_id ? ejecutivos.get(row.executive_id) ?? null : null }))
       )
     }
 
