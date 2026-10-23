@@ -116,6 +116,14 @@ const linesSchema = z
   .max(20, 'Demasiadas líneas')
   .transform(ids => Array.from(new Set(ids.map(id => id.toLowerCase()))))
 
+// Zonas por línea (2026-10-23): líneas que la dirección permite a la persona o vacante (executive_allowed_lines).
+// null o [] = sin restricción (se borran sus filas); con valores = solo esas, y la ruta exige lines ⊆ lineas_permitidas.
+const lineasPermitidasSchema = z
+  .array(uuidSchema, { invalid_type_error: 'lineas_permitidas debe ser una lista de líneas' })
+  .max(20, 'Demasiadas líneas permitidas')
+  .nullable()
+  .transform(ids => (ids === null ? null : Array.from(new Set(ids.map(id => id.toLowerCase())))))
+
 /** POST /api/executives */
 export const executiveCreateSchema = z.object({
   full_name: fullNameSchema,
@@ -127,6 +135,7 @@ export const executiveCreateSchema = z.object({
   odoo_employee_id: odooEmployeeIdSchema.optional(),
   notes: optionalText(2000),
   color: executiveColorSchema.optional(),
+  lineas_permitidas: lineasPermitidasSchema.optional(),
 })
 
 export type ExecutiveCreate = z.infer<typeof executiveCreateSchema>
@@ -152,6 +161,7 @@ export const executiveUpdateSchema = z
     odoo_employee_id: odooEmployeeIdSchema.optional(),
     notes: patchNotesSchema,
     color: executiveColorSchema.optional(),
+    lineas_permitidas: lineasPermitidasSchema.optional(),
   })
   .refine(data => Object.values(data).some(value => value !== undefined), {
     message: 'No hay campos para actualizar',

@@ -47,6 +47,14 @@ export interface ExecutiveLineRow {
   line_id: string
 }
 
+/** Fila de executive_allowed_lines (migración 0860): líneas que la dirección permite a una persona o vacante. */
+export interface ExecutiveAllowedLineRow {
+  executive_id: string
+  line_id: string
+  created_by: string | null
+  created_at: string | null
+}
+
 export interface LineZoneRow {
   line_id: string
   kam_id: string
@@ -103,6 +111,10 @@ export interface Executive {
   lines: string[] // ids de business_lines
   notes: string | null
   color: string | null // Fase 2: #RRGGBB (null = sin color asignado)
+  // Zonas por línea (2026-10-23): líneas que la dirección le permite tener (ids de business_lines). null = sin
+  // restricción, también mientras la tabla executive_allowed_lines (migración 0860) no exista. Opcional para no
+  // romper a quien arme un Executive a mano; la API siempre lo manda.
+  lineas_permitidas?: string[] | null
 }
 
 export interface ExecutivesResponse {
@@ -139,6 +151,8 @@ export interface ExecutiveCreateInput {
   odoo_employee_id?: number | null
   notes?: string | null
   color?: string | null
+  // null o [] = sin restricción; con valores, lines debe caber dentro (400 si no)
+  lineas_permitidas?: string[] | null
 }
 
 export type ExecutiveUpdateInput = Partial<ExecutiveCreateInput>

@@ -6,10 +6,16 @@ import { UUID_RE, executiveUpdateSchema } from '@/lib/fase1-schemas'
 import type { ExecutiveResponse, ExecutiveStatus } from '@/lib/types/lines'
 import {
   AVISO_COBERTURA_SIN_RECALCULAR,
+  MENSAJE_LINEAS_FUERA_DE_PERMITIDAS,
+  MENSAJE_SIN_TABLA_PERMITIDAS,
   allLinesExist,
+  allowedLinesAvailable,
+  allowedLinesOf,
   kamExists,
+  lineasFueraDePermitidas,
   loadExecutives,
   recalcularCobertura,
+  replaceAllowedLines,
   replaceExecutiveLines,
   resolveUserIdByEmail,
   todayInBogota,
@@ -40,6 +46,10 @@ function mismasLineas(antes: string[], despues: string[]): boolean {
 // Si cambia el estado o las líneas, recalcula la cobertura (global, sin Google Maps): quien se va o pierde una línea
 // "ya no está" (los visitantes de esas líneas los termina la base, migración 0820). La interfaz manda la baja y el
 // quitar líneas al traspaso (/api/executives/[id]/traspaso); esto cubre la API vieja.
+// "lineas_permitidas" (2026-10-23, executive_allowed_lines): null o [] quita la restricción de la dirección; con
+// valores la deja exactamente en esas. Las líneas finales (las que llegan o las guardadas) deben caber en la
+// restricción final (la que llega o la guardada): si no, 400 "Las líneas asignadas deben estar entre las permitidas".
+// Cambiar solo la restricción no recalcula la cobertura (no toca executive_lines).
 export async function PATCH(request: NextRequest, { params }: Params) {
   const auth = await requirePermission(request, 'executives:edit')
   if (!auth.ok) return auth.response
@@ -72,19 +82,38 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       return jsonError('Alguna de las líneas indicadas no existe', 400)
     }
 
-    // Líneas actuales, para saber si de verdad cambian (el formulario siempre manda todas)
+    // Restricción de la dirección que llega en este PATCH: undefined = no tocar; null = quitarla; valores = fijarla
+    const permitidasNuevas: string[] | null | undefined =
+      input.lineas_permitidas === undefined
+        ? undefined
+        : input.lineas_permitidas && input.lineas_permitidas.length > 0
+          ? input.lineas_permitidas
+          : null
+    if (permitidasNuevas && !(await allLinesExist(permitidasNuevas))) {
+      return jsonError('Alguna de las líneas permitidas indicadas no existe', 400)
+    }
+    if (permitidasNuevas && !(await allowedLinesAvailable())) {
+      return jsonError(MENSAJE_SIN_TABLA_PERMITIDAS, 500)
+    }
+
+    // Líneas actuales, para saber si de verdad cambian (el formulario siempre manda todas) y para comprobar que las
+    // líneas finales caben en la restricción final
     let lineasCambian = false
-    if (input.lines !== undefined) {
+    let lineasActuales: string[] = []
+    if (input.lines !== undefined || permitidasNuevas !== undefined) {
       const { data: currentLines, error: currentLinesError } = await supabaseAdmin
         .from('executive_lines')
         .select('line_id')
         .eq('executive_id', executiveId)
         .range(0, 9999)
       if (currentLinesError) throw currentLinesError
-      lineasCambian = !mismasLineas(
-        ((currentLines || []) as Array<{ line_id: string }>).map(row => row.line_id),
-        input.lines
-      )
+      lineasActuales = ((currentLines || []) as Array<{ line_id: string }>).map(row => row.line_id)
+      if (input.lines !== undefined) lineasCambian = !mismasLineas(lineasActuales, input.lines)
+
+      const permitidas = permitidasNuevas !== undefined ? permitidasNuevas : await allowedLinesOf(executiveId)
+      if (lineasFueraDePermitidas(input.lines ?? lineasActuales, permitidas).length > 0) {
+        return jsonError(MENSAJE_LINEAS_FUERA_DE_PERMITIDAS, 400)
+      }
     }
     const estadoCambia = input.status !== undefined && input.status !== current.status
 
@@ -132,15 +161,20 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       if (!(await replaceExecutiveLines(executiveId, input.lines))) {
         return jsonError('No se pudieron guardar las líneas de la ejecutiva', 500)
       }
-      if (Object.keys(update).length === 0) {
-        // Solo cambiaron las líneas: dejar constancia en updated_at
-        const { error: touchError } = await supabaseAdmin
-          .from('executives')
-          .update({ updated_at: new Date().toISOString() })
-          .eq('id', executiveId)
-          .select('id')
-        if (touchError) console.error('Error actualizando updated_at de la ejecutiva:', touchError)
-      }
+    }
+    if (permitidasNuevas !== undefined) {
+      const resultado = await replaceAllowedLines(executiveId, permitidasNuevas, auth.user.id)
+      if (resultado === 'sin_tabla') return jsonError(MENSAJE_SIN_TABLA_PERMITIDAS, 500)
+      if (resultado === 'error') return jsonError('No se pudieron guardar las líneas permitidas de la ejecutiva', 500)
+    }
+    if (Object.keys(update).length === 0 && (input.lines !== undefined || permitidasNuevas !== undefined)) {
+      // Solo cambiaron las líneas o las permitidas: dejar constancia en updated_at
+      const { error: touchError } = await supabaseAdmin
+        .from('executives')
+        .update({ updated_at: new Date().toISOString() })
+        .eq('id', executiveId)
+        .select('id')
+      if (touchError) console.error('Error actualizando updated_at de la ejecutiva:', touchError)
     }
 
     const coberturaRecalculada =

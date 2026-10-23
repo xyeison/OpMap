@@ -5,16 +5,22 @@ import { jsonError, readJson, zodMessage } from '@/app/api/kams/_lib/kam-shared'
 import { executiveCreateSchema } from '@/lib/fase1-schemas'
 import type { ExecutiveResponse, ExecutivesResponse } from '@/lib/types/lines'
 import {
+  MENSAJE_LINEAS_FUERA_DE_PERMITIDAS,
+  MENSAJE_SIN_TABLA_PERMITIDAS,
   allLinesExist,
+  allowedLinesAvailable,
   kamExists,
+  lineasFueraDePermitidas,
   loadExecutives,
+  replaceAllowedLines,
   replaceExecutiveLines,
   resolveUserIdByEmail,
   todayInBogota,
   uniqueViolationMessage,
 } from './_lib/executive-shared'
 
-// GET /api/executives — todas las ejecutivas (activas, placeholder e inactivas) con zona base y líneas.
+// GET /api/executives — todas las ejecutivas (activas, placeholder e inactivas) con zona base, líneas y líneas
+// permitidas (lineas_permitidas: ids, o null = sin restricción; también null si la migración 0860 no está aplicada).
 export async function GET(request: NextRequest) {
   const auth = await requirePermission(request, 'executives:view')
   if (!auth.ok) return auth.response
@@ -29,7 +35,8 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST /api/executives — crea una ejecutiva (o un cupo "placeholder" por contratar) con sus líneas.
+// POST /api/executives — crea una ejecutiva (o un cupo "placeholder" por contratar) con sus líneas y, si la dirección
+// lo pide, sus líneas permitidas (lineas_permitidas: null o [] = sin restricción; con valores, lines debe caber, 400).
 // user_id se enlaza solo si existe un usuario de OpMap con el mismo email.
 export async function POST(request: NextRequest) {
   const auth = await requirePermission(request, 'executives:edit')
@@ -47,6 +54,18 @@ export async function POST(request: NextRequest) {
     }
     if (!(await allLinesExist(input.lines))) {
       return jsonError('Alguna de las líneas indicadas no existe', 400)
+    }
+
+    // Restricción de la dirección: solo si llega con valores. Se comprueba todo antes de crear nada.
+    const permitidas = input.lineas_permitidas && input.lineas_permitidas.length > 0 ? input.lineas_permitidas : null
+    if (permitidas && !(await allLinesExist(permitidas))) {
+      return jsonError('Alguna de las líneas permitidas indicadas no existe', 400)
+    }
+    if (lineasFueraDePermitidas(input.lines, permitidas).length > 0) {
+      return jsonError(MENSAJE_LINEAS_FUERA_DE_PERMITIDAS, 400)
+    }
+    if (permitidas && !(await allowedLinesAvailable())) {
+      return jsonError(MENSAJE_SIN_TABLA_PERMITIDAS, 500)
     }
 
     const email = input.email ?? null
@@ -83,6 +102,12 @@ export async function POST(request: NextRequest) {
 
     if (!(await replaceExecutiveLines(created, input.lines))) {
       return jsonError('La ejecutiva se creó, pero no se pudieron guardar sus líneas', 500)
+    }
+    if (permitidas) {
+      const resultado = await replaceAllowedLines(created, permitidas, auth.user.id)
+      if (resultado !== 'ok') {
+        return jsonError('La ejecutiva se creó, pero no se pudieron guardar sus líneas permitidas', 500)
+      }
     }
 
     const [executive] = await loadExecutives(created)

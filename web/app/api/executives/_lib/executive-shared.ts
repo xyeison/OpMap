@@ -1,7 +1,9 @@
 // Utilidades de servidor para /api/executives/** (carpeta "_lib": Next.js no la expone como ruta).
+// Desde el 2026-10-23 también las "líneas permitidas" (executive_allowed_lines, migración 0860): la restricción con
+// la que la dirección evita que una líder, desde Zonas, dé su línea a quien no debe. Sin filas = sin restricción.
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { recomputeAndSaveCoverage } from '@/lib/coverage'
-import type { Executive, ExecutiveLineRow, ExecutiveRow } from '@/lib/types/lines'
+import type { Executive, ExecutiveAllowedLineRow, ExecutiveLineRow, ExecutiveRow } from '@/lib/types/lines'
 
 const EXECUTIVE_COLUMNS =
   'id, full_name, email, company, status, base_kam_id, user_id, odoo_employee_id, notes, color'
@@ -12,8 +14,9 @@ type ExecutiveSelectRow = Pick<
 >
 
 /**
- * Carga las ejecutivas (todas, incluidas las inactivas) con el nombre de su zona base y sus líneas.
- * Funciona aunque executive_lines esté vacía: cada ejecutiva sale con lines = [].
+ * Carga las ejecutivas (todas, incluidas las inactivas) con el nombre de su zona base, sus líneas y sus líneas
+ * permitidas. Funciona aunque executive_lines esté vacía: cada ejecutiva sale con lines = []. Si la tabla
+ * executive_allowed_lines no existe todavía (migración 0860 sin aplicar), todas salen con lineas_permitidas = null.
  * Si se pasa `onlyId`, devuelve solo esa ejecutiva (o lista vacía si no existe).
  */
 export async function loadExecutives(onlyId?: string): Promise<Executive[]> {
@@ -46,6 +49,9 @@ export async function loadExecutives(onlyId?: string): Promise<Executive[]> {
     linesByExecutive.set(row.executive_id, list)
   }
 
+  // Líneas permitidas por ejecutiva (null si la tabla no existe: la API no falla por una migración sin aplicar)
+  const allowedByExecutive = await loadAllowedLines(executiveIds)
+
   // Nombre de la zona base (kams.name)
   const kamIds = Array.from(
     new Set(executives.map(executive => executive.base_kam_id).filter((id): id is string => Boolean(id)))
@@ -72,7 +78,127 @@ export async function loadExecutives(onlyId?: string): Promise<Executive[]> {
     lines: linesByExecutive.get(executive.id) || [],
     notes: executive.notes,
     color: executive.color ?? null,
+    lineas_permitidas: allowedByExecutive?.get(executive.id) ?? null,
   }))
+}
+
+// ---------------------------------------------------------------------------
+// Líneas permitidas (executive_allowed_lines, migración 0860; decisión del dueño 2026-10-23)
+// ---------------------------------------------------------------------------
+
+/** 400 cuando las líneas asignadas no caben en la restricción de la dirección. */
+export const MENSAJE_LINEAS_FUERA_DE_PERMITIDAS = 'Las líneas asignadas deben estar entre las permitidas'
+
+/** Cuando se intenta fijar una restricción y la tabla de la 0860 no existe todavía. */
+export const MENSAJE_SIN_TABLA_PERMITIDAS =
+  'Las líneas permitidas aún no están disponibles (falta aplicar la migración 0860)'
+
+/** true si PostgREST dice que la tabla no existe (migración sin aplicar): PGRST205 o 42P01. */
+export function esTablaAusente(error: { code?: string; message?: string } | null | undefined): boolean {
+  if (!error) return false
+  return error.code === 'PGRST205' || error.code === '42P01' || /schema cache|does not exist/i.test(error.message || '')
+}
+
+/**
+ * Líneas permitidas de varias ejecutivas (ids de business_lines por executive_id). Devuelve null si la tabla
+ * executive_allowed_lines no existe (migración 0860 sin aplicar), para que la API responda lineas_permitidas = null
+ * sin fallar. Una ejecutiva sin filas no aparece en el mapa (= sin restricción).
+ */
+export async function loadAllowedLines(executiveIds: string[]): Promise<Map<string, string[]> | null> {
+  const byExecutive = new Map<string, string[]>()
+  if (executiveIds.length === 0) return byExecutive
+  const { data, error } = await supabaseAdmin
+    .from('executive_allowed_lines')
+    .select('executive_id, line_id')
+    .in('executive_id', executiveIds)
+    .range(0, 9999)
+  if (error) {
+    if (esTablaAusente(error)) return null
+    throw error
+  }
+  for (const row of (data || []) as Array<Pick<ExecutiveAllowedLineRow, 'executive_id' | 'line_id'>>) {
+    const list = byExecutive.get(row.executive_id) || []
+    list.push(row.line_id)
+    byExecutive.set(row.executive_id, list)
+  }
+  return byExecutive
+}
+
+/** Restricción vigente de una ejecutiva: ids permitidos, o null si no tiene (o la tabla no existe). */
+export async function allowedLinesOf(executiveId: string): Promise<string[] | null> {
+  const byExecutive = await loadAllowedLines([executiveId])
+  const lines = byExecutive?.get(executiveId)
+  return lines && lines.length > 0 ? lines : null
+}
+
+/** true si la tabla executive_allowed_lines existe (para rechazar una restricción antes de escribir nada). */
+export async function allowedLinesAvailable(): Promise<boolean> {
+  const { error } = await supabaseAdmin.from('executive_allowed_lines').select('line_id').limit(1)
+  if (!error) return true
+  if (esTablaAusente(error)) return false
+  throw error
+}
+
+/** Las líneas que se salen de la restricción (vacío si no hay restricción o si todas caben). */
+export function lineasFueraDePermitidas(lines: string[], permitidas: string[] | null | undefined): string[] {
+  if (!permitidas || permitidas.length === 0) return []
+  const allowed = new Set(permitidas)
+  return lines.filter(id => !allowed.has(id))
+}
+
+/**
+ * Deja la restricción de una ejecutiva exactamente en `lineIds`: null o [] la quita (borra todas sus filas); con
+ * valores inserta las que faltan (con created_by = quien lo pide, sin pisar el created_by de las que ya estaban) y
+ * borra las que sobran, primero insertar y después borrar como replaceExecutiveLines.
+ * Devuelve 'sin_tabla' si executive_allowed_lines no existe y había algo que fijar (quitar una restricción que no
+ * puede existir es 'ok'); 'error' si alguna escritura no se confirmó (la ruta responde 500).
+ */
+export async function replaceAllowedLines(
+  executiveId: string,
+  lineIds: string[] | null,
+  userId: string | null
+): Promise<'ok' | 'sin_tabla' | 'error'> {
+  const deseadas = Array.from(new Set(lineIds ?? []))
+  const { data: actualData, error: actualError } = await supabaseAdmin
+    .from('executive_allowed_lines')
+    .select('line_id')
+    .eq('executive_id', executiveId)
+    .range(0, 9999)
+  if (actualError) {
+    if (esTablaAusente(actualError)) return deseadas.length === 0 ? 'ok' : 'sin_tabla'
+    console.error('Error leyendo las líneas permitidas de la ejecutiva:', actualError)
+    return 'error'
+  }
+  const actuales = new Set(((actualData || []) as Array<{ line_id: string }>).map(row => row.line_id))
+  const nuevas = deseadas.filter(id => !actuales.has(id))
+  const sobrantes = Array.from(actuales).filter(id => !deseadas.includes(id))
+
+  if (nuevas.length > 0) {
+    const rows = nuevas.map(lineId => ({ executive_id: executiveId, line_id: lineId, created_by: userId }))
+    const { data, error } = await supabaseAdmin.from('executive_allowed_lines').insert(rows).select('line_id')
+    if (error) {
+      console.error('Error guardando las líneas permitidas de la ejecutiva:', error)
+      return 'error'
+    }
+    if (!data || data.length !== rows.length) {
+      console.error('Insert de executive_allowed_lines incompleto', { esperadas: rows.length, guardadas: data?.length ?? 0 })
+      return 'error'
+    }
+  }
+  if (sobrantes.length > 0) {
+    // Los ids vienen de la propia tabla (uuid): es seguro pasarlos al filtro
+    const { error } = await supabaseAdmin
+      .from('executive_allowed_lines')
+      .delete()
+      .eq('executive_id', executiveId)
+      .in('line_id', sobrantes)
+      .select('line_id')
+    if (error) {
+      console.error('Error quitando líneas permitidas de la ejecutiva:', error)
+      return 'error'
+    }
+  }
+  return 'ok'
 }
 
 /** true si existe la zona (fila de kams). */
