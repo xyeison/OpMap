@@ -81,9 +81,11 @@ Vacante X" pasa a "Ocupada · <nombre>".
 
 **Líneas permitidas (restricción de la dirección).** En Ejecutivos Comerciales (`executives:edit`) cada persona o vacante
 tiene "Líneas permitidas": vacío = sin restricción; con valores = solo esas. La API de líneas rechaza con 409 cualquier
-otra ("La dirección limitó a <nombre> a: <líneas>"); el botón en Zonas sale deshabilitado con ese texto. Datos iniciales
-(migración 0870): la persona de Barranquilla → Sustitutos óseos y Reemplazo articular; Vacante Barranquilla → Medicina
-deportiva, Columna y Trauma; las demás sin restricción.
+otra ("La dirección limitó a <nombre> a: <líneas>"); en Zonas, a quien no puede tener la línea no le sale el interruptor
+sino "No puede tener <línea>". Datos iniciales (cargados el 2026-10-23 tras aplicar la 0860; la 0870 vuelve a insertar los
+de Barranquilla con `ON CONFLICT DO NOTHING`): la persona de Barranquilla → Sustitutos óseos y Reemplazo articular;
+Vacante Barranquilla → Medicina deportiva, Columna y Trauma; Paola (Chapinero) → Sustitutos óseos; Vacante Bogotá →
+Reemplazo articular, Medicina deportiva, Columna y Trauma; las demás sin restricción.
 
 **Borrado inicial.** La migración de datos 0870 copia `executive_lines` a `executive_lines_respaldo_20261023`, borra
 todas las filas y deja las dos restricciones. Se aplica solo con autorización del dueño, en la ventana del despliegue;
@@ -151,7 +153,8 @@ Zona y el texto de la leyenda.
 ## Impacto
 
 - Datos / migración: **sí**. `database/migrations/2026-10-23_0860_lineas_permitidas.sql` (tabla
-  `executive_allowed_lines`) con rollback `2026-10-23_9946_lineas_permitidas_rollback.sql`; y la migración de datos
+  `executive_allowed_lines`) con rollback `2026-10-23_9946_lineas_permitidas_rollback.sql`, **aplicada el 2026-10-23
+  con autorización del dueño** (más las cuatro restricciones iniciales cargadas a mano); y la migración de datos
   `2026-10-23_0870_borrar_lineas_para_redistribuir.sql` (respaldo + borrado + dos restricciones) con rollback
   `2026-10-23_9947_borrar_lineas_para_redistribuir_rollback.sql` (restaura desde el respaldo). Se aplican solo con
   autorización del dueño, en la ventana del despliegue, y la 0870 va seguida del recálculo de cobertura.

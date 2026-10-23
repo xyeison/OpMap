@@ -26,9 +26,14 @@ lo último que se haga".
    empleado lo cojo para mí"). La vacante sigue tomando Zonas vecinas por alcance, como una persona (confirma la
    decisión 10 del 2026-10-12). Una vacante puede llevar unas líneas y no otras.
 4. **La dirección puede limitar qué líneas puede tener cada persona o vacante** ("líneas permitidas"). Es una
-   restricción para que las líderes no asignen por error; sin restricción, cualquier líder puede dar su línea. Por
-   ahora solo dos: la persona de Barranquilla puede tener Sustitutos óseos y Reemplazo articular; Vacante Barranquilla,
-   las otras líneas (Medicina deportiva, Columna y Trauma). Las demás quedan sin restricción mientras se redistribuye.
+   restricción para que las líderes no asignen por error; sin restricción, cualquier líder puede dar su línea. Las
+   fijadas el mismo día (segunda ronda de respuestas: "Paola es PerOssal; la vacante de Bogotá tiene que tener los
+   otros"): la persona de Barranquilla → Sustitutos óseos y Reemplazo articular; Vacante Barranquilla → Medicina
+   deportiva, Columna y Trauma; Paola (Chapinero) → Sustitutos óseos; Vacante Bogotá → Reemplazo articular, Medicina
+   deportiva, Columna y Trauma. Las demás quedan sin restricción mientras se redistribuye. A quien no puede tener la
+   línea, la líder no lo ve como asignable ("No puede tener <línea>").
+   Además, dentro de Bogotá quien vive en una celda atiende las cuatro ("la vacante de Bogotá sí o sí tiene que tener
+   las cuatro zonas; Paola tiene que tener las cuatro"): se leen como Ocupadas o Reservadas, no por alcance.
 5. **Bogotá sigue en cuatro Zonas** y una líder puede darle las cuatro a una misma persona: al dar la línea a quien vive
    en una celda, las otras tres le llegan por alcance (26 a 30 minutos) si nadie local las lleva. La pantalla las muestra
    agrupadas con su total.
@@ -38,7 +43,9 @@ lo último que se haga".
 **Consecuencias**:
 - Permiso nuevo `executives:lines` (admin, dirección comercial y líder de línea, esta última solo en su línea). La API
   rechaza con 409 dar una línea que la dirección no permitió para esa persona.
-- Tabla nueva `executive_allowed_lines` (migración 0860, con rollback). Sin filas = sin restricción.
+- Tabla nueva `executive_allowed_lines` (migración 0860, con rollback 9946), **aplicada el 2026-10-23 con autorización
+  del dueño**; las cuatro restricciones iniciales se cargaron a mano ese día (sin nombres en el SQL: por zona base,
+  estado y línea). Sin filas = sin restricción.
 - Migración de datos 0870 (con respaldo y rollback): copia `executive_lines` a una tabla de respaldo, borra todas las
   filas y deja las dos restricciones de Barranquilla. Se aplica solo con autorización del dueño, en la ventana del
   despliegue, y después se recalcula la cobertura. Al borrar, el disparador de la 0820 termina los visitantes de los
