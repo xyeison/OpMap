@@ -1473,7 +1473,7 @@ export default function MapComponent({
       if (isLineMode && lineView && t.kamId) {
         meta = `Zona ${zone} · ${describeCoverage(lineView.byKam[t.kamId], lineView.zoneNameById)}`
       } else if (t.isVacant || !t.kamId) {
-        meta = 'Zona vacante: sin Ejecutivo Comercial'
+        meta = 'Zona sin Ejecutivo Comercial'
       } else {
         meta = `Zona ${zone} · ${zoneExecutivesText(kamIndex.byId[t.kamId]?.executives, false)}`
       }
@@ -1573,7 +1573,7 @@ export default function MapComponent({
         ]
       }
     } else if (t.isVacant) {
-      status = { tone: 'vacant', title: 'Zona vacante: sin Ejecutivo Comercial', lines: [] }
+      status = { tone: 'vacant', title: 'Zona sin Ejecutivo Comercial', lines: [] }
     } else {
       status = {
         tone: 'zone',

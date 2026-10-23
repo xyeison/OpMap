@@ -21,7 +21,7 @@ import { requirePermission } from '@/lib/require-role'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { jsonError } from '@/app/api/kams/_lib/kam-shared'
 import { UUID_RE } from '@/lib/fase1-schemas'
-import { canEditCoverageLine, joinNamesEs } from '@/lib/coverage'
+import { canEditCoverageLine, joinNamesEs, resolveUserLines } from '@/lib/coverage'
 import { isMissingRelationError } from '@/app/api/intelligence/_lib/giros-server'
 import type { SessionUser } from '@/lib/auth-server'
 import { AVISO_COBERTURA_SIN_RECALCULAR, recalcularCobertura } from '../../../_lib/executive-shared'
@@ -124,12 +124,21 @@ async function loadLineasPermitidas(executiveId: string): Promise<string[] | nul
   return ids.length > 0 ? ids : null
 }
 
-/** Códigos de las líneas activas que lleva hoy, en orden de sort_order. */
+/**
+ * Códigos de las líneas activas que lleva hoy, en orden de sort_order, recortados a las líneas que el usuario ve
+ * (resolveUserLines): la líder no recibe qué otras líneas lleva la persona, igual que en GET /api/kams/zonas.
+ */
 async function lineasDe(ctx: Contexto): Promise<string[]> {
-  const { data, error } = await supabaseAdmin.from('executive_lines').select('line_id').eq('executive_id', ctx.executiveId).range(0, 999)
+  const [{ data, error }, me] = await Promise.all([
+    supabaseAdmin.from('executive_lines').select('line_id').eq('executive_id', ctx.executiveId).range(0, 999),
+    resolveUserLines(ctx.user),
+  ])
   if (error) throw error
   const lleva = new Set(((data || []) as Array<{ line_id: string }>).map(row => row.line_id))
-  return ctx.lineas.filter(linea => linea.active && lleva.has(linea.id)).map(linea => linea.code)
+  const visibles = new Set(me.lines.map(line => line.id))
+  return ctx.lineas
+    .filter(linea => linea.active && lleva.has(linea.id) && (me.canSeeAll || visibles.has(linea.id)))
+    .map(linea => linea.code)
 }
 
 /** Recalcula la cobertura (el cambio ya está guardado) y arma la respuesta. */

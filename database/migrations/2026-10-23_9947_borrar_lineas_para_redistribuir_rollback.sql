@@ -91,10 +91,12 @@ DO $$
 DECLARE
   v_insertadas bigint;
 BEGIN
+  -- Solo a personas y vacantes que sigan activas: quien quedó inactive "ya no está" (decisión del 2026-10-12) y la
+  -- 0820 exige que una baja no tenga líneas.
   INSERT INTO public.executive_lines (executive_id, line_id)
   SELECT r.executive_id, r.line_id
   FROM public.executive_lines_respaldo_20261023 r
-  WHERE EXISTS (SELECT 1 FROM public.executives e WHERE e.id = r.executive_id)
+  WHERE EXISTS (SELECT 1 FROM public.executives e WHERE e.id = r.executive_id AND e.status IN ('active', 'placeholder'))
     AND EXISTS (SELECT 1 FROM public.business_lines bl WHERE bl.id = r.line_id)
   ON CONFLICT DO NOTHING;
   GET DIAGNOSTICS v_insertadas = ROW_COUNT;
@@ -113,7 +115,7 @@ DECLARE
 BEGIN
   SELECT count(*) INTO v_faltan
   FROM public.executive_lines_respaldo_20261023 r
-  WHERE EXISTS (SELECT 1 FROM public.executives e WHERE e.id = r.executive_id)
+  WHERE EXISTS (SELECT 1 FROM public.executives e WHERE e.id = r.executive_id AND e.status IN ('active', 'placeholder'))
     AND EXISTS (SELECT 1 FROM public.business_lines bl WHERE bl.id = r.line_id)
     AND NOT EXISTS (SELECT 1 FROM public.executive_lines el WHERE el.executive_id = r.executive_id AND el.line_id = r.line_id);
   IF v_faltan > 0 THEN

@@ -4,8 +4,9 @@
 // Cuerpo: { cambios: Cambio[] } (1 a 20; lib/types/zonas.ts):
 //   linea_agregar / linea_quitar { executive_id, line_id } · ajuste { line_id, kam_id, executive_id } ·
 //   quitar_ajuste { override_id }.
-// Quién: cualquier sesión, pero cada cambio debe ser de una línea que el usuario ve (resolveUserLines): si no, 403.
-// En quitar_ajuste la línea es la del ajuste activo (400 si no existe). La respuesta (SimularResponse) trae el diff de
+// Quién: coverage:view, y cada cambio debe ser de una línea que el usuario ve (resolveUserLines): si no, 403 ANTES de
+// cargar las entradas del motor (quien no ve la línea no dispara esa lectura). En quitar_ajuste la línea es la del
+// ajuste activo (400 si no existe), así que esa comprobación va tras la carga. La respuesta (SimularResponse) trae el diff de
 // celdas que cambian de kind o de persona, con nombres (línea, Zona, quién antes y después, estados), y el resumen por
 // estado de cada línea del usuario DESPUÉS de los cambios; las dos cosas recortadas a sus líneas, aunque el cambio
 // mueva celdas de otras (una persona que pierde una línea, por ejemplo). Y, por cada linea_quitar, cuántos médicos de
@@ -16,7 +17,7 @@
 // sale de las distancias ya pagadas.
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { requireUser } from '@/lib/require-role'
+import { requirePermission } from '@/lib/require-role'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { jsonError, readJson, zodMessage } from '@/app/api/kams/_lib/kam-shared'
 import { UUID_RE } from '@/lib/fase1-schemas'
@@ -97,7 +98,7 @@ async function medicosQuePierden(inputs: CoverageInputs, cambios: Cambio[]): Pro
 }
 
 export async function POST(request: NextRequest) {
-  const auth = await requireUser(request)
+  const auth = await requirePermission(request, 'coverage:view')
   if (!auth.ok) return auth.response
   const user = auth.user
 
@@ -106,19 +107,25 @@ export async function POST(request: NextRequest) {
   const cambios: Cambio[] = parsed.data.cambios
 
   try {
-    const [me, inputs] = await Promise.all([resolveUserLines(user), loadCoverageInputs()])
+    const me = await resolveUserLines(user)
     const visibles = new Set(me.lines.map(line => line.id))
     const veLinea = (lineId: string) => me.canSeeAll || visibles.has(lineId)
+    const SIN_ACCESO = 'Solo puedes simular cambios en las líneas que lideras o llevas'
 
-    // Cada cambio debe ser de una línea que el usuario ve (la de quitar_ajuste es la del ajuste activo).
+    // Cada cambio debe ser de una línea que el usuario ve; se comprueba antes de cargar nada del motor.
+    if (!me.canSeeAll && visibles.size === 0) return jsonError(SIN_ACCESO, 403)
     for (const cambio of cambios) {
-      if (cambio.tipo === 'quitar_ajuste') {
-        const override = inputs.overrides.find(item => item.id === cambio.override_id && item.active)
-        if (!override) return jsonError('El ajuste manual no existe o ya no está activo', 400)
-        if (!veLinea(override.line_id)) return jsonError('Solo puedes simular cambios en las líneas que lideras o llevas', 403)
-      } else if (!veLinea(cambio.line_id)) {
-        return jsonError('Solo puedes simular cambios en las líneas que lideras o llevas', 403)
-      }
+      if (cambio.tipo !== 'quitar_ajuste' && !veLinea(cambio.line_id)) return jsonError(SIN_ACCESO, 403)
+    }
+
+    const inputs = await loadCoverageInputs()
+
+    // La línea de quitar_ajuste es la del ajuste activo: solo se conoce con las entradas cargadas.
+    for (const cambio of cambios) {
+      if (cambio.tipo !== 'quitar_ajuste') continue
+      const override = inputs.overrides.find(item => item.id === cambio.override_id && item.active)
+      if (!override) return jsonError('El ajuste manual no existe o ya no está activo', 400)
+      if (!veLinea(override.line_id)) return jsonError(SIN_ACCESO, 403)
     }
 
     const matrix = computeZoneMatrix(inputs.zones, inputs.hospitals, inputs.distances)

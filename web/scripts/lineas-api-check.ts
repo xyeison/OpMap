@@ -26,8 +26,11 @@
  * Uso (desde web/): npx tsx scripts/lineas-api-check.ts      Código de salida 1 si alguna prueba falla.
  */
 import { randomUUID } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { NextRequest } from 'next/server'
 import { passwordVersion, SESSION_COOKIE_NAME, signSession } from '../lib/session'
+import { rolePermissions, type Role } from '../lib/permissions'
 import type { SimularResponse } from '../lib/types/zonas'
 import { DELETE as quitarLinea, PUT as darLinea, type LineaEjecutivoResponse } from '../app/api/executives/[id]/lineas/[lineId]/route'
 import { POST as simular } from '../app/api/coverage/simular/route'
@@ -601,6 +604,35 @@ async function main() {
     eq('repetir: 200 y 0 médicos (ya no llevaba la línea)', [otraVez.status, (otraVez.body as LineaEjecutivoResponse).medicosTerminados], [200, 0])
     const inactivo = await quitar(ADMIN, LUIS, LA)
     check('quitarle a un inactivo: 400', inactivo.status === 400, inactivo.body)
+  }
+
+  print('\nPOST /api/coverage/simular · permisos antes de leer')
+  {
+    const rrhh = await previsualizar(RRHH, { cambios: [{ tipo: 'linea_agregar', executive_id: BETO, line_id: LA }] })
+    check('hr (sin coverage:view): 403 y solo leyó su sesión', rrhh.status === 403 && rrhh.requests.every(request => request.table === 'users'), {
+      status: rrhh.status, tablas: rrhh.requests.map(request => request.table),
+    })
+    const ajenaAntes = await previsualizar(LIDER_A, { cambios: [{ tipo: 'linea_agregar', executive_id: BETO, line_id: LB }] })
+    const pesadas = ['kams', 'hospitals', 'hospital_kam_distances', 'coverage_overrides']
+    check('un cambio de otra línea: 403 sin cargar las entradas del motor', ajenaAntes.status === 403 && !ajenaAntes.requests.some(request => pesadas.includes(request.table)), ajenaAntes.requests.map(request => request.table))
+  }
+
+  print('\nPermisos y Google')
+  {
+    const conPermiso = (Object.keys(rolePermissions) as Role[]).filter(role => rolePermissions[role].includes('executives:lines')).sort()
+    eq('executives:lines lo tienen exactamente admin, commercial_director y line_leader', conPermiso, ['admin', 'commercial_director', 'line_leader'])
+    const rutas = [
+      'app/api/kams/zonas/route.ts',
+      'app/api/kams/[id]/estadisticas/route.ts',
+      'app/api/kams/_lib/zonas-server.ts',
+      'app/api/executives/[id]/lineas/[lineId]/route.ts',
+      'app/api/coverage/simular/route.ts',
+      'lib/cobertura-simulacion.ts',
+    ]
+    for (const ruta of rutas) {
+      const fuente = readFileSync(path.join(__dirname, '..', ruta), 'utf8')
+      check(`${ruta} no importa google-distance`, !fuente.includes('google-distance'), ruta)
+    }
   }
 
   print('\nGenerales')

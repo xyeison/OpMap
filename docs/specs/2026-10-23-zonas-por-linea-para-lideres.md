@@ -96,9 +96,12 @@ corredores, `assignments`, `municipality_zone`, Traspasar, Contratar, `/lines` (
 ## Criterios de aceptación (se convierten en pruebas)
 
 - [ ] Una líder de Reemplazo articular abre `/kams` y ve las 16 Zonas con cifras, quién vive en cada una y el estado en
-      su línea; `?line=` de otra línea responde 403; nunca ve personas de líneas que no ve (`mapa-zonas-api-check.ts`).
-- [ ] `hr` recibe 403 sin leer nada; `viewer` ve todas las Zonas; SECOP solo con `intelligence:view`; valor de contratos
-      solo con `contracts:view`.
+      su línea; `?line=` de otra línea responde 403; de las personas que viven en una Zona ve el nombre (como ya lo da
+      `/api/executives` con `executives:view`) pero no qué líneas ajenas llevan ni quién cubre otras líneas
+      (`mapa-zonas-api-check.ts`).
+- [ ] `hr` recibe 403 sin leer nada; la API responde a quien pasa la puerta de "Datos de la zona" (`viewer` incluido),
+      pero la página y el menú "Zonas" siguen exigiendo `kams:view` como hoy (si el dueño quiere que `viewer` entre,
+      es un cambio de permisos aparte); SECOP solo con `intelligence:view`; valor de contratos solo con `contracts:view`.
 - [ ] Suma de IPS por Zona = IPS asignadas; municipio con IPS en dos Zonas repartido por camas sin contarse dos veces; el
       giro de un NIT con dos sedes repartido por camas; Bogotá por celda con `municipioZoneShares`.
 - [ ] `coberturaDesactualizada` es verdadero si cambia `kind` o `executive_id` de una celda; la ruta recalcula y guarda
@@ -125,6 +128,12 @@ corredores, `assignments`, `municipality_zone`, Traspasar, Contratar, `/lines` (
 - [ ] Nada de "KAM", "panel", "representante" ni "PerOssal" como línea en texto visible; la línea es "Sustitutos óseos".
 
 ## Fuera de alcance
+
+En esta entrega, el ajuste manual ("Forzar a alguien de otra ciudad…" y "Quitar ajuste") sigue haciéndose en Líneas:
+desde Zonas hay un enlace a `/lines?line=<code>`, porque `AdjustModal` no es reutilizable sin reescribir `CoveragePanel`.
+Quedan anotados para después: que Traspasar respete `executive_allowed_lines`; que `GET /api/kams/stats` deje de dar el
+valor de contratos a quien no tiene `contracts:view` (anterior a este cambio); y unificar la carga de datos de
+`/api/executives/[id]/estadisticas` con `cargarDatosZonas`.
 
 Tabla de plazas, `kind = 'reserved'`, siglas y códigos de Zona por línea, nombre de Zona por línea; que la reserva no
 compita por alcance (el dueño confirmó que sí compite); crear vacantes desde Zonas; productos dentro de una línea; Zonas
