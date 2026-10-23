@@ -1,24 +1,25 @@
 'use client'
 
-// Diálogo "Darle <línea> a…" / "Quitarle <línea>" de la página Zonas (spec 2026-10-23, E2: toda escritura muestra
-// antes la vista previa simulada). Dos pasos:
-//   1. Vista previa: elegir a quien vive en la Zona (persona o vacante) y pedir POST /api/coverage/simular con un solo
-//      cambio { tipo: 'linea_agregar' | 'linea_quitar', executive_id, line_id }. La ruta nunca escribe; devuelve las
-//      celdas (línea, Zona) que cambian, con nombres, y el resumen por estado. Para Bogotá, al elegir a quien vive en
-//      una celda la vista previa muestra las cuatro (las otras tres le llegan por alcance si nadie local las lleva).
-//   2. Guardar: PUT (dar) o DELETE (quitar) /api/executives/[id]/lineas/[lineId], que inserta o borra executive_lines y
-//      recalcula la cobertura sin Google. Al quitar, la vista previa ya trae medicosQuePierdenVisitante (la cuenta de
-//      médicos de esa persona en esa línea con visitante vigente, que el disparador 0820 termina sin vuelta atrás): se
-//      muestra y, si hay alguno, hay que marcar "Entiendo…" antes de que "Quitarle" se habilite (spec E2). La respuesta
-//      del DELETE trae medicosTerminados, la cifra real, que va en el mensaje final.
-// La restricción de la dirección (lineasPermitidas) deshabilita la opción con el texto "La dirección limitó a <nombre>
-// a: <líneas>"; la API vuelve a validarlo (409). Escape cierra y el foco entra al título.
-import { useEffect, useMemo, useRef, useState } from 'react'
+// Confirmación de "Darle <línea> a <persona>" / "Quitarle <línea> a <persona>" de la página Zonas (spec 2026-10-23, E2:
+// toda escritura muestra antes la vista previa simulada). Se abre desde el interruptor que hay junto a cada persona o
+// vacante de "Vive aquí", así que casi siempre llega con UNA persona ya elegida; si llegan varias (celdas de Bogotá), se
+// elige con radios. Flujo de un solo paso (dueño, 2026-10-23: "tienes que mejorar muchísimo la usabilidad"):
+//   1. Al abrir, pide sola la vista previa: POST /api/coverage/simular con un cambio { tipo: 'linea_agregar' |
+//      'linea_quitar', executive_id, line_id }. La ruta nunca escribe; devuelve las celdas (línea, Zona) que cambian, con
+//      nombres y estados, el resumen por estado y, al quitar, medicosQuePierdenVisitante (los médicos de esa persona en
+//      esa línea con visitante vigente, que el disparador 0820 termina sin vuelta atrás). Para Bogotá, al dar la línea a
+//      quien vive en una celda la vista previa muestra las cuatro.
+//   2. "Confirmar": PUT (dar) o DELETE (quitar) /api/executives/[id]/lineas/[lineId], que inserta o borra executive_lines y
+//      recalcula la cobertura sin Google. Al quitar con médicos, antes hay que marcar "Entiendo…".
+// La restricción de la dirección (lineasPermitidas) bloquea la opción con "La dirección limitó a <nombre> a: <líneas>"; la
+// API vuelve a validarlo (409). Un fallo de red (el "Load failed" del navegador) se muestra en español con "Reintentar".
+// Escape cierra y el foco entra al título.
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AvisoAtencion, CAPA_MODAL, claseBotonPrimario, claseBotonSecundario, Modal } from '@/components/terceros/comun'
 import { readError } from '@/app/lines/coverage-shared'
 import { useVentanaAccesible } from '@/app/executives/zona-bloques'
 import { ESTADO_PLAZA_LABELS, ESTADOS_PLAZA, type SimularDiffCelda, type SimularResponse, type ZonaResidente } from '@/lib/types/zonas'
-import { ESTADO_BADGE, ESTADO_PLAZA_PLURAL, motivoNoPuedeDar, nombreLinea, nombreZona, numero } from './zonas-ui'
+import { ESTADO_BADGE, ESTADO_PLAZA_PLURAL, motivoNoPuedeDar, nombreLinea, nombreZona, numero, textoPuedeTener } from './zonas-ui'
 
 export type ModoAsignar = 'dar' | 'quitar'
 
@@ -48,6 +49,14 @@ interface RespuestaGuardar {
   ejecutivo?: { id: string; nombre: string; status: string; lineas: string[] }
   medicosTerminados?: number
   cobertura?: { recalculada: boolean }
+}
+
+/** Un fallo de red del navegador ("Load failed", "Failed to fetch") en español; lo demás, tal cual. */
+function mensajeDeError(err: unknown, fallback: string): string {
+  if (err instanceof TypeError || (err instanceof Error && /load failed|failed to fetch|networkerror/i.test(err.message))) {
+    return 'No hay conexión con el servidor. Reintenta en unos segundos.'
+  }
+  return err instanceof Error && err.message ? err.message : fallback
 }
 
 export default function AsignarLineaDialog({
@@ -98,7 +107,7 @@ export default function AsignarLineaDialog({
     setError('')
   }
 
-  const previsualizar = async () => {
+  const previsualizar = useCallback(async () => {
     if (!elegido || motivo) return
     setSimulando(true)
     setError('')
@@ -110,7 +119,7 @@ export default function AsignarLineaDialog({
           cambios: [{ tipo: modo === 'dar' ? 'linea_agregar' : 'linea_quitar', executive_id: elegido.id, line_id: linea.id }],
         }),
       })
-      if (!response.ok) throw new Error(await readError(response, 'No se pudo calcular la vista previa'))
+      if (!response.ok) throw new Error(await readError(response, 'No se pudo calcular qué cambia'))
       const body = (await response.json().catch(() => null)) as SimularResponse | null
       if (!body || !Array.isArray(body.diff) || !body.resumen || typeof body.resumen !== 'object') {
         throw new Error('Respuesta inesperada del servidor')
@@ -119,10 +128,25 @@ export default function AsignarLineaDialog({
       setSimulacion(body)
     } catch (err: unknown) {
       console.error('Error simulando el cambio de línea:', err)
-      setError(err instanceof Error ? err.message : 'No se pudo calcular la vista previa')
+      setError(mensajeDeError(err, 'No se pudo calcular qué cambia'))
     } finally {
       setSimulando(false)
     }
+  }, [elegido, motivo, modo, linea.id])
+
+  // La vista previa se pide sola al abrir y cada vez que cambia la persona elegida: un paso menos para la líder.
+  const ultimaSimulada = useRef<string | null>(null)
+  useEffect(() => {
+    if (!elegido || motivo || simulacion || simulando) return
+    if (ultimaSimulada.current === elegido.id) return
+    ultimaSimulada.current = elegido.id
+    void previsualizar()
+  }, [elegido, motivo, simulacion, simulando, previsualizar])
+
+  const reintentar = () => {
+    ultimaSimulada.current = null
+    setSimulacion(null)
+    setError('')
   }
 
   // Quitar: cuántos médicos de esta persona en esta línea perderían visitante (de la vista previa). null = la ruta no lo
@@ -163,7 +187,7 @@ export default function AsignarLineaDialog({
       }
     } catch (err: unknown) {
       console.error('Error guardando el cambio de línea:', err)
-      setError(err instanceof Error ? err.message : 'No se pudo guardar el cambio')
+      setError(mensajeDeError(err, 'No se pudo guardar el cambio'))
       setGuardando(false)
     }
   }
@@ -179,33 +203,25 @@ export default function AsignarLineaDialog({
   )
   const resumen = simulacion?.resumen[linea.code] ?? null
 
-  const titulo = modo === 'dar' ? `Darle ${linea.name} a…` : `Quitarle ${linea.name}`
+  const verbo = modo === 'dar' ? 'Darle' : 'Quitarle'
+  const titulo = elegido ? `${verbo} ${linea.name} a ${elegido.nombre}` : `${verbo} ${linea.name}`
+  const puedeConfirmar = !!elegido && !motivo && !!simulacion && !faltaConfirmar && !guardando && !simulando
 
   return (
     <Modal titulo={titulo} subtitulo={zonaNombre} onCerrar={onCerrar} ancho="sm:max-w-2xl" capa={CAPA_MODAL}>
       <div className="min-h-full flex flex-col">
         <div className="flex-1 p-4 sm:p-6 space-y-5 min-w-0">
-          <h3 ref={tituloRef} tabIndex={-1} className="text-base font-bold text-gray-900 focus:outline-none break-words">
-            {modo === 'dar' ? `1. ¿A quién le das ${linea.name}?` : `1. ¿A quién le quitas ${linea.name}?`}
+          <h3 ref={tituloRef} tabIndex={-1} className="sr-only focus:outline-none">
+            {titulo}
           </h3>
-          <p className="-mt-3 text-sm text-gray-600">
-            {modo === 'dar'
-              ? `Solo a quien vive en ${zonaNombre}: un Ejecutivo Comercial o una vacante autorizada por la gerencia (cuenta como una persona y queda "Reservada"). Si otra persona de la Zona ya lleva la línea, la Zona queda en conflicto hasta que lo resuelvas con un ajuste manual.`
-              : `Al quitarle la línea, la Zona vuelve a cubrirse por alcance desde la Zona más cercana que la lleve dentro del tope, o queda sin cobertura. Sus médicos de esta línea quedan sin visitante: la vista previa dice cuántos y hay que confirmarlo antes de guardar.`}
-          </p>
-          {esBogota && modo === 'dar' && (
-            <AvisoAtencion>
-              Bogotá se parte en cuatro Zonas. Al dar la línea a quien vive en una de ellas, las otras tres le llegan por alcance (26 a 30 minutos)
-              si nadie local las lleva: la vista previa muestra las cuatro.
-            </AvisoAtencion>
-          )}
 
-          {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm break-words">{error}</div>}
-
+          {/* A quién: una persona ya elegida (tarjeta) o varias (radios, celdas de Bogotá) */}
           {elegibles.length === 0 ? (
             <p className="p-4 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-600">
               {modo === 'dar' ? `Nadie vive en ${zonaNombre}.` : `Nadie de ${zonaNombre} lleva ${linea.name}.`}
             </p>
+          ) : elegibles.length === 1 && elegido ? (
+            <TarjetaPersona residente={elegido} linea={linea} lineas={lineas} mostrarZona={esBogota} bloqueo={motivo} />
           ) : (
             <ul className="space-y-2" role="radiogroup" aria-label="Ejecutivo Comercial o vacante">
               {elegibles.map(residente => {
@@ -228,28 +244,7 @@ export default function AsignarLineaDialog({
                         className="mt-1 h-4 w-4 border-gray-300 text-gray-900 focus:ring-gray-700"
                       />
                       <span className="min-w-0 flex-1">
-                        <span className={`block text-sm font-medium break-words ${bloqueo ? 'text-gray-500' : 'text-gray-900'}`}>
-                          {residente.nombre}
-                          {residente.status === 'placeholder' && <span className="ml-1 text-xs font-normal text-amber-700">(por contratar)</span>}
-                          {esBogota && <span className="ml-1 text-xs font-normal text-gray-500">· vive en {residente.zonaNombre}</span>}
-                        </span>
-                        <span className="mt-1 flex flex-wrap gap-1">
-                          {residente.lineas.length === 0 ? (
-                            <span className="text-xs text-gray-400">No lleva líneas</span>
-                          ) : (
-                            residente.lineas.map(code => (
-                              <span
-                                key={code}
-                                className={`px-2 py-0.5 rounded-full text-xs border ${
-                                  code === linea.code ? 'bg-gray-900 text-white border-gray-900' : 'bg-gray-100 text-gray-700 border-gray-200'
-                                }`}
-                              >
-                                {nombreLinea(code, lineas)}
-                              </span>
-                            ))
-                          )}
-                        </span>
-                        {bloqueo && <span className="mt-1 block text-xs text-amber-700 break-words">{bloqueo}</span>}
+                        <DetallePersona residente={residente} linea={linea} lineas={lineas} mostrarZona={esBogota} bloqueo={bloqueo} />
                       </span>
                     </label>
                   </li>
@@ -258,21 +253,47 @@ export default function AsignarLineaDialog({
             </ul>
           )}
 
-          {/* Paso 2: vista previa */}
+          <p className="text-sm text-gray-600">
+            {modo === 'dar'
+              ? `Al darle ${linea.name}, ${elegido?.status === 'placeholder' ? 'la Zona queda reservada para esa vacante hasta que se contrate' : 'esa persona pasa a atender la Zona en esa línea'} y, por alcance, las Zonas vecinas que nadie cubra dentro del tope. Si otra persona de la Zona ya la lleva, la Zona queda en conflicto hasta que lo resuelvas con un ajuste manual.`
+              : `Al quitarle ${linea.name}, la Zona pasa a atenderla la persona más cercana que lleve la línea dentro del tope, o queda sin cobertura. Sus médicos de esta línea quedan sin visitante y nada lo deshace.`}
+          </p>
+          {esBogota && modo === 'dar' && (
+            <AvisoAtencion>
+              Bogotá se parte en cuatro Zonas. Al dar la línea a quien vive en una de ellas, las otras tres le llegan por alcance (26 a 30 minutos)
+              si nadie local las lleva: abajo salen las cuatro.
+            </AvisoAtencion>
+          )}
+
+          {/* Qué cambia: se calcula solo al abrir */}
           <div className="space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-              <h3 className="text-base font-bold text-gray-900">2. Vista previa</h3>
-              <button
-                type="button"
-                onClick={previsualizar}
-                disabled={!elegido || !!motivo || simulando || guardando}
-                className={claseBotonPrimario}
-                title={!elegido ? 'Elige primero a quién' : motivo ?? undefined}
-              >
-                {simulando ? 'Calculando…' : simulacion ? 'Volver a calcular' : 'Ver qué cambia'}
-              </button>
-              <span className="text-xs text-gray-500">Simulación en memoria con las distancias ya conocidas: no escribe nada ni consulta Google.</span>
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <h3 className="text-base font-bold text-gray-900">Qué cambia</h3>
+              <span className="text-xs text-gray-500">Cálculo en memoria con las distancias ya conocidas: no escribe nada ni consulta Google.</span>
             </div>
+
+            {error && (
+              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm break-words flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <span>{error}</span>
+                {!simulacion && (
+                  <button type="button" onClick={reintentar} className="self-start sm:self-auto px-3 py-1.5 bg-white border border-red-300 text-red-700 rounded-lg text-sm font-medium hover:bg-red-100">
+                    Reintentar
+                  </button>
+                )}
+              </div>
+            )}
+
+            {simulando && (
+              <p className="flex items-center gap-2 text-sm text-gray-600">
+                <svg className="animate-spin h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                </svg>
+                Calculando qué cambia…
+              </p>
+            )}
+
+            {!simulando && !error && !simulacion && elegido && motivo && <p className="text-sm text-amber-700">{motivo}</p>}
 
             {simulacion && elegido && (
               <div className="space-y-3">
@@ -286,7 +307,7 @@ export default function AsignarLineaDialog({
                       <thead>
                         <tr className="bg-gray-50 border-b border-gray-200">
                           <th className="px-3 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Zona</th>
-                          <th className="px-3 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Antes</th>
+                          <th className="px-3 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Hoy</th>
                           <th className="px-3 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Después</th>
                         </tr>
                       </thead>
@@ -355,11 +376,15 @@ export default function AsignarLineaDialog({
 
         <div className="sticky bottom-0 bg-white border-t border-gray-200 px-4 sm:px-6 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <span className="text-xs text-gray-500">
-            {!simulacion
-              ? 'Guardar se habilita después de la vista previa.'
-              : faltaConfirmar
-                ? '3. Marca "Entiendo…" para habilitar Quitarle.'
-                : '3. Si la vista previa es lo que quieres, guarda.'}
+            {!elegido
+              ? 'Elige a quién.'
+              : motivo
+                ? 'No se puede dar esta línea a esta persona.'
+                : !simulacion
+                  ? 'Confirmar se habilita cuando termine el cálculo.'
+                  : faltaConfirmar
+                    ? 'Marca "Entiendo…" para habilitar Quitarle.'
+                    : 'Si esto es lo que quieres, confirma.'}
           </span>
           <div className="flex justify-end gap-3">
             <button type="button" onClick={onCerrar} disabled={guardando} className={claseBotonSecundario}>
@@ -368,7 +393,7 @@ export default function AsignarLineaDialog({
             <button
               type="button"
               onClick={guardar}
-              disabled={!elegido || !!motivo || !simulacion || faltaConfirmar || guardando || simulando}
+              disabled={!puedeConfirmar}
               title={faltaConfirmar ? 'Marca primero "Entiendo…"' : undefined}
               className={
                 modo === 'quitar'
@@ -376,12 +401,65 @@ export default function AsignarLineaDialog({
                   : claseBotonPrimario
               }
             >
-              {guardando ? 'Guardando…' : modo === 'dar' ? `Darle ${linea.name}` : `Quitarle ${linea.name}`}
+              {guardando ? 'Guardando…' : `${verbo} ${linea.name}`}
             </button>
           </div>
         </div>
       </div>
     </Modal>
+  )
+}
+
+function DetallePersona({
+  residente,
+  linea,
+  lineas,
+  mostrarZona,
+  bloqueo,
+}: {
+  residente: ResidenteElegible
+  linea: { code: string; name: string }
+  lineas: ReadonlyArray<{ code: string; name: string }>
+  mostrarZona: boolean
+  bloqueo: string | null
+}) {
+  const lleva = residente.lineas.includes(linea.code)
+  const limitada = residente.lineasPermitidas !== null
+  return (
+    <>
+      <span className={`block text-sm font-medium break-words ${bloqueo ? 'text-gray-500' : 'text-gray-900'}`}>
+        {residente.nombre}
+        {residente.status === 'placeholder' && <span className="ml-1 text-xs font-normal text-amber-700">(por contratar)</span>}
+        {mostrarZona && <span className="ml-1 text-xs font-normal text-gray-500">· vive en {residente.zonaNombre}</span>}
+      </span>
+      <span className={`mt-0.5 block text-xs break-words ${limitada ? 'text-amber-700' : 'text-gray-500'}`}>{textoPuedeTener(residente, lineas)}</span>
+      <span className="mt-1 flex flex-wrap items-center gap-1">
+        {residente.lineas.length === 0 ? (
+          <span className="text-xs text-gray-400">No lleva {linea.name}</span>
+        ) : (
+          <>
+            <span className="text-xs text-gray-500">{lleva ? 'Lleva:' : `No lleva ${linea.name}. Lleva:`}</span>
+            {residente.lineas.map(code => (
+              <span
+                key={code}
+                className={`px-2 py-0.5 rounded-full text-xs border ${code === linea.code ? 'bg-gray-900 text-white border-gray-900' : 'bg-gray-100 text-gray-700 border-gray-200'}`}
+              >
+                {nombreLinea(code, lineas)}
+              </span>
+            ))}
+          </>
+        )}
+      </span>
+      {bloqueo && <span className="mt-1 block text-xs text-amber-700 break-words">{bloqueo}</span>}
+    </>
+  )
+}
+
+function TarjetaPersona(props: Parameters<typeof DetallePersona>[0]) {
+  return (
+    <div className="p-3 border border-gray-200 rounded-lg bg-gray-50">
+      <DetallePersona {...props} />
+    </div>
   )
 }
 

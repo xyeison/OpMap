@@ -43,8 +43,9 @@ import {
   puedeQuitar,
   resumenCifras,
   resumenEstados,
+  sugerenciaCobertura,
   textoEstado,
-  textoRestriccion,
+  textoPuedeTener,
   zonasDeFila,
   type FilaZonas,
 } from './zonas-ui'
@@ -525,57 +526,61 @@ function ViveAqui({ residentes, fila, ctx }: { residentes: Array<ZonaResidente &
   return (
     <ul className="space-y-2.5">
       {residentes.map(residente => {
-        const restriccion = textoRestriccion(residente, lineas)
+        const puedeTener = textoPuedeTener(residente, lineas)
+        const limitada = residente.lineasPermitidas !== null
         const llevaLaLinea = linea ? puedeQuitar(residente, linea.code) : false
         const motivoDar = linea && !llevaLaLinea ? motivoNoPuedeDar(residente, linea, lineas) : null
+        // Con una sola línea visible, el interruptor ya dice si la lleva: los chips solo aportan cuando se ven varias.
+        const mostrarChips = !linea || lineas.length > 1
         return (
           <li key={residente.id} className="text-sm min-w-0">
             <p className="font-medium text-gray-900 break-words">
               {residente.nombre}
               {residente.status === 'placeholder' && <span className="ml-1 text-xs font-normal text-amber-700">(por contratar)</span>}
-              {residente.zonaNombre && <span className="ml-1 text-xs font-normal text-gray-500">· {residente.zonaNombre}</span>}
+              {residente.zonaNombre && <span className="ml-1 text-xs font-normal text-gray-500">· vive en {residente.zonaNombre}</span>}
             </p>
-            <div className="mt-0.5 flex flex-wrap gap-1">
-              {residente.lineas.length === 0 ? (
-                <span className="text-xs text-gray-400">{lineaCode ? `No lleva ${nombreLinea(lineaCode, lineas)}` : 'Sin líneas'}</span>
-              ) : (
-                residente.lineas.map(code => (
-                  <span
-                    key={code}
-                    className={`px-2 py-0.5 rounded-full text-xs border ${
-                      code === lineaCode ? 'bg-gray-900 text-white border-gray-900' : 'bg-gray-100 text-gray-700 border-gray-200'
-                    }`}
-                  >
-                    {nombreLinea(code, lineas)}
-                  </span>
-                ))
-              )}
-            </div>
-            {restriccion && <p className="mt-0.5 text-xs text-amber-700 break-words">{restriccion}</p>}
-            {linea && acceso.asignar && (
-              <div className="mt-1.5">
-                {llevaLaLinea ? (
-                  <button
-                    type="button"
-                    onClick={() => ctx.onQuitar(fila, residente.id)}
-                    className="px-2.5 py-1 text-xs text-red-700 bg-white border border-red-200 hover:bg-red-50 rounded-lg font-medium"
-                  >
-                    Quitarle {linea.name}
-                  </button>
+            <p className={`mt-0.5 text-xs break-words ${limitada ? 'text-amber-700' : 'text-gray-500'}`}>{puedeTener}</p>
+            {mostrarChips && (
+              <div className="mt-1 flex flex-wrap items-center gap-1">
+                {residente.lineas.length === 0 ? (
+                  <span className="text-xs text-gray-400">{lineaCode ? `No lleva ${nombreLinea(lineaCode, lineas)}` : 'Sin líneas'}</span>
                 ) : (
                   <>
-                    <button
-                      type="button"
-                      onClick={() => ctx.onDar(fila, residente.id)}
-                      disabled={motivoDar !== null}
-                      title={motivoDar ?? undefined}
-                      className="px-2.5 py-1 text-xs text-gray-800 bg-white border border-gray-300 hover:bg-gray-50 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      Darle {linea.name}
-                    </button>
-                    {motivoDar && <p className="mt-1 text-xs text-amber-700 break-words">{motivoDar}</p>}
+                    <span className="text-xs text-gray-500">Lleva:</span>
+                    {residente.lineas.map(code => (
+                      <span
+                        key={code}
+                        className={`px-2 py-0.5 rounded-full text-xs border ${
+                          code === lineaCode ? 'bg-gray-900 text-white border-gray-900' : 'bg-gray-100 text-gray-700 border-gray-200'
+                        }`}
+                      >
+                        {nombreLinea(code, lineas)}
+                      </span>
+                    ))}
                   </>
                 )}
+              </div>
+            )}
+            {linea && acceso.asignar && (
+              <div className="mt-1.5">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={llevaLaLinea}
+                  aria-label={`${residente.nombre}: ${linea.name}`}
+                  disabled={!llevaLaLinea && motivoDar !== null}
+                  title={llevaLaLinea ? `Quitarle ${linea.name}` : motivoDar ?? `Darle ${linea.name}`}
+                  onClick={() => (llevaLaLinea ? ctx.onQuitar(fila, residente.id) : ctx.onDar(fila, residente.id))}
+                  className={`inline-flex items-center gap-2 pl-1 pr-2.5 py-1 rounded-full border text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                    llevaLaLinea ? 'bg-gray-900 border-gray-900 text-white hover:bg-gray-800' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  <span aria-hidden="true" className={`relative inline-block h-4 w-7 rounded-full transition-colors ${llevaLaLinea ? 'bg-green-400' : 'bg-gray-300'}`}>
+                    <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform ${llevaLaLinea ? 'left-3.5' : 'left-0.5'}`} />
+                  </span>
+                  {linea.name}: {llevaLaLinea ? 'Sí' : 'No'}
+                </button>
+                {!llevaLaLinea && motivoDar && <p className="mt-1 text-xs text-amber-700 break-words">{motivoDar}</p>}
               </div>
             )}
           </li>
@@ -585,9 +590,12 @@ function ViveAqui({ residentes, fila, ctx }: { residentes: Array<ZonaResidente &
   )
 }
 
-function EnLinea({ enLinea }: { enLinea: ZonaEnLinea | null }) {
+/** El estado de la Zona en la línea elegida, en lenguaje llano, y qué puede hacer la líder si nadie de aquí la atiende. */
+function EnLinea({ zona, ctx }: { zona: ZonaFila; ctx: ContextoFila }) {
+  const enLinea = zona.enLinea
   if (!enLinea) return <span className="text-sm text-gray-400">—</span>
-  const { titulo, detalle } = textoEstado(enLinea)
+  const { titulo, detalle } = textoEstado(enLinea, ctx.linea)
+  const sugerencia = ctx.linea && ctx.acceso.asignar ? sugerenciaCobertura(zona, ctx.linea, ctx.lineas) : null
   return (
     <div className="space-y-1 min-w-0">
       <div className="flex flex-wrap items-center gap-1.5">
@@ -597,6 +605,7 @@ function EnLinea({ enLinea }: { enLinea: ZonaEnLinea | null }) {
       {detalle && <p className="text-sm text-gray-700 break-words">{detalle}</p>}
       {enLinea.ajuste && <p className="text-xs text-purple-700 break-words">Ajuste manual: {enLinea.ajuste.motivo}</p>}
       {enLinea.nota && enLinea.estado !== 'conflicto' && <p className="text-xs text-gray-500 break-words">{enLinea.nota}</p>}
+      {sugerencia && <p className="text-xs text-gray-600 break-words">{sugerencia}</p>}
     </div>
   )
 }
@@ -659,7 +668,7 @@ function FilaZona({ zona, ctx, celda = false }: { zona: ZonaFila; ctx: ContextoF
       </td>
       {ctx.linea && (
         <td className="px-4 py-4">
-          <EnLinea enLinea={zona.enLinea} />
+          <EnLinea zona={zona} ctx={ctx} />
         </td>
       )}
       <td className="px-4 py-4">
@@ -753,7 +762,7 @@ function TarjetaZona({ zona, ctx, celda = false }: { zona: ZonaFila; ctx: Contex
         </Seccion>
         {ctx.linea && (
           <Seccion titulo={`En ${ctx.linea.name}`}>
-            <EnLinea enLinea={zona.enLinea} />
+            <EnLinea zona={zona} ctx={ctx} />
           </Seccion>
         )}
       </div>

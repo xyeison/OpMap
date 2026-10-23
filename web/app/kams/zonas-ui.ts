@@ -65,41 +65,82 @@ export function nombreZona(nombre: string | null | undefined): string {
  *   Sin cobertura (más cercana: <nombre>, 5 h 08)
  *   Conflicto: <nombres> (la nota del cálculo)
  */
-export function textoEstado(enLinea: ZonaEnLinea): { titulo: string; detalle: string | null } {
+/** Quien atiende, con "(por contratar)" si es una vacante (sin repetir "vacante" cuando el nombre ya empieza así). */
+function quienAtiende(persona: { nombre: string; status: 'active' | 'placeholder' } | null | undefined): string | null {
+  if (!persona) return null
+  if (persona.status !== 'placeholder') return persona.nombre
+  return /^vacante\b/i.test(persona.nombre) ? `${persona.nombre} (por contratar)` : `la vacante ${persona.nombre} (por contratar)`
+}
+
+/** Lo que textoEstado necesita de la línea elegida: su nombre y el tope de alcance (minutos). */
+export interface LineaParaTexto {
+  name: string
+  max_reach_minutes?: number | null
+}
+
+/**
+ * El estado de una Zona en la línea, en lenguaje llano (dueño, 2026-10-23: "necesito mejor usabilidad"):
+ *   Ocupada       → "La atiende Joana, que vive en la Zona."
+ *   Reservada     → "Reservada para Vacante Barranquilla (por contratar), que vive en la Zona."
+ *   Por alcance   → "La atiende Vacante Barranquilla (por contratar) desde Barranquilla, a 2 h 26 por carretera."
+ *   Sin cobertura → "Nadie que lleve Medicina deportiva llega en menos de 4 h por carretera. La más cercana es
+ *                    Vacante Bogotá (por contratar), a 9 h 15."
+ *   Conflicto     → "Más de una persona de la Zona lleva Medicina deportiva: Ana y Beto. Resuélvelo con un ajuste manual."
+ */
+export function textoEstado(enLinea: ZonaEnLinea, linea?: LineaParaTexto | null): { titulo: string; detalle: string | null } {
   const titulo = ESTADO_PLAZA_LABELS[enLinea.estado]
-  const nombre = enLinea.ejecutivo?.nombre ?? null
+  const quien = quienAtiende(enLinea.ejecutivo)
+  const nombreLinea = linea?.name ?? 'la línea'
+  const porCarretera = (minutos: number | null | undefined) => (minutos !== null && minutos !== undefined && minutos > 0 ? `, a ${minutosCortos(minutos)} por carretera` : '')
   switch (enLinea.estado) {
-    case 'ocupada':
+    case 'ocupada': {
+      if (!quien) return { titulo, detalle: null }
+      if (enLinea.desde) return { titulo, detalle: `La atiende ${quien} por ajuste manual desde ${enLinea.desde.nombre}${porCarretera(enLinea.minutos)}.` }
+      return { titulo, detalle: `La atiende ${quien}, que vive en la Zona.` }
+    }
     case 'reservada': {
-      if (!nombre) return { titulo, detalle: null }
-      const ajuste = enLinea.desde
-        ? ` · ajuste manual desde ${enLinea.desde.nombre}${enLinea.minutos !== null && enLinea.minutos > 0 ? ` · ${minutosCortos(enLinea.minutos)}` : ''}`
-        : ''
-      return { titulo, detalle: `${nombre}${ajuste}` }
+      if (!quien) return { titulo, detalle: null }
+      if (enLinea.desde) return { titulo, detalle: `Reservada para ${quien} por ajuste manual desde ${enLinea.desde.nombre}${porCarretera(enLinea.minutos)}.` }
+      return { titulo, detalle: `Reservada para ${quien}, que vive en la Zona.` }
     }
     case 'alcance': {
-      if (!nombre) return { titulo, detalle: null }
+      if (!quien) return { titulo, detalle: null }
       const desde = enLinea.desde ? ` desde ${enLinea.desde.nombre}` : ''
-      const minutos = enLinea.minutos !== null ? ` · ${minutosCortos(enLinea.minutos)}` : ''
-      return { titulo, detalle: `${nombre}${desde}${minutos}` }
+      return { titulo, detalle: `La atiende ${quien}${desde}${porCarretera(enLinea.minutos)}.` }
     }
-    case 'sin_cobertura':
-      return {
-        titulo,
-        detalle: enLinea.masCercano ? `más cercana: ${enLinea.masCercano.nombre}, ${minutosCortos(enLinea.masCercano.minutos)}` : null,
-      }
+    case 'sin_cobertura': {
+      // El tope se dice redondo ("4 h"), no "4 h 00"
+      const topeMin = linea?.max_reach_minutes ?? null
+      const tope = topeMin ? ` en menos de ${topeMin % 60 === 0 ? `${topeMin / 60} h` : minutosCortos(topeMin)}` : ' dentro del tope'
+      const cercana = quienAtiende(enLinea.masCercano)
+      const minutos = enLinea.masCercano?.minutos
+      const masCercana = cercana ? ` La más cercana es ${cercana}${minutos !== null && minutos !== undefined ? `, a ${minutosCortos(minutos)}` : ''}.` : ''
+      return { titulo, detalle: `Nadie que lleve ${nombreLinea} llega${tope} por carretera.${masCercana}` }
+    }
     case 'conflicto':
-      return { titulo, detalle: enLinea.nota }
+      return { titulo, detalle: `Más de una persona de la Zona lleva ${nombreLinea}${enLinea.nota ? `: ${enLinea.nota}` : ''}. Resuélvelo con un ajuste manual.` }
   }
 }
 
-/** El estado en una sola línea de texto (tarjetas, títulos): "Sin cobertura (más cercana: Ana, 5 h 08)". */
-export function textoEstadoCompleto(enLinea: ZonaEnLinea): string {
-  const { titulo, detalle } = textoEstado(enLinea)
-  if (!detalle) return titulo
-  if (enLinea.estado === 'sin_cobertura') return `${titulo} (${detalle})`
-  if (enLinea.estado === 'conflicto') return `${titulo}: ${detalle}`
-  return `${titulo} · ${detalle}`
+/** El estado en una sola línea de texto (tarjetas, títulos): "Sin cobertura. Nadie que lleve … llega …". */
+export function textoEstadoCompleto(enLinea: ZonaEnLinea, linea?: LineaParaTexto | null): string {
+  const { titulo, detalle } = textoEstado(enLinea, linea)
+  return detalle ? `${titulo}. ${detalle}` : titulo
+}
+
+/**
+ * Qué puede hacer la líder cuando a la Zona no la atiende alguien de aquí (por alcance o sin cobertura): a quién de la
+ * Zona darle la línea; si nadie vive ahí, forzar desde otra ciudad. null cuando no aplica.
+ */
+export function sugerenciaCobertura(zona: ZonaFila, linea: { code: string; name: string }, lineas: ReadonlyArray<{ code: string; name: string }>): string | null {
+  const estado = zona.enLinea?.estado
+  if (estado !== 'alcance' && estado !== 'sin_cobertura') return null
+  const candidatos = zona.residentes.filter(residente => motivoNoPuedeDar(residente, linea, lineas) === null)
+  if (candidatos.length > 0) return `Para que la atienda alguien de aquí, dale ${linea.name} a ${candidatos.map(residente => residente.nombre).join(' o a ')}.`
+  if (zona.residentes.length === 0) {
+    return 'Nadie vive en esta Zona: para cubrirla desde aquí hace falta una vacante o una persona con base aquí. Mientras tanto, puedes forzar a alguien de otra ciudad.'
+  }
+  return null
 }
 
 // ---------------------------------------------------------------------------
@@ -266,6 +307,17 @@ export function textoRestriccion(residente: ZonaResidente, lineas: ReadonlyArray
   if (!permitidas) return null
   if (permitidas.length === 0) return 'solo puede tener líneas que no ves'
   return `solo puede tener: ${permitidas.map(code => nombreLinea(code, lineas)).join(', ')}`
+}
+
+/**
+ * Siempre visible junto al nombre (dueño, 2026-10-23: "ese empleado o esa vacante está destinado con posibilidad a estas
+ * unidades de negocio"): "Puede tener cualquier línea" si la dirección no la limitó; si la limitó, "Solo puede tener: …".
+ */
+export function textoPuedeTener(residente: Pick<ZonaResidente, 'lineasPermitidas'>, lineas: ReadonlyArray<{ code: string; name: string }>): string {
+  const permitidas = restriccionDe(residente)
+  if (!permitidas) return 'Puede tener cualquier línea'
+  if (permitidas.length === 0) return 'Solo puede tener líneas que no ves'
+  return `Solo puede tener: ${permitidas.map(code => nombreLinea(code, lineas)).join(', ')}`
 }
 
 /** ¿Lleva la línea hoy? (entonces se le puede quitar). */
