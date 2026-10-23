@@ -3,6 +3,10 @@
 // vista por línea (con un tono por zona si cubre varias, ver zoneTint), zona en la vista de zonas.
 // Aquí van opacidades, bordes, los colores fijos de los estados sin zona y el cálculo de tonos. Lo usan
 // los polígonos, los puntos de IPS, las insignias y la leyenda.
+//
+// Autorizado por el dueño el 2026-10-23: en la vista por línea, las Zonas sin cobertura van en gris con un tono
+// por Zona (grisDeZona, al final de este archivo). Nada más de la estética del 2026-10-11 cambia.
+import { zoneDisplayName } from '@/lib/zone-names'
 
 // Borde de municipios y localidades: blanco, fino y semitransparente (nunca gris oscuro ni negro)
 export const TERRITORY_BORDER_COLOR = '#ffffff'
@@ -130,4 +134,38 @@ export function zoneTint(baseHex: string, index: number, total: number): string 
   const light = Math.min(ZONE_TINT_L_MAX, Math.max(ZONE_TINT_L_MIN, l + shift))
   const sat = shift > 0 ? Math.min(ZONE_TINT_S_MAX, s + ZONE_TINT_S_BOOST) : s
   return hslToHex(h, sat, light)
+}
+
+// ---------- Grises por Zona para "Sin cobertura" (solo vista por línea) ----------
+// Autorizado por el dueño el 2026-10-23: en la vista por línea, las Zonas sin cobertura van en gris con un tono
+// por Zona, para distinguirlas entre sí mientras las líderes redistribuyen las líneas ("vas a tener que manejar
+// distintos tonos de grises"). Luminosidad en rampa de 42 % a 80 % sobre las Zonas recibidas (las activas)
+// ordenadas por nombre visible (zoneDisplayName, localeCompare 'es'), saturación 8 % y el matiz del color propio
+// de la Zona (si falta o no es #RRGGBB, matiz 160). Con una sola Zona, luminosidad 61 %. Relleno, IPS e insignia
+// hueca usan este gris; el borde sigue como hoy (VACANT_BORDER_*). Nada más de la estética cambia.
+const GRIS_ZONA_L_MIN = 42
+const GRIS_ZONA_L_MAX = 80
+const GRIS_ZONA_S = 8
+const GRIS_ZONA_HUE_DEFAULT = 160
+
+/**
+ * Gris de la Zona `kamId` entre `zonas` (las Zonas activas, en cualquier orden): `hsl(h, 8%, L%)` con h y L
+ * redondeados. Determinista: la misma Zona da el mismo valor sea cual sea el orden de entrada. Si `kamId` no está
+ * en `zonas`, devuelve el gris medio (L 61 %) con el matiz por defecto.
+ */
+export function grisDeZona(kamId: string, zonas: ReadonlyArray<{ id: string; name: string; color?: string | null }>): string {
+  const ordenadas = [...zonas].sort(
+    (a, b) =>
+      zoneDisplayName(a.name).localeCompare(zoneDisplayName(b.name), 'es', { sensitivity: 'base' }) ||
+      a.id.localeCompare(b.id)
+  )
+  const total = ordenadas.length
+  const index = ordenadas.findIndex(zone => zone.id === kamId)
+  const lightness =
+    total <= 1 || index < 0
+      ? (GRIS_ZONA_L_MIN + GRIS_ZONA_L_MAX) / 2
+      : GRIS_ZONA_L_MIN + ((GRIS_ZONA_L_MAX - GRIS_ZONA_L_MIN) * index) / (total - 1)
+  const color = index >= 0 ? ordenadas[index].color ?? null : null
+  const hue = color && HEX6_RE.test(color) ? hexToHsl(color)[0] : GRIS_ZONA_HUE_DEFAULT
+  return `hsl(${Math.round(hue)}, ${GRIS_ZONA_S}%, ${Math.round(lightness)}%)`
 }

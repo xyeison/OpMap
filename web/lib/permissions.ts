@@ -39,6 +39,9 @@ export type Permission =
   // y los médicos de un Ejecutivo Comercial a otra persona, a una nueva o a una vacante (y darlo de baja). Solo admin
   // y commercial_director: son los únicos que tienen a la vez equipo, cobertura y visitantes.
   | 'executives:transfer'
+  // Zonas por línea (spec 2026-10-23): dar o quitar la propia línea a un Ejecutivo Comercial o vacante que vive en la
+  // Zona (PUT/DELETE /api/executives/[id]/lineas/[lineId]); line_leader solo en su línea, lo limita la API.
+  | 'executives:lines'
   | 'coverage:view'    // Fase 2: cobertura por línea (la API limita a las líneas del usuario)
   | 'coverage:edit'    // Fase 2: recalcular y ajustes manuales (line_leader solo en SU línea)
   | 'map:all-lines'    // Fase 2: ver el mapa de cualquier línea (la vista "Zonas" es de map:view desde 2026-10-14)
@@ -84,6 +87,7 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'executives:view',
     'executives:edit',
     'executives:transfer',
+    'executives:lines',
     'coverage:view',
     'coverage:edit',
     'map:all-lines',
@@ -131,6 +135,7 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'lines:view',
     'lines:edit',
     'executives:view',
+    'executives:lines',  // Dar o quitar SU línea a un Ejecutivo Comercial o vacante de la Zona (solo donde es líder; lo limita la API)
     'coverage:view',
     'coverage:edit',
     'territory:view',
@@ -158,6 +163,7 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'executives:view',
     'executives:edit',
     'executives:transfer', // Traspaso de un Ejecutivo Comercial a otra persona, una nueva o una vacante
+    'executives:lines',    // Dar o quitar cualquier línea a un Ejecutivo Comercial o vacante desde Zonas
     'coverage:view',
     'coverage:edit',
     'map:all-lines',
