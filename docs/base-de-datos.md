@@ -310,6 +310,31 @@ comentario de la columna (`COMMENT ON COLUMN visitas_agenda.hora`: "Hora de la c
 ruteros)") quedó desactualizado: corregirlo en la próxima migración que haya (p. ej. "Hora de la cita (HH:MM; obligatoria
 en las nuevas desde 2026-10-15, la exige la API; NULL solo en citas viejas)").
 
+#### Zonas por línea · líneas permitidas y redistribución (migraciones 0860 y 0870, escritas 2026-10-23, SIN APLICAR)
+Spec `docs/specs/2026-10-23-zonas-por-linea-para-lideres.md`; decisión `docs/decisiones/2026-10-23-zonas-por-linea-las-lideres-asignan.md`.
+RLS sin políticas (solo `service_role`). Se aplican solo con autorización del dueño, en la ventana del despliegue.
+```sql
+executive_allowed_lines (0860):  líneas que la dirección permite a una persona o vacante. SIN FILAS = SIN RESTRICCIÓN.
+                                 executive_id → executives ON DELETE CASCADE, line_id → business_lines ON DELETE CASCADE,
+                                 created_by → users NULL (NULL = lo puso una migración), created_at; PK (executive_id, line_id);
+                                 índice executive_allowed_lines_line_id_idx. Regla que hace cumplir la API: executive_lines ⊆
+                                 executive_allowed_lines cuando hay filas (PATCH /api/executives/[id] → 400; PUT
+                                 /api/executives/[id]/lineas/[lineId] → 409). Si la tabla no existe, la API responde
+                                 lineas_permitidas = null (sin 500). Rollback 9946: DROP TABLE.
+executive_lines_respaldo_20261023 (0870): copia de executive_lines (executive_id, line_id, respaldado_en) tomada ANTES de borrar
+                                 todas las líneas asignadas para redistribuirlas desde Zonas. Nunca se pisa un respaldo con filas;
+                                 la app no lo lee; service_role solo SELECT. Conservar.
+0870 (DATOS):                    respaldo → DELETE FROM executive_lines (el disparador executive_lines_termina_visitantes de la
+                                 0820 termina los visitantes de cada línea borrada, fin_motivo linea_quitada) → dos restricciones en
+                                 executive_allowed_lines: persona ACTIVE con base en la Zona area_id 08001 que llevaba perossal en el
+                                 respaldo → perossal y reemplazo; vacante PLACEHOLDER con base en esa Zona → deportiva, columna y
+                                 trauma (sin nombres en el SQL; RAISE si no hay exactamente una de cada). DESPUÉS: recalcular la
+                                 cobertura (npm run fase2:recalculate o "Recalcular cobertura" en /lines). Rollback 9947: quita esas
+                                 restricciones, restaura executive_lines desde el respaldo (ON CONFLICT DO NOTHING, conserva lo
+                                 asignado después) y NO borra el respaldo ni reabre visitantes; después, recalcular. Orden: 9947 antes
+                                 que 9946.
+```
+
 ### Vistas
 
 #### 1. `kam_statistics`
