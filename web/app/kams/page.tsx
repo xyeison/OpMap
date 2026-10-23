@@ -5,7 +5,8 @@
 // activa con lo que hay en ella (IPS, camas, municipios, población, afiliados, giros), quién vive en ella (Ejecutivos
 // Comerciales y vacantes con sus líneas) y su estado en la línea elegida (Ocupada, Reservada, Por alcance, Sin
 // cobertura, Conflicto). Bogotá va agrupada con su total y sus cuatro celdas plegables. Acciones, solo para quien puede
-// asignar en la línea: "Darle <línea> a…" y "Quitarle <línea>" con vista previa simulada (AsignarLineaDialog);
+// asignar en la línea: junto a cada persona de "Vive aquí", "Darle <línea>" o "Quitarle <línea>" con vista previa
+// simulada (AsignarLineaDialog; una sola acción por persona, nunca dos botones a nivel de Zona);
 // "Forzar a alguien de otra ciudad" y "Quitar ajuste" siguen en /lines (AdjustModal no se exporta de CoveragePanel).
 // Los datos salen de GET /api/kams/zonas?line=<code> (ZonasResponse, web/lib/types/zonas.ts; la ruta la hace otro
 // agente): nada de esta pantalla calcula rutas ni consulta Google. La administración de Zonas (agregar, colores,
@@ -118,8 +119,9 @@ interface ContextoFila {
   lineas: ZonasResponse['lineas']
   acceso: ZonasResponse['acceso']
   onVerDatos: (zona: ZonaFila) => void
-  onDar: (fila: FilaZonas) => void
-  onQuitar: (fila: FilaZonas) => void
+  /** La acción va junto a cada persona de "Vive aquí": darle o quitarle la línea a ESA persona o vacante. */
+  onDar: (fila: FilaZonas, residenteId: string) => void
+  onQuitar: (fila: FilaZonas, residenteId: string) => void
 }
 
 const SIN_ACCESO: ZonasResponse['acceso'] = { asignar: false, ajustar: false, comprasPublicas: false, administrar: false }
@@ -197,14 +199,16 @@ function ZonasContent() {
   const puedeAdministrar = puedeEditarZonas || acceso.administrar
   const hayAdministracion = puedeAdministrar || puedeBogota || veContratos
 
+  // El diálogo se abre para UNA persona o vacante concreta (el botón está junto a su nombre en "Vive aquí").
   const abrirDialogo = useCallback(
-    (modo: ModoAsignar, fila: FilaZonas) => {
+    (modo: ModoAsignar, fila: FilaZonas, residenteId: string) => {
       if (!linea) return
-      const residentes: ResidenteElegible[] = zonasDeFila(fila).flatMap(zona =>
-        zona.residentes.map(residente => ({ ...residente, kam_id: zona.kam_id, zonaNombre: nombreZona(zona.nombre) }))
-      )
+      const residentes: ResidenteElegible[] = zonasDeFila(fila)
+        .flatMap(zona => zona.residentes.map(residente => ({ ...residente, kam_id: zona.kam_id, zonaNombre: nombreZona(zona.nombre) })))
+        .filter(residente => residente.id === residenteId)
+      if (residentes.length === 0) return
       setNotice('')
-      setDialogo({ modo, zonaNombre: fila.nombre, esBogota: fila.tipo === 'bogota', residentes, residenteInicial: null })
+      setDialogo({ modo, zonaNombre: fila.nombre, esBogota: fila.tipo === 'bogota', residentes, residenteInicial: residenteId })
     },
     [linea]
   )
@@ -214,8 +218,8 @@ function ZonasContent() {
     lineas: data?.lineas ?? [],
     acceso,
     onVerDatos: zona => setDatosDe(zona),
-    onDar: fila => abrirDialogo('dar', fila),
-    onQuitar: fila => abrirDialogo('quitar', fila),
+    onDar: (fila, residenteId) => abrirDialogo('dar', fila, residenteId),
+    onQuitar: (fila, residenteId) => abrirDialogo('quitar', fila, residenteId),
   }
 
   const handleGuardado = async (mensaje: string) => {
@@ -509,20 +513,21 @@ function QueHay({ cifras }: { cifras: ZonaCifras }) {
   )
 }
 
-function ViveAqui({
-  residentes,
-  lineaCode,
-  lineas,
-}: {
-  residentes: Array<ZonaResidente & { zonaNombre?: string }>
-  lineaCode: string | null
-  lineas: ReadonlyArray<{ code: string; name: string }>
-}) {
+/**
+ * Quién vive en la Zona, con sus líneas (solo las que el usuario ve) y, si puede asignar en la línea elegida, la acción
+ * junto a cada nombre: "Quitarle" a quien la lleva, "Darle <línea>" a quien no (deshabilitado con el motivo si la
+ * dirección lo limitó a otras líneas). Una sola acción por persona: no hay dos botones a nivel de Zona.
+ */
+function ViveAqui({ residentes, fila, ctx }: { residentes: Array<ZonaResidente & { zonaNombre?: string }>; fila: FilaZonas; ctx: ContextoFila }) {
+  const { linea, lineas, acceso } = ctx
+  const lineaCode = linea?.code ?? null
   if (residentes.length === 0) return <span className="text-sm text-gray-400">Nadie vive aquí</span>
   return (
     <ul className="space-y-2.5">
       {residentes.map(residente => {
         const restriccion = textoRestriccion(residente, lineas)
+        const llevaLaLinea = linea ? puedeQuitar(residente, linea.code) : false
+        const motivoDar = linea && !llevaLaLinea ? motivoNoPuedeDar(residente, linea, lineas) : null
         return (
           <li key={residente.id} className="text-sm min-w-0">
             <p className="font-medium text-gray-900 break-words">
@@ -532,7 +537,7 @@ function ViveAqui({
             </p>
             <div className="mt-0.5 flex flex-wrap gap-1">
               {residente.lineas.length === 0 ? (
-                <span className="text-xs text-gray-400">No lleva líneas</span>
+                <span className="text-xs text-gray-400">{lineaCode ? `No lleva ${nombreLinea(lineaCode, lineas)}` : 'Sin líneas'}</span>
               ) : (
                 residente.lineas.map(code => (
                   <span
@@ -547,6 +552,32 @@ function ViveAqui({
               )}
             </div>
             {restriccion && <p className="mt-0.5 text-xs text-amber-700 break-words">{restriccion}</p>}
+            {linea && acceso.asignar && (
+              <div className="mt-1.5">
+                {llevaLaLinea ? (
+                  <button
+                    type="button"
+                    onClick={() => ctx.onQuitar(fila, residente.id)}
+                    className="px-2.5 py-1 text-xs text-red-700 bg-white border border-red-200 hover:bg-red-50 rounded-lg font-medium"
+                  >
+                    Quitarle {linea.name}
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => ctx.onDar(fila, residente.id)}
+                      disabled={motivoDar !== null}
+                      title={motivoDar ?? undefined}
+                      className="px-2.5 py-1 text-xs text-gray-800 bg-white border border-gray-300 hover:bg-gray-50 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Darle {linea.name}
+                    </button>
+                    {motivoDar && <p className="mt-1 text-xs text-amber-700 break-words">{motivoDar}</p>}
+                  </>
+                )}
+              </div>
+            )}
           </li>
         )
       })}
@@ -586,40 +617,16 @@ function EstadosBogota({ celdas }: { celdas: ZonaFila[] }) {
   )
 }
 
+/** Acciones de la Zona: "Ver datos" y el enlace al ajuste manual. Dar o quitar la línea va junto a cada persona (ViveAqui). */
 function Acciones({ fila, ctx }: { fila: FilaZonas; ctx: ContextoFila }) {
-  const { linea, acceso, lineas } = ctx
-  const residentes = zonasDeFila(fila).flatMap(zona => zona.residentes)
-  const conLinea = linea ? residentes.filter(residente => puedeQuitar(residente, linea.code)) : []
+  const { linea, acceso } = ctx
   const ajusteActivo = fila.tipo === 'zona' ? fila.zona.enLinea?.ajuste ?? null : null
-  // "Darle" se deshabilita si nadie vive en la Zona o si a nadie se le puede dar (ya la llevan todos, o la dirección
-  // los limitó a otras líneas): el motivo sale debajo del botón, con el texto de la spec.
-  const motivosDar = linea ? residentes.map(residente => motivoNoPuedeDar(residente, linea, lineas)) : []
-  const nadiePuedeRecibir = linea !== null && residentes.length > 0 && motivosDar.every(motivo => motivo !== null)
-  const motivoDar =
-    residentes.length === 0 ? 'Nadie vive en esta Zona' : nadiePuedeRecibir ? motivosDar.filter((motivo): motivo is string => motivo !== null).join(' · ') : null
   return (
     <div className="flex flex-wrap lg:flex-col items-stretch gap-1.5">
       {fila.tipo === 'zona' && (
         <button type="button" onClick={() => ctx.onVerDatos(fila.zona)} className={claseBotonChico}>
           Ver datos
         </button>
-      )}
-      {linea && acceso.asignar && (
-        <>
-          <button type="button" onClick={() => ctx.onDar(fila)} disabled={motivoDar !== null} title={motivoDar ?? undefined} className={claseBotonChico}>
-            {fila.tipo === 'bogota' ? `Darle ${linea.name} en Bogotá…` : `Darle ${linea.name} a…`}
-          </button>
-          {motivoDar && nadiePuedeRecibir && <p className="text-xs text-amber-700 break-words lg:max-w-[14rem]">{motivoDar}</p>}
-          {conLinea.length > 0 && (
-            <button
-              type="button"
-              onClick={() => ctx.onQuitar(fila)}
-              className="px-3 py-1.5 text-sm text-red-700 bg-white border border-red-200 hover:bg-red-50 rounded-lg font-medium"
-            >
-              Quitarle {linea.name}
-            </button>
-          )}
-        </>
       )}
       {linea && acceso.ajustar && fila.tipo === 'zona' && (
         <Link
@@ -648,7 +655,7 @@ function FilaZona({ zona, ctx, celda = false }: { zona: ZonaFila; ctx: ContextoF
         <QueHay cifras={zona.cifras} />
       </td>
       <td className="px-4 py-4">
-        <ViveAqui residentes={zona.residentes} lineaCode={ctx.linea?.code ?? null} lineas={ctx.lineas} />
+        <ViveAqui residentes={zona.residentes} fila={filaDeZona(zona)} ctx={ctx} />
       </td>
       {ctx.linea && (
         <td className="px-4 py-4">
@@ -692,7 +699,7 @@ function FilaBogota({
           <QueHay cifras={fila.cifras} />
         </td>
         <td className="px-4 py-4">
-          <ViveAqui residentes={residentes} lineaCode={ctx.linea?.code ?? null} lineas={ctx.lineas} />
+          <ViveAqui residentes={residentes} fila={fila} ctx={ctx} />
         </td>
         {ctx.linea && (
           <td className="px-4 py-4">
@@ -742,7 +749,7 @@ function TarjetaZona({ zona, ctx, celda = false }: { zona: ZonaFila; ctx: Contex
           <QueHay cifras={zona.cifras} />
         </Seccion>
         <Seccion titulo="Vive aquí">
-          <ViveAqui residentes={zona.residentes} lineaCode={ctx.linea?.code ?? null} lineas={ctx.lineas} />
+          <ViveAqui residentes={zona.residentes} fila={filaDeZona(zona)} ctx={ctx} />
         </Seccion>
         {ctx.linea && (
           <Seccion titulo={`En ${ctx.linea.name}`}>
@@ -783,7 +790,7 @@ function TarjetaBogota({
             <QueHay cifras={fila.cifras} />
           </Seccion>
           <Seccion titulo="Vive aquí">
-            <ViveAqui residentes={residentes} lineaCode={ctx.linea?.code ?? null} lineas={ctx.lineas} />
+            <ViveAqui residentes={residentes} fila={fila} ctx={ctx} />
           </Seccion>
           {ctx.linea && (
             <Seccion titulo={`En ${ctx.linea.name}`}>
