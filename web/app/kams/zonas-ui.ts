@@ -251,15 +251,20 @@ export function nombreLinea(code: string, lineas: ReadonlyArray<{ code: string; 
   return texto ? texto.charAt(0).toUpperCase() + texto.slice(1) : code
 }
 
-/** Restricción de la dirección sobre una persona o vacante: null si no hay (null o lista vacía = sin restricción). */
+/**
+ * Restricción de la dirección sobre una persona o vacante: null si no hay. GET /api/kams/zonas manda null = sin
+ * restricción y recorta la lista a las líneas que el usuario ve, así que [] = "la dirección la limitó a líneas que tú no
+ * ves" (sigue siendo una restricción: la API respondería 409).
+ */
 export function restriccionDe(residente: Pick<ZonaResidente, 'lineasPermitidas'>): string[] | null {
-  return residente.lineasPermitidas && residente.lineasPermitidas.length > 0 ? residente.lineasPermitidas : null
+  return residente.lineasPermitidas ?? null
 }
 
 /** "solo puede tener: Sustitutos óseos, Reemplazo articular", o null si la dirección no la limitó. */
 export function textoRestriccion(residente: ZonaResidente, lineas: ReadonlyArray<{ code: string; name: string }>): string | null {
   const permitidas = restriccionDe(residente)
   if (!permitidas) return null
+  if (permitidas.length === 0) return 'solo puede tener líneas que no ves'
   return `solo puede tener: ${permitidas.map(code => nombreLinea(code, lineas)).join(', ')}`
 }
 
@@ -280,6 +285,7 @@ export function motivoNoPuedeDar(
   if (residente.lineas.includes(linea.code)) return `${residente.nombre} ya lleva ${linea.name}`
   const permitidas = restriccionDe(residente)
   if (permitidas && !permitidas.includes(linea.code)) {
+    if (permitidas.length === 0) return `La dirección limitó a ${residente.nombre} a líneas que no ves`
     return `La dirección limitó a ${residente.nombre} a: ${permitidas.map(code => nombreLinea(code, lineas)).join(', ')}`
   }
   return null
