@@ -40,7 +40,12 @@ lo último que se haga".
    a alguien cuando otra persona de la misma Zona ya la lleva, la pantalla avisa y ofrece pasarla de una a la otra en un
    solo paso (quitar y dar, con vista previa y la cuenta de médicos que pierden visitante).
    También ese día: la "Vacante Cúcuta" era Linda Ossa; se renombró, pasó a Bucaramanga con Sustitutos óseos y atiende
-   Cúcuta por ajuste manual (4 h 52, sobre el tope).
+   Cúcuta por alcance.
+7. **El alcance de todas las líneas pasa de 4 h a 5 h** (`business_lines.max_reach_minutes` = 300; dueño, 2026-10-24:
+   "Subamos a 5 horas a todas"). Bucaramanga–Cúcuta son 4 h 52 por carretera y con 4 h Cúcuta quedaba sin cobertura.
+   Una simulación de solo lectura mostró que el cambio solo movía tres celdas más (Reemplazo articular: Montería a
+   Cartagena 4 h 39 y Pereira a Medellín 4 h 30; Columna: Cúcuta a Bucaramanga 4 h 52), todas de Zonas que estaban sin
+   cobertura. La cobertura se recalculó ese día; el valor por defecto del esquema (240) no se tocó.
 5. **Bogotá sigue en cuatro Zonas** y una líder puede darle las cuatro a una misma persona: al dar la línea a quien vive
    en una celda, las otras tres le llegan por alcance (26 a 30 minutos) si nadie local las lleva. La pantalla las muestra
    agrupadas con su total.
