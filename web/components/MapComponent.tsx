@@ -223,27 +223,29 @@ const executiveName = (e: { full_name: string; status?: string } | null | undefi
 
 /**
  * Texto plano de quién cubre la zona en la línea. Quien lo inserte en HTML crudo debe escaparlo.
- * "<nombre> — local" | "— por alcance desde <zona>, 2 h 26 (mediana entre zonas)" | "— ajuste manual: <motivo>" |
- * "Sin cobertura (más cercana: <nombre> a 4 h 39)" | "Conflicto: <nombres>"
- * ("Sin cobertura", no "Vacante": la vacante es la persona por contratar; decisión del dueño 2026-10-23.)
+ * "La atiende <nombre>, que vive en la Zona" | "La atiende <nombre> desde <zona>, a 2 h 26 por carretera" |
+ * "La atiende <nombre> por ajuste manual: <motivo>" |
+ * "Sin cobertura: nadie que lleve esta línea llega dentro del tope; la más cercana es <nombre>, a 12 h 2" | "Conflicto: <nombres>"
+ * ("Sin cobertura", no "Vacante": la vacante es la persona por contratar; decisión del dueño 2026-10-23. Lenguaje llano,
+ * como en la página Zonas: la Zona a la que pertenece la IPS es geografía; quién la atiende depende de la línea.)
  */
 export const describeCoverage = (row: CoverageRow | undefined, zoneNameById: Record<string, string>): string => {
   if (!row) return 'sin datos de cobertura (recalcular cobertura)'
   switch (row.kind) {
     case 'local':
-      return `${executiveName(row.executive)} — local`
+      return `La atiende ${executiveName(row.executive)}, que vive en la Zona`
     case 'reach': {
       const from = zoneDisplayName(row.source_kam_id ? zoneNameById[row.source_kam_id] : '') || 'otra zona'
-      // Minutos = mediana zona→zona (no el tiempo a una IPS concreta): se aclara para no confundirlo
-      // con el "Tiempo de llegada" de la tarjeta de IPS
-      return `${executiveName(row.executive)} — por alcance desde ${from}, ${formatMinutes(row.travel_minutes)} (mediana entre zonas)`
+      // Minutos = tiempo típico entre las dos ciudades (mediana zona→zona), no el tiempo a una IPS concreta: así no se
+      // confunde con el "Tiempo de llegada" de la tarjeta de IPS
+      return `La atiende ${executiveName(row.executive)} desde ${from}, a ${formatMinutes(row.travel_minutes)} por carretera`
     }
     case 'manual':
-      return `${executiveName(row.executive)} — ajuste manual: ${row.override_reason || row.note || 'sin motivo registrado'}`
+      return `La atiende ${executiveName(row.executive)} por ajuste manual: ${row.override_reason || row.note || 'sin motivo registrado'}`
     case 'vacant':
       return row.nearest
-        ? `Sin cobertura (más cercana: ${row.nearest.full_name} a ${formatMinutes(row.nearest.minutes)})`
-        : 'Sin cobertura (nadie lleva esta línea)'
+        ? `Sin cobertura: nadie que lleve esta línea llega dentro del tope de alcance; la más cercana es ${row.nearest.full_name}, a ${formatMinutes(row.nearest.minutes)}`
+        : 'Sin cobertura: nadie lleva esta línea'
     case 'conflict':
       return `Conflicto: ${row.note || 'varios Ejecutivos Comerciales locales'}`
     default:
@@ -1568,7 +1570,7 @@ export default function MapComponent({
         title: `Zona: ${lineZoneName}${baseCity ? ` (ciudad base ${baseCity})` : ''}`,
         lines: [
           `Línea: ${lineView.line.name}`,
-          `Ejecutivo Comercial: ${describeCoverage(lineRow, lineView.zoneNameById)}`,
+          `En esta línea: ${describeCoverage(lineRow, lineView.zoneNameById)}`,
           ...(noEquipment ? ['Sin equipo: la línea no opera en esta zona'] : [])
         ]
       }

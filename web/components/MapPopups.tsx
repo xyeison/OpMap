@@ -207,12 +207,14 @@ export interface ZonePopupData {
   actions: PopupAction[]
 }
 
-// "Nombre (zona 2 de 4) — local": el ordinal va justo después del nombre si el texto empieza por él
+// "La atiende Nombre (zona 2 de 4), que vive en la Zona": el ordinal va justo después del nombre, donde aparezca en el texto
 function ExecutiveWithOrdinal({ text, person, ordinal }: { text: string; person?: string | null; ordinal?: string | null }) {
   if (!ordinal) return <>{text}</>
   const ordinalText = <span className="opmap-popup__secondary"> ({ordinal})</span>
-  if (person && text.startsWith(person)) {
-    return <>{person}{ordinalText}{text.slice(person.length)}</>
+  const at = person ? text.indexOf(person) : -1
+  if (person && at >= 0) {
+    const fin = at + person.length
+    return <>{text.slice(0, fin)}{ordinalText}{text.slice(fin)}</>
   }
   return <>{text}{ordinalText}</>
 }
