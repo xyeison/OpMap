@@ -13,7 +13,7 @@
  * Uso (desde web/): npx tsx scripts/zonas-ui-check.ts   (va dentro de npm run test)
  * Código de salida 1 si alguna prueba falla.
  */
-import { motivoNoPuedeDar, nombreLinea, puedeQuitar, restriccionDe, sugerenciaCobertura, textoEstado, textoPuedeTener, textoRestriccion } from '../app/kams/zonas-ui'
+import { motivoNoPuedeDar, nombreLinea, puedeQuitar, quienesYaLaLlevan, restriccionDe, sugerenciaCobertura, textoEstado, textoPuedeTener, textoRestriccion } from '../app/kams/zonas-ui'
 import type { ZonaEnLinea, ZonaFila, ZonaResidente } from '../lib/types/zonas'
 
 let passed = 0
@@ -176,6 +176,19 @@ console.log('\n7. sugerenciaCobertura: qué puede hacer la líder cuando nadie d
   eq('ocupada → nada que sugerir', sugerenciaCobertura(zona('ocupada', [residente('Alexa', [], null)]), TRAUMA, LINEAS), null)
   eq('la única residente está limitada a otras líneas → nada (el botón ya explica)', sugerenciaCobertura(zona('alcance', [residente('Carmen', [], ['reemplazo'])]), TRAUMA, LINEAS), null)
   check('nadie vive en la Zona → hace falta vacante o persona; mientras, forzar', (sugerenciaCobertura(zona('sin_cobertura', []), TRAUMA, LINEAS) ?? '').startsWith('Nadie vive en esta Zona'))
+}
+
+// ---------------------------------------------------------------------------------------------
+console.log('\n8. quienesYaLaLlevan: dos de la misma Zona con la misma línea → avisar y ofrecer pasarla')
+// ---------------------------------------------------------------------------------------------
+{
+  const diana = residente('Diana', ['sustitutos', 'trauma'], null)
+  const linda = residente('Linda', [], null)
+  const otra = residente('Otra', ['reemplazo'], null)
+  eq('al darle Sustitutos a Linda, Diana ya la lleva', quienesYaLaLlevan([diana, linda, otra], 'sustitutos', linda.id).map(r => r.nombre), ['Diana'])
+  eq('la propia persona no cuenta', quienesYaLaLlevan([diana, linda], 'sustitutos', diana.id), [])
+  eq('nadie más la lleva → lista vacía', quienesYaLaLlevan([diana, linda, otra], 'reemplazo', otra.id), [])
+  eq('sin persona elegida (null) cuenta a todos los que la llevan', quienesYaLaLlevan([diana, linda, otra], 'trauma', null).map(r => r.nombre), ['Diana'])
 }
 
 // ---------------------------------------------------------------------------------------------

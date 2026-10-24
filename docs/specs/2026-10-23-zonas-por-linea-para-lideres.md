@@ -69,7 +69,7 @@ Medicina deportiva y Columna; ninguna lleva Sustitutos óseos). Las cifras de un
 
 | Acción | Qué guarda | Efecto |
 |---|---|---|
-| Darle mi línea a quien vive en la Zona (persona o vacante) | inserta `executive_lines`; recalcula | Ocupada (Reservada si es vacante). Si otro residente ya lleva la línea → Conflicto, que se resuelve con ajuste manual a un residente. 409 si la dirección no permitió esa línea para esa persona |
+| Darle mi línea a quien vive en la Zona (persona o vacante) | inserta `executive_lines`; recalcula | Ocupada (Reservada si es vacante). Si otra persona de la misma Zona (o de Bogotá) ya lleva la línea, el diálogo **avisa y no deja guardar**: ofrece "Pasarla de X a Y" (quitar a X y dar a Y en un paso, con vista previa y la cuenta de médicos de X que pierden visitante) o quitársela antes (dueño, 2026-10-24). 409 si la dirección no permitió esa línea para esa persona |
 | Quitarle mi línea | borra `executive_lines`; recalcula | Vuelve a Por alcance o Sin cobertura. Confirmación con la cuenta de médicos de esa línea que pierden visitante (disparador 0820) |
 | Dejar abierta | nada | La toma la más cercana que lleve la línea dentro de `max_reach_minutes`, o queda Sin cobertura |
 | Forzar a alguien de otra ciudad / Quitar ajuste | `POST`/`DELETE /api/coverage/overrides` (existen) | Regla del 2026-10-11 intacta: 409 si en la Zona vive alguien con la línea |

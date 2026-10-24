@@ -34,6 +34,13 @@ lo último que se haga".
    línea, la líder no lo ve como asignable ("No puede tener <línea>").
    Además, dentro de Bogotá quien vive en una celda atiende las cuatro ("la vacante de Bogotá sí o sí tiene que tener
    las cuatro zonas; Paola tiene que tener las cuatro"): se leen como Ocupadas o Reservadas, no por alcance.
+   **Cambio del 2026-10-24:** "mejor que todas tengan la posibilidad de tener todas las líneas, y si en una misma
+   ciudad hay dos que tienen la misma, que advierta que debe quitarle a una para ponérsela a la otra". Se quitaron
+   todas las restricciones (la tabla queda vacía y la herramienta disponible para cuando se quiera), y al dar una línea
+   a alguien cuando otra persona de la misma Zona ya la lleva, la pantalla avisa y ofrece pasarla de una a la otra en un
+   solo paso (quitar y dar, con vista previa y la cuenta de médicos que pierden visitante).
+   También ese día: la "Vacante Cúcuta" era Linda Ossa; se renombró, pasó a Bucaramanga con Sustitutos óseos y atiende
+   Cúcuta por ajuste manual (4 h 52, sobre el tope).
 5. **Bogotá sigue en cuatro Zonas** y una líder puede darle las cuatro a una misma persona: al dar la línea a quien vive
    en una celda, las otras tres le llegan por alcance (26 a 30 minutos) si nadie local las lleva. La pantalla las muestra
    agrupadas con su total.

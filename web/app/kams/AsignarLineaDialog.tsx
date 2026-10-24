@@ -19,7 +19,7 @@ import { AvisoAtencion, CAPA_MODAL, claseBotonPrimario, claseBotonSecundario, Mo
 import { readError } from '@/app/lines/coverage-shared'
 import { useVentanaAccesible } from '@/app/executives/zona-bloques'
 import { ESTADO_PLAZA_LABELS, ESTADOS_PLAZA, type SimularDiffCelda, type SimularResponse, type ZonaResidente } from '@/lib/types/zonas'
-import { ESTADO_BADGE, ESTADO_PLAZA_PLURAL, motivoNoPuedeDar, nombreLinea, nombreZona, numero, textoPuedeTener } from './zonas-ui'
+import { ESTADO_BADGE, ESTADO_PLAZA_PLURAL, motivoNoPuedeDar, nombreLinea, nombreZona, numero, quienesYaLaLlevan, textoPuedeTener } from './zonas-ui'
 
 export type ModoAsignar = 'dar' | 'quitar'
 
@@ -76,14 +76,12 @@ export default function AsignarLineaDialog({
     tituloRef.current?.focus()
   }, [])
 
-  // Quitar: solo quien lleva la línea hoy. Dar: todos los que viven en la Zona (los que no pueden salen deshabilitados).
-  const elegibles = useMemo(
-    () =>
-      (modo === 'quitar' ? residentes.filter(residente => residente.lineas.includes(linea.code)) : residentes)
-        .slice()
-        .sort((a, b) => a.zonaNombre.localeCompare(b.zonaNombre, 'es') || a.nombre.localeCompare(b.nombre, 'es')),
-    [modo, residentes, linea.code]
-  )
+  // Con residenteInicial (el interruptor de la tabla) solo esa persona; si no, quitar = quienes llevan la línea, dar = todos.
+  const elegibles = useMemo(() => {
+    const base = modo === 'quitar' ? residentes.filter(residente => residente.lineas.includes(linea.code)) : residentes
+    const lista = residenteInicial ? base.filter(residente => residente.id === residenteInicial) : base
+    return lista.slice().sort((a, b) => a.zonaNombre.localeCompare(b.zonaNombre, 'es') || a.nombre.localeCompare(b.nombre, 'es'))
+  }, [modo, residentes, linea.code, residenteInicial])
 
   const [executiveId, setExecutiveId] = useState<string>(() => {
     if (residenteInicial && elegibles.some(residente => residente.id === residenteInicial)) return residenteInicial
@@ -96,28 +94,49 @@ export default function AsignarLineaDialog({
   const [simulando, setSimulando] = useState(false)
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState('')
+  // Dar cuando otra persona de la misma Zona ya lleva la línea: en vez de dejar la Zona en conflicto, se le quita a esa
+  // (pasarDe) y se le da a la elegida en un solo paso (dueño, 2026-10-24: "advierta que debe quitarle a una para
+  // ponérsela a la otra").
+  const [pasarDe, setPasarDe] = useState<string | null>(null)
 
   const elegido = elegibles.find(residente => residente.id === executiveId) ?? null
   const motivo = elegido && modo === 'dar' ? motivoNoPuedeDar(elegido, linea, lineas) : null
+  const yaLaLlevan = useMemo(() => (modo === 'dar' ? quienesYaLaLlevan(residentes, linea.code, executiveId || null) : []), [modo, residentes, linea.code, executiveId])
+  const origen = pasarDe ? residentes.find(residente => residente.id === pasarDe) ?? null : null
+  // Dar sin pasar, con alguien más de la Zona llevando la línea: la Zona quedaría en conflicto → se exige pasar o quitar antes
+  const bloqueadoPorConflicto = modo === 'dar' && !pasarDe && yaLaLlevan.length > 0
 
   const elegir = (id: string) => {
     setExecutiveId(id)
+    setPasarDe(null)
+    setSimulacion(null)
+    setConfirmaMedicos(false)
+    setError('')
+  }
+
+  const elegirPasarDe = (id: string | null) => {
+    setPasarDe(id)
     setSimulacion(null)
     setConfirmaMedicos(false)
     setError('')
   }
 
   const previsualizar = useCallback(async () => {
-    if (!elegido || motivo) return
+    if (!elegido || motivo || bloqueadoPorConflicto) return
     setSimulando(true)
     setError('')
     try {
+      const cambios =
+        modo === 'quitar'
+          ? [{ tipo: 'linea_quitar', executive_id: elegido.id, line_id: linea.id }]
+          : [
+              ...(origen ? [{ tipo: 'linea_quitar', executive_id: origen.id, line_id: linea.id }] : []),
+              { tipo: 'linea_agregar', executive_id: elegido.id, line_id: linea.id },
+            ]
       const response = await fetch('/api/coverage/simular', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          cambios: [{ tipo: modo === 'dar' ? 'linea_agregar' : 'linea_quitar', executive_id: elegido.id, line_id: linea.id }],
-        }),
+        body: JSON.stringify({ cambios }),
       })
       if (!response.ok) throw new Error(await readError(response, 'No se pudo calcular qué cambia'))
       const body = (await response.json().catch(() => null)) as SimularResponse | null
@@ -132,16 +151,17 @@ export default function AsignarLineaDialog({
     } finally {
       setSimulando(false)
     }
-  }, [elegido, motivo, modo, linea.id])
+  }, [elegido, motivo, bloqueadoPorConflicto, modo, origen, linea.id])
 
-  // La vista previa se pide sola al abrir y cada vez que cambia la persona elegida: un paso menos para la líder.
+  // La vista previa se pide sola al abrir y cada vez que cambia la persona elegida (o de quién se pasa): un paso menos.
   const ultimaSimulada = useRef<string | null>(null)
   useEffect(() => {
-    if (!elegido || motivo || simulacion || simulando) return
-    if (ultimaSimulada.current === elegido.id) return
-    ultimaSimulada.current = elegido.id
+    if (!elegido || motivo || bloqueadoPorConflicto || simulacion || simulando) return
+    const clave = `${elegido.id}:${pasarDe ?? ''}`
+    if (ultimaSimulada.current === clave) return
+    ultimaSimulada.current = clave
     void previsualizar()
-  }, [elegido, motivo, simulacion, simulando, previsualizar])
+  }, [elegido, motivo, bloqueadoPorConflicto, pasarDe, simulacion, simulando, previsualizar])
 
   const reintentar = () => {
     ultimaSimulada.current = null
@@ -149,31 +169,48 @@ export default function AsignarLineaDialog({
     setError('')
   }
 
-  // Quitar: cuántos médicos de esta persona en esta línea perderían visitante (de la vista previa). null = la ruta no lo
-  // trajo (versión vieja del servidor): se pide confirmar igual, porque el borrado no tiene vuelta atrás.
+  // Quitar (o pasar): cuántos médicos de quien pierde la línea perderían visitante (de la vista previa). null = la ruta
+  // no lo trajo (versión vieja del servidor): se pide confirmar igual, porque el borrado no tiene vuelta atrás.
+  const pierdeLaLinea = modo === 'quitar' ? elegido : origen
   const medicosQuePierden = useMemo<number | null>(() => {
-    if (modo !== 'quitar' || !simulacion || !elegido) return null
+    if (!pierdeLaLinea || !simulacion) return null
     const lista = Array.isArray(simulacion.medicosQuePierdenVisitante) ? simulacion.medicosQuePierdenVisitante : null
-    const fila = lista?.find(item => item.executive_id === elegido.id && item.line_id === linea.id)
+    const fila = lista?.find(item => item.executive_id === pierdeLaLinea.id && item.line_id === linea.id)
     return fila && Number.isFinite(fila.medicos) ? fila.medicos : null
-  }, [modo, simulacion, elegido, linea.id])
-  const requiereConfirmacion = modo === 'quitar' && simulacion !== null && (medicosQuePierden === null || medicosQuePierden > 0)
+  }, [pierdeLaLinea, simulacion, linea.id])
+  const requiereConfirmacion = pierdeLaLinea !== null && simulacion !== null && (medicosQuePierden === null || medicosQuePierden > 0)
   const faltaConfirmar = requiereConfirmacion && !confirmaMedicos
 
   const guardar = async () => {
-    if (!elegido || motivo || !simulacion || faltaConfirmar) return
+    if (!elegido || motivo || bloqueadoPorConflicto || !simulacion || faltaConfirmar) return
     setGuardando(true)
     setError('')
     try {
+      // Pasar: primero se le quita a quien la lleva (si falla, no se le da a nadie y la Zona queda como estaba)
+      let medicosDelOrigen: number | null = null
+      if (modo === 'dar' && origen) {
+        const quitada = await fetch(`/api/executives/${encodeURIComponent(origen.id)}/lineas/${encodeURIComponent(linea.id)}`, { method: 'DELETE' })
+        if (!quitada.ok) throw new Error(await readError(quitada, `No se pudo quitarle ${linea.name} a ${origen.nombre}`))
+        const cuerpo = ((await quitada.json().catch(() => null)) ?? {}) as RespuestaGuardar
+        medicosDelOrigen = typeof cuerpo.medicosTerminados === 'number' ? cuerpo.medicosTerminados : null
+      }
       const response = await fetch(`/api/executives/${encodeURIComponent(elegido.id)}/lineas/${encodeURIComponent(linea.id)}`, {
         method: modo === 'dar' ? 'PUT' : 'DELETE',
       })
-      if (!response.ok) throw new Error(await readError(response, modo === 'dar' ? 'No se pudo dar la línea' : 'No se pudo quitar la línea'))
+      if (!response.ok) {
+        const base = modo === 'dar' ? 'No se pudo dar la línea' : 'No se pudo quitar la línea'
+        const detalle = await readError(response, base)
+        throw new Error(origen ? `Se le quitó ${linea.name} a ${origen.nombre}, pero no se pudo dar a ${elegido.nombre}: ${detalle}` : detalle)
+      }
       const body = ((await response.json().catch(() => null)) ?? {}) as RespuestaGuardar
       const recalculada = body.cobertura?.recalculada !== false
       const nombre = body.ejecutivo?.nombre ?? elegido.nombre
       const coberturaTexto = recalculada ? ' La cobertura se recalculó.' : ' Se guardó, pero no se pudo recalcular la cobertura: usa "Recalcular cobertura" en Líneas.'
-      if (modo === 'dar') {
+      if (modo === 'dar' && origen) {
+        const medicosTexto =
+          medicosDelOrigen === null ? '' : medicosDelOrigen === 0 ? '' : ` ${numero(medicosDelOrigen)} ${medicosDelOrigen === 1 ? 'médico quedó' : 'médicos quedaron'} sin visitante.`
+        onGuardado(`${linea.name} pasó de ${origen.nombre} a ${nombre} en ${zonaNombre}.${medicosTexto}${coberturaTexto}`)
+      } else if (modo === 'dar') {
         onGuardado(`${nombre} ahora lleva ${linea.name} en ${zonaNombre}.${coberturaTexto}`)
       } else {
         const medicos = typeof body.medicosTerminados === 'number' ? body.medicosTerminados : null
@@ -203,9 +240,9 @@ export default function AsignarLineaDialog({
   )
   const resumen = simulacion?.resumen[linea.code] ?? null
 
-  const verbo = modo === 'dar' ? 'Darle' : 'Quitarle'
-  const titulo = elegido ? `${verbo} ${linea.name} a ${elegido.nombre}` : `${verbo} ${linea.name}`
-  const puedeConfirmar = !!elegido && !motivo && !!simulacion && !faltaConfirmar && !guardando && !simulando
+  const verbo = modo === 'dar' ? (origen ? 'Pasar' : 'Darle') : 'Quitarle'
+  const titulo = origen && elegido ? `Pasar ${linea.name} de ${origen.nombre} a ${elegido.nombre}` : elegido ? `${verbo} ${linea.name} a ${elegido.nombre}` : `${verbo} ${linea.name}`
+  const puedeConfirmar = !!elegido && !motivo && !bloqueadoPorConflicto && !!simulacion && !faltaConfirmar && !guardando && !simulando
 
   return (
     <Modal titulo={titulo} subtitulo={zonaNombre} onCerrar={onCerrar} ancho="sm:max-w-2xl" capa={CAPA_MODAL}>
@@ -253,9 +290,47 @@ export default function AsignarLineaDialog({
             </ul>
           )}
 
+          {/* Otra persona de la misma Zona ya lleva la línea: avisar y ofrecer pasarla en un solo paso */}
+          {modo === 'dar' && elegido && yaLaLlevan.length > 0 && (
+            <AvisoAtencion>
+              {origen ? (
+                <>
+                  <p className="font-semibold">
+                    Se le quita {linea.name} a {origen.nombre} y se le da a {elegido.nombre}.
+                  </p>
+                  <p className="mt-1">Abajo sale cómo queda la cobertura y cuántos médicos de {origen.nombre} quedan sin visitante.</p>
+                  <button type="button" onClick={() => elegirPasarDe(null)} className="mt-2 text-sm underline underline-offset-2">
+                    Volver
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p className="font-semibold">
+                    En {zonaNombre}, {yaLaLlevan.map(residente => residente.nombre).join(' y ')} ya {yaLaLlevan.length === 1 ? 'lleva' : 'llevan'} {linea.name}.
+                  </p>
+                  <p className="mt-1">
+                    Dos personas de la misma Zona con la misma línea quedan en conflicto. Quítasela primero a quien la lleva, o pásala a {elegido.nombre} en un solo paso:
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {yaLaLlevan.map(residente => (
+                      <button
+                        key={residente.id}
+                        type="button"
+                        onClick={() => elegirPasarDe(residente.id)}
+                        className="px-3 py-1.5 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800"
+                      >
+                        Pasarla de {residente.nombre} a {elegido.nombre}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </AvisoAtencion>
+          )}
+
           <p className="text-sm text-gray-600">
             {modo === 'dar'
-              ? `Al darle ${linea.name}, ${elegido?.status === 'placeholder' ? 'la Zona queda reservada para esa vacante hasta que se contrate' : 'esa persona pasa a atender la Zona en esa línea'} y, por alcance, las Zonas vecinas que nadie cubra dentro del tope. Si otra persona de la Zona ya la lleva, la Zona queda en conflicto hasta que lo resuelvas con un ajuste manual.`
+              ? `Al darle ${linea.name}, ${elegido?.status === 'placeholder' ? 'la Zona queda reservada para esa vacante hasta que se contrate' : 'esa persona pasa a atender la Zona en esa línea'} y, por alcance, las Zonas vecinas que nadie cubra dentro del tope.`
               : `Al quitarle ${linea.name}, la Zona pasa a atenderla la persona más cercana que lleve la línea dentro del tope, o queda sin cobertura. Sus médicos de esta línea quedan sin visitante y nada lo deshace.`}
           </p>
           {esBogota && modo === 'dar' && (
@@ -294,6 +369,9 @@ export default function AsignarLineaDialog({
             )}
 
             {!simulando && !error && !simulacion && elegido && motivo && <p className="text-sm text-amber-700">{motivo}</p>}
+            {!simulando && !simulacion && bloqueadoPorConflicto && (
+              <p className="text-sm text-gray-500">Se calcula cuando elijas pasarla, o cuando le quites la línea a quien la lleva.</p>
+            )}
 
             {simulacion && elegido && (
               <div className="space-y-3">
@@ -338,16 +416,16 @@ export default function AsignarLineaDialog({
                   </div>
                 )}
 
-                {/* Quitar: médicos que pierden visitante (disparador 0820, sin vuelta atrás) y confirmación */}
-                {modo === 'quitar' && (
+                {/* Quitar o pasar: médicos de quien pierde la línea que quedan sin visitante (disparador 0820, sin vuelta atrás) */}
+                {pierdeLaLinea && (
                   medicosQuePierden === 0 ? (
-                    <p className="text-sm text-gray-600">Ningún médico de {linea.name} tiene a {elegido.nombre} como visitante: nadie queda sin visitante.</p>
+                    <p className="text-sm text-gray-600">Ningún médico de {linea.name} tiene a {pierdeLaLinea.nombre} como visitante: nadie queda sin visitante.</p>
                   ) : (
                     <AvisoAtencion>
                       <p className="font-semibold">
                         {medicosQuePierden === null
-                          ? `No se pudo contar cuántos médicos de ${linea.name} tienen a ${elegido.nombre} como visitante.`
-                          : `${numero(medicosQuePierden)} ${medicosQuePierden === 1 ? 'médico' : 'médicos'} de ${linea.name} ${medicosQuePierden === 1 ? 'tiene' : 'tienen'} a ${elegido.nombre} como visitante.`}
+                          ? `No se pudo contar cuántos médicos de ${linea.name} tienen a ${pierdeLaLinea.nombre} como visitante.`
+                          : `${numero(medicosQuePierden)} ${medicosQuePierden === 1 ? 'médico' : 'médicos'} de ${linea.name} ${medicosQuePierden === 1 ? 'tiene' : 'tienen'} a ${pierdeLaLinea.nombre} como visitante.`}
                       </p>
                       <p className="mt-1">
                         Al quitarle la línea {medicosQuePierden === 1 ? 'queda' : 'quedan'} sin visitante hoy mismo y nada lo deshace: habría que reasignarlos desde Terceros.
@@ -362,7 +440,7 @@ export default function AsignarLineaDialog({
                         />
                         <span className="text-sm">
                           {medicosQuePierden === null
-                            ? `Entiendo que los médicos de ${linea.name} que visita ${elegido.nombre} quedan sin visitante.`
+                            ? `Entiendo que los médicos de ${linea.name} que visita ${pierdeLaLinea.nombre} quedan sin visitante.`
                             : `Entiendo que ${numero(medicosQuePierden)} ${medicosQuePierden === 1 ? 'médico queda' : 'médicos quedan'} sin visitante.`}
                         </span>
                       </label>
@@ -380,11 +458,13 @@ export default function AsignarLineaDialog({
               ? 'Elige a quién.'
               : motivo
                 ? 'No se puede dar esta línea a esta persona.'
-                : !simulacion
-                  ? 'Confirmar se habilita cuando termine el cálculo.'
-                  : faltaConfirmar
-                    ? 'Marca "Entiendo…" para habilitar Quitarle.'
-                    : 'Si esto es lo que quieres, confirma.'}
+                : bloqueadoPorConflicto
+                  ? 'Otra persona de la Zona ya lleva la línea: pásala o quítasela primero.'
+                  : !simulacion
+                    ? 'Confirmar se habilita cuando termine el cálculo.'
+                    : faltaConfirmar
+                      ? 'Marca "Entiendo…" para habilitar el botón.'
+                      : 'Si esto es lo que quieres, confirma.'}
           </span>
           <div className="flex justify-end gap-3">
             <button type="button" onClick={onCerrar} disabled={guardando} className={claseBotonSecundario}>
@@ -401,7 +481,7 @@ export default function AsignarLineaDialog({
                   : claseBotonPrimario
               }
             >
-              {guardando ? 'Guardando…' : `${verbo} ${linea.name}`}
+              {guardando ? 'Guardando…' : origen && elegido ? `Pasar ${linea.name} a ${elegido.nombre}` : `${verbo} ${linea.name}`}
             </button>
           </div>
         </div>

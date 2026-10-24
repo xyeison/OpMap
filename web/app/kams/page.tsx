@@ -200,14 +200,15 @@ function ZonasContent() {
   const puedeAdministrar = puedeEditarZonas || acceso.administrar
   const hayAdministracion = puedeAdministrar || puedeBogota || veContratos
 
-  // El diálogo se abre para UNA persona o vacante concreta (el botón está junto a su nombre en "Vive aquí").
+  // El diálogo se abre para UNA persona o vacante concreta (el interruptor está junto a su nombre en "Vive aquí"), pero
+  // recibe a todos los que viven en la Zona (o en las celdas de Bogotá) para avisar si otra ya lleva la línea.
   const abrirDialogo = useCallback(
     (modo: ModoAsignar, fila: FilaZonas, residenteId: string) => {
       if (!linea) return
-      const residentes: ResidenteElegible[] = zonasDeFila(fila)
-        .flatMap(zona => zona.residentes.map(residente => ({ ...residente, kam_id: zona.kam_id, zonaNombre: nombreZona(zona.nombre) })))
-        .filter(residente => residente.id === residenteId)
-      if (residentes.length === 0) return
+      const residentes: ResidenteElegible[] = zonasDeFila(fila).flatMap(zona =>
+        zona.residentes.map(residente => ({ ...residente, kam_id: zona.kam_id, zonaNombre: nombreZona(zona.nombre) }))
+      )
+      if (!residentes.some(residente => residente.id === residenteId)) return
       setNotice('')
       setDialogo({ modo, zonaNombre: fila.nombre, esBogota: fila.tipo === 'bogota', residentes, residenteInicial: residenteId })
     },
@@ -540,7 +541,7 @@ function ViveAqui({ residentes, fila, ctx }: { residentes: Array<ZonaResidente &
               {residente.status === 'placeholder' && <span className="ml-1 text-xs font-normal text-amber-700">(por contratar)</span>}
               {residente.zonaNombre && <span className="ml-1 text-xs font-normal text-gray-500">· vive en {residente.zonaNombre}</span>}
             </p>
-            <p className={`mt-0.5 text-xs break-words ${limitada ? 'text-amber-700' : 'text-gray-500'}`}>{puedeTener}</p>
+            {limitada && <p className="mt-0.5 text-xs text-amber-700 break-words">{puedeTener}</p>}
             {mostrarChips && (
               <div className="mt-1 flex flex-wrap items-center gap-1">
                 {residente.lineas.length === 0 ? (

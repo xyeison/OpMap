@@ -324,6 +324,15 @@ export function textoPuedeTener(residente: Pick<ZonaResidente, 'lineasPermitidas
   return `Solo puede tener: ${permitidas.map(code => nombreLinea(code, lineas)).join(', ')}`
 }
 
+/**
+ * Quiénes de la misma Zona (o de las celdas de Bogotá) ya llevan la línea, aparte de la persona elegida. Dos personas
+ * de la misma Zona con la misma línea quedan en conflicto: la pantalla avisa "quítasela primero a X" y ofrece pasarla
+ * de X a Y en un solo paso (dueño, 2026-10-24).
+ */
+export function quienesYaLaLlevan<T extends Pick<ZonaResidente, 'id' | 'lineas'>>(residentes: ReadonlyArray<T>, lineaCode: string, exceptoId: string | null): T[] {
+  return residentes.filter(residente => residente.id !== exceptoId && residente.lineas.includes(lineaCode))
+}
+
 /** ¿Lleva la línea hoy? (entonces se le puede quitar). */
 export function puedeQuitar(residente: Pick<ZonaResidente, 'lineas'>, lineaCode: string): boolean {
   return residente.lineas.includes(lineaCode)
