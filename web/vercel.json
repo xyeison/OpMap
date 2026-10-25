@@ -34,6 +34,10 @@
       "schedule": "0 6 * * *"
     },
     {
+      "path": "/api/cron/secop_procesos",
+      "schedule": "30 6 * * *"
+    },
+    {
       "path": "/api/cron/secop_i",
       "schedule": "0 7 * * 2"
     },

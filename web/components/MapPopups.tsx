@@ -9,7 +9,8 @@ import { formatCopCompact } from '@/lib/giros-format'
 import { fechaEs, numeroEs } from '@/lib/zona-estadisticas'
 import { lineaLabel } from '@/lib/compras-publicas'
 import { MAPA_DETALLE_TEXTOS, notaEstadoCompras, notaParteSede, textoSinIps } from '@/lib/mapa-detalle'
-import type { ComprasDetalle, GirosDetalle, IpsDetalle, TerritorioDetalle } from '@/lib/types/mapa-detalle'
+import { EMPRESAS_MAPA_VISIBLES, textoCargandoDetalle, textoEmpresa, textoSinEmpresa, textoVerEmpresas } from '@/lib/mapa-procesos-ui'
+import type { AlcanceDetalle, ComprasDetalle, GirosDetalle, IpsDetalle, ProcesosDetalle, TerritorioDetalle } from '@/lib/types/mapa-detalle'
 
 // Tarjetas (popups) del mapa: IPS, IPS sin zona, zona, racimo de zonas y territorio. Contenido React (sin HTML crudo,
 // así que no hace falta escapar) con los estilos .opmap-popup de globals.css.
@@ -18,6 +19,9 @@ import type { ComprasDetalle, GirosDetalle, IpsDetalle, TerritorioDetalle } from
 // muestran los giros ADRES y las compras públicas SECOP de 12 meses (GirosComprasSection) en lugar de los contratos
 // cargados a mano, que ya no viajan en /api/map/data. Los datos se piden al abrir la tarjeta (MapComponent) y llegan ya
 // contados por el servidor (lib/mapa-detalle.ts): aquí solo se pintan. Nunca nombres de personas naturales ni médicos.
+// Desde el 2026-10-25 (spec docs/specs/2026-10-25-secop-procesos-radar.md) debajo de las compras va la sección de
+// procesos de SECOP II publicados sin contrato (ProcesosSection); con alcance 'procesos' (secop:procesos sin
+// intelligence:view, p. ej. un Ejecutivo Comercial) es lo único que se pinta. Sin procesos no se pinta nada.
 
 // Ancho máximo: hasta el 92 % de la pantalla en móvil, 340 px en escritorio
 export function popupMaxWidth(): number {
@@ -150,7 +154,7 @@ const formatInt = (value: number) => Number(value || 0).toLocaleString('es-CO')
 
 // ---------- Giros ADRES y compras públicas SECOP de 12 meses ----------
 
-/** Estado de la carga perezosa: sin `intelligence:view` no hay llamada ni sección (sin_acceso). */
+/** Estado de la carga perezosa: sin `intelligence:view` ni `secop:procesos` no hay llamada ni sección (sin_acceso). */
 export type DetalleEstado = 'cargando' | 'error' | 'listo' | 'sin_acceso'
 
 export interface GirosComprasProps {
@@ -160,6 +164,8 @@ export interface GirosComprasProps {
   error: string | null
   onRetry: () => void
   modo: 'territorio' | 'ips'
+  // Lo que el rol puede ver antes de que llegue el dato ('procesos': ni giros ni compras); al llegar manda data.alcance
+  alcance?: AlcanceDetalle
 }
 
 // Proveedores visibles antes de "Ver los N proveedores" (el resto se despliega dentro de la tarjeta)
@@ -227,6 +233,42 @@ function ProveedoresList({ compras }: { compras: ComprasDetalle }) {
   )
 }
 
+/**
+ * Sección "Empresas en procesos sin contrato (SECOP II)" de las tarjetas del mapa: solo los nombres de las empresas que
+ * figuran en procesos publicados sin contrato registrado (dueño, 2026-10-25: "súper conciso; la idea es que vea el nombre
+ * de las empresas"), las que figuran en más procesos primero, cuántos procesos no nombran empresa y un aviso corto. El
+ * precio base, la fecha y el enlace de cada proceso están en la ficha de la IPS. Sin procesos no se pinta nada.
+ */
+function ProcesosSection({ procesos }: { procesos: ProcesosDetalle }) {
+  const [todas, setTodas] = useState(false)
+  const empresas = procesos.empresas ?? []
+  const sinEmpresa = textoSinEmpresa(procesos.sinEmpresa ?? 0, empresas.length > 0)
+  if (empresas.length === 0 && !sinEmpresa) return null
+  const visibles = todas ? empresas : empresas.slice(0, EMPRESAS_MAPA_VISIBLES)
+  const verTodas = textoVerEmpresas(empresas.length, todas)
+  return (
+    <div className="opmap-popup__section">
+      <div className="opmap-popup__section-title">{MAPA_DETALLE_TEXTOS.tituloEmpresasProcesos} · {procesos.ventana.texto}</div>
+      {visibles.length > 0 && (
+        <ul className="opmap-popup__empresas">
+          {visibles.map(empresa => (
+            <li key={`${empresa.nit ?? ''}|${empresa.nombre}`} className="font-medium">
+              {textoEmpresa(empresa)}
+            </li>
+          ))}
+        </ul>
+      )}
+      {verTodas && (
+        <div className="opmap-popup__note">
+          <TextButton onClick={() => setTodas(value => !value)}>{verTodas}</TextButton>
+        </div>
+      )}
+      {sinEmpresa && <div className="opmap-popup__note">{sinEmpresa}</div>}
+      <div className="opmap-popup__note">{MAPA_DETALLE_TEXTOS.notaEmpresasProcesos}</div>
+    </div>
+  )
+}
+
 function ComprasRows({ compras, modo }: { compras: ComprasDetalle; modo: 'territorio' | 'ips' }) {
   // Aparte y en una línea: lo que no suma al valor (y los estimados, que sí suman pero se avisan)
   const aparte: string[] = []
@@ -268,15 +310,16 @@ function ComprasRows({ compras, modo }: { compras: ComprasDetalle; modo: 'territ
 
 /**
  * Sección "Giros ADRES" + "Compras públicas de material ortopédico y neurocirugía (SECOP)" de las tarjetas de IPS y
- * territorio (spec E1/E2). Las notas que esta sección ya pinta en su sitio (estado de compras, parte por camas, parte
- * de la sede, pie de fuentes) se quitan de `data.notas` para no repetirlas; las demás van al final.
+ * territorio (spec E1/E2) y, debajo, "Procesos publicados sin contrato (SECOP II)" si hay. Las notas que esta sección ya
+ * pinta en su sitio (estado de compras, parte por camas, parte de la sede, pie de fuentes) se quitan de `data.notas`
+ * para no repetirlas; las demás van al final. Con alcance 'procesos' solo la sección de procesos (o nada).
  */
-export function GirosComprasSection({ estado, data, error, onRetry, modo }: GirosComprasProps) {
+export function GirosComprasSection({ estado, data, error, onRetry, modo, alcance = 'completo' }: GirosComprasProps) {
   if (estado === 'sin_acceso') return null
   if (estado === 'cargando') {
     return (
       <div className="opmap-popup__section">
-        <div className="opmap-popup__note" role="status">Cargando giros y compras…</div>
+        <div className="opmap-popup__note" role="status">{textoCargandoDetalle(alcance)}</div>
       </div>
     )
   }
@@ -290,7 +333,12 @@ export function GirosComprasSection({ estado, data, error, onRetry, modo }: Giro
     )
   }
 
-  const { giros, compras, comprasEstado } = data
+  // Solo procesos (secop:procesos sin intelligence:view): ni giros, ni compras, ni sus notas; sin procesos, nada
+  if ((data.alcance ?? alcance) === 'procesos') {
+    return data.procesos ? <ProcesosSection procesos={data.procesos} /> : null
+  }
+
+  const { giros, compras, comprasEstado, procesos } = data
   const hospital = modo === 'ips' && 'hospital' in data ? data.hospital : null
   const tipo = 'territorio' in data ? data.territorio.tipo : undefined
   const notaSede = hospital ? notaParteSede(hospital.nit, hospital.sedesNit) : null
@@ -306,11 +354,15 @@ export function GirosComprasSection({ estado, data, error, onRetry, modo }: Giro
   if (!giros && !compras) {
     const notasServidor = data.notas || []
     return (
-      <div className="opmap-popup__section">
-        {(notasServidor.length > 0 ? notasServidor : [textoSinIps(tipo ?? 'municipio')]).map(nota => (
-          <div key={nota} className="opmap-popup__note">{nota}</div>
-        ))}
-      </div>
+      <>
+        <div className="opmap-popup__section">
+          {(notasServidor.length > 0 ? notasServidor : [textoSinIps(tipo ?? 'municipio')]).map(nota => (
+            <div key={nota} className="opmap-popup__note">{nota}</div>
+          ))}
+        </div>
+        {/* Defensivo: el servidor solo manda procesos de entidades públicas, que siempre traen compras */}
+        {procesos && <ProcesosSection procesos={procesos} />}
+      </>
     )
   }
 
@@ -342,6 +394,8 @@ export function GirosComprasSection({ estado, data, error, onRetry, modo }: Giro
           <div className="opmap-popup__note">SECOP actualizado el {fechaEs(compras.actualizado)}</div>
         )}
       </div>
+
+      {procesos && <ProcesosSection procesos={procesos} />}
 
       {otrasNotas.map(nota => (
         <div key={nota} className="opmap-popup__note">{nota}</div>

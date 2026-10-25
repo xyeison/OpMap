@@ -3,6 +3,14 @@
 **Estado**: aprobada por el dueño por delegación (chat 2026-10-11: "Toma todas las decisiones adicionales tú")
 | pendiente de implementar (después del PR de SECOP I valor real)
 
+> **Nota (2026-10-25)**: reemplazada en parte por `docs/specs/2026-10-25-secop-procesos-radar.md` (decisión
+> `docs/decisiones/2026-10-25-procesos-secop-radar-comercial.md`). La capa de datos (fuente `secop_procesos`, tabla
+> `secop_procesos`, migración 0890) se hizo allí, corregida: los procesos van en una tabla aparte y nunca suman como
+> compras; en régimen especial "Publicado" no es una licitación abierta y `adjudicado = 'No'` no dice quién ganó, así
+> que no se muestra "abierto", "en curso", "licitación" ni "adjudicado a"; y el título del proceso no se muestra tal
+> cual. Siguen pendientes de esta spec la pestaña "Licitaciones" de `/inteligencia`, los procesos ganados y perdidos por
+> proveedor y las alertas de cierre.
+
 ## Problema
 OpMap solo conoce contratos ya firmados. Los **procesos** de SECOP II (dataset `p6dx-8zbt`, "SECOP II -
 Procesos de Contratación", 8,7 M de filas, actualización diaria) dicen qué IPS está comprando material

@@ -136,6 +136,9 @@ export async function GET(request: NextRequest) {
     // intelligence:view. Los contratos cargados a mano (hospital_contracts) ya no se leen ni se mandan a nadie: con
     // ello se cierra el hueco de permisos anotado en la spec 2026-10-14.
     const inteligenciaIncluida = hasPermission(auth.user.role, 'intelligence:view')
+    // Procesos de SECOP II sin contrato (radar, spec 2026-10-25): con secop:procesos (o intelligence:view) las tarjetas
+    // también piden /api/map/detalle/*; un Ejecutivo Comercial (sales_manager) recibe ahí solo los procesos.
+    const procesosIncluidos = inteligenciaIncluida || hasPermission(auth.user.role, 'secop:procesos')
 
     // Cargar todos los datos necesarios para el mapa
     const [kamsResult, assignmentsResult, municipalitiesResult, hospitalsResult, executivesResult] = await Promise.all([
@@ -318,6 +321,8 @@ export async function GET(request: NextRequest) {
       municipalityNames,
       // true: el rol ve giros ADRES y compras SECOP en las tarjetas (las pide a /api/map/detalle/* al abrirlas)
       inteligenciaIncluida,
+      // true: el rol ve los procesos de SECOP II publicados sin contrato en las tarjetas (mismo /api/map/detalle/*)
+      procesosIncluidos,
       territoryStats
     })
   } catch (error) {

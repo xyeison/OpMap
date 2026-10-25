@@ -25,16 +25,31 @@
 //     proveedores vigilados). El 2026-10-24 había 0 NIT en cualquiera de esas combinaciones (de 47 con varias sedes).
 //     Una sede que no es entidad de compra pública no entra en las compras del territorio aunque SECOP traiga
 //     contratos a su nombre (marca manual = false: falso positivo, decisión 2026-10-12).
+//
+// Procesos de SECOP II publicados sin contrato (radar comercial, spec docs/specs/2026-10-25-secop-procesos-radar.md):
+//   - Se leen de la vista secop_procesos_radar (loadProcesosRadar: ya sin contrato cargado de la misma entidad) solo con
+//     los NIT de las sedes que son entidad de compra pública por la MISMA regla de las compras (resolverPublicaPorSede),
+//     en la ventana de SECOP (12 meses por fecha de publicación) y se resumen con resumirProcesos (máximo 20, nunca se
+//     suma el precio base). La entidad se nombra con la IPS de OpMap de ese NIT, no con el texto de SECOP.
+//   - Alcance: 'completo' (intelligence:view) trae giros, compras y procesos; 'procesos' (solo secop:procesos, p. ej. un
+//     Ejecutivo Comercial) trae SOLO los procesos: no lee giros (ni sus límites), hechos de SECOP ni fuentes; giros y
+//     compras van en null, comprasEstado 'no_incluido' y sin notas. Sí lee la lista vigilada activa, para que la marca
+//     "Vigilado" de un proceso sea la misma en los dos alcances. Para saber qué sedes son públicas usa la
+//     marca manual, el REPS y la existencia de contratos históricos (sin los hechos de la ventana: un NIT con hechos en la
+//     ventana también tiene contratos en el histórico, así que el veredicto es el mismo).
+//   - Sin la vista (migración 0890 sin aplicar) loadProcesosRadar devuelve [] y procesos queda en null (200, no 503).
 // Privacidad: la respuesta nunca lleva proveedor_key, proveedor_hash, documentos ni nombres de personas naturales ni de
-// médicos (lo garantiza resumirCompras). Ninguna lectura escribe en la base ni llama a Google.
+// médicos (lo garantizan resumirCompras y resumirProcesos), ni el título ni la descripción de un proceso. Ninguna lectura
+// escribe en la base ni llama a Google.
 import { fetchAllRows } from '@/app/api/_lib/api-error'
 import { isMissingRelationError, loadGirosNits, loadIdentificaBounds } from '@/app/api/intelligence/_lib/giros-server'
 import { hoyBogota } from '@/app/api/secop/_lib/hoy'
-import { loadHechos, loadSecopActualizado, loadVigiladosActivos } from '@/app/api/secop/_lib/secop-server'
+import { loadHechos, loadProcesosRadar, loadSecopActualizado, loadVigiladosActivos } from '@/app/api/secop/_lib/secop-server'
 import { nitOfHospital, parseResumen } from '@/lib/adres-intelligence'
 import { resolverCompraPublica, type CompraPublicaOrigen, type SecopActualizado, type SecopFact } from '@/lib/compras-publicas'
 import {
   MAPA_DETALLE_TEXTOS,
+  PROCESOS_MAPA_MAX,
   contratosEnVentana,
   estadoCompras,
   ipsDelTerritorio,
@@ -44,14 +59,29 @@ import {
   parteDeSede,
   resumirCompras,
   resumirGiros,
+  resumirProcesos,
   ventanaGiros,
   ventanaSecop,
   type SedeMapa,
 } from '@/lib/mapa-detalle'
+import { hasPermission, type Role } from '@/lib/permissions'
 import { supabaseAdmin, type SupabaseAdminClient } from '@/lib/supabase-admin'
-import type { ComprasDetalle, GirosDetalle, IpsDetalle, TerritorioDetalle, Ventana } from '@/lib/types/mapa-detalle'
+import type { AlcanceDetalle, ComprasDetalle, GirosDetalle, IpsDetalle, ProcesosDetalle, TerritorioDetalle, Ventana } from '@/lib/types/mapa-detalle'
 
 export type TerritorioTipo = TerritorioDetalle['territorio']['tipo']
+
+/** Permisos que abren las tarjetas del mapa: con cualquiera de los dos la ruta responde 200 (requireAnyPermission). */
+export const PERMISOS_DETALLE = ['intelligence:view', 'secop:procesos'] as const
+
+/**
+ * Qué trae la tarjeta según el rol: intelligence:view → 'completo' (giros, compras y procesos); solo secop:procesos →
+ * 'procesos'. null si no tiene ninguno (la ruta ya respondió 403 sin leer nada).
+ */
+export function alcanceDelRol(role: Role): AlcanceDetalle | null {
+  if (hasPermission(role, 'intelligence:view')) return 'completo'
+  if (hasPermission(role, 'secop:procesos')) return 'procesos'
+  return null
+}
 
 /** IPS activa con lo que la tarjeta necesita: ubicarla, repartir por camas, nombrarla y saber su marca manual. */
 export interface SedeMapaRow extends SedeMapa {
@@ -209,6 +239,45 @@ const nitsDe = (sedes: SedeMapa[]): string[] => {
   return Array.from(out)
 }
 
+/**
+ * Nombre de la IPS de OpMap por NIT entre las sedes dadas (las públicas del territorio o la de la tarjeta): con varias
+ * sedes del mismo NIT, la de más camas (luego por nombre), para que la tarjeta de municipio diga "Hospital X" y no el
+ * texto de la entidad en SECOP.
+ */
+function nombrePorNit(sedes: SedeMapaRow[]): Map<string, string> {
+  const elegida = new Map<string, SedeMapaRow>()
+  for (const sede of sedes) {
+    const nit = nitOfHospital(sede)
+    if (!nit || !sede.name) continue
+    const actual = elegida.get(nit)
+    if (!actual || (sede.beds ?? 0) > (actual.beds ?? 0) || ((sede.beds ?? 0) === (actual.beds ?? 0) && sede.name.localeCompare(actual.name, 'es') < 0)) {
+      elegida.set(nit, sede)
+    }
+  }
+  return new Map(Array.from(elegida, ([nit, sede]) => [nit, sede.name]))
+}
+
+/**
+ * Procesos de SECOP II sin contrato (radar) de las sedes PÚBLICAS dadas: una lectura de la vista con sus NIT y la
+ * ventana de SECOP, resumirProcesos (orden fecha desc, máximo PROCESOS_MAPA_MAX, total de todos) y la entidad con el
+ * nombre de la IPS de OpMap. Sin sedes públicas con NIT, null sin leer nada; sin procesos (o sin la vista), null.
+ * `vigilados`: la lista activa (la misma en los dos alcances); con null, la marca guardada en la carga.
+ */
+async function procesosDeSedes(
+  sedesPublicas: SedeMapaRow[],
+  ventana: Ventana,
+  vigilados: ReadonlySet<string> | null,
+  db: SupabaseAdminClient
+): Promise<ProcesosDetalle | null> {
+  const nits = nitsDe(sedesPublicas)
+  if (nits.length === 0) return null
+  const filas = await loadProcesosRadar({ nits, desde: ventana.desde, hasta: ventana.hasta }, db)
+  const resumen = resumirProcesos(filas, { limite: PROCESOS_MAPA_MAX, ventana, vigilados })
+  if (!resumen) return null
+  const nombres = nombrePorNit(sedesPublicas)
+  return { ...resumen, procesos: resumen.procesos.map(proceso => ({ ...proceso, entidad: nombres.get(proceso.nitEntidad) ?? proceso.entidad })) }
+}
+
 /** Nombre del municipio cuando no tiene IPS (no hay sede de la que tomarlo): tabla municipalities. */
 async function nombreMunicipio(code: string, db: SupabaseAdminClient): Promise<{ nombre: string; departamento: string | null }> {
   const { data, error } = await db.from('municipalities').select('code, name, department_code').eq('code', code).limit(1)
@@ -225,11 +294,18 @@ async function nombreMunicipio(code: string, db: SupabaseAdminClient): Promise<{
 /**
  * Detalle de un municipio (code = DANE de 5 dígitos, hospitals.municipality_id) o de una localidad de Bogotá (code =
  * 7 dígitos, hospitals.locality_id; nunca se pide el 11001 entero). Sin IPS activas: ips.total = 0, giros y compras
- * null y una sola nota (textoSinIps: "este municipio" / "esta localidad"). Con IPS: giros de todas; compras solo de las que son entidad de
- * compra pública; estado y notas según lib/mapa-detalle.ts.
+ * null y una sola nota (textoSinIps: "este municipio" / "esta localidad"). Con IPS: giros de todas; compras y procesos
+ * solo de las que son entidad de compra pública; estado y notas según lib/mapa-detalle.ts. Con alcance 'procesos' solo
+ * los procesos (ver la cabecera).
  */
-export async function cargarDetalleTerritorio(tipo: TerritorioTipo, code: string, db: SupabaseAdminClient = supabaseAdmin): Promise<TerritorioDetalle> {
-  const [sedes, bounds] = await Promise.all([loadSedesMapa(db), loadIdentificaBounds(db)])
+export async function cargarDetalleTerritorio(
+  tipo: TerritorioTipo,
+  code: string,
+  alcance: AlcanceDetalle = 'completo',
+  db: SupabaseAdminClient = supabaseAdmin
+): Promise<TerritorioDetalle> {
+  const soloProcesos = alcance === 'procesos'
+  const [sedes, bounds] = await Promise.all([loadSedesMapa(db), soloProcesos ? Promise.resolve(null) : loadIdentificaBounds(db)])
   const ips = ipsDelTerritorio(sedes, tipo, code)
   const enTerritorio = sedes.filter(sede => ips.has(sede.id))
 
@@ -242,7 +318,9 @@ export async function cargarDetalleTerritorio(tipo: TerritorioTipo, code: string
       giros: null,
       compras: null,
       comprasEstado: 'sin_entidad_publica',
-      notas: [textoSinIps(tipo)],
+      notas: soloProcesos ? [] : [textoSinIps(tipo)],
+      procesos: null,
+      alcance,
     }
   }
 
@@ -259,12 +337,32 @@ export async function cargarDetalleTerritorio(tipo: TerritorioTipo, code: string
       giros: null,
       compras: null,
       comprasEstado: 'sin_nit',
-      notas: notas([notaEstadoCompras('sin_nit', tipo)]),
+      notas: soloProcesos ? [] : notas([notaEstadoCompras('sin_nit', tipo)]),
+      procesos: null,
+      alcance,
     }
   }
-  const vGiros = ventanaGiros(bounds?.max ?? null)
   const vSecop = ventanaSecop(hoyBogota())
 
+  if (soloProcesos) {
+    // Sin intelligence:view: ni giros ni hechos de SECOP. Qué sedes son públicas sale de la marca manual, el REPS y el
+    // histórico de contratos (los hechos de la ventana son parte del histórico: el veredicto no cambia).
+    const [naturaleza, vigilados] = await Promise.all([loadNaturalezaPorNit(nits, db), loadVigiladosActivos(db)])
+    const publicaPorSede = await resolverPublicaPorSede(enTerritorio, naturaleza, new Map(), db)
+    const sedesPublicas = enTerritorio.filter(sede => publicaPorSede.get(sede.id)?.publica)
+    return {
+      territorio: { code, tipo, nombre, departamento },
+      ips: { total: enTerritorio.length, publicas: sedesPublicas.length },
+      giros: null,
+      compras: null,
+      comprasEstado: 'no_incluido',
+      notas: [],
+      procesos: await procesosDeSedes(sedesPublicas, vSecop, vigilados, db),
+      alcance,
+    }
+  }
+
+  const vGiros = ventanaGiros(bounds?.max ?? null)
   const [resumenRaw, facts, vigilados, actualizado, naturaleza] = await Promise.all([
     vGiros ? loadGirosNits({ desde: vGiros.desde, hasta: vGiros.hasta, nits }, db) : Promise.resolve([] as unknown[]),
     loadHechos({ desde: vSecop.desde, hasta: vSecop.hasta, nits }, db),
@@ -277,6 +375,8 @@ export async function cargarDetalleTerritorio(tipo: TerritorioTipo, code: string
   const publicaPorSede = await resolverPublicaPorSede(enTerritorio, naturaleza, hechosPorNit(facts), db)
   const ipsPublicas = new Set<string>()
   for (const sede of enTerritorio) if (publicaPorSede.get(sede.id)?.publica) ipsPublicas.add(sede.id)
+  // Procesos sin contrato de los NIT de esas mismas sedes (la marca manual "No" de una sede saca sus procesos)
+  const procesos = await procesosDeSedes(enTerritorio.filter(sede => ipsPublicas.has(sede.id)), vSecop, vigilados, db)
 
   const giros: GirosDetalle | null = vGiros ? resumirGiros({ resumen: parseResumen(resumenRaw), hospitals: sedes, ips, ventana: vGiros }) : null
   const compras: ComprasDetalle | null =
@@ -292,20 +392,23 @@ export async function cargarDetalleTerritorio(tipo: TerritorioTipo, code: string
     compras,
     comprasEstado,
     notas: notas([notaEstadoCompras(comprasEstado, tipo), giros?.estimadoPorCamas ? MAPA_DETALLE_TEXTOS.estimadoPorCamas : null]),
+    procesos,
+    alcance,
   }
 }
 
 /**
  * Detalle de una IPS activa (null si no existe o está inactiva → la ruta responde 404). Cifras de ESTA sede: giros =
  * giro del NIT × parte por camas; compras = la misma parte sobre los hechos del NIT, solo si es entidad de compra
- * pública (la marca manual de la sede manda sobre el REPS). Sin NIT válido en hospitals.code no hay cruce posible.
+ * pública (la marca manual de la sede manda sobre el REPS). Procesos: los del NIT entero si es pública (el precio base no
+ * se reparte ni se suma). Sin NIT válido en hospitals.code no hay cruce posible. Con alcance 'procesos' solo los procesos.
  */
-export async function cargarDetalleIps(id: string, db: SupabaseAdminClient = supabaseAdmin): Promise<IpsDetalle | null> {
-  const [sedes, bounds] = await Promise.all([loadSedesMapa(db), loadIdentificaBounds(db)])
+export async function cargarDetalleIps(id: string, alcance: AlcanceDetalle = 'completo', db: SupabaseAdminClient = supabaseAdmin): Promise<IpsDetalle | null> {
+  const soloProcesos = alcance === 'procesos'
+  const [sedes, bounds] = await Promise.all([loadSedesMapa(db), soloProcesos ? Promise.resolve(null) : loadIdentificaBounds(db)])
   const hospital = sedes.find(sede => sede.id === id)
   if (!hospital) return null
   const parte = parteDeSede(id, sedes) ?? { nit: null, sedesNit: 1, parte: 1 }
-  const vGiros = ventanaGiros(bounds?.max ?? null)
   const vSecop = ventanaSecop(hoyBogota())
 
   if (!parte.nit) {
@@ -316,11 +419,40 @@ export async function cargarDetalleIps(id: string, db: SupabaseAdminClient = sup
       giros: null,
       compras: null,
       comprasEstado: 'sin_nit',
-      notas: notas([MAPA_DETALLE_TEXTOS.sinNit]),
+      notas: soloProcesos ? [] : notas([MAPA_DETALLE_TEXTOS.sinNit]),
+      procesos: null,
+      alcance,
     }
   }
 
   const nits = [parte.nit]
+  const datosHospital = (publica: boolean, origen: CompraPublicaOrigen): IpsDetalle['hospital'] => ({
+    id,
+    nombre: hospital.name,
+    nit: parte.nit,
+    sedesNit: parte.sedesNit,
+    parte: parte.parte,
+    compraPublica: publica,
+    compraPublicaOrigen: origen,
+  })
+
+  if (soloProcesos) {
+    // Sin intelligence:view: ni giros ni hechos de SECOP; pública por la marca manual, el REPS o el histórico.
+    const [naturaleza, vigilados] = await Promise.all([loadNaturalezaPorNit(nits, db), loadVigiladosActivos(db)])
+    const resuelto = await resolverPublicaPorSede([hospital], naturaleza, new Map(), db)
+    const { publica, origen } = resuelto.get(id) ?? { publica: false, origen: 'ninguno' as CompraPublicaOrigen }
+    return {
+      hospital: datosHospital(publica, origen),
+      giros: null,
+      compras: null,
+      comprasEstado: 'no_incluido',
+      notas: [],
+      procesos: publica ? await procesosDeSedes([hospital], vSecop, vigilados, db) : null,
+      alcance,
+    }
+  }
+
+  const vGiros = ventanaGiros(bounds?.max ?? null)
   const [resumenRaw, facts, vigilados, actualizado, naturaleza] = await Promise.all([
     vGiros ? loadGirosNits({ desde: vGiros.desde, hasta: vGiros.hasta, nits }, db) : Promise.resolve([] as unknown[]),
     loadHechos({ desde: vSecop.desde, hasta: vSecop.hasta, nits }, db),
@@ -336,22 +468,18 @@ export async function cargarDetalleIps(id: string, db: SupabaseAdminClient = sup
     ? resumirCompras({ facts, hospitals: sedes, ips: [id], vigilados, ventana: vSecop, actualizado: actualizadoSecop(actualizado) })
     : null
   const comprasEstado = estadoCompras(publica ? 1 : 0, contratosEnVentana(compras), !publica)
+  // Procesos del NIT entero (no de la parte por camas: el precio base no se reparte), solo si la sede es pública
+  const procesos = publica ? await procesosDeSedes([hospital], vSecop, vigilados, db) : null
 
   return {
-    hospital: {
-      id,
-      nombre: hospital.name,
-      nit: parte.nit,
-      sedesNit: parte.sedesNit,
-      parte: parte.parte,
-      compraPublica: publica,
-      compraPublicaOrigen: origen,
-    },
+    hospital: datosHospital(publica, origen),
     giros,
     compras,
     comprasEstado,
     // Con n > 1 sedes la nota de parte ya dice "reparto por camas": no se repite la de estimación.
     notas: notas([notaEstadoCompras(comprasEstado), notaParteSede(parte.nit, parte.sedesNit)]),
+    procesos,
+    alcance,
   }
 }
 

@@ -204,6 +204,44 @@ pantalla sin forma de verlo. Ahora la tarjeta tiene un alto máximo (el del mapa
 celular menos la hoja inferior) y se desplaza por dentro; se vuelve a medir cuando llegan los datos o se despliegan todos
 los proveedores (`popupMaxHeight` y `MapPopup` en `components/MapPopups.tsx`).
 
+### 2026-10-25 · Procesos de SECOP II sin contrato en las tarjetas (contenido, no estilo)
+
+Pedido del dueño el 2026-10-25 (spec `docs/specs/2026-10-25-secop-procesos-radar.md`, decisión
+`docs/decisiones/2026-10-25-procesos-secop-radar-comercial.md`): "por lo menos le das herramienta al comercial para que se
+pregunte quién es VG Medical". 83 de las 141 IPS públicas publican en SECOP II solo el proceso (régimen especial) y nunca
+el contrato, así que la tarjeta decía "Sin contratos…" aunque la entidad compra. **No cambia nada del estilo autorizado el
+2026-10-11** (colores, opacidades, capas, marcadores, insignias, racimos y globos sin cifras siguen igual;
+`scripts/mapa-estilo-check.ts` en verde): cambia el CONTENIDO de las tarjetas de IPS (con y sin Zona) y de municipio o
+localidad, con las clases `.opmap-popup__section`, `__section-title`, `__rows`, `__row--stacked`, `__note` y `__secondary`
+que ya había (ninguna clase ni color nuevo).
+
+- **Desde el 2026-10-25 (pedido del dueño: "súper conciso, que vea el nombre de las empresas") la tarjeta del mapa solo
+  lista empresas**: título "Empresas en procesos sin contrato (SECOP II) · nov-2025 a hoy", una empresa por línea en
+  negrita (`.opmap-popup__empresas`, la única clase nueva: lista sin viñetas de 13 px) con "(N)" si figura en varios
+  procesos, 6 visibles y "Ver las N empresas", "N procesos sin empresa publicada" y el aviso "Figuran en procesos
+  publicados sin contrato registrado. Confirmar con la entidad." Sin precio base, fechas, referencias ni enlaces: el
+  detalle por proceso queda en la ficha de la IPS (`HospitalProcesosCard`). Lo que sigue describe la primera versión,
+  reemplazada:
+- **Sección nueva, primera versión** (`ProcesosSection` en `web/components/MapPopups.tsx`; textos en `web/lib/mapa-procesos-ui.ts` y
+  `MAPA_DETALLE_TEXTOS`), justo debajo de "Compras públicas…" y antes de las notas y el pie de fuentes:
+  - Título "Procesos publicados sin contrato (SECOP II) · nov-2025 a hoy" (la ventana de SECOP del mapa: 12 meses por
+    fecha de publicación) y la nota fija "Precio base de la convocatoria. La entidad no registró el contrato en SECOP:
+    confirmar con la entidad. No suma a las compras."
+  - Cada fila: el proveedor que FIGURA como rótulo ("VG MEDICAL SAS"; "… · según el título del proceso" si salió del
+    título; "· Vigilado" si está en la lista vigilada; "Proveedor persona natural", sin nombre ni documento; "Proveedor no
+    publicado" si no hay), "Precio base $ 1,8 mil M · publicado 10 mar 2026" y, en gris, la entidad (solo en la tarjeta de
+    municipio o localidad, con el nombre de la IPS en OpMap), las líneas y "Ref. 000039-2026"; debajo el enlace "Ver
+    proceso" (expediente en SECOP, otra pestaña, `rel="noopener noreferrer"`).
+  - Más recientes primero; 3 visibles y "Ver los N procesos" / "Ver menos" dentro de la tarjeta (el servidor manda como
+    máximo 20; si hay más, "Se muestran los 20 más recientes de N"). El precio base nunca se suma: no hay total de valor.
+  - **Sin procesos no aparece nada** (ni título ni "sin procesos"): tampoco en IPS privadas, marcadas "No" o sin NIT.
+    Nunca "abierto", "en curso", "licitación" ni "adjudicado a"; el título del proceso no se muestra.
+- **Quién la ve**: con `intelligence:view`, debajo de giros y compras; con solo `secop:procesos` (Ejecutivos Comerciales,
+  `sales_manager`) la tarjeta muestra SOLO esta sección (ni giros ni compras; mientras carga, "Cargando procesos…"). Sin
+  ninguno de los dos, la tarjeta de siempre, sin llamada. `/api/map/data` lo dice con `procesosIncluidos`.
+- **Cómo llega el dato**: en la misma llamada perezosa de giros y compras (`GET /api/map/detalle/*`, campo `procesos` y
+  `alcance` 'completo' o 'procesos'); sin la migración 0890 llega `procesos: null` y la tarjeta queda como antes.
+
 ### Lógica de Coloreado de Territorios Compartidos
 Para cualquier territorio (municipio o localidad) donde múltiples KAMs tienen IPS:
 

@@ -18,6 +18,10 @@ import { resolverCompraPublica, type SecopFact } from '../lib/compras-publicas'
 import {
   MAPA_DETALLE_TEXTOS,
   MAPA_VENTANA_MESES,
+  PROCESOS_FICHA_MAX,
+  PROCESOS_FICHA_VISIBLES,
+  PROCESOS_MAPA_MAX,
+  PROCESOS_MAPA_VISIBLES,
   contratosEnVentana,
   estadoCompras,
   ipsDelTerritorio,
@@ -27,13 +31,18 @@ import {
   parteDeSede,
   resumirCompras,
   resumirGiros,
+  resumirProcesos,
+  empresasDeProcesos,
+  claveEmpresa,
   textoSinIps,
   textoVentana,
   ventanaGiros,
   ventanaSecop,
   type SedeMapa,
 } from '../lib/mapa-detalle'
-import type { ComprasDetalle, IpsDetalle, TerritorioDetalle } from '../lib/types/mapa-detalle'
+import { ventanaMeses } from '../lib/compras-publicas'
+import type { ProcesoRadarFila } from '../lib/secop-procesos'
+import type { ComprasDetalle, IpsDetalle, ProcesoDetalle, ProcesosDetalle, TerritorioDetalle } from '../lib/types/mapa-detalle'
 
 let passed = 0
 let failed = 0
@@ -304,6 +313,8 @@ const territorio: TerritorioDetalle = {
   compras: comprasBuc,
   comprasEstado: estadoCompras(2, contratosEnVentana(comprasBuc)),
   notas: [MAPA_DETALLE_TEXTOS.estimadoPorCamas, MAPA_DETALLE_TEXTOS.fuentes],
+  procesos: null,
+  alcance: 'completo',
 }
 const parteB1 = parteDeSede('b1', hospitals)!
 const ips: IpsDetalle = {
@@ -312,6 +323,8 @@ const ips: IpsDetalle = {
   compras: comprasB1,
   comprasEstado: 'con_datos',
   notas: [MAPA_DETALLE_TEXTOS.fuentes],
+  procesos: null,
+  alcance: 'completo',
 }
 const serializado = JSON.stringify([territorio, ips, comprasFlo, comprasA, comprasA1])
 const prohibidos = ['persona:', 'proveedor_hash', 'proveedor_key', 'abc123', 'def456', 'Juan Pérez', 'Pérez Rojas', 'María Gómez', 'Gómez Díaz', 'ESPECIALISTAS SAS']
@@ -328,6 +341,180 @@ check('los títulos rotulan la fuente y el alcance', MAPA_DETALLE_TEXTOS.tituloG
 const forma: Array<keyof ComprasDetalle> = ['ventana', 'actualizado', 'valor', 'contratos', 'entidades', 'proveedores', 'sinClasificar', 'especialistas', 'personasNaturales', 'estimados', 'fueraEscala']
 eq('ComprasDetalle trae exactamente las claves del contrato', Object.keys(comprasBuc).sort(), [...forma].sort())
 eq('GirosDetalle trae exactamente las claves del contrato', Object.keys(girosBuc).sort(), ['fuente', 'ventana', 'total', 'contributivo', 'subsidiado', 'otro', 'ultimaFecha', 'nits', 'nitsConGiro', 'estimadoPorCamas'].sort())
+
+// ---------------------------------------------------------------------------
+// 7. Procesos de SECOP II publicados sin contrato (radar comercial, spec 2026-10-25)
+// ---------------------------------------------------------------------------
+console.log('\n7. Procesos SECOP II sin contrato')
+// Filas de la vista secop_procesos_radar (loadProcesosRadar). HU del Caribe y Montería son filas reales de p6dx-8zbt
+// (datos.gov.co, 2026-10-25); las demás son de juguete con NIT de prueba.
+const proceso = (over: Partial<ProcesoRadarFila> & Pick<ProcesoRadarFila, 'id_proceso'>): ProcesoRadarFila => ({
+  referencia: null,
+  nit_entidad: '891079999',
+  nombre_entidad: 'ESE HOSPITAL SAN JERÓNIMO DE MONTERÍA',
+  precio_base: 720_000_000,
+  fecha_publicacion: '2026-01-29',
+  linea: 'trauma',
+  lineas: ['trauma'],
+  estado: 'publicado',
+  proveedor_nit: null,
+  proveedor_nombre: null,
+  proveedor_origen: null,
+  proveedor_vigilado_id: null,
+  es_persona: false,
+  url: null,
+  ...over,
+})
+const caribe = proceso({
+  id_proceso: 'CO1.REQ.10254526',
+  referencia: '000039-2026',
+  nit_entidad: '900042103',
+  nombre_entidad: 'BOLIVAR - ESE HOSPITAL UNIVERSITARIO DEL CARIBE',
+  precio_base: 1_760_000_000,
+  fecha_publicacion: '2026-03-10',
+  lineas: ['trauma', 'neurocirugia'],
+  proveedor_nit: '901080496',
+  proveedor_nombre: 'VG MEDICAL SAS',
+  proveedor_origen: 'nit',
+  url: 'https://community.secop.gov.co/Public/Tendering/OpportunityDetail/Index?noticeUID=CO1.NTC.10111634',
+})
+const monteria = [
+  proceso({ id_proceso: 'CO1.REQ.9966287', referencia: 'CTO-015-2026', fecha_publicacion: '2026-01-29', precio_base: 720_000_000, url: 'https://community.secop.gov.co/Public/Tendering/OpportunityDetail/Index?noticeUID=CO1.NTC.9875292' }),
+  proceso({ id_proceso: 'CO1.REQ.10338748', referencia: 'CTO-543-2026', fecha_publicacion: '2026-04-10', precio_base: 1_070_000_000, url: 'https://community.secop.gov.co/Public/Tendering/OpportunityDetail/Index?noticeUID=CO1.NTC.10196880' }),
+  proceso({ id_proceso: 'CO1.REQ.10891263', referencia: 'CTO-1116-2026', fecha_publicacion: '2026-08-20', precio_base: 720_000_000, url: 'https://community.secop.gov.co/Public/Tendering/OpportunityDetail/Index?noticeUID=CO1.NTC.10746038' }),
+]
+const vMonteria = resumirProcesos(monteria, { limite: PROCESOS_MAPA_MAX, ventana: vSecop })
+eq('Montería: los 3 de 2026, el más reciente primero (20 ago, 10 abr, 29 ene)', vMonteria?.procesos.map(p => [p.referencia, p.fechaPublicacion]), [
+  ['CTO-1116-2026', '2026-08-20'],
+  ['CTO-543-2026', '2026-04-10'],
+  ['CTO-015-2026', '2026-01-29'],
+])
+eq('Montería: sin proveedor (proveedor null, no persona) → "Proveedor no publicado"', vMonteria?.procesos.map(p => [p.proveedor, p.proveedorPersona]), [[null, false], [null, false], [null, false]])
+eq('Montería: precio base por proceso, sin sumar', vMonteria?.procesos.map(p => p.precioBase), [720_000_000, 1_070_000_000, 720_000_000])
+{
+  const corto = resumirProcesos(monteria, { limite: 2, ventana: vSecop })
+  eq('total cuenta todos; procesos va cortado en el límite', [corto?.total, corto?.procesos.length], [3, 2])
+}
+const vCaribe = resumirProcesos([caribe], { limite: PROCESOS_MAPA_MAX, ventana: vSecop })!
+const pCaribe = vCaribe.procesos[0]
+eq('HU del Caribe: proveedor VG MEDICAL SAS con NIT 901080496, origen nit, no vigilado', pCaribe.proveedor, { nombre: 'VG MEDICAL SAS', nit: '901080496', origen: 'nit', vigilado: false })
+eq('HU del Caribe: precio base 1.760 M, fecha "2026-03-10" sin hora, líneas trauma y neurocirugía, url del expediente', [pCaribe.precioBase, pCaribe.fechaPublicacion, pCaribe.linea, pCaribe.lineas, pCaribe.url, pCaribe.estado, pCaribe.referencia, pCaribe.entidad, pCaribe.nitEntidad], [
+  1_760_000_000,
+  '2026-03-10',
+  'trauma',
+  ['trauma', 'neurocirugia'],
+  'https://community.secop.gov.co/Public/Tendering/OpportunityDetail/Index?noticeUID=CO1.NTC.10111634',
+  'publicado',
+  '000039-2026',
+  'BOLIVAR - ESE HOSPITAL UNIVERSITARIO DEL CARIBE',
+  '900042103',
+])
+const formaProceso: Array<keyof ProcesoDetalle> = ['id', 'referencia', 'entidad', 'nitEntidad', 'precioBase', 'fechaPublicacion', 'lineas', 'linea', 'estado', 'proveedor', 'proveedorPersona', 'url']
+eq('ProcesoDetalle trae exactamente las claves del contrato (sin título, descripción, hash ni documento)', Object.keys(pCaribe).sort(), [...formaProceso].sort())
+const formaProcesos: Array<keyof ProcesosDetalle> = ['ventana', 'total', 'procesos', 'empresas', 'sinEmpresa']
+eq('ProcesosDetalle trae exactamente ventana, total, procesos, empresas y sinEmpresa: ninguna suma de precio base', Object.keys(vCaribe).sort(), [...formaProcesos].sort())
+eq('HU del Caribe: la tarjeta del mapa nombra a VG MEDICAL SAS (empresas, sin valores)', [vCaribe.empresas, vCaribe.sinEmpresa], [[{ nombre: 'VG MEDICAL SAS', nit: '901080496', procesos: 1, ultimaFecha: '2026-03-10', vigilado: false }], 0])
+
+// Persona natural (aunque una fila sucia trajera un nombre), título, vigilado, NIT sin nombre, otros_implantes y url mala
+const personaSucia = proceso({ id_proceso: 'CO1.REQ.10500001', nit_entidad: '900000002', fecha_publicacion: '2026-06-01', es_persona: true, proveedor_nombre: 'Pedro Pérez Rojas', proveedor_nit: '12345678' })
+const porTitulo = proceso({ id_proceso: 'CO1.REQ.10500002', nit_entidad: '900000002', fecha_publicacion: '2026-06-02', proveedor_nombre: 'OSTEOEQUIPOS S.A.S', proveedor_origen: 'titulo' })
+const vigilada = proceso({ id_proceso: 'CO1.REQ.10500003', nit_entidad: '900000002', fecha_publicacion: '2026-06-03', proveedor_nit: '900303413', proveedor_nombre: 'OSTEOCOL SAS', proveedor_origen: 'nit', linea: 'otros_implantes', lineas: ['otros_implantes'] })
+const soloNit = proceso({ id_proceso: 'CO1.REQ.10500004', nit_entidad: '900000002', fecha_publicacion: '2026-06-04', proveedor_nit: '900111222', proveedor_origen: 'nit', url: 'javascript:alert(1)' })
+const varios = resumirProcesos([personaSucia, porTitulo, vigilada, soloNit], { limite: PROCESOS_MAPA_MAX, ventana: vSecop, vigilados })!
+const porId = new Map(varios.procesos.map(p => [p.id, p]))
+eq('persona natural: proveedor null y proveedorPersona true (nunca su nombre ni documento)', [porId.get('CO1.REQ.10500001')?.proveedor, porId.get('CO1.REQ.10500001')?.proveedorPersona], [null, true])
+eq('empresa según el título: origen titulo', porId.get('CO1.REQ.10500002')?.proveedor, { nombre: 'OSTEOEQUIPOS S.A.S', nit: null, origen: 'titulo', vigilado: false })
+eq('empresa vigilada (lista activa) y otros_implantes con el código de la UI ("otros")', [porId.get('CO1.REQ.10500003')?.proveedor?.vigilado, porId.get('CO1.REQ.10500003')?.linea, porId.get('CO1.REQ.10500003')?.lineas], [true, 'otros', ['otros']])
+eq('empresa con NIT y sin nombre: "NIT …"; url que no es http(s) → null', [porId.get('CO1.REQ.10500004')?.proveedor?.nombre, porId.get('CO1.REQ.10500004')?.url], ['NIT 900111222', null])
+{
+  const json = JSON.stringify(varios)
+  for (const texto of ['Pedro', 'Pérez Rojas', '12345678', 'proveedor_hash', 'persona:']) check(`procesos: el JSON no contiene "${texto}"`, !json.includes(texto))
+}
+eq('empresas: la persona natural no se nombra (va a sinEmpresa); el resto, una por empresa', [varios.empresas.map(e => e.nombre).sort(), varios.sinEmpresa], [['NIT 900111222', 'OSTEOCOL SAS', 'OSTEOEQUIPOS S.A.S'], 1])
+
+// Agrupar empresas: por NIT y, sin NIT, por nombre normalizado ("VG MEDICAL S.A.S" del título = "VG MEDICAL SAS" con NIT)
+{
+  const conNit = proceso({ id_proceso: 'CO1.REQ.10700001', nit_entidad: '900042103', fecha_publicacion: '2026-03-10', proveedor_nit: '901080496', proveedor_nombre: 'VG MEDICAL SAS', proveedor_origen: 'nit' })
+  const titulo1 = proceso({ id_proceso: 'CO1.REQ.10700002', nit_entidad: '900042103', fecha_publicacion: '2026-01-21', proveedor_nombre: 'VG MEDICAL S.A.S', proveedor_origen: 'titulo' })
+  const titulo2 = proceso({ id_proceso: 'CO1.REQ.10700003', nit_entidad: '900042103', fecha_publicacion: '2026-05-21', proveedor_nombre: 'Osteoequipos S.A.S.', proveedor_origen: 'titulo' })
+  const titulo3 = proceso({ id_proceso: 'CO1.REQ.10700004', nit_entidad: '900042103', fecha_publicacion: '2026-03-05', proveedor_nombre: 'OSTEOEQUIPOS SAS', proveedor_origen: 'titulo' })
+  const titulo4 = proceso({ id_proceso: 'CO1.REQ.10700005', nit_entidad: '900042103', fecha_publicacion: '2026-02-01', proveedor_nombre: 'OSTEOEQUIPOS SAS', proveedor_origen: 'titulo' })
+  const sinNadie = proceso({ id_proceso: 'CO1.REQ.10700006', nit_entidad: '900042103', fecha_publicacion: '2026-04-01' })
+  const g = empresasDeProcesos([titulo1, titulo2, conNit, titulo3, titulo4, sinNadie], null)
+  eq('agrupa: OSTEOEQUIPOS (3, nombre del más reciente) primero, luego VG MEDICAL SAS (2, el nombre y el NIT de la fila con NIT)', g.empresas.map(e => [e.nombre, e.nit, e.procesos, e.ultimaFecha]), [
+    ['Osteoequipos S.A.S.', null, 3, '2026-05-21'],
+    ['VG MEDICAL SAS', '901080496', 2, '2026-03-10'],
+  ])
+  eq('sinEmpresa cuenta el proceso sin empresa', g.sinEmpresa, 1)
+  eq('claveEmpresa: mayúsculas, sin tildes, sin puntos ni comas, un espacio', [claveEmpresa(' Osteoequipos  S.A.S. '), claveEmpresa('Médica, Ltda.')], ['OSTEOEQUIPOS SAS', 'MEDICA LTDA'])
+  // Revisión 2026-10-25: el respaldo "NIT …" cede ante el nombre de otra fila del mismo NIT; "S. A. S." = "SAS"
+  const nitSinNombre = proceso({ id_proceso: 'CO1.REQ.10700011', nit_entidad: '900042103', fecha_publicacion: '2026-06-01', proveedor_nit: '900111222', proveedor_origen: 'nit' })
+  const nitConNombre = proceso({ id_proceso: 'CO1.REQ.10700012', nit_entidad: '900042103', fecha_publicacion: '2026-02-01', proveedor_nit: '900111222', proveedor_nombre: 'ACME SAS', proveedor_origen: 'nit' })
+  const acmeTitulo = proceso({ id_proceso: 'CO1.REQ.10700013', nit_entidad: '900042103', fecha_publicacion: '2026-01-01', proveedor_nombre: 'ACME S. A. S.', proveedor_origen: 'titulo' })
+  eq('la tarjeta dice "ACME SAS (3)", no "NIT 900111222 (3)", aunque la fila más reciente no traiga nombre', empresasDeProcesos([nitSinNombre, nitConNombre, acmeTitulo], null).empresas.map(e => [e.nombre, e.nit, e.procesos]), [['ACME SAS', '900111222', 3]])
+  eq('claveEmpresa junta las siglas con letras sueltas y no toca palabras de una letra entre palabras largas', [claveEmpresa('OSTEO S. A. S.'), claveEmpresa('HUALO Y COMPAÑIA LIMITADA')], ['OSTEO SAS', 'HUALO Y COMPANIA LIMITADA'])
+  eq('en la tarjeta el orden no depende del orden de llegada', empresasDeProcesos([sinNadie, titulo4, conNit, titulo3, titulo1, titulo2], null).empresas.map(e => e.nombre), ['Osteoequipos S.A.S.', 'VG MEDICAL SAS'])
+}
+
+// Exclusiones: estados fuera del radar, fuera de la ventana, repetidos; null si no queda ninguno
+{
+  const cancelado = proceso({ id_proceso: 'CO1.REQ.10600001', estado: 'cancelado' as ProcesoRadarFila['estado'], fecha_publicacion: '2026-05-01' })
+  const adjudicado = proceso({ id_proceso: 'CO1.REQ.10600002', estado: 'adjudicado' as ProcesoRadarFila['estado'], fecha_publicacion: '2026-05-02' })
+  const viejo = proceso({ id_proceso: 'CO1.REQ.10600003', fecha_publicacion: '2025-10-31' })
+  const sinFecha = proceso({ id_proceso: 'CO1.REQ.10600004', fecha_publicacion: null })
+  const seleccionado = proceso({ id_proceso: 'CO1.REQ.10600005', estado: 'seleccionado', fecha_publicacion: '2026-05-03' })
+  const evaluacion = proceso({ id_proceso: 'CO1.REQ.10600006', estado: 'evaluacion', fecha_publicacion: '2026-05-04' })
+  const repetido = proceso({ id_proceso: 'CO1.REQ.10600006', estado: 'evaluacion', fecha_publicacion: '2026-05-04' })
+  const r = resumirProcesos([cancelado, adjudicado, viejo, sinFecha, seleccionado, evaluacion, repetido], { limite: PROCESOS_MAPA_MAX, ventana: vSecop })
+  eq('solo publicado/evaluación/abierto/seleccionado en la ventana; cancelado, adjudicado, viejo, sin fecha y repetido fuera', r?.procesos.map(p => p.id), ['CO1.REQ.10600006', 'CO1.REQ.10600005'])
+  eq('sin procesos → null (la sección no aparece)', [resumirProcesos([], { limite: 20, ventana: vSecop }), resumirProcesos([cancelado, viejo], { limite: 20, ventana: vSecop })], [null, null])
+}
+// Ficha: 24 meses (desde el primer día de hace 23); el proceso de oct-2025 entra en la ficha y no en el mapa
+{
+  const v24 = ventanaMeses(HOY, 24)
+  const ficha = resumirProcesos([caribe, proceso({ id_proceso: 'CO1.REQ.10700001', fecha_publicacion: '2025-10-31' })], { limite: PROCESOS_FICHA_MAX, ventana: { ...v24, texto: 'últimos 24 meses' } })
+  const mapa = resumirProcesos([caribe, proceso({ id_proceso: 'CO1.REQ.10700001', fecha_publicacion: '2025-10-31' })], { limite: PROCESOS_MAPA_MAX, ventana: vSecop })
+  eq('ventana de 24 meses en la ficha (2 procesos) y de 12 en el mapa (1)', [v24.desde, ficha?.total, mapa?.total], ['2024-11-01', 2, 1])
+}
+eq('topes y filas visibles: mapa 20 y 3, ficha 50 y 5', [PROCESOS_MAPA_MAX, PROCESOS_MAPA_VISIBLES, PROCESOS_FICHA_MAX, PROCESOS_FICHA_VISIBLES], [20, 3, 50, 5])
+
+// Textos de la sección: exactos y sin palabras prohibidas
+eq('textos de la sección de procesos', [
+  MAPA_DETALLE_TEXTOS.tituloProcesos,
+  MAPA_DETALLE_TEXTOS.notaProcesos,
+  MAPA_DETALLE_TEXTOS.proveedorNoPublicado,
+  MAPA_DETALLE_TEXTOS.proveedorTitulo,
+  MAPA_DETALLE_TEXTOS.proveedorPersona,
+  MAPA_DETALLE_TEXTOS.verProceso,
+], [
+  'Procesos publicados sin contrato (SECOP II)',
+  'Precio base de la convocatoria. La entidad no registró el contrato en SECOP: confirmar con la entidad. No suma a las compras.',
+  'Proveedor no publicado',
+  'según el título del proceso',
+  'persona natural',
+  'Ver proceso',
+])
+{
+  const textosProcesos = [
+    MAPA_DETALLE_TEXTOS.tituloProcesos,
+    MAPA_DETALLE_TEXTOS.notaProcesos,
+    MAPA_DETALLE_TEXTOS.proveedorNoPublicado,
+    MAPA_DETALLE_TEXTOS.proveedorTitulo,
+    MAPA_DETALLE_TEXTOS.proveedorPersona,
+    MAPA_DETALLE_TEXTOS.verProceso,
+    JSON.stringify([vMonteria, vCaribe, varios]),
+  ]
+  for (const [patron, nombre] of [
+    [/\babiert[oa]s?\b/i, 'abierto'],
+    [/en curso/i, 'en curso'],
+    [/licitaci[oó]n/i, 'licitación'],
+    [/adjudicad[oa]s? a\b/i, 'adjudicado a'],
+    [/sin compras/i, 'sin compras'],
+    [/\bKAM\b/, 'KAM'],
+    [/\bpanel\b/i, 'panel'],
+    [/representante/i, 'representante'],
+  ] as const) check(`procesos: ningún texto dice "${nombre}"`, !textosProcesos.some(t => patron.test(t)))
+}
 
 console.log(`\n${passed} pruebas OK, ${failed} fallidas`)
 process.exit(failed > 0 ? 1 : 0)

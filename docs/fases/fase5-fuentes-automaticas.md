@@ -19,6 +19,7 @@ dispararse en cualquier minuto de la hora indicada; todos los de OpMap son diari
 | `secop_ii` | SECOP II Contratos (`jbjy-vk9h`) → `secop_contratos` | Diario 06:00 | Vercel Cron `/api/cron/secop_ii` | `ultima_actualizacion ≥ última vista − 3 días` |
 | `secop_i` | SECOP I Procesos (`f789-7hwg`: contratista y valor **adjudicado** por contratista, desde 2017-2018) → `secop_contratos` (`fuente = 'secop1'`) | Martes 07:00 | Vercel Cron `/api/cron/secop_i` | `ultima_actualizacion` **o** `fecha_de_firma ≥ última vista − 30 días` |
 | `secop_integrado` | SECOP Integrado (`rpmr-utcd`, SECOP I + II; para SECOP I solo respaldo estimado de lo que `f789-7hwg` no trae, sobre todo antes de 2018) → `secop_contratos` | Lunes 07:00 | Vercel Cron `/api/cron/secop_integrado` | `fecha_de_firma ≥ última vista − 30 días` |
+| `secop_procesos` | SECOP II Procesos (`p6dx-8zbt`): procesos de ortopedia o neurocirugía de las IPS públicas, **sin contrato** → `secop_procesos` (tabla aparte; nunca suman a las compras) | Diario 06:30 | Vercel Cron `/api/cron/secop_procesos` | No hay marca de agua fiable: cada pasada relee lo publicado en los últimos 120 días y hace upsert |
 | `reps_sedes` | Sedes del REPS (`c36g-9fc2`) → `reps_sedes` | Día 2, 08:00 | Vercel Cron `/api/cron/reps_sedes` | `rowsUpdatedAt` del dataset más nuevo que la última carga |
 | `bdua` | BDUA contributivo y subsidiado → `bdua_afiliados` | Día 4, 08:00 | Vercel Cron `/api/cron/bdua` | El corte de `rowsUpdatedAt` no está en `bdua_afiliados` |
 | `minsalud_cifras` | Cifras de afiliación de MinSalud → `afiliacion_cifras` | Día 5, 08:00 | Vercel Cron `/api/cron/minsalud_cifras` | La página de MinSalud enlaza un ZIP de un mes posterior al último corte cargado |
@@ -191,6 +192,64 @@ npx tsx scripts/secop-load.ts --fuente secop1         # una sola fuente (secop1,
 npx tsx scripts/secop-load.ts --fuente secop1 --dry-run --max-paginas 2   # leer y clasificar sin escribir
 npm run secop:check                                    # pruebas puras (también dentro de npm run test)
 ```
+
+## Procesos de SECOP II sin contrato (`secop_procesos`, 2026-10-25)
+
+Spec `docs/specs/2026-10-25-secop-procesos-radar.md` y decisión
+`docs/decisiones/2026-10-25-procesos-secop-radar-comercial.md`. Radar comercial: 83 de las 141 IPS públicas publican sus
+compras solo como **procesos** de "Contratación régimen especial" y nunca crean el contrato electrónico. Se cargan aparte,
+en `public.secop_procesos` (migración `2026-10-25_0890_secop_procesos.sql`, **aplicada el 2026-10-25**, con carga inicial de 24 meses ese día: 10.967 filas leídas, 2.203 procesos; rollback
+`…_9949_…`), que no tiene columnas `valor` ni `fecha_firma`: compras, ranking, `/inteligencia` y `secop_hechos` no la
+conocen. La carga no toca `secop_contratos` ni llama a `secop_marcar_atipicos()`.
+
+- **Código**: reglas puras en `web/lib/secop-procesos.ts` (mapeo, estado, proveedor que figura, redacción de pacientes,
+  lotes, URL SoQL) y la pasada en `web/lib/secop-procesos-sync.ts` (`sincronizarSecopProcesos`). Rama propia en
+  `web/lib/fuentes-runner.ts` (antes, una fuente sin rama caía en la carga de MinSalud; ahora lanza un error).
+- **Fuente**: `fuentes_estado.fuente = 'secop_procesos'` ("SECOP II · Procesos sin contrato"), cron `30 6 * * *` en
+  `web/vercel.json` (06:30 UTC = 01:30 en Bogotá), va después de las tres de contratos en `FUENTES`. Sale en "Fuentes de
+  datos" con "Actualizar ahora" (mismo ejecutor y mismos 50 s) y la sigue el cron diario `continuar` si quedó a medias.
+- **Qué se lee**: `nit_entidad in (…)` con lotes de **50 NIT** de las IPS públicas objetivo (`secop_nits_ips().publica`),
+  en 9 dígitos y 10 con DV (sin guion: no aparece nunca), el prefiltro ortopédico (`SECOP_PREFILTRO_RAICES` sobre
+  `nombre_del_procedimiento` y `descripci_n_del_procedimiento`, o `codigo_principal_de_categoria like 'V1.4232%'`) y
+  `fecha_de_publicacion_del >= desde`, ordenado por `id_del_proceso`, con el User-Agent de OpMap (`fetchJsonSocrata`).
+- **Modos**: `inicial` (la primera vez o con `--inicial`): desde el primer día de hace 24 meses (la ventana de la ficha).
+  `incremental` (las demás): desde hoy − 120 días. p6dx-8zbt no tiene marca de agua fiable (`:updated_at` se recarga
+  entero cada día y `fecha_de_ultima_publicaci` es igual a la de publicación en el 100 % de las filas), así que cada
+  pasada RELEE la ventana y los cambios de estado de esos 120 días entran solos. Los NIT que no estaban en la última
+  pasada completa traen su histórico de 24 meses en una tarea extra.
+- **Cursor** (`fuentes_estado.cursor`): modo, `desde`, `desde_historico`, tarea, offset, contadores, `ultima_pasada`,
+  `ultima_inicial`, `nits_completos` y `agotados`. Se guarda tras cada página junto con la renovación del bloqueo. Si la
+  lista de tareas cambia a mitad de una pasada, vuelve a la tarea 0 con las mismas fechas. Si una consulta no cabe en los
+  50 s, se reintenta en la siguiente invocación; a la tercera vez seguida la fuente queda en error pidiendo el script.
+  Además, una invocación no empieza una página que, por la duración de la anterior, no cabría en lo que queda.
+- **Lotes**: un proceso con varios lotes trae una fila por lote. Si una página viene llena, las filas de su último
+  proceso no se guardan todavía: el offset avanza solo hasta donde empieza ese proceso y la página siguiente lo relee
+  entero, así ningún proceso queda partido entre páginas (el upsert reemplaza, no acumula). `agregarLotes` los junta en
+  una fila (valor adjudicado = suma de los lotes).
+- **Qué se guarda**: upsert por `id_proceso` (`onConflict`) en lotes de 500, con `hospital_id` (IPS principal del NIT),
+  `proveedor_vigilado_id`, `ultima_lectura` (`imported_at` queda con la primera lectura) y la descripción redactada.
+  Estados: publicado, evaluación, abierto, seleccionado, adjudicado y cancelado (Borrador, En aprobación y Aprobado no se
+  guardan). No se guardan los servicios de médicos, lo que solo clasifica por UNSPSC sin texto ortopédico (Yolombó) ni lo
+  que no clasifica en una línea. Lo que se muestra lo decide la vista `secop_procesos_radar` (sin contrato cargado).
+- **Privacidad**: una persona natural nunca se guarda con nombre ni documento (solo `proveedor_hash` con la sal de
+  `secop_ajustes`, y un CHECK lo impide); el título del proceso (`nombre_del_procedimiento`) no se guarda; nombre y
+  documento de pacientes en la descripción se reemplazan por "[dato personal omitido]" antes de guardar.
+- **Volumen y tiempo**: la inicial son unas 10.600 filas prefiltradas en 3 peticiones (una por tarea, páginas de 5.000).
+  Dry-run real de solo lectura del 2026-10-25: la tarea 1 (50 NIT, 24 meses) devolvió 2.797 filas en 30,7 s (1.021 mapeadas, 643
+  procesos; descartadas: 1.463 servicios, 308 sin línea, 5 solo por UNSPSC). Costo de Google: 0.
+
+```bash
+cd web
+npx tsx scripts/secop-procesos-load.ts --dry-run --max-paginas 1   # lee y mapea SIN escribir nada (ni fuentes_estado)
+npx tsx scripts/secop-procesos-load.ts --dry-run --max-paginas 1 --nit 900042103,891079999   # solo esas IPS
+npx tsx scripts/secop-procesos-load.ts --inicial      # carga inicial de 24 meses (tras aplicar la 0890, con autorización)
+npx tsx scripts/secop-procesos-load.ts                # ponerse al día (sigue la pasada a medias o relee 120 días)
+npm run secop-procesos-sync:check                     # pruebas sin red de la carga (también dentro de npm run test)
+```
+
+El dry-run funciona aunque la migración 0890 no esté aplicada; sin `--dry-run` la carga comprueba primero que la tabla
+existe y, si no, para antes de pedir nada a datos.gov.co (en el cron queda en error con el motivo). `--page-size N` (por
+defecto 5.000, de 100 a 50.000); `--nit` solo con `--dry-run`.
 
 ## Carga inicial real (2026-10-11)
 

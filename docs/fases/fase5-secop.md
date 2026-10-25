@@ -18,13 +18,38 @@ Datos abiertos de Colombia Compra Eficiente en datos.gov.co (API Socrata/SoQL, p
 | SECOP II · Contratos electrónicos | `jbjy-vk9h` | Carga diaria incremental por `ultima_actualizacion` (`secop_contratos.fuente = 'secop2'`) |
 | SECOP I · Procesos de Compra Pública | `f789-7hwg` | **Fuente principal de SECOP I** (desde 2026-10-12): una fila por contrato-contratista con el **valor adjudicado** a cada uno (`valor_contrato_con_adiciones`; si es 0, `cuantia_contrato`) y el valor del proceso (`cuantia_proceso`) como dato; detalle por contrato desde 2017-2018. Carga semanal (martes) incremental (`fuente = 'secop1'`, `origen = 'SECOPI'`) |
 | SECOP Integrado (SECOP I + II desde 2005) | `rpmr-utcd` | Carga semanal (lunes). Para SECOP II, respaldo de lo que no venga de `jbjy-vk9h`; para SECOP I, **solo respaldo estimado**: trae el valor del PROCESO repetido en cada contratista y sus filas entran únicamente cuando `f789-7hwg` no trae esa constancia (en la práctica, antes de 2018), marcadas `estimado` (`fuente = 'integrado'`, `origen` SECOPI / SECOPII) |
-| SECOP II · Procesos | `p6dx-8zbt` | Licitaciones abiertas (oportunidades): spec aparte (`docs/specs/2026-10-12-secop-procesos-abiertos.md`), no cargado |
+| SECOP II · Procesos de Contratación | `p6dx-8zbt` | **Procesos sin contrato** (radar comercial, desde 2026-10-25): procesos de ortopedia o neurocirugía de las IPS públicas, en la tabla aparte `secop_procesos`. Carga diaria (06:30 UTC) que relee los últimos 120 días. **Nunca suman** a las compras (ver "Procesos de SECOP II sin contrato: carga") |
 
 La API suma siempre sobre la vista `secop_contratos_unicos` (migración 0730): entran `secop2` y `secop1`
 siempre; del Integrado, SECOP II solo si no vino ya de `secop2` (mismo `CO1.PCCNTR…`) y SECOP I solo si
 `secop1` no trae esa constancia (`nit_entidad` + `numero_contrato`). La vista añade la columna `estimado`
 (= Integrado SECOP I). Decisión del dueño y evidencia en
 `docs/decisiones/2026-10-12-secop-i-valores-reales-y-compra-publica.md`.
+
+## Procesos de SECOP II sin contrato: carga (`secop_procesos`)
+
+Spec `docs/specs/2026-10-25-secop-procesos-radar.md`; detalle de la carga en `fase5-fuentes-automaticas.md` ("Procesos
+de SECOP II sin contrato").
+
+- **Fuente y cron**: `secop_procesos` ("SECOP II · Procesos sin contrato"), Vercel Cron `/api/cron/secop_procesos` a las
+  `30 6 * * *` UTC. Sale en "Fuentes de datos" con "Actualizar ahora". Cada pasada diaria relee lo publicado en los
+  últimos 120 días y hace upsert por `id_proceso` (p6dx-8zbt no tiene una marca de agua fiable).
+- **Carga inicial** (24 meses, unas 10.600 filas en 3 peticiones; costo de Google 0), con autorización del dueño y
+  después de aplicar la migración 0890: `cd web && npx tsx scripts/secop-procesos-load.ts --inicial`. Para revisar sin
+  escribir nada: `npx tsx scripts/secop-procesos-load.ts --dry-run --max-paginas 1` (imprime 3 ejemplos sin nombres de
+  personas; funciona aunque la tabla no exista).
+- **Qué se guarda**: procesos de las IPS públicas objetivo que clasifican en una línea (sin servicios de médicos ni lo
+  que solo clasifica por UNSPSC), con estado, precio base, fecha de publicación, líneas, referencia, portafolio y
+  noticeUID (para saber si ya hay contrato), el proveedor que figura si es una empresa (por NIT, por el nombre del
+  proveedor o según el título del proceso), la IPS, el enlace al expediente y la descripción redactada. Del nombre del
+  proveedor o del título nunca se guarda un nombre con un dato personal (CC, cédula, número de documento, "PACIENTE"…);
+  de "NOMBRE APELLIDO / EMPRESA SAS" solo queda la empresa; y el título nunca es la propia entidad (su nombre, o una
+  única marca E.S.E. o IPS).
+- **Qué no se guarda**: el título del proceso (`nombre_del_procedimiento`, que a veces es el nombre de una persona), el
+  funcionario que adjudicó, el nombre o documento de una persona natural (solo su hash con sal), y el nombre y
+  documento de pacientes (se reemplazan por "[dato personal omitido]"). Tampoco hay columnas `valor` ni `fecha_firma`.
+- **No suma**: compras, ranking, `/inteligencia`, `secop_hechos` y "SECOP actualizado el…" (`loadSecopActualizado`,
+  solo las 3 fuentes de contratos) no leen esta fuente.
 
 ## Alcance
 
@@ -135,6 +160,7 @@ mensaje claro.
 | Ruta | Qué devuelve |
 | --- | --- |
 | `GET /api/secop/hospital/[id]?page=&linea=` | Naturaleza (REPS), `publica` con `compra_publica` (marca manual) y `publica_origen`, nombre en SECOP, resumen 24 meses e histórico por línea, sin clasificar y fuera de escala aparte, `estimados` (contratos y valor de SECOP I que solo trae el Integrado; ya sumados), compras por año, proveedores (vigilado, valor, último contrato, líneas), médicos (especialidad, nº de contratos, último; marca "Empresa"), contratos con enlace al expediente, fuente ("SECOP I" / "SECOP II"), `estimado` y `valorProceso` (20 por página; `linea` = código, `no_clasificado`, `medicos` o `atipicos` = p99 y fuera de escala) |
+| `GET /api/secop/hospital/[id]/procesos` | **Permiso `secop:procesos`** (los roles con `intelligence:view` y los Ejecutivos Comerciales, `sales_manager`). Procesos de SECOP II publicados sin contrato (radar comercial, spec `docs/specs/2026-10-25-secop-procesos-radar.md`) del NIT de la IPS: `ProcesosDetalle` `{ ventana, total, procesos }` de la vista `secop_procesos_radar` (estados del radar y sin contrato cargado de la misma entidad), 24 meses por fecha de publicación (desde el día 1 de hace 23 meses hasta hoy en Bogotá), más recientes primero, como máximo 50 (`total` los cuenta todos: se lee la ventana entera del NIT y se corta en `resumirProcesos`). Cada proceso: proveedor que figura (empresa con NIT, nombre o título; persona natural sin nombre ni documento; o ninguno), precio base (nunca sumado), fecha, referencia, líneas y url del expediente; nunca título, descripción, documentos ni hashes. IPS activa (404 si no); solo si es entidad de compra pública con la regla de la ficha (marca manual → REPS → contratos cargados, este último por existencia: `select id … limit 1`); si no, sin NIT o sin la vista (0890 sin aplicar) → 200 con `total: 0`. Pruebas: `npm run secop-procesos-api:check` |
 | `GET /api/secop/ranking?group=hospital\|proveedor\|zona\|ejecutivo&linea=&desde=YYYY-MM&hasta=YYYY-MM&line=&departamento=&ambito=ips\|todas` | KPIs (total, contratos, entidades, proveedores, % a vigilados, médicos, fuera de escala), desglose por línea antes del filtro, ranking y tabla proveedor × hospital (300 pares de más valor). `line` (línea de negocio) es obligatoria para `ejecutivo` y debe ser del usuario (403) |
 | `GET /api/secop/proveedor/[nit]` | Dónde vende un proveedor (NIT con o sin DV): total, parte ortopédica, a IPS de OpMap, por línea y año, y por entidad (marca "IPS de OpMap") |
 | `GET /api/secop/vigilados` | Lista vigilada con sus ventas de material en SECOP y `canEdit` |
@@ -188,6 +214,15 @@ carga); después, `NOTIFY pgrst, 'reload schema'` y la carga inicial de `secop1`
   cabecera. En el modal "Editar Información" (Información Básica, tras Tipo) el selector "Compra pública
   (SECOP)": Según REPS / Sí / No; en "Información General" se ve "Compra pública (SECOP): Sí/No (marcada a
   mano)" solo si está marcada.
+- **Ficha de IPS, procesos sin contrato** (desde 2026-10-25, `web/components/HospitalProcesosCard.tsx`, justo después
+  de "Contratación pública (SECOP)"): tarjeta aparte "Procesos publicados sin contrato (SECOP II)" con "Últimos 24 meses
+  (<rango>) · N procesos", la nota fija "Precio base de la convocatoria. La entidad no registró el contrato en SECOP:
+  confirmar con la entidad. No suma a las compras." y, por proceso, "Proveedor que figura: <empresa> · NIT …" (con
+  "según el título del proceso" si sale del título y "Vigilado" si aplica; "persona natural" sin nombre; "Proveedor no
+  publicado" si no figura nadie), el precio base, "Publicado el dd/mm/aaaa · Ref. …", las líneas y "Ver proceso". 5
+  filas visibles y "Ver los N"; si hay más de 50, "Se muestran los 50 más recientes de N". Solo con `secop:procesos`
+  (también los Ejecutivos Comerciales, que no ven la tarjeta de compras). Sin procesos, mientras carga o si la ruta
+  falla, no aparece nada.
 - **`/inteligencia`** ahora tiene pestañas (`?tab=`): "Giros y población" (lo de siempre), "Compras públicas"
   (`IntelligenceSecop.tsx`) y, solo admin, "Fuentes de datos" (`FuentesDatosPanel.tsx`).
   - Compras públicas: filtros (línea de producto, línea de negocio para ejecutivo, departamento, entidades,
@@ -245,6 +280,14 @@ cron y semáforo de fuentes). El mapeo de `f789-7hwg` con las filas reales del E
 `secop1` y la fuente `secop_i` están en `npm run secop:check` (241); la validación zod de `compra_publica`
 (true/false/null; otro valor → 400) en `npm run ips:check`; la regla SQL (vista, `secop_hechos()`,
 `secop_nits_ips()`) en el bloque DO de la migración 0730.
+
+`npm run secop-procesos-api:check` (también en `npm run test`): `GET /api/secop/hospital/[id]/procesos` contra un
+Supabase falso con la vista `secop_procesos_radar` calculada con la regla SQL de la 0890 y la tabla sembrada pasando
+filas reales de `p6dx-8zbt` (HU del Caribe y HU de Santander) por `mapSecopProceso`: 403 sin `secop:procesos` sin leer
+tablas, 200 para `sales_manager` con la misma respuesta que admin, el proceso de VG MEDICAL SAS (NIT 901080496, 1.760 M),
+fuera los que tienen contrato cargado (por portafolio y por noticeUID), los cancelados, los anteriores a 24 meses y los
+servicios; vista ausente → 200 total 0; IPS privada o marcada "No" → total 0 sin leer la vista; sin título, descripción,
+documentos, hashes ni nombres de personas; textos prohibidos en la respuesta y en la tarjeta.
 
 ## Límites
 

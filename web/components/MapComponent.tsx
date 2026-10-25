@@ -1160,7 +1160,11 @@ export default function MapComponent({
   // a pedir al cambiar de línea); se piden al abrir la tarjeta, como los tiempos de unassigned-optimized, solo si la
   // respuesta del mapa trae inteligenciaIncluida (intelligence:view) y se guardan 5 min por territorio o IPS. Un
   // municipio de alcance sin IPS (kind 'other') no pide nada: giros y compras se cuentan donde está la IPS.
+  // Desde el 2026-10-25 (spec docs/specs/2026-10-25-secop-procesos-radar.md) también con procesosIncluidos
+  // (secop:procesos): la misma llamada trae los procesos de SECOP II sin contrato y, sin intelligence:view, solo eso.
   const inteligenciaIncluida = mapData?.inteligenciaIncluida === true
+  const procesosIncluidos = mapData?.procesosIncluidos === true
+  const detalleIncluido = inteligenciaIncluida || procesosIncluidos
   const detalleTarget = useMemo((): { tipo: 'ips' | 'municipio' | 'localidad'; code: string } | null => {
     if (!activePopup) return null
     if (activePopup.kind === 'ips' || activePopup.kind === 'unassigned') return { tipo: 'ips', code: activePopup.id }
@@ -1182,15 +1186,17 @@ export default function MapComponent({
       if (!response.ok) throw new MapDataError('No se pudieron cargar los giros y compras', response.status)
       return response.json()
     },
-    enabled: !!detalleTarget && inteligenciaIncluida,
+    enabled: !!detalleTarget && detalleIncluido,
     staleTime: 5 * 60_000,
     // Un 4xx (sin permiso, IPS inexistente, código inválido) no se reintenta; un fallo de red, una vez
     retry: (failureCount, error) =>
       !(error instanceof MapDataError && error.status >= 400 && error.status < 500) && failureCount < 1
   })
-  // Lo que recibe GirosComprasSection: sin intelligence:view no hay sección (sin_acceso) ni llamada
+  // Lo que recibe GirosComprasSection: sin intelligence:view ni secop:procesos no hay sección (sin_acceso) ni llamada
   const detalleProps = (modo: 'territorio' | 'ips'): GirosComprasProps => ({
-    estado: !inteligenciaIncluida ? 'sin_acceso' : detalleQuery.isError ? 'error' : detalleQuery.data ? 'listo' : 'cargando',
+    estado: !detalleIncluido ? 'sin_acceso' : detalleQuery.isError ? 'error' : detalleQuery.data ? 'listo' : 'cargando',
+    // Antes de que llegue el dato: 'procesos' pinta "Cargando procesos…" y nunca giros ni compras
+    alcance: inteligenciaIncluida ? 'completo' : 'procesos',
     data: detalleQuery.data ?? null,
     error: detalleQuery.error instanceof Error ? detalleQuery.error.message : null,
     onRetry: () => { void detalleQuery.refetch() },

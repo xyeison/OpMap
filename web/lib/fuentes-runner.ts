@@ -2,7 +2,7 @@
  * PR 7 · Ejecutor ÚNICO de las cargas automáticas (solo servidor y scripts). Lo llaman:
  *   - el cron de Vercel: GET /api/cron/<fuente> (app/api/cron/[fuente]/route.ts), 50 s por invocación;
  *   - "Actualizar ahora" del panel Fuentes de datos (app/api/fuentes/_lib/runner.ts), mismo presupuesto;
- *   - scripts/secop-load.ts (carga inicial de SECOP, sin límite de tiempo).
+ *   - scripts/secop-load.ts y scripts/secop-procesos-load.ts (cargas iniciales de SECOP, sin límite de tiempo).
  *
  * Por invocación: toma el bloqueo de la fuente en fuentes_estado (si otra invocación lo tiene, responde
  * "ocupada" sin hacer nada), corre la carga hasta terminar o hasta el presupuesto, y cierra la fila con
@@ -32,9 +32,9 @@ export interface ResultadoFuente {
 export interface EjecucionOpciones {
   presupuestoMs: number
   origen: 'cron' | 'manual' | 'script'
-  /** Solo SECOP: empezar una pasada inicial completa aunque haya marca de agua. */
+  /** Solo SECOP (contratos y procesos): empezar una pasada inicial completa aunque haya marca de agua. */
   forzarInicial?: boolean
-  /** Solo SECOP: filas por página SoQL. */
+  /** Solo SECOP (contratos y procesos): filas por página SoQL. */
   pageSize?: number
   log?: (message: string) => void
   db?: SupabaseAdminClient
@@ -65,6 +65,21 @@ async function correrCarga(fuente: FuenteAutomatica, db: SupabaseAdminClient, de
     const pasada = r.terminado ? r.cursor.ultima_pasada?.guardadas ?? r.guardadas : r.cursor.guardadas
     return { terminado: r.terminado, filas: pasada, mensaje: r.mensaje, cursor: r.cursor as unknown as Record<string, unknown> }
   }
+  if (fuente === 'secop_procesos') {
+    // Rama propia (procesos de SECOP II sin contrato, tabla secop_procesos): nunca cae en la carga de contratos ni en la de
+    // MinSalud de abajo.
+    const { sincronizarSecopProcesos } = await import('./secop-procesos-sync')
+    const r = await sincronizarSecopProcesos({
+      db,
+      deadline,
+      bloqueoMs: Number.isFinite(deadline) ? BLOQUEO_MS : BLOQUEO_SCRIPT_MS,
+      pageSize: opts.pageSize ?? (opts.origen === 'script' ? 5000 : 2000),
+      forzarInicial: opts.forzarInicial,
+      log: opts.log,
+    })
+    const pasada = r.terminado ? r.cursor.ultima_pasada?.guardadas ?? r.guardadas : r.cursor.guardadas
+    return { terminado: r.terminado, filas: pasada, mensaje: r.mensaje, cursor: r.cursor as unknown as Record<string, unknown> }
+  }
   if (fuente === 'reps_sedes') {
     const { sincronizarRepsSedes } = await import('./reps-sedes-sync')
     return sincronizarRepsSedes({ db, deadline, log: opts.log })
@@ -73,8 +88,12 @@ async function correrCarga(fuente: FuenteAutomatica, db: SupabaseAdminClient, de
     const { sincronizarBdua } = await import('./bdua-sync')
     return sincronizarBdua({ db, deadline, log: opts.log })
   }
-  const { sincronizarCifras } = await import('./cifras-sync')
-  return sincronizarCifras({ db, deadline, log: opts.log })
+  if (fuente === 'minsalud_cifras') {
+    const { sincronizarCifras } = await import('./cifras-sync')
+    return sincronizarCifras({ db, deadline, log: opts.log })
+  }
+  // Una fuente automática nueva sin rama propia no debe correr la carga de otra (antes caía en la de MinSalud)
+  throw new Error(`${fuente}: no tiene carga automática instalada en lib/fuentes-runner.ts`)
 }
 
 export async function ejecutarFuente(fuente: FuenteAutomatica, opts: EjecucionOpciones): Promise<ResultadoFuente> {
