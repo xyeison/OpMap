@@ -12,6 +12,11 @@
  *     ADRES solo SUS NIT (no el 11001 entero); municipio sin IPS → 200 con la nota y sin pedir giros ni hechos;
  *     municipio con IPS solo privadas → sin_entidad_publica (los giros sí); la marca manual compra_publica = false gana
  *     sobre el REPS "Pública" y saca sus contratos de la cuenta; pública sin hechos → sin_contratos_12m.
+ *   - Criterio 3 de resolverCompraPublica ("tiene contratos cargados en SECOP") sobre TODO el histórico, como la ficha:
+ *     una IPS REPS "Privada" sin marca y con un contrato ANTERIOR a la ventana es pública (origen 'contratos') y queda
+ *     "sin contratos en 12 meses", nunca "IPS privada"; la vista secop_contratos_unicos solo se consulta por existencia
+ *     (select id, limit 1, un NIT) y solo para los NIT que ni la marca ni el REPS deciden; tarjeta y ficha
+ *     (/api/secop/hospital/[id]) dan el mismo publica/origen.
  *   - IPS: parte por camas y nota de sede; privada → ips_privada y compras null; pública sin hechos → sin_contratos_12m;
  *     la marca manual gana; 400 si el id no es UUID; 404 si no existe o está inactiva.
  *   - RPC adres_giros_nits presente (la llamada lleva solo los NIT del territorio) y ausente (respaldo adres_giros_intel
@@ -35,6 +40,7 @@ import { hoyBogota } from '../app/api/secop/_lib/hoy'
 import { GET as territorioGet } from '../app/api/map/detalle/territorio/route'
 import { GET as ipsGet } from '../app/api/map/detalle/ips/[id]/route'
 import { GET as mapDataGet } from '../app/api/map/data/route'
+import { GET as secopHospitalGet } from '../app/api/secop/hospital/[id]/route'
 
 for (const key of [
   'GOOGLE_MAPS_API_KEY',
@@ -225,6 +231,8 @@ type Fake = ReturnType<typeof fakeSupabase>
 // NIT P 900000005: p1 Piedecuesta (30 camas), REPS Pública PERO compra_publica = false a mano y CON un contrato en SECOP:
 //   la marca manual gana → privada; su contrato no cuenta en ningún sitio.
 // NIT S 900000006: s1 Girón (50 camas), REPS Pública, sin contratos en la ventana → sin_contratos_12m.
+// NIT H 900000010: h1 Lebrija (20 camas), REPS Privada, sin marca, con UN contrato en SECOP de 2019 (antes de la ventana):
+//   entidad de compra pública por el histórico (criterio 3, como la ficha) → sin_contratos_12m, nunca ips_privada.
 // NIT F 900000007: f1 Bogotá, localidad Chapinero (1100102), REPS Mixta, con contrato.
 // NIT G 900000008: f2 Bogotá, localidad Suba (1100111), REPS Privada.
 // z1: IPS INACTIVA en Bucaramanga (no existe para el mapa → 404). Chía (25175): municipio sin IPS.
@@ -239,6 +247,7 @@ const B1 = '40000000-0000-4000-8000-000000000b01'
 const D1 = '40000000-0000-4000-8000-000000000d01'
 const P1 = '40000000-0000-4000-8000-000000000e01'
 const S1 = '40000000-0000-4000-8000-000000000f01'
+const H1 = '40000000-0000-4000-8000-000000000c01'
 const F1 = '40000000-0000-4000-8000-000000000001'
 const F2 = '40000000-0000-4000-8000-000000000002'
 const Z1 = '40000000-0000-4000-8000-000000000099'
@@ -249,6 +258,7 @@ const NIT_B = '900000002'
 const NIT_D = '900000004'
 const NIT_P = '900000005'
 const NIT_S = '900000006'
+const NIT_H = '900000010'
 const NIT_F = '900000007'
 const NIT_G = '900000008'
 const NIT_AJENO = '900000099'
@@ -272,6 +282,7 @@ const MUNICIPIOS = {
   FLO: { id: '68276', name: 'Floridablanca', dep: '68', depName: 'Santander' },
   PIE: { id: '68547', name: 'Piedecuesta', dep: '68', depName: 'Santander' },
   GIR: { id: '68307', name: 'Girón', dep: '68', depName: 'Santander' },
+  LEB: { id: '68406', name: 'Lebrija', dep: '68', depName: 'Santander' },
   BOG: { id: '11001', name: 'Bogotá, D.C.', dep: '11', depName: 'Bogotá, D.C.' },
   CHIA: { id: '25175', name: 'Chía', dep: '25', depName: 'Cundinamarca' },
 } as const
@@ -318,6 +329,7 @@ function datosIniciales(): Tablas {
       sede(D1, '900000004-5', 'Clínica D', MUNICIPIOS.BUC, 10),
       sede(P1, '900000005-7', 'Hospital P', MUNICIPIOS.PIE, 30, { compra_publica: false }),
       sede(S1, '900000006-2', 'ESE S', MUNICIPIOS.GIR, 50),
+      sede(H1, '900000010-6', 'Hospital H', MUNICIPIOS.LEB, 20),
       sede(F1, '900000007-3', 'Hospital F Chapinero', MUNICIPIOS.BOG, 30, { locality_id: '1100102', locality_name: 'Chapinero' }),
       sede(F2, '900000008-4', 'Clínica G Suba', MUNICIPIOS.BOG, 30, { locality_id: '1100111', locality_name: 'Suba' }),
       sede(Z1, '900000009-5', 'Hospital cerrado', MUNICIPIOS.BUC, 10, { active: false }),
@@ -328,6 +340,7 @@ function datosIniciales(): Tablas {
       { nit: NIT_D, naturaleza: 'Privada', codigo_habilitacion: '680010000401' },
       { nit: NIT_P, naturaleza: 'Pública', codigo_habilitacion: '685470000501' },
       { nit: NIT_S, naturaleza: 'Pública', codigo_habilitacion: '683070000601' },
+      { nit: NIT_H, naturaleza: 'Privada', codigo_habilitacion: '684060001001' },
       { nit: NIT_F, naturaleza: 'Mixta', codigo_habilitacion: '110010000701' },
       { nit: NIT_G, naturaleza: 'Privada', codigo_habilitacion: '110010000801' },
     ],
@@ -335,6 +348,16 @@ function datosIniciales(): Tablas {
     adres_giros_detalle: [
       { id: 1, nit: NIT_A, fecha_giro: '2025-10-03', valor: 1, regimen: 'contributivo' },
       { id: 2, nit: NIT_A, fecha_giro: '2026-09-30', valor: 1, regimen: 'contributivo' },
+    ],
+    // Vista sin doble conteo (0730): el detalle del mapa solo pregunta si existe algún contrato del NIT (limit 1); la
+    // ficha la lee entera. H contrató en 2019 (fuera de la ventana); D, P, S y A no tienen filas aquí.
+    secop_contratos_unicos: [
+      {
+        id: 'c-2019-h-1', fuente: 'secop2', origen: null, numero_contrato: 'CO1.PCCNTR.2019.1', nit_entidad: NIT_H, nombre_entidad: 'Entidad H',
+        documento_proveedor: OSTEOCOL, proveedor_hash: null, proveedor_nombre: 'OSTEOCOL SAS', es_persona: false, especialidad_medico: null,
+        linea: 'trauma', objeto: 'Suministro de material de osteosíntesis', descripcion: null, valor: 999, fecha_firma: '2019-03-05',
+        estado: null, modalidad: null, url: null, atipico: false, estimado: false, valor_proceso: null,
+      },
     ],
     secop_proveedores_vigilados: [
       { nit: OSTEOCOL, dv: '1', nombre: 'OSTEOCOL SAS', ciudad: null, origen: 'semilla', compras_gcp_cop: null, activo: true, nota: null, updated_at: null },
@@ -370,6 +393,7 @@ const GIROS = [
   { nit: NIT_D, total: 200, contributivo: 0, subsidiado: 200, otro: 0, ultima: '2026-07-01' },
   { nit: NIT_P, total: 300, contributivo: 300, subsidiado: 0, otro: 0, ultima: '2026-06-01' },
   { nit: NIT_S, total: 400, contributivo: 200, subsidiado: 200, otro: 0, ultima: '2026-05-01' },
+  { nit: NIT_H, total: 50, contributivo: 50, subsidiado: 0, otro: 0, ultima: '2026-04-01' },
   { nit: NIT_F, total: 700, contributivo: 700, subsidiado: 0, otro: 0, ultima: '2026-09-01' },
   { nit: NIT_G, total: 100, contributivo: 100, subsidiado: 0, otro: 0, ultima: '2026-09-02' },
   // NIT ajeno (ninguna IPS de OpMap): solo lo devuelve el respaldo adres_giros_intel; nunca debe sumar
@@ -397,6 +421,8 @@ const HECHOS = [
   hecho(NIT_B, OSTEOCOL, 'OSTEOCOL SAS', 'trauma', 999, 1, ANTES),
   // Entidad marcada a mano compra_publica = false: NO debe contar en Piedecuesta ni en su tarjeta
   hecho(NIT_P, OSTEOCOL, 'OSTEOCOL SAS', 'trauma', 800),
+  // H contrató ANTES de la ventana (el mismo contrato de secop_contratos_unicos): secop_hechos no lo devuelve en 12 m
+  hecho(NIT_H, OSTEOCOL, 'OSTEOCOL SAS', 'trauma', 999, 1, ANTES),
   // Bogotá, Chapinero
   hecho(NIT_F, OSTEOCOL, 'OSTEOCOL SAS', 'neurocirugia', 600),
   // Entidad que no es IPS de OpMap
@@ -422,6 +448,8 @@ const RPC_SIN_NITS: Rpcs = {
 
 const fakeCon = fakeSupabase(datosIniciales(), RPC_CON_NITS)
 const fakeSin = fakeSupabase(datosIniciales(), RPC_SIN_NITS)
+/** Para la ficha (/api/secop/hospital/[id]), que sí lee la vista entera: aparte para no mezclar sus lecturas. */
+const fakeFicha = fakeSupabase(datosIniciales(), RPC_CON_NITS)
 
 // ---------------------------------------------------------------------------
 // Peticiones
@@ -460,6 +488,8 @@ const ips = (fake: Fake, userId: string | null, id: string) =>
   llamar<IpsDetalle>(fake, () => ipsGet(new NextRequest(`http://localhost:3000/api/map/detalle/ips/${id}`, { method: 'GET', headers: headersDe(userId) }), { params: { id } }))
 const mapData = (fake: Fake, userId: string | null) =>
   llamar(fake, () => mapDataGet(new NextRequest('http://localhost:3000/api/map/data', { method: 'GET', headers: headersDe(userId) })))
+const fichaSecop = (fake: Fake, userId: string | null, id: string) =>
+  llamar(fake, () => secopHospitalGet(new NextRequest(`http://localhost:3000/api/secop/hospital/${id}`, { method: 'GET', headers: headersDe(userId) }), { params: { id } }))
 
 const municipio = (code: string) => `?tipo=municipio&code=${code}`
 const localidad = (code: string) => `?tipo=localidad&code=${code}`
@@ -468,6 +498,9 @@ const tablas = (requests: FakeRequest[]) => requests.map(request => request.tabl
 const cuerpoRpc = (requests: FakeRequest[], rpc: string) => requests.filter(request => request.table === `rpc/${rpc}`).map(request => request.body)
 const nitsPedidos = (requests: FakeRequest[], rpc: string) => cuerpoRpc(requests, rpc).map(body => [...(body?.p_nits ?? [])].sort())
 const proveedores = (body: TerritorioDetalle | IpsDetalle) => (body.compras?.proveedores ?? []).map(p => [p.nombre, p.valor, p.contratos])
+/** Lecturas de secop_contratos_unicos de una respuesta: [NIT pedido, select, limit] (existencia = ['9 dígitos', 'id', '1']). */
+const vistaContratos = (requests: FakeRequest[]) =>
+  requests.filter(request => request.table === 'secop_contratos_unicos').map(request => [(request.params.get('nit_entidad') ?? '').replace(/^eq\./, ''), request.params.get('select'), request.params.get('limit')])
 
 const PROHIBIDOS = ['persona:', 'proveedor_hash', 'proveedor_key', 'abc123', 'def456', 'Juan Pérez', 'Pérez Rojas', 'María Gómez', 'Gómez Díaz', 'ESPECIALISTAS SAS', 'GIGANTE']
 const TERMINOS = [
@@ -538,6 +571,7 @@ async function main() {
     ])
     eq('estado con_datos y notas: estimación por camas + fuentes (sin nota de estado)', [body.comprasEstado, body.notas], ['con_datos', [MAPA_DETALLE_TEXTOS.estimadoPorCamas, MAPA_DETALLE_TEXTOS.fuentes]])
     check('ni el fuera de escala ni el NIT ajeno ni la entidad marcada a mano entran', !buc.text.includes('GIGANTE') && !buc.text.includes(NIT_AJENO) && !buc.text.includes('"800"') && (body.compras?.valor ?? 0) < 1_000_000)
+    eq('criterio 3 (histórico) solo para el NIT sin decidir: D (REPS Privada, sin hechos); A (REPS) y B (manual) no se consultan', vistaContratos(buc.requests), [[NIT_D, 'id', '1']])
     textos.push(buc.text)
   }
 
@@ -565,6 +599,7 @@ async function main() {
     eq('giros sí (300); compras null; estado sin_entidad_publica', [body.giros?.total, body.compras, body.comprasEstado], [300, null, 'sin_entidad_publica'])
     eq('notas: la de sin entidad pública + fuentes', body.notas, [MAPA_DETALLE_TEXTOS.sinEntidadPublica, MAPA_DETALLE_TEXTOS.fuentes])
     check('su contrato con OSTEOCOL no aparece por ningún lado', !r.text.includes('OSTEOCOL'))
+    eq('la marca manual decide: no se consulta el histórico de SECOP', vistaContratos(r.requests), [])
     textos.push(r.text)
   }
 
@@ -576,6 +611,20 @@ async function main() {
     eq('1 IPS pública; giros 400; estado sin_contratos_12m', [body.ips, body.giros?.total, body.comprasEstado], [{ total: 1, publicas: 1 }, 400, 'sin_contratos_12m'])
     eq('compras: objeto en cero con su ventana (la tarjeta muestra el rango)', [body.compras?.valor, body.compras?.contratos, body.compras?.proveedores, body.compras?.ventana.texto], [0, 0, [], V_SECOP.texto])
     eq('notas: sin contratos en 12 meses + fuentes (nunca "sin compras")', body.notas, [MAPA_DETALLE_TEXTOS.sinContratos12m, MAPA_DETALLE_TEXTOS.fuentes])
+    eq('el REPS decide: no se consulta el histórico de SECOP', vistaContratos(r.requests), [])
+    textos.push(r.text)
+  }
+
+  print('\nLebrija (68406): REPS "Privada", sin marca manual, con un contrato en SECOP ANTERIOR a la ventana (criterio 3: histórico, como la ficha)')
+  {
+    const r = await territorio(fakeCon, ADMIN, municipio(MUNICIPIOS.LEB.id))
+    const body = r.body
+    check('200', r.status === 200, body)
+    eq('1 IPS y 1 pública: el contrato viejo la hace entidad de compra pública (no sin_entidad_publica)', body.ips, { total: 1, publicas: 1 })
+    eq('estado sin_contratos_12m, compras en cero con su ventana, giros 50', [body.comprasEstado, body.compras?.contratos, body.compras?.valor, body.compras?.ventana.texto, body.giros?.total], ['sin_contratos_12m', 0, 0, V_SECOP.texto, 50])
+    eq('notas: sin contratos en 12 meses + fuentes', body.notas, [MAPA_DETALLE_TEXTOS.sinContratos12m, MAPA_DETALLE_TEXTOS.fuentes])
+    eq('la vista se consultó por existencia: un NIT, select id, limit 1 (nunca el histórico)', vistaContratos(r.requests), [[NIT_H, 'id', '1']])
+    check('el contrato de 2019 no se lista ni suma', !r.text.includes('OSTEOCOL') && !r.text.includes('999'))
     textos.push(r.text)
   }
 
@@ -642,12 +691,35 @@ async function main() {
     eq('s1: pública sin hechos en la ventana → sin_contratos_12m con compras en cero', [s1.body.hospital.compraPublica, s1.body.comprasEstado, s1.body.compras?.contratos, s1.body.compras?.proveedores], [true, 'sin_contratos_12m', 0, []])
     eq('s1: nota sin contratos en 12 meses + fuentes', s1.body.notas, [MAPA_DETALLE_TEXTOS.sinContratos12m, MAPA_DETALLE_TEXTOS.fuentes])
 
+    const h1 = await ips(fakeCon, ADMIN, H1)
+    eq('h1: REPS Privada sin marca pero con contrato histórico → pública (origen contratos) y sin_contratos_12m, compras en cero', [h1.status, h1.body.hospital.compraPublica, h1.body.hospital.compraPublicaOrigen, h1.body.comprasEstado, h1.body.compras?.contratos, h1.body.compras?.proveedores, h1.body.giros?.total], [200, true, 'contratos', 'sin_contratos_12m', 0, [], 50])
+    eq('h1: nota sin contratos en 12 meses (nunca "IPS privada") + fuentes', h1.body.notas, [MAPA_DETALLE_TEXTOS.sinContratos12m, MAPA_DETALLE_TEXTOS.fuentes])
+    eq('h1 y d1 consultan el histórico por existencia (un NIT, select id, limit 1); d1 no tiene nada y sigue privada', [vistaContratos(h1.requests), vistaContratos(d1.requests)], [[[NIT_H, 'id', '1']], [[NIT_D, 'id', '1']]])
+    eq('a1 (REPS), b1 y p1 (marca manual) no consultan el histórico', [vistaContratos(a1.requests), vistaContratos(b1.requests), vistaContratos(p1.requests)], [[], [], []])
+
     const z1 = await ips(fakeCon, ADMIN, Z1)
     const nadie = await ips(fakeCon, ADMIN, NADIE)
     const malo = await ips(fakeCon, ADMIN, 'no-es-uuid')
     eq('IPS inactiva → 404; inexistente → 404; id que no es UUID → 400', [z1.status, nadie.status, malo.status], [404, 404, 400])
     check('con id inválido no se lee nada más que la sesión', malo.requests.every(request => request.table === 'users'), tablas(malo.requests))
-    textos.push(a1.text, b1.text, d1.text, p1.text, s1.text)
+    textos.push(a1.text, b1.text, d1.text, p1.text, s1.text, h1.text)
+  }
+
+  print('\nMisma regla que la ficha (/api/secop/hospital/[id]): tarjeta y ficha coinciden en publica y origen')
+  {
+    const casos: Array<[string, string]> = [
+      [H1, 'h1 (contrato histórico)'],
+      [D1, 'd1 (REPS Privada sin contratos)'],
+      [P1, 'p1 (marca manual false)'],
+      [B1, 'b1 (marca manual true)'],
+      [A1, 'a1 (REPS Pública)'],
+      [S1, 's1 (REPS Pública sin contratos)'],
+    ]
+    for (const [id, nombre] of casos) {
+      const tarjeta = await ips(fakeCon, ADMIN, id)
+      const ficha = await fichaSecop(fakeFicha, ADMIN, id)
+      eq(`${nombre}: publica y origen iguales en la tarjeta y en la ficha`, [tarjeta.status, tarjeta.body.hospital.compraPublica, tarjeta.body.hospital.compraPublicaOrigen], [ficha.status, ficha.body?.publica, ficha.body?.publica_origen])
+    }
   }
 
   print('\nEntrada inválida del territorio (zod)')
@@ -703,9 +775,15 @@ async function main() {
 
   print('\nGenerales')
   {
-    check('ninguna escritura en la base (las dos ramas)', fakeCon.writes().length === 0 && fakeSin.writes().length === 0, [fakeCon.writes(), fakeSin.writes()])
-    check('ninguna petición salió del Supabase falso', fakeCon.external.length === 0 && fakeSin.external.length === 0, [fakeCon.external, fakeSin.external])
-    check('nunca se leyó hospital_contracts ni se llamó a loadContratosEntidad (secop_contratos_unicos)', ![...fakeCon.requests, ...fakeSin.requests].some(request => request.table === 'hospital_contracts' || request.table === 'secop_contratos_unicos'))
+    check('ninguna escritura en la base (las tres ramas)', fakeCon.writes().length === 0 && fakeSin.writes().length === 0 && fakeFicha.writes().length === 0, [fakeCon.writes(), fakeSin.writes(), fakeFicha.writes()])
+    check('ninguna petición salió del Supabase falso', fakeCon.external.length === 0 && fakeSin.external.length === 0 && fakeFicha.external.length === 0, [fakeCon.external, fakeSin.external, fakeFicha.external])
+    check('nunca se leyó hospital_contracts', ![...fakeCon.requests, ...fakeSin.requests].some(request => request.table === 'hospital_contracts'))
+    const lecturasVista = [...fakeCon.requests, ...fakeSin.requests].filter(request => request.table === 'secop_contratos_unicos')
+    check(
+      'secop_contratos_unicos solo se consulta por existencia (select id, limit 1, un NIT de 9 dígitos): nunca el histórico (loadContratosEntidad)',
+      lecturasVista.length > 0 && lecturasVista.every(request => request.params.get('select') === 'id' && request.params.get('limit') === '1' && /^eq\.\d{9}$/.test(request.params.get('nit_entidad') ?? '')),
+      lecturasVista.map(request => request.params.toString()).slice(0, 5)
+    )
     // Lectura del código (sin red): las rutas y el servidor del detalle no importan google-distance
     const WEB = path.join(__dirname, '..')
     const fuentes = ['app/api/map/_lib/detalle-server.ts', 'app/api/map/detalle/territorio/route.ts', 'app/api/map/detalle/ips/[id]/route.ts'].map(archivo => readFileSync(path.join(WEB, archivo), 'utf8'))
