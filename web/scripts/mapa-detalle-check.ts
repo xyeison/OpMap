@@ -27,6 +27,7 @@ import {
   parteDeSede,
   resumirCompras,
   resumirGiros,
+  textoSinIps,
   textoVentana,
   ventanaGiros,
   ventanaSecop,
@@ -226,6 +227,8 @@ eq('servicios de especialistas: persona (3) + empresa (2), solo contratos', comp
 eq('personas naturales con línea: aparte, con valor, sin nombre', comprasBuc.personasNaturales, { contratos: 1, valor: 200 })
 eq('estimados: suman en el total y se cuentan (100 × 0,6)', comprasBuc.estimados, { contratos: 1, valor: 60 })
 check('fuera de escala no suma ni aparece', !JSON.stringify(comprasBuc).includes('GIGANTE') && comprasBuc.valor < 1_000_000)
+eq('fuera de escala: se cuenta aparte (solo contratos, sin su valor)', comprasBuc.fueraEscala, { contratos: 1 })
+eq('Floridablanca: el fuera de escala de B no es suyo', comprasFlo.fueraEscala, { contratos: 0 })
 check('el contrato firmado antes de la ventana no suma (OSTEOCOL = 1100, no 2099)', osteocol.valor === 1100)
 check('la entidad que no es IPS de OpMap no suma', comprasBuc.entidades === 2 && !JSON.stringify(comprasBuc).includes('900000099'))
 eq('ventana y actualizado en la respuesta', [comprasBuc.ventana.texto, comprasBuc.actualizado, comprasFlo.actualizado], ['nov-2025 a hoy', '2026-10-24T05:00:00Z', null])
@@ -258,12 +261,23 @@ const publicaB = resolverCompraPublica(null, 'Pública', 0)
 const comprasB1 = resumirCompras({ facts, hospitals, ips: ['b1'], vigilados, ventana: vSecop })
 eq('IPS pública con hechos → con_datos', estadoCompras(publicaB.publica ? 1 : 0, contratosEnVentana(comprasB1), !publicaB.publica), 'con_datos')
 eq('IPS pública sin hechos en la ventana → sin_contratos_12m', estadoCompras(1, contratosEnVentana(resumirCompras({ facts, hospitals, ips: ['d1'], vigilados, ventana: vSecop })), false), 'sin_contratos_12m')
-eq('notas por estado (null con datos)', (['con_datos', 'sin_contratos_12m', 'sin_entidad_publica', 'ips_privada'] as const).map(notaEstadoCompras), [
+eq('notas por estado (null con datos)', (['con_datos', 'sin_contratos_12m', 'sin_entidad_publica', 'ips_privada', 'sin_nit'] as const).map(estado => notaEstadoCompras(estado)), [
   null,
   'Sin contratos de ortopedia o neurocirugía en SECOP en los últimos 12 meses',
   'Sin entidades públicas de compra en OpMap en este municipio',
   'IPS privada: sin contratación pública (SECOP)',
+  'El código de esta IPS no es un NIT válido; no se puede cruzar con la ADRES ni con SECOP',
 ])
+eq('en una localidad de Bogotá: "en esta localidad" (solo cambia esa nota)', (['sin_entidad_publica', 'sin_contratos_12m'] as const).map(estado => notaEstadoCompras(estado, 'localidad')), [
+  'Sin entidades públicas de compra en OpMap en esta localidad',
+  'Sin contratos de ortopedia o neurocirugía en SECOP en los últimos 12 meses',
+])
+eq('sin IPS: "este municipio" / "esta localidad"', [textoSinIps(), textoSinIps('municipio'), textoSinIps('localidad')], [
+  MAPA_DETALLE_TEXTOS.sinIps,
+  MAPA_DETALLE_TEXTOS.sinIps,
+  'Giros y compras se cuentan donde está la IPS; esta localidad no tiene IPS en OpMap',
+])
+check('la IPS sin NIT válido no se llama "privada"', !/privada/i.test(notaEstadoCompras('sin_nit') ?? ''))
 
 // ---------------------------------------------------------------------------
 // 6. Privacidad y terminología
@@ -297,7 +311,7 @@ for (const [patron, nombre] of [
   [/sin compras/i, 'sin compras'],
 ] as const) check(`ningún texto visible dice "${nombre}"`, !textos.some(t => patron.test(t)))
 check('los títulos rotulan la fuente y el alcance', MAPA_DETALLE_TEXTOS.tituloGiros === 'Giros ADRES' && MAPA_DETALLE_TEXTOS.tituloCompras.includes('material ortopédico y neurocirugía (SECOP)'))
-const forma: Array<keyof ComprasDetalle> = ['ventana', 'actualizado', 'valor', 'contratos', 'entidades', 'proveedores', 'sinClasificar', 'especialistas', 'personasNaturales', 'estimados']
+const forma: Array<keyof ComprasDetalle> = ['ventana', 'actualizado', 'valor', 'contratos', 'entidades', 'proveedores', 'sinClasificar', 'especialistas', 'personasNaturales', 'estimados', 'fueraEscala']
 eq('ComprasDetalle trae exactamente las claves del contrato', Object.keys(comprasBuc).sort(), [...forma].sort())
 eq('GirosDetalle trae exactamente las claves del contrato', Object.keys(girosBuc).sort(), ['fuente', 'ventana', 'total', 'contributivo', 'subsidiado', 'otro', 'ultimaFecha', 'nits', 'nitsConGiro', 'estimadoPorCamas'].sort())
 

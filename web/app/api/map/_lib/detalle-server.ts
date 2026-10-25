@@ -12,14 +12,15 @@
 //     ventana termina en el último mes cargado (loadIdentificaBounds), como /inteligencia.
 //   - Compras: loadHechos({ desde, hasta, nits }) con los 12 meses hasta hoy y solo los NIT del territorio. Nunca
 //     loadContratosEntidad, que trae todo el histórico de la entidad (UPRES Santander: 4.438 contratos).
-//   - Entidad de compra pública por NIT: resolverCompraPublica(marca manual, naturaleza del REPS, contratos cargados
-//     en SECOP). El tercer criterio mira TODO el histórico, como la ficha (/api/secop/hospital/[id]): una entidad
-//     que contrató hace años pero no en la ventana es pública "sin contratos en 12 meses", nunca "IPS privada".
-//     Para no traer el histórico se pregunta solo si existe algún contrato (nitsConContratosHistoricos) y solo
-//     para los NIT que ni la marca ni el REPS deciden. La marca manual de un NIT es el bool_or de
-//     hospitals.compra_publica de sus sedes activas (la misma regla de secop_nits_ips, migración 0730); para la
-//     tarjeta de una IPS, la marca de ESA sede (como la ficha).
-//     Una IPS cuyo NIT no es entidad de compra pública no entra en las compras del territorio aunque SECOP traiga
+//   - Entidad de compra pública por SEDE (resolverPublicaPorSede): resolverCompraPublica(marca manual de ESA sede,
+//     naturaleza del REPS del NIT, contratos del NIT cargados en SECOP), la misma regla en la tarjeta del territorio,
+//     en la de la IPS y en la ficha (/api/secop/hospital/[id]); así el municipio suma exactamente lo que muestran sus
+//     IPS. El tercer criterio mira TODO el histórico, como la ficha: una entidad que contrató hace años pero no en la
+//     ventana es pública "sin contratos en 12 meses", nunca "IPS privada". Para no traer el histórico se pregunta solo
+//     si existe algún contrato (nitsConContratosHistoricos) y solo para los NIT que ni la marca ni el REPS deciden.
+//     Diferencia conocida con /inteligencia: secop_nits_ips (0730) toma el bool_or de las marcas de las sedes de un
+//     NIT; solo cambia algo si un NIT tiene una sede marcada Sí y otra No (0 NIT el 2026-10-24).
+//     Una sede que no es entidad de compra pública no entra en las compras del territorio aunque SECOP traiga
 //     contratos a su nombre (marca manual = false: falso positivo, decisión 2026-10-12).
 // Privacidad: la respuesta nunca lleva proveedor_key, proveedor_hash, documentos ni nombres de personas naturales ni de
 // médicos (lo garantiza resumirCompras). Ninguna lectura escribe en la base ni llama a Google.
@@ -36,6 +37,7 @@ import {
   ipsDelTerritorio,
   notaEstadoCompras,
   notaParteSede,
+  textoSinIps,
   parteDeSede,
   resumirCompras,
   resumirGiros,
@@ -123,20 +125,6 @@ async function loadNaturalezaPorNit(nits: string[], db: SupabaseAdminClient): Pr
   return out
 }
 
-/** Marca manual del NIT: true si alguna sede activa dice sí, false si todas las marcadas dicen no, null sin marca. */
-function marcaManualPorNit(sedes: SedeMapaRow[]): Map<string, boolean | null> {
-  const out = new Map<string, boolean | null>()
-  for (const sede of sedes) {
-    const nit = nitOfHospital(sede)
-    if (!nit) continue
-    const actual = out.get(nit)
-    if (sede.compra_publica === true) out.set(nit, true)
-    else if (sede.compra_publica === false && actual !== true) out.set(nit, false)
-    else if (actual === undefined) out.set(nit, null)
-  }
-  return out
-}
-
 /** Contratos (hechos) de la ventana por NIT de entidad: si hay alguno, el criterio 3 ya está decidido sin ir a la vista. */
 function hechosPorNit(facts: SecopFact[]): Map<string, number> {
   const out = new Map<string, number>()
@@ -171,26 +159,34 @@ async function nitsConContratosHistoricos(nits: string[], db: SupabaseAdminClien
 type CompraPublicaResuelta = ReturnType<typeof resolverCompraPublica>
 
 /**
- * Entidad de compra pública por NIT: marca manual → REPS → contratos en SECOP (resolverCompraPublica). El tercer
- * criterio usa primero los hechos de la ventana, ya leídos, y para los NIT que quedan en 'ninguno' pregunta por el
- * histórico, de modo que la tarjeta y la ficha den el mismo veredicto (hallazgo de la revisión del 2026-10-24).
+ * Entidad de compra pública por SEDE (id → veredicto): marca manual de la sede → REPS del NIT → contratos del NIT en
+ * SECOP (resolverCompraPublica). La usan las dos tarjetas, así que territorio, IPS y ficha dan el mismo veredicto. El
+ * tercer criterio usa primero los hechos de la ventana, ya leídos, y para las sedes que quedan en 'ninguno' pregunta
+ * por el histórico de su NIT (hallazgo de la revisión del 2026-10-24). Las sedes sin NIT válido no entran.
  */
-async function resolverPublicaPorNit(
-  nits: string[],
-  marcaDe: (nit: string) => boolean | null,
+async function resolverPublicaPorSede(
+  sedes: SedeMapaRow[],
   naturaleza: Map<string, string>,
   hechos: Map<string, number>,
   db: SupabaseAdminClient
 ): Promise<Map<string, CompraPublicaResuelta>> {
   const out = new Map<string, CompraPublicaResuelta>()
-  const sinDecidir: string[] = []
-  for (const nit of nits) {
-    const resuelto = resolverCompraPublica(marcaDe(nit), naturaleza.get(nit) ?? null, hechos.get(nit) ?? 0)
-    out.set(nit, resuelto)
-    if (resuelto.origen === 'ninguno') sinDecidir.push(nit)
+  const sinDecidir = new Set<string>()
+  for (const sede of sedes) {
+    const nit = nitOfHospital(sede)
+    if (!nit) continue
+    const resuelto = resolverCompraPublica(sede.compra_publica, naturaleza.get(nit) ?? null, hechos.get(nit) ?? 0)
+    out.set(sede.id, resuelto)
+    if (resuelto.origen === 'ninguno') sinDecidir.add(nit)
   }
-  const conHistorico = await nitsConContratosHistoricos(sinDecidir, db)
-  conHistorico.forEach(nit => out.set(nit, resolverCompraPublica(marcaDe(nit), naturaleza.get(nit) ?? null, 1)))
+  if (sinDecidir.size === 0) return out
+  const conHistorico = await nitsConContratosHistoricos(Array.from(sinDecidir), db)
+  for (const sede of sedes) {
+    const nit = nitOfHospital(sede)
+    if (nit && conHistorico.has(nit) && out.get(sede.id)?.origen === 'ninguno') {
+      out.set(sede.id, resolverCompraPublica(sede.compra_publica, naturaleza.get(nit) ?? null, 1))
+    }
+  }
   return out
 }
 
@@ -226,7 +222,7 @@ async function nombreMunicipio(code: string, db: SupabaseAdminClient): Promise<{
 /**
  * Detalle de un municipio (code = DANE de 5 dígitos, hospitals.municipality_id) o de una localidad de Bogotá (code =
  * 7 dígitos, hospitals.locality_id; nunca se pide el 11001 entero). Sin IPS activas: ips.total = 0, giros y compras
- * null y una sola nota (MAPA_DETALLE_TEXTOS.sinIps). Con IPS: giros de todas; compras solo de las que son entidad de
+ * null y una sola nota (textoSinIps: "este municipio" / "esta localidad"). Con IPS: giros de todas; compras solo de las que son entidad de
  * compra pública; estado y notas según lib/mapa-detalle.ts.
  */
 export async function cargarDetalleTerritorio(tipo: TerritorioTipo, code: string, db: SupabaseAdminClient = supabaseAdmin): Promise<TerritorioDetalle> {
@@ -243,7 +239,7 @@ export async function cargarDetalleTerritorio(tipo: TerritorioTipo, code: string
       giros: null,
       compras: null,
       comprasEstado: 'sin_entidad_publica',
-      notas: [MAPA_DETALLE_TEXTOS.sinIps],
+      notas: [textoSinIps(tipo)],
     }
   }
 
@@ -262,14 +258,10 @@ export async function cargarDetalleTerritorio(tipo: TerritorioTipo, code: string
     loadNaturalezaPorNit(nits, db),
   ])
 
-  // Qué NIT del territorio son entidad de compra pública (marca manual → REPS → contrató en SECOP, histórico).
-  const marcas = marcaManualPorNit(sedes)
-  const publicaPorNit = await resolverPublicaPorNit(nits, nit => marcas.get(nit) ?? null, naturaleza, hechosPorNit(facts), db)
+  // Qué sedes del territorio son entidad de compra pública (marca manual de la sede → REPS → contrató en SECOP).
+  const publicaPorSede = await resolverPublicaPorSede(enTerritorio, naturaleza, hechosPorNit(facts), db)
   const ipsPublicas = new Set<string>()
-  for (const sede of enTerritorio) {
-    const nit = nitOfHospital(sede)
-    if (nit && publicaPorNit.get(nit)?.publica) ipsPublicas.add(sede.id)
-  }
+  for (const sede of enTerritorio) if (publicaPorSede.get(sede.id)?.publica) ipsPublicas.add(sede.id)
 
   const giros: GirosDetalle | null = vGiros ? resumirGiros({ resumen: parseResumen(resumenRaw), hospitals: sedes, ips, ventana: vGiros }) : null
   const compras: ComprasDetalle | null =
@@ -284,7 +276,7 @@ export async function cargarDetalleTerritorio(tipo: TerritorioTipo, code: string
     giros,
     compras,
     comprasEstado,
-    notas: notas([notaEstadoCompras(comprasEstado), giros?.estimadoPorCamas ? MAPA_DETALLE_TEXTOS.estimadoPorCamas : null]),
+    notas: notas([notaEstadoCompras(comprasEstado, tipo), giros?.estimadoPorCamas ? MAPA_DETALLE_TEXTOS.estimadoPorCamas : null]),
   }
 }
 
@@ -302,12 +294,14 @@ export async function cargarDetalleIps(id: string, db: SupabaseAdminClient = sup
   const vSecop = ventanaSecop(hoyBogota())
 
   if (!parte.nit) {
+    // Estado neutro: sin NIT no hay giros ni compras que cruzar, y la tarjeta no la llama "privada". publica/origen
+    // como la ficha sin NIT (false, 'ninguno'): no hay entidad con la cual cruzar, aunque la sede tenga marca manual.
     return {
       hospital: { id, nombre: hospital.name, nit: null, sedesNit: 1, parte: 1, compraPublica: false, compraPublicaOrigen: 'ninguno' },
-      giros: vGiros ? resumirGiros({ resumen: [], hospitals: sedes, ips: [id], ventana: vGiros }) : null,
+      giros: null,
       compras: null,
-      comprasEstado: 'ips_privada',
-      notas: notas(['El código de esta IPS no es un NIT válido; no se puede cruzar con la ADRES ni con SECOP.']),
+      comprasEstado: 'sin_nit',
+      notas: notas([MAPA_DETALLE_TEXTOS.sinNit]),
     }
   }
 
@@ -320,9 +314,8 @@ export async function cargarDetalleIps(id: string, db: SupabaseAdminClient = sup
     loadNaturalezaPorNit(nits, db),
   ])
 
-  const hechos = facts.reduce((acc, fact) => acc + (fact.contratos || 1), 0)
-  const resuelto = await resolverPublicaPorNit(nits, () => hospital.compra_publica, naturaleza, new Map([[parte.nit, hechos]]), db)
-  const { publica, origen } = resuelto.get(parte.nit) ?? { publica: false, origen: 'ninguno' as CompraPublicaOrigen }
+  const resuelto = await resolverPublicaPorSede([hospital], naturaleza, hechosPorNit(facts), db)
+  const { publica, origen } = resuelto.get(id) ?? { publica: false, origen: 'ninguno' as CompraPublicaOrigen }
   const giros: GirosDetalle | null = vGiros ? resumirGiros({ resumen: parseResumen(resumenRaw), hospitals: sedes, ips: [id], ventana: vGiros }) : null
   const compras: ComprasDetalle | null = publica
     ? resumirCompras({ facts, hospitals: sedes, ips: [id], vigilados, ventana: vSecop, actualizado: actualizadoSecop(actualizado) })

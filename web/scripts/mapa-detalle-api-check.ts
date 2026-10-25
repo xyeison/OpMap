@@ -251,6 +251,11 @@ const H1 = '40000000-0000-4000-8000-000000000c01'
 const F1 = '40000000-0000-4000-8000-000000000001'
 const F2 = '40000000-0000-4000-8000-000000000002'
 const Z1 = '40000000-0000-4000-8000-000000000099'
+/** Código que no es NIT (hospitals.code sin 9 dígitos): estado neutro sin_nit. */
+const N1 = '40000000-0000-4000-8000-000000000ab1'
+/** Un NIT con dos sedes marcadas distinto a mano: Rionegro Sí, San Gil No (la regla es por sede). */
+const M1 = '40000000-0000-4000-8000-000000000cc1'
+const M2 = '40000000-0000-4000-8000-000000000cc2'
 const NADIE = '40000000-0000-4000-8000-0000000000ff'
 
 const NIT_A = '900000001'
@@ -259,6 +264,7 @@ const NIT_D = '900000004'
 const NIT_P = '900000005'
 const NIT_S = '900000006'
 const NIT_H = '900000010'
+const NIT_M = '900000011'
 const NIT_F = '900000007'
 const NIT_G = '900000008'
 const NIT_AJENO = '900000099'
@@ -283,6 +289,9 @@ const MUNICIPIOS = {
   PIE: { id: '68547', name: 'Piedecuesta', dep: '68', depName: 'Santander' },
   GIR: { id: '68307', name: 'Girón', dep: '68', depName: 'Santander' },
   LEB: { id: '68406', name: 'Lebrija', dep: '68', depName: 'Santander' },
+  LSA: { id: '68418', name: 'Los Santos', dep: '68', depName: 'Santander' },
+  RIO: { id: '68615', name: 'Rionegro', dep: '68', depName: 'Santander' },
+  SGI: { id: '68679', name: 'San Gil', dep: '68', depName: 'Santander' },
   BOG: { id: '11001', name: 'Bogotá, D.C.', dep: '11', depName: 'Bogotá, D.C.' },
   CHIA: { id: '25175', name: 'Chía', dep: '25', depName: 'Cundinamarca' },
 } as const
@@ -333,6 +342,9 @@ function datosIniciales(): Tablas {
       sede(F1, '900000007-3', 'Hospital F Chapinero', MUNICIPIOS.BOG, 30, { locality_id: '1100102', locality_name: 'Chapinero' }),
       sede(F2, '900000008-4', 'Clínica G Suba', MUNICIPIOS.BOG, 30, { locality_id: '1100111', locality_name: 'Suba' }),
       sede(Z1, '900000009-5', 'Hospital cerrado', MUNICIPIOS.BUC, 10, { active: false }),
+      sede(N1, 'SIN-NIT-01', 'Puesto de salud N', MUNICIPIOS.LSA, 5, { compra_publica: true }),
+      sede(M1, '900000011-1', 'Hospital M sede Rionegro', MUNICIPIOS.RIO, 30, { compra_publica: true }),
+      sede(M2, '900000011-2', 'Hospital M sede San Gil', MUNICIPIOS.SGI, 10, { compra_publica: false }),
     ],
     reps_sedes: [
       { nit: NIT_A, naturaleza: 'Pública', codigo_habilitacion: '680010000101' },
@@ -396,6 +408,7 @@ const GIROS = [
   { nit: NIT_H, total: 50, contributivo: 50, subsidiado: 0, otro: 0, ultima: '2026-04-01' },
   { nit: NIT_F, total: 700, contributivo: 700, subsidiado: 0, otro: 0, ultima: '2026-09-01' },
   { nit: NIT_G, total: 100, contributivo: 100, subsidiado: 0, otro: 0, ultima: '2026-09-02' },
+  { nit: NIT_M, total: 400, contributivo: 400, subsidiado: 0, otro: 0, ultima: '2026-09-03' },
   // NIT ajeno (ninguna IPS de OpMap): solo lo devuelve el respaldo adres_giros_intel; nunca debe sumar
   { nit: NIT_AJENO, total: 9999, contributivo: 9999, subsidiado: 0, otro: 0, ultima: '2026-09-30' },
 ]
@@ -427,6 +440,8 @@ const HECHOS = [
   hecho(NIT_F, OSTEOCOL, 'OSTEOCOL SAS', 'neurocirugia', 600),
   // Entidad que no es IPS de OpMap
   hecho(NIT_AJENO, OSTEOCOL, 'OSTEOCOL SAS', 'trauma', 5000),
+  // NIT M (Rionegro Sí, San Gil No): su contrato cuenta solo en la sede marcada Sí (75 % por camas)
+  hecho(NIT_M, OSTEOCOL, 'OSTEOCOL SAS', 'trauma', 1000),
   // Estimado (SECOP I sin adjudicado): suma y se cuenta
   hecho(NIT_A, '900555666', 'ANTIGUO SAS', 'deportiva', 100, 1, EN_VENTANA, { est: true }),
 ]
@@ -563,14 +578,15 @@ async function main() {
     const osteocol = body.compras?.proveedores[1]
     eq('OSTEOCOL: NIT, 2 entidades, última firma, líneas, vigilado', [osteocol?.nit, osteocol?.entidades, osteocol?.ultimaFecha, osteocol?.lineas, osteocol?.vigilado], [OSTEOCOL, 2, HOY, ['trauma', 'columna'], true])
     eq('PRECIMEC dado de baja en la lista vigilada: vigilado false', body.compras?.proveedores[0]?.vigilado, false)
-    eq('aparte: sin clasificar (400 × 0,6), especialistas (3 + 2), personas naturales (200), estimados (100 × 0,6)', [body.compras?.sinClasificar, body.compras?.especialistas, body.compras?.personasNaturales, body.compras?.estimados], [
+    eq('aparte: sin clasificar (400 × 0,6), especialistas (3 + 2), personas naturales (200), estimados (100 × 0,6), fuera de escala (1, sin valor)', [body.compras?.sinClasificar, body.compras?.especialistas, body.compras?.personasNaturales, body.compras?.estimados, body.compras?.fueraEscala], [
       { contratos: 2, valor: 240 },
       { contratos: 5 },
       { contratos: 1, valor: 200 },
       { contratos: 1, valor: 60 },
+      { contratos: 1 },
     ])
     eq('estado con_datos y notas: estimación por camas + fuentes (sin nota de estado)', [body.comprasEstado, body.notas], ['con_datos', [MAPA_DETALLE_TEXTOS.estimadoPorCamas, MAPA_DETALLE_TEXTOS.fuentes]])
-    check('ni el fuera de escala ni el NIT ajeno ni la entidad marcada a mano entran', !buc.text.includes('GIGANTE') && !buc.text.includes(NIT_AJENO) && !buc.text.includes('"800"') && (body.compras?.valor ?? 0) < 1_000_000)
+    check('ni el fuera de escala ni el NIT ajeno ni la entidad marcada a mano entran', !buc.text.includes('GIGANTE') && !buc.text.includes(NIT_AJENO) && !buc.text.includes(NIT_P) && !(body.compras?.proveedores ?? []).some(p => p.valor === 800) && (body.compras?.valor ?? 0) < 1_000_000)
     eq('criterio 3 (histórico) solo para el NIT sin decidir: D (REPS Privada, sin hechos); A (REPS) y B (manual) no se consultan', vistaContratos(buc.requests), [[NIT_D, 'id', '1']])
     textos.push(buc.text)
   }
@@ -649,6 +665,9 @@ async function main() {
     eq('a SECOP y a la ADRES se piden SOLO los NIT de la localidad (no los de Suba ni el 11001 entero)', [nitsPedidos(r.requests, 'secop_hechos'), nitsPedidos(r.requests, 'adres_giros_nits')], [[[NIT_F]], [[NIT_F]]])
     const suba = await territorio(fakeCon, ADMIN, localidad('1100111'))
     eq('Suba (1100111): IPS privada → giros 100, sin entidad pública', [suba.status, suba.body.ips, suba.body.giros?.total, suba.body.compras, suba.body.comprasEstado], [200, { total: 1, publicas: 0 }, 100, null, 'sin_entidad_publica'])
+    eq('Suba: la nota dice "en esta localidad", no "en este municipio"', suba.body.notas, [MAPA_DETALLE_TEXTOS.sinEntidadPublicaLocalidad, MAPA_DETALLE_TEXTOS.fuentes])
+    const vacia = await territorio(fakeCon, ADMIN, localidad('1100105'))
+    eq('localidad sin IPS (Usme, 1100105): una sola nota, "esta localidad"', [vacia.status, vacia.body.ips, vacia.body.notas], [200, { total: 0, publicas: 0 }, ['Giros y compras se cuentan donde está la IPS; esta localidad no tiene IPS en OpMap']])
     textos.push(r.text, suba.text)
   }
 
@@ -678,6 +697,7 @@ async function main() {
     eq('b1: marcada a mano compra_publica = true (origen manual), sede única', [b1.body.hospital.compraPublica, b1.body.hospital.compraPublicaOrigen, b1.body.hospital.sedesNit, b1.body.hospital.parte], [true, 'manual', 1, 1])
     eq('b1: giros del NIT completo sin estimación; compras OSTEOCOL 500; aparte especialistas 5 y personas naturales 1', [b1.body.giros?.total, b1.body.giros?.estimadoPorCamas, proveedores(b1.body), b1.body.compras?.especialistas, b1.body.compras?.personasNaturales], [500, false, [['OSTEOCOL SAS', 500, 1]], { contratos: 5 }, { contratos: 1, valor: 200 }])
     eq('b1: notas solo fuentes', b1.body.notas, [MAPA_DETALLE_TEXTOS.fuentes])
+    eq('b1: su contrato fuera de escala se cuenta aparte y no suma', [b1.body.compras?.fueraEscala, (b1.body.compras?.valor ?? 0) < 1_000_000], [{ contratos: 1 }, true])
 
     const d1 = await ips(fakeCon, ADMIN, D1)
     eq('d1: privada (REPS Privada, sin contratos) → compras null, ips_privada, giros sí', [d1.body.hospital.compraPublica, d1.body.hospital.compraPublicaOrigen, d1.body.compras, d1.body.comprasEstado, d1.body.giros?.total], [false, 'ninguno', null, 'ips_privada', 200])
@@ -697,6 +717,25 @@ async function main() {
     eq('h1 y d1 consultan el histórico por existencia (un NIT, select id, limit 1); d1 no tiene nada y sigue privada', [vistaContratos(h1.requests), vistaContratos(d1.requests)], [[[NIT_H, 'id', '1']], [[NIT_D, 'id', '1']]])
     eq('a1 (REPS), b1 y p1 (marca manual) no consultan el histórico', [vistaContratos(a1.requests), vistaContratos(b1.requests), vistaContratos(p1.requests)], [[], [], []])
 
+    const n1 = await ips(fakeCon, ADMIN, N1)
+    eq('n1: código que no es NIT → estado neutro sin_nit (nunca "IPS privada"), sin giros ni compras', [n1.status, n1.body.comprasEstado, n1.body.giros, n1.body.compras, n1.body.hospital.nit], [200, 'sin_nit', null, null, null])
+    eq('n1: sin NIT no hay entidad que cruzar: publica false, origen ninguno (como la ficha), aunque la sede diga Sí', [n1.body.hospital.compraPublica, n1.body.hospital.compraPublicaOrigen], [false, 'ninguno'])
+    eq('n1: notas: la de NIT no válido + fuentes', n1.body.notas, [MAPA_DETALLE_TEXTOS.sinNit, MAPA_DETALLE_TEXTOS.fuentes])
+    check('n1: no pide giros ni hechos ni el histórico', !n1.requests.some(request => request.table.startsWith('rpc/') || request.table === 'secop_contratos_unicos'), tablas(n1.requests))
+    check('n1: la tarjeta no dice "privada"', !/privada/i.test(n1.text))
+    const lsa = await territorio(fakeCon, ADMIN, municipio(MUNICIPIOS.LSA.id))
+    eq('Los Santos (solo la IPS sin NIT): 200, 1 IPS, 0 públicas, sin pedir giros ni hechos', [lsa.status, lsa.body.ips, lsa.requests.some(request => request.table.startsWith('rpc/'))], [200, { total: 1, publicas: 0 }, false])
+
+    const m1 = await ips(fakeCon, ADMIN, M1)
+    const m2 = await ips(fakeCon, ADMIN, M2)
+    eq('m1 (marca Sí): pública manual, parte 0,75, compras 750 (OSTEOCOL), giros 300', [m1.body.hospital.compraPublica, m1.body.hospital.compraPublicaOrigen, m1.body.hospital.parte, m1.body.comprasEstado, m1.body.compras?.valor, m1.body.giros?.total], [true, 'manual', 0.75, 'con_datos', 750, 300])
+    eq('m2 (marca No, mismo NIT): privada manual, compras null, giros 100', [m2.body.hospital.compraPublica, m2.body.hospital.compraPublicaOrigen, m2.body.comprasEstado, m2.body.compras, m2.body.giros?.total], [false, 'manual', 'ips_privada', null, 100])
+    const rio = await territorio(fakeCon, ADMIN, municipio(MUNICIPIOS.RIO.id))
+    const sgi = await territorio(fakeCon, ADMIN, municipio(MUNICIPIOS.SGI.id))
+    eq('Rionegro suma lo mismo que la tarjeta de m1 (regla por sede)', [rio.body.ips, rio.body.compras?.valor, rio.body.comprasEstado], [{ total: 1, publicas: 1 }, m1.body.compras?.valor, 'con_datos'])
+    eq('San Gil suma lo mismo que la tarjeta de m2: sin entidad pública aunque otra sede del NIT diga Sí', [sgi.body.ips, sgi.body.compras, sgi.body.comprasEstado, sgi.body.giros?.total], [{ total: 1, publicas: 0 }, null, 'sin_entidad_publica', m2.body.giros?.total])
+    textos.push(n1.text, lsa.text, m1.text, m2.text, rio.text, sgi.text)
+
     const z1 = await ips(fakeCon, ADMIN, Z1)
     const nadie = await ips(fakeCon, ADMIN, NADIE)
     const malo = await ips(fakeCon, ADMIN, 'no-es-uuid')
@@ -714,6 +753,9 @@ async function main() {
       [B1, 'b1 (marca manual true)'],
       [A1, 'a1 (REPS Pública)'],
       [S1, 's1 (REPS Pública sin contratos)'],
+      [M1, 'm1 (NIT con sedes Sí y No: la sede Sí)'],
+      [M2, 'm2 (NIT con sedes Sí y No: la sede No)'],
+      [N1, 'n1 (código que no es NIT, marca Sí)'],
     ]
     for (const [id, nombre] of casos) {
       const tarjeta = await ips(fakeCon, ADMIN, id)

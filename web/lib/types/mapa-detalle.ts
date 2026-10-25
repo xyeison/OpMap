@@ -32,8 +32,10 @@ export interface ComprasDetalle {
   sinClasificar: { contratos: number; valor: number }
   especialistas: { contratos: number }; personasNaturales: { contratos: number; valor: number }
   estimados: { contratos: number; valor: number }                       // SECOP I sin adjudicado (hoy 0 en 12 m)
+  fueraEscala: { contratos: number }                                    // > 50.000 millones por contrato: no suman (hoy 0 en 12 m)
 }
-export type ComprasEstado = 'con_datos' | 'sin_contratos_12m' | 'sin_entidad_publica' | 'ips_privada'
+/** 'sin_nit': el código de la IPS no es un NIT válido; no se puede cruzar con la ADRES ni con SECOP (estado neutro). */
+export type ComprasEstado = 'con_datos' | 'sin_contratos_12m' | 'sin_entidad_publica' | 'ips_privada' | 'sin_nit'
 export interface TerritorioDetalle {
   territorio: { code: string; tipo: 'municipio' | 'localidad'; nombre: string; departamento: string | null }
   ips: { total: number; publicas: number }

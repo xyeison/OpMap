@@ -8,7 +8,7 @@ import type { LatLngTuple, PointTuple } from 'leaflet'
 import { formatCopCompact } from '@/lib/giros-format'
 import { fechaEs, numeroEs } from '@/lib/zona-estadisticas'
 import { lineaLabel } from '@/lib/compras-publicas'
-import { MAPA_DETALLE_TEXTOS, notaEstadoCompras, notaParteSede } from '@/lib/mapa-detalle'
+import { MAPA_DETALLE_TEXTOS, notaEstadoCompras, notaParteSede, textoSinIps } from '@/lib/mapa-detalle'
 import type { ComprasDetalle, GirosDetalle, IpsDetalle, TerritorioDetalle } from '@/lib/types/mapa-detalle'
 
 // Tarjetas (popups) del mapa: IPS, IPS sin zona, zona, racimo de zonas y territorio. Contenido React (sin HTML crudo,
@@ -201,6 +201,9 @@ function ComprasRows({ compras, modo }: { compras: ComprasDetalle; modo: 'territ
   if (compras.estimados.contratos > 0) {
     aparte.push(`${MAPA_DETALLE_TEXTOS.estimados}: ${contratosText(compras.estimados.contratos)} · ${formatCopCompact(compras.estimados.valor)}`)
   }
+  if (compras.fueraEscala.contratos > 0) {
+    aparte.push(`${MAPA_DETALLE_TEXTOS.fueraEscala}: ${contratosText(compras.fueraEscala.contratos)}`)
+  }
   return (
     <>
       {compras.contratos > 0 ? (
@@ -247,9 +250,11 @@ export function GirosComprasSection({ estado, data, error, onRetry, modo }: Giro
 
   const { giros, compras, comprasEstado } = data
   const hospital = modo === 'ips' && 'hospital' in data ? data.hospital : null
+  const tipo = 'territorio' in data ? data.territorio.tipo : 'municipio'
   const notaSede = hospital ? notaParteSede(hospital.nit, hospital.sedesNit) : null
-  const notaCamas = giros?.estimadoPorCamas ? MAPA_DETALLE_TEXTOS.estimadoPorCamas : null
-  const notaCompras = notaEstadoCompras(comprasEstado)
+  // Con n > 1 sedes la nota de parte ya dice "reparto por camas" (el servidor tampoco repite la de estimación)
+  const notaCamas = giros?.estimadoPorCamas && !notaSede ? MAPA_DETALLE_TEXTOS.estimadoPorCamas : null
+  const notaCompras = notaEstadoCompras(comprasEstado, tipo)
   const propias = new Set<string>([notaSede, notaCamas, notaCompras, MAPA_DETALLE_TEXTOS.fuentes].filter((n): n is string => !!n))
   const otrasNotas = (data.notas || []).filter(nota => !propias.has(nota))
 
@@ -260,7 +265,7 @@ export function GirosComprasSection({ estado, data, error, onRetry, modo }: Giro
     const notasServidor = data.notas || []
     return (
       <div className="opmap-popup__section">
-        {(notasServidor.length > 0 ? notasServidor : [MAPA_DETALLE_TEXTOS.sinIps]).map(nota => (
+        {(notasServidor.length > 0 ? notasServidor : [textoSinIps(tipo)]).map(nota => (
           <div key={nota} className="opmap-popup__note">{nota}</div>
         ))}
       </div>

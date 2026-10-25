@@ -104,8 +104,14 @@ unos KB por respuesta. Estados visibles: "Cargando giros y compras…" y "No se 
       (`esOrto`), con la misma parte por camas; servicios de especialistas, fuera de escala y personas naturales no suman y se
       cuentan aparte; "sin clasificar" aparte con valor; proveedores ordenados por valor con `vigilado`.
 - [ ] La respuesta serializada nunca contiene `persona:`, un `proveedor_hash`, un documento de persona ni un nombre de médico.
-- [ ] `comprasEstado` cubre los cuatro casos: `con_datos`, `sin_contratos_12m` (pública sin hechos), `sin_entidad_publica`
-      (municipio sin IPS pública), `ips_privada` (manual `compra_publica=false` gana sobre REPS "Pública").
+- [ ] `comprasEstado` cubre los cinco casos: `con_datos`, `sin_contratos_12m` (pública sin hechos), `sin_entidad_publica`
+      (municipio sin IPS pública), `ips_privada` (manual `compra_publica=false` gana sobre REPS "Pública") y `sin_nit` (código
+      de IPS que no es NIT: estado neutro, sin giros ni compras, nunca "IPS privada"; añadido tras la revisión).
+- [ ] Entidad de compra pública **por sede**, la misma regla en la tarjeta del territorio, en la de la IPS y en la ficha (marca
+      manual de esa sede → REPS del NIT → contratos del NIT en SECOP, histórico): el municipio suma lo que muestran sus IPS.
+      Diferencia conocida con `/inteligencia` (`secop_nits_ips` toma el `bool_or` de las marcas del NIT): solo si un NIT tiene
+      una sede marcada Sí y otra No (0 NIT el 2026-10-24).
+- [ ] En una localidad de Bogotá las notas dicen "esta localidad", no "este municipio".
 - [ ] Ventanas: giros terminan en el último mes cargado (no en hoy); SECOP `desde` = primer día de hace 11 meses; ambos textos
       visibles en la tarjeta ("oct-2025 a sep-2026", "nov-2025 a hoy").
 - [ ] Localidad de Bogotá: la ruta agrupa por `hospitals.locality_id`; el municipio 11001 no se pide entero.
@@ -159,8 +165,9 @@ export interface ComprasDetalle {
   sinClasificar: { contratos: number; valor: number }
   especialistas: { contratos: number }; personasNaturales: { contratos: number; valor: number }
   estimados: { contratos: number; valor: number }                       // SECOP I sin adjudicado (hoy 0 en 12 m)
+  fueraEscala: { contratos: number }                                    // > 50.000 M por contrato: no suma (hoy 0 en 12 m)
 }
-export type ComprasEstado = 'con_datos' | 'sin_contratos_12m' | 'sin_entidad_publica' | 'ips_privada'
+export type ComprasEstado = 'con_datos' | 'sin_contratos_12m' | 'sin_entidad_publica' | 'ips_privada' | 'sin_nit'
 export interface TerritorioDetalle {
   territorio: { code: string; tipo: 'municipio' | 'localidad'; nombre: string; departamento: string | null }
   ips: { total: number; publicas: number }

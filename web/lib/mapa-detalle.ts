@@ -2,9 +2,11 @@
 // Spec: docs/specs/2026-10-24-mapa-giros-y-compras-12-meses.md. Las usan app/api/map/_lib/detalle-server.ts (las dos
 // rutas de detalle) y scripts/mapa-detalle-check.ts.
 //
-// Por qué existe: la tarjeta de municipio / localidad y la de IPS deben sumar EXACTAMENTE lo mismo que /inteligencia,
-// sin inventar reglas nuevas, pero sobre un territorio (un municipio, una localidad de Bogotá o una sola sede) y en una
-// ventana de 12 meses. Reglas reutilizadas, no copiadas:
+// Por qué existe: la tarjeta de municipio / localidad y la de IPS suman con las mismas reglas que /inteligencia
+// (aggregateSecopRanking) y la ficha, sin inventar reglas nuevas, pero sobre un territorio (un municipio, una localidad
+// de Bogotá o una sola sede) y en una ventana de 12 meses. Dos diferencias deliberadas con el ranking: solo suman las
+// entidades de compra pública (resolverCompraPublica, como la ficha) y las personas naturales con línea van aparte,
+// contadas y sin nombre (el ranking las suma como un proveedor más). Reglas reutilizadas, no copiadas:
 //   - La ADRES gira al NIT y SECOP contrata con el NIT. Si el NIT tiene varias sedes activas en OpMap, su giro y sus
 //     compras se reparten entre ellas por camas (sedeShares de lib/adres-intelligence.ts; sin camas, a partes iguales).
 //     Giro / compra de un territorio = Σ (valor del NIT × parte de cada sede del territorio): un NIT con sedes en dos
@@ -12,7 +14,8 @@
 //   - Compras: solo material de las 6 líneas ortopédicas (esOrto / lineaPasaFiltro); servicios de especialistas
 //     (esServicio), fuera de escala (esFueraEscala) y personas naturales NO suman y se cuentan aparte; "sin clasificar"
 //     (proveedores vigilados sin línea) aparte y con valor; los estimados de SECOP I suman (decisión 2026-10-12) y se
-//     cuentan para la nota. Igual que aggregateSecopRanking (lib/compras-publicas.ts), que no se toca.
+//     cuentan para la nota. El orden servicio → fuera de escala es el de aggregateSecopRanking (lib/compras-publicas.ts),
+//     que no se toca.
 //   - Ventanas: giros = 12 meses que terminan en el ÚLTIMO mes con giros cargados (no en hoy), como /inteligencia;
 //     SECOP = 12 meses calendario hasta hoy (ventanaMeses). Constante única MAPA_VENTANA_MESES.
 // Privacidad: la respuesta nunca lleva `proveedor_key`, `proveedor_hash`, documentos ni nombres de personas naturales
@@ -44,6 +47,10 @@ export const MAPA_DETALLE_TEXTOS = {
   sinIps: 'Giros y compras se cuentan donde está la IPS; este municipio no tiene IPS en OpMap',
   /** Municipio con IPS pero ninguna entidad de compra pública (se muestran los giros). */
   sinEntidadPublica: 'Sin entidades públicas de compra en OpMap en este municipio',
+  /** Lo mismo en una localidad de Bogotá. */
+  sinEntidadPublicaLocalidad: 'Sin entidades públicas de compra en OpMap en esta localidad',
+  /** IPS cuyo código no es un NIT válido: estado neutro (ni pública ni privada), sin cifras. */
+  sinNit: 'El código de esta IPS no es un NIT válido; no se puede cruzar con la ADRES ni con SECOP',
   /** IPS que no es entidad de compra pública (resolverCompraPublica; la marca manual manda). */
   ipsPrivada: 'IPS privada: sin contratación pública (SECOP)',
   /** Entidad pública sin hechos en la ventana. Nunca "sin compras". */
@@ -54,15 +61,27 @@ export const MAPA_DETALLE_TEXTOS = {
   especialistas: 'Servicios de especialistas',
   personasNaturales: 'Personas naturales',
   estimados: 'Estimados (SECOP I sin valor adjudicado)',
+  fueraEscala: 'Fuera de escala (más de 50.000 millones por contrato, no suman)',
   fuentes: 'Fuentes: ADRES Identifica tu Giro (giro del NIT repartido por camas) · SECOP I/II (valor adjudicado)',
 } as const
 
-/** Nota de la tarjeta según el estado de compras (null cuando hay datos: la sección habla por sí sola). */
-export function notaEstadoCompras(estado: ComprasEstado): string | null {
-  if (estado === 'sin_entidad_publica') return MAPA_DETALLE_TEXTOS.sinEntidadPublica
+export type TipoTerritorio = 'municipio' | 'localidad'
+
+/**
+ * Nota de la tarjeta según el estado de compras (null cuando hay datos: la sección habla por sí sola). `tipo` solo
+ * cambia el texto de "sin entidad pública" ("en este municipio" / "en esta localidad"); la tarjeta de IPS no lo pasa.
+ */
+export function notaEstadoCompras(estado: ComprasEstado, tipo: TipoTerritorio = 'municipio'): string | null {
+  if (estado === 'sin_entidad_publica') return tipo === 'localidad' ? MAPA_DETALLE_TEXTOS.sinEntidadPublicaLocalidad : MAPA_DETALLE_TEXTOS.sinEntidadPublica
   if (estado === 'ips_privada') return MAPA_DETALLE_TEXTOS.ipsPrivada
   if (estado === 'sin_contratos_12m') return MAPA_DETALLE_TEXTOS.sinContratos12m
+  if (estado === 'sin_nit') return MAPA_DETALLE_TEXTOS.sinNit
   return null
+}
+
+/** "Giros y compras se cuentan donde está la IPS; este municipio / esta localidad no tiene IPS en OpMap". */
+export function textoSinIps(tipo: TipoTerritorio = 'municipio'): string {
+  return tipo === 'localidad' ? MAPA_DETALLE_TEXTOS.sinIps.replace('este municipio', 'esta localidad') : MAPA_DETALLE_TEXTOS.sinIps
 }
 
 /** Tarjeta de IPS cuyo NIT tiene n > 1 sedes activas: la cifra es la parte de ESTA sede. null si es la única. */
@@ -254,7 +273,8 @@ interface ProveedorAcc {
  *     suman y además se cuentan en `estimados`.
  *   - Aparte, sin sumar: especialistas (esServicio: personas o empresas con especialidad y sin línea; solo contratos),
  *     personasNaturales (persona con línea ortopédica: contratos y valor, sin nombre), sinClasificar (vigilados sin
- *     línea: contratos y valor). Fuera de escala (esFueraEscala) se descarta: el contrato no tiene sitio en el tipo.
+ *     línea: contratos y valor). Fuera de escala (esFueraEscala) no suma y se cuenta aparte (solo contratos: su valor
+ *     es el error de digitación que lo saca de escala).
  *   - proveedores: una fila por empresa, orden valor desc · contratos desc · nombre; `lineas` = códigos (lineaLabel
  *     para pintar) en el orden de compareLineas; `vigilado` = NIT en la lista vigilada activa; `nit` = '' si SECOP no
  *     trajo documento (clave 'nombre:'). Nunca `proveedor_key` ni `proveedor_hash`.
@@ -281,6 +301,7 @@ export function resumirCompras(params: {
     especialistas: { contratos: 0 },
     personasNaturales: { contratos: 0, valor: 0 },
     estimados: { contratos: 0, valor: 0 },
+    fueraEscala: { contratos: 0 },
   }
   const entidades = new Set<string>()
   const proveedores = new Map<string, ProveedorAcc>()
@@ -297,7 +318,10 @@ export function resumirCompras(params: {
       out.especialistas.contratos += n
       continue
     }
-    if (esFueraEscala(fact)) continue
+    if (esFueraEscala(fact)) {
+      out.fueraEscala.contratos += n
+      continue
+    }
     const linea = fact.linea || SIN_CLASIFICAR
     if (fact.es_persona) {
       // Persona natural con línea ortopédica (suministro): cuenta, pero no se nombra ni entra en proveedores.

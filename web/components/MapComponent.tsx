@@ -29,7 +29,7 @@ import {
   type TerritoryInfo,
   type GirosComprasProps
 } from './MapPopups'
-import { MAPA_DETALLE_TEXTOS } from '@/lib/mapa-detalle'
+import { textoSinIps } from '@/lib/mapa-detalle'
 import type { IpsDetalle, TerritorioDetalle } from '@/lib/types/mapa-detalle'
 import { zoneBadgeHeight, initialsOf, cityInitials, uniqueCityInitials, shortCityName, readableTextColor } from './ZoneBadgeIcon'
 import ZoneBadgeLayer, { type ZoneBadgeItem } from './ZoneBadgeLayer'
@@ -1578,7 +1578,7 @@ export default function MapComponent({
       }
       // Sin IPS en OpMap no hay giros ni compras que contar: una línea fija, sin llamada (solo con intelligence:view)
       const sinIpsNota = inteligenciaIncluida
-        ? (isLocality ? MAPA_DETALLE_TEXTOS.sinIps.replace('este municipio', 'esta localidad') : MAPA_DETALLE_TEXTOS.sinIps)
+        ? textoSinIps(isLocality ? 'localidad' : 'municipio')
         : null
       return { kind: 'other', name, deptName, title, detail, coverage, population, sinIpsNota }
     }
