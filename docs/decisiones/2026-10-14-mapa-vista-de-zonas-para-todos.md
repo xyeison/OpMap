@@ -15,7 +15,9 @@ ejecutivos comerciales".
 - Quien no ve todas las líneas no recibe la cobertura ni los Ejecutivos Comerciales de líneas que no ve. En la vista
   de zonas, sus tarjetas dicen "Ejecutivo Comercial (tus líneas)". Ese texto está pendiente de que el dueño lo
   confirme.
-- Los contratos solo los recibe quien ya los recibía.
+- Los contratos solo los recibe quien ya los recibía. *(Superado el 2026-10-24: el mapa ya no manda contratos a nadie;
+  en su lugar, las tarjetas muestran giros ADRES y compras SECOP de 12 meses para quien tiene `intelligence:view`, ver
+  `docs/decisiones/2026-10-24-mapa-giros-y-compras.md`.)*
 - El modo Regiones sigue solo para `map:all-lines`. *(Superado el mismo día: el modo Regiones se quitó del todo, ver
   `docs/decisiones/2026-10-14-quitar-regiones.md`.)*
 - RR. HH., que no tiene mapa, recibe 403 también en la API.

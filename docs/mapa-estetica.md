@@ -41,9 +41,11 @@ Estilo autorizado por el dueño el 2026-10-11 (rama `ui/mapa-estetica`; constant
     "Ejecutivo Comercial (<línea>)", y los tooltips "sin Ejecutivo Comercial de tus líneas". Con `map:all-lines`, los
     textos de siempre. Si el dueño prefiere otra redacción, se cambia en `zoneExecutivesText` / `zoneExecutiveLabel`
     (`web/components/MapComponent.tsx`).
-  - Quien no tiene líneas ni `contracts:view` (rol `user` sin ejecutiva enlazada ni línea liderada, que antes no
-    abría el mapa) no recibe contratos (`contractsIncluded: false`): sus tarjetas no muestran "Contratos" y "Solo con
-    Contratos" no sale en "Filtros y visitas". Todos los demás, lo de siempre.
+  - *(Superado el 2026-10-24.)* Hasta esa fecha, quien no tenía líneas ni `contracts:view` no recibía los contratos
+    cargados a mano (`contractsIncluded: false`) y los demás veían la fila "Contratos" y el interruptor "Solo con
+    Contratos". Desde el 2026-10-24 el mapa no manda contratos a nadie: la fila, la sección "Contratos activos" y el
+    interruptor desaparecieron y las tarjetas muestran giros ADRES y compras SECOP de 12 meses (ver "2026-10-24 ·
+    Giros ADRES y compras SECOP en las tarjetas").
 - **Tonos por zona** (pedido del dueño 2026-10-11: "los 4 de Bogotá se deberían diferenciar por
   colores"): solo en la vista por línea, si un Ejecutivo Comercial cubre n > 1 zonas (cobertura local,
   reach o manual), cada zona usa `zoneTint(color, índice, n)` (`web/components/mapStyles.ts`): mismo
@@ -156,6 +158,44 @@ solo en la vista por línea:
   Ejecutivo Comercial)") e "IPS sin Zona" (antes "Vacante (IPS sin zona)"); el tooltip de la insignia, "Sin cobertura en
   esta línea"; la tarjeta, "Sin cobertura (más cercana: <nombre> a 4 h 39)" o "Sin cobertura (nadie lleva esta línea)".
   "Vacante" queda solo para la persona por contratar (`executives.status = 'placeholder'`).
+
+### 2026-10-24 · Giros ADRES y compras SECOP en las tarjetas (contenido, no estilo)
+
+Pedido del dueño el 2026-10-24 (spec `docs/specs/2026-10-24-mapa-giros-y-compras-12-meses.md`, decisión
+`docs/decisiones/2026-10-24-mapa-giros-y-compras.md`). Con sus palabras: "tenemos una información de contratos y
+proveedores con nombre propio […] está súper desactualizado. […] Yo quiero que ESA [giros de la ADRES y SECOP] sea la
+información que sale en el mapa […] si le doy clic al municipio, que me diga cuánto tiene en total en giros, cuánto en
+compras, cuáles son los proveedores. SECOP trae cosas viejísimas; quiero los últimos 12 meses". **No cambia nada del
+estilo autorizado el 2026-10-11**: polígonos, puntos, insignias, racimos, colores, opacidades, capas y globos (tooltips,
+siguen sin cifras) quedan igual y `scripts/mapa-estilo-check.ts` sigue en verde. Cambia solo el CONTENIDO de las tarjetas
+que ya existían, con los estilos `.opmap-popup__section`, `__section-title`, `__rows`, `__row--stacked`, `__note` y
+`__secondary` que ya había en `web/app/globals.css` (ningún color ni clase nueva).
+
+- **Qué se quitó**: la fila "Contratos" de las dos tarjetas de IPS, la sección "Contratos activos" de la tarjeta de
+  municipio o localidad y el interruptor "Solo con Contratos" de "Filtros y visitas". Eran los contratos cargados a mano
+  (`hospital_contracts`: 92 "activos" vencidos, sin editar desde 2025-12-30) y ya no viajan en `/api/map/data`.
+- **Qué se añadió** (`GirosComprasSection` en `web/components/MapPopups.tsx`), solo para quien tiene `intelligence:view`
+  (`/api/map/data` lo dice con `inteligenciaIncluida`; sin el permiso, la tarjeta de siempre, sin llamada y sin error):
+  - Tarjeta de municipio o localidad con IPS: debajo de "Estadísticas hospitalarias" y antes de "Población", la sección
+    "Giros ADRES · oct-2025 a sep-2026" (Total, Contributivo, Subsidiado, Otro, "NIT con giro: n de m", último giro) y la
+    sección "Compras públicas de material ortopédico y neurocirugía (SECOP) · nov-2025 a hoy" (Valor adjudicado,
+    Contratos, Entidades; proveedores empresa ordenados por valor con NIT, contratos, último contrato, líneas y la marca
+    "Vigilado"; 5 visibles y "Ver los N proveedores" dentro de la tarjeta; aparte y en una línea "Sin clasificar
+    (proveedores vigilados)", "Servicios de especialistas" y "Personas naturales", siempre sin nombres). Pie "Fuentes:
+    ADRES Identifica tu Giro (giro del NIT repartido por camas) · SECOP I/II (valor adjudicado)" con el rango de cada una.
+  - Tarjeta de IPS (con Zona y sin Zona): debajo de "Tiempo de llegada", las mismas dos secciones con la parte de LA
+    SEDE (giro del NIT repartido por camas entre sus sedes activas; si son varias, "Parte de esta sede: 1 de n sedes del
+    NIT X, reparto por camas. La ficha muestra el NIT completo."). IPS privada → solo giros y "IPS privada: sin
+    contratación pública (SECOP)"; pública sin hechos en la ventana → "Sin contratos de ortopedia o neurocirugía en SECOP
+    en los últimos 12 meses" (nunca "sin compras"). El botón "Ver ficha →" sigue igual.
+  - Municipio con IPS pero ninguna pública: los giros y la línea "Sin entidades públicas de compra en OpMap en este
+    municipio". Municipio de alcance sin IPS (tarjeta `kind:'other'`): una sola línea, "Giros y compras se cuentan donde
+    está la IPS; este municipio no tiene IPS en OpMap", sin llamada.
+  - Estados visibles: "Cargando giros y compras…" y "No se pudieron cargar · Reintentar". Los dos botones de texto
+    ("Reintentar", "Ver los N proveedores") van subrayados, con el color del texto de la nota, sin estilo nuevo.
+- **Cómo llega el dato**: carga perezosa al abrir la tarjeta (`useQuery(['map-detalle', tipo, code])`, 5 min de caché,
+  patrón de `unassigned-optimized`): `GET /api/map/detalle/territorio?tipo=municipio|localidad&code=…` y
+  `GET /api/map/detalle/ips/[id]`. Los globos (tooltips) y `territoryTooltipHtml` no cambian.
 
 ### Lógica de Coloreado de Territorios Compartidos
 Para cualquier territorio (municipio o localidad) donde múltiples KAMs tienen IPS:

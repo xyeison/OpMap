@@ -1,13 +1,23 @@
 'use client'
 
-import { useMemo, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { Popup } from 'react-leaflet'
 import type L from 'leaflet'
 import type { LatLngTuple, PointTuple } from 'leaflet'
+import { formatCopCompact } from '@/lib/giros-format'
+import { fechaEs, numeroEs } from '@/lib/zona-estadisticas'
+import { lineaLabel } from '@/lib/compras-publicas'
+import { MAPA_DETALLE_TEXTOS, notaEstadoCompras, notaParteSede } from '@/lib/mapa-detalle'
+import type { ComprasDetalle, GirosDetalle, IpsDetalle, TerritorioDetalle } from '@/lib/types/mapa-detalle'
 
 // Tarjetas (popups) del mapa: IPS, IPS sin zona, zona, racimo de zonas y territorio. Contenido React (sin HTML crudo,
 // así que no hace falta escapar) con los estilos .opmap-popup de globals.css.
+//
+// Desde el 2026-10-24 (spec docs/specs/2026-10-24-mapa-giros-y-compras-12-meses.md) las tarjetas de IPS y de territorio
+// muestran los giros ADRES y las compras públicas SECOP de 12 meses (GirosComprasSection) en lugar de los contratos
+// cargados a mano, que ya no viajan en /api/map/data. Los datos se piden al abrir la tarjeta (MapComponent) y llegan ya
+// contados por el servidor (lib/mapa-detalle.ts): aquí solo se pintan. Nunca nombres de personas naturales ni médicos.
 
 // Ancho máximo: hasta el 92 % de la pantalla en móvil, 340 px en escritorio
 export function popupMaxWidth(): number {
@@ -96,7 +106,202 @@ function ColorDot({ color, hollow = false }: { color: string; hollow?: boolean }
 }
 
 const formatInt = (value: number) => Number(value || 0).toLocaleString('es-CO')
-const formatMoney = (value: number) => `$${Number(value || 0).toLocaleString('es-CO')}`
+
+// ---------- Giros ADRES y compras públicas SECOP de 12 meses ----------
+
+/** Estado de la carga perezosa: sin `intelligence:view` no hay llamada ni sección (sin_acceso). */
+export type DetalleEstado = 'cargando' | 'error' | 'listo' | 'sin_acceso'
+
+export interface GirosComprasProps {
+  estado: DetalleEstado
+  // TerritorioDetalle (municipio o localidad) o IpsDetalle (una sede), según `modo`
+  data: TerritorioDetalle | IpsDetalle | null
+  error: string | null
+  onRetry: () => void
+  modo: 'territorio' | 'ips'
+}
+
+// Proveedores visibles antes de "Ver los N proveedores" (el resto se despliega dentro de la tarjeta)
+const PROVEEDORES_VISIBLES = 5
+
+// Botón que parece texto (sin estilo nuevo en globals.css): "Reintentar", "Ver los N proveedores"
+function TextButton({ onClick, children }: { onClick: () => void; children: ReactNode }) {
+  return (
+    <button type="button" className="underline font-medium" onClick={onClick}>
+      {children}
+    </button>
+  )
+}
+
+const contratosText = (n: number) => `${numeroEs(n)} ${n === 1 ? 'contrato' : 'contratos'}`
+
+function GirosRows({ giros, modo }: { giros: GirosDetalle; modo: 'territorio' | 'ips' }) {
+  if (giros.total <= 0) {
+    return <div className="opmap-popup__note">Sin giros ADRES registrados en {giros.ventana.texto}</div>
+  }
+  return (
+    <dl className="opmap-popup__rows opmap-popup__rows--tight">
+      <PopupRow label="Total">{formatCopCompact(giros.total)}</PopupRow>
+      <PopupRow label="Contributivo">{formatCopCompact(giros.contributivo)}</PopupRow>
+      <PopupRow label="Subsidiado">{formatCopCompact(giros.subsidiado)}</PopupRow>
+      <PopupRow label="Otro (recobros, SOAT…)">{formatCopCompact(giros.otro)}</PopupRow>
+      {/* El tipo cuenta NIT (la ADRES gira al NIT), no IPS; en una sede sería siempre "1 de 1" */}
+      {modo === 'territorio' && (
+        <PopupRow label="NIT con giro">{numeroEs(giros.nitsConGiro)} de {numeroEs(giros.nits)}</PopupRow>
+      )}
+      {giros.ultimaFecha && <PopupRow label="Último giro">{fechaEs(giros.ultimaFecha)}</PopupRow>}
+    </dl>
+  )
+}
+
+function ProveedoresList({ compras }: { compras: ComprasDetalle }) {
+  const [todos, setTodos] = useState(false)
+  const total = compras.proveedores.length
+  const visibles = todos ? compras.proveedores : compras.proveedores.slice(0, PROVEEDORES_VISIBLES)
+  return (
+    <>
+      <dl className="opmap-popup__rows opmap-popup__rows--tight">
+        {visibles.map(prov => (
+          <PopupRow key={`${prov.nit}|${prov.nombre}`} label={prov.vigilado ? `${prov.nombre} · Vigilado` : prov.nombre} stacked>
+            {formatCopCompact(prov.valor)} · {contratosText(prov.contratos)}
+            {prov.ultimaFecha ? ` · último ${fechaEs(prov.ultimaFecha)}` : ''}
+            {(prov.nit || prov.lineas.length > 0) && (
+              <span className="opmap-popup__secondary">
+                <br />
+                {/* NIT vacío: SECOP no trajo el documento de la empresa */}
+                {[prov.nit ? `NIT ${prov.nit}` : null, prov.lineas.map(lineaLabel).join(', ') || null].filter(Boolean).join(' · ')}
+              </span>
+            )}
+          </PopupRow>
+        ))}
+      </dl>
+      {total > PROVEEDORES_VISIBLES && (
+        <div className="opmap-popup__note">
+          <TextButton onClick={() => setTodos(value => !value)}>
+            {todos ? 'Ver menos' : `Ver los ${numeroEs(total)} proveedores`}
+          </TextButton>
+        </div>
+      )}
+    </>
+  )
+}
+
+function ComprasRows({ compras, modo }: { compras: ComprasDetalle; modo: 'territorio' | 'ips' }) {
+  // Aparte y en una línea: lo que no suma al valor (y los estimados, que sí suman pero se avisan)
+  const aparte: string[] = []
+  if (compras.sinClasificar.contratos > 0) {
+    aparte.push(`${MAPA_DETALLE_TEXTOS.sinClasificar}: ${contratosText(compras.sinClasificar.contratos)} · ${formatCopCompact(compras.sinClasificar.valor)}`)
+  }
+  if (compras.especialistas.contratos > 0) {
+    aparte.push(`${MAPA_DETALLE_TEXTOS.especialistas}: ${contratosText(compras.especialistas.contratos)}`)
+  }
+  if (compras.personasNaturales.contratos > 0) {
+    aparte.push(`${MAPA_DETALLE_TEXTOS.personasNaturales}: ${contratosText(compras.personasNaturales.contratos)}`)
+  }
+  if (compras.estimados.contratos > 0) {
+    aparte.push(`${MAPA_DETALLE_TEXTOS.estimados}: ${contratosText(compras.estimados.contratos)} · ${formatCopCompact(compras.estimados.valor)}`)
+  }
+  return (
+    <>
+      {compras.contratos > 0 ? (
+        <dl className="opmap-popup__rows opmap-popup__rows--tight">
+          <PopupRow label="Valor adjudicado">{formatCopCompact(compras.valor)}</PopupRow>
+          <PopupRow label="Contratos">{numeroEs(compras.contratos)}</PopupRow>
+          {/* En una sede la entidad es siempre una */}
+          {modo === 'territorio' && <PopupRow label="Entidades">{numeroEs(compras.entidades)}</PopupRow>}
+        </dl>
+      ) : (
+        <div className="opmap-popup__note">{MAPA_DETALLE_TEXTOS.sinContratos12m}</div>
+      )}
+      {compras.proveedores.length > 0 && <ProveedoresList compras={compras} />}
+      {aparte.map(linea => (
+        <div key={linea} className="opmap-popup__note">{linea}</div>
+      ))}
+    </>
+  )
+}
+
+/**
+ * Sección "Giros ADRES" + "Compras públicas de material ortopédico y neurocirugía (SECOP)" de las tarjetas de IPS y
+ * territorio (spec E1/E2). Las notas que esta sección ya pinta en su sitio (estado de compras, parte por camas, parte
+ * de la sede, pie de fuentes) se quitan de `data.notas` para no repetirlas; las demás van al final.
+ */
+export function GirosComprasSection({ estado, data, error, onRetry, modo }: GirosComprasProps) {
+  if (estado === 'sin_acceso') return null
+  if (estado === 'cargando') {
+    return (
+      <div className="opmap-popup__section">
+        <div className="opmap-popup__note" role="status">Cargando giros y compras…</div>
+      </div>
+    )
+  }
+  if (estado === 'error' || !data) {
+    return (
+      <div className="opmap-popup__section">
+        <div className="opmap-popup__note opmap-popup__note--warn" role="alert" title={error ?? undefined}>
+          No se pudieron cargar · <TextButton onClick={onRetry}>Reintentar</TextButton>
+        </div>
+      </div>
+    )
+  }
+
+  const { giros, compras, comprasEstado } = data
+  const hospital = modo === 'ips' && 'hospital' in data ? data.hospital : null
+  const notaSede = hospital ? notaParteSede(hospital.nit, hospital.sedesNit) : null
+  const notaCamas = giros?.estimadoPorCamas ? MAPA_DETALLE_TEXTOS.estimadoPorCamas : null
+  const notaCompras = notaEstadoCompras(comprasEstado)
+  const propias = new Set<string>([notaSede, notaCamas, notaCompras, MAPA_DETALLE_TEXTOS.fuentes].filter((n): n is string => !!n))
+  const otrasNotas = (data.notas || []).filter(nota => !propias.has(nota))
+
+  // Territorio sin IPS activas (el servidor manda giros = null, compras = null y la nota): solo las notas
+  if (!giros && !compras) {
+    return (
+      <div className="opmap-popup__section">
+        {(otrasNotas.length > 0 ? otrasNotas : [MAPA_DETALLE_TEXTOS.sinIps]).map(nota => (
+          <div key={nota} className="opmap-popup__note">{nota}</div>
+        ))}
+      </div>
+    )
+  }
+
+  const rangos = [giros ? `giros ${giros.ventana.texto}` : null, compras ? `SECOP ${compras.ventana.texto}` : null]
+    .filter(Boolean)
+    .join(' · ')
+
+  return (
+    <>
+      {giros && (
+        <div className="opmap-popup__section">
+          <div className="opmap-popup__section-title">{MAPA_DETALLE_TEXTOS.tituloGiros} · {giros.ventana.texto}</div>
+          <GirosRows giros={giros} modo={modo} />
+          {notaCamas && <div className="opmap-popup__note">{notaCamas}</div>}
+          {notaSede && <div className="opmap-popup__note">{notaSede}</div>}
+        </div>
+      )}
+
+      <div className="opmap-popup__section">
+        <div className="opmap-popup__section-title">
+          {MAPA_DETALLE_TEXTOS.tituloCompras}{compras ? ` · ${compras.ventana.texto}` : ''}
+        </div>
+        {comprasEstado === 'con_datos' && compras ? (
+          <ComprasRows compras={compras} modo={modo} />
+        ) : (
+          <div className="opmap-popup__note">{notaCompras ?? MAPA_DETALLE_TEXTOS.sinContratos12m}</div>
+        )}
+        {compras?.actualizado && (
+          <div className="opmap-popup__note">SECOP actualizado el {fechaEs(compras.actualizado)}</div>
+        )}
+      </div>
+
+      {otrasNotas.map(nota => (
+        <div key={nota} className="opmap-popup__note">{nota}</div>
+      ))}
+      <div className="opmap-popup__note">
+        {MAPA_DETALLE_TEXTOS.fuentes}{rangos ? `. Rango: ${rangos}.` : '.'}
+      </div>
+    </>
+  )
+}
 
 // ---------- IPS asignada ----------
 
@@ -110,11 +315,11 @@ export interface IpsPopupData {
   executiveText: string
   noEquipment: boolean
   travelTime: string | null
-  contractValue: number | null
   actions: PopupAction[]
 }
 
-export function IpsPopupCard({ data }: { data: IpsPopupData }) {
+// `detalle`: giros ADRES y compras SECOP de la sede (debajo de "Tiempo de llegada"); null = sin sección
+export function IpsPopupCard({ data, detalle }: { data: IpsPopupData; detalle: GirosComprasProps | null }) {
   return (
     <div className="opmap-popup__card">
       <div className="opmap-popup__title">{data.name}</div>
@@ -124,8 +329,8 @@ export function IpsPopupCard({ data }: { data: IpsPopupData }) {
         <PopupRow label="Zona" stacked>{data.zone}</PopupRow>
         <PopupRow label={data.executiveLabel} stacked>{data.executiveText}</PopupRow>
         {data.travelTime && <PopupRow label="Tiempo de llegada">{data.travelTime}</PopupRow>}
-        {data.contractValue ? <PopupRow label="Contratos">{formatMoney(data.contractValue)}</PopupRow> : null}
       </dl>
+      {detalle && <GirosComprasSection {...detalle} />}
       {data.noEquipment && <div className="opmap-popup__note opmap-popup__note--warn">Sin equipo de la línea en esta zona</div>}
       <PopupActions actions={data.actions} />
     </div>
@@ -138,7 +343,6 @@ export interface UnassignedPopupData {
   name: string
   location: string
   meta: string
-  contractValue: number | null
   // Tiempos reales por carretera desde las zonas más cercanas (ya formateados)
   nearest: { zone: string; time: string; tone: 'ok' | 'near' | 'over' | 'none' }[]
   moreCount: number
@@ -146,18 +350,14 @@ export interface UnassignedPopupData {
   actions: PopupAction[]
 }
 
-export function UnassignedPopupCard({ data }: { data: UnassignedPopupData }) {
+// `detalle`: giros ADRES y compras SECOP de la sede (debajo de los tiempos); null = sin sección
+export function UnassignedPopupCard({ data, detalle }: { data: UnassignedPopupData; detalle: GirosComprasProps | null }) {
   return (
     <div className="opmap-popup__card">
       <div className="opmap-popup__title">{data.name}</div>
       <div className="opmap-popup__subtitle">{data.location}</div>
       <div className="opmap-popup__meta">{data.meta}</div>
       <div className="opmap-popup__status opmap-popup__status--vacant">Sin zona asignada</div>
-      {data.contractValue ? (
-        <dl className="opmap-popup__rows">
-          <PopupRow label="Contratos">{formatMoney(data.contractValue)}</PopupRow>
-        </dl>
-      ) : null}
       <div className="opmap-popup__section">
         <div className="opmap-popup__section-title">Tiempo desde cada zona</div>
         {data.nearest.length > 0 ? (
@@ -180,6 +380,7 @@ export function UnassignedPopupCard({ data }: { data: UnassignedPopupData }) {
         )}
         {data.suggestion && <div className="opmap-popup__note opmap-popup__note--warn">{data.suggestion}</div>}
       </div>
+      {detalle && <GirosComprasSection {...detalle} />}
       <PopupActions actions={data.actions} />
     </div>
   )
@@ -293,7 +494,6 @@ export type TerritoryInfo =
       name: string
       deptName: string | null
       stats: { hospitals: number; beds: number; ambulances: number; surgeries: number }
-      contracts: { count: number; value: number; providers: string[]; moreProviders: number } | null
       population: number
       bedsPer1000: number | null
       status: TerritoryStatus
@@ -306,11 +506,15 @@ export type TerritoryInfo =
       detail: string | null
       coverage: { label: string; text: string } | null
       population: number
+      // Municipio de alcance sin IPS: giros y compras se cuentan donde está la IPS, así que no se pide nada; una sola
+      // línea para quien tiene intelligence:view (null para quien no la vería)
+      sinIpsNota: string | null
     }
 
 const bedsTone = (value: number) => (value < 1.5 ? 'low' : value < 2.5 ? 'mid' : 'ok')
 
-export function TerritoryPopupCard({ info }: { info: TerritoryInfo }) {
+// `detalle`: giros ADRES y compras SECOP del territorio (entre "Estadísticas hospitalarias" y "Población"); null = sin sección
+export function TerritoryPopupCard({ info, detalle }: { info: TerritoryInfo; detalle: GirosComprasProps | null }) {
   if (info.kind === 'other') {
     return (
       <div className="opmap-popup__card">
@@ -323,6 +527,7 @@ export function TerritoryPopupCard({ info }: { info: TerritoryInfo }) {
             <PopupRow label={info.coverage.label} stacked>{info.coverage.text}</PopupRow>
           </dl>
         )}
+        {info.sinIpsNota && <div className="opmap-popup__note">{info.sinIpsNota}</div>}
         {info.population > 0 && (
           <dl className="opmap-popup__rows">
             <PopupRow label="Población 2025">{formatInt(info.population)}</PopupRow>
@@ -347,21 +552,7 @@ export function TerritoryPopupCard({ info }: { info: TerritoryInfo }) {
         </dl>
       </div>
 
-      {info.contracts && (
-        <div className="opmap-popup__section">
-          <div className="opmap-popup__section-title">Contratos activos</div>
-          <dl className="opmap-popup__rows opmap-popup__rows--tight">
-            <PopupRow label="Contratos">{formatInt(info.contracts.count)}</PopupRow>
-            <PopupRow label="Valor total">${(info.contracts.value / 1000000).toFixed(1)}M</PopupRow>
-          </dl>
-          {info.contracts.providers.length > 0 && (
-            <div className="opmap-popup__note">
-              Proveedores: {info.contracts.providers.join(', ')}
-              {info.contracts.moreProviders > 0 ? ` (+${info.contracts.moreProviders} más)` : ''}
-            </div>
-          )}
-        </div>
-      )}
+      {detalle && <GirosComprasSection {...detalle} />}
 
       {info.population > 0 && (
         <dl className="opmap-popup__rows">
