@@ -1,6 +1,6 @@
 -- =====================================================================================
 -- OpMap · feat/secop-procesos (procesos de SECOP II sin contrato como radar comercial) · 0890 — Tabla secop_procesos y vista del radar
--- Proyecto: norvxqgohddgsdkggqzq · Generado: 2026-10-25 · NO EJECUTADO TODAVÍA
+-- Proyecto: norvxqgohddgsdkggqzq · Generado: 2026-10-25 · APLICADA el 2026-10-25 con autorización del dueño ("si")
 --
 -- Decisión del dueño (2026-10-25, docs/decisiones/2026-10-25-procesos-secop-radar-comercial.md): "Sí, entonces busquemos
 --   la forma de presentarlos […] por lo menos le das herramienta al comercial para que se pregunte quién es VG Medical".

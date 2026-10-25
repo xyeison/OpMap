@@ -1,6 +1,6 @@
 # Spec: procesos de SECOP II sin contrato como radar comercial (mapa y ficha)  (2026-10-25)
 
-**Estado**: aprobada en lo general por el dueño el 2026-10-25 ("Sí, entonces busquemos la forma de presentarlos"). Los
+**Estado**: migración 0890 aplicada y carga inicial hecha el 2026-10-25 (2.203 procesos; radar de 12 meses: 817 procesos en 89 entidades); código en la rama `feat/secop-procesos`, sin desplegar. Aprobada en lo general por el dueño el 2026-10-25 ("Sí, entonces busquemos la forma de presentarlos"). Los
 detalles siguen las recomendaciones de "Para decidir"; el dueño puede cambiarlas antes del despliegue. Reemplaza en parte a
 `docs/specs/2026-10-12-secop-procesos-abiertos.md`: toma su capa de datos, corregida, y deja para después la pestaña
 "Licitaciones" de `/inteligencia`. Decisión: `docs/decisiones/2026-10-25-procesos-secop-radar-comercial.md`.

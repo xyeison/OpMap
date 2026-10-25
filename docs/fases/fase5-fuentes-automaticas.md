@@ -198,7 +198,7 @@ npm run secop:check                                    # pruebas puras (también
 Spec `docs/specs/2026-10-25-secop-procesos-radar.md` y decisión
 `docs/decisiones/2026-10-25-procesos-secop-radar-comercial.md`. Radar comercial: 83 de las 141 IPS públicas publican sus
 compras solo como **procesos** de "Contratación régimen especial" y nunca crean el contrato electrónico. Se cargan aparte,
-en `public.secop_procesos` (migración `2026-10-25_0890_secop_procesos.sql`, **escrita, sin aplicar**; rollback
+en `public.secop_procesos` (migración `2026-10-25_0890_secop_procesos.sql`, **aplicada el 2026-10-25**, con carga inicial de 24 meses ese día: 10.967 filas leídas, 2.203 procesos; rollback
 `…_9949_…`), que no tiene columnas `valor` ni `fecha_firma`: compras, ranking, `/inteligencia` y `secop_hechos` no la
 conocen. La carga no toca `secop_contratos` ni llama a `secop_marcar_atipicos()`.
 
