@@ -37,7 +37,8 @@ quién es VG Medical. ¿Será que sí es verdad que tiene ese contrato?".
 7. **En el mapa, súper conciso** (dueño, 2026-10-25: "que sea súper conciso; la idea es que vea el nombre de las
    empresas con potencial, ya no tanta data"): la tarjeta del mapa solo nombra las empresas que figuran (con cuántos
    procesos) y cuántos procesos no nombran empresa; el precio base, la fecha y el enlace de cada proceso quedan en la
-   ficha de la IPS.
+   ficha de la IPS. La etiqueta "según el título del proceso" también queda solo en la ficha: en el mapa la cubre el
+   aviso "Confirmar con la entidad".
 
 **Consecuencias**:
 - Hacen falta la migración 0890 con su rollback, una carga inicial (sin costo de Google) y un cron diario `secop_procesos`.

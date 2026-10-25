@@ -447,6 +447,12 @@ eq('empresas: la persona natural no se nombra (va a sinEmpresa); el resto, una p
   ])
   eq('sinEmpresa cuenta el proceso sin empresa', g.sinEmpresa, 1)
   eq('claveEmpresa: mayúsculas, sin tildes, sin puntos ni comas, un espacio', [claveEmpresa(' Osteoequipos  S.A.S. '), claveEmpresa('Médica, Ltda.')], ['OSTEOEQUIPOS SAS', 'MEDICA LTDA'])
+  // Revisión 2026-10-25: el respaldo "NIT …" cede ante el nombre de otra fila del mismo NIT; "S. A. S." = "SAS"
+  const nitSinNombre = proceso({ id_proceso: 'CO1.REQ.10700011', nit_entidad: '900042103', fecha_publicacion: '2026-06-01', proveedor_nit: '900111222', proveedor_origen: 'nit' })
+  const nitConNombre = proceso({ id_proceso: 'CO1.REQ.10700012', nit_entidad: '900042103', fecha_publicacion: '2026-02-01', proveedor_nit: '900111222', proveedor_nombre: 'ACME SAS', proveedor_origen: 'nit' })
+  const acmeTitulo = proceso({ id_proceso: 'CO1.REQ.10700013', nit_entidad: '900042103', fecha_publicacion: '2026-01-01', proveedor_nombre: 'ACME S. A. S.', proveedor_origen: 'titulo' })
+  eq('la tarjeta dice "ACME SAS (3)", no "NIT 900111222 (3)", aunque la fila más reciente no traiga nombre', empresasDeProcesos([nitSinNombre, nitConNombre, acmeTitulo], null).empresas.map(e => [e.nombre, e.nit, e.procesos]), [['ACME SAS', '900111222', 3]])
+  eq('claveEmpresa junta las siglas con letras sueltas y no toca palabras de una letra entre palabras largas', [claveEmpresa('OSTEO S. A. S.'), claveEmpresa('HUALO Y COMPAÑIA LIMITADA')], ['OSTEO SAS', 'HUALO Y COMPANIA LIMITADA'])
   eq('en la tarjeta el orden no depende del orden de llegada', empresasDeProcesos([sinNadie, titulo4, conNit, titulo3, titulo1, titulo2], null).empresas.map(e => e.nombre), ['Osteoequipos S.A.S.', 'VG MEDICAL SAS'])
 }
 

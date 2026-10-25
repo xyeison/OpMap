@@ -1048,7 +1048,7 @@ async function main() {
       [720_000_000, 1_070_000_000, 720_000_000],
       ['E.S.E. Hospital San Jerónimo de Montería'],
     ])
-    check('Montería: ningún campo suma el precio base (ProcesosDetalle = ventana, total, procesos, empresas, sinEmpresa; EmpresaEnProcesos sin valores)', JSON.stringify(Object.keys(p ?? {}).sort()) === JSON.stringify(['empresas', 'procesos', 'sinEmpresa', 'total', 'ventana']) && !JSON.stringify(p?.empresas ?? []).match(/precio|valor/i), Object.keys(p ?? {}))
+    check('Montería: ningún campo suma el precio base (ProcesosDetalle = ventana, total, procesos, empresas, sinEmpresa; EmpresaEnProcesos sin valores)', JSON.stringify(Object.keys(p ?? {}).sort()) === JSON.stringify(['empresas', 'procesos', 'sinEmpresa', 'total', 'ventana']) , Object.keys(p ?? {}))
     textosProcesos.push(mon.text)
     pintar(p)
   }
@@ -1149,6 +1149,7 @@ async function main() {
     const huc = hucAdmin!.body.procesos!
     eq('HU del Caribe: VG MEDICAL SAS figura con su NIT en las empresas', huc.empresas.find(e => e.nit === '901080496'), { nombre: 'VG MEDICAL SAS', nit: '901080496', procesos: 1, ultimaFecha: FECHA_HUC, vigilado: false })
     eq('HU del Caribe: las empresas de la tarjeta', huc.empresas.map(textoEmpresa), ['VG MEDICAL SAS'])
+    check('EmpresaEnProcesos no lleva precio ni valor (nada que sumar)', huc.empresas.length > 0 && huc.empresas.every(e => JSON.stringify(Object.keys(e).sort()) === JSON.stringify(['nit', 'nombre', 'procesos', 'ultimaFecha', 'vigilado'])) && !/precio|valor/i.test(JSON.stringify(huc.empresas)), huc.empresas)
     const mon = monVendedor!.body.procesos!
     eq('Montería (Ejecutivo Comercial): ninguna empresa y "3 procesos sin empresa publicada"', [mon.empresas, mon.sinEmpresa, textoSinEmpresa(mon.sinEmpresa, mon.empresas.length > 0)], [[], 3, '3 procesos sin empresa publicada'])
     const bucP = buc.body.procesos!
@@ -1293,7 +1294,7 @@ async function main() {
     check("las rutas nuevas llevan dynamic = 'force-dynamic'", fuentes.slice(1, 3).every(texto => texto.includes("export const dynamic = 'force-dynamic'")))
     check('las dos rutas piden intelligence:view O secop:procesos (requireAnyPermission), no solo intelligence:view', fuentes.slice(1, 3).every(texto => texto.includes('requireAnyPermission(request, PERMISOS_DETALLE)') && !texto.includes("requirePermission(request, 'intelligence:view')")))
     const popups = readFileSync(path.join(WEB, 'components/MapPopups.tsx'), 'utf8')
-    check('la tarjeta del mapa solo nombra empresas: sin precio base, fechas ni enlaces por proceso (el detalle está en la ficha)', /function ProcesosSection[\s\S]*?textoEmpresa\(empresa\)/.test(popups) && !/function ProcesosSection[\s\S]*?(precioBase|fechaPublicacion|verProceso)[\s\S]*?function ComprasRows/.test(popups))
+    check('la tarjeta del mapa solo nombra empresas: sin precio base, fechas ni enlaces por proceso (el detalle está en la ficha)', /function ProcesosSection[\s\S]*?textoEmpresa\(empresa\)/.test(popups) && !/function ProcesosSection[\s\S]*?(precioBase|fechaPublicacion|verProceso|ultimaFecha|href|\.url\b)[\s\S]*?function ComprasRows/.test(popups))
   }
 
   print(`\n${passed} pruebas pasaron, ${failed} fallaron`)

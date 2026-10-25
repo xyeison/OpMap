@@ -178,6 +178,8 @@ que tiene ese contrato?".
 3. **Proveedor sacado del título del proceso**: se muestra con la etiqueta "según el título del proceso" cuando lleva marca
    de empresa. A veces el título trae una empresa que no es el proveedor. **Recomendación**: mostrarlo con esa etiqueta;
    el objetivo es que el comercial pregunte.
+   *Ajuste del 2026-10-25 ("súper conciso"):* la etiqueta se conserva en la ficha; en la tarjeta del mapa la empresa sale
+   sin ella, con el aviso general "Figuran en procesos publicados sin contrato registrado. Confirmar con la entidad."
 4. **Estados**: entran "Publicado", "Evaluación", "Abierto" y "Seleccionado" sin contrato cargado.
    **Recomendación**: sí.
 5. **Ventanas**: 12 meses en el mapa y 24 en la ficha, como las compras. **Recomendación**: sí.

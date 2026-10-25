@@ -526,9 +526,11 @@ export function claveEmpresa(nombre: string): string {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toUpperCase()
-    .replace(/[.,]/g, '')
+    .replace(/[.,]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
+    // Siglas con letras sueltas ("S A S", de "S. A. S.") se juntan: "OSTEO S A S" = "OSTEO SAS"
+    .replace(/\b([A-Z])(?: (?=[A-Z]\b))/g, '$1')
 }
 
 /**
@@ -571,10 +573,14 @@ export function empresasDeProcesos(
     }
     actual.procesos++
     if (fecha && (!actual.ultimaFecha || fecha > actual.ultimaFecha)) actual.ultimaFecha = fecha
-    // El nombre de la empresa con NIT manda; entre nombres sin NIT, el del proceso más reciente
+    // El nombre de la empresa con NIT manda; el respaldo "NIT …" cede ante cualquier nombre; entre nombres sin NIT, el
+    // del proceso más reciente
     if (!actual.nit && nit) {
       actual.nit = nit
       actual.nombre = nombre
+    } else if (nombreFuente && actual.nombre.startsWith('NIT ')) {
+      actual.nombre = nombreFuente
+      actual.fechaNombre = fecha ?? actual.fechaNombre
     } else if (!actual.nit && fecha && fecha > actual.fechaNombre && nombreFuente) {
       actual.nombre = nombreFuente
       actual.fechaNombre = fecha
