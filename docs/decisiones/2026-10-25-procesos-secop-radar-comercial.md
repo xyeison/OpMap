@@ -34,6 +34,11 @@ quién es VG Medical. ¿Será que sí es verdad que tiene ese contrato?".
    - en régimen especial, "Publicado" no es una licitación abierta: no hay recepción de ofertas;
    - la pestaña "Licitaciones" de `/inteligencia` queda para después.
 
+7. **En el mapa, súper conciso** (dueño, 2026-10-25: "que sea súper conciso; la idea es que vea el nombre de las
+   empresas con potencial, ya no tanta data"): la tarjeta del mapa solo nombra las empresas que figuran (con cuántos
+   procesos) y cuántos procesos no nombran empresa; el precio base, la fecha y el enlace de cada proceso quedan en la
+   ficha de la IPS.
+
 **Consecuencias**:
 - Hacen falta la migración 0890 con su rollback, una carga inicial (sin costo de Google) y un cron diario `secop_procesos`.
 - Todo eso se aplica solo con autorización del dueño, en la ventana del despliegue.

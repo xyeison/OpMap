@@ -56,11 +56,25 @@ export interface ProcesoDetalle {
   proveedorPersona: boolean                    // true → "persona natural", sin nombre ni documento
   url: string | null                           // expediente en SECOP ("Ver proceso"); solo http(s)
 }
+/**
+ * Empresa que figura en uno o más procesos de la ventana (radar comercial). Lo único que pinta la tarjeta del mapa
+ * (dueño, 2026-10-25: "que sea súper conciso; la idea es que vea el nombre de las empresas"). Agrupa por NIT y, sin
+ * NIT, por nombre normalizado ("VG MEDICAL SAS" = "VG MEDICAL S.A.S"). Nunca personas naturales.
+ */
+export interface EmpresaEnProcesos {
+  nombre: string
+  nit: string | null
+  procesos: number                             // procesos de la ventana en los que figura
+  ultimaFecha: string | null                   // 'YYYY-MM-DD' del más reciente
+  vigilado: boolean
+}
 /** Procesos de un territorio o de una IPS: orden fecha de publicación desc; `total` cuenta todos, `procesos` va cortado. */
 export interface ProcesosDetalle {
   ventana: Ventana                             // mapa: 12 meses (la de SECOP); ficha: 24
   total: number                                // procesos en la ventana (puede ser mayor que procesos.length)
-  procesos: ProcesoDetalle[]                   // máximo 20 en el mapa y 50 en la ficha
+  procesos: ProcesoDetalle[]                   // máximo 20 en el mapa y 50 en la ficha (la ficha los lista)
+  empresas: EmpresaEnProcesos[]                // TODAS las de la ventana: más procesos primero, luego la más reciente
+  sinEmpresa: number                           // procesos de la ventana sin empresa que figure (o con persona natural)
 }
 /**
  * Qué trae la tarjeta: 'completo' (intelligence:view: giros, compras y procesos) o 'procesos' (solo secop:procesos, p. ej.

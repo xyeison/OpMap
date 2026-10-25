@@ -20,16 +20,15 @@ que tiene ese contrato?".
 
 ## Resultado esperado
 
-1. **Tarjeta de IPS y de municipio o localidad en el mapa.** Debajo de "Compras públicas…" aparece una sección nueva:
-   **"Procesos publicados sin contrato (SECOP II) · <ventana de 12 meses>"**.
-   - Cada fila lleva:
-     - el proveedor que figura, si es una empresa; si no hay, dice "Proveedor no publicado";
-     - el precio base, la fecha de publicación, la línea y la referencia;
-     - en la tarjeta de municipio, también la entidad;
-     - un enlace "Ver proceso", que abre el expediente en SECOP.
-   - Nota fija: "Precio base de la convocatoria. La entidad no registró el contrato en SECOP: confirmar con la entidad.
-     No suma a las compras."
-   - Se ven 3 filas y un botón "Ver los N". Van primero las más recientes. El servidor manda como máximo 20.
+1. **Tarjeta de IPS y de municipio o localidad en el mapa: súper concisa, solo los nombres de las empresas** (dueño,
+   2026-10-25: "que sea súper conciso; la idea es que vea el nombre de las empresas con potencial, ya no tanta data").
+   Debajo de "Compras públicas…" aparece **"Empresas en procesos sin contrato (SECOP II) · <ventana de 12 meses>"**:
+   - una empresa por línea, en negrita, con el número de procesos si figura en más de uno ("OSTEOEQUIPOS SAS (2)"); las
+     que figuran en más procesos primero; 6 visibles y "Ver las N empresas";
+   - agrupadas por NIT y, sin NIT, por nombre normalizado ("VG MEDICAL S.A.S" = "VG MEDICAL SAS"); personas naturales nunca;
+   - si hay procesos sin empresa: "3 procesos sin empresa publicada" (o "y 2 procesos sin empresa publicada" bajo la lista);
+   - aviso corto: "Figuran en procesos publicados sin contrato registrado. Confirmar con la entidad.";
+   - sin precio base, fechas, referencias ni enlaces (eso está en la ficha de la IPS, botón "Ver ficha");
    - **Si no hay procesos, la sección no aparece.**
 2. **Ficha de la IPS.** Lleva una tarjeta aparte, "Procesos publicados sin contrato (SECOP II)", con los mismos campos,
    ventana de 24 meses, 5 filas visibles y como máximo 50.

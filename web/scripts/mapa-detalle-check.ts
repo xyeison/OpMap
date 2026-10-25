@@ -32,6 +32,8 @@ import {
   resumirCompras,
   resumirGiros,
   resumirProcesos,
+  empresasDeProcesos,
+  claveEmpresa,
   textoSinIps,
   textoVentana,
   ventanaGiros,
@@ -409,8 +411,9 @@ eq('HU del Caribe: precio base 1.760 M, fecha "2026-03-10" sin hora, líneas tra
 ])
 const formaProceso: Array<keyof ProcesoDetalle> = ['id', 'referencia', 'entidad', 'nitEntidad', 'precioBase', 'fechaPublicacion', 'lineas', 'linea', 'estado', 'proveedor', 'proveedorPersona', 'url']
 eq('ProcesoDetalle trae exactamente las claves del contrato (sin título, descripción, hash ni documento)', Object.keys(pCaribe).sort(), [...formaProceso].sort())
-const formaProcesos: Array<keyof ProcesosDetalle> = ['ventana', 'total', 'procesos']
-eq('ProcesosDetalle trae exactamente ventana, total y procesos: ninguna suma de precio base', Object.keys(vCaribe).sort(), [...formaProcesos].sort())
+const formaProcesos: Array<keyof ProcesosDetalle> = ['ventana', 'total', 'procesos', 'empresas', 'sinEmpresa']
+eq('ProcesosDetalle trae exactamente ventana, total, procesos, empresas y sinEmpresa: ninguna suma de precio base', Object.keys(vCaribe).sort(), [...formaProcesos].sort())
+eq('HU del Caribe: la tarjeta del mapa nombra a VG MEDICAL SAS (empresas, sin valores)', [vCaribe.empresas, vCaribe.sinEmpresa], [[{ nombre: 'VG MEDICAL SAS', nit: '901080496', procesos: 1, ultimaFecha: '2026-03-10', vigilado: false }], 0])
 
 // Persona natural (aunque una fila sucia trajera un nombre), título, vigilado, NIT sin nombre, otros_implantes y url mala
 const personaSucia = proceso({ id_proceso: 'CO1.REQ.10500001', nit_entidad: '900000002', fecha_publicacion: '2026-06-01', es_persona: true, proveedor_nombre: 'Pedro Pérez Rojas', proveedor_nit: '12345678' })
@@ -426,6 +429,25 @@ eq('empresa con NIT y sin nombre: "NIT …"; url que no es http(s) → null', [p
 {
   const json = JSON.stringify(varios)
   for (const texto of ['Pedro', 'Pérez Rojas', '12345678', 'proveedor_hash', 'persona:']) check(`procesos: el JSON no contiene "${texto}"`, !json.includes(texto))
+}
+eq('empresas: la persona natural no se nombra (va a sinEmpresa); el resto, una por empresa', [varios.empresas.map(e => e.nombre).sort(), varios.sinEmpresa], [['NIT 900111222', 'OSTEOCOL SAS', 'OSTEOEQUIPOS S.A.S'], 1])
+
+// Agrupar empresas: por NIT y, sin NIT, por nombre normalizado ("VG MEDICAL S.A.S" del título = "VG MEDICAL SAS" con NIT)
+{
+  const conNit = proceso({ id_proceso: 'CO1.REQ.10700001', nit_entidad: '900042103', fecha_publicacion: '2026-03-10', proveedor_nit: '901080496', proveedor_nombre: 'VG MEDICAL SAS', proveedor_origen: 'nit' })
+  const titulo1 = proceso({ id_proceso: 'CO1.REQ.10700002', nit_entidad: '900042103', fecha_publicacion: '2026-01-21', proveedor_nombre: 'VG MEDICAL S.A.S', proveedor_origen: 'titulo' })
+  const titulo2 = proceso({ id_proceso: 'CO1.REQ.10700003', nit_entidad: '900042103', fecha_publicacion: '2026-05-21', proveedor_nombre: 'Osteoequipos S.A.S.', proveedor_origen: 'titulo' })
+  const titulo3 = proceso({ id_proceso: 'CO1.REQ.10700004', nit_entidad: '900042103', fecha_publicacion: '2026-03-05', proveedor_nombre: 'OSTEOEQUIPOS SAS', proveedor_origen: 'titulo' })
+  const titulo4 = proceso({ id_proceso: 'CO1.REQ.10700005', nit_entidad: '900042103', fecha_publicacion: '2026-02-01', proveedor_nombre: 'OSTEOEQUIPOS SAS', proveedor_origen: 'titulo' })
+  const sinNadie = proceso({ id_proceso: 'CO1.REQ.10700006', nit_entidad: '900042103', fecha_publicacion: '2026-04-01' })
+  const g = empresasDeProcesos([titulo1, titulo2, conNit, titulo3, titulo4, sinNadie], null)
+  eq('agrupa: OSTEOEQUIPOS (3, nombre del más reciente) primero, luego VG MEDICAL SAS (2, el nombre y el NIT de la fila con NIT)', g.empresas.map(e => [e.nombre, e.nit, e.procesos, e.ultimaFecha]), [
+    ['Osteoequipos S.A.S.', null, 3, '2026-05-21'],
+    ['VG MEDICAL SAS', '901080496', 2, '2026-03-10'],
+  ])
+  eq('sinEmpresa cuenta el proceso sin empresa', g.sinEmpresa, 1)
+  eq('claveEmpresa: mayúsculas, sin tildes, sin puntos ni comas, un espacio', [claveEmpresa(' Osteoequipos  S.A.S. '), claveEmpresa('Médica, Ltda.')], ['OSTEOEQUIPOS SAS', 'MEDICA LTDA'])
+  eq('en la tarjeta el orden no depende del orden de llegada', empresasDeProcesos([sinNadie, titulo4, conNit, titulo3, titulo1, titulo2], null).empresas.map(e => e.nombre), ['Osteoequipos S.A.S.', 'VG MEDICAL SAS'])
 }
 
 // Exclusiones: estados fuera del radar, fuera de la ventana, repetidos; null si no queda ninguno

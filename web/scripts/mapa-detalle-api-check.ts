@@ -48,10 +48,10 @@ import { NextRequest } from 'next/server'
 import { passwordVersion, SESSION_COOKIE_NAME, signSession } from '../lib/session'
 import { hasPermission, rolePermissions, type Role } from '../lib/permissions'
 import { MAPA_DETALLE_TEXTOS, PROCESOS_MAPA_MAX, ventanaSecop } from '../lib/mapa-detalle'
-import { filaProceso, textoCargandoDetalle, textoMasRecientes, textoVerProcesos } from '../lib/mapa-procesos-ui'
+import { EMPRESAS_MAPA_VISIBLES, textoCargandoDetalle, textoEmpresa, textoSinEmpresa, textoVerEmpresas } from '../lib/mapa-procesos-ui'
 import { formatCopCompact } from '../lib/giros-format'
 import { fechaEs } from '../lib/zona-estadisticas'
-import type { IpsDetalle, ProcesoDetalle, TerritorioDetalle } from '../lib/types/mapa-detalle'
+import type { IpsDetalle, ProcesosDetalle, TerritorioDetalle } from '../lib/types/mapa-detalle'
 import { hoyBogota } from '../app/api/secop/_lib/hoy'
 import { GET as territorioGet } from '../app/api/map/detalle/territorio/route'
 import { GET as ipsGet } from '../app/api/map/detalle/ips/[id]/route'
@@ -990,11 +990,11 @@ async function main() {
   const VENDEDOR = usuarioDeRol('sales_manager')
   const textosProcesos: string[] = []
   const filasVisibles: string[] = []
-  const pintar = (procesos: ProcesoDetalle[] | undefined, modo: 'territorio' | 'ips') => {
-    for (const proceso of procesos ?? []) {
-      const fila = filaProceso(proceso, modo)
-      filasVisibles.push(fila.proveedor, fila.cifras, fila.detalle)
-    }
+  // Lo que pinta la tarjeta del mapa: solo los nombres de las empresas y cuántos procesos no nombran empresa
+  const pintar = (procesos: ProcesosDetalle | null | undefined) => {
+    for (const empresa of procesos?.empresas ?? []) filasVisibles.push(textoEmpresa(empresa))
+    const sin = textoSinEmpresa(procesos?.sinEmpresa ?? 0, (procesos?.empresas.length ?? 0) > 0)
+    if (sin) filasVisibles.push(sin)
   }
   let hucAdmin: Respuesta<IpsDetalle> | null = null
   let monVendedor: Respuesta<TerritorioDetalle> | null = null
@@ -1036,8 +1036,8 @@ async function main() {
     ])
     eq('tarjeta de la IPS: la vista se pidió solo con su NIT', lecturasRadar(hucAdmin.requests), [[[NIT_HUC], RANGO_SECOP]])
     textosProcesos.push(ctg.text, hucAdmin.text)
-    pintar(p?.procesos, 'territorio')
-    pintar(hucAdmin.body.procesos?.procesos, 'ips')
+    pintar(p)
+    pintar(hucAdmin.body.procesos)
   }
   {
     const mon = await territorio(fakeCon, ADMIN, municipio(MUNICIPIOS.MON.id))
@@ -1048,9 +1048,9 @@ async function main() {
       [720_000_000, 1_070_000_000, 720_000_000],
       ['E.S.E. Hospital San Jerónimo de Montería'],
     ])
-    check('Montería: ningún campo suma el precio base (ProcesosDetalle = ventana, total, procesos)', JSON.stringify(Object.keys(p ?? {}).sort()) === JSON.stringify(['procesos', 'total', 'ventana']), Object.keys(p ?? {}))
+    check('Montería: ningún campo suma el precio base (ProcesosDetalle = ventana, total, procesos, empresas, sinEmpresa; EmpresaEnProcesos sin valores)', JSON.stringify(Object.keys(p ?? {}).sort()) === JSON.stringify(['empresas', 'procesos', 'sinEmpresa', 'total', 'ventana']) && !JSON.stringify(p?.empresas ?? []).match(/precio|valor/i), Object.keys(p ?? {}))
     textosProcesos.push(mon.text)
-    pintar(p?.procesos, 'territorio')
+    pintar(p)
   }
   {
     // Bucaramanga (la respuesta de arriba): A (REPS) y B (marca manual) públicas; D privada
@@ -1068,7 +1068,7 @@ async function main() {
     const a1 = await ips(fakeCon, ADMIN, A1)
     eq('a1 (1 de 2 sedes del NIT A): el proceso del NIT completo, precio base sin repartir', a1.body.procesos?.procesos.map(x => [x.id, x.precioBase, x.entidad]), [['CO1.REQ.20000001', 300_000_000, 'Hospital A sede Bucaramanga']])
     textosProcesos.push(flo.text, a1.text)
-    pintar(p?.procesos, 'territorio')
+    pintar(p)
   }
   {
     giron = await territorio(fakeCon, ADMIN, municipio(MUNICIPIOS.GIR.id))
@@ -1141,40 +1141,30 @@ async function main() {
     eq('nunca lee adres*, RPC (secop_hechos, adres_giros_nits) ni fuentes_estado', leeDeMas, [])
     const chia = await territorio(fakeCon, VENDEDOR, municipio(MUNICIPIOS.CHIA.id))
     eq('Chía (sin IPS): 200, sin notas ni procesos (la tarjeta no pinta nada)', [chia.status, chia.body.notas, chia.body.procesos, chia.body.giros, chia.body.compras], [200, [], null, null, null])
-    pintar(monVendedor!.body.procesos?.procesos, 'territorio')
+    pintar(monVendedor!.body.procesos)
   }
 
-  print('\nTextos de cada fila (lib/mapa-procesos-ui.ts: lo que pinta la tarjeta)')
+  print('\nTextos de la tarjeta (lib/mapa-procesos-ui.ts): solo los nombres de las empresas (dueño, 2026-10-25: "súper conciso")')
   {
-    const huc = hucAdmin!.body.procesos!.procesos[0]
-    eq('HU del Caribe (tarjeta de IPS)', filaProceso(huc, 'ips'), {
-      proveedor: 'VG MEDICAL SAS',
-      cifras: `Precio base ${formatCopCompact(1_760_000_000)} · publicado ${fechaEs(FECHA_HUC)}`,
-      detalle: 'Trauma y osteosíntesis, Neurocirugía · Ref. 000039-2026',
-      url: urlNotice('CO1.NTC.10111634'),
-    })
-    check('precio base en formato corto ($ 1,8 mil M) y la fecha con el día publicado (sin correrse por la zona horaria)', formatCopCompact(1_760_000_000).replace(/ /g, ' ') === '$ 1,8 mil M' && fechaEs(FECHA_HUC).startsWith(`${Number(FECHA_HUC.slice(8, 10))} `), fechaEs(FECHA_HUC))
-    const mon = monVendedor!.body.procesos!.procesos[0]
-    eq('Montería (tarjeta de municipio, Ejecutivo Comercial): "Proveedor no publicado" y la entidad de OpMap', filaProceso(mon, 'territorio'), {
-      proveedor: 'Proveedor no publicado',
-      cifras: `Precio base ${formatCopCompact(720_000_000)} · publicado ${fechaEs(enMes(9, 20))}`,
-      detalle: 'E.S.E. Hospital San Jerónimo de Montería · Trauma y osteosíntesis · Ref. CTO-1116-2026',
-      url: urlNotice('CO1.NTC.10746038'),
-    })
-    const filasBuc = (buc.body.procesos?.procesos ?? []).map(x => filaProceso(x, 'territorio'))
-    eq('Bucaramanga: rótulos del proveedor que figura', filasBuc.map(f => f.proveedor), ['OSTEOCOL SAS · Vigilado', 'Proveedor persona natural', 'OSTEOEQUIPOS S.A.S · según el título del proceso', 'Proveedor no publicado'])
-    eq('sin precio base: lo dice; sin url: sin enlace', [filasBuc[3]?.cifras, filasBuc[3]?.detalle, filasBuc[3]?.url], [`Precio base no publicado · publicado ${fechaEs(enMes(3, 3))}`, 'ESE B · Otros implantes · Ref. B-003', null])
-    eq('"Ver los N procesos" solo con más de 3; "Ver menos" al desplegar', [textoVerProcesos(4, false), textoVerProcesos(4, true), textoVerProcesos(3, false), textoVerProcesos(1, false)], ['Ver los 4 procesos', 'Ver menos', null, null])
-    eq('lista cortada por el servidor: "Se muestran los 20 más recientes de 22"; completa: nada', [textoMasRecientes(giron!.body.procesos!.procesos.length, giron!.body.procesos!.total), textoMasRecientes(3, 3)], ['Se muestran los 20 más recientes de 22', null])
+    const huc = hucAdmin!.body.procesos!
+    eq('HU del Caribe: VG MEDICAL SAS figura con su NIT en las empresas', huc.empresas.find(e => e.nit === '901080496'), { nombre: 'VG MEDICAL SAS', nit: '901080496', procesos: 1, ultimaFecha: FECHA_HUC, vigilado: false })
+    eq('HU del Caribe: las empresas de la tarjeta', huc.empresas.map(textoEmpresa), ['VG MEDICAL SAS'])
+    const mon = monVendedor!.body.procesos!
+    eq('Montería (Ejecutivo Comercial): ninguna empresa y "3 procesos sin empresa publicada"', [mon.empresas, mon.sinEmpresa, textoSinEmpresa(mon.sinEmpresa, mon.empresas.length > 0)], [[], 3, '3 procesos sin empresa publicada'])
+    const bucP = buc.body.procesos!
+    eq('Bucaramanga: empresas que figuran (persona natural y proceso sin proveedor no se nombran)', bucP.empresas.map(textoEmpresa), ['OSTEOCOL SAS', 'OSTEOEQUIPOS S.A.S'])
+    eq('Bucaramanga: debajo, "y 2 procesos sin empresa publicada"', textoSinEmpresa(bucP.sinEmpresa, bucP.empresas.length > 0), 'y 2 procesos sin empresa publicada')
+    check('las empresas cuentan TODA la ventana, no solo los 20 procesos que viajan (Girón)', giron!.body.procesos!.total > giron!.body.procesos!.procesos.length && giron!.body.procesos!.empresas.reduce((a, e) => a + e.procesos, 0) + giron!.body.procesos!.sinEmpresa === giron!.body.procesos!.total, giron!.body.procesos)
+    eq('una empresa en varios procesos lleva el número: "OSTEOEQUIPOS SAS (2)"; en uno, solo el nombre', [textoEmpresa({ nombre: 'OSTEOEQUIPOS SAS', nit: null, procesos: 2, ultimaFecha: null, vigilado: false }), textoEmpresa({ nombre: 'VG MEDICAL SAS', nit: '901080496', procesos: 1, ultimaFecha: null, vigilado: false })], ['OSTEOEQUIPOS SAS (2)', 'VG MEDICAL SAS'])
+    eq(`"Ver las N empresas" solo con más de ${EMPRESAS_MAPA_VISIBLES}; "Ver menos" al desplegar`, [textoVerEmpresas(EMPRESAS_MAPA_VISIBLES + 1, false), textoVerEmpresas(EMPRESAS_MAPA_VISIBLES + 1, true), textoVerEmpresas(EMPRESAS_MAPA_VISIBLES, false)], [`Ver las ${EMPRESAS_MAPA_VISIBLES + 1} empresas`, 'Ver menos', null])
+    eq('sin procesos sin empresa: nada; uno: singular', [textoSinEmpresa(0, true), textoSinEmpresa(1, false)], [null, '1 proceso sin empresa publicada'])
     eq('cargando: con alcance procesos nunca anuncia giros ni compras', [textoCargandoDetalle('procesos'), textoCargandoDetalle('completo')], ['Cargando procesos…', 'Cargando giros y compras…'])
     filasVisibles.push(
-      MAPA_DETALLE_TEXTOS.tituloProcesos,
-      MAPA_DETALLE_TEXTOS.notaProcesos,
-      textoVerProcesos(4, false) ?? '',
-      textoVerProcesos(4, true) ?? '',
-      textoMasRecientes(20, 22) ?? '',
-      textoCargandoDetalle('procesos'),
-      MAPA_DETALLE_TEXTOS.verProceso
+      MAPA_DETALLE_TEXTOS.tituloEmpresasProcesos,
+      MAPA_DETALLE_TEXTOS.notaEmpresasProcesos,
+      textoVerEmpresas(EMPRESAS_MAPA_VISIBLES + 1, false) ?? '',
+      textoVerEmpresas(EMPRESAS_MAPA_VISIBLES + 1, true) ?? '',
+      textoCargandoDetalle('procesos')
     )
   }
 
@@ -1303,7 +1293,7 @@ async function main() {
     check("las rutas nuevas llevan dynamic = 'force-dynamic'", fuentes.slice(1, 3).every(texto => texto.includes("export const dynamic = 'force-dynamic'")))
     check('las dos rutas piden intelligence:view O secop:procesos (requireAnyPermission), no solo intelligence:view', fuentes.slice(1, 3).every(texto => texto.includes('requireAnyPermission(request, PERMISOS_DETALLE)') && !texto.includes("requirePermission(request, 'intelligence:view')")))
     const popups = readFileSync(path.join(WEB, 'components/MapPopups.tsx'), 'utf8')
-    check('el enlace "Ver proceso" abre otra pestaña con rel noopener', /href=\{fila\.url\} target="_blank" rel="noopener noreferrer"/.test(popups))
+    check('la tarjeta del mapa solo nombra empresas: sin precio base, fechas ni enlaces por proceso (el detalle está en la ficha)', /function ProcesosSection[\s\S]*?textoEmpresa\(empresa\)/.test(popups) && !/function ProcesosSection[\s\S]*?(precioBase|fechaPublicacion|verProceso)[\s\S]*?function ComprasRows/.test(popups))
   }
 
   print(`\n${passed} pruebas pasaron, ${failed} fallaron`)

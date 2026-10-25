@@ -215,7 +215,14 @@ el contrato, así que la tarjeta decía "Sin contratos…" aunque la entidad com
 localidad, con las clases `.opmap-popup__section`, `__section-title`, `__rows`, `__row--stacked`, `__note` y `__secondary`
 que ya había (ninguna clase ni color nuevo).
 
-- **Sección nueva** (`ProcesosSection` en `web/components/MapPopups.tsx`; textos en `web/lib/mapa-procesos-ui.ts` y
+- **Desde el 2026-10-25 (pedido del dueño: "súper conciso, que vea el nombre de las empresas") la tarjeta del mapa solo
+  lista empresas**: título "Empresas en procesos sin contrato (SECOP II) · nov-2025 a hoy", una empresa por línea en
+  negrita (`.opmap-popup__empresas`, la única clase nueva: lista sin viñetas de 13 px) con "(N)" si figura en varios
+  procesos, 6 visibles y "Ver las N empresas", "N procesos sin empresa publicada" y el aviso "Figuran en procesos
+  publicados sin contrato registrado. Confirmar con la entidad." Sin precio base, fechas, referencias ni enlaces: el
+  detalle por proceso queda en la ficha de la IPS (`HospitalProcesosCard`). Lo que sigue describe la primera versión,
+  reemplazada:
+- **Sección nueva, primera versión** (`ProcesosSection` en `web/components/MapPopups.tsx`; textos en `web/lib/mapa-procesos-ui.ts` y
   `MAPA_DETALLE_TEXTOS`), justo debajo de "Compras públicas…" y antes de las notas y el pie de fuentes:
   - Título "Procesos publicados sin contrato (SECOP II) · nov-2025 a hoy" (la ventana de SECOP del mapa: 12 meses por
     fecha de publicación) y la nota fija "Precio base de la convocatoria. La entidad no registró el contrato en SECOP:

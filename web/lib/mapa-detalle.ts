@@ -30,6 +30,7 @@ import {
   MAPA_VENTANA_MESES,
   type ComprasDetalle,
   type ComprasEstado,
+  type EmpresaEnProcesos,
   type GirosDetalle,
   type ProcesoDetalle,
   type ProcesoEstadoRadar,
@@ -85,6 +86,10 @@ export const MAPA_DETALLE_TEXTOS = {
   proveedorPersona: 'persona natural',
   /** Enlace al expediente en SECOP. */
   verProceso: 'Ver proceso',
+  /** Tarjeta del mapa (concisa, solo nombres de empresa; + " · " + ventana.texto). La ficha conserva el detalle. */
+  tituloEmpresasProcesos: 'Empresas en procesos sin contrato (SECOP II)',
+  /** Aviso corto de la tarjeta del mapa: figuran, no están adjudicados. */
+  notaEmpresasProcesos: 'Figuran en procesos publicados sin contrato registrado. Confirmar con la entidad.',
 } as const
 
 /** Procesos que manda el servidor y que se ven sin desplegar: mapa 20 y 3 (12 meses); ficha 50 y 5 (24 meses). */
@@ -511,5 +516,77 @@ export function resumirProcesos(
       url: safeUrl(fila.url),
     }
   })
-  return { ventana, total: enVentana.length, procesos }
+  const { empresas, sinEmpresa } = empresasDeProcesos(enVentana, vigilados ?? null)
+  return { ventana, total: enVentana.length, procesos, empresas, sinEmpresa }
+}
+
+/** Nombre de empresa para agrupar: mayúsculas, sin tildes, sin puntos ni comas y con un solo espacio. */
+export function claveEmpresa(nombre: string): string {
+  return nombre
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/[.,]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/**
+ * Empresas que figuran en los procesos de la ventana (sobre TODOS, no solo los que viajan en `procesos`). Agrupa por NIT
+ * y, sin NIT, por claveEmpresa; un nombre sin NIT que coincide con el de una empresa con NIT se suma a esa. Personas
+ * naturales y procesos sin empresa van a `sinEmpresa`. Orden: más procesos, luego la fecha más reciente, luego el nombre.
+ */
+export function empresasDeProcesos(
+  filas: readonly ProcesoRadarFila[],
+  vigilados: ReadonlySet<string> | null
+): { empresas: EmpresaEnProcesos[]; sinEmpresa: number } {
+  const porClave = new Map<string, EmpresaEnProcesos & { fechaNombre: string }>()
+  const nitPorNombre = new Map<string, string>()
+  // Primero las que traen NIT (fijan el nombre y la llave de su nombre)
+  const ordenadas = [...filas].sort((a, b) => Number(Boolean(b.proveedor_nit)) - Number(Boolean(a.proveedor_nit)))
+  let sinEmpresa = 0
+  for (const fila of ordenadas) {
+    const nit = fila.es_persona ? null : fila.proveedor_nit ?? null
+    const nombreFuente = fila.es_persona ? null : fila.proveedor_nombre ?? null
+    if (fila.es_persona || !fila.proveedor_origen || (!nit && !nombreFuente)) {
+      sinEmpresa++
+      continue
+    }
+    const nombre = nombreFuente ?? `NIT ${nit}`
+    const claveNombre = nombreFuente ? claveEmpresa(nombreFuente) : null
+    const clave = nit ? `nit:${nit}` : (claveNombre && nitPorNombre.get(claveNombre)) ?? `nombre:${claveNombre}`
+    if (nit && claveNombre && !nitPorNombre.has(claveNombre)) nitPorNombre.set(claveNombre, `nit:${nit}`)
+    const fecha = fila.fecha_publicacion ? String(fila.fecha_publicacion).slice(0, 10) : null
+    const actual = porClave.get(clave)
+    if (!actual) {
+      porClave.set(clave, {
+        nombre,
+        nit,
+        procesos: 1,
+        ultimaFecha: fecha,
+        vigilado: nit ? (vigilados ? vigilados.has(nit) : Boolean(fila.proveedor_vigilado_id)) : false,
+        fechaNombre: fecha ?? '',
+      })
+      continue
+    }
+    actual.procesos++
+    if (fecha && (!actual.ultimaFecha || fecha > actual.ultimaFecha)) actual.ultimaFecha = fecha
+    // El nombre de la empresa con NIT manda; entre nombres sin NIT, el del proceso más reciente
+    if (!actual.nit && nit) {
+      actual.nit = nit
+      actual.nombre = nombre
+    } else if (!actual.nit && fecha && fecha > actual.fechaNombre && nombreFuente) {
+      actual.nombre = nombreFuente
+      actual.fechaNombre = fecha
+    }
+  }
+  const empresas = Array.from(porClave.values())
+    .map(({ fechaNombre: _f, ...empresa }) => empresa)
+    .sort(
+      (a, b) =>
+        b.procesos - a.procesos ||
+        String(b.ultimaFecha ?? '').localeCompare(String(a.ultimaFecha ?? '')) ||
+        a.nombre.localeCompare(b.nombre, 'es')
+    )
+  return { empresas, sinEmpresa }
 }

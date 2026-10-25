@@ -8,8 +8,8 @@ import type { LatLngTuple, PointTuple } from 'leaflet'
 import { formatCopCompact } from '@/lib/giros-format'
 import { fechaEs, numeroEs } from '@/lib/zona-estadisticas'
 import { lineaLabel } from '@/lib/compras-publicas'
-import { MAPA_DETALLE_TEXTOS, PROCESOS_MAPA_VISIBLES, notaEstadoCompras, notaParteSede, textoSinIps } from '@/lib/mapa-detalle'
-import { filaProceso, textoCargandoDetalle, textoMasRecientes, textoVerProcesos } from '@/lib/mapa-procesos-ui'
+import { MAPA_DETALLE_TEXTOS, notaEstadoCompras, notaParteSede, textoSinIps } from '@/lib/mapa-detalle'
+import { EMPRESAS_MAPA_VISIBLES, textoCargandoDetalle, textoEmpresa, textoSinEmpresa, textoVerEmpresas } from '@/lib/mapa-procesos-ui'
 import type { AlcanceDetalle, ComprasDetalle, GirosDetalle, IpsDetalle, ProcesosDetalle, TerritorioDetalle } from '@/lib/types/mapa-detalle'
 
 // Tarjetas (popups) del mapa: IPS, IPS sin zona, zona, racimo de zonas y territorio. Contenido React (sin HTML crudo,
@@ -234,52 +234,37 @@ function ProveedoresList({ compras }: { compras: ComprasDetalle }) {
 }
 
 /**
- * "Procesos publicados sin contrato (SECOP II) · <ventana>": nota fija (precio base de la convocatoria, no suma a las
- * compras), 3 filas visibles y "Ver los N procesos" dentro de la tarjeta (el servidor manda como máximo 20). Cada fila:
- * el proveedor que figura, el precio base y la fecha de publicación, en gris la entidad (solo en municipio o localidad),
- * las líneas y la referencia, y "Ver proceso" (expediente en SECOP, en otra pestaña). El precio base nunca se suma.
+ * Sección "Empresas en procesos sin contrato (SECOP II)" de las tarjetas del mapa: solo los nombres de las empresas que
+ * figuran en procesos publicados sin contrato registrado (dueño, 2026-10-25: "súper conciso; la idea es que vea el nombre
+ * de las empresas"), las que figuran en más procesos primero, cuántos procesos no nombran empresa y un aviso corto. El
+ * precio base, la fecha y el enlace de cada proceso están en la ficha de la IPS. Sin procesos no se pinta nada.
  */
-function ProcesosSection({ procesos, modo }: { procesos: ProcesosDetalle; modo: 'territorio' | 'ips' }) {
-  const [todos, setTodos] = useState(false)
-  const cantidad = procesos.procesos.length
-  if (cantidad === 0) return null
-  const visibles = todos ? procesos.procesos : procesos.procesos.slice(0, PROCESOS_MAPA_VISIBLES)
-  const verTodos = textoVerProcesos(cantidad, todos)
-  const masRecientes = textoMasRecientes(cantidad, procesos.total)
+function ProcesosSection({ procesos }: { procesos: ProcesosDetalle }) {
+  const [todas, setTodas] = useState(false)
+  const empresas = procesos.empresas ?? []
+  const sinEmpresa = textoSinEmpresa(procesos.sinEmpresa ?? 0, empresas.length > 0)
+  if (empresas.length === 0 && !sinEmpresa) return null
+  const visibles = todas ? empresas : empresas.slice(0, EMPRESAS_MAPA_VISIBLES)
+  const verTodas = textoVerEmpresas(empresas.length, todas)
   return (
     <div className="opmap-popup__section">
-      <div className="opmap-popup__section-title">{MAPA_DETALLE_TEXTOS.tituloProcesos} · {procesos.ventana.texto}</div>
-      <div className="opmap-popup__note">{MAPA_DETALLE_TEXTOS.notaProcesos}</div>
-      <dl className="opmap-popup__rows opmap-popup__rows--tight">
-        {visibles.map(proceso => {
-          const fila = filaProceso(proceso, modo)
-          return (
-            <PopupRow key={proceso.id} label={fila.proveedor} stacked>
-              {fila.cifras}
-              {fila.detalle && (
-                <span className="opmap-popup__secondary">
-                  <br />
-                  {fila.detalle}
-                </span>
-              )}
-              {fila.url && (
-                <>
-                  <br />
-                  <a href={fila.url} target="_blank" rel="noopener noreferrer" className="underline font-medium">
-                    {MAPA_DETALLE_TEXTOS.verProceso}
-                  </a>
-                </>
-              )}
-            </PopupRow>
-          )
-        })}
-      </dl>
-      {verTodos && (
+      <div className="opmap-popup__section-title">{MAPA_DETALLE_TEXTOS.tituloEmpresasProcesos} · {procesos.ventana.texto}</div>
+      {visibles.length > 0 && (
+        <ul className="opmap-popup__empresas">
+          {visibles.map(empresa => (
+            <li key={`${empresa.nit ?? ''}|${empresa.nombre}`} className="font-medium">
+              {textoEmpresa(empresa)}
+            </li>
+          ))}
+        </ul>
+      )}
+      {verTodas && (
         <div className="opmap-popup__note">
-          <TextButton onClick={() => setTodos(value => !value)}>{verTodos}</TextButton>
+          <TextButton onClick={() => setTodas(value => !value)}>{verTodas}</TextButton>
         </div>
       )}
-      {masRecientes && <div className="opmap-popup__note">{masRecientes}</div>}
+      {sinEmpresa && <div className="opmap-popup__note">{sinEmpresa}</div>}
+      <div className="opmap-popup__note">{MAPA_DETALLE_TEXTOS.notaEmpresasProcesos}</div>
     </div>
   )
 }
@@ -350,7 +335,7 @@ export function GirosComprasSection({ estado, data, error, onRetry, modo, alcanc
 
   // Solo procesos (secop:procesos sin intelligence:view): ni giros, ni compras, ni sus notas; sin procesos, nada
   if ((data.alcance ?? alcance) === 'procesos') {
-    return data.procesos ? <ProcesosSection procesos={data.procesos} modo={modo} /> : null
+    return data.procesos ? <ProcesosSection procesos={data.procesos} /> : null
   }
 
   const { giros, compras, comprasEstado, procesos } = data
@@ -376,7 +361,7 @@ export function GirosComprasSection({ estado, data, error, onRetry, modo, alcanc
           ))}
         </div>
         {/* Defensivo: el servidor solo manda procesos de entidades públicas, que siempre traen compras */}
-        {procesos && <ProcesosSection procesos={procesos} modo={modo} />}
+        {procesos && <ProcesosSection procesos={procesos} />}
       </>
     )
   }
@@ -410,7 +395,7 @@ export function GirosComprasSection({ estado, data, error, onRetry, modo, alcanc
         )}
       </div>
 
-      {procesos && <ProcesosSection procesos={procesos} modo={modo} />}
+      {procesos && <ProcesosSection procesos={procesos} />}
 
       {otrasNotas.map(nota => (
         <div key={nota} className="opmap-popup__note">{nota}</div>

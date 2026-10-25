@@ -537,6 +537,20 @@ main:has(.opmap-map-page) {
   color: #6b7280;
 }
 
+/* Empresas en procesos sin contrato (SECOP II): solo nombres, uno por línea (tarjeta concisa, dueño 2026-10-25) */
+.opmap-popup__empresas {
+  margin: 4px 0 2px;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.opmap-popup__empresas li + li {
+  margin-top: 2px;
+}
+
 .opmap-popup__note--warn {
   color: #92400e;
 }

@@ -622,7 +622,7 @@ async function main() {
   textos.push(admin.text)
   {
     eq('200 y Cache-Control no-store', [admin.status, admin.cacheControl], [200, 'no-store'])
-    eq('la respuesta trae exactamente ventana, total y procesos (ninguna suma de precio base)', Object.keys(admin.body ?? {}).sort(), ['procesos', 'total', 'ventana'])
+    eq('la respuesta trae exactamente ventana, total, procesos, empresas y sinEmpresa (ninguna suma de precio base)', Object.keys(admin.body ?? {}).sort(), ['empresas', 'procesos', 'sinEmpresa', 'total', 'ventana'])
     eq('ventana de la ficha: 24 meses hasta hoy en Bogotá, por fecha de publicación', admin.body.ventana, VENTANA)
     eq(
       'orden: fecha de publicación desc; fuera el cancelado, el anterior a la ventana y el servicio',
@@ -680,7 +680,7 @@ async function main() {
   {
     const r = await procesos(fakeSinVista, ADMIN, IPS_CARIBE)
     textos.push(r.text)
-    eq('200 con total 0 y la misma ventana; Cache-Control no-store', [r.status, r.body, r.cacheControl], [200, { ventana: VENTANA, total: 0, procesos: [] }, 'no-store'])
+    eq('200 con total 0 y la misma ventana; Cache-Control no-store', [r.status, r.body, r.cacheControl], [200, { ventana: VENTANA, total: 0, procesos: [], empresas: [], sinEmpresa: 0 }, 'no-store'])
     const e = await procesos(fakeSinVista, EJECUTIVO, IPS_CARIBE)
     eq('también para un Ejecutivo Comercial', [e.status, e.body?.total], [200, 0])
   }
@@ -689,7 +689,7 @@ async function main() {
   {
     const privada = await procesos(fake, ADMIN, IPS_PRIVADA)
     textos.push(privada.text)
-    eq('IPS privada (REPS Privada, sin marca, sin contratos): 200 total 0', [privada.status, privada.body], [200, { ventana: VENTANA, total: 0, procesos: [] }])
+    eq('IPS privada (REPS Privada, sin marca, sin contratos): 200 total 0', [privada.status, privada.body], [200, { ventana: VENTANA, total: 0, procesos: [], empresas: [], sinEmpresa: 0 }])
     check('IPS privada: no se leen los procesos', !privada.requests.some(request => request.table === 'secop_procesos_radar'), tablasLeidas(privada.requests))
     eq(
       'IPS privada: el criterio 3 se pregunta por existencia (select id, limit 1, su NIT)',

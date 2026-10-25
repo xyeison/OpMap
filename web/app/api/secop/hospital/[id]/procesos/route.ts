@@ -74,7 +74,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     // Ventana de la ficha: 24 meses calendario hasta hoy en Bogotá (desde = día 1 de hace 23 meses), por fecha de publicación
     const { desde, hasta } = ventanaMeses(hoyBogota(), SECOP_VENTANA_MESES)
     const ventana: Ventana = { desde, hasta, texto: textoVentana(desde, 'hoy') }
-    const vacio: ProcesosDetalle = { ventana, total: 0, procesos: [] }
+    const vacio: ProcesosDetalle = { ventana, total: 0, procesos: [], empresas: [], sinEmpresa: 0 }
 
     const nit = nitFromHospitalCode(hospital.code)
     if (!nit || !(await esCompraPublica(nit, compraPublica))) return NextResponse.json(vacio, { headers: NO_STORE })
