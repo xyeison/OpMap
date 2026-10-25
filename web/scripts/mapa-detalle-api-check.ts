@@ -256,6 +256,9 @@ const N1 = '40000000-0000-4000-8000-000000000ab1'
 /** Un NIT con dos sedes marcadas distinto a mano: Rionegro Sí, San Gil No (la regla es por sede). */
 const M1 = '40000000-0000-4000-8000-000000000cc1'
 const M2 = '40000000-0000-4000-8000-000000000cc2'
+/** Un NIT con una sede marcada No y otra sin marca (REPS Pública): la sin marca sale pública por el REPS (regla por sede). */
+const Q1 = '40000000-0000-4000-8000-000000000dd1'
+const Q2 = '40000000-0000-4000-8000-000000000dd2'
 const NADIE = '40000000-0000-4000-8000-0000000000ff'
 
 const NIT_A = '900000001'
@@ -265,6 +268,7 @@ const NIT_P = '900000005'
 const NIT_S = '900000006'
 const NIT_H = '900000010'
 const NIT_M = '900000011'
+const NIT_Q = '900000012'
 const NIT_F = '900000007'
 const NIT_G = '900000008'
 const NIT_AJENO = '900000099'
@@ -292,6 +296,8 @@ const MUNICIPIOS = {
   LSA: { id: '68418', name: 'Los Santos', dep: '68', depName: 'Santander' },
   RIO: { id: '68615', name: 'Rionegro', dep: '68', depName: 'Santander' },
   SGI: { id: '68679', name: 'San Gil', dep: '68', depName: 'Santander' },
+  BAR: { id: '68077', name: 'Barbosa', dep: '68', depName: 'Santander' },
+  VEL: { id: '68861', name: 'Vélez', dep: '68', depName: 'Santander' },
   BOG: { id: '11001', name: 'Bogotá, D.C.', dep: '11', depName: 'Bogotá, D.C.' },
   CHIA: { id: '25175', name: 'Chía', dep: '25', depName: 'Cundinamarca' },
 } as const
@@ -345,6 +351,8 @@ function datosIniciales(): Tablas {
       sede(N1, 'SIN-NIT-01', 'Puesto de salud N', MUNICIPIOS.LSA, 5, { compra_publica: true }),
       sede(M1, '900000011-1', 'Hospital M sede Rionegro', MUNICIPIOS.RIO, 30, { compra_publica: true }),
       sede(M2, '900000011-2', 'Hospital M sede San Gil', MUNICIPIOS.SGI, 10, { compra_publica: false }),
+      sede(Q1, '900000012-1', 'Hospital Q sede Barbosa', MUNICIPIOS.BAR, 10, { compra_publica: false }),
+      sede(Q2, '900000012-2', 'Hospital Q sede Vélez', MUNICIPIOS.VEL, 10),
     ],
     reps_sedes: [
       { nit: NIT_A, naturaleza: 'Pública', codigo_habilitacion: '680010000101' },
@@ -355,6 +363,7 @@ function datosIniciales(): Tablas {
       { nit: NIT_H, naturaleza: 'Privada', codigo_habilitacion: '684060001001' },
       { nit: NIT_F, naturaleza: 'Mixta', codigo_habilitacion: '110010000701' },
       { nit: NIT_G, naturaleza: 'Privada', codigo_habilitacion: '110010000801' },
+      { nit: NIT_Q, naturaleza: 'Pública', codigo_habilitacion: '688610001201' },
     ],
     // Solo se leen los límites (fecha_giro mínima y máxima): la ventana de giros termina en 2026-09, no en hoy
     adres_giros_detalle: [
@@ -442,6 +451,8 @@ const HECHOS = [
   hecho(NIT_AJENO, OSTEOCOL, 'OSTEOCOL SAS', 'trauma', 5000),
   // NIT M (Rionegro Sí, San Gil No): su contrato cuenta solo en la sede marcada Sí (75 % por camas)
   hecho(NIT_M, OSTEOCOL, 'OSTEOCOL SAS', 'trauma', 1000),
+  // NIT Q (Barbosa No, Vélez sin marca y REPS Pública): cuenta solo en Vélez (50 %)
+  hecho(NIT_Q, OSTEOCOL, 'OSTEOCOL SAS', 'columna', 500),
   // Estimado (SECOP I sin adjudicado): suma y se cuenta
   hecho(NIT_A, '900555666', 'ANTIGUO SAS', 'deportiva', 100, 1, EN_VENTANA, { est: true }),
 ]
@@ -586,7 +597,8 @@ async function main() {
       { contratos: 1 },
     ])
     eq('estado con_datos y notas: estimación por camas + fuentes (sin nota de estado)', [body.comprasEstado, body.notas], ['con_datos', [MAPA_DETALLE_TEXTOS.estimadoPorCamas, MAPA_DETALLE_TEXTOS.fuentes]])
-    check('ni el fuera de escala ni el NIT ajeno ni la entidad marcada a mano entran', !buc.text.includes('GIGANTE') && !buc.text.includes(NIT_AJENO) && !buc.text.includes(NIT_P) && !(body.compras?.proveedores ?? []).some(p => p.valor === 800) && (body.compras?.valor ?? 0) < 1_000_000)
+    // La entidad marcada a mano (P, Piedecuesta) se prueba en su municipio y en su tarjeta: aquí nunca llegaría
+    check('el fuera de escala de B no aparece ni suma', !buc.text.includes('GIGANTE') && (body.compras?.valor ?? 0) < 1_000_000)
     eq('criterio 3 (histórico) solo para el NIT sin decidir: D (REPS Privada, sin hechos); A (REPS) y B (manual) no se consultan', vistaContratos(buc.requests), [[NIT_D, 'id', '1']])
     textos.push(buc.text)
   }
@@ -725,6 +737,7 @@ async function main() {
     check('n1: la tarjeta no dice "privada"', !/privada/i.test(n1.text))
     const lsa = await territorio(fakeCon, ADMIN, municipio(MUNICIPIOS.LSA.id))
     eq('Los Santos (solo la IPS sin NIT): 200, 1 IPS, 0 públicas, sin pedir giros ni hechos', [lsa.status, lsa.body.ips, lsa.requests.some(request => request.table.startsWith('rpc/'))], [200, { total: 1, publicas: 0 }, false])
+    eq('Los Santos: estado neutro sin_nit (ni giros en cero ni "sin entidades públicas") y su nota de territorio', [lsa.body.giros, lsa.body.compras, lsa.body.comprasEstado, lsa.body.notas], [null, null, 'sin_nit', ['Ninguna IPS de este municipio tiene un NIT válido en OpMap; no se pueden cruzar con la ADRES ni con SECOP', MAPA_DETALLE_TEXTOS.fuentes]])
 
     const m1 = await ips(fakeCon, ADMIN, M1)
     const m2 = await ips(fakeCon, ADMIN, M2)
@@ -734,7 +747,14 @@ async function main() {
     const sgi = await territorio(fakeCon, ADMIN, municipio(MUNICIPIOS.SGI.id))
     eq('Rionegro suma lo mismo que la tarjeta de m1 (regla por sede)', [rio.body.ips, rio.body.compras?.valor, rio.body.comprasEstado], [{ total: 1, publicas: 1 }, m1.body.compras?.valor, 'con_datos'])
     eq('San Gil suma lo mismo que la tarjeta de m2: sin entidad pública aunque otra sede del NIT diga Sí', [sgi.body.ips, sgi.body.compras, sgi.body.comprasEstado, sgi.body.giros?.total], [{ total: 1, publicas: 0 }, null, 'sin_entidad_publica', m2.body.giros?.total])
-    textos.push(n1.text, lsa.text, m1.text, m2.text, rio.text, sgi.text)
+    const q1 = await ips(fakeCon, ADMIN, Q1)
+    const q2 = await ips(fakeCon, ADMIN, Q2)
+    const bar = await territorio(fakeCon, ADMIN, municipio(MUNICIPIOS.BAR.id))
+    const vel = await territorio(fakeCon, ADMIN, municipio(MUNICIPIOS.VEL.id))
+    eq('q1 (marca No): privada manual, sin compras', [q1.body.hospital.compraPublica, q1.body.hospital.compraPublicaOrigen, q1.body.comprasEstado, q1.body.compras], [false, 'manual', 'ips_privada', null])
+    eq('q2 (sin marca, mismo NIT, REPS Pública): pública por el REPS, compras 250 (50 %)', [q2.body.hospital.compraPublica, q2.body.hospital.compraPublicaOrigen, q2.body.comprasEstado, q2.body.compras?.valor], [true, 'reps', 'con_datos', 250])
+    eq('Barbosa y Vélez suman lo mismo que sus tarjetas', [bar.body.ips.publicas, bar.body.compras, vel.body.ips.publicas, vel.body.compras?.valor], [0, null, 1, q2.body.compras?.valor])
+    textos.push(n1.text, lsa.text, m1.text, m2.text, rio.text, sgi.text, q1.text, q2.text, bar.text, vel.text)
 
     const z1 = await ips(fakeCon, ADMIN, Z1)
     const nadie = await ips(fakeCon, ADMIN, NADIE)
@@ -755,6 +775,8 @@ async function main() {
       [S1, 's1 (REPS Pública sin contratos)'],
       [M1, 'm1 (NIT con sedes Sí y No: la sede Sí)'],
       [M2, 'm2 (NIT con sedes Sí y No: la sede No)'],
+      [Q1, 'q1 (NIT con sedes No y sin marca: la sede No)'],
+      [Q2, 'q2 (NIT con sedes No y sin marca: la sede sin marca)'],
       [N1, 'n1 (código que no es NIT, marca Sí)'],
     ]
     for (const [id, nombre] of casos) {

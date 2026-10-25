@@ -51,6 +51,10 @@ export const MAPA_DETALLE_TEXTOS = {
   sinEntidadPublicaLocalidad: 'Sin entidades públicas de compra en OpMap en esta localidad',
   /** IPS cuyo código no es un NIT válido: estado neutro (ni pública ni privada), sin cifras. */
   sinNit: 'El código de esta IPS no es un NIT válido; no se puede cruzar con la ADRES ni con SECOP',
+  /** Territorio cuyas IPS no tienen ningún NIT válido: el mismo estado neutro. */
+  sinNitTerritorio: 'Ninguna IPS de este municipio tiene un NIT válido en OpMap; no se pueden cruzar con la ADRES ni con SECOP',
+  /** Entidad pública con hechos en la ventana, pero ninguno suma al valor (solo lo que se cuenta aparte). */
+  sinContratosQueSuman: `Ningún contrato suma al valor en los últimos ${MAPA_VENTANA_MESES} meses; se cuenta aparte:`,
   /** IPS que no es entidad de compra pública (resolverCompraPublica; la marca manual manda). */
   ipsPrivada: 'IPS privada: sin contratación pública (SECOP)',
   /** Entidad pública sin hechos en la ventana. Nunca "sin compras". */
@@ -68,14 +72,16 @@ export const MAPA_DETALLE_TEXTOS = {
 export type TipoTerritorio = 'municipio' | 'localidad'
 
 /**
- * Nota de la tarjeta según el estado de compras (null cuando hay datos: la sección habla por sí sola). `tipo` solo
- * cambia el texto de "sin entidad pública" ("en este municipio" / "en esta localidad"); la tarjeta de IPS no lo pasa.
+ * Nota de la tarjeta según el estado de compras (null cuando hay datos: la sección habla por sí sola). `tipo` es el del
+ * territorio y la tarjeta de IPS no lo pasa: cambia "en este municipio" / "en esta localidad" y, en 'sin_nit', la nota
+ * de la IPS por la del territorio.
  */
-export function notaEstadoCompras(estado: ComprasEstado, tipo: TipoTerritorio = 'municipio'): string | null {
+export function notaEstadoCompras(estado: ComprasEstado, tipo?: TipoTerritorio): string | null {
+  const enLocalidad = (texto: string) => (tipo === 'localidad' ? texto.replace('este municipio', 'esta localidad') : texto)
   if (estado === 'sin_entidad_publica') return tipo === 'localidad' ? MAPA_DETALLE_TEXTOS.sinEntidadPublicaLocalidad : MAPA_DETALLE_TEXTOS.sinEntidadPublica
   if (estado === 'ips_privada') return MAPA_DETALLE_TEXTOS.ipsPrivada
   if (estado === 'sin_contratos_12m') return MAPA_DETALLE_TEXTOS.sinContratos12m
-  if (estado === 'sin_nit') return MAPA_DETALLE_TEXTOS.sinNit
+  if (estado === 'sin_nit') return tipo ? enLocalidad(MAPA_DETALLE_TEXTOS.sinNitTerritorio) : MAPA_DETALLE_TEXTOS.sinNit
   return null
 }
 
@@ -388,7 +394,13 @@ export function resumirCompras(params: {
 /** Hechos de la ventana que la tarjeta puede mostrar (sumen o no): decide entre con_datos y sin_contratos_12m. */
 export function contratosEnVentana(compras: ComprasDetalle | null): number {
   if (!compras) return 0
-  return compras.contratos + compras.sinClasificar.contratos + compras.especialistas.contratos + compras.personasNaturales.contratos
+  return (
+    compras.contratos +
+    compras.sinClasificar.contratos +
+    compras.especialistas.contratos +
+    compras.personasNaturales.contratos +
+    compras.fueraEscala.contratos
+  )
 }
 
 /**

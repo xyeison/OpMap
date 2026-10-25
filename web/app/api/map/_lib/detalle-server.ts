@@ -18,8 +18,11 @@
 //     IPS. El tercer criterio mira TODO el histórico, como la ficha: una entidad que contrató hace años pero no en la
 //     ventana es pública "sin contratos en 12 meses", nunca "IPS privada". Para no traer el histórico se pregunta solo
 //     si existe algún contrato (nitsConContratosHistoricos) y solo para los NIT que ni la marca ni el REPS deciden.
-//     Diferencia conocida con /inteligencia: secop_nits_ips (0730) toma el bool_or de las marcas de las sedes de un
-//     NIT; solo cambia algo si un NIT tiene una sede marcada Sí y otra No (0 NIT el 2026-10-24).
+//     Diferencia conocida con /inteligencia y con la carga de SECOP: secop_nits_ips (0730) toma el bool_or de las marcas
+//     NO nulas de las sedes del NIT (el REPS solo si ninguna está marcada) y la carga baja por entidad solo esos NIT.
+//     Cambia algo si un NIT tiene sedes con marcas distintas o una sede marcada y otra sin marca; con No + sin marca, la
+//     sede sin marca sale pública por el REPS aunque su NIT no se cargue como entidad (solo llegan sus contratos con
+//     proveedores vigilados). El 2026-10-24 había 0 NIT en cualquiera de esas combinaciones (de 47 con varias sedes).
 //     Una sede que no es entidad de compra pública no entra en las compras del territorio aunque SECOP traiga
 //     contratos a su nombre (marca manual = false: falso positivo, decisión 2026-10-12).
 // Privacidad: la respuesta nunca lleva proveedor_key, proveedor_hash, documentos ni nombres de personas naturales ni de
@@ -247,6 +250,18 @@ export async function cargarDetalleTerritorio(tipo: TerritorioTipo, code: string
   const nombre = (tipo === 'localidad' ? primera.locality_name : primera.municipality_name) ?? code
   const departamento = primera.department_name
   const nits = nitsDe(enTerritorio)
+  if (nits.length === 0) {
+    // Ninguna IPS del territorio tiene NIT válido: estado neutro, como la tarjeta de la IPS (ni giros en cero ni
+    // "sin entidades públicas", que serían falsos).
+    return {
+      territorio: { code, tipo, nombre, departamento },
+      ips: { total: enTerritorio.length, publicas: 0 },
+      giros: null,
+      compras: null,
+      comprasEstado: 'sin_nit',
+      notas: notas([notaEstadoCompras('sin_nit', tipo)]),
+    }
+  }
   const vGiros = ventanaGiros(bounds?.max ?? null)
   const vSecop = ventanaSecop(hoyBogota())
 

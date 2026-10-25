@@ -241,7 +241,7 @@ const comprasA1 = resumirCompras({ facts, hospitals, ips: ['a1'], vigilados, ven
 eq('una sede: la parte del NIT (60 %) en proveedores y aparte', [comprasA1.valor, comprasA1.proveedores.map(p => p.valor), comprasA1.sinClasificar.valor], [2460, [1800, 600, 60], 240])
 const comprasVacias = resumirCompras({ facts: [], hospitals, ips: bucaramanga, vigilados, ventana: vSecop })
 eq('sin hechos: todo en cero y sin proveedores', [comprasVacias.valor, comprasVacias.contratos, comprasVacias.proveedores, contratosEnVentana(comprasVacias)], [0, 0, [], 0])
-eq('contratosEnVentana cuenta lo que la tarjeta puede mostrar (5 + 2 + 5 + 1)', [contratosEnVentana(comprasBuc), contratosEnVentana(null)], [13, 0])
+eq('contratosEnVentana cuenta lo que la tarjeta puede mostrar (5 + 2 + 5 + 1 + 1 fuera de escala)', [contratosEnVentana(comprasBuc), contratosEnVentana(null)], [14, 0])
 
 // ---------------------------------------------------------------------------
 // 5. Estado de compras
@@ -278,6 +278,20 @@ eq('sin IPS: "este municipio" / "esta localidad"', [textoSinIps(), textoSinIps('
   'Giros y compras se cuentan donde está la IPS; esta localidad no tiene IPS en OpMap',
 ])
 check('la IPS sin NIT válido no se llama "privada"', !/privada/i.test(notaEstadoCompras('sin_nit') ?? ''))
+eq('territorio sin ningún NIT válido: nota del territorio (municipio / localidad), no la de la IPS', [notaEstadoCompras('sin_nit', 'municipio'), notaEstadoCompras('sin_nit', 'localidad')], [
+  'Ninguna IPS de este municipio tiene un NIT válido en OpMap; no se pueden cruzar con la ADRES ni con SECOP',
+  'Ninguna IPS de esta localidad tiene un NIT válido en OpMap; no se pueden cruzar con la ADRES ni con SECOP',
+])
+{
+  const soloFuera = resumirCompras({
+    facts: [fact({ nit_entidad: B, proveedor_key: 'nit:900333444', proveedor_nombre: 'GIGANTE SAS', linea: 'trauma', valor: 60_000_000_000, fuera_escala: true })],
+    hospitals,
+    ips: ['b1'],
+    vigilados,
+    ventana: vSecop,
+  })
+  eq('solo un contrato fuera de escala: cuenta en la ventana → con_datos (el contador se ve), valor 0', [contratosEnVentana(soloFuera), estadoCompras(1, contratosEnVentana(soloFuera), false), soloFuera.valor, soloFuera.fueraEscala], [1, 'con_datos', 0, { contratos: 1 }])
+}
 
 // ---------------------------------------------------------------------------
 // 6. Privacidad y terminología

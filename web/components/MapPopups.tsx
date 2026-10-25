@@ -214,7 +214,8 @@ function ComprasRows({ compras, modo }: { compras: ComprasDetalle; modo: 'territ
           {modo === 'territorio' && <PopupRow label="Entidades">{numeroEs(compras.entidades)}</PopupRow>}
         </dl>
       ) : (
-        <div className="opmap-popup__note">{MAPA_DETALLE_TEXTOS.sinContratos12m}</div>
+        // Nada suma, pero puede haber lo que se cuenta aparte (abajo): entonces no se afirma "sin contratos"
+        <div className="opmap-popup__note">{aparte.length > 0 ? MAPA_DETALLE_TEXTOS.sinContratosQueSuman : MAPA_DETALLE_TEXTOS.sinContratos12m}</div>
       )}
       {compras.proveedores.length > 0 && <ProveedoresList compras={compras} />}
       {aparte.map(linea => (
@@ -250,7 +251,7 @@ export function GirosComprasSection({ estado, data, error, onRetry, modo }: Giro
 
   const { giros, compras, comprasEstado } = data
   const hospital = modo === 'ips' && 'hospital' in data ? data.hospital : null
-  const tipo = 'territorio' in data ? data.territorio.tipo : 'municipio'
+  const tipo = 'territorio' in data ? data.territorio.tipo : undefined
   const notaSede = hospital ? notaParteSede(hospital.nit, hospital.sedesNit) : null
   // Con n > 1 sedes la nota de parte ya dice "reparto por camas" (el servidor tampoco repite la de estimación)
   const notaCamas = giros?.estimadoPorCamas && !notaSede ? MAPA_DETALLE_TEXTOS.estimadoPorCamas : null
@@ -265,7 +266,7 @@ export function GirosComprasSection({ estado, data, error, onRetry, modo }: Giro
     const notasServidor = data.notas || []
     return (
       <div className="opmap-popup__section">
-        {(notasServidor.length > 0 ? notasServidor : [textoSinIps(tipo)]).map(nota => (
+        {(notasServidor.length > 0 ? notasServidor : [textoSinIps(tipo ?? 'municipio')]).map(nota => (
           <div key={nota} className="opmap-popup__note">{nota}</div>
         ))}
       </div>

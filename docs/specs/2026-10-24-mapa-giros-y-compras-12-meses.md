@@ -109,8 +109,11 @@ unos KB por respuesta. Estados visibles: "Cargando giros y compras…" y "No se 
       de IPS que no es NIT: estado neutro, sin giros ni compras, nunca "IPS privada"; añadido tras la revisión).
 - [ ] Entidad de compra pública **por sede**, la misma regla en la tarjeta del territorio, en la de la IPS y en la ficha (marca
       manual de esa sede → REPS del NIT → contratos del NIT en SECOP, histórico): el municipio suma lo que muestran sus IPS.
-      Diferencia conocida con `/inteligencia` (`secop_nits_ips` toma el `bool_or` de las marcas del NIT): solo si un NIT tiene
-      una sede marcada Sí y otra No (0 NIT el 2026-10-24).
+      Diferencia conocida con `/inteligencia` y con la carga de SECOP (`secop_nits_ips` toma el `bool_or` de las marcas no nulas
+      del NIT y la carga baja por entidad solo esos NIT): cambia algo si un NIT tiene sedes con marcas distintas o una marcada y
+      otra sin marca (con No + sin marca, la sede sin marca sale pública por el REPS aunque su NIT no se cargue como entidad).
+      El 2026-10-24 había 0 NIT en cualquiera de esas combinaciones, de 47 con varias sedes.
+- [ ] Territorio cuyas IPS no tienen ningún NIT válido: el mismo estado neutro `sin_nit` (sin giros ni compras).
 - [ ] En una localidad de Bogotá las notas dicen "esta localidad", no "este municipio".
 - [ ] Ventanas: giros terminan en el último mes cargado (no en hoy); SECOP `desde` = primer día de hace 11 meses; ambos textos
       visibles en la tarjeta ("oct-2025 a sep-2026", "nov-2025 a hoy").
