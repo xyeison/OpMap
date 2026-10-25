@@ -131,15 +131,14 @@ export async function GET(request: NextRequest) {
     // ve todas las líneas solo recibe a los que llevan alguna de SUS líneas. Nunca personas de líneas que no ve.
     const visibleExecutiveIds = myLines ? await loadExecutiveIdsOfLines(myLines.lines.map(line => line.id), supabase) : null
 
-    // Contratos activos por IPS (valor y proveedor): los recibe quien ya los recibía antes de abrir la vista de zonas
-    // a todos (con map:all-lines o con alguna línea) y quien tiene contracts:view. Quien solo entra por la vista de
-    // zonas (sin líneas, antes 403) y no tiene contracts:view no los recibe: la spec 2026-10-14 solo le abre las zonas
-    // y "los datos de las IPS que ya ve hoy". El mapa oculta entonces "Solo con Contratos" (contractsIncluded).
-    const contractsIncluded =
-      canSeeAllLines || (myLines?.lines.length ?? 0) > 0 || hasPermission(auth.user.role, 'contracts:view')
+    // Giros ADRES y compras públicas SECOP de las tarjetas (spec 2026-10-24): NO viajan aquí (≈1,1 MB que se vuelve a
+    // pedir al cambiar de línea); el mapa los pide al abrir cada tarjeta a /api/map/detalle/* solo si el rol tiene
+    // intelligence:view. Los contratos cargados a mano (hospital_contracts) ya no se leen ni se mandan a nadie: con
+    // ello se cierra el hueco de permisos anotado en la spec 2026-10-14.
+    const inteligenciaIncluida = hasPermission(auth.user.role, 'intelligence:view')
 
     // Cargar todos los datos necesarios para el mapa
-    const [kamsResult, assignmentsResult, municipalitiesResult, hospitalsResult, contractsResult, executivesResult] = await Promise.all([
+    const [kamsResult, assignmentsResult, municipalitiesResult, hospitalsResult, executivesResult] = await Promise.all([
       selectWithFallback<any[]>(
         cols => supabase.from('kams')
           .select(cols)
@@ -175,9 +174,6 @@ export async function GET(request: NextRequest) {
         HOSPITAL_COLUMNS_WITH_REPS,
         HOSPITAL_COLUMNS
       ),
-      contractsIncluded
-        ? supabase.from('hospital_contracts').select('hospital_id, contract_value, provider').eq('active', true)
-        : Promise.resolve({ data: [] as { hospital_id: string; contract_value: number | null; provider: string | null }[], error: null }),
       // Una sola consulta de ejecutivos; se agrupan por zona en memoria (sin N+1)
       supabase.from('executives')
         .select('id, full_name, status, base_kam_id')
@@ -192,7 +188,6 @@ export async function GET(request: NextRequest) {
       ['assignments', assignmentsResult.error],
       ['municipalities', municipalitiesResult.error],
       ['hospitals', hospitalsResult.error],
-      ['hospital_contracts', contractsResult.error],
       ['executives', executivesResult.error],
     ].filter(([, error]) => error)
     if (failed.length > 0) {
@@ -224,7 +219,6 @@ export async function GET(request: NextRequest) {
       kams: kamsFiltered.length,
       assignments: assignmentsResult.data?.length || 0,
       hospitals: hospitalsResult.data?.length || 0,
-      contracts: contractsResult.data?.length || 0
     })
 
     // Crear mapas de población y nombres por municipio
@@ -233,23 +227,6 @@ export async function GET(request: NextRequest) {
     municipalitiesResult.data.forEach((m: any) => {
       populationMap[m.code] = m.population_2025 || 0
       municipalityNames[m.code] = m.name
-    })
-
-    // Crear mapa de valores de contratos activos y proveedores por hospital
-    const contractValuesByHospital: Record<string, number> = {}
-    const contractProvidersByHospital: Record<string, string[]> = {}
-    
-    contractsResult.data?.forEach(contract => {
-      if (!contractValuesByHospital[contract.hospital_id]) {
-        contractValuesByHospital[contract.hospital_id] = 0
-        contractProvidersByHospital[contract.hospital_id] = []
-      }
-      contractValuesByHospital[contract.hospital_id] += Number(contract.contract_value) || 0
-      
-      // Agregar proveedor si existe y no está duplicado
-      if (contract.provider && !contractProvidersByHospital[contract.hospital_id].includes(contract.provider)) {
-        contractProvidersByHospital[contract.hospital_id].push(contract.provider)
-      }
     })
 
     // Identificar hospitales sin asignar (zonas vacantes)
@@ -270,29 +247,15 @@ export async function GET(request: NextRequest) {
           totalBeds: 0,
           totalAmbulances: 0,
           totalSurgeries: 0,
-          totalContracts: 0,
-          contractValue: 0,
-          providers: new Set(),
           kamId: assignment.kams.id,
           kamName: assignment.kams.name
         }
       }
-      
+
       territoryStats[territoryId].totalHospitals++
       territoryStats[territoryId].totalBeds += assignment.hospitals.beds || 0
       territoryStats[territoryId].totalAmbulances += assignment.hospitals.ambulances || 0
       territoryStats[territoryId].totalSurgeries += assignment.hospitals.surgeries || 0
-      
-      // Agregar información de contratos
-      if (contractValuesByHospital[assignment.hospitals.id]) {
-        territoryStats[territoryId].totalContracts++
-        territoryStats[territoryId].contractValue += contractValuesByHospital[assignment.hospitals.id]
-      }
-      if (contractProvidersByHospital[assignment.hospitals.id]) {
-        contractProvidersByHospital[assignment.hospitals.id].forEach(provider => {
-          territoryStats[territoryId].providers.add(provider)
-        })
-      }
     })
     
     // Estadísticas de hospitales sin asignar
@@ -306,29 +269,15 @@ export async function GET(request: NextRequest) {
           totalBeds: 0,
           totalAmbulances: 0,
           totalSurgeries: 0,
-          totalContracts: 0,
-          contractValue: 0,
-          providers: new Set(),
           kamId: null,
           kamName: 'Sin asignar'
         }
       }
-      
+
       territoryStats[territoryId].totalHospitals++
       territoryStats[territoryId].totalBeds += hospital.beds || 0
       territoryStats[territoryId].totalAmbulances += hospital.ambulances || 0
       territoryStats[territoryId].totalSurgeries += hospital.surgeries || 0
-      
-      // Agregar información de contratos
-      if (contractValuesByHospital[hospital.id]) {
-        territoryStats[territoryId].totalContracts++
-        territoryStats[territoryId].contractValue += contractValuesByHospital[hospital.id]
-      }
-      if (contractProvidersByHospital[hospital.id]) {
-        contractProvidersByHospital[hospital.id].forEach(provider => {
-          territoryStats[territoryId].providers.add(provider)
-        })
-      }
     })
     
     // Zona del territorio (kamId/kamName) por la regla de mayoría compartida (lib/territory-rules.ts:
@@ -356,11 +305,6 @@ export async function GET(request: NextRequest) {
       territoryStats[territoryId].kamName = kamNameById[winner.kam_id] ?? territoryStats[territoryId].kamName
     })
 
-    // Convertir Sets a arrays
-    Object.keys(territoryStats).forEach(key => {
-      territoryStats[key].providers = Array.from(territoryStats[key].providers)
-    })
-
     // Cobertura de la línea elegida (filas ya guardadas por el motor)
     const lineData = selectedLine ? await loadLineCoverage(selectedLine) : null
 
@@ -372,10 +316,8 @@ export async function GET(request: NextRequest) {
       unassignedHospitals,
       populationMap,
       municipalityNames,
-      contractValuesByHospital,
-      contractProvidersByHospital,
-      // false: la respuesta no trae contratos (vacíos arriba y en territoryStats), no que no haya ninguno
-      contractsIncluded,
+      // true: el rol ve giros ADRES y compras SECOP en las tarjetas (las pide a /api/map/detalle/* al abrirlas)
+      inteligenciaIncluida,
       territoryStats
     })
   } catch (error) {
