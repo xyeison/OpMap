@@ -5,9 +5,9 @@ import { esFuenteAutomatica } from '@/lib/fuentes-estado'
 import { PRESUPUESTO_CRON_MS, continuarPendientes, ejecutarFuente } from '@/lib/fuentes-runner'
 
 // GET /api/cron/<fuente> — cargas automáticas de datos públicos (PR 7). La llama Vercel Cron según
-// web/vercel.json (secop_ii diario, secop_integrado los lunes, secop_i los martes, reps_sedes / bdua /
-// minsalud_cifras una vez al mes, y "continuar" a diario para seguir las pasadas que no cupieron en una
-// invocación).
+// web/vercel.json (secop_ii diario, secop_procesos diario a las 06:30, secop_integrado los lunes, secop_i los
+// martes, reps_sedes / bdua / minsalud_cifras una vez al mes, y "continuar" a diario para seguir las pasadas que
+// no cupieron en una invocación).
 //
 // Seguridad: el middleware deja pasar /api/cron/* sin sesión; ESTA ruta exige la cabecera
 // "Authorization: Bearer <CRON_SECRET>" (Vercel la envía sola si la variable CRON_SECRET existe en el

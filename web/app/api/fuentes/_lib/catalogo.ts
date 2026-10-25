@@ -16,6 +16,9 @@ const COMO: Record<string, string> = {
   secop_ii: 'Vercel Cron → /api/cron/secop_ii (incremental por última actualización, con cursor)',
   secop_i: 'Vercel Cron → /api/cron/secop_i (semanal, martes; incremental, con cursor)',
   secop_integrado: 'Vercel Cron → /api/cron/secop_integrado (incremental, con cursor)',
+  secop_procesos:
+    'Vercel Cron → /api/cron/secop_procesos (relee lo publicado en los últimos 120 días y actualiza, con cursor; la carga inicial de ' +
+    '24 meses va con scripts/secop-procesos-load.ts). Procesos de ortopedia o neurocirugía de las IPS públicas: van aparte y nunca suman a las compras',
   reps_sedes: 'Vercel Cron → /api/cron/reps_sedes',
   bdua: 'Vercel Cron → /api/cron/bdua (SoQL agregado en datos.gov.co)',
   minsalud_cifras: 'Vercel Cron → /api/cron/minsalud_cifras (ZIP del mes si ya está publicado)',
