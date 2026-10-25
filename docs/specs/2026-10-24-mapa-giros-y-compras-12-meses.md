@@ -1,6 +1,11 @@
 # Spec: El mapa muestra giros ADRES y compras públicas SECOP de 12 meses (municipio e IPS)  (2026-10-24)
 
-**Estado**: borrador para el dueño (pedido del 2026-10-24); pendiente de "Para decidir (dueño)".
+**Estado**: aprobada por el dueño el 2026-10-24 ("ok" a todas las recomendaciones de "Para decidir (dueño)": total de giros
+= todos los regímenes con las tres cifras visibles; lo ven los roles con `intelligence:view`; se quitan "Solo con
+Contratos" y la fila "Contratos"; ventana SECOP de 12 meses solo en el mapa; solo ortopedia y neurocirugía con "sin
+clasificar" aparte y sin conmutador "todas las compras"; personas naturales agrupadas sin nombre; migración 0880
+opcional, se aplica con el despliegue; el NIT de HOCEN se corrige como dato; globos sin cifras; municipio de alcance
+sin IPS con una línea explicativa).
 
 ## Problema
 
@@ -99,8 +104,17 @@ unos KB por respuesta. Estados visibles: "Cargando giros y compras…" y "No se 
       (`esOrto`), con la misma parte por camas; servicios de especialistas, fuera de escala y personas naturales no suman y se
       cuentan aparte; "sin clasificar" aparte con valor; proveedores ordenados por valor con `vigilado`.
 - [ ] La respuesta serializada nunca contiene `persona:`, un `proveedor_hash`, un documento de persona ni un nombre de médico.
-- [ ] `comprasEstado` cubre los cuatro casos: `con_datos`, `sin_contratos_12m` (pública sin hechos), `sin_entidad_publica`
-      (municipio sin IPS pública), `ips_privada` (manual `compra_publica=false` gana sobre REPS "Pública").
+- [ ] `comprasEstado` cubre los cinco casos: `con_datos`, `sin_contratos_12m` (pública sin hechos), `sin_entidad_publica`
+      (municipio sin IPS pública), `ips_privada` (manual `compra_publica=false` gana sobre REPS "Pública") y `sin_nit` (código
+      de IPS que no es NIT: estado neutro, sin giros ni compras, nunca "IPS privada"; añadido tras la revisión).
+- [ ] Entidad de compra pública **por sede**, la misma regla en la tarjeta del territorio, en la de la IPS y en la ficha (marca
+      manual de esa sede → REPS del NIT → contratos del NIT en SECOP, histórico): el municipio suma lo que muestran sus IPS.
+      Diferencia conocida con `/inteligencia` y con la carga de SECOP (`secop_nits_ips` toma el `bool_or` de las marcas no nulas
+      del NIT y la carga baja por entidad solo esos NIT): cambia algo si un NIT tiene sedes con marcas distintas o una marcada y
+      otra sin marca (con No + sin marca, la sede sin marca sale pública por el REPS aunque su NIT no se cargue como entidad).
+      El 2026-10-24 había 0 NIT en cualquiera de esas combinaciones, de 47 con varias sedes.
+- [ ] Territorio cuyas IPS no tienen ningún NIT válido: el mismo estado neutro `sin_nit` (sin giros ni compras).
+- [ ] En una localidad de Bogotá las notas dicen "esta localidad", no "este municipio".
 - [ ] Ventanas: giros terminan en el último mes cargado (no en hoy); SECOP `desde` = primer día de hace 11 meses; ambos textos
       visibles en la tarjeta ("oct-2025 a sep-2026", "nov-2025 a hoy").
 - [ ] Localidad de Bogotá: la ruta agrupa por `hospitals.locality_id`; el municipio 11001 no se pide entero.
@@ -122,7 +136,7 @@ m, 1,5 %). Corregir datos (NIT de HOCEN). Cambios en la app móvil, en `/intelig
 
 ## Impacto
 
-- Datos / migración: **opcional y aditiva**. `database/migrations/2026-10-24_0880_adres_giros_nits.sql` crea
+- Datos / migración: **opcional y aditiva** (APLICADA el 2026-10-25 con el despliegue). `database/migrations/2026-10-24_0880_adres_giros_nits.sql` crea
   `adres_giros_nits(p_desde date, p_hasta date, p_nits text[])` (totales por NIT y régimen, `REVOKE` a `anon`/`authenticated`,
   `GRANT EXECUTE` a `service_role`; borrador en `scratchpad/mapa-giros/rpc-propuesta.sql`) con rollback
   `2026-10-24_9948_adres_giros_nits_rollback.sql` (`DROP FUNCTION`). El código funciona sin ella (respaldo `loadGirosIntel`,
@@ -154,8 +168,9 @@ export interface ComprasDetalle {
   sinClasificar: { contratos: number; valor: number }
   especialistas: { contratos: number }; personasNaturales: { contratos: number; valor: number }
   estimados: { contratos: number; valor: number }                       // SECOP I sin adjudicado (hoy 0 en 12 m)
+  fueraEscala: { contratos: number }                                    // > 50.000 M por contrato: no suma (hoy 0 en 12 m)
 }
-export type ComprasEstado = 'con_datos' | 'sin_contratos_12m' | 'sin_entidad_publica' | 'ips_privada'
+export type ComprasEstado = 'con_datos' | 'sin_contratos_12m' | 'sin_entidad_publica' | 'ips_privada' | 'sin_nit'
 export interface TerritorioDetalle {
   territorio: { code: string; tipo: 'municipio' | 'localidad'; nombre: string; departamento: string | null }
   ips: { total: number; publicas: number }

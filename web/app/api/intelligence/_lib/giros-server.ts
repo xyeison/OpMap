@@ -160,6 +160,45 @@ export async function loadGirosIntel(
   return data
 }
 
+/**
+ * Totales de giros de Identifica tu Giro por NIT en una ventana de meses ('YYYY-MM' ambos, inclusive), SOLO para los
+ * NIT pedidos, con la misma forma que cada elemento de adres_giros_intel()->'nits' (la lee parseResumen de
+ * lib/adres-intelligence.ts): [{ nit, total, contributivo, subsidiado, otro, ultima }], sin detalle mensual ni por
+ * EPS. Lo usan las tarjetas del mapa (app/api/map/_lib/detalle-server.ts, spec 2026-10-24): por clic hacen falta
+ * unos pocos NIT y una respuesta pequeña.
+ *
+ * Con la RPC adres_giros_nits (migración 2026-10-24_0880, opcional y aditiva) la base devuelve solo esos NIT (≈ 1 ms).
+ * Si la migración no está aplicada (isMissingRelationError), respaldo: adres_giros_intel de Identifica con régimen
+ * 'todos' (todo el país, ≈ 740 ms y 1,5 MB) filtrado aquí por NIT. Las dos ramas suman lo mismo. nits vacío → [] sin
+ * consultar nada.
+ */
+export async function loadGirosNits(
+  params: { desde: string; hasta: string; nits: string[] },
+  db: SupabaseAdminClient = supabaseAdmin
+): Promise<unknown[]> {
+  const nits = Array.from(new Set(params.nits.filter(Boolean)))
+  if (nits.length === 0) return []
+
+  const { data, error } = await db.rpc('adres_giros_nits', {
+    p_desde: `${params.desde}-01`,
+    p_hasta: monthEnd(params.hasta),
+    p_nits: nits,
+  })
+  if (!error) return Array.isArray(data) ? data : []
+  if (!isMissingRelationError(error)) throw Object.assign(new Error(`Error en adres_giros_nits: ${error.message}`), { dbError: error })
+
+  // Sin la 0880: el agregado de todo el país, filtrado por NIT en memoria.
+  const intel = await loadGirosIntel('identifica', params.desde, params.hasta, 'todos', db)
+  const record = intel && typeof intel === 'object' && !Array.isArray(intel) ? (intel as { nits?: unknown }) : null
+  const list = Array.isArray(record?.nits) ? (record!.nits as unknown[]) : []
+  const wanted = new Set(nits)
+  return list.filter(item => {
+    if (!item || typeof item !== 'object') return false
+    const nit = (item as { nit?: unknown }).nit
+    return typeof nit === 'string' && wanted.has(nit)
+  })
+}
+
 interface HospitalRow {
   id: string
   code: string | null

@@ -26,8 +26,11 @@ import {
   type ZonePopupData,
   type ClusterPopupData,
   type PopupAction,
-  type TerritoryInfo
+  type TerritoryInfo,
+  type GirosComprasProps
 } from './MapPopups'
+import { textoSinIps } from '@/lib/mapa-detalle'
+import type { IpsDetalle, TerritorioDetalle } from '@/lib/types/mapa-detalle'
 import { zoneBadgeHeight, initialsOf, cityInitials, uniqueCityInitials, shortCityName, readableTextColor } from './ZoneBadgeIcon'
 import ZoneBadgeLayer, { type ZoneBadgeItem } from './ZoneBadgeLayer'
 import MapLabelsLayer from './MapLabelsLayer'
@@ -139,7 +142,7 @@ const hexToRgba = (hex: string, alpha: number) => {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }
 
-// Error HTTP de /api/map/data con el código de estado, para distinguir sesión caducada (401)
+// Error HTTP de /api/map/data (y de /api/map/detalle/*) con el código de estado, para distinguir sesión caducada (401)
 class MapDataError extends Error {
   status: number
   constructor(message: string, status: number) {
@@ -444,7 +447,6 @@ export default function MapComponent({
   const [visits, setVisits] = useState(initialVisits)
   const [showHeatmap, setShowHeatmap] = useState(initialShowHeatmap)
   const [showMarkers, setShowMarkers] = useState(initialShowMarkers)
-  const [showContracts, setShowContracts] = useState(false)
   // Fase 3: bloque "IPS" de Filtros (quirófano, ortopedia, neurocirugía, columna, camas); solo oculta puntos
   const [ipsServiceFilter, setIpsServiceFilter] = useState<IpsServiceFilter>(EMPTY_IPS_FILTER)
   const [mapCenter, setMapCenter] = useState<[number, number] | undefined>(undefined)
@@ -1104,21 +1106,17 @@ export default function MapComponent({
     return byId
   }, [kamStats])
 
-  // Filtros de tipo de hospital y de contratos. Sin contratos en la respuesta (contractsIncluded: false, vista de
-  // zonas de quien no tiene líneas ni contracts:view) "Solo con Contratos" no se ofrece ni filtra.
-  const contractsFilterOn = showContracts && mapData?.contractsIncluded !== false
+  // Filtros de tipo de hospital y del bloque "IPS". El interruptor "Solo con Contratos" se quitó el 2026-10-24: los
+  // contratos cargados a mano ya no viajan en /api/map/data (spec docs/specs/2026-10-24-mapa-giros-y-compras-12-meses.md).
   const filteredAssignments = useMemo(() => {
     if (!mapData) return [] as any[]
     return mapData.assignments.filter((a: any) => {
-      // Filtrar por contratos primero si está activo
-      if (contractsFilterOn && !mapData.contractValuesByHospital[a.hospitals.id]) return false
       if (!matchesIpsFilter(a.hospitals, ipsServiceFilter)) return false
-      // Luego aplicar filtro de tipo
       if (hospitalTypeFilter === 'all') return true
       if (hospitalTypeFilter === 'sin_tipo') return !a.hospitals.type
       return a.hospitals.type === hospitalTypeFilter
     }) as any[]
-  }, [mapData, contractsFilterOn, hospitalTypeFilter, ipsServiceFilter])
+  }, [mapData, hospitalTypeFilter, ipsServiceFilter])
 
   const filteredUnassignedHospitals = useMemo(() => {
     if (!mapData) return [] as any[]
@@ -1127,11 +1125,9 @@ export default function MapComponent({
         const matchesType = h.type === hospitalTypeFilter || (hospitalTypeFilter === 'sin_tipo' && !h.type)
         if (!matchesType) return false
       }
-      // Si showContracts está activo, solo mostrar hospitales con contratos
-      if (contractsFilterOn && !mapData.contractValuesByHospital[h.id]) return false
       return matchesIpsFilter(h, ipsServiceFilter)
     }) as any[]
-  }, [mapData, contractsFilterOn, hospitalTypeFilter, ipsServiceFilter])
+  }, [mapData, hospitalTypeFilter, ipsServiceFilter])
 
   const assignmentByHospital = useMemo(() => {
     const byId: Record<string, any> = {}
@@ -1158,6 +1154,48 @@ export default function MapComponent({
     })
     return counts
   }, [lineView, mapData])
+
+  // ---------- Giros ADRES y compras SECOP de 12 meses de la tarjeta abierta ----------
+  // Spec docs/specs/2026-10-24-mapa-giros-y-compras-12-meses.md (E4): no viajan en /api/map/data (≈1,1 MB que se vuelve
+  // a pedir al cambiar de línea); se piden al abrir la tarjeta, como los tiempos de unassigned-optimized, solo si la
+  // respuesta del mapa trae inteligenciaIncluida (intelligence:view) y se guardan 5 min por territorio o IPS. Un
+  // municipio de alcance sin IPS (kind 'other') no pide nada: giros y compras se cuentan donde está la IPS.
+  const inteligenciaIncluida = mapData?.inteligenciaIncluida === true
+  const detalleTarget = useMemo((): { tipo: 'ips' | 'municipio' | 'localidad'; code: string } | null => {
+    if (!activePopup) return null
+    if (activePopup.kind === 'ips' || activePopup.kind === 'unassigned') return { tipo: 'ips', code: activePopup.id }
+    if (activePopup.kind === 'territory') {
+      const t = resolveTerritory(activePopup.code, activePopup.isLocality)
+      if (t.kind !== 'ips' && t.kind !== 'vacant') return null
+      return { tipo: activePopup.isLocality ? 'localidad' : 'municipio', code: activePopup.code }
+    }
+    return null
+  }, [activePopup, resolveTerritory])
+  const detalleQuery = useQuery<TerritorioDetalle | IpsDetalle>({
+    queryKey: ['map-detalle', detalleTarget?.tipo ?? 'ninguno', detalleTarget?.code ?? ''],
+    queryFn: async () => {
+      if (!detalleTarget) throw new Error('Sin tarjeta abierta')
+      const url = detalleTarget.tipo === 'ips'
+        ? `/api/map/detalle/ips/${encodeURIComponent(detalleTarget.code)}`
+        : `/api/map/detalle/territorio?tipo=${detalleTarget.tipo}&code=${encodeURIComponent(detalleTarget.code)}`
+      const response = await fetch(url)
+      if (!response.ok) throw new MapDataError('No se pudieron cargar los giros y compras', response.status)
+      return response.json()
+    },
+    enabled: !!detalleTarget && inteligenciaIncluida,
+    staleTime: 5 * 60_000,
+    // Un 4xx (sin permiso, IPS inexistente, código inválido) no se reintenta; un fallo de red, una vez
+    retry: (failureCount, error) =>
+      !(error instanceof MapDataError && error.status >= 400 && error.status < 500) && failureCount < 1
+  })
+  // Lo que recibe GirosComprasSection: sin intelligence:view no hay sección (sin_acceso) ni llamada
+  const detalleProps = (modo: 'territorio' | 'ips'): GirosComprasProps => ({
+    estado: !inteligenciaIncluida ? 'sin_acceso' : detalleQuery.isError ? 'error' : detalleQuery.data ? 'listo' : 'cargando',
+    data: detalleQuery.data ?? null,
+    error: detalleQuery.error instanceof Error ? detalleQuery.error.message : null,
+    onRetry: () => { void detalleQuery.refetch() },
+    modo
+  })
 
   // ---------- Tarjetas (popups) ----------
 
@@ -1538,7 +1576,11 @@ export default function MapComponent({
           text: `${describeCoverage(row, lineView.zoneNameById)}${row?.has_equipment === false ? ' · sin equipo' : ''}`
         }
       }
-      return { kind: 'other', name, deptName, title, detail, coverage, population }
+      // Sin IPS en OpMap no hay giros ni compras que contar: una línea fija, sin llamada (solo con intelligence:view)
+      const sinIpsNota = inteligenciaIncluida
+        ? textoSinIps(isLocality ? 'localidad' : 'municipio')
+        : null
+      return { kind: 'other', name, deptName, title, detail, coverage, population, sinIpsNota }
     }
 
     // ----- Territorio con IPS -----
@@ -1551,12 +1593,8 @@ export default function MapComponent({
       totalHospitals: 0,
       totalBeds: 0,
       totalAmbulances: 0,
-      totalSurgeries: 0,
-      totalContracts: 0,
-      contractValue: 0,
-      providers: []
+      totalSurgeries: 0
     }
-    const providers: string[] = Array.isArray(stats.providers) ? stats.providers : []
     const territoryZone = t.kamId ? kamIndex.byId[t.kamId] : undefined
     const zoneLabel = zoneDisplayName(territoryZone?.name || stats.kamName) || t.kamId?.toUpperCase() || ''
 
@@ -1594,14 +1632,6 @@ export default function MapComponent({
         ambulances: Number(stats.totalAmbulances || 0),
         surgeries: Number(stats.totalSurgeries || 0)
       },
-      contracts: Number(stats.contractValue) > 0
-        ? {
-            count: Number(stats.totalContracts || 0),
-            value: Number(stats.contractValue),
-            providers: providers.slice(0, 3),
-            moreProviders: Math.max(0, providers.length - 3)
-          }
-        : null,
       population,
       bedsPer1000: population > 0 ? Number(stats.totalBeds || 0) / population * 1000 : null,
       status
@@ -1655,7 +1685,6 @@ export default function MapComponent({
       travelTime: assignment.travel_time !== null && assignment.travel_time !== undefined
         ? formatTravelTimeFromSeconds(assignment.travel_time)
         : null,
-      contractValue: mapData.contractValuesByHospital[hospital.id] || null,
       actions: fichaActions(hospital.id)
     }
   }
@@ -1685,7 +1714,6 @@ export default function MapComponent({
       name: hospital.name,
       location: hospitalLocation(hospital),
       meta: hospitalMeta(hospital),
-      contractValue: mapData.contractValuesByHospital[hospital.id] || null,
       nearest,
       moreCount: Math.max(0, travelTimes.length - nearest.length),
       suggestion,
@@ -1751,7 +1779,7 @@ export default function MapComponent({
     switch (activePopup.kind) {
       case 'ips': {
         const data = buildIpsPopup(activePopup.id)
-        if (data) content = <IpsPopupCard data={data} />
+        if (data) content = <IpsPopupCard data={data} detalle={detalleProps('ips')} />
         // Por debajo de zoom 6 los puntos son compactos (2,5 px): la punta de la tarjeta se ajusta
         const compact = (mapRef.current?.getZoom() ?? IPS_FULL_SIZE_ZOOM) < IPS_FULL_SIZE_ZOOM
         offset = [0, 7 - ipsRadius(assignmentByHospital[activePopup.id]?.hospitals?.beds, compact)]
@@ -1759,7 +1787,7 @@ export default function MapComponent({
       }
       case 'unassigned': {
         const data = buildUnassignedPopup(activePopup.id)
-        if (data) content = <UnassignedPopupCard data={data} />
+        if (data) content = <UnassignedPopupCard data={data} detalle={detalleProps('ips')} />
         offset = [0, 2]
         break
       }
@@ -1776,7 +1804,12 @@ export default function MapComponent({
         break
       }
       case 'territory':
-        content = <TerritoryPopupCard info={territoryInfo(activePopup.code, activePopup.isLocality, activePopup.name)} />
+        content = (
+          <TerritoryPopupCard
+            info={territoryInfo(activePopup.code, activePopup.isLocality, activePopup.name)}
+            detalle={detalleProps('territorio')}
+          />
+        )
         break
     }
     if (!content) return null
@@ -2023,7 +2056,6 @@ export default function MapComponent({
     onVisitsChange: setVisits,
     onShowHeatmapChange: setShowHeatmap,
     onShowMarkersChange: setShowMarkers,
-    onShowContractsChange: setShowContracts,
     ipsServiceFilter,
     onIpsServiceFilterChange: setIpsServiceFilter,
     onHospitalSelect: openHospitalPopup,

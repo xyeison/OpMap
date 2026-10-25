@@ -103,7 +103,11 @@ resultaron ruidosos con los datos reales y no clasifican solos.
 - **Ámbito**: por defecto solo entidades que son IPS de OpMap. Al agrupar por proveedor se puede pedir
   "Todas las entidades públicas" (`ambito=todas`; sin filtro de departamento).
 - **Rango** del ranking por fecha de firma; por defecto los 24 meses que terminan en el mes actual (hora de
-  Bogotá). La ficha muestra 24 meses y el histórico completo.
+  Bogotá). La ficha muestra 24 meses y el histórico completo. **El mapa** (tarjetas de municipio, localidad e IPS,
+  desde 2026-10-24) usa **12 meses** calendario hasta hoy (`MAPA_VENTANA_MESES` en `lib/types/mapa-detalle.ts`;
+  cuentas puras en `lib/mapa-detalle.ts`, mismas reglas de suma que aquí, que no se toca): solo material de las 6
+  líneas, con "sin clasificar" aparte y con valor, servicios de especialistas y personas naturales aparte, contados y
+  sin nombres. La ficha y el ranking siguen en 24 (spec `docs/specs/2026-10-24-mapa-giros-y-compras-12-meses.md`).
 - **Entidad de compra pública** (`resolverCompraPublica()` en `lib/compras-publicas.ts`): manda la marca
   manual `hospitals.compra_publica` (true/false; campo "Compra pública (SECOP)" del modal "Editar
   Información", permiso `hospitals:edit`, también por `PUT`/`PATCH /api/hospitals/[id]`, otro valor → 400);
@@ -196,6 +200,14 @@ carga); después, `NOTIFY pgrst, 'reload schema'` y la carga inicial de `secop1`
 - CSV para Excel en español (BOM, `;`, CRLF, sin fórmulas): ranking + sección proveedor × hospital.
 - Celular: tarjetas en lugar de tablas, KPIs en 2 columnas, botones y campos de al menos 44 px; el panel del
   proveedor es una hoja inferior que empieza debajo de la barra superior.
+- **Mapa** (desde 2026-10-24, `GirosComprasSection` en `web/components/MapPopups.tsx`; detalle en
+  `docs/mapa-estetica.md`, "2026-10-24"): las tarjetas de municipio, localidad e IPS muestran "Compras públicas de
+  material ortopédico y neurocirugía (SECOP) · <rango de 12 meses>" junto a los giros ADRES, solo con `intelligence:view`
+  y pidiendo `GET /api/map/detalle/*` al abrir la tarjeta. Proveedores empresa por valor (NIT, contratos, último,
+  líneas, "Vigilado"; 5 y "Ver los N proveedores"); "Sin clasificar", "Servicios de especialistas" y "Personas
+  naturales" aparte y sin nombres; IPS privada → "IPS privada: sin contratación pública (SECOP)"; pública sin hechos →
+  "Sin contratos de ortopedia o neurocirugía en SECOP en los últimos 12 meses". Reemplaza a los contratos cargados a
+  mano (`hospital_contracts`), que ya no van en el mapa; `/contracts` y `/providers` siguen vivos.
 
 ## Cómo añadir un NIT a la lista vigilada
 

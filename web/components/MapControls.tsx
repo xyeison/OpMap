@@ -32,7 +32,6 @@ interface MapControlsProps {
   onShowMarkersChange?: (show: boolean) => void
   onHospitalSelect?: (hospitalId: string | null) => void
   onMapNavigate?: (lat: number, lng: number, zoom: number) => void
-  onShowContractsChange?: (show: boolean) => void
   // 'floating': botón y panel flotante (escritorio). 'embedded': contenido dentro de la hoja inferior (móvil)
   variant?: 'floating' | 'embedded'
   // Visitas apagadas por defecto: sin consulta ni mapa de calor hasta activarlas
@@ -66,7 +65,6 @@ export default function MapControls({
   onShowMarkersChange,
   onHospitalSelect,
   onMapNavigate,
-  onShowContractsChange,
   variant = 'floating',
   visitsEnabled = false,
   onVisitsEnabledChange,
@@ -83,7 +81,6 @@ export default function MapControls({
   const [activeTab, setActiveTab] = useState<'filters' | 'visits' | 'search'>('filters')
   const [searchTerm, setSearchTerm] = useState('')
   const [searchResults, setSearchResults] = useState<any[]>([])
-  const [showContracts, setShowContracts] = useState(false)
   // Texto de los campos de camas (el filtro solo guarda números válidos)
   const [minBedsText, setMinBedsText] = useState(ipsServiceFilter.minBeds === null ? '' : String(ipsServiceFilter.minBeds))
   const [maxBedsText, setMaxBedsText] = useState(ipsServiceFilter.maxBeds === null ? '' : String(ipsServiceFilter.maxBeds))
@@ -261,13 +258,6 @@ export default function MapControls({
     }
   }, [showMarkers, onShowMarkersChange])
 
-  // Notificar cambios de visualización de contratos
-  useEffect(() => {
-    if (onShowContractsChange) {
-      onShowContractsChange(showContracts)
-    }
-  }, [showContracts, onShowContractsChange])
-
 
   // Texto del filtro principal en la pestaña de visitas
   const groupNoun = groupFilter?.kind === 'zone' ? 'una zona' : 'un Ejecutivo Comercial'
@@ -432,40 +422,8 @@ export default function MapControls({
             </div>
           )}
 
-          {/* Toggle de Solo Hospitales con Contratos. No sale si /api/map/data no trae contratos (contractsIncluded:
-              false: vista de zonas de quien no tiene líneas ni contracts:view, spec 2026-10-14). */}
-          {mapData?.contractsIncluded !== false && (
-          <div className="mb-3 pt-3 border-t">
-            <div className={`flex items-center justify-between ${embedded ? 'min-h-[44px]' : ''}`}>
-              <label className="text-xs font-semibold text-gray-700">Solo con Contratos</label>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={showContracts}
-                aria-label="Solo con contratos"
-                onClick={() => setShowContracts(!showContracts)}
-                className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors ${
-                  showContracts ? 'bg-green-500' : 'bg-gray-300'
-                }`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    showContracts ? 'translate-x-5' : 'translate-x-1'
-                  }`}
-                />
-              </button>
-            </div>
-            {showContracts && (
-              <div className="mt-2 px-3 py-2 bg-green-50 rounded-lg text-xs text-green-700">
-                <svg className="w-3 h-3 inline mr-1" fill="currentColor" viewBox="0 0 20 20">
-                  <path d="M8.433 7.418c.155-.103.346-.196.567-.267v1.698a2.305 2.305 0 01-.567-.267C8.07 8.34 8 8.114 8 8c0-.114.07-.34.433-.582zM11 12.849v-1.698c.22.071.412.164.567.267.364.243.433.468.433.582 0 .114-.07.34-.433.582a2.305 2.305 0 01-.567.267z"/>
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.092a4.535 4.535 0 00-1.676.662C6.602 6.234 6 7.009 6 8c0 .99.602 1.765 1.324 2.246.48.32 1.054.545 1.676.662v1.941c-.391-.127-.68-.317-.843-.504a1 1 0 10-1.51 1.31c.562.649 1.413 1.076 2.353 1.253V15a1 1 0 102 0v-.092a4.535 4.535 0 001.676-.662C13.398 13.766 14 12.991 14 12c0-.99-.602-1.765-1.324-2.246A4.535 4.535 0 0011 9.092V7.151c.391.127.68.317.843.504a1 1 0 101.511-1.31c-.563-.649-1.413-1.076-2.354-1.253V5z" clipRule="evenodd"/>
-                </svg>
-                Mostrando solo hospitales con contratos activos
-              </div>
-            )}
-          </div>
-          )}
+          {/* "Solo con Contratos" se quitó el 2026-10-24: el mapa ya no manda los contratos cargados a mano; giros ADRES y
+              compras SECOP de 12 meses van en las tarjetas (spec docs/specs/2026-10-24-mapa-giros-y-compras-12-meses.md). */}
 
           {/* Estadísticas por tipo */}
           <div className="text-xs space-y-1 pt-2 border-t">
