@@ -58,3 +58,7 @@ dueño el 2026-10-14 y queda anotado en `docs/mapa-estetica.md`. Permisos: la vi
 - **Contratos en `/api/map/data`**: la vista de zonas no los da a quien antes no abría el mapa (sin líneas) y no tiene
   `contracts:view`. Queda un hueco anterior que no se tocó: `viewer`, `data_manager` y un `user` con línea reciben el
   valor y el proveedor de los contratos sin `contracts:view`. El dueño decide si se cierra.
+  *Superado el 2026-10-24: el mapa ya no manda contratos a nadie. `/api/map/data` dejó de leer `hospital_contracts` y de
+  traer `contractValuesByHospital`, `contractProvidersByHospital`, `contractsIncluded` y los campos de contratos de
+  `territoryStats`; las tarjetas muestran giros ADRES y compras SECOP de 12 meses solo con `intelligence:view` (spec
+  `docs/specs/2026-10-24-mapa-giros-y-compras-12-meses.md`). El hueco quedó cerrado.*
