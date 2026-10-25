@@ -11,9 +11,10 @@
  *     solo la de esa línea; y de las personas que viven en cada zona (kams[].executives) solo las de SUS líneas.
  *   - Lo que sí trae: todas las zonas activas con su color (kams.color), las IPS y las IPS sin zona, igual que hoy.
  *   - Quien ve todas las líneas (admin, viewer) recibe lo de siempre. Nunca escribe en la base.
- *   - Contratos (valor y proveedor por IPS): los sigue recibiendo quien ya los recibía (map:all-lines o alguna línea)
- *     y quien tiene contracts:view; quien solo entra por la vista de zonas (sin líneas) sin contracts:view, no
- *     (contractsIncluded: false; ni siquiera se lee hospital_contracts).
+ *   - Contratos cargados a mano (hospital_contracts): desde la spec 2026-10-24 (giros ADRES y compras SECOP por tarjeta
+ *     en /api/map/detalle/*) el mapa ya no los manda a NADIE: la ruta nunca lee hospital_contracts (aunque haya filas)
+ *     ni responde contractValuesByHospital, contractProvidersByHospital, contractsIncluded ni providers en
+ *     territoryStats; en su lugar trae inteligenciaIncluida (intelligence:view), que decide si la tarjeta pide el detalle.
  *   - Reglas puras de la página (lib/map-view.ts): ?mode=zones abre la vista de zonas, la línea con que se vuelve a
  *     "Ejecutivos Comerciales" y qué datos se conservan mientras llega otra línea.
  *   - Sin Regiones (spec docs/specs/2026-10-14-quitar-regiones.md): /api/map/data no lee la tabla zones ni manda
@@ -361,6 +362,7 @@ function datosIniciales(): Tablas {
       { code: '41396', name: 'La Plata', population_2025: 65000 },
       { code: '41551', name: 'Pitalito', population_2025: 140000 },
     ],
+    // Sembrado SOLO para comprobar que la ruta ya no lo lee ni lo manda (si lo leyera, quedaría en requests y en el texto)
     hospital_contracts: [{ hospital_id: H_NEI, contract_value: 50000000, provider: 'Proveedor X', active: true }],
   }
 }
@@ -398,17 +400,18 @@ const leeCobertura = (requests: FakeRequest[]) => requests.some(request => reque
 // Nada de la línea B ni de sus personas en la respuesta (nombres, ids ni colores)
 const NADA_DE_B = ['Ana Ruiz', 'Beto Pérez', ANA, BETO, COLOR_ANA, COLOR_BETO, LB, 'reemplazo', 'Reemplazo articular']
 const queTraeDeB = (text: string) => NADA_DE_B.filter(token => text.includes(token))
-// Contratos de la respuesta: el sembrado es 50.000.000 con 'Proveedor X' en la IPS de Neiva
+// Contratos cargados a mano: el sembrado es 50.000.000 con 'Proveedor X' en la IPS de Neiva y NO debe salir a nadie
 const leeContratos = (requests: FakeRequest[]) => requests.some(request => request.table === 'hospital_contracts')
-const contratosDe = (body: any) => ({
-  incluidos: body?.contractsIncluded,
-  valores: body?.contractValuesByHospital,
-  proveedores: body?.contractProvidersByHospital,
-  territorio: Object.values((body?.territoryStats || {}) as Record<string, any>)
-    .filter(stats => stats.contractValue > 0 || stats.totalContracts > 0 || (stats.providers || []).length > 0).length,
+const CAMPOS_CONTRATOS = ['contractValuesByHospital', 'contractProvidersByHospital', 'contractsIncluded']
+const CAMPOS_CONTRATOS_TERRITORIO = ['totalContracts', 'contractValue', 'providers']
+// Campos de contratos que aún trae la respuesta (arriba o en territoryStats), rastros del sembrado en el texto y si se leyó la tabla
+const rastroDeContratos = (r: { body: any; text: string; requests: FakeRequest[] }) => ({
+  campos: CAMPOS_CONTRATOS.filter(campo => campo in (r.body || {})),
+  territorio: Object.values((r.body?.territoryStats || {}) as Record<string, any>).flatMap(stats => CAMPOS_CONTRATOS_TERRITORIO.filter(campo => campo in stats)),
+  texto: ['Proveedor X', '50000000', '"providers"'].filter(token => r.text.includes(token)),
+  leyo: leeContratos(r.requests),
 })
-const CON_CONTRATOS = { incluidos: true, valores: { [H_NEI]: 50000000 }, proveedores: { [H_NEI]: ['Proveedor X'] }, territorio: 1 }
-const SIN_CONTRATOS = { incluidos: false, valores: {}, proveedores: {}, territorio: 0 }
+const SIN_RASTRO = { campos: [], territorio: [], texto: [], leyo: false }
 
 const fake = fakeSupabase(datosIniciales())
 fetchHandler = fake.handler
@@ -423,18 +426,23 @@ async function main() {
     const conMapa = ROLES.filter(role => hasPermission(role, 'map:view'))
     eq('map:view: todos los roles menos hr', conMapa, ROLES.filter(role => role !== 'hr'))
     const estados: Record<string, number> = {}
-    const contratos: Record<string, unknown> = {}
+    const inteligencia: Record<string, unknown> = {}
+    const conRastro: string[] = []
     for (const role of ROLES) {
       const r = await pedir(usuarioDeRol(role))
       estados[role] = r.status
-      if (r.status === 200) contratos[role] = r.body.contractsIncluded
+      if (r.status === 200) {
+        inteligencia[role] = r.body.inteligenciaIncluida
+        if (JSON.stringify(rastroDeContratos(r)) !== JSON.stringify(SIN_RASTRO)) conRastro.push(role)
+      }
     }
     eq('GET /api/map/data sin ?line: 200 con map:view, 403 sin él', estados, Object.fromEntries(ROLES.map(role => [role, hasPermission(role, 'map:view') ? 200 : 403])))
     eq(
-      'sin líneas, contratos solo con map:all-lines o contracts:view (user no: antes no abría el mapa)',
-      contratos,
-      Object.fromEntries(ROLES.filter(role => hasPermission(role, 'map:view')).map(role => [role, hasPermission(role, 'map:all-lines') || hasPermission(role, 'contracts:view')]))
+      'inteligenciaIncluida según intelligence:view (admin, line_leader, commercial_director, data_manager, viewer)',
+      inteligencia,
+      Object.fromEntries(ROLES.filter(role => hasPermission(role, 'map:view')).map(role => [role, hasPermission(role, 'intelligence:view')]))
     )
+    eq('ningún rol recibe contratos cargados a mano ni se lee hospital_contracts (spec 2026-10-24)', conRastro, [])
     const sinTodas = ROLES.filter(role => hasPermission(role, 'map:view') && !hasPermission(role, 'map:all-lines'))
     eq('incluye roles sin map:all-lines (antes 403 "Debes elegir una línea")', sinTodas, ['sales_manager', 'line_leader', 'contract_manager', 'user'])
     const sinSesion = await pedir(null)
@@ -453,7 +461,7 @@ async function main() {
     eq('nada de la línea B (ni Ana ni Beto, sus ids, sus colores ni la línea)', queTraeDeB(r.text), [])
     eq('IPS asignadas y sin zona, como hoy', [r.body.assignments.length, r.body.hospitals.length, r.body.unassignedHospitals.map((h: any) => h.name)], [3, 4, ['Clínica sin zona']])
     check('busca las personas de sus líneas en executive_lines (línea A)', r.requests.some(request => request.table === 'executive_lines' && request.params.get('line_id') === `in.(${LA})`), r.requests.map(request => `${request.table}?${request.params}`))
-    eq('contratos como siempre (tiene contracts:view)', contratosDe(r.body), CON_CONTRATOS)
+    eq('sin contratos cargados a mano aunque tenga contracts:view (ya no van en el mapa)', rastroDeContratos(r), SIN_RASTRO)
   }
 
   print('\nline_leader de PerOssal · vista de zonas con su línea elegida (?line=perossal)')
@@ -486,9 +494,8 @@ async function main() {
     eq('ninguna persona (no lleva ni lidera ninguna línea)', personasPorZona(r.body), { Neiva: [], 'Garzón': [], Pitalito: [] })
     eq('ningún nombre de Ejecutivo Comercial en la respuesta', ['Vacante Neiva', 'Sofía Gómez', 'Ana Ruiz', 'Beto Pérez'].filter(name => r.text.includes(name)), [])
     check('no lee coverage ni executive_lines', !r.requests.some(request => request.table === 'coverage' || request.table === 'executive_lines'), r.requests.map(request => request.table))
-    eq('sin contratos: ni valor ni proveedor por IPS ni en territoryStats (sin contracts:view y antes 403)', contratosDe(r.body), SIN_CONTRATOS)
-    check('ni lee hospital_contracts', !leeContratos(r.requests), r.requests.map(request => request.table))
-    eq('ni el valor ni el proveedor aparecen en la respuesta', ['Proveedor X', '50000000'].filter(token => r.text.includes(token)), [])
+    eq('sin contratos cargados a mano: ni campos, ni territoryStats, ni rastro, ni lectura de hospital_contracts', rastroDeContratos(r), SIN_RASTRO)
+    eq('inteligenciaIncluida: false (user no tiene intelligence:view)', r.body.inteligenciaIncluida, false)
     eq('las IPS sí, como a los demás', [r.body.assignments.length, r.body.hospitals.length, r.body.unassignedHospitals.length], [3, 4, 1])
     const conLinea = await pedir(USUARIO, '?line=perossal')
     check('con ?line de una línea que no tiene: 403', conLinea.status === 403, conLinea.body)
@@ -498,11 +505,11 @@ async function main() {
   {
     const zonas = await pedir(USUARIO_B)
     check('vista de zonas: 200', zonas.status === 200, zonas.body)
-    eq('contratos como antes (ya los recibía con ?line)', contratosDe(zonas.body), CON_CONTRATOS)
+    eq('sin contratos cargados a mano (tampoco quien antes los recibía con ?line)', rastroDeContratos(zonas), SIN_RASTRO)
     eq('personas por zona: solo las de Reemplazo', personasPorZona(zonas.body), { Neiva: ['Beto Pérez', 'Vacante Neiva'], 'Garzón': ['Ana Ruiz'], Pitalito: [] })
     const linea = await pedir(USUARIO_B, '?line=reemplazo')
     check('su línea: 200 con su cobertura', linea.status === 200 && linea.body.coverage?.line?.code === 'reemplazo', linea.body)
-    eq('su línea: contratos como antes', contratosDe(linea.body), CON_CONTRATOS)
+    eq('su línea: tampoco contratos cargados a mano', rastroDeContratos(linea), SIN_RASTRO)
   }
 
   print('\nviewer y admin (map:all-lines): lo de siempre')
@@ -511,7 +518,7 @@ async function main() {
     check('viewer: 200 sin cobertura', visor.status === 200 && !('coverage' in visor.body), visor.body)
     eq('viewer: todas las personas de cada zona', personasPorZona(visor.body), { Neiva: ['Beto Pérez', 'Vacante Neiva'], 'Garzón': ['Ana Ruiz'], Pitalito: ['Sofía Gómez'] })
     check('viewer: no lee executive_lines (no hace falta filtrar)', !visor.requests.some(request => request.table === 'executive_lines'), visor.requests.map(request => request.table))
-    eq('viewer: contratos como siempre (map:all-lines)', contratosDe(visor.body), CON_CONTRATOS)
+    eq('viewer: sin contratos cargados a mano; inteligenciaIncluida true', [rastroDeContratos(visor), visor.body.inteligenciaIncluida], [SIN_RASTRO, true])
     const admin = await pedir(ADMIN, '?line=reemplazo')
     check('admin: cualquier línea, con su cobertura', admin.status === 200 && admin.body.coverage?.line?.code === 'reemplazo', admin.body)
     eq('admin: personas por zona completas', personasPorZona(admin.body), { Neiva: ['Beto Pérez', 'Vacante Neiva'], 'Garzón': ['Ana Ruiz'], Pitalito: ['Sofía Gómez'] })
@@ -577,6 +584,7 @@ async function main() {
     check('código de línea no válido: 400', r.status === 400, r.body)
     check('ninguna escritura en la base', fake.writes().length === 0, fake.writes())
     check('ninguna petición salió del Supabase falso', fake.external.length === 0, fake.external)
+    check('en toda la corrida nunca se leyó hospital_contracts', !fake.requests.some(request => request.table === 'hospital_contracts'))
   }
 
   print(`\n${passed} pruebas pasaron, ${failed} fallaron`)
