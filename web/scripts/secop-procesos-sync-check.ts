@@ -851,6 +851,17 @@ async function pruebasDefinicion() {
 
   const migracion = fs.readFileSync(path.resolve(__dirname, '..', '..', 'database', 'migrations', '2026-10-25_0890_secop_procesos.sql'), 'utf8')
   check('la fila que siembra la 0890 coincide con la definición', migracion.includes(`('${SECOP_PROCESOS_FUENTE}', '${SECOP_PROCESOS_NOMBRE}', '${SECOP_PROCESOS_PROGRAMACION}', 'vercel_cron')`))
+  check(
+    'la prueba "persona con nombre" de la 0890 lleva origen nombre: solo la puede rechazar secop_procesos_persona_check (no origen_coherente)',
+    /es_persona, proveedor_nombre, proveedor_origen\)\s*VALUES \('CO1\.REQ\.999000011', nit_prueba, 'publicado', 'trauma', true, 'NOMBRE DE PERSONA', 'nombre'\)/.test(migracion)
+  )
+
+  // El script de carga: --max-paginas sin --dry-run escribía sin el bloqueo de fuentes_estado (revisión 2026-10-25)
+  const load = fs.readFileSync(path.resolve(__dirname, 'secop-procesos-load.ts'), 'utf8')
+  check(
+    'secop-procesos-load: --max-paginas exige --dry-run y sin dry-run la carga siempre pasa por ejecutarFuente (bloqueo)',
+    /args\.maxPaginas !== undefined && !args\.dryRun\) throw new Error/.test(load) && /\n  if \(args\.dryRun\) \{/.test(load) && !/args\.dryRun \|\| args\.maxPaginas/.test(load)
+  )
 
   const { FUENTES_CATALOGO } = await import('../app/api/fuentes/_lib/catalogo')
   const item = FUENTES_CATALOGO.find(f => f.fuente === 'secop_procesos')

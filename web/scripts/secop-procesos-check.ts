@@ -588,6 +588,66 @@ eq('cédula → persona con solo el hash de los dígitos (aunque el nombre diga 
 eq('nombre del proveedor sin marca jurídica y sin documento → persona sin hash (nunca se guarda el nombre)', proveedorQueFigura({ nombre_del_proveedor: 'NOMBRE APELLIDO APELLIDO', nit_del_proveedor_adjudicado: 'No Definido' }), { tipo: 'persona', hash: null })
 eq('título que parece persona (sin marca) → ninguno: no se toma ni se guarda', proveedorQueFigura({ nombre_del_procedimiento: 'NOMBRE APELLIDO APELLIDO' }), { tipo: 'ninguno' })
 eq('"No Definido" en todo → ninguno', proveedorQueFigura(monteria1116), { tipo: 'ninguno' })
+
+// Revisión 2026-10-25: el título (y el nombre del proveedor) nunca deja pasar un nombre de persona, un documento ni la
+// propia entidad compradora. Nombres y números inventados.
+const SIN_PROVEEDOR = { nit_del_proveedor_adjudicado: 'No Definido', nombre_del_proveedor: 'No Definido' }
+eq('(c) "PERSONA / EMPRESA SAS" sin documento: solo el tramo con marca, nunca el nombre de la persona', proveedorQueFigura({ nombre_del_procedimiento: 'NOMBRE INVENTADO APELLIDO / COMERCIALIZADORA XYZ SAS' }), {
+  tipo: 'empresa',
+  nit: null,
+  nombre: 'COMERCIALIZADORA XYZ SAS',
+  origen: 'titulo',
+})
+eq('(c) título con cédula, número de documento, "SEÑORA" o "PACIENTE" → ninguno (ni el nombre ni el documento)', [
+  proveedorQueFigura({ nombre_del_procedimiento: 'NOMBRE INVENTADO APELLIDO CC 1234567 EPS DE PRUEBA SA' }),
+  proveedorQueFigura({ nombre_del_procedimiento: 'NOMBRE INVENTADO 1.234.567 EPS DE PRUEBA SA' }),
+  proveedorQueFigura({ nombre_del_procedimiento: 'NOMBRE INVENTADO 12345678 DISTRIBUIDORA SAS' }),
+  proveedorQueFigura({ nombre_del_procedimiento: 'SEÑORA NOMBRE INVENTADO SAS' }),
+  proveedorQueFigura({ nombre_del_procedimiento: 'PACIENTE NOMBRE INVENTADO SAS' }),
+].map(p => p.tipo), ['ninguno', 'ninguno', 'ninguno', 'ninguno', 'ninguno'])
+eq('(b) nombre del proveedor con cédula → persona sin hash; "PERSONA / EMPRESA SAS" → solo la empresa', [
+  proveedorQueFigura({ nombre_del_proveedor: 'NOMBRE INVENTADO CC 1234567 DISTRIBUIDORA SAS', nit_del_proveedor_adjudicado: 'No Definido' }),
+  proveedorQueFigura({ nombre_del_proveedor: 'NOMBRE INVENTADO APELLIDO / DISTRIBUIDORA DE PRUEBA SAS', nit_del_proveedor_adjudicado: 'No Definido' }),
+], [
+  { tipo: 'persona', hash: null },
+  { tipo: 'empresa', nit: null, nombre: 'DISTRIBUIDORA DE PRUEBA SAS', origen: 'nombre' },
+])
+eq('tramos reales: se quita el tramo sin marca; con marca en todos queda entero; un código con guiones o "376/2025" no parte', [
+  'TRAUMASUR - TIENDA DE LA SALUD S.A.S',
+  'NORTESANTANDEREANA DE ORTOPEDIA Y TRAUMATOLOGIA S.A. - NORTRAUMA S.A.',
+  'OAJ-2025-0348-ORTOVAGRAN SAS',
+  'PN UPRE VALLE SA SI 376/2025 OSTEOSINTESIS',
+].map(t => {
+  const p = proveedorQueFigura({ nombre_del_procedimiento: t })
+  return p.tipo === 'empresa' ? p.nombre : p.tipo
+}), ['TIENDA DE LA SALUD S.A.S', 'NORTESANTANDEREANA DE ORTOPEDIA Y TRAUMATOLOGIA S.A. - NORTRAUMA S.A.', 'OAJ-2025-0348-ORTOVAGRAN SAS', 'PN UPRE VALLE SA SI 376/2025 OSTEOSINTESIS'])
+{
+  const conPersona = filaDe(mapSecopProceso({ ...personaNatural, ...SIN_PROVEEDOR, nombre_del_procedimiento: `${NOMBRE_PERSONA_TITULO} APELLIDO / COMERCIALIZADORA DE PRUEBA SAS` }, ctx))
+  check(
+    'fila real con "PERSONA / EMPRESA SAS" en el título: guarda solo la empresa (origen titulo) y ningún rastro de la persona',
+    conPersona !== null && conPersona.proveedor_nombre === 'COMERCIALIZADORA DE PRUEBA SAS' && conPersona.proveedor_origen === 'titulo' && !conPersona.es_persona && !JSON.stringify(conPersona).includes(NOMBRE_PERSONA_TITULO) && !JSON.stringify(conPersona).includes('APELLIDO'),
+    conPersona
+  )
+  const conCedula = filaDe(mapSecopProceso({ ...personaNatural, ...SIN_PROVEEDOR, nombre_del_procedimiento: `${NOMBRE_PERSONA_TITULO} CC 1234567 EPS DE PRUEBA SA` }, ctx))
+  check(
+    'fila real con cédula en el título: sin proveedor y sin el nombre ni el documento',
+    conCedula !== null && conCedula.proveedor_nombre === null && conCedula.proveedor_origen === null && !JSON.stringify(conCedula).includes('1234567') && !JSON.stringify(conCedula).includes(NOMBRE_PERSONA_TITULO),
+    conCedula
+  )
+}
+eq('(c) el título que es la propia entidad (HU del Caribe, Montería) no es el proveedor', [
+  proveedorQueFigura({ ...huCaribe, ...SIN_PROVEEDOR, nombre_del_procedimiento: 'HOSPITAL UNIVERSITARIO DEL CARIBE E.S.E.' }),
+  proveedorQueFigura({ ...monteria015, nombre_del_procedimiento: 'E.S.E. HOSPITAL SAN JERONIMO DE MONTERIA' }),
+], [{ tipo: 'ninguno' }, { tipo: 'ninguno' }])
+eq('(c) solo E.S.E. o IPS → ninguno; IPS con SAS sí es empresa; el nombre de la entidad con otra marca (FUNDACION) → ninguno', [
+  proveedorQueFigura({ nombre_del_procedimiento: 'CLINICA DE PRUEBA IPS' }).tipo,
+  proveedorQueFigura({ nombre_del_procedimiento: 'TORAUMAX IPS SAS', entidad: 'E.S.E HOSPITAL SANDIEGO DE CERETE' }).tipo,
+  proveedorQueFigura({ nombre_del_procedimiento: 'FUNDACION HOSPITAL SAN JOSE', entidad: 'FUNDACION HOSPITAL SAN JOSE DE BUGA' }).tipo,
+], ['ninguno', 'empresa', 'ninguno'])
+{
+  const caribeEntidad = filaDe(mapSecopProceso({ ...huCaribe, ...SIN_PROVEEDOR, nombre_del_procedimiento: 'HOSPITAL UNIVERSITARIO DEL CARIBE E.S.E.' }, ctx))
+  eq('fila del HU del Caribe con su propio nombre en el título: se guarda sin proveedor (no "según el título")', caribeEntidad && [caribeEntidad.linea, caribeEntidad.proveedor_nombre, caribeEntidad.proveedor_origen, caribeEntidad.es_persona], ['trauma', null, null, false])
+}
 {
   const row = filaDe(mapSecopProceso(personaNatural, ctx))
   check('persona natural (real, documento inventado): se guarda con es_persona y solo el hash', row !== null && row.es_persona && row.proveedor_hash === hashPersona && row.proveedor_nit === null && row.proveedor_nombre === null && row.proveedor_origen === null, row)

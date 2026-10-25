@@ -68,7 +68,10 @@ que tiene ese contrato?".
   - (a) `nit_del_proveedor_adjudicado` con NIT de empresa;
   - (b) `nombre_del_proveedor` con marca de persona jurídica (SAS, S.A., LTDA, UNION TEMPORAL…);
   - (c) `nombre_del_procedimiento` con marca jurídica y sin verbo de objeto (SUMINISTRO, PRESTACION, COMPRA…), con
-    `proveedor_origen = 'titulo'`.
+    `proveedor_origen = 'titulo'`. Nunca la propia entidad compradora: ni su nombre ni un título cuya única marca es
+    E.S.E. o IPS (revisión del 2026-10-25).
+  - En (b) y (c), un nombre con un dato personal (CC, cédula, un número de 6 o más dígitos, "PACIENTE", "SEÑOR(A)"…) no
+    se guarda, y de "NOMBRE APELLIDO / EMPRESA SAS" solo queda el tramo con marca jurídica (revisión del 2026-10-25).
   - Una cédula o un nombre sin marca jurídica nunca se guardan como nombre: `es_persona = true` y solo el hash cuando hay
     documento.
 - [ ] Un proceso que solo clasifica por UNSPSC (`motivo = 'unspsc'`, sin texto ortopédico) no se guarda. Esto evita el

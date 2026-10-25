@@ -257,7 +257,10 @@ export function tieneMarcaJuridica(texto: unknown): boolean {
   return norm !== '' && RE_MARCA_JURIDICA.test(norm)
 }
 
-/** ¿El título del proceso puede ser el nombre de la empresa que figura? Marca jurídica, sin verbo de objeto, corto. */
+/**
+ * ¿El título del proceso tiene forma de nombre de empresa? Marca jurídica, sin verbo de objeto, corto. Solo decide si el
+ * título entra a la clasificación (un nombre no es el objeto); para MOSTRARLO como proveedor está empresaDelTitulo.
+ */
 function tituloEsEmpresa(titulo: string | null, descripcion: string | null): boolean {
   if (!titulo) return false
   const norm = normalizeText(titulo)
@@ -266,6 +269,71 @@ function tituloEsEmpresa(titulo: string | null, descripcion: string | null): boo
   if (norm.split(' ').length > TITULO_MAX_PALABRAS) return false
   if (RE_TITULO_OBJETO.test(norm)) return false
   return RE_MARCA_JURIDICA.test(norm)
+}
+
+const RE_MARCA_JURIDICA_TODAS = new RegExp(RE_MARCA_JURIDICA.source, 'g')
+/** Marcas que llevan las propias entidades compradoras: solas no hacen de un título el nombre de un proveedor. */
+const MARCAS_DE_ENTIDAD = new Set(['ese', 'e s e', 'ips'])
+/**
+ * Separadores de tramos de un nombre: "/" (no entre dígitos: "376/2025" es un número), "|" o un guion entre espacios
+ * ("NOMBRE APELLIDO / COMERCIALIZADORA SAS").
+ */
+const RE_SEPARADOR_TRAMOS = /(?<!\d)\s*\/\s*(?!\d)|\s*\|\s*|\s+[-–—]\s+/
+/** Palabras que no distinguen un nombre de otro (para comparar un título con el nombre de la entidad). */
+const PALABRAS_VACIAS = new Set(['de', 'del', 'la', 'las', 'los', 'el', 'y', 'e', 'en'])
+
+/** Palabras que distinguen un nombre (texto normalizado): sin marcas jurídicas ni palabras vacías. */
+function palabrasDistintivas(norm: string): string[] {
+  return norm.replace(RE_MARCA_JURIDICA_TODAS, ' ').split(' ').filter(p => p !== '' && !PALABRAS_VACIAS.has(p))
+}
+
+/**
+ * Nombre de empresa que se puede guardar y mostrar, o null. Privacidad primero:
+ *   - nunca un texto con un dato personal (tieneDatoPersonal: paciente, señor(a), demandante…, CC/TI/cédula, un número
+ *     de 6 o más dígitos o algo que redactarDatosPersonales quitaría);
+ *   - con tramos ("NOMBRE APELLIDO / COMERCIALIZADORA XYZ SAS"), solo los tramos con marca jurídica: un tramo sin marca
+ *     puede ser una persona natural (a veces se pierde parte del nombre: "TRAUMASUR - TIENDA DE LA SALUD S.A.S" queda
+ *     "TIENDA DE LA SALUD S.A.S");
+ *   - nunca solo marcas ("S.A.S").
+ */
+function nombreDeEmpresa(texto: string): string | null {
+  if (tieneDatoPersonal(texto)) return null
+  const tramos = texto.split(RE_SEPARADOR_TRAMOS).map(t => t.trim()).filter(Boolean)
+  const conMarca = tramos.filter(t => tieneMarcaJuridica(t))
+  if (conMarca.length === 0) return null
+  const nombre = conMarca.length === tramos.length ? texto : conMarca.join(' / ')
+  return palabrasDistintivas(normalizeText(nombre)).length > 0 ? nombre : null
+}
+
+/**
+ * ¿El nombre (texto normalizado) es el de la entidad compradora? Igual sin espacios, o todas sus palabras distintivas
+ * (al menos 2) están en el nombre de la entidad, o al revés: "HOSPITAL UNIVERSITARIO DEL CARIBE E.S.E." frente a
+ * "BOLIVAR - ESE HOSPITAL UNIVERSITARIO DEL CARIBE".
+ */
+function esLaEntidad(norm: string, entidad: string | null): boolean {
+  const normEntidad = normalizeText(entidad)
+  if (!normEntidad) return false
+  if (norm.replace(/ /g, '') === normEntidad.replace(/ /g, '')) return true
+  const propias = palabrasDistintivas(norm)
+  const deEntidad = palabrasDistintivas(normEntidad)
+  const enEntidad = new Set(deEntidad)
+  const enPropias = new Set(propias)
+  return (propias.length >= 2 && propias.every(p => enEntidad.has(p))) || (deEntidad.length >= 2 && deEntidad.every(p => enPropias.has(p)))
+}
+
+/**
+ * Empresa que figura en el TÍTULO del proceso (caso (c)), o null. Además de tener forma de empresa (tituloEsEmpresa) y
+ * de pasar nombreDeEmpresa (sin datos personales, solo los tramos con marca), no puede ser la propia entidad
+ * compradora: ni su nombre ni un nombre cuya única marca sea E.S.E. o IPS ("E.S.E. HOSPITAL SAN JERONIMO DE MONTERIA").
+ */
+function empresaDelTitulo(titulo: string | null, descripcion: string | null, entidad: string | null): string | null {
+  if (!titulo || !tituloEsEmpresa(titulo, descripcion)) return null
+  const nombre = nombreDeEmpresa(titulo)
+  if (!nombre) return null
+  const norm = normalizeText(nombre)
+  const marcas = norm.match(RE_MARCA_JURIDICA_TODAS) ?? []
+  if (marcas.every(m => MARCAS_DE_ENTIDAD.has(m))) return null
+  return esLaEntidad(norm, entidad) ? null : nombre
 }
 
 /**
@@ -277,8 +345,12 @@ function tituloEsEmpresa(titulo: string | null, descripcion: string | null): boo
  *   dígitos, nunca el documento ni el nombre (aunque el nombre diga SAS: el documento manda).
  *   (b) Sin documento: nombre_del_proveedor con marca jurídica → empresa sin NIT, origen 'nombre'.
  *   (c) nombre_del_procedimiento con marca jurídica, sin verbo de objeto y distinto de la descripción → empresa sin NIT,
- *       origen 'titulo' (se muestra "según el título del proceso": a veces es otra empresa).
- *   Un nombre_del_proveedor sin marca jurídica (y sin (c)) → persona natural sin hash: nunca se guarda como nombre.
+ *       origen 'titulo' (se muestra "según el título del proceso": a veces es otra empresa). Nunca la propia entidad
+ *       (su nombre, o un título cuya única marca es E.S.E. o IPS).
+ *   En (b) y (c) el nombre pasa por nombreDeEmpresa: con un dato personal (cédula, número de documento, "PACIENTE"…)
+ *   no se guarda, y de "NOMBRE APELLIDO / EMPRESA SAS" solo queda el tramo con marca jurídica.
+ *   Un nombre_del_proveedor sin marca jurídica o con un dato personal (y sin (c)) → persona natural sin hash: nunca se
+ *   guarda como nombre.
  *   Si no hay nada ("No Definido" en todo) → ninguno.
  * `hash` es la función de lib/secop-hash.ts con la sal ya aplicada; sin ella, la persona va sin hash.
  */
@@ -294,8 +366,10 @@ export function proveedorQueFigura(raw: SecopRaw, hash?: (digitos: string) => st
     const digitos = digitosDocumento(documento)
     return { tipo: 'persona', hash: digitos && hash ? hash(digitos) : null }
   }
-  if (nombreProveedor && tieneMarcaJuridica(nombreProveedor)) return { tipo: 'empresa', nit: null, nombre: nombreProveedor, origen: 'nombre' }
-  if (tituloEsEmpresa(titulo, descripcion)) return { tipo: 'empresa', nit: null, nombre: titulo, origen: 'titulo' }
+  const empresaNombre = nombreProveedor && tieneMarcaJuridica(nombreProveedor) ? nombreDeEmpresa(nombreProveedor) : null
+  if (empresaNombre) return { tipo: 'empresa', nit: null, nombre: empresaNombre, origen: 'nombre' }
+  const empresaTitulo = empresaDelTitulo(titulo, descripcion, cleanText(raw.entidad ?? null, 300))
+  if (empresaTitulo) return { tipo: 'empresa', nit: null, nombre: empresaTitulo, origen: 'titulo' }
   if (nombreProveedor) return { tipo: 'persona', hash: null }
   return { tipo: 'ninguno' }
 }
@@ -357,6 +431,22 @@ const RE_PERSONA_NOMBRADA = /\b(pacientes?|demandantes?|demandad[oa]s?|accionant
 /** ¿El tramo (texto plegado) trae una identificación o un número de documento? */
 function tieneIdentificacion(tramo: string): boolean {
   return RE_IDENTIFICACION.test(normalizeText(tramo)) || RE_NUMERO_DOCUMENTO.test(tramo)
+}
+
+/** RE_PERSONA_NOMBRADA sin /g (test sin lastIndex). */
+const RE_PERSONA_NOMBRADA_UNA = new RegExp(RE_PERSONA_NOMBRADA.source)
+
+/**
+ * ¿Un nombre (de proveedor o el título) trae un dato personal? Una persona nombrada (paciente, señor(a), demandante…),
+ * una identificación (CC, TI, cédula, pasaporte…), un número de 6 o más dígitos (con o sin puntos de miles) o algo que
+ * redactarDatosPersonales quitaría. Si lo trae, el nombre no se guarda ni se muestra.
+ */
+export function tieneDatoPersonal(texto: string | null): boolean {
+  if (!texto) return false
+  const norm = normalizeText(texto)
+  if (RE_PERSONA_NOMBRADA_UNA.test(norm) || RE_IDENTIFICACION.test(norm)) return true
+  if (/\d{6,}/.test(texto.replace(/(\d)[.,](?=\d)/g, '$1'))) return true
+  return redactarDatosPersonales(texto) !== texto.replace(/\s+/g, ' ').trim()
 }
 
 /** Texto en minúsculas y sin tildes, con el MISMO largo que el original (para cortar el original por posiciones). */

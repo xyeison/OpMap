@@ -41,7 +41,10 @@ de SECOP II sin contrato").
 - **Qué se guarda**: procesos de las IPS públicas objetivo que clasifican en una línea (sin servicios de médicos ni lo
   que solo clasifica por UNSPSC), con estado, precio base, fecha de publicación, líneas, referencia, portafolio y
   noticeUID (para saber si ya hay contrato), el proveedor que figura si es una empresa (por NIT, por el nombre del
-  proveedor o según el título del proceso), la IPS, el enlace al expediente y la descripción redactada.
+  proveedor o según el título del proceso), la IPS, el enlace al expediente y la descripción redactada. Del nombre del
+  proveedor o del título nunca se guarda un nombre con un dato personal (CC, cédula, número de documento, "PACIENTE"…);
+  de "NOMBRE APELLIDO / EMPRESA SAS" solo queda la empresa; y el título nunca es la propia entidad (su nombre, o una
+  única marca E.S.E. o IPS).
 - **Qué no se guarda**: el título del proceso (`nombre_del_procedimiento`, que a veces es el nombre de una persona), el
   funcionario que adjudicó, el nombre o documento de una persona natural (solo su hash con sal), y el nombre y
   documento de pacientes (se reemplazan por "[dato personal omitido]"). Tampoco hay columnas `valor` ni `fecha_firma`.

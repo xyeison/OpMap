@@ -13,8 +13,9 @@
  *     reciben 200; contract_manager, hr y user 403 sin leer más que su sesión; sin sesión 401.
  *   - HU del Caribe: el proceso CO1.REQ.10254526 con VG MEDICAL SAS (NIT 901080496, origen nit), 1.760 M de precio base,
  *     fecha 'YYYY-MM-DD'; orden fecha desc; empresas del título con origen 'titulo'; persona natural sin nombre; un
- *     cancelado, uno anterior a la ventana de 24 meses y un servicio de médicos fuera; total exacto; Vigilado con la
- *     lista activa. sales_manager recibe exactamente lo mismo que admin.
+ *     título "PERSONA / EMPRESA SAS" deja solo la empresa y uno con cédula no deja a nadie; un cancelado, uno anterior a
+ *     la ventana de 24 meses y un servicio de médicos fuera; total exacto; Vigilado con la lista activa. sales_manager
+ *     recibe exactamente lo mismo que admin.
  *   - HU de Santander: los dos procesos "Seleccionado" con contrato cargado (por portafolio y por noticeUID en la url de
  *     un contrato del Integrado) no salen (vista); el de juguete sin contrato sí, aunque otra entidad tenga un contrato
  *     con su portafolio. La ruta lee la VISTA, nunca secop_procesos ni secop_contratos.
@@ -23,7 +24,8 @@
  *     al REPS "Pública"; REPS "Privada" con un contrato histórico cargado → pública (existencia: select id, limit 1).
  *   - 400 con id no UUID; 404 si no existe o está inactiva; sin NIT válido → 200 total 0 sin leer la vista.
  *   - Privacidad y textos: la respuesta trae exactamente ventana/total/procesos y las claves de ProcesoDetalle; nunca
- *     título, descripción, documentos, hashes ni nombres de personas; ningún texto (respuesta, tarjeta) dice "KAM",
+ *     la descripción, los documentos, los hashes ni los nombres de las personas de prueba (lista PROHIBIDOS: el título
+ *     solo sale como empresa que figura, y ya sin la persona); ningún texto (respuesta, tarjeta) dice "KAM",
  *     "panel", "representante", "sin compras", "abierto", "en curso", "licitación" ni "adjudicado a".
  *   - Cache-Control no-store; ninguna escritura ni petición fuera del Supabase falso; nada importa google-distance.
  *
@@ -352,6 +354,9 @@ const PERSONA_PROVEEDOR = 'CARLOS ANDRES MEJIA TORO'
 const PERSONA_DOC = '1045678901'
 const PACIENTE = 'LUISA FERNANDA OSPINA'
 const PACIENTE_DOC = '1.143.456.789'
+/** Persona natural INVENTADA en el título del proceso, sin documento del proveedor (revisión 2026-10-25). */
+const PERSONA_TITULO = 'NOMBRE INVENTADO APELLIDOPRUEBA'
+const PERSONA_TITULO_DOC = '7654321'
 const CARIBE_JUGUETE: SecopRaw[] = [
   {
     ...CARIBE,
@@ -370,6 +375,10 @@ const CARIBE_JUGUETE: SecopRaw[] = [
   { ...CARIBE_REALES[2], id_del_proceso: 'CO1.REQ.10400002', referencia_del_proceso: 'PRUEBA-CANCELADO', id_del_portafolio: 'CO1.BDOS.10400002', estado_del_procedimiento: 'Cancelado', fecha_de_publicacion_del: '2026-04-01T00:00:00.000', urlproceso: urlNotice('CO1.NTC.10400002') },
   // Seleccionado SIN contrato cargado: sí entra al radar
   { ...CARIBE_REALES[1], id_del_proceso: 'CO1.REQ.10400004', referencia_del_proceso: 'PRUEBA-SELECCIONADO', id_del_portafolio: 'CO1.BDOS.10400004', estado_del_procedimiento: 'Seleccionado', fecha_de_publicacion_del: '2026-05-02T00:00:00.000', urlproceso: urlNotice('CO1.NTC.10400004') },
+  // Título "PERSONA / EMPRESA SAS" sin documento del proveedor: figura solo la empresa, nunca la persona
+  { ...CARIBE, id_del_proceso: 'CO1.REQ.10400005', referencia_del_proceso: 'PRUEBA-TITULO-PERSONA', id_del_portafolio: 'CO1.BDOS.10400005', nombre_del_procedimiento: `${PERSONA_TITULO} / COMERCIALIZADORA DE PRUEBA SAS`, descripci_n_del_procedimiento: OSTEO_DESC, fecha_de_publicacion_del: '2026-02-12T00:00:00.000', precio_base: '60000000', codigo_principal_de_categoria: 'V1.42242300', urlproceso: urlNotice('CO1.NTC.10400005') },
+  // Título con el nombre y la cédula de una persona y una EPS "SA": no figura nadie
+  { ...CARIBE, id_del_proceso: 'CO1.REQ.10400006', referencia_del_proceso: 'PRUEBA-TITULO-CEDULA', id_del_portafolio: 'CO1.BDOS.10400006', nombre_del_procedimiento: `${PERSONA_TITULO} CC ${PERSONA_TITULO_DOC} EPS DE PRUEBA SA`, descripci_n_del_procedimiento: OSTEO_DESC, fecha_de_publicacion_del: '2026-02-10T00:00:00.000', precio_base: '50000000', codigo_principal_de_categoria: 'V1.42242300', urlproceso: urlNotice('CO1.NTC.10400006') },
 ]
 /** Publicado el día anterior a la ventana de 24 meses (no se desplaza: ANTES ya sale de hoy). */
 const CARIBE_ANTES: SecopRaw = { ...CARIBE_REALES[7], id_del_proceso: 'CO1.REQ.10400003', referencia_del_proceso: 'PRUEBA-ANTES', id_del_portafolio: 'CO1.BDOS.10400003', fecha_de_publicacion_del: `${ANTES}T00:00:00.000`, urlproceso: urlNotice('CO1.NTC.10400003') }
@@ -553,6 +562,9 @@ const PROHIBIDOS = [
   PERSONA_DOC,
   PACIENTE_DOC,
   PACIENTE_DOC.replace(/\./g, ''),
+  PERSONA_TITULO,
+  'APELLIDOPRUEBA',
+  PERSONA_TITULO_DOC,
   'ANEXO TECNICO',
   'OSTEOSINTESIS',
   'GREMIO',
@@ -579,7 +591,7 @@ async function main() {
   print('\nFixtures: filas reales de p6dx-8zbt pasadas por mapSecopProceso (como la carga)')
   {
     eq('HU del Caribe: el servicio de médicos (GREMIO) no se guarda', cargaCaribe.descartes, { 'CO1.REQ.10232028': 'servicio' })
-    eq('HU del Caribe: 11 filas guardadas (8 reales + persona, cancelado y seleccionado de juguete)', cargaCaribe.rows.length, 11)
+    eq('HU del Caribe: 13 filas guardadas (8 reales + persona, cancelado, seleccionado y dos títulos con persona de juguete)', cargaCaribe.rows.length, 13)
     const persona = cargaCaribe.rows.find(row => row.id_proceso === 'CO1.REQ.10400001')
     eq('la persona de juguete se guarda como persona: sin nombre ni NIT, solo el hash', [persona?.es_persona, persona?.proveedor_nombre, persona?.proveedor_nit, persona?.proveedor_hash === hashDocumento(PERSONA_DOC, SAL)], [true, null, null, true])
     check('la descripción guardada ya va sin el nombre ni el documento del paciente', Boolean(persona?.descripcion) && !persona!.descripcion!.includes('OSPINA') && !persona!.descripcion!.includes(PACIENTE_DOC), persona?.descripcion)
@@ -615,9 +627,9 @@ async function main() {
     eq(
       'orden: fecha de publicación desc; fuera el cancelado, el anterior a la ventana y el servicio',
       ids(admin.body),
-      ['CO1.REQ.10459316', 'CO1.REQ.10400004', 'CO1.REQ.10400001', 'CO1.REQ.10254526', 'CO1.REQ.10238192', 'CO1.REQ.9405198', 'CO1.REQ.9121313', 'CO1.REQ.8981567', 'CO1.REQ.8966905', 'CO1.REQ.7848230']
+      ['CO1.REQ.10459316', 'CO1.REQ.10400004', 'CO1.REQ.10400001', 'CO1.REQ.10254526', 'CO1.REQ.10238192', 'CO1.REQ.10400005', 'CO1.REQ.10400006', 'CO1.REQ.9405198', 'CO1.REQ.9121313', 'CO1.REQ.8981567', 'CO1.REQ.8966905', 'CO1.REQ.7848230']
     )
-    eq('total = todos los procesos del radar en la ventana (10)', admin.body.total, 10)
+    eq('total = todos los procesos del radar en la ventana (12)', admin.body.total, 12)
     const vg = admin.body.procesos.find(p => p.id === 'CO1.REQ.10254526')
     eq('VG MEDICAL SAS figura con NIT 901080496 (origen nit), sin marca de vigilado', vg?.proveedor, { nombre: 'VG MEDICAL SAS', nit: VG, origen: 'nit', vigilado: false })
     eq('precio base 1.760 M, fecha "YYYY-MM-DD" sin hora, referencia, estado, línea trauma y neurocirugía, url del expediente', [vg?.precioBase, vg?.fechaPublicacion, vg?.referencia, vg?.estado, vg?.linea, vg?.lineas, vg?.url, vg?.proveedorPersona, vg?.nitEntidad], [
@@ -637,8 +649,10 @@ async function main() {
     eq('la empresa del título que no es del objeto también sale "según el título" (el comercial pregunta)', porId.get('CO1.REQ.8966905')?.proveedor?.origen, 'titulo')
     eq('TECNITRAUMA S.A. por nombre del proveedor (origen nombre), línea deportiva', [porId.get('CO1.REQ.7848230')?.proveedor, porId.get('CO1.REQ.7848230')?.linea], [{ nombre: 'TECNITRAUMA S.A.', nit: null, origen: 'nombre', vigilado: false }, 'deportiva'])
     eq('persona natural: proveedor null y proveedorPersona true (sin nombre ni documento)', [porId.get('CO1.REQ.10400001')?.proveedor, porId.get('CO1.REQ.10400001')?.proveedorPersona], [null, true])
+    eq('título "PERSONA / EMPRESA SAS": figura solo la empresa (origen titulo), sin la persona', porId.get('CO1.REQ.10400005')?.proveedor, { nombre: 'COMERCIALIZADORA DE PRUEBA SAS', nit: null, origen: 'titulo', vigilado: false })
+    eq('título con nombre y cédula de una persona: proveedor no publicado (ni empresa ni persona)', [porId.get('CO1.REQ.10400006')?.proveedor, porId.get('CO1.REQ.10400006')?.proveedorPersona], [null, false])
     eq('seleccionado sin contrato cargado sí entra (estado seleccionado)', porId.get('CO1.REQ.10400004')?.estado, 'seleccionado')
-    eq('precio base de cada proceso tal cual (nunca sumado)', admin.body.procesos.map(p => p.precioBase), [400_000_000, 400_000_000, 150_000_000, 1_760_000_000, 320_000_000, 200_000_000, 1_320_000_000, 1_260_000_000, 100_000_000, 210_000_000])
+    eq('precio base de cada proceso tal cual (nunca sumado)', admin.body.procesos.map(p => p.precioBase), [400_000_000, 400_000_000, 150_000_000, 1_760_000_000, 320_000_000, 60_000_000, 50_000_000, 200_000_000, 1_320_000_000, 1_260_000_000, 100_000_000, 210_000_000])
     const formaProceso: Array<keyof ProcesoDetalle> = ['id', 'referencia', 'entidad', 'nitEntidad', 'precioBase', 'fechaPublicacion', 'lineas', 'linea', 'estado', 'proveedor', 'proveedorPersona', 'url']
     check('cada proceso trae exactamente las claves de ProcesoDetalle', admin.body.procesos.every(p => JSON.stringify(Object.keys(p).sort()) === JSON.stringify([...formaProceso].sort())), admin.body.procesos.map(p => Object.keys(p)))
     const lectura = admin.requests.filter(request => request.table === 'secop_procesos_radar')
@@ -704,7 +718,7 @@ async function main() {
   {
     const todo = textos.join('\n')
     const fugas = PROHIBIDOS.filter(texto => todo.includes(texto))
-    eq('ninguna respuesta trae título, descripción, documentos, hashes ni nombres de personas (ni lo descartado)', fugas, [])
+    eq('ninguna respuesta trae la descripción, los documentos, los hashes ni los nombres de las personas de prueba (proveedor, paciente y título), ni lo descartado', fugas, [])
     const enRespuestas = TERMINOS.filter(([re]) => re.test(todo)).map(([, nombre]) => nombre)
     eq('ninguna respuesta dice KAM, panel, representante, sin compras, abierto, en curso, licitación, adjudicado a ni ganó', enRespuestas, [])
 

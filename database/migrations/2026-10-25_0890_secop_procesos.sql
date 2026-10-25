@@ -321,8 +321,9 @@ BEGIN
   -- rechaza: persona con nombre, persona con NIT, estado borrador, línea no_clasificado, precio negativo, id que no es
   -- CO1.REQ, hash inválido, hash de una empresa, origen 'nit' sin NIT y origen sin empresa
   BEGIN
-    INSERT INTO public.secop_procesos (id_proceso, nit_entidad, estado, linea, es_persona, proveedor_nombre)
-    VALUES ('CO1.REQ.999000011', nit_prueba, 'publicado', 'trauma', true, 'NOMBRE DE PERSONA');
+    -- con origen 'nombre' (coherente): solo secop_procesos_persona_check puede rechazarla
+    INSERT INTO public.secop_procesos (id_proceso, nit_entidad, estado, linea, es_persona, proveedor_nombre, proveedor_origen)
+    VALUES ('CO1.REQ.999000011', nit_prueba, 'publicado', 'trauma', true, 'NOMBRE DE PERSONA', 'nombre');
     RAISE EXCEPTION '0890 SECOP procesos: aceptó una persona natural con nombre';
   EXCEPTION WHEN check_violation THEN NULL;
   END;

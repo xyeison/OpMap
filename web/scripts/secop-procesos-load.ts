@@ -15,6 +15,7 @@
  *   npx tsx scripts/secop-procesos-load.ts --dry-run --max-paginas 1   → lee y mapea SIN escribir nada (ni la tabla ni
  *                                                           fuentes_estado); imprime 3 ejemplos sin nombres de personas
  *   --page-size N (por defecto 5000; de 100 a 50.000)
+ *   --max-paginas N             (solo con --dry-run) corta la lectura tras N páginas
  *   --nit 900042103,891079999   (solo con --dry-run) limita la lectura a esas entidades
  * Sin --dry-run registra la corrida en fuentes_estado ('secop_procesos') y necesita la migración 0890 (si falta, para
  * antes de leer datos.gov.co). Con --dry-run funciona aunque la migración no esté aplicada. No llama a Google.
@@ -51,6 +52,9 @@ function parseArgs(argv: string[]): Args {
   }
   if (!Number.isInteger(args.pageSize) || args.pageSize < 100 || args.pageSize > 50_000) throw new Error('--page-size entre 100 y 50.000')
   if (args.maxPaginas !== undefined && (!Number.isInteger(args.maxPaginas) || args.maxPaginas < 1)) throw new Error('--max-paginas debe ser un entero ≥ 1')
+  // Sin dry-run la carga pasa siempre por ejecutarFuente (bloqueo y cierre de la fila de fuentes_estado): cortarla a
+  // mano escribiría sin bloqueo, chocaría con el cron y dejaría la fila 'corriendo'
+  if (args.maxPaginas !== undefined && !args.dryRun) throw new Error('--max-paginas solo se permite con --dry-run (sin dry-run la carga toma el bloqueo de fuentes_estado y sigue sola)')
   if (args.nits !== undefined) {
     if (!args.dryRun) throw new Error('--nit solo se permite con --dry-run (cambiaría la lista de tareas de la pasada guardada)')
     if (args.nits.length === 0 || args.nits.some(n => !/^\d{9}$/.test(n))) throw new Error('--nit lleva NIT de 9 dígitos separados por comas')
@@ -68,8 +72,8 @@ async function main() {
   const inicio = Date.now()
   console.log(`\n=== ${SECOP_PROCESOS_NOMBRE} (${SECOP_PROCESOS_DATASET})${args.dryRun ? ' · DRY-RUN (no escribe nada)' : ''} ===`)
 
-  if (args.dryRun || args.maxPaginas !== undefined) {
-    // Directo a la carga (sin tomar el bloqueo ni cerrar la fila de fuentes_estado). En dry-run no se escribe nada.
+  if (args.dryRun) {
+    // Directo a la carga (sin tomar el bloqueo ni cerrar la fila de fuentes_estado): en dry-run no se escribe nada.
     const { sincronizarSecopProcesos } = await import('../lib/secop-procesos-sync')
     const r = await sincronizarSecopProcesos({
       db,
@@ -86,7 +90,7 @@ async function main() {
       .map(([motivo, n]) => `${motivo} ${fmt(n)}`)
       .join(', ')
     console.log(
-      `Páginas ${r.paginas} · filas leídas ${fmt(r.leidas)} · mapeadas ${fmt(r.mapeadas)} · procesos ${args.dryRun ? 'que se guardarían' : 'guardados'} ${fmt(r.guardadas)} · ` +
+      `Páginas ${r.paginas} · filas leídas ${fmt(r.leidas)} · mapeadas ${fmt(r.mapeadas)} · procesos que se guardarían ${fmt(r.guardadas)} · ` +
         `descartadas ${fmt(r.descartadas)}${motivos ? ` (${motivos})` : ''}`
     )
     console.log(r.mensaje)
