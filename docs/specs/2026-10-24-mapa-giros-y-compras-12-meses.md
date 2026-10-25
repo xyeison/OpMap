@@ -136,7 +136,7 @@ m, 1,5 %). Corregir datos (NIT de HOCEN). Cambios en la app móvil, en `/intelig
 
 ## Impacto
 
-- Datos / migración: **opcional y aditiva**. `database/migrations/2026-10-24_0880_adres_giros_nits.sql` crea
+- Datos / migración: **opcional y aditiva** (APLICADA el 2026-10-25 con el despliegue). `database/migrations/2026-10-24_0880_adres_giros_nits.sql` crea
   `adres_giros_nits(p_desde date, p_hasta date, p_nits text[])` (totales por NIT y régimen, `REVOKE` a `anon`/`authenticated`,
   `GRANT EXECUTE` a `service_role`; borrador en `scratchpad/mapa-giros/rpc-propuesta.sql`) con rollback
   `2026-10-24_9948_adres_giros_nits_rollback.sql` (`DROP FUNCTION`). El código funciona sin ella (respaldo `loadGirosIntel`,

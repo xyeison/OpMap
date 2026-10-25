@@ -1,6 +1,6 @@
 -- =====================================================================================
 -- OpMap · feat/mapa-giros-compras (giros ADRES y compras SECOP de 12 meses en el mapa) · 0880 — Giros por NIT
--- Proyecto: norvxqgohddgsdkggqzq · Generado: 2026-10-24 · NO EJECUTADO TODAVÍA
+-- Proyecto: norvxqgohddgsdkggqzq · Generado: 2026-10-24 · APLICADA el 2026-10-25 en la ventana del despliegue (dueño)
 --
 -- Spec: docs/specs/2026-10-24-mapa-giros-y-compras-12-meses.md (E4 "Carga perezosa por clic" e "Impacto"); aprobada por
 --   el dueño el 2026-10-24, punto 7 de "Para decidir": "aplicarla con el despliegue; el código funciona antes y después".

@@ -32,6 +32,8 @@ salga esa información." A las diez recomendaciones de "Para decidir (dueño)" d
    ficha de la IPS sigue mostrándolas. Los servicios de especialistas tampoco se nombran: "Servicios de especialistas:
    N contratos".
 8. **Migración 0880 (`adres_giros_nits`)**: opcional y aditiva; se aplica con el despliegue, con autorización del dueño.
+   **Aplicada el 2026-10-25** en la ventana del despliegue (orden del dueño: "Deja en producción"); comprobada: el
+   Hospital Universitario de Santander da $362.047.914.980 en 12 meses, igual que la tarjeta; anon sin EXECUTE.
    El código funciona antes y después (respaldo `loadGirosIntel`).
 9. **NIT de HOCEN**: es dato, no código; se corrige el dato (OpMap 830041314, SECOP contrata con 830067597).
 10. **Municipio de alcance sin IPS**: una línea que explica que no hay dato ("Giros y compras se cuentan donde está la
