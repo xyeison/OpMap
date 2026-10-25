@@ -18,13 +18,35 @@ Datos abiertos de Colombia Compra Eficiente en datos.gov.co (API Socrata/SoQL, p
 | SECOP II · Contratos electrónicos | `jbjy-vk9h` | Carga diaria incremental por `ultima_actualizacion` (`secop_contratos.fuente = 'secop2'`) |
 | SECOP I · Procesos de Compra Pública | `f789-7hwg` | **Fuente principal de SECOP I** (desde 2026-10-12): una fila por contrato-contratista con el **valor adjudicado** a cada uno (`valor_contrato_con_adiciones`; si es 0, `cuantia_contrato`) y el valor del proceso (`cuantia_proceso`) como dato; detalle por contrato desde 2017-2018. Carga semanal (martes) incremental (`fuente = 'secop1'`, `origen = 'SECOPI'`) |
 | SECOP Integrado (SECOP I + II desde 2005) | `rpmr-utcd` | Carga semanal (lunes). Para SECOP II, respaldo de lo que no venga de `jbjy-vk9h`; para SECOP I, **solo respaldo estimado**: trae el valor del PROCESO repetido en cada contratista y sus filas entran únicamente cuando `f789-7hwg` no trae esa constancia (en la práctica, antes de 2018), marcadas `estimado` (`fuente = 'integrado'`, `origen` SECOPI / SECOPII) |
-| SECOP II · Procesos | `p6dx-8zbt` | Licitaciones abiertas (oportunidades): spec aparte (`docs/specs/2026-10-12-secop-procesos-abiertos.md`), no cargado |
+| SECOP II · Procesos de Contratación | `p6dx-8zbt` | **Procesos sin contrato** (radar comercial, desde 2026-10-25): procesos de ortopedia o neurocirugía de las IPS públicas, en la tabla aparte `secop_procesos`. Carga diaria (06:30 UTC) que relee los últimos 120 días. **Nunca suman** a las compras (ver "Procesos de SECOP II sin contrato: carga") |
 
 La API suma siempre sobre la vista `secop_contratos_unicos` (migración 0730): entran `secop2` y `secop1`
 siempre; del Integrado, SECOP II solo si no vino ya de `secop2` (mismo `CO1.PCCNTR…`) y SECOP I solo si
 `secop1` no trae esa constancia (`nit_entidad` + `numero_contrato`). La vista añade la columna `estimado`
 (= Integrado SECOP I). Decisión del dueño y evidencia en
 `docs/decisiones/2026-10-12-secop-i-valores-reales-y-compra-publica.md`.
+
+## Procesos de SECOP II sin contrato: carga (`secop_procesos`)
+
+Spec `docs/specs/2026-10-25-secop-procesos-radar.md`; detalle de la carga en `fase5-fuentes-automaticas.md` ("Procesos
+de SECOP II sin contrato").
+
+- **Fuente y cron**: `secop_procesos` ("SECOP II · Procesos sin contrato"), Vercel Cron `/api/cron/secop_procesos` a las
+  `30 6 * * *` UTC. Sale en "Fuentes de datos" con "Actualizar ahora". Cada pasada diaria relee lo publicado en los
+  últimos 120 días y hace upsert por `id_proceso` (p6dx-8zbt no tiene una marca de agua fiable).
+- **Carga inicial** (24 meses, unas 10.600 filas en 3 peticiones; costo de Google 0), con autorización del dueño y
+  después de aplicar la migración 0890: `cd web && npx tsx scripts/secop-procesos-load.ts --inicial`. Para revisar sin
+  escribir nada: `npx tsx scripts/secop-procesos-load.ts --dry-run --max-paginas 1` (imprime 3 ejemplos sin nombres de
+  personas; funciona aunque la tabla no exista).
+- **Qué se guarda**: procesos de las IPS públicas objetivo que clasifican en una línea (sin servicios de médicos ni lo
+  que solo clasifica por UNSPSC), con estado, precio base, fecha de publicación, líneas, referencia, portafolio y
+  noticeUID (para saber si ya hay contrato), el proveedor que figura si es una empresa (por NIT, por el nombre del
+  proveedor o según el título del proceso), la IPS, el enlace al expediente y la descripción redactada.
+- **Qué no se guarda**: el título del proceso (`nombre_del_procedimiento`, que a veces es el nombre de una persona), el
+  funcionario que adjudicó, el nombre o documento de una persona natural (solo su hash con sal), y el nombre y
+  documento de pacientes (se reemplazan por "[dato personal omitido]"). Tampoco hay columnas `valor` ni `fecha_firma`.
+- **No suma**: compras, ranking, `/inteligencia`, `secop_hechos` y "SECOP actualizado el…" (`loadSecopActualizado`,
+  solo las 3 fuentes de contratos) no leen esta fuente.
 
 ## Alcance
 
