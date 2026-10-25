@@ -1,6 +1,11 @@
 # Spec: El mapa muestra giros ADRES y compras públicas SECOP de 12 meses (municipio e IPS)  (2026-10-24)
 
-**Estado**: borrador para el dueño (pedido del 2026-10-24); pendiente de "Para decidir (dueño)".
+**Estado**: aprobada por el dueño el 2026-10-24 ("ok" a todas las recomendaciones de "Para decidir (dueño)": total de giros
+= todos los regímenes con las tres cifras visibles; lo ven los roles con `intelligence:view`; se quitan "Solo con
+Contratos" y la fila "Contratos"; ventana SECOP de 12 meses solo en el mapa; solo ortopedia y neurocirugía con "sin
+clasificar" aparte y sin conmutador "todas las compras"; personas naturales agrupadas sin nombre; migración 0880
+opcional, se aplica con el despliegue; el NIT de HOCEN se corrige como dato; globos sin cifras; municipio de alcance
+sin IPS con una línea explicativa).
 
 ## Problema
 
