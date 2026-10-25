@@ -190,3 +190,14 @@ que tiene ese contrato?".
 - `scripts/secop-procesos-load.ts --dry-run --max-paginas 1`, con el proceso del HU del Caribe mapeado.
 - Con autorización: migración 0890, carga inicial y capturas de escritorio y de celular de la tarjeta del HU del Caribe,
   la de Montería y la ficha, con admin y con un Ejecutivo Comercial.
+
+## Rendimiento (2026-10-25, después de la carga)
+
+Con datos reales, la vista de la 0890 tardaba 7,85 s en Medellín (49 NIT, 324 procesos): el NOT EXISTS con OR y LIKE
+recorría los 18.068 contratos del Hospital General por cada proceso. La migración `2026-10-25_0891_secop_procesos_radar_rapida.sql`
+(rollback `9950`) agrega dos índices en `secop_contratos` ((nit_entidad, proceso) y (nit_entidad, noticeUID exacto de la
+url)) y reescribe la vista con dos NOT EXISTS de igualdad: 2,9 ms, el mismo resultado (la migración lo comprueba sobre
+todas las filas). Además, la revisión de "contratos en el histórico" de las IPS sin decidir va en una sola tanda de hasta 25
+consultas en paralelo (antes, tandas de 10 en serie). Tarjetas medidas desde Colombia (cada consulta ≈ 0,13 s de red):
+Medellín 9,5 s → 1,4 s; Cartagena 1,5 s → 1,2-1,3 s; IPS ≈ 0,7-0,8 s. En producción (Vercel iad1, Supabase us-east-2) la
+red por consulta es ≈ 10 veces menor.

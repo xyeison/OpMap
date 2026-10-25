@@ -165,17 +165,21 @@ function hechosPorNit(facts: SecopFact[]): Map<string, number> {
   return out
 }
 
+/** Consultas de existencia que van a la vez: con hasta 25 NIT sin decidir (casi todo territorio) es una sola ronda. */
+const EXISTENCIA_EN_PARALELO = 25
+
 /**
  * Criterio 3 de resolverCompraPublica ("el NIT tiene contratos cargados en SECOP") sobre TODO el histórico, como la
  * ficha (loadContratosEntidad), pero sin traerlo: una consulta de existencia por NIT (select id … limit 1) en la vista
- * secop_contratos_unicos, de a 10 en paralelo. Solo se llama con los NIT que siguen sin decidir (sin marca manual,
- * REPS no Pública/Mixta y sin hechos en la ventana): en un territorio son pocos. Sin la vista (0730 sin aplicar) →
+ * secop_contratos_unicos. Solo se llama con los NIT que siguen sin decidir (sin marca manual, REPS no Pública/Mixta y
+ * sin hechos en la ventana). Van todas a la vez en tandas de EXISTENCIA_EN_PARALELO (2026-10-25: antes eran tandas de 10
+ * una tras otra y un municipio con 30 IPS privadas esperaba tres viajes a la base). Sin la vista (0730 sin aplicar) →
  * ninguno, como hace loadNaturalezaPorNit sin reps_sedes.
  */
 async function nitsConContratosHistoricos(nits: string[], db: SupabaseAdminClient): Promise<Set<string>> {
   const out = new Set<string>()
-  for (let i = 0; i < nits.length; i += 10) {
-    const chunk = nits.slice(i, i + 10)
+  for (let i = 0; i < nits.length; i += EXISTENCIA_EN_PARALELO) {
+    const chunk = nits.slice(i, i + EXISTENCIA_EN_PARALELO)
     const resultados = await Promise.all(chunk.map(nit => db.from('secop_contratos_unicos').select('id').eq('nit_entidad', nit).limit(1)))
     for (let j = 0; j < chunk.length; j++) {
       const { data, error } = resultados[j]
