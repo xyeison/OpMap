@@ -68,7 +68,9 @@ export const KIND_LABELS: Record<CoverageKindUI, string> = {
   local: 'Local',
   reach: 'Por alcance',
   manual: 'Ajuste manual',
-  vacant: 'Vacante',
+  // "Sin cobertura" desde el 2026-10-23: la celda sin nadie dentro del tope ya no se llama "Vacante", para no
+  // confundirla con la vacante por contratar (executives.status = 'placeholder'), que cuenta como una persona.
+  vacant: 'Sin cobertura',
   conflict: 'Conflicto',
 }
 

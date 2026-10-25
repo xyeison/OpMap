@@ -201,7 +201,7 @@ export default function CoveragePanel({
         <div>
           <div className="flex items-center gap-2">
             <span className="w-3 h-3 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: VACANT_COLOR }} />
-            <span className="text-sm font-medium text-gray-600">Vacante</span>
+            <span className="text-sm font-medium text-gray-600">Sin cobertura</span>
           </div>
           {row.nearest && (
             <div className="text-xs text-gray-500 mt-0.5">
@@ -281,7 +281,7 @@ export default function CoveragePanel({
           <p className="text-sm text-gray-600 mt-1">
             Qué Ejecutivo Comercial cubre cada zona en la línea elegida: local, por alcance (hasta{' '}
             {coverage ? formatMinutes(coverage.line.max_reach_minutes) : 'el alcance máximo'} de ciudad base a ciudad
-            base), ajuste manual o vacante.
+            base), ajuste manual o sin cobertura.
           </p>
         </div>
         {canEdit && (

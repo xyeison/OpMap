@@ -43,7 +43,7 @@ export interface LegendMarkers {
   zoneText: string
   clusterColor: string
   clusterTextColor: string
-  // Vista por línea con zonas vacantes: color de sus IPS (null si no hay vacantes)
+  // Vista por línea con Zonas sin cobertura: color de sus IPS (null si no hay ninguna)
   vacantIpsColor?: string | null
 }
 
@@ -357,7 +357,7 @@ export default function MapLegend({
               <span aria-hidden="true" className="inline-flex w-7 justify-center flex-shrink-0">
                 <span className="opmap-legend-dot" style={{ backgroundColor: markers.vacantIpsColor }} />
               </span>
-              <span className="flex-1">IPS de zona vacante en la línea</span>
+              <span className="flex-1">IPS de Zona sin cobertura en la línea</span>
             </li>
           )}
           <li className="flex items-center gap-2.5 text-sm text-gray-800">

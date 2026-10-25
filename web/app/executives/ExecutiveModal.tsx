@@ -16,6 +16,12 @@ import {
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
+// Zonas por línea (spec 2026-10-23): "Líneas permitidas", la restricción de la dirección sobre qué líneas puede tener
+// la persona o vacante (vacío = sin restricción; con valores = solo esas; la API de líneas rechaza con 409 las demás y
+// PATCH exige lines ⊆ lineas_permitidas). GET /api/executives aún puede no traer el campo (lo añade la API de esa misma
+// spec), por eso la intersección local en vez de tocar lib/types/lines.ts.
+type ExecutiveConPermitidas = Executive & { lineas_permitidas?: string[] | null }
+
 interface ExecutiveModalProps {
   executive: Executive | null // null = crear
   zones: ZoneOption[] // todas las zonas (activas e inactivas)
@@ -38,6 +44,10 @@ export default function ExecutiveModal({ executive, zones, lines, onClose, onSav
   const [baseKamId, setBaseKamId] = useState(executive?.base_kam_id ?? '')
   const [status, setStatus] = useState<ExecutiveStatus>(executive?.status ?? 'active')
   const [selectedLines, setSelectedLines] = useState<string[]>(executive?.lines ?? [])
+  // Líneas permitidas por la dirección: ids de business_lines; vacío = sin restricción
+  const [allowedLines, setAllowedLines] = useState<string[]>(
+    (executive as ExecutiveConPermitidas | null)?.lineas_permitidas ?? []
+  )
   const [odooId, setOdooId] = useState(executive?.odoo_employee_id != null ? String(executive.odoo_employee_id) : '')
   const [notes, setNotes] = useState(executive?.notes ?? '')
   // Fase 2: color en el mapa por línea (la API lo devuelve como `color`)
@@ -63,6 +73,14 @@ export default function ExecutiveModal({ executive, zones, lines, onClose, onSav
   const toggleLine = (lineId: string) => {
     setSelectedLines(prev => (prev.includes(lineId) ? prev.filter(id => id !== lineId) : [...prev, lineId]))
   }
+
+  const toggleAllowedLine = (lineId: string) => {
+    setAllowedLines(prev => (prev.includes(lineId) ? prev.filter(id => id !== lineId) : [...prev, lineId]))
+  }
+
+  // Líneas que lleva (marcadas arriba) y que la restricción no permite: la API responde 400, así que se avisa antes
+  const linesOutsideAllowed = allowedLines.length > 0 ? selectedLines.filter(lineId => !allowedLines.includes(lineId)) : []
+  const lineName = (lineId: string) => lines.find(line => line.id === lineId)?.name ?? 'una línea'
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -92,6 +110,14 @@ export default function ExecutiveModal({ executive, zones, lines, onClose, onSav
       odooEmployeeId = parsed
     }
 
+    if (linesOutsideAllowed.length > 0) {
+      return setError(
+        `Las líneas asignadas deben estar entre las permitidas: ${linesOutsideAllowed.map(lineName).join(', ')} no lo ${
+          linesOutsideAllowed.length === 1 ? 'está' : 'están'
+        }. Permítela o quítasela.`
+      )
+    }
+
     const body: Record<string, unknown> = {
       full_name: trimmedName,
       email: trimmedEmail || null,
@@ -101,6 +127,8 @@ export default function ExecutiveModal({ executive, zones, lines, onClose, onSav
       lines: selectedLines,
       odoo_employee_id: odooEmployeeId,
       notes: notes.trim() || null,
+      // null = sin restricción (la API borra las filas de executive_allowed_lines)
+      lineas_permitidas: allowedLines.length > 0 ? allowedLines : null,
     }
     // El color solo se envía si se eligió uno (al crear) o si cambió (al editar)
     const normalizedColor = trimmedColor.toLowerCase()
@@ -278,6 +306,55 @@ export default function ExecutiveModal({ executive, zones, lines, onClose, onSav
                   </button>
                 )}
               </div>
+            )}
+          </div>
+
+          <div>
+            <span className="block text-sm font-medium text-gray-700 mb-1">Líneas permitidas (restricción de la dirección)</span>
+            <p className="text-xs text-gray-500 mb-2">
+              Toca una línea para permitirla o quitarla (etiquetas). Sin ninguna marcada, puede tener cualquier línea y cualquier líder
+              puede darle la suya desde Zonas. Las líneas asignadas deben estar entre las permitidas.
+            </p>
+            {lines.length === 0 ? (
+              <p className="text-sm text-gray-500">No hay líneas de negocio configuradas.</p>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Líneas permitidas">
+                {lines.map(line => {
+                  const permitida = allowedLines.includes(line.id)
+                  const fuera = linesOutsideAllowed.includes(line.id)
+                  return (
+                    <button
+                      key={line.id}
+                      type="button"
+                      aria-pressed={permitida}
+                      onClick={() => toggleAllowedLine(line.id)}
+                      title={fuera ? 'La lleva, pero no está permitida: permítela o quítasela' : permitida ? 'Quitar de las permitidas' : 'Permitir'}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-sm font-medium transition-colors ${
+                        fuera
+                          ? 'border-amber-400 bg-amber-50 text-amber-800'
+                          : permitida
+                            ? 'border-gray-900 bg-gray-900 text-white hover:bg-gray-800'
+                            : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      <span aria-hidden="true" className="text-xs">{permitida ? '✓' : '+'}</span>
+                      {line.name}
+                      {!line.active && <span className="text-xs opacity-70">(inactiva)</span>}
+                    </button>
+                  )
+                })}
+                <span className="text-xs text-gray-500">
+                  {allowedLines.length === 0 ? 'Sin restricción: puede tener cualquier línea.' : `Solo puede tener ${allowedLines.length === 1 ? 'esta línea' : `estas ${allowedLines.length} líneas`}.`}
+                </span>
+                {linesOutsideAllowed.length > 0 && (
+                  <span className="basis-full text-xs text-amber-700">Lleva líneas que no están permitidas (en ámbar): permítelas o quítaselas antes de guardar.</span>
+                )}
+              </div>
+            )}
+            {allowedLines.length > 0 && (
+              <p className="text-xs text-gray-500 mt-2">
+                Solo puede tener: {allowedLines.map(lineName).join(', ')}. La API rechaza darle cualquier otra línea.
+              </p>
             )}
           </div>
 

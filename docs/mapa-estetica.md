@@ -74,7 +74,7 @@ Estilo autorizado por el dueño el 2026-10-11 (rama `ui/mapa-estetica`; constant
   100 camas y 7 desde 300 camas; compactos (2.5 px) por debajo de zoom 6. IPS sin zona en la vista
   (incluye departamentos excluidos, p. ej. San Andrés): gris claro #9ca3af de 3.5 px (`IPS_UNZONED_COLOR`).
   IPS de una zona vacante en la línea: pizarra #64748b (`VACANT_STATE_COLOR`) a tamaño normal; la
-  leyenda los explica en filas separadas ("IPS sin zona", "IPS de zona vacante en la línea"). En celular los
+  leyenda los explica en filas separadas ("IPS sin zona", "IPS de Zona sin cobertura en la línea"). En celular los
   puntos se ven desde zoom 5. Van en un panel SVG propio (`opmapIps`, z 460) por encima de los nombres;
   el panel no recibe eventos, solo los círculos. Tocar un punto abre su tarjeta (en táctil, área de toque
   transparente de 11 px).
@@ -126,6 +126,36 @@ Estilo autorizado por el dueño el 2026-10-11 (rama `ui/mapa-estetica`; constant
   (`_tiles`, `_pruneTiles`): revisar `MapLabelsLayer.tsx` al actualizar Leaflet.
 - **NO agregar marcadores de población (👥)**
 - **NO agregar capas o elementos visuales nuevos sin autorización explícita**
+
+### 2026-10-23 · Grises por Zona en la vista por línea
+
+Autorizado por el dueño el 2026-10-23 (decisión `docs/decisiones/2026-10-23-zonas-por-linea-las-lideres-asignan.md`,
+spec `docs/specs/2026-10-23-zonas-por-linea-para-lideres.md`). Con sus palabras: "yo diría que borrarla [la asignación
+de líneas] y que ellas tengan una opción de ver todas las zonas. Sí, las zonas se van a ver grises. Pero vas a tener que
+manejar distintos tonos de grises para que ellos las puedan ver". Es el único cambio a la estética del 2026-10-11, y
+solo en la vista por línea:
+
+- **Qué cambia**: una Zona **sin cobertura** en la línea (`coverage.kind = 'vacant'`: nadie la lleva dentro del tope)
+  ya no va en el pizarra único #94a3b8, sino en **gris con un tono distinto por Zona**, para que las líderes las
+  distingan mientras redistribuyen las líneas desde "Zonas". Lo usan el relleno de sus municipios (con las opacidades
+  de siempre: 0.5 con IPS, 0.3 de alcance), sus puntos de IPS (tamaño normal), su insignia hueca (anillo y "—") y el
+  punto de color de su tarjeta.
+- **Cómo se calcula**: `grisDeZona(kam_id, zonas)` en `web/components/mapStyles.ts`: luminosidad HSL en rampa del 42 %
+  al 80 % sobre las Zonas recibidas ordenadas por su nombre visible (`zoneDisplayName`, `localeCompare` 'es'; desempate
+  por id), saturación 8 % y el matiz del color propio de la Zona (`kams.color`; 160 si falta o no es #RRGGBB). Con una
+  sola Zona, luminosidad 61 %. Determinista: la misma Zona da el mismo gris sea cual sea el orden de entrada, y con 16
+  Zonas salen 16 valores distintos (`scripts/mapa-estilo-check.ts`). El mapa le pasa las Zonas de `/api/map/data`
+  (activas con territorio) y convierte el `hsl()` a #RRGGBB (`MapComponent.tsx`, `hslCssToHex`) porque `safeColor`, las
+  muestras de la leyenda y los patrones SVG de "sin equipo" solo aceptan hexadecimal.
+- **Qué NO cambia**: el borde pizarra #64748b de 0.8 px de la Zona sin cobertura; el "IPS sin Zona" (territorio que
+  solo tiene IPS sin zona, también en la vista de zonas) sigue en pizarra #94a3b8 con sus IPS #9ca3af; el racimo en
+  que todas las insignias son huecas sigue en #475569 (`ZoneBadgeLayer.tsx`); conflicto, sin equipo, fuera de alcance,
+  sin acceso terrestre, pendiente, opacidades, tonos por zona (`zoneTint`), filtros, racimos, tarjetas y la vista de
+  zonas quedan como el 2026-10-11.
+- **Textos**: la leyenda dice "Sin cobertura en esta línea (gris, un tono por Zona)" (antes "Vacante en esta línea (sin
+  Ejecutivo Comercial)") e "IPS sin Zona" (antes "Vacante (IPS sin zona)"); el tooltip de la insignia, "Sin cobertura en
+  esta línea"; la tarjeta, "Sin cobertura (más cercana: <nombre> a 4 h 39)" o "Sin cobertura (nadie lleva esta línea)".
+  "Vacante" queda solo para la persona por contratar (`executives.status = 'placeholder'`).
 
 ### Lógica de Coloreado de Territorios Compartidos
 Para cualquier territorio (municipio o localidad) donde múltiples KAMs tienen IPS:

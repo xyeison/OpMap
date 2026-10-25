@@ -50,7 +50,6 @@ import {
   VACANT_BORDER_COLOR,
   VACANT_BORDER_WEIGHT,
   VACANT_BORDER_OPACITY,
-  VACANT_BADGE_COLOR,
   CONFLICT_FILL_COLOR,
   CONFLICT_FILL_OPACITY,
   OUT_OF_REACH_FILL_COLOR,
@@ -68,7 +67,8 @@ import {
   IPS_UNZONED_COLOR,
   CLUSTER_NEUTRAL_COLOR,
   VACANT_STATE_COLOR,
-  zoneTint
+  zoneTint,
+  grisDeZona
 } from './mapStyles'
 import { useMediaQuery, matchesMediaQuery, MOBILE_QUERY, HOVER_QUERY } from './useMediaQuery'
 import { usePermissions } from '@/hooks/usePermissions'
@@ -111,6 +111,24 @@ const escapeHtml = (v: unknown) => String(v ?? '').replace(/[&<>"']/g, c => HTML
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/
 const isSafeColor = (v: unknown): v is string => typeof v === 'string' && HEX_COLOR_RE.test(v)
 const safeColor = (v: unknown, fallback = '#888888') => (isSafeColor(v) ? v : fallback)
+
+// grisDeZona (mapStyles) devuelve `hsl(h, s%, l%)`; aquí todo lo que pinta (safeColor, hexToRgba, los patrones SVG
+// de "sin equipo", readableTextColor) espera #RRGGBB, así que el gris se convierte una sola vez en la frontera.
+// Si el texto no es un hsl() válido, cae al pizarra de siempre.
+const hslCssToHex = (css: string): string => {
+  const match = /^hsl\(\s*([\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%\s*\)$/i.exec(css)
+  if (!match) return isSafeColor(css) ? css : VACANT_FILL_COLOR
+  const h = Number(match[1])
+  const s = Number(match[2]) / 100
+  const l = Number(match[3]) / 100
+  const a = s * Math.min(l, 1 - l)
+  const channel = (n: number) => {
+    const k = (n + h / 30) % 12
+    const c = l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1))
+    return Math.round(c * 255).toString(16).padStart(2, '0')
+  }
+  return `#${channel(0)}${channel(8)}${channel(4)}`
+}
 
 // #RRGGBB + opacidad → rgba() para las muestras de la leyenda
 const hexToRgba = (hex: string, alpha: number) => {
@@ -176,8 +194,9 @@ export interface CoverageRow {
   override_reason?: string | null
 }
 
-// Colores fijos del modo por línea. Vacante: color de las IPS (y de lo que se pinta con el color de la
-// zona) cuando nadie cubre la zona en la línea; la insignia hueca usa VACANT_BADGE_COLOR.
+// Colores fijos del modo por línea. VACANT_COLOR (pizarra) queda como respaldo y para los patrones SVG; desde el
+// 2026-10-23 una Zona SIN COBERTURA en la línea (relleno, IPS, insignia hueca, tarjeta) usa el gris propio de la
+// Zona (grisZona, abajo). El "IPS sin Zona" sigue en pizarra.
 export const VACANT_COLOR = VACANT_STATE_COLOR
 export const CONFLICT_COLOR = '#f59e0b'
 const NO_COVERAGE_DATA_COLOR = '#cccccc'
@@ -204,26 +223,29 @@ const executiveName = (e: { full_name: string; status?: string } | null | undefi
 
 /**
  * Texto plano de quién cubre la zona en la línea. Quien lo inserte en HTML crudo debe escaparlo.
- * "<nombre> — local" | "— por alcance desde <zona>, 2 h 26 (mediana entre zonas)" | "— ajuste manual: <motivo>" |
- * "Vacante (más cercana: <nombre> a 4 h 39)" | "Conflicto: <nombres>"
+ * "La atiende <nombre>, que vive en la Zona" | "La atiende <nombre> desde <zona>, a 2 h 26 por carretera" |
+ * "La atiende <nombre> por ajuste manual: <motivo>" |
+ * "Sin cobertura: nadie que lleve esta línea llega dentro del tope; la más cercana es <nombre>, a 12 h 2" | "Conflicto: <nombres>"
+ * ("Sin cobertura", no "Vacante": la vacante es la persona por contratar; decisión del dueño 2026-10-23. Lenguaje llano,
+ * como en la página Zonas: la Zona a la que pertenece la IPS es geografía; quién la atiende depende de la línea.)
  */
 export const describeCoverage = (row: CoverageRow | undefined, zoneNameById: Record<string, string>): string => {
   if (!row) return 'sin datos de cobertura (recalcular cobertura)'
   switch (row.kind) {
     case 'local':
-      return `${executiveName(row.executive)} — local`
+      return `La atiende ${executiveName(row.executive)}, que vive en la Zona`
     case 'reach': {
       const from = zoneDisplayName(row.source_kam_id ? zoneNameById[row.source_kam_id] : '') || 'otra zona'
-      // Minutos = mediana zona→zona (no el tiempo a una IPS concreta): se aclara para no confundirlo
-      // con el "Tiempo de llegada" de la tarjeta de IPS
-      return `${executiveName(row.executive)} — por alcance desde ${from}, ${formatMinutes(row.travel_minutes)} (mediana entre zonas)`
+      // Minutos = tiempo típico entre las dos ciudades (mediana zona→zona), no el tiempo a una IPS concreta: así no se
+      // confunde con el "Tiempo de llegada" de la tarjeta de IPS
+      return `La atiende ${executiveName(row.executive)} desde ${from}, a ${formatMinutes(row.travel_minutes)} por carretera`
     }
     case 'manual':
-      return `${executiveName(row.executive)} — ajuste manual: ${row.override_reason || row.note || 'sin motivo registrado'}`
+      return `La atiende ${executiveName(row.executive)} por ajuste manual: ${row.override_reason || row.note || 'sin motivo registrado'}`
     case 'vacant':
       return row.nearest
-        ? `Vacante (más cercana: ${row.nearest.full_name} a ${formatMinutes(row.nearest.minutes)})`
-        : 'Vacante (nadie lleva esta línea)'
+        ? `Sin cobertura: nadie que lleve esta línea llega dentro del tope de alcance; la más cercana es ${row.nearest.full_name}, a ${formatMinutes(row.nearest.minutes)}`
+        : 'Sin cobertura: nadie lleva esta línea'
     case 'conflict':
       return `Conflicto: ${row.note || 'varios Ejecutivos Comerciales locales'}`
     default:
@@ -768,17 +790,36 @@ export default function MapComponent({
     formatZoneExecutives(executives, zoneExecutivesOnlyMine ? (labeled ? 'ninguno' : 'sin Ejecutivo Comercial de tus líneas') : undefined),
     [zoneExecutivesOnlyMine])
 
+  // Grises por Zona para "Sin cobertura" (autorizado por el dueño el 2026-10-23: "las zonas se van a ver grises,
+  // pero vas a tener que manejar distintos tonos de grises"): la rampa de grisDeZona se calcula sobre las Zonas que
+  // trae /api/map/data (activas con territorio), con su nombre y su color, y se convierte a #RRGGBB para el resto del
+  // mapa. Lo usan el relleno, los puntos de IPS, la insignia hueca y la tarjeta de una Zona sin cobertura en la línea;
+  // el borde pizarra y el "IPS sin Zona" no cambian (docs/mapa-estetica.md, "2026-10-23 · Grises por Zona").
+  const zonasParaGris = useMemo(
+    () => ((mapData?.kams || []) as Array<{ id: string; name?: string | null; color?: string | null }>)
+      .map(k => ({ id: k.id, name: k.name ?? '', color: k.color ?? null })),
+    [mapData]
+  )
+  const grisZona = useCallback((kamId: string): string => hslCssToHex(grisDeZona(kamId, zonasParaGris)), [zonasParaGris])
+  // Una sola muestra para la leyenda ("Sin cobertura en esta línea" y el punto de IPS): el gris de la primera Zona sin
+  // cobertura de la línea; pizarra si no hay ninguna
+  const grisSinCoberturaMuestra = useMemo(() => {
+    if (!isLineMode || !lineView) return VACANT_FILL_COLOR
+    const primera = lineView.rows.find(r => r.kind === 'vacant')
+    return primera ? grisZona(primera.kam_id) : VACANT_FILL_COLOR
+  }, [isLineMode, lineView, grisZona])
+
   // Color de la zona en la línea: Ejecutivo Comercial que la cubre (con el tono de la zona si cubre
-  // varias), vacante (pizarra) o conflicto (ámbar)
+  // varias), sin cobertura (gris propio de la Zona) o conflicto (ámbar)
   const zoneLineColor = useCallback((kamId: string | undefined): string => {
     if (!lineView || !kamId) return NO_COVERAGE_DATA_COLOR
     const row = lineView.byKam[kamId]
     if (!row) return NO_COVERAGE_DATA_COLOR
-    if (row.kind === 'vacant') return VACANT_COLOR
+    if (row.kind === 'vacant') return grisZona(kamId)
     if (row.kind === 'conflict') return CONFLICT_COLOR
-    if (!row.executive) return VACANT_COLOR
+    if (!row.executive) return grisZona(kamId)
     return lineView.zoneTone[kamId]?.color ?? safeColor(lineView.executiveColors[row.executive.id])
-  }, [lineView])
+  }, [lineView, grisZona])
 
   // Color BASE del Ejecutivo Comercial que cubre la zona en la línea (sin tono): racimos de un solo
   // Ejecutivo Comercial, chips de la leyenda. null si la zona está vacante, en conflicto o sin datos.
@@ -864,24 +905,28 @@ export default function MapComponent({
 
   // Relleno del polígono según la vista: color de la zona (misma fuente que puntos e insignias) o el
   // color fijo de vacante / conflicto. Alcance = mismo color con menos opacidad. `vacant`: el polígono
-  // lleva además el borde pizarra de vacante.
+  // lleva además el borde pizarra de vacante. Zona SIN COBERTURA en la línea (2026-10-23): gris propio de la
+  // Zona con las opacidades de vacante; el territorio que solo tiene IPS sin zona sigue en pizarra.
   const territoryFill = useCallback((t: ResolvedTerritory): { color: string; opacity: number; vacant: boolean } => {
     const isReach = t.kind === 'reach'
     let state: 'zone' | 'vacant' | 'conflict' = 'zone'
+    let vacantColor = VACANT_FILL_COLOR
     if (t.kind === 'vacant') {
       state = 'vacant'
     } else if (isLineMode && t.kamId) {
       const kind = lineView?.byKam[t.kamId]?.kind
-      if (kind === 'vacant') state = 'vacant'
-      else if (kind === 'conflict') state = 'conflict'
+      if (kind === 'vacant') {
+        state = 'vacant'
+        vacantColor = grisZona(t.kamId)
+      } else if (kind === 'conflict') state = 'conflict'
     } else if (t.kind === 'ips' && t.isVacant) {
       // Vista de zonas: territorio que además tiene IPS sin zona (regla de siempre: se marca vacante)
       state = 'vacant'
     }
-    if (state === 'vacant') return { color: VACANT_FILL_COLOR, opacity: isReach ? VACANT_REACH_FILL_OPACITY : VACANT_FILL_OPACITY, vacant: true }
+    if (state === 'vacant') return { color: vacantColor, opacity: isReach ? VACANT_REACH_FILL_OPACITY : VACANT_FILL_OPACITY, vacant: true }
     if (state === 'conflict') return { color: CONFLICT_FILL_COLOR, opacity: CONFLICT_FILL_OPACITY * (isReach ? REACH_OPACITY_RATIO : 1), vacant: false }
     return { color: t.kamId ? colorForZone(t.kamId) : NO_COVERAGE_DATA_COLOR, opacity: isReach ? REACH_FILL_OPACITY : IPS_FILL_OPACITY, vacant: false }
-  }, [isLineMode, lineView, colorForZone])
+  }, [isLineMode, lineView, colorForZone, grisZona])
 
   // Fuera del filtro (solo polígonos con zona o vacantes): contexto gris, sin tooltip ni tarjeta
   const isFilteredOutTerritory = useCallback((t: ResolvedTerritory): boolean => {
@@ -1270,13 +1315,14 @@ export default function MapComponent({
       let tooltipMeta: string
       if (isLineMode && lineView) {
         if (!row) tooltipMeta = 'Sin datos de cobertura'
-        else if (row.kind === 'vacant') tooltipMeta = 'Vacante en esta línea'
+        else if (row.kind === 'vacant') tooltipMeta = 'Sin cobertura en esta línea'
         else if (row.kind === 'conflict') tooltipMeta = `Conflicto: ${row.note || 'varios Ejecutivos Comerciales locales'}`
         else tooltipMeta = executiveName(row.executive) || 'Sin Ejecutivo Comercial'
       } else {
         tooltipMeta = zoneExecutivesText(kam.executives, false)
       }
-      const color = hollow ? VACANT_BADGE_COLOR : colorForZone(kam.id)
+      // Insignia hueca de una Zona sin cobertura: anillo y "—" en el gris propio de la Zona (2026-10-23)
+      const color = hollow ? grisZona(kam.id) : colorForZone(kam.id)
       return {
         id: kam.id,
         lat: Number(kam.lat),
@@ -1293,7 +1339,7 @@ export default function MapComponent({
         tooltipTitle: `Zona ${name}`,
         tooltipMeta
       }
-    }), [kamStats, isZoneVisible, isLineMode, lineView, colorForZone, executiveBaseColor, zoneInitials, groupKeyForZone, isDimmedZone, zoneExecutivesText])
+    }), [kamStats, isZoneVisible, isLineMode, lineView, colorForZone, grisZona, executiveBaseColor, zoneInitials, groupKeyForZone, isDimmedZone, zoneExecutivesText])
 
   const selectZone = useCallback((id: string, position: L.LatLngTuple) => {
     openPopup({ kind: 'zone', id, position })
@@ -1429,7 +1475,7 @@ export default function MapComponent({
       if (isLineMode && lineView && t.kamId) {
         meta = `Zona ${zone} · ${describeCoverage(lineView.byKam[t.kamId], lineView.zoneNameById)}`
       } else if (t.isVacant || !t.kamId) {
-        meta = 'Zona vacante: sin Ejecutivo Comercial'
+        meta = 'Zona sin Ejecutivo Comercial'
       } else {
         meta = `Zona ${zone} · ${zoneExecutivesText(kamIndex.byId[t.kamId]?.executives, false)}`
       }
@@ -1524,12 +1570,12 @@ export default function MapComponent({
         title: `Zona: ${lineZoneName}${baseCity ? ` (ciudad base ${baseCity})` : ''}`,
         lines: [
           `Línea: ${lineView.line.name}`,
-          `Ejecutivo Comercial: ${describeCoverage(lineRow, lineView.zoneNameById)}`,
+          `En esta línea: ${describeCoverage(lineRow, lineView.zoneNameById)}`,
           ...(noEquipment ? ['Sin equipo: la línea no opera en esta zona'] : [])
         ]
       }
     } else if (t.isVacant) {
-      status = { tone: 'vacant', title: 'Zona vacante: sin Ejecutivo Comercial', lines: [] }
+      status = { tone: 'vacant', title: 'Zona sin Ejecutivo Comercial', lines: [] }
     } else {
       status = {
         tone: 'zone',
@@ -1664,7 +1710,7 @@ export default function MapComponent({
     return {
       name: zoneDisplayName(kam.name) || kam.name,
       baseCity: kam.base_city || null,
-      color: hollow ? VACANT_BADGE_COLOR : colorForZone(kamId),
+      color: hollow ? grisZona(kamId) : colorForZone(kamId),
       hollow,
       executiveLabel: lineExecutiveLabel,
       executiveText: isLineMode && lineView
@@ -1886,8 +1932,8 @@ export default function MapComponent({
     { key: 'ips', label: 'Con IPS objetivo (visitar)', swatch: swatch(LEGEND_NEUTRAL_FILL, IPS_FILL_OPACITY), count: territoryLegend.ips },
     { key: 'reach', label: 'De alcance (sin IPS hoy)', swatch: swatch(LEGEND_NEUTRAL_FILL, REACH_FILL_OPACITY), count: territoryLegend.reach },
     isLineMode && lineView
-      ? { key: 'vacant', label: 'Vacante en esta línea (sin Ejecutivo Comercial)', swatch: swatch(VACANT_FILL_COLOR, VACANT_FILL_OPACITY, VACANT_BORDER_COLOR), count: lineView.counts.vacant }
-      : { key: 'vacant', label: 'Vacante (IPS sin zona)', swatch: swatch(VACANT_FILL_COLOR, VACANT_FILL_OPACITY, VACANT_BORDER_COLOR) }
+      ? { key: 'vacant', label: 'Sin cobertura en esta línea (gris, un tono por Zona)', swatch: swatch(grisSinCoberturaMuestra, VACANT_FILL_OPACITY, VACANT_BORDER_COLOR), count: lineView.counts.vacant }
+      : { key: 'vacant', label: 'IPS sin Zona', swatch: swatch(VACANT_FILL_COLOR, VACANT_FILL_OPACITY, VACANT_BORDER_COLOR) }
   ]
   if (isLineMode && lineView && lineView.counts.conflict > 0) {
     legendStates.push({ key: 'conflict', label: 'Zonas en conflicto', swatch: swatch(CONFLICT_FILL_COLOR, CONFLICT_FILL_OPACITY), count: lineView.counts.conflict })
@@ -1916,8 +1962,9 @@ export default function MapComponent({
     zoneText: sampleZone?.text ?? 'Ba',
     clusterColor: CLUSTER_NEUTRAL_COLOR,
     clusterTextColor: readableTextColor(CLUSTER_NEUTRAL_COLOR),
-    // Vista por línea con zonas vacantes: sus IPS van en pizarra (VACANT_STATE_COLOR), a tamaño normal
-    vacantIpsColor: isLineMode && lineView && lineView.counts.vacant > 0 ? VACANT_COLOR : null
+    // Vista por línea con Zonas sin cobertura: sus IPS van en el gris de cada Zona, a tamaño normal; la leyenda
+    // muestra el de la primera
+    vacantIpsColor: isLineMode && lineView && lineView.counts.vacant > 0 ? grisSinCoberturaMuestra : null
   }
 
   const legendNotes: LegendNote[] = [
@@ -2004,6 +2051,8 @@ export default function MapComponent({
           {isLineMode && lineView && Array.from(new Set([
               ...Object.values(lineView.executiveColors).map(c => safeColor(c)),
               ...Object.values(lineView.zoneTone).map(t => safeColor(t.color)),
+              // Grises de las Zonas sin cobertura (una sin equipo lleva el rayado de su gris)
+              ...lineView.rows.filter(r => r.kind === 'vacant').map(r => grisZona(r.kam_id)),
               VACANT_COLOR,
               VACANT_FILL_COLOR,
               CONFLICT_COLOR,

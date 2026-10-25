@@ -74,4 +74,51 @@ contraseña de los 2 usuarios nuevos desde `/users`.
   porque en la BD Diana Caicedo ya lleva PerOssal + Columna, sin Reemplazo ni Medicina deportiva,
   y la tabla del documento es anterior; el motor no cambia esas celdas).
 
-_Extraído de CLAUDE.md el 2026-10-11 (texto íntegro, solo reubicado)._
+## 2026-10-23: las líderes asignan su línea por Zona (spec `docs/specs/2026-10-23-zonas-por-linea-para-lideres.md`)
+
+Decisión del dueño en `docs/decisiones/2026-10-23-zonas-por-linea-las-lideres-asignan.md`. El motor de cobertura NO
+cambia (manual → local/conflicto → alcance → sin cobertura; la vacante elegible como una persona; matriz por mediana).
+Lo que sí cambia alrededor:
+
+- **Etiqueta "Sin cobertura"**: la celda `coverage.kind = 'vacant'` (nadie lleva la línea dentro del tope) se llama
+  "Sin cobertura" en `/kams`, `/lines` (`KIND_LABELS.vacant` en `app/lines/coverage-shared.ts`) y en la leyenda,
+  tooltips y tarjetas del mapa. "Vacante" queda solo para la persona por contratar (`executives.status =
+  'placeholder'`), que es una plaza autorizada por la gerencia y cuenta como una persona.
+- **Pantalla Zonas (`/kams`)**: entrada de las líderes. Una fila por Zona activa (Bogotá agrupada en "Bogotá (4
+  zonas)") con las cifras de la Zona (IPS, camas, municipios, departamentos, población DANE, afiliados BDUA, giros
+  ADRES de 12 meses; `construirBloque` de `lib/zona-estadisticas.ts`), quién vive en ella (personas y vacantes con sus
+  líneas y, si la dirección la limitó, "solo puede tener: …") y el estado en la línea elegida, derivado de la
+  cobertura calculada en memoria (`estadoDePlaza`: Ocupada · Reservada · Por alcance · Sin cobertura · Conflicto;
+  insignia "Sin equipo"). Si la tabla `coverage` no coincide con el cálculo, la ruta recalcula y guarda (sin Google) y
+  la página lo dice. Acciones solo en la línea propia y con vista previa simulada (`POST /api/coverage/simular`, puro
+  sobre `computeCoverage`, nunca escribe): "Darle <línea> a…", "Quitarle <línea>", "Forzar a alguien de otra ciudad…"
+  (ajuste manual existente), "Quitar ajuste". Tipos en `lib/types/zonas.ts`; motor puro en
+  `lib/cobertura-simulacion.ts` (`scripts/cobertura-simulacion-check.ts`).
+- **Permiso `executives:lines`** (`lib/permissions.ts`): dar o quitar una línea a un Ejecutivo Comercial o vacante de
+  la Zona (`PUT`/`DELETE /api/executives/[id]/lineas/[lineId]`). Lo tienen exactamente `admin`, `commercial_director`
+  y `line_leader` (esta solo en su línea; lo limita la API con `canEditCoverageLine`). Inserta o borra en
+  `executive_lines` y recalcula la cobertura; al quitar, el disparador de la 0820 termina los visitantes de esa línea
+  (`medicosTerminados` en la respuesta). Detalle en `web/docs/ROLES_AND_PERMISSIONS.md`.
+- **Líneas permitidas** (tabla `executive_allowed_lines`, migración `2026-10-23_0860_lineas_permitidas.sql`, rollback
+  9946): restricción de la dirección "esta persona nada más puede tener estas unidades de negocio" para que una líder
+  no asigne por error. Sin filas = sin restricción. Se fija en Ejecutivos Comerciales (`executives:edit`): `GET
+  /api/executives` trae `lineas_permitidas` (ids, o `null`; también `null` mientras la tabla no exista, sin 500);
+  `POST` y `PATCH /api/executives[/id]` aceptan `lineas_permitidas` (`null` o `[]` = quitar; valores = dejar
+  exactamente esas, con `created_by` = quien lo pide) y responden 400 "Las líneas asignadas deben estar entre las
+  permitidas" si las líneas finales no caben en la restricción final. `PUT /api/executives/[id]/lineas/[lineId]`
+  responde 409 con `lineasPermitidas` si la línea no está permitida. Pruebas: `scripts/lineas-permitidas-api-check.ts`
+  (Supabase falso, sin red).
+- **Redistribución inicial** (migración de datos `2026-10-23_0870_borrar_lineas_para_redistribuir.sql`, rollback 9947):
+  copia `executive_lines` a `executive_lines_respaldo_20261023`, borra todas las filas y deja dos restricciones
+  (persona activa de Barranquilla → Sustitutos óseos y Reemplazo articular; Vacante Barranquilla → Medicina deportiva,
+  Columna y Trauma), identificadas por zona base, estado y respaldo (sin nombres en el SQL; `RAISE` si no encuentra
+  exactamente una de cada). **Solo con autorización del dueño, en la ventana del despliegue y seguida del recálculo de
+  cobertura.** El disparador 0820 termina los visitantes de las líneas borradas; el rollback restaura las líneas desde
+  el respaldo (sin borrarlo) pero no reabre esos visitantes. **No es re-ejecutable**: si el respaldo ya tiene filas,
+  aborta con `RAISE` antes de tocar nada (volver a correrla después de que las líderes asignen borraría lo asignado sin
+  respaldarlo y el rollback no lo recuperaría); para repetirla a conciencia, primero el rollback 9947 y luego renombrar
+  o borrar el respaldo a mano, con autorización del dueño.
+- **Mapa por línea**: Zonas sin cobertura en gris con un tono por Zona (`grisDeZona`; `docs/mapa-estetica.md`,
+  sección "2026-10-23 · Grises por Zona"). Nada más de la estética cambia.
+
+_Extraído de CLAUDE.md el 2026-10-11 (texto íntegro, solo reubicado); sección del 2026-10-23 añadida después._

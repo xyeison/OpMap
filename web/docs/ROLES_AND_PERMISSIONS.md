@@ -198,6 +198,30 @@ activo de Ejecutivo Comercial (rol `sales_manager` o `user`) y nunca el de quien
 de línea o cualquier otro rol enlazado a esa ficha sigue activo (la vista previa lo avisa) y se desactiva, si hace
 falta, desde Usuarios, con sus guardas (nadie se desactiva a sí mismo; nunca el último admin).
 
+### Zonas por línea (`web/lib/permissions.ts`; spec `docs/specs/2026-10-23-zonas-por-linea-para-lideres.md`)
+
+Decisión del dueño del 2026-10-23 (`docs/decisiones/2026-10-23-zonas-por-linea-las-lideres-asignan.md`): las líderes
+asignan su línea por Zona desde la página "Zonas" (`/kams`), dándosela o quitándosela a un Ejecutivo Comercial o a una
+vacante que viva en la Zona, con vista previa simulada antes de guardar. La vacante es una plaza autorizada por la
+gerencia y cuenta como una persona (elegible como local y por alcance).
+
+| Permiso | Para qué | Roles |
+|---------|----------|-------|
+| `executives:lines` | Dar o quitar la propia línea a un Ejecutivo Comercial o vacante que vive en la Zona (`PUT`/`DELETE /api/executives/[id]/lineas/[lineId]`, que recalcula la cobertura sin Google); vista previa con `POST /api/coverage/simular` (nunca escribe; recorta el resultado a las líneas del usuario y, por cada línea que se quita, trae la cuenta de médicos que perderían visitante, sin nombres, que la pantalla exige confirmar antes de guardar) | admin, commercial_director, line_leader (solo en las líneas donde `business_lines.leader_user_id` es su usuario; lo limita la API con `canEditCoverageLine`, igual que `coverage:edit`) |
+
+Qué no cambia: `executives:edit` sigue siendo la puerta para editar la ficha completa (todas las líneas, la zona base y
+el campo "Líneas permitidas"); `coverage:edit` para los ajustes manuales y el recálculo; y las cifras de `/kams`
+(`GET /api/kams/zonas`, `GET /api/kams/[id]/estadisticas`) usan la misma puerta que "Datos de la zona"
+(`executives:view` + `hospitals:view`), así que `hr` recibe 403 y `viewer` ve todas las Zonas; SECOP solo con
+`intelligence:view` y el valor de contratos solo con `contracts:view`. La administración de Zonas (agregar, colores,
+editar, desactivar) sigue con `kams:edit` y Bogotá con `kams:bogota-config`.
+
+Vocabulario: la celda sin nadie dentro del tope se llama **"Sin cobertura"** (antes "Vacante") en `/kams`, `/lines` y
+la leyenda del mapa, para no confundirla con la vacante por contratar (`executives.status = 'placeholder'`), que se
+muestra como **"Reservada"** cuando lleva la línea y como **"Ocupada"** cuando la lleva una persona activa. La API
+rechaza con 409 dar una línea que la dirección no permitió para esa persona ("Líneas permitidas", tabla
+`executive_allowed_lines`, migración 0860; sin filas = sin restricción).
+
 ## Navegación por Rol
 
 Ver "Menú de la web (dueño, 2026-10-14)" al principio: el menú sale de `getNavigationMenu` y lo prueba
