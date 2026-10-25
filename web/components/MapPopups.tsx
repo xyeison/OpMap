@@ -253,11 +253,14 @@ export function GirosComprasSection({ estado, data, error, onRetry, modo }: Giro
   const propias = new Set<string>([notaSede, notaCamas, notaCompras, MAPA_DETALLE_TEXTOS.fuentes].filter((n): n is string => !!n))
   const otrasNotas = (data.notas || []).filter(nota => !propias.has(nota))
 
-  // Territorio sin IPS activas (el servidor manda giros = null, compras = null y la nota): solo las notas
+  // Nada que pintar en cifras: territorio sin IPS activas (el servidor manda giros = null, compras = null y solo la nota
+  // sinIps) o, sin giros cargados aún, una IPS privada o un municipio sin entidad pública (nota de estado + fuentes).
+  // Van las notas del servidor tal cual (aquí nada las repite); sinIps solo si no llegó ninguna.
   if (!giros && !compras) {
+    const notasServidor = data.notas || []
     return (
       <div className="opmap-popup__section">
-        {(otrasNotas.length > 0 ? otrasNotas : [MAPA_DETALLE_TEXTOS.sinIps]).map(nota => (
+        {(notasServidor.length > 0 ? notasServidor : [MAPA_DETALLE_TEXTOS.sinIps]).map(nota => (
           <div key={nota} className="opmap-popup__note">{nota}</div>
         ))}
       </div>
