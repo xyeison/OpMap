@@ -18,6 +18,8 @@ import {
   type SecopContrato,
   type SecopFact,
 } from '@/lib/compras-publicas'
+import { SECOP_FUENTE_ESTADO } from '@/lib/secop'
+import { PROCESO_RADAR_COLUMNAS, type ProcesoEstado, type ProcesoRadarFila, type ProveedorOrigen } from '@/lib/secop-procesos'
 
 export { isMissingRelationError }
 
@@ -202,6 +204,75 @@ export async function loadHechos(
   return out
 }
 
+/** Vista de la migración 0890: procesos en estado de radar y sin contrato cargado de la misma entidad. */
+const PROCESOS_RADAR_VIEW = 'secop_procesos_radar'
+
+function toProcesoRadar(row: Row): ProcesoRadarFila {
+  const precio = row.precio_base === null || row.precio_base === undefined ? null : Number(row.precio_base)
+  const origen = str(row.proveedor_origen)
+  return {
+    id_proceso: String(row.id_proceso),
+    referencia: str(row.referencia),
+    nit_entidad: String(row.nit_entidad ?? ''),
+    nombre_entidad: str(row.nombre_entidad),
+    precio_base: precio !== null && Number.isFinite(precio) ? precio : null,
+    fecha_publicacion: str(row.fecha_publicacion)?.slice(0, 10) ?? null,
+    linea: String(row.linea) as ProcesoRadarFila['linea'],
+    lineas: (Array.isArray(row.lineas) ? row.lineas.map(String) : []) as ProcesoRadarFila['lineas'],
+    estado: String(row.estado) as ProcesoEstado,
+    proveedor_nit: str(row.proveedor_nit),
+    proveedor_nombre: str(row.proveedor_nombre),
+    proveedor_origen: origen === 'nit' || origen === 'nombre' || origen === 'titulo' ? (origen as ProveedorOrigen) : null,
+    proveedor_vigilado_id: str(row.proveedor_vigilado_id),
+    es_persona: row.es_persona === true,
+    url: str(row.url),
+  }
+}
+
+/**
+ * Procesos de SECOP II publicados sin contrato (radar comercial, spec 2026-10-25) de las entidades `nits` (NIT de 9
+ * dígitos) publicados entre desde y hasta ('YYYY-MM-DD', inclusive), más recientes primero. Lee la vista
+ * secop_procesos_radar (ya sin contrato cargado de la misma entidad) solo con las columnas de ProcesoRadarFila: nunca
+ * descripción, hash ni documento. `limite` corta la lectura (sin él, todas las filas de la ventana; lo normal es leer
+ * todo y cortar en resumirProcesos, que también da el total). Sin NIT, [] sin leer nada; sin la vista o la tabla
+ * (migración 0890 sin aplicar), [] y las rutas responden 200 con procesos: null. Listas largas en trozos de 150 por el
+ * largo de URL de PostgREST.
+ */
+export async function loadProcesosRadar(
+  params: { nits: string[]; desde: string; hasta: string; limite?: number | null },
+  db: SupabaseAdminClient = supabaseAdmin
+): Promise<ProcesoRadarFila[]> {
+  const nits = Array.from(new Set(params.nits.filter(Boolean)))
+  if (nits.length === 0) return []
+  const limite = params.limite !== null && params.limite !== undefined && params.limite >= 0 ? Math.floor(params.limite) : null
+  if (limite === 0) return []
+  const out: ProcesoRadarFila[] = []
+  for (let i = 0; i < nits.length; i += 150) {
+    const chunk = nits.slice(i, i + 150)
+    const { data, error } = await fetchAllRows<Row>(
+      (from, to) =>
+        db
+          .from(PROCESOS_RADAR_VIEW)
+          .select(PROCESO_RADAR_COLUMNAS)
+          .in('nit_entidad', chunk)
+          .gte('fecha_publicacion', params.desde)
+          .lte('fecha_publicacion', params.hasta)
+          .order('fecha_publicacion', { ascending: false })
+          .order('id_proceso', { ascending: true })
+          .range(from, to),
+      limite === null ? 1000 : Math.min(1000, limite),
+      limite ?? 200000
+    )
+    if (error) {
+      if (isMissingRelationError(error)) return []
+      throw dbError(PROCESOS_RADAR_VIEW, error)
+    }
+    for (const row of data) out.push(toProcesoRadar(row))
+  }
+  out.sort((a, b) => String(b.fecha_publicacion).localeCompare(String(a.fecha_publicacion)) || a.id_proceso.localeCompare(b.id_proceso))
+  return limite === null ? out : out.slice(0, limite)
+}
+
 export interface VigiladoRow {
   nit: string
   dv: string | null
@@ -301,12 +372,18 @@ export async function loadFuentesEstado(db: SupabaseAdminClient = supabaseAdmin)
   }))
 }
 
-/** Último OK de las fuentes SECOP (para "actualizado el…"). Sin la tabla devuelve {}. */
+/**
+ * Fuentes de CONTRATOS de SECOP (secop_ii, secop_i, secop_integrado): las únicas que cuentan para "SECOP actualizado
+ * el…" de las compras. La de procesos (secop_procesos, radar sin contrato) no es una compra y queda fuera.
+ */
+const FUENTES_CONTRATOS: ReadonlySet<string> = new Set(Object.values(SECOP_FUENTE_ESTADO))
+
+/** Último OK de las fuentes de contratos de SECOP (para "actualizado el…"). Sin la tabla devuelve {}. */
 export async function loadSecopActualizado(db: SupabaseAdminClient = supabaseAdmin): Promise<SecopActualizado> {
   try {
     const rows = await loadFuentesEstado(db)
     const out: SecopActualizado = {}
-    for (const row of rows) if (row.fuente.toLowerCase().includes('secop')) out[row.fuente] = row.ultimo_ok
+    for (const row of rows) if (FUENTES_CONTRATOS.has(row.fuente)) out[row.fuente] = row.ultimo_ok
     return out
   } catch (error) {
     if (isMissingRelationError(error)) return {}

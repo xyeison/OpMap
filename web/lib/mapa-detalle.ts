@@ -24,12 +24,16 @@
 // "sin compras" (es "sin contratos de ortopedia o neurocirugía en SECOP en los últimos 12 meses").
 // Imports relativos (no '@/') para que las pruebas con tsx lo usen tal cual.
 import { addMonths, nitOfHospital, resolveGirosRange, sedeShares, type GiroNitResumen, type IntelHospital } from './adres-intelligence'
-import { SIN_CLASIFICAR, compareLineas, esFueraEscala, esOrto, esServicio, lineaPasaFiltro, ventanaMeses, type SecopFact } from './compras-publicas'
+import { SIN_CLASIFICAR, compareLineas, esFueraEscala, esOrto, esServicio, lineaPasaFiltro, normalizeLinea, safeUrl, ventanaMeses, type SecopFact } from './compras-publicas'
+import type { ProcesoRadarFila } from './secop-procesos'
 import {
   MAPA_VENTANA_MESES,
   type ComprasDetalle,
   type ComprasEstado,
   type GirosDetalle,
+  type ProcesoDetalle,
+  type ProcesoEstadoRadar,
+  type ProcesosDetalle,
   type ProveedorDetalle,
   type Ventana,
 } from './types/mapa-detalle'
@@ -67,7 +71,27 @@ export const MAPA_DETALLE_TEXTOS = {
   estimados: 'Estimados (SECOP I sin valor adjudicado)',
   fueraEscala: 'Fuera de escala (más de 50.000 millones por contrato, no suman)',
   fuentes: 'Fuentes: ADRES Identifica tu Giro (giro del NIT repartido por camas) · SECOP I/II (valor adjudicado)',
+  // Procesos de SECOP II publicados sin contrato (radar comercial, spec 2026-10-25). Nunca "abierto", "en curso",
+  // "licitación" ni "adjudicado a": en régimen especial el proceso queda "publicado" para siempre y el proveedor FIGURA.
+  /** Título de la sección (+ " · " + ventana.texto, como compras). */
+  tituloProcesos: 'Procesos publicados sin contrato (SECOP II)',
+  /** Nota fija de la sección: el precio base no es una compra ni se suma. */
+  notaProcesos: 'Precio base de la convocatoria. La entidad no registró el contrato en SECOP: confirmar con la entidad. No suma a las compras.',
+  /** Proceso sin ninguna empresa que figure. */
+  proveedorNoPublicado: 'Proveedor no publicado',
+  /** Empresa sacada del título del proceso (proveedor.origen = 'titulo'): a veces es otra empresa. */
+  proveedorTitulo: 'según el título del proceso',
+  /** Proveedor persona natural: nunca su nombre ni su documento. */
+  proveedorPersona: 'persona natural',
+  /** Enlace al expediente en SECOP. */
+  verProceso: 'Ver proceso',
 } as const
+
+/** Procesos que manda el servidor y que se ven sin desplegar: mapa 20 y 3 (12 meses); ficha 50 y 5 (24 meses). */
+export const PROCESOS_MAPA_MAX = 20
+export const PROCESOS_MAPA_VISIBLES = 3
+export const PROCESOS_FICHA_MAX = 50
+export const PROCESOS_FICHA_VISIBLES = 5
 
 export type TipoTerritorio = 'municipio' | 'localidad'
 
@@ -413,4 +437,79 @@ export function estadoCompras(ipsPublicas: number, hechos: number, esPrivada = f
   if (ipsPublicas <= 0) return 'sin_entidad_publica'
   if (hechos <= 0) return 'sin_contratos_12m'
   return 'con_datos'
+}
+
+// ---------------------------------------------------------------------------
+// Procesos de SECOP II publicados sin contrato (radar comercial, spec 2026-10-25)
+// ---------------------------------------------------------------------------
+
+const ESTADOS_RADAR: ReadonlySet<string> = new Set<ProcesoEstadoRadar>(['publicado', 'evaluacion', 'abierto', 'seleccionado'])
+
+/**
+ * Procesos del radar de un territorio (los NIT de sus IPS públicas) o de una IPS (su NIT entero: el precio base no se
+ * reparte entre sedes), a partir de las filas de loadProcesosRadar (vista secop_procesos_radar: ya sin contrato cargado).
+ *   - Solo los de la ventana (fecha de publicación entre ventana.desde y ventana.hasta) y en estado de radar; sin
+ *     repetidos por id. Orden: más reciente primero, luego precio base desc, luego id.
+ *   - total = todos los que pasan; procesos = los primeros `limite` (mapa PROCESOS_MAPA_MAX, ficha PROCESOS_FICHA_MAX).
+ *   - NUNCA suma el precio base: no hay ningún total de valor (no es una compra).
+ *   - Líneas con los códigos del catálogo de la UI (normalizeLinea: 'otros_implantes' → 'otros'), orden compareLineas.
+ *   - Proveedor: la empresa que figura (nombre; si la fuente solo trae el NIT, "NIT …"); persona natural → proveedor
+ *     null y proveedorPersona true, sin nombre ni documento; sin nadie → null ("Proveedor no publicado"). `vigilado` con
+ *     la lista vigilada activa si se pasa (si no, la marca guardada en la carga).
+ *   - null si no queda ninguno: la sección no aparece.
+ */
+export function resumirProcesos(
+  filas: readonly ProcesoRadarFila[],
+  opciones: { limite: number; ventana: Ventana; vigilados?: ReadonlySet<string> | null }
+): ProcesosDetalle | null {
+  const { ventana, vigilados } = opciones
+  const vistos = new Set<string>()
+  const enVentana: ProcesoRadarFila[] = []
+  for (const fila of filas) {
+    const fecha = fila.fecha_publicacion ? String(fila.fecha_publicacion).slice(0, 10) : null
+    if (!fecha || fecha < ventana.desde || fecha > ventana.hasta) continue
+    if (!ESTADOS_RADAR.has(fila.estado)) continue
+    if (vistos.has(fila.id_proceso)) continue
+    vistos.add(fila.id_proceso)
+    enVentana.push(fila)
+  }
+  if (enVentana.length === 0) return null
+  enVentana.sort(
+    (a, b) =>
+      String(b.fecha_publicacion).localeCompare(String(a.fecha_publicacion)) ||
+      (b.precio_base ?? -1) - (a.precio_base ?? -1) ||
+      a.id_proceso.localeCompare(b.id_proceso)
+  )
+  const limite = Math.max(0, Math.floor(opciones.limite))
+  const procesos = enVentana.slice(0, limite).map((fila): ProcesoDetalle => {
+    const nit = fila.es_persona ? null : fila.proveedor_nit ?? null
+    const nombre = fila.es_persona ? null : fila.proveedor_nombre ?? (nit ? `NIT ${nit}` : null)
+    const proveedor: ProcesoDetalle['proveedor'] =
+      !fila.es_persona && fila.proveedor_origen && nombre
+        ? {
+            nombre,
+            nit,
+            origen: fila.proveedor_origen,
+            vigilado: nit ? (vigilados ? vigilados.has(nit) : Boolean(fila.proveedor_vigilado_id)) : false,
+          }
+        : null
+    // Códigos del catálogo de la UI (normalizeLinea: 'otros_implantes' de la base → 'otros'), como las compras
+    const linea = normalizeLinea(fila.linea) ?? fila.linea
+    const lineas = Array.from(new Set([linea, ...(fila.lineas ?? []).map(l => normalizeLinea(l) ?? l)].filter(esOrto))).sort(compareLineas)
+    return {
+      id: fila.id_proceso,
+      referencia: fila.referencia ?? null,
+      entidad: fila.nombre_entidad ?? null,
+      nitEntidad: fila.nit_entidad,
+      precioBase: fila.precio_base === null || fila.precio_base === undefined ? null : Number(fila.precio_base),
+      fechaPublicacion: fila.fecha_publicacion ? String(fila.fecha_publicacion).slice(0, 10) : null,
+      lineas,
+      linea,
+      estado: fila.estado as ProcesoEstadoRadar,
+      proveedor,
+      proveedorPersona: Boolean(fila.es_persona),
+      url: safeUrl(fila.url),
+    }
+  })
+  return { ventana, total: enVentana.length, procesos }
 }

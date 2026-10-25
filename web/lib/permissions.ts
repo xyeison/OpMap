@@ -49,6 +49,10 @@ export type Permission =
   | 'territory:snapshot'       // Fase 2b: guardar versiones inmutables del anexo (line_leader solo SU línea)
   | 'municipalities:recompute' // Fase 2b: recalcular municipality_zone con la caché (sin Google)
   | 'intelligence:view'        // Fase 3: inteligencia de giros ADRES (/inteligencia, GET /api/intelligence/giros)
+  // Procesos de SECOP II sin contrato (radar comercial, spec 2026-10-25): la sección de las tarjetas del mapa y la tarjeta de
+  // la ficha. Los roles con intelligence:view y, además, los Ejecutivos Comerciales (sales_manager), que siguen sin ver
+  // las compras de SECOP ni /inteligencia. Nunca suma a las compras.
+  | 'secop:procesos'
   | 'kams:bogota-config'       // PR 3: Bogotá hacia afuera (k celdas, corredores, tope único). Solo admin
   | 'fuentes:manage'           // PR 7: panel "Fuentes de datos" (estado y "Actualizar ahora") y lista vigilada de SECOP. Solo admin
   | 'terceros:view'            // Fase 6 F1: ver cuentas, sedes, médicos (sin documento) y contactos (/terceros)
@@ -95,6 +99,7 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'territory:snapshot',
     'municipalities:recompute',
     'intelligence:view',
+    'secop:procesos',
     'kams:bogota-config',
     'fuentes:manage',
     'terceros:view',
@@ -120,6 +125,7 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'territory:view',    // Solo el anexo de su(s) ejecutivo(s) enlazado(s)
     'terceros:view',     // Fase 6 F1: terceros (cuentas, sedes, médicos sin documento, contactos)
     'terceros:create',
+    'secop:procesos',    // Radar de procesos de SECOP II sin contrato (2026-10-25); sin intelligence:view: ni compras ni /inteligencia
     'visits:report'      // Fase 7 F2: sus días libres y su cuota (si su usuario está enlazado a una ejecutiva)
   ],
   // Líder de línea: lo de sales_manager + editar su línea y su cobertura.
@@ -141,6 +147,7 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'territory:view',
     'territory:snapshot',
     'intelligence:view',
+    'secop:procesos',
     'terceros:view',
     'terceros:create',
     'visitantes:manage', // Solo en las líneas donde business_lines.leader_user_id = el usuario (lo limita la API)
@@ -170,6 +177,7 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'territory:view',
     'territory:snapshot',
     'intelligence:view',
+    'secop:procesos',
     'terceros:view',
     'terceros:create',
     'terceros:manage',
@@ -217,6 +225,7 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'map:all-lines',
     'territory:view',
     'intelligence:view',
+    'secop:procesos',
     'terceros:view',
     'terceros:create',
     'terceros:manage'
@@ -230,6 +239,7 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'map:all-lines',
     'territory:view',
     'intelligence:view',
+    'secop:procesos',
     'terceros:view'
   ],
   user: [

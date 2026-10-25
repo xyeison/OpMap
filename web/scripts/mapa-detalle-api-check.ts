@@ -386,8 +386,11 @@ function datosIniciales(): Tablas {
       { nit: PRECIMEC, dv: '1', nombre: 'PRECIMEC', ciudad: null, origen: 'manual', compras_gcp_cop: null, activo: false, nota: 'baja', updated_at: null },
     ],
     fuentes_estado: [
-      { fuente: 'secop2', nombre: 'SECOP II', programacion: null, ejecutor: null, ultimo_ok: '2026-10-24T06:00:00.000Z', ultimo_intento: null, estado: 'ok', filas: 10, mensaje: null, siguiente_programado: null },
-      { fuente: 'secop1', nombre: 'SECOP I', programacion: null, ejecutor: null, ultimo_ok: '2026-10-20T06:00:00.000Z', ultimo_intento: null, estado: 'ok', filas: 10, mensaje: null, siguiente_programado: null },
+      // Claves reales de fuentes_estado (lib/secop.ts SECOP_FUENTE_ESTADO). secop_procesos (radar, 0890) es más reciente pero
+      // no es una fuente de contratos: no cuenta para "SECOP actualizado el…" de compras.
+      { fuente: 'secop_ii', nombre: 'SECOP II · Contratos', programacion: null, ejecutor: null, ultimo_ok: '2026-10-24T06:00:00.000Z', ultimo_intento: null, estado: 'ok', filas: 10, mensaje: null, siguiente_programado: null },
+      { fuente: 'secop_i', nombre: 'SECOP I · Contratos', programacion: null, ejecutor: null, ultimo_ok: '2026-10-20T06:00:00.000Z', ultimo_intento: null, estado: 'ok', filas: 10, mensaje: null, siguiente_programado: null },
+      { fuente: 'secop_procesos', nombre: 'SECOP II · Procesos sin contrato', programacion: null, ejecutor: null, ultimo_ok: '2026-10-25T06:30:00.000Z', ultimo_intento: null, estado: 'ok', filas: 10, mensaje: null, siguiente_programado: null },
       { fuente: 'adres_identifica', nombre: 'ADRES', programacion: null, ejecutor: null, ultimo_ok: '2026-10-25T06:00:00.000Z', ultimo_intento: null, estado: 'ok', filas: 10, mensaje: null, siguiente_programado: null },
     ],
     municipalities: Object.values(MUNICIPIOS).map(m => ({ code: m.id, name: m.name, department_code: m.dep, population_2025: 100000 })),
@@ -580,7 +583,7 @@ async function main() {
     eq('la RPC adres_giros_nits recibió SOLO los NIT del municipio', nitsPedidos(buc.requests, 'adres_giros_nits'), [[NIT_A, NIT_B, NIT_D].sort()])
     eq('secop_hechos recibió SOLO los NIT del municipio y la ventana de 12 meses', cuerpoRpc(buc.requests, 'secop_hechos').map(b => [[...b.p_nits].sort(), b.p_desde, b.p_hasta]), [[[NIT_A, NIT_B, NIT_D].sort(), V_SECOP.desde, HOY]])
     eq('compras: solo material ortopédico de entidades públicas, parte por camas (A 60 %): 1800 + 1100 + 60', [body.compras?.valor, body.compras?.contratos, body.compras?.entidades], [2960, 5, 2])
-    eq('compras: ventana SECOP (12 meses hasta hoy) y actualizado = último OK de las fuentes secop*', [body.compras?.ventana, body.compras?.actualizado], [V_SECOP, '2026-10-24T06:00:00.000Z'])
+    eq('compras: ventana SECOP (12 meses hasta hoy) y actualizado = último OK de las fuentes de contratos (no secop_procesos)', [body.compras?.ventana, body.compras?.actualizado], [V_SECOP, '2026-10-24T06:00:00.000Z'])
     eq('proveedores por valor: PRECIMEC, OSTEOCOL, ANTIGUO (estimado suma)', proveedores(body), [
       ['JAIMES RUEDA Y COMPAÑIA PRECIMEC S.A.S', 1800, 1],
       ['OSTEOCOL SAS', 1100, 3],

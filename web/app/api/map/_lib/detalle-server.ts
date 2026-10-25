@@ -243,6 +243,8 @@ export async function cargarDetalleTerritorio(tipo: TerritorioTipo, code: string
       compras: null,
       comprasEstado: 'sin_entidad_publica',
       notas: [textoSinIps(tipo)],
+      procesos: null,
+      alcance: 'completo',
     }
   }
 
@@ -260,6 +262,8 @@ export async function cargarDetalleTerritorio(tipo: TerritorioTipo, code: string
       compras: null,
       comprasEstado: 'sin_nit',
       notas: notas([notaEstadoCompras('sin_nit', tipo)]),
+      procesos: null,
+      alcance: 'completo',
     }
   }
   const vGiros = ventanaGiros(bounds?.max ?? null)
@@ -292,6 +296,9 @@ export async function cargarDetalleTerritorio(tipo: TerritorioTipo, code: string
     compras,
     comprasEstado,
     notas: notas([notaEstadoCompras(comprasEstado, tipo), giros?.estimadoPorCamas ? MAPA_DETALLE_TEXTOS.estimadoPorCamas : null]),
+    // Procesos de SECOP II sin contrato (spec 2026-10-25): los completa la parte del mapa (loadProcesosRadar + resumirProcesos)
+    procesos: null,
+    alcance: 'completo',
   }
 }
 
@@ -317,6 +324,8 @@ export async function cargarDetalleIps(id: string, db: SupabaseAdminClient = sup
       compras: null,
       comprasEstado: 'sin_nit',
       notas: notas([MAPA_DETALLE_TEXTOS.sinNit]),
+      procesos: null,
+      alcance: 'completo',
     }
   }
 
@@ -352,6 +361,9 @@ export async function cargarDetalleIps(id: string, db: SupabaseAdminClient = sup
     comprasEstado,
     // Con n > 1 sedes la nota de parte ya dice "reparto por camas": no se repite la de estimación.
     notas: notas([notaEstadoCompras(comprasEstado), notaParteSede(parte.nit, parte.sedesNit)]),
+    // Procesos de SECOP II sin contrato (spec 2026-10-25): los completa la parte del mapa (loadProcesosRadar + resumirProcesos)
+    procesos: null,
+    alcance: 'completo',
   }
 }
 
