@@ -197,6 +197,13 @@ que ya existían, con los estilos `.opmap-popup__section`, `__section-title`, `_
   patrón de `unassigned-optimized`): `GET /api/map/detalle/territorio?tipo=municipio|localidad&code=…` y
   `GET /api/map/detalle/ips/[id]`. Los globos (tooltips) y `territoryTooltipHtml` no cambian.
 
+
+**Alto de las tarjetas (2026-10-25, arreglo de uso, sin cambio de colores ni capas).** Con giros, compras y proveedores una
+tarjeta de municipio llegaba a 1.248 px y su final (lo aparte, las fuentes, la población y la Zona) quedaba fuera de la
+pantalla sin forma de verlo. Ahora la tarjeta tiene un alto máximo (el del mapa menos los márgenes del encuadre, y en
+celular menos la hoja inferior) y se desplaza por dentro; se vuelve a medir cuando llegan los datos o se despliegan todos
+los proveedores (`popupMaxHeight` y `MapPopup` en `components/MapPopups.tsx`).
+
 ### Lógica de Coloreado de Territorios Compartidos
 Para cualquier territorio (municipio o localidad) donde múltiples KAMs tienen IPS:
 

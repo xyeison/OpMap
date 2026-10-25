@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { Popup } from 'react-leaflet'
 import type L from 'leaflet'
@@ -25,6 +25,23 @@ export function popupMaxWidth(): number {
   return Math.max(220, Math.min(340, Math.floor(window.innerWidth * 0.92) - 2))
 }
 
+/**
+ * Alto máximo de la tarjeta: el alto del mapa menos los márgenes del encuadre (arriba 12 px, abajo `bottomPadding`) y la
+ * punta. Si el contenido es más alto (p. ej. un municipio con giros, compras y seis proveedores), se desplaza dentro de
+ * la tarjeta en vez de salirse de la pantalla.
+ */
+export function popupMaxHeight(mapHeight: number, bottomPadding: number): number {
+  return Math.max(200, Math.floor(mapHeight - 12 - bottomPadding - 44))
+}
+
+/** Vuelve a medir y encuadrar la tarjeta abierta con el tope de alto vigente (react-leaflet solo mide al abrir). */
+function ajustarPopup(popup: L.Popup | null, bottomPadding: number) {
+  const map = (popup as unknown as { _map?: L.Map } | null)?._map
+  if (!popup || !map || !popup.isOpen()) return
+  popup.options.maxHeight = popupMaxHeight(map.getSize().y, bottomPadding)
+  popup.update()
+}
+
 interface MapPopupProps {
   // Identifica esta apertura: al cerrarse solo limpia el estado si sigue siendo la tarjeta vigente
   nonce: number
@@ -37,6 +54,8 @@ interface MapPopupProps {
 }
 
 export function MapPopup({ nonce, position, offset, bottomPadding, onClose, children }: MapPopupProps) {
+  const popupRef = useRef<L.Popup | null>(null)
+  const observerRef = useRef<ResizeObserver | null>(null)
   const eventHandlers = useMemo(() => ({
     // Leaflet etiqueta la X en inglés ("Close popup")
     add: (e: { target: L.Popup }) => {
@@ -44,8 +63,30 @@ export function MapPopup({ nonce, position, offset, bottomPadding, onClose, chil
     },
     remove: () => onClose(nonce)
   }), [nonce, onClose])
+
+  // La tarjeta cambia de alto después de abrir: llegan los giros y compras, o se despliegan todos los proveedores.
+  // Cada cambio vuelve a aplicar el tope de alto (desplazamiento dentro) y a encuadrarla en el mapa.
+  const contenidoRef = useCallback((node: HTMLDivElement | null) => {
+    observerRef.current?.disconnect()
+    observerRef.current = null
+    if (!node || typeof ResizeObserver === 'undefined') return
+    let alto = -1
+    let frame = 0
+    const observer = new ResizeObserver(entries => {
+      const nuevo = entries[0]?.contentRect.height ?? 0
+      if (Math.abs(nuevo - alto) < 1) return
+      alto = nuevo
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => ajustarPopup(popupRef.current, bottomPadding))
+    })
+    observer.observe(node)
+    observerRef.current = observer
+  }, [bottomPadding])
+  useEffect(() => () => observerRef.current?.disconnect(), [])
+
   return (
     <Popup
+      ref={popupRef}
       position={position}
       offset={offset ?? [0, 7]}
       maxWidth={popupMaxWidth()}
@@ -55,7 +96,7 @@ export function MapPopup({ nonce, position, offset, bottomPadding, onClose, chil
       autoPanPaddingBottomRight={[12, bottomPadding]}
       eventHandlers={eventHandlers}
     >
-      {children}
+      <div ref={contenidoRef}>{children}</div>
     </Popup>
   )
 }
