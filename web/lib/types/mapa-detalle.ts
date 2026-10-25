@@ -67,8 +67,12 @@ export interface ProcesosDetalle {
  * un Ejecutivo Comercial: giros y compras en null, solo la sección de procesos).
  */
 export type AlcanceDetalle = 'completo' | 'procesos'
-/** 'sin_nit': el código de la IPS no es un NIT válido; no se puede cruzar con la ADRES ni con SECOP (estado neutro). */
-export type ComprasEstado = 'con_datos' | 'sin_contratos_12m' | 'sin_entidad_publica' | 'ips_privada' | 'sin_nit'
+/**
+ * 'sin_nit': el código de la IPS no es un NIT válido; no se puede cruzar con la ADRES ni con SECOP (estado neutro).
+ * 'no_incluido': alcance 'procesos' (sin intelligence:view): las compras no se leyeron, así que no se dice nada de ellas
+ * (ni "con datos" ni "sin contratos"); no tiene nota y la tarjeta no pinta la sección de compras.
+ */
+export type ComprasEstado = 'con_datos' | 'sin_contratos_12m' | 'sin_entidad_publica' | 'ips_privada' | 'sin_nit' | 'no_incluido'
 export interface TerritorioDetalle {
   territorio: { code: string; tipo: 'municipio' | 'localidad'; nombre: string; departamento: string | null }
   ips: { total: number; publicas: number }
