@@ -56,7 +56,7 @@ nada llama a Google.
   `executives`; líneas de negocio = `business_lines`; quién cubre cada zona por línea = `coverage`.
 - **Unidades**: `travel_time` en `assignments` y `hospital_kam_distances` está en SEGUNDOS. Minutos solo
   en `kams.max_travel_time` y `business_lines.max_reach_minutes`. Coordenadas con 6 decimales.
-- **Bogotá hacia afuera** compite como UNA ciudad: mejor tiempo entre sus celdas, tope único `bogota_config.max_travel_minutes` (no el `max_travel_time` de cada celda) y la celda la decide el corredor del municipio (`bogota_corredores` + `bogota_config.grupos`), no los minutos; dentro de Bogotá, forzadas y territorio base no cambian (`docs/algoritmo-asignacion.md`).
+- **Bogotá hacia afuera** compite como UNA ciudad: mejor tiempo entre sus celdas, tope único `bogota_config.max_travel_minutes` (no el `max_travel_time` de cada celda; 360 min desde el 2026-10-28) y la celda la decide el corredor del municipio (`bogota_corredores` + `bogota_config.grupos`), no los minutos; dentro de Bogotá, forzadas y territorio base no cambian (`docs/algoritmo-asignacion.md`). Vale para las IPS y, desde el 2026-10-28, también para los municipios sin IPS (`lib/municipality-coverage.ts`, `docs/decisiones/2026-10-28-municipios-por-corredor-de-bogota.md`). Guardar la configuración no recalcula.
 - **Municipios sin IPS** se reparten por tiempo REAL de carretera (Google, driving). Nunca por línea
   recta. Sin ruta → `no_road` (nadie); sobre el tope de la zona → `out_of_reach` (nadie).
 - **Google Maps cuesta dinero** (0,005 USD/elemento). Solo llama `web/lib/google-distance.ts` y los flujos

@@ -4,6 +4,8 @@
  * Regla del dueño: los municipios SIN IPS se reparten por TIEMPO REAL DE CARRETERA (Google Distance
  * Matrix, driving) desde la ciudad base de cada zona candidata; nunca por línea recta. Sin ruta →
  * "sin acceso terrestre" (no se asigna); por encima del tope de la zona → "fuera de alcance".
+ * Bogotá hacia afuera compite como UNA ciudad (mejor tiempo de sus celdas, tope único de bogota_config) y
+ * la celda la decide el corredor del municipio, igual que en el algoritmo de IPS (dueño, 2026-10-28).
  *
  * Modos (desde web/):
  *   npx tsx scripts/fase2b-municipios.ts                       → --dry-run (por defecto)
@@ -30,6 +32,7 @@ import {
   planGoogleRequests,
   recomputeAndSaveMunicipalityZones,
   runMunicipalityTravelTimes,
+  type BogotaRuleSummary,
   type DryRunReport,
   type MunicipalityZoneKind,
   type RunSummary,
@@ -92,6 +95,21 @@ const KIND_LABEL: Record<MunicipalityZoneKind, string> = {
 }
 const KINDS: MunicipalityZoneKind[] = ['ips', 'reach', 'out_of_reach', 'no_road', 'pending']
 
+const BOGOTA_RULE_LABEL: Record<BogotaRuleSummary['status'], string> = {
+  activa: 'activa',
+  sin_tablas: 'sin tablas (cada celda compite sola con su tope)',
+  sin_config: 'sin configuración (cada celda compite sola con su tope)',
+  config_invalida: 'configuración inválida (cada celda compite sola con su tope)',
+  sin_corredores: 'sin corredores (cada celda compite sola con su tope)',
+}
+
+function bogotaRuleLine(rule: BogotaRuleSummary): string {
+  return (
+    `Regla de Bogotá (una ciudad, celda por corredor): ${BOGOTA_RULE_LABEL[rule.status]}` +
+    (rule.max_travel_minutes !== null ? ` · tope único ${num(rule.max_travel_minutes)} min` : '')
+  )
+}
+
 function reportLines(report: DryRunReport): string[] {
   const t = report.totals
   const p = report.pairs
@@ -102,6 +120,7 @@ function reportLines(report: DryRunReport): string[] {
       ? 'Caché: la tabla municipality_travel_times NO existe todavía (migración 0500 sin aplicar): se asume caché vacía.'
       : 'Caché: municipality_travel_times disponible.'
   )
+  lines.push(bogotaRuleLine(report.bogota_rule))
   lines.push(`Municipios: ${num(t.municipalities)}`)
   lines.push(`  Con IPS objetivo (kind 'ips', regla de mayoría por camas): ${num(t.with_ips)}`)
   lines.push(`  Municipio base de una zona, sin IPS ('reach' a 0 min, sin Google): ${num(t.base_without_ips)}`)
@@ -238,6 +257,7 @@ async function assign(): Promise<string[]> {
   const result = await recomputeAndSaveMunicipalityZones()
   const lines = [
     ...(result.travel_times_table_missing ? ['Aviso: municipality_travel_times no existe; todo lo que necesita tiempo por carretera queda pending.'] : []),
+    bogotaRuleLine(result.bogota_rule),
     `municipality_zone guardada (${num(result.rows.length)} municipios, computed_at ${result.computed_at}):`,
     ...KINDS.map(kind => `  ${KIND_LABEL[kind]}: ${num(result.counts[kind])}`),
   ]
