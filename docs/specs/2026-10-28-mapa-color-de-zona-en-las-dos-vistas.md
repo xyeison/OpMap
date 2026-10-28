@@ -20,8 +20,9 @@ distinguen (ΔE mínimo 2,2–3,7 en los municipios de alcance).
 - Leyenda de la vista por línea: cada Ejecutivo Comercial con un chip del color de su Zona (la que cubre como local; si
   no, la primera de sus Zonas en orden de ciudad base) y, si cubre varias, una mini-muestra por Zona con el color de cada
   Zona. El filtro por Ejecutivo Comercial usa el mismo chip.
-- Racimos: con un solo color entre sus Zonas, ese color; con Zonas de colores distintos, neutro (como en la vista de
-  Zonas); todas sin cobertura, hueco pizarra (como hoy).
+- Racimos, con una sola regla para las dos vistas: con un solo color entre sus Zonas, ese color; con Zonas de colores
+  distintos, neutro; todas sin cobertura, hueco pizarra (como hoy). En la vista de Zonas solo cambia algo si dos Zonas
+  que se juntan comparten color (hoy son todas distintas).
 - Se deja de usar `executives.color` en el mapa (sigue guardado; no se borra) y se quitan los tonos por Zona.
 
 ## Criterios de aceptación

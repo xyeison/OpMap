@@ -76,7 +76,7 @@ export const IPS_POINT_BORDER_WEIGHT = 1.5
 // pequeño, distinto del pizarra de las IPS de una zona vacante (esas sí tienen zona, falta quién la cubra)
 export const IPS_UNZONED_COLOR = '#9ca3af'
 
-// Racimo de insignias de zonas de varios Ejecutivos Comerciales (o varias zonas en la vista de zonas)
+// Racimo de insignias de zonas de colores distintos (colorDeRacimo)
 export const CLUSTER_NEUTRAL_COLOR = '#334155'
 
 // Zona sin datos de cobertura (o que ya no está en el mapa): gris claro

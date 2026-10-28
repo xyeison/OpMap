@@ -1,7 +1,7 @@
 import L from 'leaflet'
 
 // Pin de zona: insignia circular con las INICIALES de la ciudad base sobre el color de la vista
-// (Ejecutivo Comercial en la línea, zona en la vista de zonas), anillo blanco, sombra suave y una
+// (el de la Zona en las dos vistas; en la línea, el del estado si no hay cobertura), anillo blanco, sombra suave y una
 // punta corta. Se ancla en la punta para que el círculo quede por encima de la ciudad base y no tape
 // los puntos de IPS que están justo en esa ubicación. Las zonas que se tocan en pantalla se dibujan
 // como un "racimo" con el número de zonas (ZoneBadgeLayer.tsx).

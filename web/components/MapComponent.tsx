@@ -171,7 +171,8 @@ export interface MapLine {
   role: 'leader' | 'executive' | 'all'
 }
 
-// 'line': territorios coloreados por el Ejecutivo Comercial que cubre la zona en la línea elegida.
+// 'line': cobertura de la línea elegida (quién cubre cada zona); desde el 2026-10-28 cada zona cubierta va con su color
+// (kams.color) y los estados de la línea (sin cobertura, conflicto) con los suyos.
 // 'zones': colores por zona (kams.color). Desde el 2026-10-14 la abre todo el que ve el mapa ("Ver por" de la leyenda).
 export type MapMode = 'line' | 'zones'
 
@@ -809,9 +810,9 @@ export default function MapComponent({
     return colorDeZonaEnLinea(lineView.byKam[kamId], kamColors[kamId], () => grisZona(kamId))
   }, [lineView, kamColors, grisZona])
 
-  // ---------- Color: una sola fuente de verdad por vista ----------
-  // Vista por línea: Ejecutivo Comercial que cubre la zona (un tono por zona si cubre varias). Vista de
-  // zonas: color de la zona. Lo usan polígonos, puntos y pines. (El modo Regiones se quitó el 2026-10-14.)
+  // ---------- Color: una sola fuente de verdad ----------
+  // El color de la Zona (kams.color) en las dos vistas (dueño, 2026-10-28); en la vista por línea mandan los estados
+  // (zoneLineColor). Lo usan polígonos, puntos y pines. (El modo Regiones se quitó el 2026-10-14.)
   const colorForZone = useCallback((kamId: string | null | undefined): string => {
     if (!kamId) return NO_COVERAGE_DATA_COLOR
     if (isLineMode) return zoneLineColor(kamId)
@@ -2062,10 +2063,9 @@ export default function MapComponent({
             <circle cx="3" cy="3" r="0.9" fill={NO_ROAD_DOT_COLOR} fillOpacity="0.6" />
           </pattern>
           {isLineMode && lineView && Array.from(new Set([
-              // Colores de las Zonas (los de la vista de Zonas: una zona cubierta sin equipo lleva el rayado de su color)
-              ...Object.values(kamColors).map(c => safeColor(c)),
-              // Grises de las Zonas sin cobertura (una sin equipo lleva el rayado de su gris)
-              ...lineView.rows.filter(r => r.kind === 'vacant').map(r => grisZona(r.kam_id)),
+              // El color con que se pinta cada zona de la línea (zoneLineColor: su color, su gris o el ámbar): una zona
+              // sin equipo lleva el rayado de ese mismo color
+              ...lineView.rows.map(r => safeColor(zoneLineColor(r.kam_id), NO_COVERAGE_DATA_COLOR)),
               VACANT_COLOR,
               VACANT_FILL_COLOR,
               CONFLICT_COLOR,

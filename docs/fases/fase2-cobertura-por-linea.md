@@ -11,7 +11,9 @@ contraseña de los 2 usuarios nuevos desde `/users`.
 - **Modelo (0400)**:
   - `kams.name` pasa a nombre comercial de la zona ("Atlántico y Magdalena", "Bogotá – Chapinero",
     "Tolima"…) y `kams.base_city` guarda la ciudad base ("Barranquilla", "Chapinero", "Ibagué").
-  - `executives.color` (#RRGGBB, paleta categórica de 13): color de la ejecutiva en el mapa por línea.
+  - `executives.color` (#RRGGBB, paleta categórica de 13): era el color de la ejecutiva en el mapa por línea.
+    *Superado el 2026-10-28* (`docs/decisiones/2026-10-28-mapa-un-color-por-zona.md`): el mapa pinta cada Zona con
+    `kams.color` en las dos vistas; `executives.color` sigue guardado pero el mapa no lo usa.
   - `coverage`: `kind` ∈ local | reach | manual | vacant | conflict; columnas `nearest_executive_id`,
     `nearest_minutes`, `has_equipment`, `note`. Una fila por (línea activa, zona activa), también vacantes.
   - Roles nuevos `line_leader` (m.cobo@ – PerOssal, sramirez@ – Reemplazo, mn@ – Columna,
@@ -56,7 +58,8 @@ contraseña de los 2 usuarios nuevos desde `/users`.
   tiene líneas ni contracts:view no recibe contratos (`contractsIncluded: false`) (`scripts/mapa-zonas-api-check.ts`).
 - **Mapa** (`/map?line=<code>`): en la vista por Ejecutivos Comerciales elegir línea es obligatorio (modal si hay
   varias; "No tienes líneas asignadas" si ninguna, con el botón "Ver el mapa por zonas"); la vista de zonas
-  (`?mode=zones`, dueño 2026-10-14) abre sin elegir línea. Territorios e IPS con el color de la ejecutiva que cubre la zona en esa línea;
+  (`?mode=zones`, dueño 2026-10-14) abre sin elegir línea. Territorios e IPS de una zona cubierta con el color de la Zona
+  (`kams.color`, desde el 2026-10-28; antes, el de la ejecutiva que la cubría en esa línea);
   vacante: polígono pizarra #94a3b8 (0.5 con IPS, 0.3 de alcance) con borde #64748b, insignia hueca
   pizarra con "—" e IPS #64748b; conflicto ámbar #f59e0b; sin equipo con
   trama y opacidad baja. Tooltip con zona, ciudad base, línea y tipo de cobertura. Todo el que ve el mapa

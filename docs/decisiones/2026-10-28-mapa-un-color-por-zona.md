@@ -14,8 +14,9 @@ comerciales y Zonas. Deberia ser el mismo. Maneja el mismo color de Zonas."
 3. Leyenda y filtro de la vista por línea: el chip de cada Ejecutivo Comercial lleva el color de la Zona donde es local
    (si no es local en ninguna, el de la primera de sus Zonas por ciudad base); si cubre varias, una mini-muestra por
    Zona con el color de cada una. Sigue "(zona 2 de 4)" en la tarjeta.
-4. Racimos: con un solo color entre sus Zonas, ese color; con colores distintos, neutro (#334155), igual que en la
-   vista de Zonas; todas sin cobertura, hueco pizarra.
+4. Racimos (regla única para las dos vistas): con un solo color entre sus Zonas, ese color; con colores distintos,
+   neutro (#334155); todas sin cobertura, hueco pizarra. En la vista de Zonas solo cambia algo si dos Zonas que se
+   juntan tienen el mismo color (hoy todas son distintas); en la línea, un racimo de Zonas "sin datos" va en #cccccc.
 5. Se quitan los tonos por Zona (`zoneTint`). `executives.color` sigue guardado, pero el mapa ya no lo usa.
 
 **Consecuencias**:
