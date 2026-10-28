@@ -26,8 +26,11 @@ dueño: "Si dale."
 - El reparto queda por cuadrantes, pero no parejo en número de municipios: fuera de Bogotá, Chapinero 150 (casi
   todo Boyacá), San Cristóbal 46, Engativá 36 y Kennedy 18 (al sur, Huila es de Neiva y Tolima de Ibagué). Si el
   dueño quiere emparejarlo, se mueven corredores (por ejemplo, provincias de Boyacá al oriente): es otra decisión.
-- Las asignaciones forzadas no cambian. **Yopal** (Casanare, corredor oriente) sigue forzado a Kennedy
-  ("trayecto aéreo"): queda como una isla de Kennedy dentro de San Cristóbal. Pregunta abierta al dueño.
+- Las asignaciones forzadas no cambian en este paso. Después el dueño pidió quitarlas todas ("quiero revisar el propio
+  sistema que propone"); la 0901 las desactiva con respaldo, pero queda pendiente: los tiempos de las IPS de Meta y
+  Casanare desde Bogotá son del 2025-08-07, con la vía al Llano cerrada, y sin recalcularlos (Google, con autorización)
+  las 22 IPS de Villavicencio, Granada y Yopal quedarían sin zona. Tunja y Duitama no eran forzadas: estaban en Engativá
+  porque las IPS no se recalculaban desde el 2026-10-11; con el recálculo pasan a Chapinero (corredor norte).
 - Guardar la configuración de Bogotá en `/kams` sigue sin recalcular: aplica en el próximo recálculo.
 
 **Dónde vive en el código**: `decideByTravelTime` en `web/lib/municipality-coverage.ts` (usa

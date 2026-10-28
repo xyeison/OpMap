@@ -16,15 +16,20 @@
 BEGIN;
 
 DO $$
+DECLARE
+  respaldo text;
+  tiene_filas boolean;
 BEGIN
-  IF to_regclass('public.assignments_respaldo_20261028') IS NULL
-     OR NOT EXISTS (SELECT 1 FROM public.assignments_respaldo_20261028) THEN
-    RAISE EXCEPTION '9951: no hay respaldo de assignments (¿se aplicó la 0900?)';
-  END IF;
-  IF to_regclass('public.municipality_zone_respaldo_20261028') IS NULL
-     OR NOT EXISTS (SELECT 1 FROM public.municipality_zone_respaldo_20261028) THEN
-    RAISE EXCEPTION '9951: no hay respaldo de municipality_zone (¿se aplicó la 0900?)';
-  END IF;
+  -- Con EXECUTE: un SELECT directo sobre una tabla que no existe falla al planear
+  FOREACH respaldo IN ARRAY ARRAY['assignments_respaldo_20261028', 'municipality_zone_respaldo_20261028'] LOOP
+    IF to_regclass('public.' || respaldo) IS NULL THEN
+      RAISE EXCEPTION '9951: no existe % (¿se aplicó la 0900?)', respaldo;
+    END IF;
+    EXECUTE format('SELECT EXISTS (SELECT 1 FROM public.%I)', respaldo) INTO tiene_filas;
+    IF NOT tiene_filas THEN
+      RAISE EXCEPTION '9951: % está vacío', respaldo;
+    END IF;
+  END LOOP;
 END $$;
 
 UPDATE public.bogota_config SET max_travel_minutes = 240 WHERE id = 1;

@@ -17,7 +17,7 @@
 --      migración ya corrió: se aborta sin tocar nada).
 --   2. Respaldo: assignments_respaldo_20261028 y municipality_zone_respaldo_20261028 (copia completa + respaldado_en),
 --      con RLS sin políticas y sin permisos para anon/authenticated (solo service_role), como los demás respaldos.
---   3. bogota_config.max_travel_minutes = 360 (antes 240). k, grupos y corredores no cambian.
+--   3. bogota_config.max_travel_minutes = 360 (antes 240). k, grupos, corredores y forzadas no cambian.
 --   4. Comprobación final: respaldos con las mismas filas que las tablas y tope en 360.
 --
 -- Guardar el tope NO recalcula: hasta correr los dos scripts de arriba, el mapa sigue igual.
@@ -27,18 +27,22 @@
 BEGIN;
 
 DO $$
+DECLARE
+  respaldo text;
+  tiene_filas boolean;
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM public.bogota_config WHERE id = 1) THEN
     RAISE EXCEPTION '0900: falta la fila id = 1 de bogota_config (migración 0700)';
   END IF;
-  IF to_regclass('public.assignments_respaldo_20261028') IS NOT NULL
-     AND EXISTS (SELECT 1 FROM public.assignments_respaldo_20261028) THEN
-    RAISE EXCEPTION '0900: assignments_respaldo_20261028 ya tiene filas: la migración ya se aplicó';
-  END IF;
-  IF to_regclass('public.municipality_zone_respaldo_20261028') IS NOT NULL
-     AND EXISTS (SELECT 1 FROM public.municipality_zone_respaldo_20261028) THEN
-    RAISE EXCEPTION '0900: municipality_zone_respaldo_20261028 ya tiene filas: la migración ya se aplicó';
-  END IF;
+  -- Con EXECUTE: un SELECT directo sobre una tabla que aún no existe falla al planear, aunque el IF no llegue a él
+  FOREACH respaldo IN ARRAY ARRAY['assignments_respaldo_20261028', 'municipality_zone_respaldo_20261028'] LOOP
+    IF to_regclass('public.' || respaldo) IS NOT NULL THEN
+      EXECUTE format('SELECT EXISTS (SELECT 1 FROM public.%I)', respaldo) INTO tiene_filas;
+      IF tiene_filas THEN
+        RAISE EXCEPTION '0900: % ya tiene filas: la migración ya se aplicó', respaldo;
+      END IF;
+    END IF;
+  END LOOP;
 END $$;
 
 CREATE TABLE IF NOT EXISTS public.assignments_respaldo_20261028 AS
