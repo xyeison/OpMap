@@ -7,7 +7,7 @@ import { readableTextColor } from './ZoneBadgeIcon'
 // zonas con su color, estados de los territorios y capas visibles. La misma pieza va en la tarjeta de
 // escritorio y en la hoja inferior de móvil.
 
-// Zona de un Ejecutivo Comercial con varias zonas: mini-muestra con su tono en el mapa
+// Zona de un Ejecutivo Comercial con varias zonas: mini-muestra con el color de la Zona en el mapa
 export interface LegendZone {
   key: string
   color: string
@@ -285,7 +285,7 @@ export default function MapLegend({
                     </span>
                   </button>
                   {entry.zones && entry.zones.length > 1 && onHighlightZone && (
-                    // Una mini-muestra por zona con su tono; tocarla resalta solo esa zona
+                    // Una mini-muestra por zona con su color; tocarla resalta solo esa zona
                     <div className={`flex flex-wrap gap-1 pl-[34px] ${touch ? 'pb-1' : 'pb-1.5 -mt-0.5'} ${faded ? 'opacity-50' : ''}`}>
                       {entry.zones.map(zone => {
                         const zoneActive = active && highlightZoneKey === zone.key

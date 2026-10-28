@@ -62,7 +62,8 @@ async function selectWithFallback<T>(
 /**
  * Cobertura de la línea elegida, con la MISMA forma que GET /api/coverage (lib/coverage.ts:
  * filas guardadas o, si la línea aún no se ha recalculado nunca, calculadas en memoria), más los
- * Ejecutivos Comerciales de la línea (activos o por contratar) con su color, para la leyenda.
+ * Ejecutivos Comerciales de la línea (activos o por contratar) para la leyenda (su color guardado ya no
+ * pinta el mapa desde el 2026-10-28: el chip toma el color de su Zona).
  */
 async function loadLineCoverage(line: CoverageLineInfo) {
   const [coverage, linksResult] = await Promise.all([

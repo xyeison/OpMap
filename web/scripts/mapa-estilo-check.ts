@@ -1,7 +1,8 @@
 /**
  * Estilo del mapa · pruebas puras de grisDeZona (components/mapStyles.ts): el gris con un tono por Zona para
  * "Sin cobertura" en la vista por línea, autorizado por el dueño el 2026-10-23 (spec
- * docs/specs/2026-10-23-zonas-por-linea-para-lideres.md). SIN red ni Supabase.
+ * docs/specs/2026-10-23-zonas-por-linea-para-lideres.md); y del color de Zona en las dos vistas (dueño, 2026-10-28,
+ * docs/specs/2026-10-28-mapa-color-de-zona-en-las-dos-vistas.md). SIN red ni Supabase.
  *
  * Reglas: con las 16 Zonas activas salen 16 grises distintos y deterministas (la misma Zona da el mismo valor en
  * cualquier orden de entrada); formato hsl(h, 8%, L%) con L en rampa de 42 a 80 sobre las Zonas ordenadas por nombre
@@ -12,6 +13,7 @@
  * Código de salida 1 si alguna prueba falla.
  */
 import {
+  CLUSTER_NEUTRAL_COLOR,
   CONFLICT_FILL_COLOR,
   CONFLICT_FILL_OPACITY,
   IPS_FILL_OPACITY,
@@ -25,8 +27,11 @@ import {
   VACANT_FILL_OPACITY,
   VACANT_REACH_FILL_OPACITY,
   VACANT_STATE_COLOR,
+  NO_COVERAGE_DATA_COLOR,
+  colorDeEjecutivoEnLinea,
+  colorDeRacimo,
+  colorDeZonaEnLinea,
   grisDeZona,
-  zoneTint,
 } from '../components/mapStyles'
 
 let passed = 0
@@ -151,9 +156,44 @@ console.log('\n4. Nada más de la estética autorizada el 2026-10-11 cambia')
   eq('opacidades de IPS y alcance intactas', [IPS_FILL_OPACITY, REACH_FILL_OPACITY], [0.55, 0.22])
   eq('borde de municipios intacto', [TERRITORY_BORDER_COLOR, TERRITORY_BORDER_WEIGHT], ['#ffffff', 0.6])
   eq('conflicto intacto', [CONFLICT_FILL_COLOR, CONFLICT_FILL_OPACITY], ['#f59e0b', 0.4])
-  eq('zoneTint sigue igual: una sola zona devuelve el color base', zoneTint('#ff0000', 0, 1), '#ff0000')
-  eq('zoneTint sigue igual: la primera de varias conserva el color base', zoneTint('#ff0000', 0, 3), '#ff0000')
-  check('zoneTint sigue igual: la segunda aclara', zoneTint('#ff0000', 1, 3) !== '#ff0000' && /^#[0-9a-f]{6}$/.test(zoneTint('#ff0000', 1, 3)))
+}
+
+// ---------------------------------------------------------------------------------------------
+console.log('\n5. Un solo color por Zona en las dos vistas (dueño, 2026-10-28)')
+// ---------------------------------------------------------------------------------------------
+{
+  const gris = () => '#9aa0a6'
+  const azul = '#2563EB'
+  eq('zona cubierta (local): el color de la Zona, como en la vista de Zonas', colorDeZonaEnLinea({ kind: 'local', executive: { id: 'e1' } }, azul, gris), azul)
+  eq('zona cubierta por alcance o ajuste manual: también el color de la Zona', [
+    colorDeZonaEnLinea({ kind: 'reach', executive: { id: 'e1' } }, azul, gris),
+    colorDeZonaEnLinea({ kind: 'manual', executive: { id: 'e1' } }, azul, gris),
+  ], [azul, azul])
+  eq('sin cobertura: el gris propio de la Zona (2026-10-23), no su color', colorDeZonaEnLinea({ kind: 'vacant', executive: null }, azul, gris), '#9aa0a6')
+  eq('conflicto: ámbar', colorDeZonaEnLinea({ kind: 'conflict', executive: null }, azul, gris), CONFLICT_FILL_COLOR)
+  eq('fila sin Ejecutivo Comercial: gris de la Zona', colorDeZonaEnLinea({ kind: 'local', executive: null }, azul, gris), '#9aa0a6')
+  eq('sin fila de cobertura: gris de "sin datos"', colorDeZonaEnLinea(undefined, azul, gris), NO_COVERAGE_DATA_COLOR)
+  eq('Zona sin color guardado: gris de "sin datos"', colorDeZonaEnLinea({ kind: 'local', executive: { id: 'e1' } }, null, gris), NO_COVERAGE_DATA_COLOR)
+  let pedidos = 0
+  colorDeZonaEnLinea({ kind: 'local', executive: { id: 'e1' } }, azul, () => { pedidos++; return '#000000' })
+  eq('el gris solo se calcula cuando hace falta', pedidos, 0)
+
+  const colores: Record<string, string> = { cha: '#2563EB', eng: '#16A34A', ken: '#DC2626', scr: '#9333EA' }
+  const colorDe = (kamId: string) => colores[kamId]
+  eq(
+    'chip del Ejecutivo Comercial: la Zona donde es local, aunque no sea la primera',
+    colorDeEjecutivoEnLinea([{ kamId: 'eng', kind: 'reach' }, { kamId: 'cha', kind: 'local' }, { kamId: 'ken', kind: 'reach' }], colorDe),
+    '#2563EB'
+  )
+  eq('chip sin Zona local: la primera de sus Zonas', colorDeEjecutivoEnLinea([{ kamId: 'ken', kind: 'reach' }, { kamId: 'scr', kind: 'manual' }], colorDe), '#DC2626')
+  eq('chip sin Zonas en la línea: gris de "sin datos"', colorDeEjecutivoEnLinea([], colorDe), NO_COVERAGE_DATA_COLOR)
+
+  eq('racimo con Zonas de colores distintos (las 4 de Bogotá): neutro', colorDeRacimo([
+    { color: '#2563EB', hollow: false }, { color: '#16A34A', hollow: false }, { color: '#DC2626', hollow: false }, { color: '#9333EA', hollow: false },
+  ]), CLUSTER_NEUTRAL_COLOR)
+  eq('racimo con un solo color (mayúsculas o no): ese color', colorDeRacimo([{ color: '#2563EB', hollow: false }, { color: '#2563eb', hollow: false }]), '#2563EB')
+  eq('racimo todo sin cobertura: el de la insignia hueca', colorDeRacimo([{ color: '#9aa0a6', hollow: true }, { color: '#b0b4b8', hollow: true }]), VACANT_BADGE_COLOR)
+  eq('racimo mixto (alguna sin cobertura): neutro', colorDeRacimo([{ color: '#2563EB', hollow: false }, { color: '#2563EB', hollow: true }]), CLUSTER_NEUTRAL_COLOR)
 }
 
 // ---------------------------------------------------------------------------------------------

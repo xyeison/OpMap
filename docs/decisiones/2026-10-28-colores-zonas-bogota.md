@@ -22,9 +22,10 @@ con cada cuadrante es 11,3 (antes 11,5 y 1,7). San Cristóbal sigue morado, como
 **Consecuencias**:
 - Cambio de datos (`kams.color` de 4 filas, aplicado el 2026-10-28), igual que si se editara en
   `/kams/colors`. Para volver atrás basta con poner los colores de la columna "Antes".
-- Solo cambia la vista de Zonas. La vista por línea pinta con el color del Ejecutivo Comercial
-  (`executives.color`) y sus tonos por zona no cambian. El gris por Zona de "Sin cobertura" toma el matiz de
-  `kams.color`, así que en Bogotá ese gris cambia levemente (saturación 8 %).
+- En este paso solo cambió la vista de Zonas; la vista por línea pintaba con el color del Ejecutivo Comercial
+  (`executives.color`) y sus tonos por zona. *Superado el mismo día* por
+  `docs/decisiones/2026-10-28-mapa-un-color-por-zona.md`: las dos vistas usan `kams.color`. El gris por Zona de "Sin
+  cobertura" toma el matiz de `kams.color`, así que en Bogotá ese gris cambia levemente (saturación 8 %).
 - Nada más de la estética autorizada (opacidades, bordes, capas, marcadores) cambia.
 
 **Dónde vive**: datos en `kams.color`; reglas de color en `docs/mapa-estetica.md`.
