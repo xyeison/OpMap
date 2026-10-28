@@ -22,6 +22,10 @@ scripts/fase2b-municipios.ts` (dry-run, sin Google) → el dueño autoriza el ga
     el algoritmo de IPS. Como en el algoritmo de IPS, el tope de cada zona filtra antes de competir
     (hoy hay topes de 240 y 360 min). Sin ninguna candidata (San Andrés, Guainía) → `out_of_reach`
     sin "más cercana".
+  - **Bogotá hacia afuera compite como UNA ciudad** (desde el 2026-10-28, igual que las IPS desde el
+    2026-10-11): mejor tiempo de sus celdas, tope único `bogota_config.max_travel_minutes` (360) y la
+    celda la decide el corredor del municipio (`docs/algoritmo-asignacion.md`, punto 8 de "Bogotá hacia
+    afuera"; pruebas en `web/scripts/municipios-check.ts`).
 - **Modelo (0500)**, las 4 con RLS, sin políticas y solo service_role:
   - `municipality_travel_times`: caché PERMANENTE zona→municipio (status ok | no_route | error;
     ok/no_route nunca se vuelven a pedir, error sí).

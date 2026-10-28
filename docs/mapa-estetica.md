@@ -12,6 +12,12 @@ Estilo autorizado por el dueño el 2026-10-11 (rama `ui/mapa-estetica`; constant
   línea: color del Ejecutivo Comercial que cubre la zona (`executives.color`), con un tono por zona si
   cubre varias (ver "Tonos por zona"); vista de zonas: color de la zona (`kams.color`). Polígonos,
   puntos de IPS, insignias, tooltips y tarjetas usan siempre ese mismo color.
+  - *2026-10-28, pedido del dueño* ("Cambia los tonos de los colores de 4 zonas de bogotá para que se
+    diferencie"): `kams.color` de las 4 zonas de Bogotá pasó a Chapinero `#2563EB` (azul, norte), Engativá
+    `#16A34A` (verde, occidente), Kennedy `#DC2626` (rojo, sur) y San Cristóbal `#9333EA` (morado, oriente),
+    para que se distingan entre sí y de sus vecinas (Engativá se confundía con Cúcuta, Chapinero con Medellín y
+    Kennedy con Bucaramanga). Colores anteriores y cifras en `docs/decisiones/2026-10-28-colores-zonas-bogota.md`.
+    Es un cambio de datos (como editarlos en `/kams/colors`); opacidades, bordes y capas siguen igual.
 - **Sin modo Regiones** (quitado por pedido del dueño del 2026-10-14: "Eso de región deberíamos quitarlo al fin";
   spec `docs/specs/2026-10-14-quitar-regiones.md`): ya no existe la vista de regiones (`?viewMode=zones`, color de la
   región de cada zona, leyenda "Regiones", título "Vista de regiones"); un `?viewMode=zones` viejo en la URL no hace
@@ -263,4 +269,4 @@ Para cualquier territorio (municipio o localidad) donde múltiples KAMs tienen I
 
 - Municipio Soacha tiene 4 IPS totales
   - KAM Kennedy es el más cercano a las 4 IPS → 4 puntos
-  - Soacha se colorea con el color de Kennedy (cian)
+  - Soacha se colorea con el color de Kennedy (rojo desde el 2026-10-28; antes cian)

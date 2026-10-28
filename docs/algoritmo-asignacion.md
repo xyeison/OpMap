@@ -303,7 +303,8 @@ rango". Pedido: que Bogotá (o cualquier ciudad grande partida en celdas) tenga 
    separado**. Compite un candidato virtual **"Bogotá"** con:
    - tiempo = el **mejor tiempo real** (`hospital_kam_distances`, SEGUNDOS) entre las celdas elegibles que
      tienen distancia;
-   - tope = **`bogota_config.max_travel_minutes`** (240 por defecto), el mismo para toda Bogotá. Se ignora el
+   - tope = **`bogota_config.max_travel_minutes`** (240 por defecto; **360 desde el 2026-10-28**, decisión del
+     dueño `docs/decisiones/2026-10-28-municipios-por-corredor-de-bogota.md`), el mismo para toda Bogotá. Se ignora el
      `kams.max_travel_time` de cada celda; las demás zonas conservan el suyo;
    - empate exacto con otra zona: gana la de mayor prioridad (la de la celda con el mejor tiempo), como siempre.
 4. **Si gana "Bogotá", la celda la decide el corredor de salida del municipio, no los minutos**:
@@ -319,6 +320,12 @@ rango". Pedido: que Bogotá (o cualquier ciudad grande partida en celdas) tenga 
    `web/lib/bogota-corredores.ts`.
 7. La misma función (`competeForHospital` + `loadBogotaRule`) la usa la asignación individual de una IPS
    sin zona (`POST /api/hospitals/assign-to-kam`), para que no se aparte del recálculo completo.
+8. **Municipios sin IPS** (desde el 2026-10-28; spec `docs/specs/2026-10-28-municipios-regla-bogota.md`): el
+   motor de municipios (`decideByTravelTime` en `web/lib/municipality-coverage.ts`) aplica la misma regla con
+   los tiempos de `municipality_travel_times`: "Bogotá" compite con el mejor tiempo de sus celdas y el tope
+   único, y si gana, la celda la da el corredor (`chooseBogotaCell`); `travel_minutes` es el tiempo de esa
+   celda. Fuera de alcance, la "más cercana" es la celda del corredor. Hasta esa fecha cada celda competía
+   sola con su tope y Puerto Gaitán (Meta, oriente) quedaba en Chapinero por su tope de 360.
 
 ### k: en cuántas celdas se reparte el cupo de Bogotá
 

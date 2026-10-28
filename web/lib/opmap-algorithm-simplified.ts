@@ -5,7 +5,7 @@
 // Bogotá como UNA ciudad hacia afuera (2026-10-11): ver competeForHospital y loadBogotaRule más abajo;
 // el reparto por corredor vive en lib/bogota-corredores.ts. Pruebas: scripts/bogota-check.ts.
 
-import { getSupabaseAdmin } from './supabase-admin'
+import { getSupabaseAdmin, type SupabaseAdminClient } from './supabase-admin'
 import {
   celdaParaCorredor,
   parseBogotaConfig,
@@ -383,10 +383,13 @@ export type BogotaRuleStatus = 'activa' | 'sin_tablas' | 'sin_config' | 'config_
  * Lee bogota_config (id = 1) y bogota_corredores (solo SELECT). La regla queda ACTIVA solo si hay
  * fila de configuración válida Y al menos una fila de corredores; en cualquier otro caso (tablas sin
  * crear, sin filas o configuración inválida) devuelve rule = null y el motor se comporta como antes:
- * cada celda de Bogotá compite sola con su kams.max_travel_time.
+ * cada celda de Bogotá compite sola con su kams.max_travel_time. Lo usan el motor de IPS y el de
+ * municipios (lib/municipality-coverage.ts, que pasa su propio cliente `db`).
  */
-export async function loadBogotaRule(): Promise<{ rule: BogotaRuleInput | null; status: BogotaRuleStatus; warnings: string[] }> {
-  const supabase = getSupabaseAdmin()
+export async function loadBogotaRule(
+  db?: SupabaseAdminClient
+): Promise<{ rule: BogotaRuleInput | null; status: BogotaRuleStatus; warnings: string[] }> {
+  const supabase = db ?? getSupabaseAdmin()
   const { data: configRow, error: configError } = await supabase.from('bogota_config').select('*').eq('id', 1).maybeSingle()
   if (configError) {
     if (isMissingTableError(configError)) return { rule: null, status: 'sin_tablas', warnings: [] }

@@ -25,6 +25,14 @@
 //        - Sin ninguna zona candidata por adyacencia → 'out_of_reach' sin "más cercana" (no se
 //          consulta a Google y no se afirma que no haya carretera).
 //      Desempate por minutos: priority mayor, luego nombre de la zona, luego id.
+//      BOGOTÁ HACIA AFUERA compite como UNA ciudad, igual que en el algoritmo de IPS (competeForHospital;
+//      dueño, 2026-10-28, docs/decisiones/2026-10-28-municipios-por-corredor-de-bogota.md): las celdas de
+//      Bogotá no compiten por separado; compite "Bogotá" con el mejor tiempo de sus celdas y el tope único
+//      bogota_config.max_travel_minutes (no el kams.max_travel_time de cada celda). Si gana, la celda la
+//      decide el corredor del municipio (bogota_corredores + bogota_config.grupos), no los minutos; sin
+//      corredor, o con la celda del corredor inactiva, la celda más rápida. travel_minutes (y, fuera de
+//      alcance, nearest_minutes) es el tiempo propio de esa celda si existe. Sin regla cargada (tablas
+//      vacías o configuración inválida), cada celda compite sola con su tope, como antes.
 //
 // Caché permanente (municipality_travel_times): los pares con status 'ok' o 'no_route' nunca se
 // vuelven a pedir; los 'error' se reintentan en la siguiente ejecución.
@@ -37,9 +45,15 @@
 import { supabaseAdmin, type SupabaseAdminClient } from './supabase-admin'
 import {
   BOGOTA_MUNICIPALITY_ID,
+  bogotaVirtualCandidate,
   canKamCompeteForHospital,
+  chooseBogotaCell,
   hasValidKamArea,
+  isBogotaKam,
+  loadBogotaRule,
   type AdjacencyMatrix,
+  type BogotaRuleInput,
+  type BogotaRuleStatus,
 } from './opmap-algorithm-simplified'
 import { pickMajorityKam } from './territory-rules'
 import { zoneDisplayName } from './zone-names'
@@ -149,6 +163,9 @@ export interface MunicipalityInputs {
   travelTimes: TravelTimeInput[]
   /** true si municipality_travel_times no existe (migración 0500 sin aplicar). */
   travelTimesTableMissing: boolean
+  /** Regla de Bogotá hacia afuera (loadBogotaRule). null = cada celda compite sola con su tope. */
+  bogota: BogotaRuleInput | null
+  bogotaRuleStatus: BogotaRuleStatus
 }
 
 /** Una petición a Google: un municipio (destino) y las ciudades base que faltan (orígenes). */
@@ -180,10 +197,12 @@ const finite = (value: unknown): value is number => typeof value === 'number' &&
 const maxMinutesOf = (zone: MunicipalityZoneInput) =>
   finite(zone.max_travel_time) && zone.max_travel_time > 0 ? zone.max_travel_time : DEFAULT_MAX_TRAVEL_MINUTES
 
+const priorityOf = (zone: MunicipalityZoneInput) => (finite(zone.priority) ? zone.priority : DEFAULT_PRIORITY)
+
 /** Orden entre zonas empatadas: priority mayor, luego nombre, luego id. */
 function compareZonePreference(a: MunicipalityZoneInput, b: MunicipalityZoneInput): number {
-  const priorityA = finite(a.priority) ? a.priority : DEFAULT_PRIORITY
-  const priorityB = finite(b.priority) ? b.priority : DEFAULT_PRIORITY
+  const priorityA = priorityOf(a)
+  const priorityB = priorityOf(b)
   if (priorityA !== priorityB) return priorityB - priorityA
   return compareText(zoneDisplayName(a.name), zoneDisplayName(b.name)) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
 }
@@ -341,11 +360,33 @@ function cacheIndex(travelTimes: TravelTimeInput[]): Map<string, TravelTimeInput
 
 const isResolved = (row: TravelTimeInput | undefined) => row?.status === 'ok' || row?.status === 'no_route'
 
+/** Minutos del par en caché (redondeados) si tiene ruta; null si no. */
+function cachedMinutes(cache: Map<string, TravelTimeInput>, kamId: string, municipalityCode: string): number | null {
+  const row = cache.get(pairKey(kamId, municipalityCode))
+  return row?.status === 'ok' && finite(row.travel_minutes) && row.travel_minutes >= 0 ? Math.round(row.travel_minutes) : null
+}
+
+/** Regla de Bogotá para el paso 3: la regla cargada y las celdas activas que pueden recibir municipios. */
+interface BogotaContext {
+  rule: BogotaRuleInput | null
+  /** celdas de Bogotá entre las zonas elegibles (como activeCells en competeForHospital) */
+  activeCellIds: ReadonlySet<string>
+}
+
+interface Competitor {
+  /** la zona, o para "Bogotá" la celda con el mejor tiempo (desempata frente a las demás zonas) */
+  zone: MunicipalityZoneInput
+  minutes: number
+  maxMinutes: number
+  bogota: boolean
+}
+
 /** Decide el municipio a partir de las candidatas y la caché (paso 3 de la regla). */
 function decideByTravelTime(
   municipality: MunicipalityInput,
   candidates: MunicipalityZoneInput[],
-  cache: Map<string, TravelTimeInput>
+  cache: Map<string, TravelTimeInput>,
+  bogota: BogotaContext
 ): MunicipalityZoneRow {
   const base: MunicipalityZoneRow = {
     municipality_code: municipality.code,
@@ -368,16 +409,59 @@ function decideByTravelTime(
 
   if (withRoute.length === 0) return { ...base, kind: 'no_road' }
 
-  const within = withRoute.filter(item => item.minutes <= maxMinutesOf(item.zone))
-  if (within.length > 0) {
-    return { ...base, kind: 'reach', kam_id: within[0].zone.id, travel_minutes: within[0].minutes }
+  // Con la regla, las celdas de Bogotá se sustituyen por UN candidato "Bogotá" (como en
+  // competeForHospital; en Bogotá misma, departamento 11, no se aplica)
+  const rule = municipality.department_code === '11' ? null : bogota.rule
+  const cells = rule ? withRoute.filter(item => isBogotaKam(item.zone)) : []
+  const virtual =
+    rule && cells.length > 0
+      ? bogotaVirtualCandidate(
+          // cells ya viene por minutos y preferencia: ante empate gana la primera, como en el resto
+          cells.map(item => ({ kam_id: item.zone.id, priority: priorityOf(item.zone), seconds: item.minutes * 60 })),
+          rule.config.max_travel_minutes
+        )
+      : null
+
+  const competitors: Competitor[] = withRoute
+    .filter(item => !virtual || !isBogotaKam(item.zone))
+    .map(item => ({ zone: item.zone, minutes: item.minutes, maxMinutes: maxMinutesOf(item.zone), bogota: false }))
+  if (virtual) {
+    competitors.push({ zone: cells[0].zone, minutes: virtual.min_seconds / 60, maxMinutes: virtual.max_minutes, bogota: true })
+    competitors.sort((a, b) => a.minutes - b.minutes || compareZonePreference(a.zone, b.zone))
   }
-  return { ...base, kind: 'out_of_reach', nearest_kam_id: withRoute[0].zone.id, nearest_minutes: withRoute[0].minutes }
+
+  // Zona y minutos de un competidor; para "Bogotá", la celda de su corredor (chooseBogotaCell)
+  const resolve = (item: Competitor): { kamId: string; minutes: number } => {
+    if (!item.bogota || !rule || !virtual) return { kamId: item.zone.id, minutes: item.minutes }
+    const choice = chooseBogotaCell(
+      { municipality_id: municipality.code, department_id: municipality.department_code },
+      virtual,
+      rule,
+      bogota.activeCellIds,
+      kamId => {
+        const minutes = cachedMinutes(cache, kamId, municipality.code)
+        return minutes === null ? null : minutes * 60
+      }
+    )
+    return { kamId: choice.kam_id, minutes: Math.round(choice.travel_time / 60) }
+  }
+
+  const winner = competitors.find(item => item.minutes <= item.maxMinutes)
+  if (winner) {
+    const { kamId, minutes } = resolve(winner)
+    return { ...base, kind: 'reach', kam_id: kamId, travel_minutes: minutes }
+  }
+  const nearest = resolve(competitors[0])
+  return { ...base, kind: 'out_of_reach', nearest_kam_id: nearest.kamId, nearest_minutes: nearest.minutes }
 }
 
 /** Una fila de municipality_zone por cada municipio (orden por código). Pura. */
 export function computeMunicipalityZones(inputs: MunicipalityInputs): MunicipalityZoneRow[] {
   const cache = cacheIndex(inputs.travelTimes)
+  const bogota: BogotaContext = {
+    rule: inputs.bogota,
+    activeCellIds: new Set(eligibleZones(inputs.zones).filter(isBogotaKam).map(zone => zone.id)),
+  }
   return classifyMunicipalities(inputs).map(({ municipality, result }) => {
     switch (result.stage) {
       case 'ips':
@@ -395,7 +479,7 @@ export function computeMunicipalityZones(inputs: MunicipalityInputs): Municipali
           ips_count: 0,
         }
       case 'google':
-        return decideByTravelTime(municipality, result.candidates, cache)
+        return decideByTravelTime(municipality, result.candidates, cache, bogota)
     }
   })
 }
@@ -472,8 +556,21 @@ export interface DryRunReport {
   /** Resultado de --assign con la caché actual (sin guardar). */
   preview: Record<MunicipalityZoneKind, number>
   travel_times_table_missing: boolean
+  bogota_rule: BogotaRuleSummary
   cost_per_element_usd: number
 }
+
+/** Regla de Bogotá con la que se reparten los municipios (para los informes). */
+export interface BogotaRuleSummary {
+  status: BogotaRuleStatus
+  /** tope único de "Bogotá" (minutos); null sin regla activa */
+  max_travel_minutes: number | null
+}
+
+const bogotaRuleSummary = (inputs: MunicipalityInputs): BogotaRuleSummary => ({
+  status: inputs.bogotaRuleStatus,
+  max_travel_minutes: inputs.bogota?.config.max_travel_minutes ?? null,
+})
 
 export function buildDryRunReport(inputs: MunicipalityInputs): DryRunReport {
   const cache = cacheIndex(inputs.travelTimes)
@@ -593,6 +690,7 @@ export function buildDryRunReport(inputs: MunicipalityInputs): DryRunReport {
     no_candidates: noCandidates,
     preview,
     travel_times_table_missing: inputs.travelTimesTableMissing,
+    bogota_rule: bogotaRuleSummary(inputs),
     cost_per_element_usd: COST_PER_ELEMENT_USD,
   }
 }
@@ -642,9 +740,12 @@ const toNumber = (value: unknown): number | null => {
   return Number.isFinite(n) ? n : null
 }
 
-/** Lee todo lo que necesita el motor. Solo SELECT. Si municipality_travel_times no existe, caché vacía. */
+/**
+ * Lee todo lo que necesita el motor. Solo SELECT. Si municipality_travel_times no existe, caché vacía;
+ * sin regla de Bogotá válida (loadBogotaRule), bogota = null.
+ */
 export async function loadMunicipalityInputs(db: SupabaseAdminClient = supabaseAdmin): Promise<MunicipalityInputs> {
-  const [municipalities, zones, departments, adjacencyRows, hospitals, assignments] = await Promise.all([
+  const [municipalities, zones, departments, adjacencyRows, hospitals, assignments, bogotaRule] = await Promise.all([
     fetchAll<any>('municipalities', (from, to) =>
       db.from('municipalities').select('code, name, department_code, lat, lng').order('code').range(from, to)
     ),
@@ -672,6 +773,7 @@ export async function loadMunicipalityInputs(db: SupabaseAdminClient = supabaseA
     fetchAll<any>('assignments', (from, to) =>
       db.from('assignments').select('hospital_id, kam_id, travel_time').order('id').range(from, to)
     ),
+    loadBogotaRule(db),
   ])
 
   let travelTimes: TravelTimeInput[] = []
@@ -738,6 +840,8 @@ export async function loadMunicipalityInputs(db: SupabaseAdminClient = supabaseA
     assigned,
     travelTimes,
     travelTimesTableMissing,
+    bogota: bogotaRule.rule,
+    bogotaRuleStatus: bogotaRule.status,
   }
 }
 
@@ -1038,7 +1142,13 @@ export function toCoverageRows(
 /** --assign / POST /recompute: recalcula con la caché (SIN Google) y guarda municipality_zone. */
 export async function recomputeAndSaveMunicipalityZones(
   db: SupabaseAdminClient = supabaseAdmin
-): Promise<MunicipalityCoverageResponse & { counts: Record<MunicipalityZoneKind, number>; travel_times_table_missing: boolean }> {
+): Promise<
+  MunicipalityCoverageResponse & {
+    counts: Record<MunicipalityZoneKind, number>
+    travel_times_table_missing: boolean
+    bogota_rule: BogotaRuleSummary
+  }
+> {
   const inputs = await loadMunicipalityInputs(db)
   const zoneRows = computeMunicipalityZones(inputs)
   const saved = await saveMunicipalityZones(zoneRows, db)
@@ -1049,7 +1159,12 @@ export async function recomputeAndSaveMunicipalityZones(
     computed_at: saved.computed_at,
   }
   setMunicipalityCoverageCache(response)
-  return { ...response, counts, travel_times_table_missing: inputs.travelTimesTableMissing }
+  return {
+    ...response,
+    counts,
+    travel_times_table_missing: inputs.travelTimesTableMissing,
+    bogota_rule: bogotaRuleSummary(inputs),
+  }
 }
 
 /**
