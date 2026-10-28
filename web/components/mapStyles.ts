@@ -1,8 +1,8 @@
 // Estilo del mapa autorizado por el dueño el 2026-10-11 (ver CLAUDE.md, "Estética del Mapa").
-// El COLOR de cada zona sale siempre de colorForZone (MapComponent.tsx): Ejecutivo Comercial en la
-// vista por línea (con un tono por zona si cubre varias, ver zoneTint), zona en la vista de zonas.
-// Aquí van opacidades, bordes, los colores fijos de los estados sin zona y el cálculo de tonos. Lo usan
-// los polígonos, los puntos de IPS, las insignias y la leyenda.
+// El COLOR de cada zona sale siempre de colorForZone (MapComponent.tsx): desde el 2026-10-28 es el color de la
+// Zona (kams.color) en las dos vistas; en la vista por línea, los estados (sin cobertura, conflicto) mandan
+// (colorDeZonaEnLinea, abajo). Aquí van opacidades, bordes, los colores fijos de los estados sin zona y esas
+// reglas de color. Lo usan los polígonos, los puntos de IPS, las insignias y la leyenda.
 //
 // Autorizado por el dueño el 2026-10-23: en la vista por línea, las Zonas sin cobertura van en gris con un tono
 // por Zona (grisDeZona, al final de este archivo). Nada más de la estética del 2026-10-11 cambia.
@@ -79,15 +79,51 @@ export const IPS_UNZONED_COLOR = '#9ca3af'
 // Racimo de insignias de zonas de varios Ejecutivos Comerciales (o varias zonas en la vista de zonas)
 export const CLUSTER_NEUTRAL_COLOR = '#334155'
 
-// ---------- Tonos por zona dentro de un mismo Ejecutivo Comercial (solo vista por línea) ----------
-// Si un Ejecutivo Comercial cubre varias zonas en la línea, cada zona usa un tono de su color: misma
-// tonalidad, luminosidad desplazada según su posición (zonas ordenadas por ciudad base). La primera
-// zona conserva el color base. La vista de zonas no usa tonos.
-const ZONE_TINT_L_SHIFTS = [0, 18, -16, 32, -26, 40, -34]
-const ZONE_TINT_L_MIN = 26
-const ZONE_TINT_L_MAX = 78
-const ZONE_TINT_S_BOOST = 6
-const ZONE_TINT_S_MAX = 95
+// Zona sin datos de cobertura (o que ya no está en el mapa): gris claro
+export const NO_COVERAGE_DATA_COLOR = '#cccccc'
+
+// ---------- Un solo color por Zona en las dos vistas (dueño, 2026-10-28) ----------
+// "Porque los colores cambian para mapa de ejecutivo comerciales y Zonas. Deberia ser el mismo. Maneja el mismo
+// color de Zonas." En la vista por línea, una Zona cubierta va con su propio color (kams.color), igual que en la vista
+// de Zonas; los estados de la línea no cambian: sin cobertura en el gris de la Zona, conflicto en ámbar. Reemplaza a
+// los tonos del color del Ejecutivo Comercial por zona (zoneTint, 2026-10-11), que se quitaron.
+
+/** Color de una Zona en la vista por línea. `fila` es su fila de cobertura en la línea (undefined = sin datos). */
+export function colorDeZonaEnLinea(
+  fila: { kind: string; executive?: unknown } | null | undefined,
+  colorDeLaZona: string | null | undefined,
+  grisDeLaZona: () => string
+): string {
+  if (!fila) return NO_COVERAGE_DATA_COLOR
+  if (fila.kind === 'vacant') return grisDeLaZona()
+  if (fila.kind === 'conflict') return CONFLICT_FILL_COLOR
+  if (!fila.executive) return grisDeLaZona()
+  return colorDeLaZona || NO_COVERAGE_DATA_COLOR
+}
+
+/**
+ * Chip de un Ejecutivo Comercial en la leyenda y el filtro de la vista por línea: el color de la Zona donde es local;
+ * si no es local en ninguna, el de la primera de sus Zonas (`zonas` ya viene en orden de ciudad base); sin Zonas en
+ * la línea, el gris de "sin datos".
+ */
+export function colorDeEjecutivoEnLinea(
+  zonas: ReadonlyArray<{ kamId: string; kind: string }>,
+  colorDeZona: (kamId: string) => string | null | undefined
+): string {
+  const elegida = zonas.find(zona => zona.kind === 'local') ?? zonas[0]
+  return (elegida && colorDeZona(elegida.kamId)) || NO_COVERAGE_DATA_COLOR
+}
+
+/**
+ * Color de un racimo de insignias: todas sin cobertura → el de la insignia hueca; todas del mismo color → ese
+ * color; si no (Zonas de colores distintos, o mezcla con alguna sin cobertura) → neutro. Igual en las dos vistas.
+ */
+export function colorDeRacimo(miembros: ReadonlyArray<{ color: string; hollow: boolean }>): string {
+  if (miembros.length > 0 && miembros.every(m => m.hollow)) return VACANT_BADGE_COLOR
+  const primero = miembros[0]?.color.toLowerCase()
+  const mismoColor = primero !== undefined && miembros.every(m => !m.hollow && m.color.toLowerCase() === primero)
+  return mismoColor ? miembros[0].color : CLUSTER_NEUTRAL_COLOR
+}
 
 const HEX6_RE = /^#[0-9a-fA-F]{6}$/
 
@@ -106,34 +142,6 @@ function hexToHsl(hex: string): [number, number, number] {
   else if (max === g) h = (b - r) / d + 2
   else h = (r - g) / d + 4
   return [h * 60, s * 100, l * 100]
-}
-
-function hslToHex(h: number, s: number, l: number): string {
-  const sat = s / 100
-  const light = l / 100
-  const a = sat * Math.min(light, 1 - light)
-  const channel = (n: number) => {
-    const k = (n + h / 30) % 12
-    const c = light - a * Math.max(-1, Math.min(k - 3, 9 - k, 1))
-    return Math.round(c * 255).toString(16).padStart(2, '0')
-  }
-  return `#${channel(0)}${channel(8)}${channel(4)}`
-}
-
-/**
- * Tono de la zona `index` (0..total-1) de un Ejecutivo Comercial con `total` zonas en la línea.
- * Desplaza la luminosidad según ZONE_TINT_L_SHIFTS (se repite si hay más de 7 zonas), la acota a
- * [26, 78] y, al aclarar, sube la saturación +6 (máx. 95) para que el tono no se lave. Con una sola
- * zona, o desplazamiento 0, devuelve el color base sin cambios. Solo acepta #RRGGBB.
- */
-export function zoneTint(baseHex: string, index: number, total: number): string {
-  if (!HEX6_RE.test(baseHex) || total <= 1) return baseHex
-  const shift = ZONE_TINT_L_SHIFTS[((index % ZONE_TINT_L_SHIFTS.length) + ZONE_TINT_L_SHIFTS.length) % ZONE_TINT_L_SHIFTS.length]
-  if (shift === 0) return baseHex
-  const [h, s, l] = hexToHsl(baseHex)
-  const light = Math.min(ZONE_TINT_L_MAX, Math.max(ZONE_TINT_L_MIN, l + shift))
-  const sat = shift > 0 ? Math.min(ZONE_TINT_S_MAX, s + ZONE_TINT_S_BOOST) : s
-  return hslToHex(h, sat, light)
 }
 
 // ---------- Grises por Zona para "Sin cobertura" (solo vista por línea) ----------

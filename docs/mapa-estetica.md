@@ -8,10 +8,14 @@ _Extraído de CLAUDE.md el 2026-10-11 (texto íntegro, solo reubicado). Cualquie
 Estilo autorizado por el dueño el 2026-10-11 (rama `ui/mapa-estetica`; constantes en
 `web/components/mapStyles.ts`). Cualquier cambio a este estilo necesita una nueva autorización explícita.
 
-- **Una sola fuente de color por vista**: `colorForZone` (`web/components/MapComponent.tsx`). Vista por
-  línea: color del Ejecutivo Comercial que cubre la zona (`executives.color`), con un tono por zona si
-  cubre varias (ver "Tonos por zona"); vista de zonas: color de la zona (`kams.color`). Polígonos,
-  puntos de IPS, insignias, tooltips y tarjetas usan siempre ese mismo color.
+- **El mismo color de Zona en las dos vistas** (dueño, 2026-10-28: "Porque los colores cambian para mapa de ejecutivo
+  comerciales y Zonas. Deberia ser el mismo. Maneja el mismo color de Zonas."; decisión
+  `docs/decisiones/2026-10-28-mapa-un-color-por-zona.md`): `colorForZone` (`web/components/MapComponent.tsx`) da el
+  color de la Zona (`kams.color`) en la vista de Zonas y en la vista por Ejecutivos Comerciales (línea). En la línea
+  mandan los estados (`colorDeZonaEnLinea`, `web/components/mapStyles.ts`): sin cobertura, gris de la Zona; conflicto,
+  ámbar; sin datos, #cccccc. Polígonos, puntos de IPS, insignias, tooltips, tarjetas y el rayado de "sin equipo" usan
+  ese mismo color. El color del Ejecutivo Comercial (`executives.color`) ya no se usa en el mapa. Hasta esa fecha, la
+  vista por línea pintaba con el color de la persona y un tono por zona (ver "Tonos por zona", superado).
   - *2026-10-28, pedido del dueño* ("Cambia los tonos de los colores de 4 zonas de bogotá para que se
     diferencie"): `kams.color` de las 4 zonas de Bogotá pasó a Chapinero `#2563EB` (azul, norte), Engativá
     `#16A34A` (verde, occidente), Kennedy `#DC2626` (rojo, sur) y San Cristóbal `#9333EA` (morado, oriente),
@@ -52,8 +56,11 @@ Estilo autorizado por el dueño el 2026-10-11 (rama `ui/mapa-estetica`; constant
     Contratos". Desde el 2026-10-24 el mapa no manda contratos a nadie: la fila, la sección "Contratos activos" y el
     interruptor desaparecieron y las tarjetas muestran giros ADRES y compras SECOP de 12 meses (ver "2026-10-24 ·
     Giros ADRES y compras SECOP en las tarjetas").
-- **Tonos por zona** (pedido del dueño 2026-10-11: "los 4 de Bogotá se deberían diferenciar por
-  colores"): solo en la vista por línea, si un Ejecutivo Comercial cubre n > 1 zonas (cobertura local,
+- *(Superado el 2026-10-28: cada zona va con su propio color en las dos vistas; `zoneTint` se quitó. Siguen la
+  mini-muestra por zona en la leyenda, ahora con el color de cada Zona, y "(zona 2 de 4)" en la tarjeta. El chip del
+  Ejecutivo Comercial en la leyenda y el filtro lleva el color de la Zona donde es local; si no es local en ninguna, el
+  de la primera de sus Zonas — `colorDeEjecutivoEnLinea`.)* **Tonos por zona** (pedido del dueño 2026-10-11: "los 4 de
+  Bogotá se deberían diferenciar por colores"): solo en la vista por línea, si un Ejecutivo Comercial cubre n > 1 zonas (cobertura local,
   reach o manual), cada zona usa `zoneTint(color, índice, n)` (`web/components/mapStyles.ts`): mismo
   matiz HSL, luminosidad desplazada según la secuencia [0, +18, -16, +32, -26, +40, -34] (se repite
   desde la 8.ª zona), acotada a [26, 78]; al aclarar, saturación +6 (máx. 95). El índice es la posición
@@ -95,8 +102,8 @@ Estilo autorizado por el dueño el 2026-10-11 (rama `ui/mapa-estetica`; constant
   (`VACANT_BADGE_COLOR`), fondo blanco a 0.95 y "—" #475569 en 700.
 - **Racimos**: las insignias que se tocan en pantalla (distancia entre centros < diámetro + 6 px; en
   vertical se suma la punta) se agrupan en una insignia "racimo" de 34 px (30 en celular) con el número
-  de zonas; color base del Ejecutivo Comercial (sin tonos) si todas son suyas, hueco pizarra (#475569)
-  si todas son vacantes, si no #334155. Tocar un racimo acerca el mapa a sus zonas (máx. zoom 10); si ya no se separan (misma
+  de zonas; el color de sus Zonas si todas tienen el mismo (desde el 2026-10-28, `colorDeRacimo`; antes, el color
+  base del Ejecutivo Comercial si todas eran suyas), hueco pizarra (#475569) si todas son vacantes, si no #334155. Tocar un racimo acerca el mapa a sus zonas (máx. zoom 10); si ya no se separan (misma
   ubicación o zoom máximo) abre una tarjeta con la lista de sus zonas. Ninguna zona se oculta sin estar
   en un racimo. En escritorio a zoom 5 Bogotá se junta con Ibagué, Pereira, Cali y Neiva ("8") porque
   sus insignias se tocan de verdad; el mapa de escritorio abre en zoom 6, donde sale "4".

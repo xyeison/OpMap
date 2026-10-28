@@ -70,7 +70,9 @@ import {
   IPS_UNZONED_COLOR,
   CLUSTER_NEUTRAL_COLOR,
   VACANT_STATE_COLOR,
-  zoneTint,
+  NO_COVERAGE_DATA_COLOR,
+  colorDeZonaEnLinea,
+  colorDeEjecutivoEnLinea,
   grisDeZona
 } from './mapStyles'
 import { useMediaQuery, matchesMediaQuery, MOBILE_QUERY, HOVER_QUERY } from './useMediaQuery'
@@ -202,13 +204,6 @@ export interface CoverageRow {
 // Zona (grisZona, abajo). El "IPS sin Zona" sigue en pizarra.
 export const VACANT_COLOR = VACANT_STATE_COLOR
 export const CONFLICT_COLOR = '#f59e0b'
-const NO_COVERAGE_DATA_COLOR = '#cccccc'
-
-// Respaldo si un Ejecutivo Comercial aún no tiene color guardado (executives.color)
-const EXECUTIVE_FALLBACK_COLORS = [
-  '#2563eb', '#dc2626', '#16a34a', '#9333ea', '#0891b2', '#db2777', '#65a30d',
-  '#7c3aed', '#1e3a8a', '#0d9488', '#be123c', '#4f46e5', '#a16207'
-]
 
 // Patrón rayado de "sin equipo": un <pattern> SVG por color (id derivado del hex ya validado)
 const noEquipmentPatternId = (hex: string) => `opmap-sin-equipo-${hex.slice(1).toLowerCase()}`
@@ -707,21 +702,6 @@ export default function MapComponent({
     const rows: CoverageRow[] = coverage.rows
     const executives: CoverageExecutive[] = Array.isArray(mapData?.executives) ? mapData.executives : []
 
-    // Color por Ejecutivo Comercial: el guardado si es #RRGGBB válido; si no, uno de respaldo estable
-    const executiveColors: Record<string, string> = {}
-    let fallbackIdx = 0
-    const assignColor = (e: CoverageExecutive | null | undefined) => {
-      if (!e || executiveColors[e.id]) return
-      if (isSafeColor(e.color)) {
-        executiveColors[e.id] = e.color
-      } else {
-        executiveColors[e.id] = EXECUTIVE_FALLBACK_COLORS[fallbackIdx % EXECUTIVE_FALLBACK_COLORS.length]
-        fallbackIdx++
-      }
-    }
-    executives.forEach(assignColor)
-    rows.forEach(r => assignColor(r.executive))
-
     const byKam: Record<string, CoverageRow> = {}
     const zoneNameById: Record<string, string> = {}
     rows.forEach(r => {
@@ -732,8 +712,9 @@ export default function MapComponent({
       if (!zoneNameById[k.id]) zoneNameById[k.id] = k.name
     })
 
-    // Tono por zona: si un Ejecutivo Comercial cubre varias zonas en la línea, cada una lleva un tono de
-    // su color (zoneTint), en orden alfabético de ciudad base. La primera conserva el color base.
+    // Orden de las zonas de cada Ejecutivo Comercial (alfabético por ciudad base): mini-muestras de la leyenda y
+    // "zona 2 de 4" en la tarjeta. Desde el 2026-10-28 cada zona va con su propio color (kams.color), igual que en la
+    // vista de Zonas, y no con un tono del color del Ejecutivo Comercial (decisión del dueño).
     const kamById: Record<string, any> = {}
     ;(mapData?.kams || []).forEach((k: any) => { kamById[k.id] = k })
     const baseCityOf = (kamId: string): string => {
@@ -744,14 +725,24 @@ export default function MapComponent({
     rows.forEach(r => {
       if (r.kind !== 'vacant' && r.kind !== 'conflict' && r.executive) (zonesOfExecutive[r.executive.id] ||= []).push(r.kam_id)
     })
-    const zoneTone: Record<string, { color: string; index: number; total: number }> = {}
-    Object.entries(zonesOfExecutive).forEach(([executiveId, kamIds]) => {
+    const zoneOrder: Record<string, { index: number; total: number }> = {}
+    Object.values(zonesOfExecutive).forEach(kamIds => {
       kamIds.sort((a, b) => baseCityOf(a).localeCompare(baseCityOf(b), 'es') || a.localeCompare(b))
-      const base = safeColor(executiveColors[executiveId])
       kamIds.forEach((kamId, index) => {
-        zoneTone[kamId] = { color: zoneTint(base, index, kamIds.length), index, total: kamIds.length }
+        zoneOrder[kamId] = { index, total: kamIds.length }
       })
     })
+
+    // Chip de cada Ejecutivo Comercial (leyenda y filtro): el color de la Zona donde es local; si no, el de la
+    // primera de sus Zonas
+    const executiveChipColor: Record<string, string> = {}
+    const chipOf = (e: CoverageExecutive | null | undefined) => {
+      if (!e || executiveChipColor[e.id]) return
+      const zonas = (zonesOfExecutive[e.id] || []).map(kamId => ({ kamId, kind: byKam[kamId]?.kind ?? '' }))
+      executiveChipColor[e.id] = safeColor(colorDeEjecutivoEnLinea(zonas, kamId => kamColors[kamId]), NO_COVERAGE_DATA_COLOR)
+    }
+    executives.forEach(chipOf)
+    rows.forEach(r => chipOf(r.executive))
 
     // Conteos para la leyenda
     const zonesByExecutive: Record<string, number> = {}
@@ -769,15 +760,15 @@ export default function MapComponent({
       line: coverage.line as { id: string; code: string; name: string; max_reach_minutes: number },
       rows,
       executives,
-      executiveColors,
+      executiveChipColor,
       byKam,
       zoneNameById,
       zonesOfExecutive,
-      zoneTone,
+      zoneOrder,
       baseCityOf,
       counts: { zonesByExecutive, vacant, conflict, noEquipment }
     }
-  }, [mapData])
+  }, [mapData, kamColors])
 
   // Modo por línea activo: hay cobertura cargada y no se eligió la vista "Zonas"
   const isLineMode = mapMode === 'line' && !!lineView
@@ -811,26 +802,12 @@ export default function MapComponent({
     return primera ? grisZona(primera.kam_id) : VACANT_FILL_COLOR
   }, [isLineMode, lineView, grisZona])
 
-  // Color de la zona en la línea: Ejecutivo Comercial que la cubre (con el tono de la zona si cubre
-  // varias), sin cobertura (gris propio de la Zona) o conflicto (ámbar)
+  // Color de la zona en la línea: el de la Zona (como en la vista de Zonas) si alguien la cubre; sin cobertura,
+  // el gris propio de la Zona; conflicto, ámbar (colorDeZonaEnLinea, dueño 2026-10-28)
   const zoneLineColor = useCallback((kamId: string | undefined): string => {
     if (!lineView || !kamId) return NO_COVERAGE_DATA_COLOR
-    const row = lineView.byKam[kamId]
-    if (!row) return NO_COVERAGE_DATA_COLOR
-    if (row.kind === 'vacant') return grisZona(kamId)
-    if (row.kind === 'conflict') return CONFLICT_COLOR
-    if (!row.executive) return grisZona(kamId)
-    return lineView.zoneTone[kamId]?.color ?? safeColor(lineView.executiveColors[row.executive.id])
-  }, [lineView, grisZona])
-
-  // Color BASE del Ejecutivo Comercial que cubre la zona en la línea (sin tono): racimos de un solo
-  // Ejecutivo Comercial, chips de la leyenda. null si la zona está vacante, en conflicto o sin datos.
-  const executiveBaseColor = useCallback((kamId: string | null | undefined): string | null => {
-    if (!lineView || !kamId) return null
-    const row = lineView.byKam[kamId]
-    if (!row || row.kind === 'vacant' || row.kind === 'conflict' || !row.executive) return null
-    return safeColor(lineView.executiveColors[row.executive.id])
-  }, [lineView])
+    return colorDeZonaEnLinea(lineView.byKam[kamId], kamColors[kamId], () => grisZona(kamId))
+  }, [lineView, kamColors, grisZona])
 
   // ---------- Color: una sola fuente de verdad por vista ----------
   // Vista por línea: Ejecutivo Comercial que cubre la zona (un tono por zona si cubre varias). Vista de
@@ -1372,8 +1349,6 @@ export default function MapComponent({
         lat: Number(kam.lat),
         lng: Number(kam.lng),
         color,
-        // Racimo de un solo Ejecutivo Comercial: su color base, sin el tono de cada zona
-        groupColor: (isLineMode ? executiveBaseColor(kam.id) : null) ?? color,
         text: zoneInitials[kam.id] || initialsOf(kam.base_city || name),
         hollow,
         shortName: shortCityName(kam.base_city) || name,
@@ -1383,7 +1358,7 @@ export default function MapComponent({
         tooltipTitle: `Zona ${name}`,
         tooltipMeta
       }
-    }), [kamStats, isZoneVisible, isLineMode, lineView, colorForZone, grisZona, executiveBaseColor, zoneInitials, groupKeyForZone, isDimmedZone, zoneExecutivesText])
+    }), [kamStats, isZoneVisible, isLineMode, lineView, colorForZone, grisZona, zoneInitials, groupKeyForZone, isDimmedZone, zoneExecutivesText])
 
   const selectZone = useCallback((id: string, position: L.LatLngTuple) => {
     openPopup({ kind: 'zone', id, position })
@@ -1733,7 +1708,7 @@ export default function MapComponent({
     const row = isLineMode && lineView ? lineView.byKam[kamId] : undefined
     const hollow = isLineMode && row?.kind === 'vacant'
     // Ejecutivo Comercial con varias zonas en la línea: "zona 2 de 4" junto a su nombre
-    const tone = row && row.executive && row.kind !== 'vacant' && row.kind !== 'conflict' ? lineView?.zoneTone[kamId] : undefined
+    const tone = row && row.executive && row.kind !== 'vacant' && row.kind !== 'conflict' ? lineView?.zoneOrder[kamId] : undefined
     const counts = territorySummary.byZone[kamId] || { ips: 0, reach: 0 }
     const actions: PopupAction[] = []
     // /kams es la lista general (no tiene vista por zona)
@@ -1856,7 +1831,7 @@ export default function MapComponent({
           id: e.id,
           label: executiveName(e),
           detail: `${zoneCount} ${zoneCount === 1 ? 'zona' : 'zonas'} · ${ipsCount} IPS`,
-          color: safeColor(lineView.executiveColors[e.id]),
+          color: lineView.executiveChipColor[e.id] ?? NO_COVERAGE_DATA_COLOR,
           initials: initialsOf(e.full_name)
         }
       })
@@ -1930,13 +1905,13 @@ export default function MapComponent({
     legendEntries = lineView.executives.filter(e => !activeFilter || activeFilter.has(e.id)).map(e => {
       const zoneCount = lineView.counts.zonesByExecutive[e.id] || 0
       const ipsCount = ipsByExecutive[e.id] || 0
-      // Varias zonas: una mini-muestra por zona con su tono (mismo orden y tono que en el mapa)
+      // Varias zonas: una mini-muestra por zona con el color de la Zona (mismo orden y color que en el mapa)
       const kamIds = lineView.zonesOfExecutive[e.id] || []
       return {
         key: e.id,
         label: executiveName(e),
-        // Chip e iniciales del Ejecutivo Comercial: color base
-        color: safeColor(lineView.executiveColors[e.id]),
+        // Chip e iniciales del Ejecutivo Comercial: color de la Zona donde es local (colorDeEjecutivoEnLinea)
+        color: lineView.executiveChipColor[e.id] ?? NO_COVERAGE_DATA_COLOR,
         initials: initialsOf(e.full_name),
         detail: `${zoneCount} ${zoneCount === 1 ? 'zona' : 'zonas'} · ${ipsCount} IPS`,
         zones: kamIds.length > 1
@@ -1944,7 +1919,7 @@ export default function MapComponent({
               const city = shortCityName(lineView.baseCityOf(kamId)) || zoneLabelOf(kamId)
               return {
                 key: kamId,
-                color: lineView.zoneTone[kamId]?.color ?? safeColor(lineView.executiveColors[e.id]),
+                color: safeColor(kamColors[kamId], NO_COVERAGE_DATA_COLOR),
                 text: zoneInitials[kamId] || cityInitials(city),
                 title: city
               }
@@ -2087,8 +2062,8 @@ export default function MapComponent({
             <circle cx="3" cy="3" r="0.9" fill={NO_ROAD_DOT_COLOR} fillOpacity="0.6" />
           </pattern>
           {isLineMode && lineView && Array.from(new Set([
-              ...Object.values(lineView.executiveColors).map(c => safeColor(c)),
-              ...Object.values(lineView.zoneTone).map(t => safeColor(t.color)),
+              // Colores de las Zonas (los de la vista de Zonas: una zona cubierta sin equipo lleva el rayado de su color)
+              ...Object.values(kamColors).map(c => safeColor(c)),
               // Grises de las Zonas sin cobertura (una sin equipo lleva el rayado de su gris)
               ...lineView.rows.filter(r => r.kind === 'vacant').map(r => grisZona(r.kam_id)),
               VACANT_COLOR,
