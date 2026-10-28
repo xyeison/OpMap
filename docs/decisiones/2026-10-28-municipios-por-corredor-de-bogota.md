@@ -26,11 +26,15 @@ dueño: "Si dale."
 - El reparto queda por cuadrantes, pero no parejo en número de municipios: fuera de Bogotá, Chapinero 150 (casi
   todo Boyacá), San Cristóbal 46, Engativá 36 y Kennedy 18 (al sur, Huila es de Neiva y Tolima de Ibagué). Si el
   dueño quiere emparejarlo, se mueven corredores (por ejemplo, provincias de Boyacá al oriente): es otra decisión.
-- Las asignaciones forzadas no cambian en este paso. Después el dueño pidió quitarlas todas ("quiero revisar el propio
-  sistema que propone"); la 0901 las desactiva con respaldo, pero queda pendiente: los tiempos de las IPS de Meta y
-  Casanare desde Bogotá son del 2025-08-07, con la vía al Llano cerrada, y sin recalcularlos (Google, con autorización)
-  las 22 IPS de Villavicencio, Granada y Yopal quedarían sin zona. Tunja y Duitama no eran forzadas: estaban en Engativá
-  porque las IPS no se recalculaban desde el 2026-10-11; con el recálculo pasan a Chapinero (corredor norte).
+- Asignaciones forzadas: el dueño pidió quitarlas todas ("quiero revisar el propio sistema que propone") y autorizó el
+  costo de Google ("Sí, autorizo los 0,44 USD y quita las forzadas"). La 0901 (APLICADA el 2026-10-28) las desactivó
+  con respaldo y respaldó los tiempos de Bogotá a Meta y Casanare, que eran del 2025-08-07 con la vía al Llano cerrada.
+  `scripts/tiempos-bogota-refrescar.ts` los reemplazó (88 elementos, 0,44 USD): Villavicencio de ~447 a ~160 min,
+  Granada de 543 a 244, Yopal de ~406 a ~391. Resultado del recálculo: Villavicencio y Granada siguen en San Cristóbal
+  por el corredor, sin forzar; las 7 IPS de Yopal quedan sin zona (más de 6 h de Bogotá) y el municipio de Yopal queda
+  "pendiente" hasta calcular su tiempo como municipio (9 elementos, 0,05 USD; pendiente de autorización). Camas:
+  Chapinero 5.411, Engativá 5.716, Kennedy 2.001, San Cristóbal 4.509. Tunja y Duitama no eran forzadas: estaban en
+  Engativá porque las IPS no se recalculaban desde el 2026-10-11; con el recálculo pasaron a Chapinero (corredor norte).
 - Guardar la configuración de Bogotá en `/kams` sigue sin recalcular: aplica en el próximo recálculo.
 
 **Dónde vive en el código**: `decideByTravelTime` en `web/lib/municipality-coverage.ts` (usa
