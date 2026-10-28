@@ -3,8 +3,9 @@
 --   único de Bogotá en 360 min (6 h)
 -- Proyecto: norvxqgohddgsdkggqzq · Generado: 2026-10-28
 --
--- *** SOLO CON AUTORIZACIÓN DEL DUEÑO ("Si dale.", 2026-10-28), DESPUÉS DE DESPLEGAR EL MOTOR DE MUNICIPIOS CON LA
--- *** REGLA DE BOGOTÁ Y SEGUIDA DEL RECÁLCULO (sin Google, costo 0), desde web/:
+-- *** SOLO CON AUTORIZACIÓN DEL DUEÑO ("Si dale.", 2026-10-28). Se aplica ANTES del merge del motor de municipios
+-- *** (así ningún recálculo intermedio usa 240) y, DESPUÉS DEL DESPLIEGUE, va seguida del recálculo (sin Google,
+-- *** costo 0), desde web/:
 -- ***   GOOGLE_ROUTES_DISABLED=true npx tsx scripts/fase1-recalculate.ts --yes      (IPS)
 -- ***   GOOGLE_ROUTES_DISABLED=true npx tsx scripts/fase2b-municipios.ts --assign   (municipios)
 --

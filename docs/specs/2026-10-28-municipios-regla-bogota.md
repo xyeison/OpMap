@@ -31,11 +31,15 @@ Causa (investigada el 2026-10-27/28, solo lectura):
 - [x] El corredor decide la celda aunque otra sea más rápida (Boyacá → Chapinero; Fusagasugá, fila por
       municipio, → Kennedy); los minutos guardados son los de esa celda.
 - [x] "Bogotá" compite con las demás zonas por su mejor tiempo (Tolima: Bogotá 140 gana a Ibagué 150; Ibagué 130
-      gana a Bogotá 140); empate → prioridad.
+      gana a Bogotá 140). Empate exacto, como `competeForHospital`: la prioridad de la celda más rápida y, si sigue el
+      empate, el lugar de la primera celda candidata por nombre (Chapinero), que va antes que "Ibagué".
 - [x] Sin corredor, o con la celda del corredor inactiva: la celda más rápida; k = 2 usa los grupos.
+- [x] Fuera de alcance, la "más cercana" es la zona que lo recibiría con menos minutos: "Bogotá" cuenta como la
+      celda de su corredor con el tiempo de esa celda (Huila: Neiva 370 y no Kennedy 380, aunque Engativá tenga 365).
 - [x] Sin cambios: par pendiente → `pending`; sin ruta → `no_road`; Bogotá misma (departamento 11); municipios
-      con IPS (mayoría) y municipios base.
-- [x] Mismo resultado que `competeForHospital` (motor de IPS) con los mismos tiempos.
+      con IPS (mayoría) y municipios base. Con o sin la regla se piden los mismos pares a Google.
+- [x] Mismo resultado que `competeForHospital` (motor de IPS) con los mismos tiempos y las zonas en su orden (por
+      nombre). Prueba diferencial de la revisión: 0 diferencias en 14.212 filas de 3.000 casos al azar.
 
 ## Fuera de alcance
 - Asignaciones forzadas (Villavicencio, Granada → San Cristóbal; **Yopal → Kennedy**, "trayecto aéreo"): no se
@@ -73,7 +77,10 @@ Simulación en memoria (2026-10-28, solo lectura, tope 360, k = 4):
 
 ## Verificación final
 - `cd web && npm run check`.
-- Tras desplegar: respaldos, `bogota_config` a 360, `npx tsx scripts/fase1-recalculate.ts --yes` y
-  `npx tsx scripts/fase2b-municipios.ts --assign` con `GOOGLE_ROUTES_DISABLED=true`; consultas de control
-  (Puerto Gaitán, San Carlos de Guaroa, Chía, Tunja, Gachetá) y capturas del mapa (vista de Zonas) en escritorio
-  y celular.
+- **Antes del merge** (recomendación de la revisión): aplicar la 0900 (respaldos y `bogota_config` a 360). Así,
+  cualquier recálculo que alguien dispare entre el despliegue y el recálculo final ya usa 360 y ningún municipio
+  pierde zona en ese intervalo. Con el código de `master` no cambia nada: el motor de municipios viejo no lee
+  `bogota_config` y el de IPS pasa al valor buscado.
+- **Después del despliegue**: `npx tsx scripts/fase1-recalculate.ts --yes` y `npx tsx scripts/fase2b-municipios.ts
+  --assign` con `GOOGLE_ROUTES_DISABLED=true`; consultas de control (Puerto Gaitán, San Carlos de Guaroa, Chía, Tunja,
+  Gachetá) y capturas del mapa en escritorio y celular.

@@ -374,12 +374,18 @@ interface BogotaContext {
 }
 
 interface Competitor {
-  /** la zona, o para "Bogotá" la celda con el mejor tiempo (desempata frente a las demás zonas) */
+  /** la zona; para "Bogotá", la celda con el mejor tiempo */
   zone: MunicipalityZoneInput
+  /** con qué desempata frente a las demás zonas (para "Bogotá", ver decideByTravelTime) */
+  tieZone: MunicipalityZoneInput
   minutes: number
   maxMinutes: number
   bogota: boolean
 }
+
+/** Orden por nombre visible (como kams se carga en el algoritmo de IPS: order('name')), luego id. */
+const compareZoneName = (a: MunicipalityZoneInput, b: MunicipalityZoneInput) =>
+  compareText(zoneDisplayName(a.name), zoneDisplayName(b.name)) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
 
 /** Decide el municipio a partir de las candidatas y la caché (paso 3 de la regla). */
 function decideByTravelTime(
@@ -424,10 +430,19 @@ function decideByTravelTime(
 
   const competitors: Competitor[] = withRoute
     .filter(item => !virtual || !isBogotaKam(item.zone))
-    .map(item => ({ zone: item.zone, minutes: item.minutes, maxMinutes: maxMinutesOf(item.zone), bogota: false }))
+    .map(item => ({ zone: item.zone, tieZone: item.zone, minutes: item.minutes, maxMinutes: maxMinutesOf(item.zone), bogota: false }))
   if (virtual) {
-    competitors.push({ zone: cells[0].zone, minutes: virtual.min_seconds / 60, maxMinutes: virtual.max_minutes, bogota: true })
-    competitors.sort((a, b) => a.minutes - b.minutes || compareZonePreference(a.zone, b.zone))
+    // Empate exacto con otra zona, como en competeForHospital: la prioridad de la celda más rápida y el lugar de la
+    // primera celda candidata por nombre (ahí pone el algoritmo de IPS al candidato "Bogotá")
+    const firstCell = candidates.filter(zone => isBogotaKam(zone)).sort(compareZoneName)[0] ?? cells[0].zone
+    competitors.push({
+      zone: cells[0].zone,
+      tieZone: { ...firstCell, priority: priorityOf(cells[0].zone) },
+      minutes: virtual.min_seconds / 60,
+      maxMinutes: virtual.max_minutes,
+      bogota: true,
+    })
+    competitors.sort((a, b) => a.minutes - b.minutes || compareZonePreference(a.tieZone, b.tieZone))
   }
 
   // Zona y minutos de un competidor; para "Bogotá", la celda de su corredor (chooseBogotaCell)
@@ -451,7 +466,11 @@ function decideByTravelTime(
     const { kamId, minutes } = resolve(winner)
     return { ...base, kind: 'reach', kam_id: kamId, travel_minutes: minutes }
   }
-  const nearest = resolve(competitors[0])
+  // Fuera de alcance: la "más cercana" es la zona que lo recibiría con menos minutos ("Bogotá" ya convertida en la
+  // celda de su corredor, con el tiempo de esa celda); empate → el orden de la competencia
+  const nearest = competitors
+    .map(resolve)
+    .reduce((best, item) => (item.minutes < best.minutes ? item : best))
   return { ...base, kind: 'out_of_reach', nearest_kam_id: nearest.kamId, nearest_minutes: nearest.minutes }
 }
 
