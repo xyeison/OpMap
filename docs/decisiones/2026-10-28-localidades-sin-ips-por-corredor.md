@@ -6,7 +6,7 @@ residente, y el mapa les ponía, como alcance, la Zona que gana Bogotá entera p
 `municipality_zone`). Hoy es Engativá, así que Santa Fe y Usme salían en verde al otro lado de la ciudad, al sur y al
 oriente de San Cristóbal.
 
-**Decisión** (propuesta para responder al dueño; se publica con su OK):
+**Decisión** (aprobada por el dueño el 2026-10-28 al aprobar los 4 sectores de Bogotá, que la incluyen: "Si, hazlo"):
 1. Una localidad sin IPS y sin zona residente va con la celda de su corredor de salida, como los municipios vecinos
    de afuera (regla de Bogotá del 2026-10-11): Usme por la vía al Llano, Sumapaz (se entra por Usme), Santa Fe por la
    vía a Choachí y La Candelaria (rodeada por Santa Fe). Las cuatro van al corredor Oriente, que hoy recibe San

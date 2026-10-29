@@ -1,6 +1,6 @@
 # Spec: localidades de Bogotá sin IPS por corredor  (2026-10-28)
 
-**Estado**: borrador (pendiente del OK del dueño para publicar)
+**Estado**: aprobada por el dueño (2026-10-28: "Si, hazlo", al aprobar los 4 sectores, que la incluyen) · PR #36
 
 ## Problema
 El dueño, con el mapa de Bogotá a la vista: "Porque los colores no respetan geograficamente mira el verde esta arriba y
