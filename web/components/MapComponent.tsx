@@ -34,6 +34,7 @@ import type { IpsDetalle, TerritorioDetalle } from '@/lib/types/mapa-detalle'
 import { zoneBadgeHeight, initialsOf, cityInitials, uniqueCityInitials, shortCityName, readableTextColor } from './ZoneBadgeIcon'
 import ZoneBadgeLayer, { type ZoneBadgeItem } from './ZoneBadgeLayer'
 import MapLabelsLayer from './MapLabelsLayer'
+import MapSearchBox from './MapSearchBox'
 import { groupFilterChipLabel, selectedOptionIds, type GroupFilterConfig, type GroupFilterOption } from './MapGroupFilter'
 import {
   TERRITORY_BORDER_COLOR,
@@ -81,6 +82,7 @@ import { bogotaSectorInitials, zoneDisplayName } from '@/lib/zone-names'
 import { mapDataPlaceholder } from '@/lib/map-view'
 import { computeTerritoryWinners, territoryIdOf, zonaDeLocalidadSinIps } from '@/lib/territory-rules'
 import { CORREDOR_LABEL, isCorredor, type LocalidadPorCorredor } from '@/lib/bogota-corredores'
+import { geometriasDeTerritorio, rectanguloDeGeometrias, territoriosBuscables, type TerritorioBuscable } from '@/lib/buscar-territorios'
 // NO usar estimaciones - solo datos reales de Google Maps
 
 // Fix for default markers in Next.js
@@ -596,7 +598,8 @@ export default function MapComponent({
   // Reparto de municipios sin IPS por tiempo real de carretera (municipality_zone). Mientras la tabla
   // no exista o no tenga filas, la respuesta se trata como vacía y esos municipios quedan 'pending'.
   const { data: municipalityCoverage = EMPTY_MUNICIPALITY_COVERAGE } = useQuery<MunicipalityCoverage>({
-    queryKey: ['municipality-coverage'],
+    // 'v2': desde el 2026-10-28 la respuesta trae { rows, localidades }; antes el caché guardaba solo las filas
+    queryKey: ['municipality-coverage', 'v2'],
     queryFn: async () => {
       try {
         const res = await fetch('/api/municipality-coverage')
@@ -1239,6 +1242,32 @@ export default function MapComponent({
     const hospital = unassignedById[id]
     if (hospital) openPopup({ kind: 'unassigned', id, position: [Number(hospital.lat), Number(hospital.lng)] })
   }, [assignmentByHospital, unassignedById, openPopup])
+
+  // ---------- Buscador de municipios (dueño, 2026-10-28: "escribe 'Yop' ... que me lleve a ese municipio") ----------
+  // Municipios y localidades de los polígonos que el mapa ya descargó, más la ciudad de Bogotá
+  const territoriosParaBuscar = useMemo<TerritorioBuscable[]>(() => territoriosBuscables(
+    (municipiosGeo?.features || []).map((f: any) => f.properties || {}),
+    (localidadesGeo?.features || []).map((f: any) => f.properties || {}),
+    code => mapData?.municipalityNames?.[code]
+  ), [municipiosGeo, localidadesGeo, mapData])
+
+  // Encuadra el territorio elegido con zoom moderado (hasta 11 un municipio o la ciudad, 13 una localidad), dejando
+  // libres el buscador y la leyenda (escritorio) o la hoja inferior (móvil)
+  const irATerritorio = useCallback((territorio: TerritorioBuscable) => {
+    const map = mapRef.current
+    if (!map) return
+    const rectangulo = rectanguloDeGeometrias(
+      geometriasDeTerritorio(territorio.code, municipiosGeo?.features || [], localidadesGeo?.features || [])
+    )
+    if (!rectangulo) return
+    const izquierda = !isMobile && !legendCollapsed ? LEGEND_INSET_PX : 0
+    map.flyToBounds(rectangulo, {
+      paddingTopLeft: [24 + izquierda, 72],
+      paddingBottomRight: isMobile ? [24, SHEET_PEEK_PX + 24] : [72, 24],
+      maxZoom: territorio.tipo === 'localidad' ? 13 : 11,
+      duration: 0.8
+    })
+  }, [municipiosGeo, localidadesGeo, isMobile, legendCollapsed])
 
   const navigateTo = useCallback((lat: number, lng: number, zoom: number) => {
     setMapCenter([lat, lng])
@@ -2233,6 +2262,15 @@ export default function MapComponent({
 
           {renderActivePopup()}
         </MapContainer>
+
+        {/* Buscador de municipios: arriba a la derecha (junto al zoom) en escritorio; a lo ancho en el teléfono */}
+        {territoriosParaBuscar.length > 0 && (
+          <MapSearchBox
+            territorios={territoriosParaBuscar}
+            onSelect={irATerritorio}
+            className={isMobile ? 'absolute left-3 right-3 top-3' : 'absolute right-14 top-3 w-80'}
+          />
+        )}
       </div>
 
       {/* Escritorio: leyenda flotante abajo a la izquierda */}
