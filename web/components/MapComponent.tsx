@@ -8,11 +8,12 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { useRouter } from 'next/navigation'
 import { VisitsHeatmapLayer } from './VisitsHeatmapLayer'
 import { formatTravelTimeFromSeconds } from '@/lib/format-utils'
-import MapControls from './MapControls'
+import MapControls, { type MapMostrarConfig } from './MapControls'
 import { EMPTY_IPS_FILTER, isIpsFilterActive, matchesIpsFilter, type IpsServiceFilter } from '@/lib/hospital-service-filters'
 import MapController, { DeptosEnVista, ZoomGate } from './MapController'
 import HospitalMarker, { UnassignedHospitalMarker, IpsZoomLayer, formatZoneExecutives, ipsRadius, IPS_FULL_SIZE_ZOOM, type HospitalSelectHandler, type ZoneExecutive } from './HospitalMarker'
-import MapLegend, { MapLegendCard, type LegendEntry, type LegendNote, type LegendState, type LegendViewBy, type LegendViewSelect } from './MapLegend'
+import MapLegend, { MapLegendCard, type LegendEntry, type LegendNote, type LegendState } from './MapLegend'
+import type { MapVistaConfig } from './MapVista'
 import MapBottomSheet, { SHEET_PEEK_PX, type SheetSnap } from './MapBottomSheet'
 import {
   MapPopup,
@@ -31,7 +32,7 @@ import {
 } from './MapPopups'
 import { textoSinIps } from '@/lib/mapa-detalle'
 import type { IpsDetalle, TerritorioDetalle } from '@/lib/types/mapa-detalle'
-import { zoneBadgeHeight, initialsOf, cityInitials, uniqueCityInitials, shortCityName, readableTextColor } from './ZoneBadgeIcon'
+import { zoneBadgeHeight, initialsOf, uniqueCityInitials, shortCityName, readableTextColor } from './ZoneBadgeIcon'
 import ZoneBadgeLayer, { type ZoneBadgeItem } from './ZoneBadgeLayer'
 import MapLabelsLayer from './MapLabelsLayer'
 import MapSearchBox from './MapSearchBox'
@@ -46,8 +47,6 @@ import {
   HOVER_FILL_BOOST,
   HOVER_BORDER_WEIGHT,
   DIMMED_FILL_OPACITY,
-  FILTERED_OUT_FILL_COLOR,
-  FILTERED_OUT_FILL_OPACITY,
   VACANT_FILL_COLOR,
   VACANT_FILL_OPACITY,
   VACANT_REACH_FILL_OPACITY,
@@ -177,7 +176,7 @@ export interface MapLine {
 
 // 'line': cobertura de la línea elegida (quién cubre cada zona); desde el 2026-10-28 cada zona cubierta va con su color
 // (kams.color) y los estados de la línea (sin cobertura, conflicto) con los suyos.
-// 'zones': colores por zona (kams.color). Desde el 2026-10-14 la abre todo el que ve el mapa ("Ver por" de la leyenda).
+// 'zones': colores por zona (kams.color). Desde el 2026-10-14 la abre todo el que ve el mapa ("Ver por" de Filtros → Vista).
 export type MapMode = 'line' | 'zones'
 
 export type CoverageKind = 'local' | 'reach' | 'manual' | 'vacant' | 'conflict'
@@ -372,16 +371,6 @@ const NO_ROAD_SWATCH: CSSProperties = {
 // Capa SVG de la trama de puntos: solo relleno con el patrón (el borde y el gris los pinta el canvas)
 const NO_ROAD_OVERLAY_STYLE: L.PathOptions = { stroke: false, fillColor: `url(#${NO_ROAD_PATTERN_ID})`, fillOpacity: 1 }
 
-// Territorio fuera del filtro por Ejecutivo Comercial (o por zona): contexto gris muy claro, borde blanco
-const FILTERED_OUT_STYLE: L.PathOptions = {
-  fillColor: FILTERED_OUT_FILL_COLOR,
-  fillOpacity: FILTERED_OUT_FILL_OPACITY,
-  color: TERRITORY_BORDER_COLOR,
-  weight: TERRITORY_BORDER_WEIGHT,
-  opacity: TERRITORY_BORDER_OPACITY,
-  dashArray: undefined
-}
-
 const HOSPITAL_TYPE_LABELS: Record<string, string> = { Publico: 'Pública', Privada: 'Privada', Mixta: 'Mixta' }
 
 // Tarjeta abierta en el mapa (una a la vez)
@@ -461,17 +450,11 @@ export default function MapComponent({
   const [showMarkers, setShowMarkers] = useState(initialShowMarkers)
   // Fase 3: bloque "IPS" de Filtros (quirófano, ortopedia, neurocirugía, columna, camas); solo oculta puntos
   const [ipsServiceFilter, setIpsServiceFilter] = useState<IpsServiceFilter>(EMPTY_IPS_FILTER)
-  const [mapCenter, setMapCenter] = useState<[number, number] | undefined>(undefined)
-  const [mapZoom, setMapZoom] = useState<number | undefined>(undefined)
 
-  // Capas visibles y resaltado desde la leyenda. Las visitas arrancan apagadas.
+  // Capas visibles (Filtros › Mostrar). Las visitas arrancan apagadas.
   const [showIps, setShowIps] = useState(true)
   const [showReach, setShowReach] = useState(true)
   const [visitsEnabled, setVisitsEnabled] = useState(false)
-  // Resaltado desde la leyenda: un grupo (Ejecutivo Comercial o zona) o, dentro de un Ejecutivo
-  // Comercial con varias zonas, solo algunas de ellas (zoneIds = kam_ids)
-  const [highlight, setHighlight] = useState<{ key: string; zoneIds: ReadonlySet<string> | null } | null>(null)
-  const highlightKey = highlight?.key ?? null
   const [sheetSnap, setSheetSnap] = useState<SheetSnap>('peek')
   // Cada toque en "Filtros" de la hoja inferior abre la pestaña de filtros
   const [filtersTabRequest, setFiltersTabRequest] = useState(0)
@@ -804,8 +787,8 @@ export default function MapComponent({
       if (!zoneNameById[k.id]) zoneNameById[k.id] = k.name
     })
 
-    // Orden de las zonas de cada Ejecutivo Comercial (alfabético por ciudad base): mini-muestras de la leyenda y
-    // "zona 2 de 4" en la tarjeta. Desde el 2026-10-28 cada zona va con su propio color (kams.color), igual que en la
+    // Orden de las zonas de cada Ejecutivo Comercial (alfabético por ciudad base): "zona 2 de 4" en la tarjeta y el
+    // color de su chip. Desde el 2026-10-28 cada zona va con su propio color (kams.color), igual que en la
     // vista de Zonas, y no con un tono del color del Ejecutivo Comercial (decisión del dueño).
     const kamById: Record<string, any> = {}
     ;(mapData?.kams || []).forEach((k: any) => { kamById[k.id] = k })
@@ -855,9 +838,7 @@ export default function MapComponent({
       executiveChipColor,
       byKam,
       zoneNameById,
-      zonesOfExecutive,
       zoneOrder,
-      baseCityOf,
       counts: { zonesByExecutive, vacant, conflict, noEquipment }
     }
   }, [mapData, kamColors])
@@ -910,7 +891,8 @@ export default function MapComponent({
     return kamColors[kamId] || NO_COVERAGE_DATA_COLOR
   }, [isLineMode, zoneLineColor, kamColors])
 
-  // Grupo de la zona en la vista activa (lo que se resalta desde la leyenda)
+  // Grupo de la zona en la vista activa (persona en la vista por línea, Zona en la de zonas): elige la insignia de
+  // muestra de la leyenda
   const groupKeyForZone = useCallback((kamId: string | null | undefined): string | null => {
     if (!kamId) return null
     if (isLineMode && lineView) {
@@ -923,21 +905,9 @@ export default function MapComponent({
     return kamId
   }, [isLineMode, lineView])
 
-  // Atenuada: se resalta otro grupo o, dentro del mismo Ejecutivo Comercial, otra de sus zonas
-  const isDimmedZone = useCallback((kamId: string | null | undefined): boolean => {
-    if (!highlight) return false
-    if (highlight.zoneIds) return !kamId || !highlight.zoneIds.has(kamId)
-    return groupKeyForZone(kamId) !== highlight.key
-  }, [highlight, groupKeyForZone])
-
-  // Al cambiar de línea o de vista se quita el resaltado
-  useEffect(() => {
-    setHighlight(null)
-  }, [isLineMode, selectedLineCode])
-
-  // ---------- Filtro por Ejecutivo Comercial (vista por línea) o por zona (vista de zonas) ----------
-  // A diferencia del resaltado, el filtro OCULTA: los territorios de los demás quedan como contexto
-  // gris y sus IPS, insignias y visitas no se dibujan.
+  // ---------- "Ver solo": Ejecutivos Comerciales (vista por línea) o Zonas (vista de zonas) ----------
+  // Único mecanismo desde el 2026-10-29 (docs/specs/2026-10-29-mapa-filtros-y-leyenda.md): fuera del filtro el
+  // territorio queda casi blanco (el color de su Zona al 8 %) y sus IPS, insignias y visitas no se dibujan.
   const filterKind: GroupFilterConfig['kind'] | null = isLineMode ? 'executive' : mapMode === 'zones' ? 'zone' : null
   const activeFilter = useMemo<ReadonlySet<string> | null>(
     () => (filterKind && filterIds ? new Set(filterIds) : null),
@@ -959,12 +929,6 @@ export default function MapComponent({
     }
     return !activeFilter || activeFilter.has(kamId)
   }, [isLineMode, lineView, activeFilter, showVacant])
-
-  // Con filtro, el resaltado de la leyenda solo puede quedar sobre un grupo filtrado
-  useEffect(() => {
-    if (!activeFilter) return
-    setHighlight(current => (current && !activeFilter.has(current.key) ? null : current))
-  }, [activeFilter])
 
   // ---------- Estilo de la capa completa de municipios y localidades ----------
 
@@ -999,18 +963,11 @@ export default function MapComponent({
     return { color: t.kamId ? colorForZone(t.kamId) : NO_COVERAGE_DATA_COLOR, opacity: isReach ? REACH_FILL_OPACITY : IPS_FILL_OPACITY, vacant: false }
   }, [isLineMode, lineView, colorForZone, grisZona])
 
-  // Fuera del filtro (solo polígonos con zona o vacantes): contexto gris, sin tooltip ni tarjeta
+  // Fuera del filtro (solo polígonos con zona o vacantes): casi blanco, sin tooltip ni tarjeta
   const isFilteredOutTerritory = useCallback((t: ResolvedTerritory): boolean => {
     if (t.kind !== 'ips' && t.kind !== 'reach' && t.kind !== 'vacant') return false
     return !isZoneVisible(t.kamId)
   }, [isZoneVisible])
-
-  // Atenuado: se resalta otro grupo en la leyenda (solo polígonos con zona o vacantes)
-  const isDimmedTerritory = useCallback((t: ResolvedTerritory): boolean => {
-    if (!highlight) return false
-    if (t.kind !== 'ips' && t.kind !== 'reach' && t.kind !== 'vacant') return false
-    return isDimmedZone(t.kamId)
-  }, [highlight, isDimmedZone])
 
   // Estilo autorizado 2026-10-11: borde blanco fino en los polígonos con zona y pendientes (vacantes:
   // borde pizarra fino); relleno 0.55 con IPS / 0.22 de alcance (vacante 0.5 / 0.3). Todas las
@@ -1046,15 +1003,14 @@ export default function MapComponent({
     }
   }, [territoryFill, isNoEquipment])
 
-  // Estilo en reposo: municipios de alcance ocultos o grupos atenuados según la leyenda
+  // Estilo en reposo: municipios de alcance ocultos o territorio fuera de "Ver solo" casi blanco
   const territoryRestStyle = useCallback((code: string, isLocality: boolean): L.PathOptions => {
     const t = resolveTerritory(code, isLocality)
     const base = baseTerritoryStyle(t)
     if (t.kind === 'reach' && !showReach) return { ...base, fillOpacity: 0, opacity: 0 }
-    if (isFilteredOutTerritory(t)) return FILTERED_OUT_STYLE
-    if (isDimmedTerritory(t)) return { ...base, fillOpacity: Math.min(base.fillOpacity ?? 0, DIMMED_FILL_OPACITY), opacity: 0.3 }
+    if (isFilteredOutTerritory(t)) return { ...base, fillOpacity: Math.min(base.fillOpacity ?? 0, DIMMED_FILL_OPACITY), opacity: 0.3 }
     return base
-  }, [resolveTerritory, baseTerritoryStyle, showReach, isFilteredOutTerritory, isDimmedTerritory])
+  }, [resolveTerritory, baseTerritoryStyle, showReach, isFilteredOutTerritory])
 
   // Hover (solo con cursor): relleno +0.15 y borde blanco de 1,5 px
   const territoryHoverStyle = useCallback((code: string, isLocality: boolean): L.PathOptions => {
@@ -1069,7 +1025,7 @@ export default function MapComponent({
     }
   }, [territoryRestStyle, resolveTerritory, isNoEquipment])
 
-  // style por feature: al cambiar de línea/vista/resaltado solo cambia esta función y react-leaflet
+  // style por feature: al cambiar de línea/vista/"Ver solo" solo cambia esta función y react-leaflet
   // llama a setStyle (los polígonos no se vuelven a crear)
   const municipiosStyle = useCallback((feature?: any) => territoryRestStyle(String(feature?.properties?.code ?? ''), false), [territoryRestStyle])
   const localidadesStyle = useCallback((feature?: any) => territoryRestStyle(String(feature?.properties?.code ?? ''), true), [territoryRestStyle])
@@ -1096,14 +1052,13 @@ export default function MapComponent({
     const isLocality = !!feature?.properties?.isLocality
     const t = resolveTerritory(String(feature?.properties?.code ?? ''), isLocality)
     const color = territoryFill(t).color
-    const hidden = (t.kind === 'reach' && !showReach) || isFilteredOutTerritory(t)
-    const dimmed = isDimmedTerritory(t)
+    const hidden = t.kind === 'reach' && !showReach
     return {
       stroke: false,
       fillColor: `url(#${noEquipmentPatternId(safeColor(color))})`,
-      fillOpacity: hidden ? 0 : dimmed ? DIMMED_FILL_OPACITY : (t.kind === 'reach' ? 0.35 : 0.85)
+      fillOpacity: hidden ? 0 : isFilteredOutTerritory(t) ? DIMMED_FILL_OPACITY : (t.kind === 'reach' ? 0.35 : 0.85)
     }
-  }, [resolveTerritory, territoryFill, showReach, isFilteredOutTerritory, isDimmedTerritory])
+  }, [resolveTerritory, territoryFill, showReach, isFilteredOutTerritory])
 
   // Trama de puntos de "sin acceso terrestre" (solo municipios; no dependen de la línea)
   const noRoadOverlay = useMemo(() => {
@@ -1294,7 +1249,7 @@ export default function MapComponent({
     openPopup({ kind: 'unassigned', id, position })
   }, [openPopup])
 
-  // Resultado de búsqueda: abre la tarjeta de la IPS
+  // IPS elegida en el buscador: abre su tarjeta (asignada o sin zona)
   const openHospitalPopup = useCallback((id: string | null) => {
     if (!id) return
     const assignment = assignmentByHospital[id]
@@ -1306,19 +1261,39 @@ export default function MapComponent({
     if (hospital) openPopup({ kind: 'unassigned', id, position: [Number(hospital.lat), Number(hospital.lng)] })
   }, [assignmentByHospital, unassignedById, openPopup])
 
-  // ---------- Buscador de municipios (dueño, 2026-10-28: "escribe 'Yop' ... que me lleve a ese municipio") ----------
-  // Municipios y localidades de los polígonos que el mapa ya descargó, más la ciudad de Bogotá
+  // ---------- Buscador del mapa (dueño, 2026-10-28; único desde el 2026-10-29) ----------
+  // Municipios, departamentos y localidades de los polígonos que el mapa ya descargó, la ciudad de Bogotá y las IPS con
+  // coordenadas (antes estaban en la pestaña "Buscar" de Filtros)
   const territoriosParaBuscar = useMemo<TerritorioBuscable[]>(() => territoriosBuscables(
     (municipiosGeo?.features || []).map((f: any) => f.properties || {}),
     (localidadesGeo?.features || []).map((f: any) => f.properties || {}),
-    code => mapData?.municipalityNames?.[code]
+    code => mapData?.municipalityNames?.[code],
+    (mapData?.hospitals || [])
+      .filter((h: any) => h.lat != null && h.lng != null)
+      .map((h: any) => ({
+        id: String(h.id),
+        name: h.name,
+        code: h.code,
+        lat: Number(h.lat),
+        lng: Number(h.lng),
+        municipio: mapData?.municipalityNames?.[h.municipality_id] ?? h.municipality_name ?? null
+      }))
   ), [municipiosGeo, localidadesGeo, mapData])
 
-  // Encuadra el territorio elegido con zoom moderado (hasta 11 un municipio o la ciudad, 13 una localidad), dejando
+  // Va al resultado: una IPS, a su punto (zoom 15 como mínimo) con su tarjeta abierta; un territorio,
+  // encuadrado con zoom moderado (hasta 9 un departamento, 11 un municipio o la ciudad, 13 una localidad) y dejando
   // libres el buscador y la leyenda (escritorio) o la hoja inferior (móvil)
   const irATerritorio = useCallback((territorio: TerritorioBuscable) => {
     const map = mapRef.current
     if (!map) return
+    if (territorio.tipo === 'ips') {
+      if (territorio.lat === undefined || territorio.lng === undefined) return
+      const ipsId = territorio.ipsId ?? null
+      // La tarjeta se abre al terminar el vuelo: así Leaflet la encuadra con la vista final, debajo del buscador
+      map.once('moveend', () => openHospitalPopup(ipsId))
+      map.flyTo([territorio.lat, territorio.lng], Math.max(map.getZoom(), 15), { duration: 0.8 })
+      return
+    }
     const rectangulo = rectanguloDeGeometrias(
       geometriasDeTerritorio(territorio.code, municipiosGeo?.features || [], localidadesGeo?.features || [])
     )
@@ -1327,20 +1302,10 @@ export default function MapComponent({
     map.flyToBounds(rectangulo, {
       paddingTopLeft: [24 + izquierda, 72],
       paddingBottomRight: isMobile ? [24, SHEET_PEEK_PX + 24] : [72, 24],
-      maxZoom: territorio.tipo === 'localidad' ? 13 : 11,
+      maxZoom: territorio.tipo === 'departamento' ? 9 : territorio.tipo === 'localidad' ? 13 : 11,
       duration: 0.8
     })
-  }, [municipiosGeo, localidadesGeo, isMobile, legendCollapsed])
-
-  const navigateTo = useCallback((lat: number, lng: number, zoom: number) => {
-    setMapCenter([lat, lng])
-    setMapZoom(zoom)
-    // Limpiar después de un momento para permitir nuevas navegaciones
-    setTimeout(() => {
-      setMapCenter(undefined)
-      setMapZoom(undefined)
-    }, 100)
-  }, [])
+  }, [municipiosGeo, localidadesGeo, isMobile, legendCollapsed, openHospitalPopup])
 
   // ---------- Manejadores de los polígonos ----------
   // Estables (no se vuelven a registrar al cambiar de línea): leen el contexto vigente de esta referencia.
@@ -1416,12 +1381,11 @@ export default function MapComponent({
           name={hospital.name}
           beds={hospital.beds}
           color={colorForZone(kamId)}
-          dimmed={isDimmedZone(kamId)}
           showTooltip={canHover}
           onSelect={selectIps}
         />
       )
-    }), [visibleAssignments, colorForZone, isDimmedZone, canHover, selectIps])
+    }), [visibleAssignments, colorForZone, canHover, selectIps])
 
   // IPS sin zona en la vista (incluye departamentos excluidos): punto gris pequeño con borde blanco
   const unassignedMarkers = useMemo(() => visibleUnassigned
@@ -1433,11 +1397,10 @@ export default function MapComponent({
         lat={Number(hospital.lat)}
         lng={Number(hospital.lng)}
         name={hospital.name}
-        dimmed={!!highlight}
         showTooltip={canHover}
         onSelect={selectUnassigned}
       />
-    )), [visibleUnassigned, highlight, canHover, selectUnassigned])
+    )), [visibleUnassigned, canHover, selectUnassigned])
 
   // Insignias de zona: una por zona en su ciudad base, con las iniciales de la ciudad base sobre el
   // color de la vista (colorForZone). Las que se tocan en pantalla se agrupan en racimos (ZoneBadgeLayer).
@@ -1488,11 +1451,10 @@ export default function MapComponent({
         shortName: bogotaSectorInitials(name) ? name : shortCityName(kam.base_city) || name,
         label: `Zona ${name}`,
         groupKey: groupKeyForZone(kam.id),
-        dimmed: isDimmedZone(kam.id),
         tooltipTitle: `Zona ${name}`,
         tooltipMeta
       }
-    }), [kamStats, isZoneVisible, isLineMode, lineView, colorForZone, grisZona, zoneInitials, groupKeyForZone, isDimmedZone, zoneExecutivesText])
+    }), [kamStats, isZoneVisible, isLineMode, lineView, colorForZone, grisZona, zoneInitials, groupKeyForZone, zoneExecutivesText])
 
   const selectZone = useCallback((id: string, position: L.LatLngTuple) => {
     openPopup({ kind: 'zone', id, position })
@@ -1953,13 +1915,13 @@ export default function MapComponent({
     : mapMode === 'zones'
       ? 'Vista de zonas'
       : (selectedLineName || 'Mapa')
-  // ---------- Filtro principal (opciones de la lista) ----------
+  // ---------- "Ver solo" (opciones de la lista) ----------
   // Vista por línea: Ejecutivos Comerciales de la línea (mismo chip, iniciales y cuentas que la
   // leyenda). Vista de zonas: zonas con el color de la vista.
   let groupFilter: GroupFilterConfig | null = null
+  let vacantHint = ''
   if (filterKind) {
     let options: GroupFilterOption[]
-    let vacantHint: string
     if (filterKind === 'executive' && lineView) {
       options = lineView.executives.map(e => {
         const zoneCount = lineView.counts.zonesByExecutive[e.id] || 0
@@ -1989,13 +1951,9 @@ export default function MapComponent({
     }
     groupFilter = {
       kind: filterKind,
-      title: filterKind === 'executive' ? 'Ejecutivos Comerciales' : 'Zonas',
       options,
       selected: activeFilter,
-      onChange: ids => onFilterIdsChange?.(ids),
-      showVacant,
-      onShowVacantChange: changeShowVacant,
-      vacantHint
+      onChange: ids => onFilterIdsChange?.(ids)
     }
   }
   // Marcados que existen en la vista (un enlace puede traer ids de otra línea)
@@ -2015,22 +1973,18 @@ export default function MapComponent({
       : `Filtro: ${filteredOptionIds.length} de ${groupFilter.options.length} ${groupFilter.kind === 'executive' ? 'Ejecutivos Comerciales' : 'zonas'}`
   }
 
-  // "Ver por" de la leyenda (spec 2026-10-14): Ejecutivos Comerciales (vista por línea) o Zonas (colores de
-  // kams.color), para todo el que ve el mapa. Sin líneas asignadas solo queda la vista de zonas.
-  const viewBy: LegendViewBy | null = onMapModeChange
+  // Vista del panel de Filtros (spec 2026-10-14, en Filtros desde el 2026-10-29): Ejecutivos Comerciales (vista por
+  // línea) o Zonas (colores de kams.color), para todo el que ve el mapa. Sin líneas asignadas solo queda la vista de
+  // zonas. Selector de línea con más de una línea; con una, su nombre.
+  const vista: MapVistaConfig | null = onMapModeChange
     ? {
-        value: mapMode === 'zones' ? 'zones' : 'executives',
-        onChange: value => onMapModeChange(value === 'zones' ? 'zones' : 'line'),
-        executivesDisabled: lines.length === 0
-      }
-    : null
-  // Selector de línea (solo en la vista por Ejecutivos Comerciales y con más de una línea)
-  const viewOptions = lines.map(line => ({ value: line.code, label: line.name }))
-  const viewSelect: LegendViewSelect | null = viewOptions.length > 1
-    ? {
-        value: selectedLineCode ?? '',
-        options: viewOptions,
-        onChange: value => onLineChange?.(value)
+        por: mapMode === 'zones' ? 'zones' : 'executives',
+        onPorChange: value => onMapModeChange(value === 'zones' ? 'zones' : 'line'),
+        sinLineas: lines.length === 0,
+        linea: lines.length > 1
+          ? { value: selectedLineCode ?? '', options: lines.map(line => ({ value: line.code, label: line.name })), onChange: value => onLineChange?.(value) }
+          : null,
+        lineaNombre: isLineMode && lineView ? lineView.line.name : selectedLineName
       }
     : null
 
@@ -2042,26 +1996,13 @@ export default function MapComponent({
     legendEntries = lineView.executives.filter(e => !activeFilter || activeFilter.has(e.id)).map(e => {
       const zoneCount = lineView.counts.zonesByExecutive[e.id] || 0
       const ipsCount = ipsByExecutive[e.id] || 0
-      // Varias zonas: una mini-muestra por zona con el color de la Zona (mismo orden y color que en el mapa)
-      const kamIds = lineView.zonesOfExecutive[e.id] || []
       return {
         key: e.id,
         label: executiveName(e),
         // Chip e iniciales del Ejecutivo Comercial: color de la Zona donde es local (colorDeEjecutivoEnLinea)
         color: lineView.executiveChipColor[e.id] ?? NO_COVERAGE_DATA_COLOR,
         initials: initialsOf(e.full_name),
-        detail: `${zoneCount} ${zoneCount === 1 ? 'zona' : 'zonas'} · ${ipsCount} IPS`,
-        zones: kamIds.length > 1
-          ? kamIds.map(kamId => {
-              const city = bogotaSectorInitials(zoneLabelOf(kamId)) ? zoneLabelOf(kamId) : shortCityName(lineView.baseCityOf(kamId)) || zoneLabelOf(kamId)
-              return {
-                key: kamId,
-                color: safeColor(kamColors[kamId], NO_COVERAGE_DATA_COLOR),
-                text: zoneInitials[kamId] || cityInitials(city),
-                title: city
-              }
-            })
-          : undefined
+        detail: `${zoneCount} ${zoneCount === 1 ? 'zona' : 'zonas'} · ${ipsCount} IPS`
       }
     })
   } else {
@@ -2132,36 +2073,25 @@ export default function MapComponent({
   }
 
   const legendProps = {
-    viewLabel,
-    viewBy,
-    viewSelect,
     entriesTitle,
     entries: legendEntries,
     emptyEntriesText: activeFilter
-      ? (isLineMode ? 'Ningún Ejecutivo Comercial marcado en el filtro.' : 'Ninguna zona marcada en el filtro.')
+      ? (isLineMode ? 'Ningún Ejecutivo Comercial en "Ver solo".' : 'Ninguna zona en "Ver solo".')
       : (isLineMode ? 'Nadie lleva esta línea todavía.' : 'Sin datos.'),
-    filter: groupFilter && filteredOptionIds
-      ? {
-          text: `${filteredOptionIds.length} de ${groupFilter.options.length}`,
-          onClear: () => onFilterIdsChange?.(null)
-        }
-      : null,
-    highlightKey,
-    highlightZoneKey: highlight?.zoneIds && highlight.zoneIds.size === 1 ? Array.from(highlight.zoneIds)[0] : null,
-    onHighlight: (key: string | null) => setHighlight(key ? { key, zoneIds: null } : null),
-    onHighlightZone: (entryKey: string, zoneKey: string | null) =>
-      setHighlight(zoneKey ? { key: entryKey, zoneIds: new Set([zoneKey]) } : null),
     states: legendStates,
     markers: legendMarkers,
-    notes: legendNotes,
-    toggles: {
-      showIps,
-      onShowIps: setShowIps,
-      showReach,
-      onShowReach: setShowReach,
-      visitsEnabled,
-      onVisitsEnabled: setVisitsEnabled
-    }
+    notes: legendNotes
+  }
+
+  // "Mostrar" del panel de Filtros
+  const mostrar: MapMostrarConfig = {
+    showIps,
+    onShowIps: setShowIps,
+    showReach,
+    onShowReach: setShowReach,
+    showVacant,
+    onShowVacant: changeShowVacant,
+    vacantHint
   }
 
   const controlsProps = {
@@ -2176,11 +2106,11 @@ export default function MapComponent({
     onShowMarkersChange: setShowMarkers,
     ipsServiceFilter,
     onIpsServiceFilterChange: setIpsServiceFilter,
-    onHospitalSelect: openHospitalPopup,
-    onMapNavigate: navigateTo,
     visitsEnabled,
     onVisitsEnabledChange: setVisitsEnabled,
+    vista,
     groupFilter,
+    mostrar,
     visitKamIds,
     filterChipLabel,
     filtersTabRequest
@@ -2188,7 +2118,7 @@ export default function MapComponent({
 
   return (
     <>
-      {/* Escritorio: filtros, visitas y búsqueda en el panel flotante de siempre */}
+      {/* Escritorio: Filtros y visitas en el panel flotante de siempre */}
       {!isMobile && <MapControls variant="floating" {...controlsProps} />}
 
       {/* Patrones SVG que usan las capas SVG de Leaflet con fill url(#id): trama de puntos de "sin acceso
@@ -2233,7 +2163,7 @@ export default function MapComponent({
           zoomControl={false}
           attributionControl={false}
         >
-          <MapController center={mapCenter} zoom={mapZoom} />
+          <MapController />
           <TileLayer
             key={isMobile ? 'basemap-compact' : 'basemap-full'}
             attribution={isMobile ? COMPACT_ATTRIBUTION : BASEMAP_ATTRIBUTION}
@@ -2333,12 +2263,12 @@ export default function MapComponent({
           {renderActivePopup()}
         </MapContainer>
 
-        {/* Buscador de municipios: arriba a la derecha (junto al zoom) en escritorio; a lo ancho en el teléfono */}
+        {/* Buscador único (municipio, departamento, localidad o IPS): arriba a la derecha en escritorio; a lo ancho en el teléfono */}
         {territoriosParaBuscar.length > 0 && (
           <MapSearchBox
             territorios={territoriosParaBuscar}
             onSelect={irATerritorio}
-            className={isMobile ? 'absolute left-3 right-3 top-3' : 'absolute right-14 top-3 w-80'}
+            className={isMobile ? 'absolute left-3 right-3 top-3' : 'absolute right-14 top-3 w-[22rem]'}
           />
         )}
       </div>
@@ -2350,7 +2280,7 @@ export default function MapComponent({
         </MapLegendCard>
       )}
 
-      {/* Móvil: hoja inferior con la leyenda y, a altura completa, filtros de visitas y búsqueda */}
+      {/* Móvil: hoja inferior con la leyenda y, a altura completa, Filtros y visitas */}
       {isMobile && (
         <MapBottomSheet
           snap={sheetSnap}
@@ -2359,7 +2289,7 @@ export default function MapComponent({
           subtitle={viewSubtitle}
           filterChip={filterChipLabel}
           onOpenFilters={() => setFiltersTabRequest(n => n + 1)}
-          secondary={<MapControls variant="embedded" {...controlsProps} onSearchSelect={() => setSheetSnap('peek')} />}
+          secondary={<MapControls variant="embedded" {...controlsProps} />}
         >
           <MapLegend {...legendProps} touch />
         </MapBottomSheet>

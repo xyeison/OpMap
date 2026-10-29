@@ -29,13 +29,16 @@ export function popupMaxWidth(): number {
   return Math.max(220, Math.min(340, Math.floor(window.innerWidth * 0.92) - 2))
 }
 
+// Margen de arriba al encuadrar la tarjeta: deja libre el buscador del mapa (12 px + 44 de alto + 12)
+const POPUP_TOP_PADDING = 68
+
 /**
- * Alto máximo de la tarjeta: el alto del mapa menos los márgenes del encuadre (arriba 12 px, abajo `bottomPadding`) y la
- * punta. Si el contenido es más alto (p. ej. un municipio con giros, compras y seis proveedores), se desplaza dentro de
- * la tarjeta en vez de salirse de la pantalla.
+ * Alto máximo de la tarjeta: el alto del mapa menos los márgenes del encuadre (arriba POPUP_TOP_PADDING, abajo
+ * `bottomPadding`) y la punta. Si el contenido es más alto (p. ej. un municipio con giros, compras y seis proveedores),
+ * se desplaza dentro de la tarjeta en vez de salirse de la pantalla.
  */
 export function popupMaxHeight(mapHeight: number, bottomPadding: number): number {
-  return Math.max(200, Math.floor(mapHeight - 12 - bottomPadding - 44))
+  return Math.max(200, Math.floor(mapHeight - POPUP_TOP_PADDING - bottomPadding - 44))
 }
 
 /** Vuelve a medir y encuadrar la tarjeta abierta con el tope de alto vigente (react-leaflet solo mide al abrir). */
@@ -96,7 +99,7 @@ export function MapPopup({ nonce, position, offset, bottomPadding, onClose, chil
       maxWidth={popupMaxWidth()}
       minWidth={200}
       className="opmap-popup"
-      autoPanPaddingTopLeft={[12, 12]}
+      autoPanPaddingTopLeft={[12, POPUP_TOP_PADDING]}
       autoPanPaddingBottomRight={[12, bottomPadding]}
       eventHandlers={eventHandlers}
     >

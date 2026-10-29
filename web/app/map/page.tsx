@@ -10,7 +10,6 @@ import type { MapLine, MapMode } from '@/components/MapComponent'
 import { setMapHeaderTitle } from '@/components/mapHeaderStore'
 import { lineForExecutivesView, resolveMapView } from '@/lib/map-view'
 
-// Importar MapComponent directamente en lugar de MapWithVisitsSimple
 const MapComponent = dynamic(
   () => import('@/components/MapComponent').then((mod) => mod.default),
   {
@@ -126,7 +125,7 @@ function MapPageContent() {
     (code: string) => updateParams({ line: code, mode: null, exec: null, zones: null }),
     [updateParams]
   )
-  // "Ver por" de la leyenda. Volver a "Ejecutivos Comerciales" deja la línea elegida o, si no había ninguna (se
+  // "Ver por" de Filtros → Vista. Volver a "Ejecutivos Comerciales" deja la línea elegida o, si no había ninguna (se
   // entró directo a la vista de zonas), la primera de sus líneas.
   const changeMapMode = useCallback(
     (mode: MapMode) => {
@@ -148,7 +147,7 @@ function MapPageContent() {
   const rawFilter = searchParams.get(filterParam)
   const filterIds = useMemo(() => parseFilterIds(rawFilter), [rawFilter])
   // history.replaceState (Next 14 lo sincroniza con useSearchParams): sin ir al servidor en cada
-  // casilla. Los ids son UUID validados, la coma se deja sin codificar (?exec=<id1,id2>).
+  // toque de "Ver solo". Los ids son UUID validados, la coma se deja sin codificar (?exec=<id1,id2>).
   const changeFilterIds = useCallback((ids: string[] | null) => {
     const params = new URLSearchParams(window.location.search)
     params.delete(filterParam)
@@ -273,7 +272,7 @@ function LineSelectorModal({ lines, onSelect }: { lines: MapLine[]; onSelect: (c
           Elige una línea de negocio
         </h2>
         <p className="mt-1 text-sm text-gray-600">
-          El mapa muestra la cobertura de una línea a la vez. Podrás cambiarla después desde la leyenda del mapa.
+          El mapa muestra la cobertura de una línea a la vez. Podrás cambiarla después en Filtros, dentro del mapa.
         </p>
         <div className="mt-4 space-y-2">
           {lines.map((line, index) => (

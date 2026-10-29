@@ -23,14 +23,9 @@ export const REACH_OPACITY_RATIO = REACH_FILL_OPACITY / IPS_FILL_OPACITY
 export const HOVER_FILL_BOOST = 0.15
 export const HOVER_BORDER_WEIGHT = 1.5
 
-// Resaltado desde la leyenda: el resto de grupos queda casi transparente
+// Fuera de "Ver solo" (dueño, 2026-10-29: "se pone lo demás blanco"; antes era el resaltado de la leyenda): el
+// territorio queda con el color de su Zona casi transparente y sus IPS, insignias y visitas no se dibujan
 export const DIMMED_FILL_OPACITY = 0.08
-
-// Filtro por Ejecutivo Comercial (o por zona en la vista de zonas): los territorios que quedan fuera
-// del filtro se pintan como contexto gris muy claro con el borde blanco de siempre (sus IPS e
-// insignias no se dibujan)
-export const FILTERED_OUT_FILL_COLOR = '#f1f5f9'
-export const FILTERED_OUT_FILL_OPACITY = 0.5
 
 // Vacante en la línea (o territorio solo con IPS sin zona): relleno pizarra sólido, más fuerte en los
 // municipios con IPS que en los de alcance de la zona vacante, y borde pizarra fino (no blanco) para que

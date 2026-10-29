@@ -2,9 +2,9 @@
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 
-// Hoja inferior del mapa en móvil (< 768 px): el mapa ocupa toda la pantalla y la leyenda,
-// el selector de línea y los filtros viven aquí. Tres alturas: asomada (nombre de la línea y
-// botones "Filtros" y "Leyenda"), media (leyenda) y completa (filtros de visitas y búsqueda).
+// Hoja inferior del mapa en móvil (< 768 px): el mapa ocupa toda la pantalla y la leyenda y el panel de Filtros
+// (vista, línea, "Ver solo", IPS y visitas) viven aquí; el buscador va sobre el mapa. Tres alturas: asomada (nombre de
+// la línea y botones "Filtros" y "Leyenda"), media (leyenda) y completa (Filtros y visitas).
 // Se arrastra desde el asa o se cambia con los botones.
 
 export type SheetSnap = 'peek' | 'mid' | 'full'
@@ -32,7 +32,7 @@ interface MapBottomSheetProps {
   subtitle?: string | null
   // Leyenda (altura media)
   children: ReactNode
-  // Filtros de visitas y búsqueda (altura completa); se mantiene montado para no perder su estado
+  // Panel de Filtros y visitas (altura completa); se mantiene montado para no perder su estado
   secondary?: ReactNode
   // Filtro activo ("1 ejecutiva"): el botón "Filtros" de la barra pasa a ser este chip
   filterChip?: string | null
@@ -178,7 +178,7 @@ export default function MapBottomSheet({ snap, onSnapChange, title, subtitle, ch
           {children}
           {secondary && (
             <div ref={secondaryRef} className="mt-5 border-t border-gray-100 pt-4">
-              <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">Filtros, visitas y búsqueda</div>
+              <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">Filtros y visitas</div>
               {secondary}
             </div>
           )}

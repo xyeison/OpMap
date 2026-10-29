@@ -99,19 +99,17 @@ interface HospitalMarkerProps {
   beds: unknown
   // Color de la vista activa (Ejecutivo Comercial en la línea o zona), ya validado
   color: string
-  // Atenuado mientras se resalta otro Ejecutivo Comercial / zona en la leyenda
-  dimmed?: boolean
   // Solo con cursor real: en táctil no hay hover y el toque abre directamente la tarjeta
   showTooltip: boolean
   onSelect: HospitalSelectHandler
 }
 
-const pointStyle = (fillColor: string, dimmed: boolean, compact: boolean): PathOptions => ({
+const pointStyle = (fillColor: string, compact: boolean): PathOptions => ({
   color: IPS_POINT_BORDER_COLOR,
   weight: compact ? 1 : IPS_POINT_BORDER_WEIGHT,
-  opacity: dimmed ? 0.35 : 1,
+  opacity: 1,
   fillColor,
-  fillOpacity: dimmed ? 0.25 : IPS_POINT_FILL_OPACITY
+  fillOpacity: IPS_POINT_FILL_OPACITY
 })
 
 /**
@@ -119,10 +117,10 @@ const pointStyle = (fillColor: string, dimmed: boolean, compact: boolean): PathO
  * la tarjeta de la IPS (en táctil, con un área de toque transparente más grande). Memoizado: cambiar
  * de línea solo cambia el color (setStyle), el marcador no se vuelve a crear.
  */
-function HospitalMarkerBase({ id, lat, lng, name, beds, color, dimmed = false, showTooltip, onSelect }: HospitalMarkerProps) {
+function HospitalMarkerBase({ id, lat, lng, name, beds, color, showTooltip, onSelect }: HospitalMarkerProps) {
   const { compact, renderer, touch } = useContext(IpsRenderContext)
   const center = useMemo<LatLngTuple>(() => [lat, lng], [lat, lng])
-  const pathOptions = useMemo(() => pointStyle(color, dimmed, compact), [color, dimmed, compact])
+  const pathOptions = useMemo(() => pointStyle(color, compact), [color, compact])
   const handleClick = useCallback(() => onSelect(id, center), [id, center, onSelect])
   const eventHandlers = useMemo(() => ({ click: handleClick }), [handleClick])
 
@@ -156,19 +154,18 @@ interface UnassignedHospitalMarkerProps {
   lat: number
   lng: number
   name: string
-  dimmed?: boolean
   showTooltip: boolean
   onSelect: HospitalSelectHandler
 }
 
 /** IPS sin zona en la vista (incluye departamentos excluidos): punto gris pequeño con borde blanco. */
-function UnassignedHospitalMarkerBase({ id, lat, lng, name, dimmed = false, showTooltip, onSelect }: UnassignedHospitalMarkerProps) {
+function UnassignedHospitalMarkerBase({ id, lat, lng, name, showTooltip, onSelect }: UnassignedHospitalMarkerProps) {
   const { compact, renderer, touch } = useContext(IpsRenderContext)
   const center = useMemo<LatLngTuple>(() => [lat, lng], [lat, lng])
   const pathOptions = useMemo<PathOptions>(() => ({
-    ...pointStyle(IPS_UNZONED_COLOR, dimmed, compact),
+    ...pointStyle(IPS_UNZONED_COLOR, compact),
     weight: 1
-  }), [dimmed, compact])
+  }), [compact])
   const handleClick = useCallback(() => onSelect(id, center), [id, center, onSelect])
   const eventHandlers = useMemo(() => ({ click: handleClick }), [handleClick])
 
