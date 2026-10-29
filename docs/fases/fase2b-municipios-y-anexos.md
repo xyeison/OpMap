@@ -30,7 +30,9 @@ scripts/fase2b-municipios.ts` (dry-run, sin Google) → el dueño autoriza el ga
   - `municipality_travel_times`: caché PERMANENTE zona→municipio (status ok | no_route | error;
     ok/no_route nunca se vuelven a pedir, error sí).
   - `municipality_zone`: un municipio por fila, `kind` ∈ ips | reach | out_of_reach | no_road | pending.
-    Bogotá 11001 guarda el ganador global; el mapa y el anexo siguen usando localidades.
+    Bogotá 11001 guarda el ganador global; el mapa y el anexo siguen usando localidades. Las localidades sin
+    IPS no van en `municipality_zone` (la clave foránea exige un municipio): el mapa las pinta con la celda de su
+    corredor (`localidades` de GET, desde el 2026-10-28) y no entran en ningún anexo.
   - `territory_snapshots`: versiones **INMUTABLES** del territorio (anexos A y B + resumen + sha256);
     trigger bloquea UPDATE/DELETE/TRUNCATE (SQLSTATE OPM01) y service_role solo tiene SELECT/INSERT.
   - `line_territory_names`: nombre comercial de la zona de cada ejecutivo por línea.
@@ -42,7 +44,8 @@ scripts/fase2b-municipios.ts` (dry-run, sin Google) → el dueño autoriza el ga
   Google, solo lo invoca `scripts/fase2b-municipios.ts --run`; respeta `GOOGLE_ROUTES_DISABLED=true`,
   concurrencia ≤ 3, tope duro `--max-elements`). Dry-run 2026-10-11 con caché vacía: 1.121 municipios
   → 136 con IPS, 10 sin candidata, 975 por carretera = 10.267 elementos ≈ 51,34 USD (0,005 USD/elem.).
-- **API**: `GET /api/municipality-coverage` (requireUser, caché 60 s por proceso);
+- **API**: `GET /api/municipality-coverage` (requireUser, caché 60 s por proceso; `localidades`: celda de las
+  localidades de Bogotá sin IPS por su corredor, `docs/decisiones/2026-10-28-localidades-sin-ips-por-corredor.md`);
   `POST /api/municipality-coverage/recompute` (`municipalities:recompute`, solo admin; sin Google);
   `GET /api/territory?line&executive`, `GET /api/territory/export?annex=a|b` (CSV UTF-8 con BOM, `;`),
   `GET|POST /api/territory/snapshots`, `GET /api/territory/snapshots/[id]` y `/diff`,

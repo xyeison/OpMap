@@ -118,6 +118,72 @@ export function celdaParaCorredor(corredor: Corredor, config: Pick<BogotaConfig,
 }
 
 /**
+ * Corredor de salida de las localidades de Bogotá que hoy no tienen IPS (2026-10-28, spec
+ * docs/specs/2026-10-28-localidades-sin-ips-por-corredor.md). El mapa las pintaba con la Zona que gana Bogotá
+ * entera por camas, sin mirar dónde quedan (Santa Fe y Usme salían con Engativá). Ahora van con la celda de su
+ * corredor, como los municipios vecinos de afuera. Solo cuenta si la localidad no tiene IPS asignadas ni zona
+ * residente; con IPS manda la mayoría de camas. Una localidad que no esté aquí y se quede sin IPS sigue con la
+ * regla anterior (la Zona que gana Bogotá). `bogota_corredores` solo acepta municipios de 5 dígitos.
+ */
+export const CORREDOR_DE_LOCALIDAD: Readonly<Record<string, Corredor>> = {
+  '1100103': 'oriente', // Santa Fe: vía a Choachí
+  '1100105': 'oriente', // Usme: vía al Llano
+  '1100117': 'oriente', // La Candelaria: rodeada por Santa Fe
+  '1100120': 'oriente', // Sumapaz: se entra por Usme
+}
+
+export interface LocalidadPorCorredor {
+  kam_id: string
+  corredor: Corredor
+}
+
+/**
+ * Celda que el último recálculo le dio a cada corredor: la celda de Bogotá que más municipios del corredor recibieron
+ * (filas 'ips' o 'reach' de municipality_zone). Las localidades sin IPS la usan en vez de `bogota_config.grupos`, así
+ * guardar la configuración no las cambia antes de recalcular, igual que a los municipios y las IPS. Empate: el kam_id
+ * menor (determinista). `esCelda` dice qué kam_id son celdas de Bogotá.
+ */
+export function celdasAplicadasPorCorredor(
+  filas: Iterable<{ municipality_code: string; kam_id: string | null; kind: string }>,
+  corredores: readonly CorredorRow[],
+  esCelda: (kamId: string) => boolean
+): Partial<Record<Corredor, string>> {
+  const votos = new Map<Corredor, Map<string, number>>()
+  for (const fila of Array.from(filas)) {
+    if (!fila.kam_id || (fila.kind !== 'ips' && fila.kind !== 'reach') || !esCelda(fila.kam_id)) continue
+    const corredor = resolveCorredor(fila.municipality_code, null, corredores)
+    if (!corredor) continue
+    const porCelda = votos.get(corredor) ?? new Map<string, number>()
+    porCelda.set(fila.kam_id, (porCelda.get(fila.kam_id) ?? 0) + 1)
+    votos.set(corredor, porCelda)
+  }
+  const grupos: Partial<Record<Corredor, string>> = {}
+  votos.forEach((porCelda, corredor) => {
+    const [celda] = Array.from(porCelda.entries()).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))[0]
+    grupos[corredor] = celda
+  })
+  return grupos
+}
+
+/**
+ * Celda de cada localidad de CORREDOR_DE_LOCALIDAD según `grupos` (en el servidor, los de celdasAplicadasPorCorredor),
+ * solo si esa celda está entre las activas (activa y en la asignación). Sin grupos, o con la celda inactiva, la
+ * localidad no sale y el mapa aplica la regla anterior.
+ */
+export function localidadesPorCorredor(
+  config: Pick<BogotaConfig, 'grupos'> | null,
+  activeCellIds: ReadonlySet<string>
+): Record<string, LocalidadPorCorredor> {
+  const localidades: Record<string, LocalidadPorCorredor> = {}
+  if (!config) return localidades
+  for (const [code, corredor] of Object.entries(CORREDOR_DE_LOCALIDAD)) {
+    const kamId = celdaParaCorredor(corredor, config)
+    if (kamId && activeCellIds.has(kamId)) localidades[code] = { kam_id: kamId, corredor }
+  }
+  return localidades
+}
+
+/**
  * Construye `grupos` para k a partir de la celda de cada corredor con k = 4.
  * receptoras[i] (opcional) elige la celda del grupo i de AGRUPACIONES_POR_K[k]; por defecto, la celda
  * del primer corredor del grupo.

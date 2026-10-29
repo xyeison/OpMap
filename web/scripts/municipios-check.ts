@@ -15,6 +15,8 @@
  *     municipios base: sin cambios. Con o sin la regla se piden los mismos pares a Google (costo).
  *  6. Coherencia con el algoritmo de IPS (competeForHospital) con los mismos tiempos y las zonas en su orden
  *     (por nombre), incluidos empates y un municipio fuera de alcance.
+ *  7. GET /api/municipality-coverage: `localidades` (localidadesDeBogota) sale de las filas del último recálculo
+ *     (guardar la configuración no las cambia) y solo con celdas elegibles.
  *
  * Uso (desde web/): npx tsx scripts/municipios-check.ts   (incluida en npm run test)
  * Código de salida 1 si alguna prueba falla.
@@ -22,6 +24,7 @@
 import {
   buildDryRunReport,
   computeMunicipalityZones,
+  localidadesDeBogota,
   planGoogleRequests,
   symmetricAdjacency,
   type AssignedHospitalInput,
@@ -422,6 +425,34 @@ function seccionCoherenciaIps() {
   }
 }
 
+function seccionLocalidadesSinIps() {
+  print('7. Localidades de Bogotá sin IPS en la respuesta de GET (localidadesDeBogota)')
+  const SIN_IPS = ['1100103', '1100105', '1100117', '1100120']
+  const ultimo = computeMunicipalityZones(entradas())
+  const hoy = localidadesDeBogota(regla(360), ultimo, ZONAS)
+  check(
+    'último recálculo (Meta, corredor Oriente: 2 municipios en San Cristóbal y 1 con IPS en Kennedy): las cuatro → San Cristóbal',
+    JSON.stringify(Object.keys(hoy).sort()) === JSON.stringify(SIN_IPS) && SIN_IPS.every(code => hoy[code].kam_id === 'scr' && hoy[code].corredor === 'oriente'),
+    JSON.stringify(hoy)
+  )
+  const k2 = regla(360, { k: 2, grupos: { norte: 'cha', oriente: 'cha', occidente: 'eng', sur: 'eng' } })
+  check(
+    'guardar k = 2 (Oriente → Chapinero) sin recalcular no las cambia: siguen con San Cristóbal',
+    SIN_IPS.every(code => localidadesDeBogota(k2, ultimo, ZONAS)[code]?.kam_id === 'scr')
+  )
+  const recalculado = computeMunicipalityZones(entradas({ regla: k2 }))
+  check('al recalcular con k = 2: las cuatro → Chapinero', SIN_IPS.every(code => localidadesDeBogota(k2, recalculado, ZONAS)[code]?.kam_id === 'cha'))
+  check('sin regla de Bogotá: vacío', Object.keys(localidadesDeBogota(null, ultimo, ZONAS)).length === 0)
+  const inactiva = ZONAS.map(z => (z.id === 'scr' ? { ...z, active: false } : z))
+  check('San Cristóbal desactivada después del recálculo: vacío (el mapa vuelve a la regla anterior)', Object.keys(localidadesDeBogota(regla(360), ultimo, inactiva)).length === 0)
+  const fuera = ZONAS.map(z => (z.id === 'scr' ? { ...z, participates_in_assignment: false } : z))
+  check('San Cristóbal fuera de la asignación: vacío', Object.keys(localidadesDeBogota(regla(360), ultimo, fuera)).length === 0)
+  const sinOriente = ultimo.filter(row => !row.municipality_code.startsWith('50'))
+  check('ningún municipio del corredor Oriente con una celda: vacío', Object.keys(localidadesDeBogota(regla(360), sinOriente, ZONAS)).length === 0)
+  const aNeiva = ultimo.map(row => (row.municipality_code.startsWith('50') ? { ...row, kam_id: 'nei' } : row))
+  check('una zona de fuera de Bogotá que ganó los municipios del corredor no cuenta como celda', Object.keys(localidadesDeBogota(regla(360), aNeiva, ZONAS)).length === 0)
+}
+
 function main() {
   print('Motor de municipios con Bogotá como una ciudad · pruebas puras (sin red)')
   print('')
@@ -431,6 +462,7 @@ function main() {
   seccionSinCorredor()
   seccionSinCambios()
   seccionCoherenciaIps()
+  seccionLocalidadesSinIps()
   print('')
   print(`Resultado: ${passed} OK, ${failed} con fallo`)
   if (failed > 0) process.exit(1)

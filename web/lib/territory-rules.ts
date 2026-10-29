@@ -111,3 +111,36 @@ export function computeTerritoryWinners<T extends TerritoryVote>(
   })
   return winners
 }
+
+/** De dónde sale la zona de una localidad de Bogotá sin IPS asignadas. */
+export type FuenteLocalidadSinIps = 'residente' | 'corredor' | 'bogota'
+
+export interface ZonaDeLocalidadSinIps {
+  kam_id: string
+  fuente: FuenteLocalidadSinIps
+  /** Corredor de salida (solo con fuente 'corredor'). */
+  corredor?: string
+}
+
+/**
+ * Zona de una localidad de Bogotá SIN IPS asignadas (el mapa la pinta como alcance). Orden:
+ *   1. la zona que vive en ella (territorio base);
+ *   2. la celda de su corredor de salida (lib/bogota-corredores.ts: localidadesPorCorredor, 2026-10-28), si el
+ *      mapa tiene esa zona (`existe`);
+ *   3. la Zona que gana Bogotá entera por camas (fila 11001 de municipality_zone o la misma mayoría), ya resuelta.
+ * null = sin zona (pendiente).
+ */
+export function zonaDeLocalidadSinIps(opciones: {
+  residente: string | null | undefined
+  porCorredor: { kam_id: string; corredor: string } | null | undefined
+  ganadorBogota: string | null | undefined
+  existe: (kamId: string) => boolean
+}): ZonaDeLocalidadSinIps | null {
+  const { residente, porCorredor, ganadorBogota, existe } = opciones
+  if (residente) return { kam_id: residente, fuente: 'residente' }
+  if (porCorredor?.kam_id && existe(porCorredor.kam_id)) {
+    return { kam_id: porCorredor.kam_id, fuente: 'corredor', corredor: porCorredor.corredor }
+  }
+  if (ganadorBogota) return { kam_id: ganadorBogota, fuente: 'bogota' }
+  return null
+}
