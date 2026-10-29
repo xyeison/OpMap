@@ -24,7 +24,9 @@ pestaña "Buscar" (IPS, municipios y departamentos).
      blanco y se esconden sus puntos, insignias y visitas. Tocar otra la suma; tocar una marcada la quita; "Ver todos"
      vuelve a todo. Es el único mecanismo: reemplaza las casillas y el clic de la leyenda.
   3. **Mostrar**: puntos de IPS, municipios de alcance y Zonas sin cobertura con IPS sin zona.
-  4. **IPS**: tipo, servicios y camas, igual que hoy.
+  4. **IPS**: tipo, servicios y camas, con las mismas reglas de hoy, en una sola sección (hoy son dos con el mismo
+     título y una lista aparte de cuántas hay de cada tipo, que pasa a las opciones de "Tipo").
+- En escritorio el panel abierto no tapa el buscador ni los botones de zoom.
 - **Leyenda solo para leer**: qué significa cada color (personas o Zonas de la vista, solo las que se ven), cada
   estado y cada marcador, sin botones.
 - **Celular**: la misma hoja inferior. "Filtros" abre el panel y "Leyenda" la leyenda.

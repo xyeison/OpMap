@@ -138,10 +138,10 @@ Estilo autorizado por el dueño el 2026-10-11 (rama `ui/mapa-estetica`; constant
   cambia el botón "Filtros" por el chip "n ejecutivas" (en escritorio el botón "Filtros y visitas" lleva
   el mismo chip). Vista de zonas (`&mode=zones`): misma lista y
   mismo comportamiento, pero por zona, en `&zones=<id1,id2>` (kam_id). Las tarjetas no cambian.
-- **Bloque "IPS" (Fase 3, servicios y capacidad del REPS)**: en la pestaña "Filtros", debajo de "Tipo de
-  IPS" (antes "Tipo de Hospital"): casillas "Con quirófano", "Ortopedia", "Neurocirugía", "Columna" y rango de camas (filas de
+- **Bloque "IPS" (Fase 3, servicios y capacidad del REPS)**: en la pestaña "Filtros", debajo de "Tipo"
+  (antes "Tipo de Hospital"; desde el 2026-10-29 en la misma sección "IPS"): casillas "Con quirófano", "Ortopedia", "Neurocirugía", "Columna" y rango de camas (filas de
   44 px en celular). Misma regla que la lista de IPS (`web/lib/hospital-service-filters.ts`, Y lógico).
-  Solo OCULTA puntos de IPS (con y sin zona) y cambia "Mostrando N hospitales"; territorios, colores,
+  Solo OCULTA puntos de IPS (con y sin zona) y cambia "Mostrando N IPS en el mapa"; territorios, colores,
   insignias y leyenda no cambian. Una IPS sin datos del REPS no pasa un filtro de servicio (el bloque
   dice cuántas hay). Estado solo en memoria (no va en la URL).
 - **Capa de nombres**: Esri World Light Gray Reference (o `NEXT_PUBLIC_BASEMAP_LABELS_URL`) en un panel
@@ -320,8 +320,11 @@ que ya había (ninguna clase ni color nuevo).
      reemplaza las casillas ("Todos", "Ninguno", "Solo") y el clic de la leyenda.
   3. **Mostrar** (`MapSwitch.tsx`): "Puntos de IPS", "Municipios de alcance" y "Vacantes" (Zonas sin cobertura e IPS
      sin zona: por defecto sí sin filtro y no con filtro, como antes). Los dos primeros estaban en la leyenda.
-  4. **IPS**: "Tipo de IPS", servicios y camas, igual que antes.
-  La pestaña "Visitas" no cambia.
+  4. **IPS**: una sola sección (antes eran dos con el mismo título y una lista aparte de cuántas había de cada
+     tipo): "Tipo" con la cifra de cada tipo en sus opciones ("Públicas (142)"), "Servicios", "Camas", "Limpiar" (quita
+     el tipo, los servicios y las camas) y "Mostrando N IPS en el mapa". Mismas reglas de antes.
+  La pestaña "Visitas" no cambia. En escritorio el panel flotante llega hasta debajo del buscador y de los botones de
+  zoom (alto máximo `100vh - 212px`): antes los tapaba al abrirse.
 - **Fuera de "Ver solo"**: el territorio (con IPS, de alcance o sin cobertura) queda con el color de su Zona a 0.08
   (`DIMMED_FILL_OPACITY`) y el borde a 0.3, sin tooltip ni tarjeta: el "blanco" que pidió el dueño, el mismo del
   resaltado de antes. Sus IPS, insignias y visitas no se dibujan (los racimos se recalculan con las insignias

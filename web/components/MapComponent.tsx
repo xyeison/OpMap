@@ -2098,7 +2098,7 @@ export default function MapComponent({
     mapData,
     hospitalTypeFilter,
     setHospitalTypeFilter,
-    // "Mostrando N hospitales": lo que queda en el mapa con todos los filtros
+    // "Mostrando N IPS en el mapa": lo que queda en el mapa con todos los filtros
     filteredAssignments: visibleAssignments,
     filteredUnassignedHospitals: visibleUnassigned,
     onVisitsChange: setVisits,
