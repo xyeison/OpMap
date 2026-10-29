@@ -3,7 +3,9 @@
 -- Proyecto: norvxqgohddgsdkggqzq · Generado: 2026-10-28
 --
 -- Vuelve al estado de antes de los sectores, en una sola transacción:
---   1. Los nombres de las 4 Zonas de Bogotá vuelven a los del respaldo (Chapinero, Engativá, Kennedy, San Cristóbal).
+--   0. Si se aplicó la 0903 (Bogotá Norte con punto base en Usaquén), aborta: primero va su rollback 9954.
+--   1. Los nombres de las 4 Zonas de Bogotá vuelven a los del respaldo (Chapinero, Engativá, Kennedy, San Cristóbal);
+--      solo el nombre (la 0902 no tocó nada más).
 --   2. assignments y municipality_zone se reemplazan por sus respaldos _sectores (sin la columna respaldado_en).
 --   3. Los respaldos NO se borran (se borran a mano cuando el dueño dé por bueno el resultado).
 --
@@ -29,9 +31,12 @@ BEGIN
       RAISE EXCEPTION '9953: % está vacío', respaldo;
     END IF;
   END LOOP;
+  IF EXISTS (SELECT 1 FROM public.kams WHERE name = 'Bogotá Norte' AND area_id <> '1100102') THEN
+    RAISE EXCEPTION '9953: Bogotá Norte tiene el punto base en Usaquén (0903): aplica antes su rollback 9954';
+  END IF;
 END $$;
 
-UPDATE public.kams k SET name = r.name, base_city = r.base_city
+UPDATE public.kams k SET name = r.name
   FROM public.kams_nombres_respaldo_20261028 r
   WHERE r.id = k.id;
 

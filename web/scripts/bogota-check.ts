@@ -671,6 +671,18 @@ async function seccionSectores() {
   check('clase: una asignación forzada de la localidad sigue mandando', forzada.every(a => a.kam_id === KENNEDY.id && a.assignment_type === 'forced'))
   const sinChapinero = await runClass(usa, distancias, rule(4), [], KAMS.filter(k => k.id !== CHAPINERO.id))
   check('clase: con la celda del Norte inactiva, la regla de siempre (Engativá, competitive)', sinChapinero.every(a => a.kam_id === ENGATIVA.id && a.assignment_type === 'competitive'))
+
+  // La asignación de una IPS nueva (lectura del código, sin red): forzada → sector → territorio base → competencia
+  const ruta = readFileSync(path.join(__dirname, '..', 'app', 'api', 'hospitals', 'assign-to-kam', 'route.ts'), 'utf8')
+  const forzadaEn = ruta.indexOf(".from('forced_assignments')")
+  const sectorEn = ruta.indexOf('bogotaSectorCell(hospital')
+  const baseEn = ruta.indexOf('kams.find(k => isBaseTerritory(k, hospital))')
+  const competenciaEn = ruta.indexOf('competeForHospital(')
+  check(
+    'assign-to-kam: forzada, luego sector (bogotaSectorCell), luego territorio base y al final la competencia',
+    forzadaEn >= 0 && forzadaEn < sectorEn && sectorEn < baseEn && baseEn < competenciaEn,
+    JSON.stringify({ forzadaEn, sectorEn, baseEn, competenciaEn })
+  )
 }
 
 async function main() {

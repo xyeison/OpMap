@@ -11,6 +11,7 @@
 import {
   AGRUPACIONES_POR_K,
   CORREDORES,
+  corredorDeLocalidad,
   CORREDOR_LABEL,
   isBogotaK,
   resolveCorredor,
@@ -178,7 +179,7 @@ export interface SimAssignment {
   kam_id: string
   travel_time: number | null // SEGUNDOS
   assignment_type: string | null
-  detail?: { corredor?: string | null; bogota_min_segundos?: number; celda_min?: string } | null
+  detail?: { corredor?: string | null; bogota_min_segundos?: number; celda_min?: string; localidad?: string | null } | null
 }
 
 export interface SimForced {
@@ -195,7 +196,10 @@ export interface SimSide {
   zona: string
   minutos: number | null
   tipo: string | null
+  /** IPS de fuera que gana Bogotá: corredor de su municipio */
   corredor?: Corredor | null
+  /** IPS de Bogotá asignada por el sector de su localidad (detail.localidad, 2026-10-28) */
+  sector?: Corredor | null
 }
 
 export interface SimChange {
@@ -237,7 +241,10 @@ export interface BogotaSimulationSummary {
   totales: {
     asignadas_antes: number
     asignadas_despues: number
+    /** IPS de fuera que gana Bogotá, por corredor de su municipio */
     por_corredor: Record<Corredor, number>
+    /** IPS de Bogotá por el sector (corredor) de su localidad; no son "ganadas afuera" */
+    por_sector: Record<Corredor, number>
     sin_corredor: number
     cambios: number
     fuera_de_alcance: number
@@ -289,12 +296,13 @@ export function buildBogotaSimulationSummary(input: BuildSimulationInput): Bogot
   const side = (a: SimAssignment | undefined): SimSide | null => {
     if (!a) return null
     const corredor = a.detail && typeof a.detail.corredor === 'string' ? (a.detail.corredor as Corredor) : null
+    const porSector = a.assignment_type === 'bogota_corredor' && !!a.detail?.localidad
     return {
       kam_id: a.kam_id,
       zona: nameOf(a.kam_id),
       minutos: minutesOf(a.travel_time),
       tipo: a.assignment_type,
-      ...(a.assignment_type === 'bogota_corredor' ? { corredor } : {}),
+      ...(porSector ? { sector: corredor } : a.assignment_type === 'bogota_corredor' ? { corredor } : {}),
     }
   }
 
@@ -335,9 +343,15 @@ export function buildBogotaSimulationSummary(input: BuildSimulationInput): Bogot
 
   const sinCorredor: SimChange[] = []
   const porCorredor = Object.fromEntries(CORREDORES.map(c => [c, 0])) as Record<Corredor, number>
+  const porSector = Object.fromEntries(CORREDORES.map(c => [c, 0])) as Record<Corredor, number>
   for (const a of after) {
     if (a.assignment_type !== 'bogota_corredor') continue
     const corredor = a.detail?.corredor
+    if (a.detail?.localidad) {
+      // IPS de Bogotá por el sector de su localidad: no es lo que Bogotá gana afuera
+      if (typeof corredor === 'string' && (CORREDORES as readonly string[]).includes(corredor)) porSector[corredor as Corredor]++
+      continue
+    }
     if (typeof corredor === 'string' && (CORREDORES as readonly string[]).includes(corredor)) {
       porCorredor[corredor as Corredor]++
     } else {
@@ -377,7 +391,8 @@ export function buildBogotaSimulationSummary(input: BuildSimulationInput): Bogot
     seen.add(f.territory_id)
     const ips = hospitals.filter(h => (h.locality_id || h.municipality_id) === f.territory_id).length
     const isMunicipality = /^\d{5}$/.test(f.territory_id)
-    const corredor = isMunicipality ? resolveCorredor(f.territory_id, f.territory_id.substring(0, 2), corredores) : null
+    // Localidad de Bogotá: su sector (CORREDOR_DE_LOCALIDAD, 2026-10-28)
+    const corredor = isMunicipality ? resolveCorredor(f.territory_id, f.territory_id.substring(0, 2), corredores) : corredorDeLocalidad(f.territory_id)
     const celda = corredor ? propuesta.grupos[corredor] : null
     forzadas.push({
       territory_id: f.territory_id,
@@ -406,6 +421,7 @@ export function buildBogotaSimulationSummary(input: BuildSimulationInput): Bogot
       asignadas_antes: before.length,
       asignadas_despues: after.length,
       por_corredor: porCorredor,
+      por_sector: porSector,
       sin_corredor: sinCorredor.length,
       cambios: cambios.length,
       fuera_de_alcance: fueraDeAlcance.length,

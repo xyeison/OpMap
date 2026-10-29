@@ -78,7 +78,11 @@ function ChangeList({ items, empty }: { items: SimChange[]; empty: string }) {
             {' → '}
             {item.despues
               ? `${item.despues.zona} (${minutesText(item.despues.minutos)})${
-                  item.despues.corredor ? ` · corredor ${CORREDOR_LABEL[item.despues.corredor]}` : ''
+                  item.despues.sector
+                    ? ` · sector ${CORREDOR_LABEL[item.despues.sector]}`
+                    : item.despues.corredor
+                      ? ` · corredor ${CORREDOR_LABEL[item.despues.corredor]}`
+                      : ''
                 }`
               : 'Sin zona (fuera de alcance)'}
           </span>
@@ -257,7 +261,7 @@ export default function BogotaConfigCard() {
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div>
-            <p className="text-sm font-medium text-gray-700 mb-2">¿En cuántas zonas se reparte Bogotá hacia afuera?</p>
+            <p className="text-sm font-medium text-gray-700 mb-2">¿En cuántas zonas se reparte Bogotá (sus sectores y lo que gana afuera)?</p>
             <div className="grid grid-cols-4 gap-2" role="radiogroup" aria-label="Número de zonas">
               {K_OPTIONS.map(option => (
                 <button
@@ -276,10 +280,10 @@ export default function BogotaConfigCard() {
               ))}
             </div>
             <p className="text-xs text-gray-500 mt-2">
-              {k === 4 && 'Cada corredor tiene su zona.'}
-              {k === 3 && 'Norte, Occidente y el grupo Sur y Oriente.'}
-              {k === 2 && 'Dos grupos: Norte y Oriente; Occidente y Sur.'}
-              {k === 1 && 'Una sola zona recibe todo lo que Bogotá gane afuera.'}
+              {k === 4 && 'Cada sector y su corredor tienen su zona.'}
+              {k === 3 && 'Norte, Occidente y el grupo Sur y Oriente (sectores y corredores).'}
+              {k === 2 && 'Dos grupos: Norte y Oriente; Occidente y Sur (sectores y corredores).'}
+              {k === 1 && 'Una sola zona recibe toda Bogotá y lo que gane afuera.'}
             </p>
 
             <label htmlFor="bogota-max" className="block text-sm font-medium text-gray-700 mt-5 mb-2">
@@ -450,9 +454,15 @@ function SimulationResult({ simulation, cellById }: { simulation: SimulationResp
         </div>
       </div>
       <p className="text-sm text-gray-700 mt-3">
-        Por corredor:{' '}
+        Por corredor (afuera):{' '}
         {(Object.keys(t.por_corredor) as Corredor[]).map(c => `${CORREDOR_LABEL[c]} ${t.por_corredor[c]}`).join(' · ')}
       </p>
+      {t.por_sector && (
+        <p className="text-sm text-gray-700 mt-1">
+          Por sector (IPS de Bogotá):{' '}
+          {(Object.keys(t.por_sector) as Corredor[]).map(c => `${CORREDOR_LABEL[c]} ${t.por_sector[c]}`).join(' · ')}
+        </p>
+      )}
       {t.otros_cambios > 0 && (
         <p className="text-xs text-gray-500 mt-1">
           Además, {t.otros_cambios} IPS cambiarían entre zonas que no son de Bogotá: son datos pendientes de

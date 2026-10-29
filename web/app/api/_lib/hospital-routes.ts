@@ -154,6 +154,8 @@ export interface HospitalZoneAssignment {
   kam_name: string | null
   assignment_type: string
   travel_time: number | null // SEGUNDOS
+  /** IPS de Bogotá asignada por el sector de su localidad (detail.localidad, 2026-10-28): no depende de los tiempos */
+  por_sector?: boolean
 }
 
 export interface HospitalZoneRefreshResult {
@@ -260,7 +262,11 @@ export function buildZoneWarnings(input: {
   const { routes, recalculated, assignment } = input
   const warnings: string[] = []
   const pending = routes?.pending ?? 0
-  const competitive = assignment !== null && assignment.assignment_type !== 'base_territory' && assignment.assignment_type !== 'forced'
+  const competitive =
+    assignment !== null &&
+    assignment.assignment_type !== 'base_territory' &&
+    assignment.assignment_type !== 'forced' &&
+    !assignment.por_sector
 
   if (!routes) {
     if (recalculated && !assignment) warnings.push(NO_TRAVEL_TIMES_WARNING)
@@ -662,6 +668,7 @@ async function runHospitalZoneRefresh(
           kam_name: kamName,
           assignment_type: assignment.assignment_type,
           travel_time: assignment.travel_time,
+          ...(assignment.detail && 'localidad' in assignment.detail ? { por_sector: true } : {}),
         }
       }
     } catch (error) {

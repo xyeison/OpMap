@@ -832,6 +832,15 @@ async function main() {
       return warnings.length === 1 && warnings[0].includes('departamento excluido')
     })()
   )
+  check(
+    'IPS de Bogotá asignada por el sector de su localidad (2026-10-28): con tiempos pendientes NO avisa que la zona puede cambiar',
+    (() => {
+      const asignacion = { kam_id: 'k-norte', kam_name: 'Bogotá Norte', assignment_type: 'bogota_corredor', travel_time: null, por_sector: true }
+      const conSector = buildZoneWarnings({ routes: ensureResult({ pending: 2 }), recalculated: true, assignment: asignacion })
+      const deFuera = buildZoneWarnings({ routes: ensureResult({ pending: 2 }), recalculated: true, assignment: { ...asignacion, por_sector: undefined } })
+      return !conSector.some(w => w.includes('puede cambiar')) && deFuera.some(w => w.includes('puede cambiar'))
+    })()
+  )
 
   print('\n5. Validación zod de hospitales')
   const base = {

@@ -254,6 +254,7 @@ async function main() {
     nueva: cNueva.get(c.id) ?? 0,
     nueva_base: typeCount(c.id, 'base_territory'),
     nueva_bogota_interna: typeCount(c.id, 'competitive') + typeCount(c.id, 'majority_rule'),
+    // bogota_corredor incluye las IPS de Bogotá asignadas por el sector de su localidad (detail.localidad, 2026-10-28)
     nueva_corredor: typeCount(c.id, 'bogota_corredor'),
     nueva_forzadas: typeCount(c.id, 'forced'),
   }))
@@ -369,10 +370,11 @@ async function main() {
   }
   const sinCorredorList = [...sinCorredor.values()].sort((a, b) => a.departamento.localeCompare(b.departamento) || a.municipio.localeCompare(b.municipio))
 
-  // Reparto del cupo Bogotá por corredor y celda
+  // Reparto del cupo Bogotá por corredor y celda (solo IPS de fuera: las de dentro van por sector, detail.localidad)
+  const deFuera = (a: (typeof nueva)[number]) => a.assignment_type === 'bogota_corredor' && !(a.detail && 'localidad' in a.detail)
   const cupo = new Map<string, number>()
   for (const a of nueva) {
-    if (a.assignment_type !== 'bogota_corredor') continue
+    if (!deFuera(a)) continue
     const key = `${a.detail?.corredor ? CORREDOR_LABEL[a.detail.corredor] : '(sin corredor)'} -> ${zoneName(a.kam_id)}`
     cupo.set(key, (cupo.get(key) ?? 0) + 1)
   }
@@ -384,7 +386,8 @@ async function main() {
     asignadas_bd: bdMap.size,
     asignadas_recalculo_hoy: legacyMap.size,
     asignadas_nueva: nuevaMap.size,
-    cupo_bogota: nueva.filter(a => a.assignment_type === 'bogota_corredor').length,
+    cupo_bogota: nueva.filter(deFuera).length,
+    bogota_por_sector: nueva.filter(a => a.assignment_type === 'bogota_corredor' && !deFuera(a)).length,
     cupo_bogota_en_celda_distinta_a_la_mas_cercana: corredorDistintoDeMin,
     movimientos_bogota: movimientos.length,
     entre_celdas: count('entre_celdas'),

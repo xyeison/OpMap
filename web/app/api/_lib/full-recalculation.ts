@@ -1,10 +1,12 @@
 // Recálculo completo de asignaciones con SimplifiedOpMapAlgorithm (sin fetch HTTP a la propia app).
 // Lo usan /api/recalculate-simplified y /api/recalculate-smart-hospital.
-import { SimplifiedOpMapAlgorithm } from '@/lib/opmap-algorithm-simplified'
+import { SimplifiedOpMapAlgorithm, type Assignment } from '@/lib/opmap-algorithm-simplified'
 
 export interface FullRecalculationResult {
   totalAssignments: number
-  assignmentFor: (hospitalId: string) => { kam_id: string; travel_time: number | null; assignment_type: string } | undefined
+  assignmentFor: (hospitalId: string) =>
+    | { kam_id: string; travel_time: number | null; assignment_type: string; detail?: Assignment['detail'] }
+    | undefined
 }
 
 export async function runFullRecalculation(): Promise<FullRecalculationResult> {

@@ -2,8 +2,11 @@
 -- OpMap · feat/bogota-4-sectores · 0902 — Migración de DATOS: respaldo y nombres de las 4 Zonas de Bogotá por sector
 -- Proyecto: norvxqgohddgsdkggqzq · Generado: 2026-10-28
 --
--- *** Autorizada por el dueño ("Si, hazlo. Norte, Occidente, Sur y Oriente.", 2026-10-28). Se aplica DESPUÉS del
--- *** despliegue del motor por sectores y va seguida del recálculo (sin Google, costo 0), desde web/:
+-- *** Autorizada por el dueño ("Si, hazlo. Norte, Occidente, Sur y Oriente.", 2026-10-28). Se aplica ANTES del
+-- *** despliegue del motor por sectores (así el respaldo es el de antes de los sectores: si ya hay asignaciones por
+-- *** sector, aborta). Después del despliegue van la 0903, el script de tiempos del Norte y el recálculo, primero sin
+-- *** --yes para revisar las cifras con los nombres nuevos (los desempates usan el nombre), desde web/:
+-- ***   GOOGLE_ROUTES_DISABLED=true npx tsx scripts/fase1-recalculate.ts            (revisar)
 -- ***   GOOGLE_ROUTES_DISABLED=true npx tsx scripts/fase1-recalculate.ts --yes      (IPS)
 -- ***   GOOGLE_ROUTES_DISABLED=true npx tsx scripts/fase2b-municipios.ts --assign   (municipios)
 --
@@ -11,8 +14,9 @@
 -- Spec: docs/specs/2026-10-28-bogota-4-sectores.md
 --
 -- Qué hace (una sola transacción, todo o nada):
---   1. Precondiciones: las 4 celdas existen con su area_id (1100102, 1100110, 1100108, 1100104) y los respaldos de hoy
---      (sufijo _sectores) no existen con filas (si existen, ya corrió: se aborta sin tocar nada).
+--   1. Precondiciones: las 4 celdas existen con su area_id (1100102, 1100110, 1100108, 1100104), ninguna asignación es
+--      por sector todavía (detail.localidad) y los respaldos de hoy (sufijo _sectores) no existen con filas (si
+--      existen, ya corrió: se aborta sin tocar nada).
 --   2. Respaldos: assignments_respaldo_20261028_sectores, municipality_zone_respaldo_20261028_sectores y
 --      kams_nombres_respaldo_20261028 (id, name, base_city), con RLS sin políticas y sin permisos para
 --      anon/authenticated, como los demás respaldos.
@@ -20,8 +24,9 @@
 --      Bogotá Oriente. base_city, punto base, color, gente y grupos de bogota_config no cambian.
 --   4. Comprobación final: respaldos completos y los 4 nombres nuevos.
 --
--- Renombrar NO recalcula: hasta correr los dos scripts de arriba, las asignaciones siguen como estaban.
--- Rollback: 2026-10-28_9953_bogota_sectores_nombres_rollback.sql (nombres y, si se pide, asignaciones y municipios).
+-- Renombrar NO recalcula: hasta correr los scripts de arriba, las asignaciones siguen como estaban.
+-- Rollback: 2026-10-28_9953_bogota_sectores_nombres_rollback.sql (nombres, asignaciones y municipios de antes de los
+-- sectores; si se aplicó la 0903, primero su rollback 9954).
 -- =====================================================================================
 
 BEGIN;
@@ -33,6 +38,9 @@ DECLARE
 BEGIN
   IF (SELECT count(*) FROM public.kams WHERE area_id IN ('1100102', '1100110', '1100108', '1100104')) <> 4 THEN
     RAISE EXCEPTION '0902: no están las 4 celdas de Bogotá (1100102, 1100110, 1100108, 1100104)';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.assignments WHERE detail ->> 'localidad' IS NOT NULL) THEN
+    RAISE EXCEPTION '0902: ya hay asignaciones por sector (detail.localidad): el respaldo ya no sería el de antes de los sectores';
   END IF;
   -- Con EXECUTE: un SELECT directo sobre una tabla que aún no existe falla al planear, aunque el IF no llegue a él
   FOREACH respaldo IN ARRAY ARRAY['assignments_respaldo_20261028_sectores', 'municipality_zone_respaldo_20261028_sectores', 'kams_nombres_respaldo_20261028'] LOOP
