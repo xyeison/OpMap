@@ -237,6 +237,14 @@ for (const ruta of Array.from(new Set(ORDEN.map(href => href.split('?')[0])))) {
   check(`${ruta} tiene su página`, existsSync(path.join(APP, ruta.slice(1), 'page.tsx')))
 }
 check('/territories sigue existiendo', existsSync(path.join(APP, 'territories', 'page.tsx')))
+// Médicos, Aseguradoras y Líderes de negocio: "Próximamente", sin datos (dueño, 2026-10-29)
+for (const ruta of ['medicos', 'aseguradoras', 'lideres']) {
+  // Sin los comentarios (la de Médicos nombra su API para decir que no cambia)
+  const pagina = readFileSync(path.join(APP, ruta, 'page.tsx'), 'utf8').split('\n').filter(linea => !linea.trim().startsWith('//')).join('\n')
+  check(`/${ruta} es "Próximamente" y no pide datos`, pagina.includes("@/components/Proximamente") && !/\/api\/|fetch\(|Medicos?Tab|MedicoForm/.test(pagina))
+}
+const cuentasClave = readFileSync(path.join(APP, 'terceros', 'page.tsx'), 'utf8')
+check('Cuentas clave (/terceros) ya no muestra Médicos', !/import [^\n]*Medico/.test(cuentasClave) && cuentasClave.includes('Cuentas clave'))
 check('"/" sigue existiendo (lleva al inicio)', existsSync(path.join(APP, 'page.tsx')))
 check('la página /zones (Regiones) ya no existe', !existsSync(path.join(APP, 'zones', 'page.tsx')))
 check('/api/dashboard/stats ya no existe', !existsSync(path.join(APP, 'api', 'dashboard', 'stats', 'route.ts')))

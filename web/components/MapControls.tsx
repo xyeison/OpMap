@@ -367,7 +367,7 @@ export default function MapControls({
                   </p>
                 ) : (
                   <p className="mt-1 text-xs text-gray-500">
-                    Los servicios se activan cuando se importen del REPS (Hospitales, &quot;Importar del REPS&quot;). Mientras tanto
+                    Los servicios se activan cuando se importen del REPS (IPS, &quot;Importar del REPS&quot;). Mientras tanto
                     se puede filtrar por camas (las de la ficha).
                   </p>
                 )}

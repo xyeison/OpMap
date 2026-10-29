@@ -249,9 +249,9 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
         return NextResponse.json({ error: 'Esa sede del REPS ya está vinculada a otra IPS' }, { status: 409 })
       }
       if ((error as { code?: string }).code === '23505') {
-        return NextResponse.json({ error: 'Ya existe un hospital con ese código' }, { status: 409 })
+        return NextResponse.json({ error: 'Ya existe una IPS con ese código' }, { status: 409 })
       }
-      return serverError('hospitals/[id] PUT', error, 'Error al actualizar el hospital')
+      return serverError('hospitals/[id] PUT', error, 'Error al actualizar la IPS')
     }
     if (!data) {
       return NextResponse.json({ error: 'Hospital no encontrado' }, { status: 404 })
@@ -314,7 +314,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       .select()
       .maybeSingle()
 
-    if (error) return serverError('hospitals/[id] PATCH', error, 'Error al actualizar el hospital')
+    if (error) return serverError('hospitals/[id] PATCH', error, 'Error al actualizar la IPS')
     if (!data) {
       return NextResponse.json({ error: 'Hospital no encontrado' }, { status: 404 })
     }

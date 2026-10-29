@@ -46,7 +46,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       .select()
       .single()
 
-    if (updateError) return serverError('hospitals/[id]/activate (update)', updateError, 'Error al activar el hospital')
+    if (updateError) return serverError('hospitals/[id]/activate (update)', updateError, 'Error al activar la IPS')
 
     const { error: historyError } = await supabaseAdmin.from('hospital_history').insert({
       hospital_id: hospitalId,

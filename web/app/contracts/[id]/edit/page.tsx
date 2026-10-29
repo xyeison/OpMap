@@ -344,7 +344,7 @@ export default function ContractEditPage() {
                           if (!hospitalSearch) {
                             return (
                               <div className="px-4 py-2 text-gray-500">
-                                Escribe para buscar un hospital...
+                                Escribe para buscar una IPS...
                               </div>
                             );
                           }
@@ -396,7 +396,7 @@ export default function ContractEditPage() {
                     
                     {contract.hospital_id && (
                       <p className="text-xs text-green-600 mt-1">
-                        ✓ Hospital seleccionado: {hospitals.find(h => h.id === contract.hospital_id)?.municipality_name}
+                        ✓ IPS seleccionada: {hospitals.find(h => h.id === contract.hospital_id)?.municipality_name}
                       </p>
                     )}
                   </div>

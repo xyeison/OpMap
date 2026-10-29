@@ -328,9 +328,9 @@ export default function HospitalsPage() {
                 onChange={(e) => setStatusFilter(e.target.value as 'all' | 'active' | 'inactive')}
                 className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent transition-all bg-white text-sm"
               >
-                <option value="active">Activos</option>
-                <option value="inactive">Inactivos</option>
-                <option value="all">Todos</option>
+                <option value="active">Activas</option>
+                <option value="inactive">Inactivas</option>
+                <option value="all">Todas</option>
               </select>
             </div>
 
@@ -476,7 +476,7 @@ export default function HospitalsPage() {
                 <p className="text-sm text-gray-500">Código: {hospital.code}</p>
                 {!hospital.active && (
                   <span className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded-full">
-                    Inactivo
+                    Inactiva
                   </span>
                 )}
               </div>
@@ -543,7 +543,7 @@ export default function HospitalsPage() {
                       <span className="text-sm font-medium text-gray-900">{hospital.name}</span>
                       {!hospital.active && (
                         <span className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded-full">
-                          Inactivo
+                          Inactiva
                         </span>
                       )}
                     </div>

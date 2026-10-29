@@ -915,11 +915,11 @@ export default function HospitalDetailPage() {
                         <div className="flex items-center gap-2 mb-1">
                           {entry.action === 'activated' ? (
                             <span className="px-2 py-1 bg-gray-900 text-white rounded-full text-xs font-medium">
-                              ✓ IPS activa
+                              ✓ IPS activada
                             </span>
                           ) : entry.action === 'deactivated' ? (
                             <span className="px-2 py-1 bg-gray-500 text-white rounded-full text-xs font-medium">
-                              ✗ IPS inactiva
+                              ✗ IPS desactivada
                             </span>
                           ) : isComment ? (
                             <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-medium">

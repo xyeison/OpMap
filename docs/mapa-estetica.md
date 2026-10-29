@@ -362,8 +362,8 @@ que ya había (ninguna clase ni color nuevo).
 
 - Con el menú por grupos (`docs/specs/2026-10-29-menu-por-grupos.md`) el dueño pidió llamar "IPS" a los hospitales en
   toda la interfaz. En el mapa cambian dos textos: la sección de la tarjeta de territorio pasa de "Estadísticas
-  hospitalarias" (fila "Hospitales") a "Estadísticas de las IPS" (fila "IPS"), y la tarjeta de una visita dice "IPS:".
-  Nada más del mapa cambia.
+  hospitalarias" (fila "Hospitales") a "Estadísticas de las IPS" (fila "IPS"), la tarjeta de una visita dice "IPS:" y
+  el aviso del bloque IPS de Filtros manda a "IPS, Importar del REPS" (antes "Hospitales"). Nada más del mapa cambia.
 
 ### Lógica de Coloreado de Territorios Compartidos
 Para cualquier territorio (municipio o localidad) donde múltiples KAMs tienen IPS:

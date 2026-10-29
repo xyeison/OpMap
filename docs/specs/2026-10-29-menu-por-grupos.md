@@ -37,10 +37,11 @@ Menú (cada opción solo con su permiso; un título de grupo solo si el grupo ti
   - Parámetros (`/configuracion`: visitas, municipios y asignación, como hoy)
 
 Además:
-- "Hospitales" pasa a "IPS" en el menú y en los títulos y textos visibles de las páginas de IPS (la ruta `/hospitals`
-  no cambia).
+- "Hospital(es)" pasa a "IPS" en toda la interfaz: menú, títulos, botones, tablas, avisos y mensajes de error de la API
+  de IPS, y tres textos de tarjetas y filtros del mapa (la ruta `/hospitals`, la tabla `hospitals` y los valores
+  guardados no cambian).
 - `/terceros` se llama "Cuentas clave" y muestra solo las cuentas: la pestaña y el botón de Médicos salen de ahí.
-- Médicos, Aseguradoras y Líderes de negocio abren una página "Próximamente" que dice qué vendrá.
+- Médicos, Aseguradoras y Líderes de negocio abren una página "Próximamente" (sin datos).
 - Elegir "Compras públicas" en el menú estando en ADRES cambia la pestaña (y al revés).
 - "/" y el logo siguen llevando al Mapa; quien no tiene mapa (recursos humanos) sigue llegando a Calendario.
 
@@ -61,7 +62,10 @@ Además:
 - Permisos de los roles: no cambian (las páginas nuevas usan `terceros:view` y `executives:view`).
 
 ## Impacto
-- Datos / migración: no. Costo Google Maps: 0. Estética del mapa: no cambia.
+- Datos / migración: no. Costo Google Maps: 0. Estética del mapa: no cambia (solo tres textos).
+- Asignar visitantes a los médicos (`visitantes:manage`) queda sin pantalla hasta que vuelva Médicos; el aviso de
+  quitar una línea en Zonas ya no manda a "Terceros". Lo confirma el dueño (hoy solo hay médicos de prueba,
+  desactivados el 2026-10-29).
 - Permisos / roles: iguales; cambia el menú de todos los roles.
 
 ## Plan (archivos e interfaces)

@@ -89,7 +89,7 @@ El portal del REPS pide entrar, así que esta exportación la hace una persona:
 2. Abrir la consulta **Servicios** y filtrar por departamento o municipio, **sin** filtrar por grupo ni
    por servicio. Exportar a **Excel** o a texto separado por `;`.
 3. Repetir con la consulta **Capacidades instaladas** (camas, salas, ambulancias).
-4. En OpMap: Hospitales → **Importar del REPS** (solo `admin` y `data_manager`). Subir el archivo (máx.
+4. En OpMap: IPS → **Importar del REPS** (solo `admin` y `data_manager`). Subir el archivo (máx.
    **4 MB**; el Excel comprime más que el texto) → "Analizar (simulación)". Revisar las columnas
    detectadas y la simulación por sede ("Con cambios", "Sin cruce").
 5. "Aplicar" (pide confirmar con cifras). La simulación caduca a los 30 minutos y solo la puede aplicar
