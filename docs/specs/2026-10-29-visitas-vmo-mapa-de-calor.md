@@ -14,19 +14,24 @@ muestra esas visitas efectivas con su fecha real, por persona y por Zona. Subir 
 
 ## Criterios de aceptación (scripts/vmo-visitas-check.ts, reporte-api-check.ts §13, ips-routes-check.ts §7)
 - [x] Se lee el formato real de VMO: "22 Oct 2026 07:31:46", "Visita presencial-Presencial", coma decimal.
-- [x] Solo entran las "Visita realizada" con un punto en Colombia y con ID; una por ID.
+- [x] Solo entran las hechas ("Visita realizada" y "Visita extra", esta como "Visita extra") con un punto en Colombia
+      y con ID; una por ID.
 - [x] Lo que va al servidor tiene solo el ID, el Ejecutivo Comercial, la fecha, el punto y si fue presencial. Ni
       médico, ni cédula, ni teléfono.
-- [x] La persona se reconoce por su llave, por su nombre sin tildes o por un nombre parecido único (nunca una vacante).
-      Si no existe, se crea: activa si visitó en los últimos 60 días.
+- [x] La persona se reconoce por su llave, por su nombre sin tildes o por un nombre parecido único (nunca una vacante),
+      con todos los nombres del archivo a la vez, sin depender del orden. Antes de importar, `{ simular: true }` dice a
+      quién reconoce y a quién crea, sin escribir. Si no existe, se crea: activa si visitó en los últimos 60 días.
 - [x] Las visitas se guardan con upsert por `vmo_id`: reimportar actualiza y no duplica. No se borra nada y las
       visitas de la app quedan intactas.
 - [x] Sin `visits:manage`, 403. Con el formato viejo (mes y año), 400 sin escribir.
-- [x] Sin `visits:view`, `/api/visits/filtered` da la zona en vez del nombre de la persona.
+- [x] Sin `visits:view`, `/api/visits/filtered` da solo las visitas de VMO de la propia persona (ninguna a un visor
+      sin persona).
+- [x] Al cambiar la Zona de una persona (`PATCH /api/executives/[id]`), sus visitas de VMO la siguen.
 - [x] El selector de año del mapa va de 2024 al año en curso y arranca en el mes en curso.
 
 ## Fuera de alcance
-La IPS de cada visita: `/visits/coverage` deja de contar las de VMO. Los médicos y clientes de VMO. Una conexión
+La IPS de cada visita: "Datos de la zona" ya no muestra "IPS visitadas" en 0, y `/visits/coverage` sigue usando la
+cercanía de 5 km. Los médicos y clientes de VMO. Una conexión
 automática con VMO: su API no es pública y depende de la sesión de un usuario.
 
 ## Impacto

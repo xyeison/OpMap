@@ -1,13 +1,15 @@
 /**
  * Visitas de VMO para el mapa de calor · pruebas puras (SIN RED: Supabase FALSO en memoria). Pedido del dueño
  * (2026-10-29): guardar las visitas georreferenciadas por Ejecutivo Comercial, crear a la persona si no existe, una llave
- * con un dato de VMO e importar solo las efectivas. Decisión: docs/decisiones/2026-10-29-visitas-vmo-mapa-de-calor.md
+ * con un dato de VMO e importar solo las hechas (realizadas y extra). Decisión:
+ * docs/decisiones/2026-10-29-visitas-vmo-mapa-de-calor.md
  *
  * Cubre lib/vmo-visitas.ts (lectura del Excel de VMO › Visitas con sus encabezados y formatos reales: fecha
- * "22 Oct 2026 07:31:46", "Visita presencial-Presencial"; descartes; nada de los datos del médico en lo que se manda;
- * lotes; llave del nombre; emparejar con OpMap; estado de la persona nueva; validación del lote), el importador
- * (app/api/visits/_lib/importar-vmo.ts: enlaza o crea personas, upsert por vmo_id sin duplicar ni borrar, las visitas de
- * la app intactas) y conZonaEnVezDePersona (sin visits:view, la zona en vez del nombre).
+ * "22 Oct 2026 07:31:46", "Visita presencial-Presencial", "Visita extra"; descartes; nada de los datos del médico en lo
+ * que se manda; lotes con todos los Ejecutivos Comerciales; llave del nombre; emparejar con OpMap sin depender del orden;
+ * estado de la persona nueva; validación del lote y de la simulación) y el importador
+ * (app/api/visits/_lib/importar-vmo.ts: simulación sin escribir, enlaza o crea personas, upsert por vmo_id sin duplicar
+ * ni borrar, la extra como "Visita extra", las visitas de la app intactas).
  *
  * Uso (desde web/): npx tsx scripts/vmo-visitas-check.ts   (incluida en npm run test)
  */
@@ -15,7 +17,7 @@ import {
   claveComercial,
   columnasFaltantes,
   comercialesDe,
-  emparejarComercial,
+  emparejarComerciales,
   estadoComercialNuevo,
   fechaVmo,
   leerVisitasVmo,
@@ -74,7 +76,7 @@ check('fechaVmo de una fecha de Excel (Date)', fechaVmo(new Date(2026, 9, 22, 7,
 check('nombreVmo quita espacios de sobra ("Lizeth Albarracín " de VMO)', nombreVmo('  Lizeth   Albarracín ') === 'Lizeth Albarracín')
 check('claveComercial: minúsculas, sin tildes ni signos', claveComercial('María  Isabel Díaz-Ahumada') === 'maria isabel diaz ahumada' && claveComercial('Iñaki Peña') === 'inaki pena')
 
-console.log('\n2. Lectura del archivo: solo efectivas con coordenadas, una por ID, sin datos del médico')
+console.log('\n2. Lectura del archivo: solo las hechas con coordenadas, una por ID, sin datos del médico')
 siguiente = 25100
 const filas = [
   fila(), // 25101 Leyda, presencial
@@ -87,33 +89,36 @@ const filas = [
   fila({ ID: null }), // sin ID
   fila({ ID: 25101 }), // repetida
   fila({ Representante: 'Lizeth Albarracín ', 'Fecha de la visita': '30 Sep 2026 15:00:00', Latitud: '10,4721', Longitud: '-73,2533' }), // coma decimal
+  fila({ 'Tipo de visitas': 'Visita extra', 'Fecha de la visita': '24 Oct 2026 10:00:00' }), // extra: también es una visita hecha
 ]
 const lectura = leerVisitasVmo(filas)
-check('3 visitas de 10 filas', lectura.filas === 10 && lectura.visitas.length === 3, lectura)
+check('4 visitas de 11 filas', lectura.filas === 11 && lectura.visitas.length === 4, lectura)
 check(
   'descartes: 1 no realizada, 2 sin coordenadas (vacía o fuera de Colombia), 1 sin fecha, 1 sin Ejecutivo Comercial, 1 sin ID, 1 repetida',
-  JSON.stringify(lectura.descartadas) === JSON.stringify({ noEfectivas: 1, sinCoordenadas: 2, sinFecha: 1, sinComercial: 1, sinId: 1, repetidas: 1 }),
+  JSON.stringify(lectura.descartadas) === JSON.stringify({ noRealizadas: 1, sinCoordenadas: 2, sinFecha: 1, sinComercial: 1, sinId: 1, repetidas: 1 }),
   lectura.descartadas
 )
-const [leyda, joana, lizeth] = lectura.visitas
+const [leyda, joana, lizeth, extra] = lectura.visitas
 check('presencial / virtual según "Tipo de contacto"', leyda.presencial === true && joana.presencial === false)
 check('fecha real de la visita (no la del reporte) y coordenadas con coma decimal', joana.fecha === '2026-10-23' && lizeth.fecha === '2026-09-30' && lizeth.lat === 10.4721 && lizeth.lng === -73.2533, lizeth)
 check('el nombre como lo escribe VMO, sin espacios de sobra', lizeth.comercial === 'Lizeth Albarracín')
-check('por mes', JSON.stringify(lectura.porMes) === JSON.stringify({ '2026-10': 2, '2026-09': 1 }), lectura.porMes)
-check('cada visita trae solo vmo_id, comercial, fecha, lat, lng y presencial', lectura.visitas.every(v => Object.keys(v).sort().join(',') === 'comercial,fecha,lat,lng,presencial,vmo_id'))
+check('"Visita extra" entra marcada como extra; las realizadas no', extra.extra === true && extra.fecha === '2026-10-24' && !leyda.extra && !joana.extra && !lizeth.extra, extra)
+check('por mes', JSON.stringify(lectura.porMes) === JSON.stringify({ '2026-10': 3, '2026-09': 1 }), lectura.porMes)
+check('cada visita trae solo vmo_id, comercial, fecha, lat, lng, presencial y extra', lectura.visitas.every(v => Object.keys(v).sort().join(',') === 'comercial,extra,fecha,lat,lng,presencial,vmo_id'))
 const enviado = JSON.stringify(lotesVmo(lectura.visitas))
 check('lo que se manda no lleva el médico, su cédula ni su teléfono', !enviado.includes('Paciente') && !enviado.includes('1234567890') && !enviado.includes('3001234567'))
 
-console.log('\n3. Lotes: cada uno con sus Ejecutivos Comerciales y la última visita de TODO el archivo')
+console.log('\n3. Lotes: cada uno con TODOS los Ejecutivos Comerciales del archivo y su última visita del archivo')
 const visitasLote: VisitaVmo[] = [
-  { vmo_id: 1, comercial: 'Ana Uno', fecha: '2026-10-20', lat: 4.6, lng: -74.1, presencial: true },
-  { vmo_id: 2, comercial: 'Beto Dos', fecha: '2026-01-10', lat: 4.6, lng: -74.1, presencial: true },
-  { vmo_id: 3, comercial: 'ana  uno', fecha: '2026-03-01', lat: 4.6, lng: -74.1, presencial: true },
+  { vmo_id: 1, comercial: 'Ana Uno', fecha: '2026-10-20', lat: 4.6, lng: -74.1, presencial: true, extra: false },
+  { vmo_id: 2, comercial: 'Beto Dos', fecha: '2026-01-10', lat: 4.6, lng: -74.1, presencial: true, extra: false },
+  { vmo_id: 3, comercial: 'ana  uno', fecha: '2026-03-01', lat: 4.6, lng: -74.1, presencial: true, extra: false },
 ]
 const lotes = lotesVmo(visitasLote, 2)
 check('2 lotes de 2 y 1', lotes.length === 2 && lotes[0].visitas.length === 2 && lotes[1].visitas.length === 1)
-check('el segundo lote trae a Ana con su última visita del archivo (20 oct), no la del lote (1 mar)',
-  lotes[1].comerciales.length === 1 && lotes[1].comerciales[0].nombre === 'Ana Uno' && lotes[1].comerciales[0].ultima === '2026-10-20', lotes[1].comerciales)
+check('el segundo lote trae a los 2 del archivo, Ana con su última visita del archivo (20 oct) y no la del lote (1 mar)',
+  lotes[1].comerciales.length === 2 && lotes[1].comerciales[0].nombre === 'Ana Uno' && lotes[1].comerciales[0].ultima === '2026-10-20' &&
+    JSON.stringify(lotes[0].comerciales) === JSON.stringify(lotes[1].comerciales), lotes[1].comerciales)
 check('comercialesDe agrupa por llave', JSON.stringify(comercialesDe(visitasLote)) === JSON.stringify([{ nombre: 'Ana Uno', ultima: '2026-10-20' }, { nombre: 'Beto Dos', ultima: '2026-01-10' }]))
 
 console.log('\n4. Emparejar con las personas de OpMap')
@@ -127,7 +132,7 @@ const personas: PersonaVmo[] = [
   { id: 'maria-1', full_name: 'María López Pérez', status: 'active', vmo_nombre: null },
   { id: 'maria-2', full_name: 'María López Gómez', status: 'inactive', vmo_nombre: null },
 ]
-const par = (nombre: string) => emparejarComercial(claveComercial(nombre), personas)
+const par = (nombre: string) => emparejarComerciales([claveComercial(nombre)], personas).get(claveComercial(nombre)) ?? null
 check('por la llave guardada', JSON.stringify(par('Leyda Santiago Salcedo')) === JSON.stringify({ id: 'leyda', como: 'llave' }))
 check('por el nombre sin tildes (VMO: "Joana Andrea Galvez Ortiz")', JSON.stringify(par('Joana Andrea Galvez Ortiz')) === JSON.stringify({ id: 'joana', como: 'nombre' }))
 check('parecido: VMO omite el segundo nombre ("Mileydis Buelvas Castellar")', JSON.stringify(par('Mileydis Buelvas Castellar')) === JSON.stringify({ id: 'mileydis', como: 'parecido' }))
@@ -137,16 +142,30 @@ check('ambiguo ("María López"): no se adivina', par('María López') === null)
 check('una vacante no se empareja ("Linda Ossa")', par('Linda Ossa') === null)
 check('quien ya tiene otra llave no se empareja por parecido ("Leyda Santiago")', par('Leyda Santiago') === null)
 check('quien no está en OpMap: null (se crea)', par('Katherinne Solano Escamilla') === null)
+// Hallazgo del revisor: "Juan Perez" (lote 1) se llevaba por parecido a "Juan Pérez Gómez" de OpMap y "Juan Perez Gomez"
+// (lote 5) se creaba duplicado. Con todo el archivo de una vez, en cualquier orden, gana el nombre exacto.
+const juanes: PersonaVmo[] = [{ id: 'juan', full_name: 'Juan Pérez Gómez', status: 'active', vmo_nombre: null }]
+for (const orden of [['juan perez', 'juan perez gomez'], ['juan perez gomez', 'juan perez']]) {
+  const plan = emparejarComerciales(orden, juanes)
+  check(`sin depender del orden (${orden.join(' → ')}): el exacto se queda con la persona y el otro se crea`,
+    plan.get('juan perez gomez')?.id === 'juan' && plan.get('juan perez gomez')?.como === 'nombre' && plan.get('juan perez') === null)
+}
+const disputa = emparejarComerciales(['diana caicedo', 'diana carolina caicedo'], personas)
+check('dos nombres del archivo parecidos a la misma persona: no se adivina ninguno', disputa.get('diana caicedo') === null && disputa.get('diana carolina caicedo') === null)
 check('activa si visitó en los últimos 60 días; si no, inactiva',
   estadoComercialNuevo('2026-10-22', '2026-10-29') === 'active' && estadoComercialNuevo('2026-08-30', '2026-10-29') === 'active' &&
   estadoComercialNuevo('2026-08-29', '2026-10-29') === 'inactive')
 
 console.log('\n5. Validación del lote en el servidor')
-const loteBueno = { visitas: [{ vmo_id: 9, comercial: 'Ana Uno', fecha: '2026-10-20', lat: 4.6, lng: -74.1, presencial: true }], comerciales: [{ nombre: 'Ana Uno', ultima: '2026-10-20' }] }
+const loteBueno = { visitas: [{ vmo_id: 9, comercial: 'Ana Uno', fecha: '2026-10-20', lat: 4.6, lng: -74.1, presencial: true, extra: false }], comerciales: [{ nombre: 'Ana Uno', ultima: '2026-10-20' }] }
 check('lote bueno', validarLoteVmo(loteBueno).ok)
+const simulacion = validarLoteVmo({ simular: true, comerciales: loteBueno.comerciales })
+check('simulación: solo los Ejecutivos Comerciales, sin visitas', simulacion.ok && simulacion.simular && simulacion.visitas.length === 0)
+check('rechaza una simulación con visitas o sin Ejecutivos Comerciales',
+  !validarLoteVmo({ simular: true, ...loteBueno }).ok && !validarLoteVmo({ simular: true, comerciales: [] }).ok)
 const malo = (cambios: Record<string, unknown>, comerciales = loteBueno.comerciales) => validarLoteVmo({ visitas: [{ ...loteBueno.visitas[0], ...cambios }], comerciales })
-check('rechaza: fecha que no es AAAA-MM-DD, punto fuera de Colombia, ID no entero, presencial que no es sí/no',
-  !malo({ fecha: '20/10/2026' }).ok && !malo({ lat: 40 }).ok && !malo({ vmo_id: 1.5 }).ok && !malo({ presencial: 'si' }).ok)
+check('rechaza: fecha que no es AAAA-MM-DD, punto fuera de Colombia, ID no entero, presencial o extra que no son sí/no',
+  !malo({ fecha: '20/10/2026' }).ok && !malo({ lat: 40 }).ok && !malo({ vmo_id: 1.5 }).ok && !malo({ presencial: 'si' }).ok && !malo({ extra: undefined }).ok)
 check('rechaza una visita de un Ejecutivo Comercial que no viene en el lote', !malo({ comercial: 'Otra Persona' }).ok)
 check('rechaza IDs repetidos', !validarLoteVmo({ visitas: [loteBueno.visitas[0], loteBueno.visitas[0]], comerciales: loteBueno.comerciales }).ok)
 check(`rechaza más de ${MAX_VISITAS_POR_LOTE} visitas`, !validarLoteVmo({
@@ -205,7 +224,6 @@ globalThis.fetch = (async (entrada: RequestInfo | URL, init?: RequestInit) => {
 
 async function main() {
   const { importarVisitasVmo } = await import('../app/api/visits/_lib/importar-vmo')
-  const { conZonaEnVezDePersona } = await import('../app/api/visits/_lib/visitas-mapa')
   const leer = async (respuesta: Response) => ({ status: respuesta.status, body: await respuesta.json() })
 
   console.log('\n6. Importador: enlaza o crea personas y guarda por ID de VMO')
@@ -217,10 +235,10 @@ async function main() {
   tablas.visits = [{ ...appVisita }]
   const lote = {
     visitas: [
-      { vmo_id: 25101, comercial: 'Ana Ruiz', fecha: '2026-10-22', lat: 4.65, lng: -74.06, presencial: true },
-      { vmo_id: 25102, comercial: 'Ana Ruiz', fecha: '2026-10-23', lat: 4.66, lng: -74.07, presencial: false },
-      { vmo_id: 25103, comercial: 'Katherinne Solano Escamilla', fecha: '2026-10-24', lat: 8.75, lng: -75.88, presencial: true },
-      { vmo_id: 25104, comercial: 'Persona Que Se Fue', fecha: '2026-03-02', lat: 10.4, lng: -75.5, presencial: true },
+      { vmo_id: 25101, comercial: 'Ana Ruiz', fecha: '2026-10-22', lat: 4.65, lng: -74.06, presencial: true, extra: false },
+      { vmo_id: 25102, comercial: 'Ana Ruiz', fecha: '2026-10-23', lat: 4.66, lng: -74.07, presencial: false, extra: true },
+      { vmo_id: 25103, comercial: 'Katherinne Solano Escamilla', fecha: '2026-10-24', lat: 8.75, lng: -75.88, presencial: true, extra: false },
+      { vmo_id: 25104, comercial: 'Persona Que Se Fue', fecha: '2026-03-02', lat: 10.4, lng: -75.5, presencial: true, extra: false },
     ],
     comerciales: [
       { nombre: 'Ana Ruiz', ultima: '2026-10-23' },
@@ -228,6 +246,13 @@ async function main() {
       { nombre: 'Persona Que Se Fue', ultima: '2026-03-02' },
     ],
   }
+  const plan = await leer(await importarVisitasVmo({ simular: true, comerciales: lote.comerciales }, 'admin-1', '2026-10-29'))
+  check('simulación: a quién reconoce y a quién crea (con su estado), sin escribir nada',
+    plan.status === 200 && JSON.stringify(plan.body.comerciales) === JSON.stringify([
+      { vmo: 'Ana Ruiz', opmap: 'Ana María Ruiz', como: 'parecido', estado: null },
+      { vmo: 'Katherinne Solano Escamilla', opmap: null, como: null, estado: 'active' },
+      { vmo: 'Persona Que Se Fue', opmap: null, como: null, estado: 'inactive' },
+    ]) && !pedidos.some(p => p.metodo !== 'GET'), plan.body)
   const primera = await leer(await importarVisitasVmo(lote, 'admin-1', '2026-10-29'))
   check('200: 4 visitas, Ana reconocida por parecido y 2 personas creadas', primera.status === 200 && primera.body.visitas === 4 &&
     JSON.stringify(primera.body.enlazados) === JSON.stringify([{ vmo: 'Ana Ruiz', opmap: 'Ana María Ruiz' }]) &&
@@ -244,7 +269,7 @@ async function main() {
     !!vmo25101 && vmo25101.source === 'vmo_import' && vmo25101.executive_id === 'ana' && vmo25101.kam_id === 'zona-norte' && vmo25101.kam_name === 'Ana María Ruiz' &&
     vmo25101.visit_type === 'Visita efectiva' && vmo25101.contact_type === 'Visita presencial' && vmo25101.efectiva === true &&
     vmo25101.lat === 4.65 && vmo25101.visit_date === '2026-10-22' && vmo25101.imported_by === 'admin-1', vmo25101)
-  check('la virtual queda como "Visita virtual"', tablas.visits.find(v => v.vmo_id === 25102)?.contact_type === 'Visita virtual')
+  check('la virtual queda como "Visita virtual" y la extra como "Visita extra"', tablas.visits.find(v => v.vmo_id === 25102)?.contact_type === 'Visita virtual' && tablas.visits.find(v => v.vmo_id === 25102)?.visit_type === 'Visita extra')
   check('la de la persona nueva queda a su nombre y sin zona', tablas.visits.find(v => v.vmo_id === 25103)?.executive_id === katherinne?.id && tablas.visits.find(v => v.vmo_id === 25103)?.kam_id === null)
   check('no borra nada', !pedidos.some(p => p.metodo === 'DELETE'))
   check('el upsert va por vmo_id', pedidos.some(p => p.metodo === 'POST' && p.tabla === 'visits' && p.params.includes('on_conflict=vmo_id')))
@@ -266,12 +291,6 @@ async function main() {
   const caido = await leer(await importarVisitasVmo(lote, 'admin-1', '2026-10-29'))
   falloUpsert = false
   check('si guardar las visitas falla: 500 con mensaje claro', caido.status === 500 && caido.body.error === 'No se pudieron guardar las visitas', caido.body)
-
-  console.log('\n9. Sin visits:view, la zona en vez del nombre de la persona')
-  const zonas = new Map([['zona-norte', 'Bogotá Norte']])
-  const filasMapa = [{ id: 'v1', kam_id: 'zona-norte', kam_name: 'Ana María Ruiz' }, { id: 'v2', kam_id: null, kam_name: 'Katherinne Solano Escamilla' }]
-  const ocultas = conZonaEnVezDePersona(filasMapa, zonas)
-  check('kam_name = la zona o "Sin zona"; el resto igual', ocultas[0].kam_name === 'Bogotá Norte' && ocultas[1].kam_name === 'Sin zona' && ocultas[0].id === 'v1' && !JSON.stringify(ocultas).includes('Ruiz'))
 
   console.log(`\nResultado: ${passed} OK, ${failed} con fallo`)
   if (failed > 0) process.exit(1)

@@ -6,8 +6,9 @@
 --   1. Exige los respaldos de la 0910.
 --   2. Borra las visitas importadas con la importación nueva (source = 'vmo_import').
 --   3. Devuelve visit_imports y las visitas viejas de VMO desde sus respaldos (mismas filas e ids).
---   4. Borra las personas que creó la importación (notas "Creada al importar visitas de VMO…"), salvo las que ya se
---      usan en otra parte (líneas, cobertura, app…): esas se quedan y se avisa con un NOTICE.
+--   4. NO borra a las personas que creó la importación (notas "Creada al importar visitas de VMO…"): pueden tener ya
+--      Zona, líneas, cobertura o usuario, y varias llaves hacia executives son ON DELETE CASCADE o SET NULL (borrarlas
+--      se llevaría eso sin avisar). Se listan con un NOTICE para revisarlas a mano en Ejecutivos Comerciales.
 --   5. Quita vmo_id y vmo_nombre con sus restricciones, y los respaldos.
 -- Las visitas de la app (source = 'app') no se tocan.
 -- =====================================================================================
@@ -45,19 +46,15 @@ BEGIN
   END LOOP;
 END $$;
 
--- Personas creadas por la importación: se borran si nada más las usa
+-- Personas creadas por la importación: se quedan (ver punto 4); solo se listan
 DO $$
 DECLARE
   persona record;
 BEGIN
   FOR persona IN
-    SELECT id, full_name FROM public.executives WHERE notes LIKE 'Creada al importar visitas de VMO%'
+    SELECT full_name, status FROM public.executives WHERE notes LIKE 'Creada al importar visitas de VMO%' ORDER BY full_name
   LOOP
-    BEGIN
-      DELETE FROM public.executives WHERE id = persona.id;
-    EXCEPTION WHEN foreign_key_violation THEN
-      RAISE NOTICE '9956: % se queda (ya se usa en otra parte)', persona.full_name;
-    END;
+    RAISE NOTICE '9956: % (%) la creó la importación de VMO y se queda; revísala en Ejecutivos Comerciales', persona.full_name, persona.status;
   END LOOP;
 END $$;
 

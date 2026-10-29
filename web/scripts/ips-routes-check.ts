@@ -408,6 +408,15 @@ const POSTGREST_CONTROL_PARAMS = new Set(['select', 'order', 'limit', 'offset', 
 function matchesFilters(row: Record<string, unknown>, params: URLSearchParams): boolean {
   for (const [key, raw] of Array.from(params.entries())) {
     if (POSTGREST_CONTROL_PARAMS.has(key)) continue
+    if (key === 'or') {
+      // or=(col.op.valor,col.op.valor): basta con que se cumpla una
+      const alguna = raw.replace(/^\(|\)$/g, '').split(',').some(condicion => {
+        const [columna, ...resto] = condicion.split('.')
+        return matchesFilters(row, new URLSearchParams([[columna, resto.join('.')]]))
+      })
+      if (!alguna) return false
+      continue
+    }
     const value = row[key] === null || row[key] === undefined ? 'null' : String(row[key])
     if (raw.startsWith('eq.')) {
       if (value !== raw.slice(3)) return false
@@ -1429,6 +1438,29 @@ async function main() {
       const put = await updateExecutiveRoute(apiRequest(`/api/executives/${EVA_EXE}`, { method: 'PATCH', body: { notes: 'sin cambio de email' } }), { params: { id: EVA_EXE } })
       check('PATCH de una ejecutiva sin usuario: se enlaza con el usuario de su email aunque el email no cambie',
         put.status === 200 && putTables.executives[0].user_id === EVA_USER, `${put.status} ${(await put.text()).slice(0, 200)}`)
+
+      // Las visitas de VMO van con la Zona de su persona (mapa de calor, 2026-10-29)
+      const ZONA_VIEJA = '55555555-5555-4555-8555-555555555551'
+      const ZONA_NUEVA = '55555555-5555-4555-8555-555555555552'
+      const KAT = '66666666-6666-4666-8666-666666666666'
+      const zonaTables = {
+        users: fakeUsers(),
+        executives: [{ id: KAT, full_name: 'Katherinne Solano', email: null, status: 'active', user_id: null, company: 'VG', base_kam_id: null, odoo_employee_id: null, notes: null, color: null }],
+        kams: [{ id: ZONA_VIEJA, name: 'Valledupar', active: true }, { id: ZONA_NUEVA, name: 'Montería', active: true }],
+        visits: [
+          { id: 'vmo-sin-zona', executive_id: KAT, source: 'vmo_import', kam_id: null },
+          { id: 'vmo-con-zona', executive_id: KAT, source: 'vmo_import', kam_id: ZONA_VIEJA },
+          { id: 'de-la-app', executive_id: KAT, source: 'app', kam_id: ZONA_VIEJA },
+        ],
+        executive_lines: [], business_lines: [],
+      } as Record<string, Array<Record<string, unknown>>>
+      const zonaFake = fakeSupabase(zonaTables)
+      fetchHandler = zonaFake.handler
+      const mover = await updateExecutiveRoute(apiRequest(`/api/executives/${KAT}`, { method: 'PATCH', body: { base_kam_id: ZONA_NUEVA } }), { params: { id: KAT } })
+      const zonaDe = (id: string) => zonaTables.visits.find(v => v.id === id)?.kam_id
+      check('PATCH con Zona nueva: sus visitas de VMO la toman (también las que no tenían); las de la app no cambian',
+        mover.status === 200 && zonaDe('vmo-sin-zona') === ZONA_NUEVA && zonaDe('vmo-con-zona') === ZONA_NUEVA && zonaDe('de-la-app') === ZONA_VIEJA,
+        `${mover.status} ${JSON.stringify(zonaTables.visits)}`)
     }
 
     print('\n7. Importador de VMO (puente del mapa de calor): permiso y cuerpo')

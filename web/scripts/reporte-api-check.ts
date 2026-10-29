@@ -2141,6 +2141,9 @@ async function main() {
 
     print('\n9. El mapa de calor con visitas de la app (GET /api/visits/filtered)')
     {
+      // Desde el 2026-10-29 las de VMO llegan por persona (nombre, GPS y fecha real): una de Ana y una de Berta
+      const deVmo = (id: string, executive_id: string, kam_name: string, vmo_id: number): Fila => ({ id, kam_id: KAM_BGA, kam_name, visit_type: 'Visita efectiva', contact_type: 'Visita presencial', lat: 7.12, lng: -73.12, visit_date: HOY, hospital_id: null, imported_by: ADMIN_ID, imported_at: '2026-10-13T12:00:00Z', import_id: null, created_at: '2026-10-13T12:00:00Z', updated_at: '2026-10-13T12:00:00Z', source: 'vmo_import', executive_id, client_id: null, tipo: null, deleted_at: null, out_of_territory: false, vmo_id })
+      tablas.visits.push(deVmo('vmo-de-ana', EJEC_A, 'Ana Ejecutiva', 900101), deVmo('vmo-de-berta', EJEC_B, 'Berta Ejecutiva', 900102))
       const r = await pedir(visitasDelMapa, '/api/visits/filtered?year=2026&month=10', { userId: ADMIN_ID })
       const filas = r.body as Fila[]
       const anuladas = tablas.visits.filter(v => v.deleted_at).map(v => v.id)
@@ -2148,15 +2151,21 @@ async function main() {
       check('solo las columnas del mapa: nunca transcripción, conclusión ni compromisos', filas.every(f => !('transcript' in f) && !('conclusion' in f) && !('compromisos' in f)) && !r.texto.includes('TRANSCRIPCION-INTERNA'), Object.keys(filas[0] ?? {}))
       check('sin las anuladas', anuladas.length > 0 && !filas.some(f => anuladas.includes(f.id)))
       const deLaApp = tablas.visits.filter(v => v.source === 'app').map(v => v.id)
-      for (const [quien, userId] of [['un Ejecutivo Comercial (sales_manager)', VENTAS_ID], ['otro Ejecutivo Comercial', OTRA_ID], ['un visor', VIEWER_ID]] as const) {
+      check('con visits:view: también las de VMO de cada persona', filas.some(f => f.id === 'vmo-de-ana') && filas.some(f => f.id === 'vmo-de-berta'))
+      for (const [quien, userId, suya, ajena] of [
+        ['un Ejecutivo Comercial (Ana, sales_manager)', VENTAS_ID, 'vmo-de-ana', 'Berta Ejecutiva'],
+        ['otro Ejecutivo Comercial (Berta)', OTRA_ID, 'vmo-de-berta', 'Ana Ejecutiva'],
+      ] as const) {
         const sinVer = await pedir(visitasDelMapa, '/api/visits/filtered?year=2026&month=10', { userId })
         const suyas = sinVer.body as Fila[]
         check(
-          `${quien} (sin visits:view): solo el histórico de VMO, ninguna visita de la app (ni nombre ni GPS de los demás)`,
-          sinVer.status === 200 && deLaApp.length > 0 && suyas.some(f => f.id === VMO_ID) && !suyas.some(f => deLaApp.includes(f.id)) && !sinVer.texto.includes('Ana Ejecutiva'),
+          `${quien} (sin visits:view): solo SUS visitas de VMO; ninguna de la app ni de VMO de los demás (ni nombre ni GPS)`,
+          sinVer.status === 200 && deLaApp.length > 0 && suyas.length === 1 && suyas[0].id === suya && !sinVer.texto.includes(ajena),
           sinVer.body
         )
       }
+      const visor = await pedir(visitasDelMapa, '/api/visits/filtered?year=2026&month=10', { userId: VIEWER_ID })
+      check('un visor (sin visits:view y sin persona): ninguna visita', visor.status === 200 && Array.isArray(visor.body) && visor.body.length === 0, visor.body)
       fake.estado.sin0830 = true
       const vieja = await pedir(visitasDelMapa, '/api/visits/filtered?year=2026&month=10', { userId: ADMIN_ID })
       check('antes de la 0830 (sin deleted_at) sigue respondiendo', vieja.status === 200 && Array.isArray(vieja.body), vieja.body)
@@ -2306,8 +2315,8 @@ async function main() {
       const borradosAntes = fake.requests.filter(r => r.method === 'DELETE').length
       const lote = {
         visitas: [
-          { vmo_id: 900001, comercial: 'Ana  Ejecutiva ', fecha: '2026-09-10', lat: 7.11, lng: -73.11, presencial: true },
-          { vmo_id: 900002, comercial: 'Visitadora Nueva', fecha: '2026-09-11', lat: 7.12, lng: -73.12, presencial: false },
+          { vmo_id: 900001, comercial: 'Ana  Ejecutiva ', fecha: '2026-09-10', lat: 7.11, lng: -73.11, presencial: true, extra: false },
+          { vmo_id: 900002, comercial: 'Visitadora Nueva', fecha: '2026-09-11', lat: 7.12, lng: -73.12, presencial: false, extra: false },
         ],
         comerciales: [{ nombre: 'Ana Ejecutiva', ultima: '2026-09-10' }, { nombre: 'Visitadora Nueva', ultima: '2026-09-11' }],
       }

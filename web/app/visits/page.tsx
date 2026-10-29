@@ -7,8 +7,9 @@ import PermissionGuard from '@/components/PermissionGuard'
 import { claveComercial, columnasFaltantes, comercialesDe, leerVisitasVmo, lotesVmo, type LecturaVmo } from '@/lib/vmo-visitas'
 
 // Visitas: puente temporal para el mapa de calor (dueño, 2026-10-29, docs/decisiones/2026-10-29-visitas-vmo-mapa-de-calor.md).
-// Se sube el Excel de VMO › Visitas; el navegador se queda solo con las visitas efectivas con coordenadas, por Ejecutivo
-// Comercial (lib/vmo-visitas.ts), y las manda por lotes a POST /api/visits/import. Nada más del archivo sale del navegador.
+// Se sube el Excel de VMO › Visitas; el navegador se queda solo con las visitas hechas con coordenadas, por Ejecutivo
+// Comercial (lib/vmo-visitas.ts). Antes de importar pide al servidor a quién reconoce y a quién crea ({ simular: true }) y
+// luego manda las visitas por lotes a POST /api/visits/import. Nada más del archivo sale del navegador.
 
 interface ResultadoImportacion {
   visitas: number
@@ -16,8 +17,15 @@ interface ResultadoImportacion {
   creados: { nombre: string; estado: 'active' | 'inactive' }[]
 }
 
+/** Plan de POST /api/visits/import con { simular: true }: opmap null = se crea con ese estado. */
+interface PlanComercial {
+  vmo: string
+  opmap: string | null
+  estado: 'active' | 'inactive' | null
+}
+
 const DESCARTES: { clave: keyof LecturaVmo['descartadas']; texto: string }[] = [
-  { clave: 'noEfectivas', texto: 'no realizadas' },
+  { clave: 'noRealizadas', texto: 'no realizadas' },
   { clave: 'sinCoordenadas', texto: 'sin coordenadas en Colombia' },
   { clave: 'sinFecha', texto: 'sin fecha' },
   { clave: 'sinComercial', texto: 'sin Ejecutivo Comercial' },
@@ -27,8 +35,9 @@ const DESCARTES: { clave: keyof LecturaVmo['descartadas']; texto: string }[] = [
 
 const fechaCorta = (fecha: string) =>
   new Date(`${fecha}T12:00:00Z`).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
-const mesCorto = (mes: string) =>
-  new Date(`${mes}-01T12:00:00Z`).toLocaleDateString('es-CO', { month: 'short', year: 'numeric', timeZone: 'UTC' })
+const MESES_CORTOS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+/** "2026-10" → "Oct 2026" */
+const mesCorto = (mes: string) => `${MESES_CORTOS[Number(mes.slice(5, 7)) - 1]} ${mes.slice(0, 4)}`
 
 export default function VisitsPage() {
   const [stats, setStats] = useState({
@@ -43,6 +52,7 @@ export default function VisitsPage() {
   const [error, setError] = useState<string | null>(null)
   const [progreso, setProgreso] = useState<{ hechos: number; total: number } | null>(null)
   const [resultado, setResultado] = useState<ResultadoImportacion | null>(null)
+  const [plan, setPlan] = useState<PlanComercial[] | null>(null)
 
   useEffect(() => {
     loadStats()
@@ -69,6 +79,7 @@ export default function VisitsPage() {
     if (!file) return
     setArchivo(null)
     setLectura(null)
+    setPlan(null)
     setError(null)
     setResultado(null)
     try {
@@ -79,11 +90,23 @@ export default function VisitsPage() {
         setError(`Este archivo no es la exportación de VMO › Visitas${faltan.length > 0 ? ` (faltan las columnas ${faltan.join(', ')})` : ' (no tiene filas)'}.`)
         return
       }
+      const nueva = leerVisitasVmo(filas)
       setArchivo(file.name)
-      setLectura(leerVisitasVmo(filas))
+      setLectura(nueva)
+      if (nueva.visitas.length > 0) {
+        // A quién reconoce y a quién crea, antes de importar (no escribe nada)
+        const response = await fetch('/api/visits/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ simular: true, comerciales: comercialesDe(nueva.visitas) }),
+        })
+        const body = await response.json().catch(() => null)
+        if (!response.ok) throw new Error(body?.error || `Error ${response.status} al revisar los Ejecutivos Comerciales`)
+        setPlan(body.comerciales as PlanComercial[])
+      }
     } catch (err) {
       console.error('visits: error leyendo el Excel de VMO', err)
-      setError('No se pudo leer el archivo. Expórtalo otra vez desde VMO › Visitas a Excel.')
+      setError(err instanceof Error && err.message.includes('Ejecutivos Comerciales') ? err.message : 'No se pudo leer el archivo. Expórtalo otra vez desde VMO › Visitas a Excel.')
     }
   }
 
@@ -126,6 +149,7 @@ export default function VisitsPage() {
       }
       setResultado(total)
       setLectura(null)
+      setPlan(null)
       setArchivo(null)
     } catch (err) {
       setError(`${err instanceof Error ? err.message : 'Error al importar'}. Lo importado antes del error quedó guardado: puedes subir el mismo archivo otra vez sin duplicar.`)
@@ -266,9 +290,10 @@ export default function VisitsPage() {
               <li>Sube aquí ese archivo, revisa el resumen y pulsa <strong>Importar</strong>.</li>
             </ol>
             <p className="mt-3 text-sm text-gray-500">
-              Solo se guardan las visitas realizadas con coordenadas: la fecha, el punto y el Ejecutivo Comercial. Lo demás
-              del archivo (médicos, teléfonos, comentarios) no sale de tu computador. Subir otra vez el mismo período no
-              duplica: cada visita tiene su ID de VMO. Si un Ejecutivo Comercial de VMO no existe en OpMap, se crea.
+              Solo se guardan las visitas hechas (realizadas y extra) con coordenadas: la fecha, el punto y el Ejecutivo
+              Comercial. Lo demás del archivo (médicos, teléfonos, comentarios) no sale de tu computador. Subir otra vez el
+              mismo período no duplica: cada visita tiene su ID de VMO. Si un Ejecutivo Comercial de VMO no existe en OpMap,
+              se crea; el resumen dice antes a quién reconoce y a quién crea.
             </p>
 
             <label
@@ -297,16 +322,31 @@ export default function VisitsPage() {
                       <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Por mes</p>
                       <ul className="mt-1 space-y-0.5">
                         {resumen.meses.map(([mes, cantidad]) => (
-                          <li key={mes} className="flex justify-between gap-4"><span className="capitalize">{mesCorto(mes)}</span><span className="tabular-nums">{formatNumber(cantidad)}</span></li>
+                          <li key={mes} className="flex justify-between gap-4"><span>{mesCorto(mes)}</span><span className="tabular-nums">{formatNumber(cantidad)}</span></li>
                         ))}
                       </ul>
                     </div>
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Ejecutivos Comerciales ({resumen.comerciales.length})</p>
-                      <ul className="mt-1 space-y-0.5">
-                        {resumen.comerciales.map(c => (
-                          <li key={c.nombre} className="flex justify-between gap-4"><span>{c.nombre}</span><span className="tabular-nums">{formatNumber(c.visitas)}</span></li>
-                        ))}
+                      <ul className="mt-1 space-y-1">
+                        {resumen.comerciales.map(c => {
+                          const destino = plan?.find(p => claveComercial(p.vmo) === claveComercial(c.nombre))
+                          return (
+                            <li key={c.nombre} className="flex justify-between gap-4">
+                              <span>
+                                {c.nombre}
+                                {destino && (
+                                  <span className="block text-xs text-gray-500">
+                                    {destino.opmap
+                                      ? destino.opmap === c.nombre ? 'Ya está en OpMap' : `Es ${destino.opmap} en OpMap`
+                                      : `Se crea en OpMap${destino.estado === 'inactive' ? ' (inactivo: sin visitas en los últimos 60 días)' : ''}`}
+                                  </span>
+                                )}
+                              </span>
+                              <span className="tabular-nums">{formatNumber(c.visitas)}</span>
+                            </li>
+                          )
+                        })}
                       </ul>
                     </div>
                   </div>
@@ -315,7 +355,7 @@ export default function VisitsPage() {
                   <button
                     type="button"
                     onClick={importar}
-                    disabled={lectura.visitas.length === 0 || progreso !== null}
+                    disabled={lectura.visitas.length === 0 || plan === null || progreso !== null}
                     className="min-h-[44px] px-6 py-2.5 rounded-lg font-medium bg-gray-900 text-white hover:bg-black disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed"
                   >
                     {progreso ? `Importando… (${progreso.hechos} de ${progreso.total})` : `Importar ${formatNumber(lectura.visitas.length)} visitas`}
@@ -335,7 +375,10 @@ export default function VisitsPage() {
                   <p>Reconocidos en OpMap: {resultado.enlazados.map(e => (e.vmo === e.opmap ? e.opmap : `${e.vmo} → ${e.opmap}`)).join(', ')}.</p>
                 )}
                 {resultado.creados.length > 0 && (
-                  <p>Creados en OpMap: {resultado.creados.map(c => `${c.nombre}${c.estado === 'inactive' ? ' (inactivo: sin visitas en los últimos 60 días)' : ''}`).join(', ')}. Asígnales su Zona en Ejecutivos Comerciales.</p>
+                  <p>
+                    Creados en OpMap: {resultado.creados.map(c => `${c.nombre}${c.estado === 'inactive' ? ' (inactivo: sin visitas en los últimos 60 días)' : ''}`).join(', ')}.
+                    Asígnales su Zona en Ejecutivos Comerciales y vuelve a subir el archivo: sus visitas toman la Zona de la persona.
+                  </p>
                 )}
               </div>
             )}

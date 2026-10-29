@@ -1,12 +1,13 @@
 // Importación de visitas de VMO (POST /api/visits/import): puente temporal para el mapa de calor (dueño, 2026-10-29,
 // docs/decisiones/2026-10-29-visitas-vmo-mapa-de-calor.md). Llega lo mínimo que arma la página /visits con
-// lib/vmo-visitas.ts (visitas efectivas con coordenadas, por Ejecutivo Comercial). Cada Ejecutivo Comercial de VMO se
-// busca en executives por su llave (vmo_nombre) o por su nombre y, si no existe, se crea (activo si visitó en los
-// últimos 60 días). Las visitas se guardan por su ID de VMO (visits.vmo_id, único): importar dos veces el mismo período
-// no duplica, actualiza. Las visitas de la app (source = 'app') no se tocan. Pruebas: scripts/vmo-visitas-check.ts.
+// lib/vmo-visitas.ts (visitas hechas con coordenadas, por Ejecutivo Comercial) y, en cada lote, todos los Ejecutivos
+// Comerciales del archivo: se emparejan juntos con executives (llave vmo_nombre, nombre o nombre parecido) y quien no
+// existe se crea (activo si visitó en los últimos 60 días). Con { simular: true } solo responde ese plan, sin escribir.
+// Las visitas se guardan por su ID de VMO (visits.vmo_id, único): importar dos veces el mismo período no duplica,
+// actualiza. Las visitas de la app (source = 'app') no se tocan. Pruebas: scripts/vmo-visitas-check.ts.
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
-import { claveComercial, emparejarComercial, estadoComercialNuevo, validarLoteVmo, type PersonaVmo } from '@/lib/vmo-visitas'
+import { claveComercial, emparejarComerciales, estadoComercialNuevo, validarLoteVmo, type ComoEmparejado, type PersonaVmo } from '@/lib/vmo-visitas'
 import { serverError } from '../../_lib/api-error'
 
 type Persona = PersonaVmo & { base_kam_id: string | null }
@@ -22,6 +23,14 @@ export interface ResultadoImportacionVmo {
   creados: { nombre: string; estado: 'active' | 'inactive' }[]
 }
 
+/** Lo que haría la importación con cada Ejecutivo Comercial del archivo (opmap null = se crea, con ese estado). */
+export interface PlanComercialVmo {
+  vmo: string
+  opmap: string | null
+  como: ComoEmparejado | null
+  estado: 'active' | 'inactive' | null
+}
+
 /** Importa un lote de visitas de VMO a nombre de `userId`. `hoy` (AAAA-MM-DD, Bogotá) decide si una persona nueva queda activa. */
 export async function importarVisitasVmo(body: unknown, userId: string, hoy: string): Promise<NextResponse> {
   const lote = validarLoteVmo(body)
@@ -30,12 +39,25 @@ export async function importarVisitasVmo(body: unknown, userId: string, hoy: str
   const { data, error } = await supabaseAdmin.from('executives').select(COLUMNAS_PERSONA)
   if (error) return serverError('visits/import (personas)', error, 'No se pudieron leer los Ejecutivos Comerciales')
   const personas = (data ?? []) as Persona[]
+  const plan = emparejarComerciales(lote.comerciales.map(c => claveComercial(c.nombre)), personas)
 
+  if (lote.simular) {
+    const comerciales: PlanComercialVmo[] = lote.comerciales.map(comercial => {
+      const par = plan.get(claveComercial(comercial.nombre))
+      const persona = par ? personas.find(p => p.id === par.id) : undefined
+      return persona && par
+        ? { vmo: comercial.nombre, opmap: persona.full_name, como: par.como, estado: null }
+        : { vmo: comercial.nombre, opmap: null, como: null, estado: estadoComercialNuevo(comercial.ultima, hoy) }
+    })
+    return NextResponse.json({ comerciales })
+  }
+
+  // Enlazar o crear a todos los del archivo (desde el primer lote todos quedan con llave: los demás lotes no cambian nada)
   const resultado: ResultadoImportacionVmo = { visitas: 0, enlazados: [], creados: [] }
   const porClave = new Map<string, Persona>()
   for (const comercial of lote.comerciales) {
     const clave = claveComercial(comercial.nombre)
-    const par = emparejarComercial(clave, personas)
+    const par = plan.get(clave)
     if (par) {
       const persona = personas.find(p => p.id === par.id)!
       if (par.como !== 'llave') {
@@ -68,7 +90,7 @@ export async function importarVisitasVmo(body: unknown, userId: string, hoy: str
       executive_id: persona.id,
       kam_id: persona.base_kam_id,
       kam_name: persona.full_name,
-      visit_type: 'Visita efectiva',
+      visit_type: visita.extra ? 'Visita extra' : 'Visita efectiva',
       contact_type: visita.presencial ? 'Visita presencial' : 'Visita virtual',
       efectiva: true,
       lat: visita.lat,

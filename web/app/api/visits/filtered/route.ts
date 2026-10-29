@@ -3,12 +3,13 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { requireUser } from '@/lib/require-role'
 import { hasPermission } from '@/lib/permissions'
 import { fetchAllRows, isUuid, serverError } from '../../_lib/api-error'
-import { conZonaEnVezDePersona, esColumnaInexistente } from '../_lib/visitas-mapa'
+import { esColumnaInexistente } from '../_lib/visitas-mapa'
 
 // Visitas filtradas (heatmap del mapa y página de visitas). Requiere sesión.
-// Quien no tiene visits:view (Ejecutivos Comerciales, visor) ve solo el histórico de VMO, como antes de la 0830: las
-// visitas de la app llevan el nombre y el GPS de cada Ejecutivo Comercial y entre ellos no se ven (spec de la app de
-// visita, sección 11). Lo suyo lo ven en la app del teléfono.
+// Quien no tiene visits:view (Ejecutivos Comerciales, visor) no ve las visitas de la app: llevan el nombre y el GPS de
+// cada Ejecutivo Comercial y entre ellos no se ven (spec de la app de visita, sección 11). Desde el 2026-10-29 las de VMO
+// también van por persona, con su GPS y su fecha real: cada quien ve solo las suyas de VMO, y quien no es Ejecutivo
+// Comercial, ninguna (docs/decisiones/2026-10-29-visitas-vmo-mapa-de-calor.md). Lo de la app lo ven en el teléfono.
 // Paginación con .range() en bucle (M-01): PostgREST corta en 1.000 filas y septiembre de 2025
 // ya tiene más de 1.000 visitas.
 
@@ -47,6 +48,15 @@ export async function GET(request: NextRequest) {
 
     const hasYear = Number.isInteger(year) && year > 0
 
+    // Sin visits:view: solo las visitas de VMO de su propia persona (executives.user_id)
+    let propia: string | null = null
+    if (soloHistorico) {
+      const { data: ejecutiva, error: errorEjecutiva } = await supabaseAdmin.from('executives').select('id').eq('user_id', auth.user.id).limit(1)
+      if (errorEjecutiva) return serverError('visits/filtered GET (persona)', errorEjecutiva, 'Error al cargar las visitas')
+      propia = (ejecutiva?.[0]?.id as string | undefined) ?? null
+      if (!propia) return NextResponse.json([])
+    }
+
     // Rangos de fechas a consultar
     const ranges: { startDate: string; endDate: string }[] = []
     if (Number.isInteger(startYear) && Number.isInteger(endYear) && startYear > 0 && endYear > 0 && allMonths) {
@@ -66,7 +76,7 @@ export async function GET(request: NextRequest) {
       fetchAllRows<any>((from, to) => {
         let query = supabaseAdmin.from('visits').select(COLUMNAS_MAPA)
         if (con0830) query = query.is('deleted_at', null)
-        if (con0830 && soloHistorico) query = query.eq('source', 'vmo_import')
+        if (propia) query = query.eq('source', 'vmo_import').eq('executive_id', propia)
         if (range.startDate) query = query.gte('visit_date', range.startDate).lt('visit_date', range.endDate)
         if (visitType && visitType !== 'all') query = query.eq('visit_type', visitType)
         if (contactType && contactType !== 'all') query = query.eq('contact_type', contactType)
@@ -77,7 +87,11 @@ export async function GET(request: NextRequest) {
     const allVisits: any[] = []
     for (const range of ranges) {
       let { data, error } = await consultar(range, true)
-      if (error && esColumnaInexistente(error)) ({ data, error } = await consultar(range, false))
+      // Antes de la 0830 no hay deleted_at, source ni executive_id: sin visits:view no hay cómo saber cuáles son suyas
+      if (error && esColumnaInexistente(error)) {
+        if (propia) continue
+        ;({ data, error } = await consultar(range, false))
+      }
       if (error) return serverError('visits/filtered GET', error, 'Error al cargar las visitas')
       allVisits.push(...data)
     }
@@ -85,13 +99,6 @@ export async function GET(request: NextRequest) {
     // Sin duplicados y ordenadas por fecha descendente
     const uniqueVisits = Array.from(new Map(allVisits.map(v => [v.id, v])).values())
     uniqueVisits.sort((a, b) => new Date(b.visit_date).getTime() - new Date(a.visit_date).getTime())
-
-    // Sin visits:view, las de VMO (por persona desde el 2026-10-29) van con el nombre de la zona, no el de la persona
-    if (soloHistorico && uniqueVisits.length > 0) {
-      const { data: zonas, error: errorZonas } = await supabaseAdmin.from('kams').select('id, name')
-      if (errorZonas) return serverError('visits/filtered GET (zonas)', errorZonas, 'Error al cargar las visitas')
-      return NextResponse.json(conZonaEnVezDePersona(uniqueVisits, new Map((zonas ?? []).map(z => [z.id as string, z.name as string]))))
-    }
 
     return NextResponse.json(uniqueVisits)
   } catch (error) {

@@ -8,7 +8,7 @@
 -- Borrar lo viejo pues hazlo." Decisión: docs/decisiones/2026-10-29-visitas-vmo-mapa-de-calor.md.
 --
 -- Qué hace (una sola transacción):
---   1. Si el respaldo ya tiene filas, aborta (ya se aplicó).
+--   1. Si ya existe el respaldo o visits.vmo_id, aborta (ya se aplicó).
 --   2. Llaves con VMO:
 --      - visits.vmo_id bigint UNIQUE: el ID de la visita en VMO (columna "ID" de VMO › Visitas), solo en las importadas
 --        (source = 'vmo_import'). Importar dos veces el mismo período actualiza, no duplica.
@@ -25,11 +25,14 @@
 
 BEGIN;
 
+-- Ya aplicada si existe el respaldo (aunque esté vacío) o la llave visits.vmo_id: volver a correrla borraría las
+-- visitas importadas con la importación nueva
 DO $$
 BEGIN
   IF to_regclass('public.visits_vmo_respaldo_20261029') IS NOT NULL
-     AND EXISTS (SELECT 1 FROM public.visits_vmo_respaldo_20261029) THEN
-    RAISE EXCEPTION '0910: visits_vmo_respaldo_20261029 ya tiene filas: la migración ya se aplicó';
+     OR EXISTS (SELECT 1 FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = 'visits' AND column_name = 'vmo_id') THEN
+    RAISE EXCEPTION '0910: la migración ya se aplicó (existe el respaldo o visits.vmo_id)';
   END IF;
 END $$;
 
