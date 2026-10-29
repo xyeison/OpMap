@@ -80,7 +80,7 @@ import { useMediaQuery, matchesMediaQuery, MOBILE_QUERY, HOVER_QUERY } from './u
 import { usePermissions } from '@/hooks/usePermissions'
 import { bogotaSectorInitials, zoneDisplayName } from '@/lib/zone-names'
 import { mapDataPlaceholder } from '@/lib/map-view'
-import { computeTerritoryWinners, territoryIdOf, zonaDeLocalidadSinIps } from '@/lib/territory-rules'
+import { computeTerritoryWinners, mayoriaAsignada, territoryIdOf, zonaDeLocalidadSinIps } from '@/lib/territory-rules'
 import { CORREDOR_LABEL, isCorredor, type LocalidadPorCorredor } from '@/lib/bogota-corredores'
 import { geometriasDeTerritorio, rectanguloDeGeometrias, territoriosBuscables, type TerritorioBuscable } from '@/lib/buscar-territorios'
 // NO usar estimaciones - solo datos reales de Google Maps
@@ -642,9 +642,12 @@ export default function MapComponent({
     let bogotaWinner: string | null = null
     if (!mapData) return { territoriesWithIps, vacantTerritories, territoryWinners, bogotaWinner }
 
+    // IPS sin zona por territorio; el territorio se marca vacante salvo que la mayoría de sus IPS esté asignada
+    // (mayoriaAsignada, dueño 2026-10-28). Antes bastaba una sola IPS sin zona.
+    const sinZona = new Map<string, { beds: number | null }[]>()
     mapData.unassignedHospitals.forEach((hospital: any) => {
       const territoryId = territoryIdOf(hospital)
-      if (territoryId) vacantTerritories.add(territoryId)
+      if (territoryId) sinZona.set(territoryId, [...(sinZona.get(territoryId) || []), { beds: hospital.beds ?? null }])
     })
 
     const zoneNames: Record<string, string> = {}
@@ -661,6 +664,10 @@ export default function MapComponent({
 
     computeTerritoryWinners(votes, v => v.territory, kamId => zoneNames[kamId] ?? null)
       .forEach((winner, territory) => { territoryWinners[territory] = winner.kam_id })
+
+    sinZona.forEach((ips, territory) => {
+      if (!mayoriaAsignada(votes.filter(v => v.territory === territory), ips)) vacantTerritories.add(territory)
+    })
 
     // Ganador global de Bogotá con la misma regla (todas sus localidades juntas): respaldo si
     // municipality_zone aún no tiene la fila 11001
@@ -929,7 +936,7 @@ export default function MapComponent({
         vacantColor = grisZona(t.kamId)
       } else if (kind === 'conflict') state = 'conflict'
     } else if (t.kind === 'ips' && t.isVacant) {
-      // Vista de zonas: territorio que además tiene IPS sin zona (regla de siempre: se marca vacante)
+      // Vista de zonas: territorio cuya mayoría de IPS está sin zona (con mayoría asignada se pinta con su Zona)
       state = 'vacant'
     }
     if (state === 'vacant') return { color: vacantColor, opacity: isReach ? VACANT_REACH_FILL_OPACITY : VACANT_FILL_OPACITY, vacant: true }
