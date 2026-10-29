@@ -198,7 +198,7 @@ const EXPECTED: Array<{ label: string; areas: string[]; cells: Record<LineCode, 
   },
   {
     label: 'Bogotá, las 4 zonas',
-    areas: ['1100102', '1100104', '1100108', '1100110'],
+    areas: ['1100101', '1100104', '1100108', '1100110'], // Bogotá Norte vive en Usaquén desde la 0903 (antes 1100102)
     cells: {
       perossal: cover('Paola'),
       reemplazo: cover('Nueva Bogotá'),

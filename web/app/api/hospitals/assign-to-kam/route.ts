@@ -164,7 +164,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 2b. Bogotá por sectores: la celda del corredor de la localidad, antes del territorio base y sin minutos (la
-    // localidad de Chapinero es del sector Oriente aunque ahí viva la celda del Norte). Tiempo real si ya existe.
+    // sector manda aunque en la localidad viva la celda de otro sector). Tiempo real si ya existe.
     const { rule: bogotaRule } = await loadBogotaRule()
     const sector = bogotaSectorCell(hospital, bogotaRule, new Set(kams.filter(isBogotaKam).map(kam => kam.id)), () => null)
     const sectorKam = sector ? kams.find(k => k.id === sector.kam_id) : undefined

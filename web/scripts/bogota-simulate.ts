@@ -191,7 +191,7 @@ async function main() {
   const fuenteCorredores = enBase.rule?.corredores.length ? 'tabla bogota_corredores' : 'semilla de lib/bogota-corredores.ts (la tabla no existe o está vacía)'
   const gruposBase = enBase.rule && enBase.rule.config.k === k && validarGrupos(k, enBase.rule.config.grupos).length === 0 ? enBase.rule.config.grupos : null
   const grupos = gruposBase ?? gruposPorDefecto(k, cells)
-  if (!grupos) throw new Error('Faltan celdas base de Bogotá activas (1100102, 1100110, 1100108, 1100104) para los grupos por defecto')
+  if (!grupos) throw new Error('Faltan celdas base de Bogotá activas (1100101, 1100110, 1100108, 1100104) para los grupos por defecto')
   const rule: BogotaRuleInput = { config: { k, max_travel_minutes: tope, grupos }, corredores }
   const kamName = new Map(kams.map(z => [z.id, z.name]))
   const zoneName = (id: string | null | undefined) => (id ? kamName.get(id) ?? `¿${id}?` : null)

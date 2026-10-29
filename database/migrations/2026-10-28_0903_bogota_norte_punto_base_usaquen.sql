@@ -8,6 +8,8 @@
 -- ***       (Google: 676 IPS + 795 municipios = 1.471 elementos ≈ 7,36 USD; reemplaza los tiempos de la zona)
 -- ***   GOOGLE_ROUTES_DISABLED=true npx tsx scripts/fase1-recalculate.ts --yes      (IPS, sin Google)
 -- ***   GOOGLE_ROUTES_DISABLED=true npx tsx scripts/fase2b-municipios.ts --assign   (municipios, sin Google)
+-- ***   GOOGLE_ROUTES_DISABLED=true npx tsx scripts/fase2-recalculate.ts            (cobertura por línea, sin Google: la
+-- ***       matriz zona→zona usa el punto y la localidad base)
 --
 -- Por qué: con los 4 sectores, la localidad de Chapinero es del sector Oriente, pero ahí estaba el punto base de la
 -- zona del Norte (su insignia quedaba en el morado del Oriente y sus tiempos salían de Chapinero). El punto nuevo es
@@ -37,6 +39,10 @@ DECLARE
 BEGIN
   IF (SELECT count(*) FROM public.kams WHERE area_id = '1100102' AND name = 'Bogotá Norte') <> 1 THEN
     RAISE EXCEPTION '0903: no hay UNA zona "Bogotá Norte" con area_id 1100102 (¿falta la 0902 o ya se movió?)';
+  END IF;
+  -- Una sola zona por área (regla R2-M-01 de la API, findAreaConflict): Usaquén debe estar libre
+  IF EXISTS (SELECT 1 FROM public.kams WHERE area_id = '1100101') THEN
+    RAISE EXCEPTION '0903: ya hay una zona con area_id 1100101 (Usaquén)';
   END IF;
   -- Con EXECUTE: un SELECT directo sobre una tabla que aún no existe falla al planear, aunque el IF no llegue a él
   FOREACH respaldo IN ARRAY ARRAY['kams_punto_base_respaldo_20261028', 'hospital_kam_distances_respaldo_20261028_norte', 'municipality_travel_times_respaldo_20261028_norte'] LOOP

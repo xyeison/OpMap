@@ -1,6 +1,7 @@
 # Spec: Bogotá en 4 sectores por localidad  (2026-10-28)
 
-**Estado**: aprobada por el dueño (2026-10-28: "Si, hazlo. Norte, Occidente, Sur y Oriente.")
+**Estado**: implementada (PR #37) y aplicada el 2026-10-28 (0902, 0903, tiempos del Norte y recálculos). Aprobada por el
+dueño: "Si, hazlo. Norte, Occidente, Sur y Oriente."
 
 ## Problema
 Dentro de Bogotá cada IPS va a la Zona cuyo punto base llega más rápido por carretera (Google, una medición del
@@ -56,6 +57,10 @@ Engativá 5.716. El dueño pidió un reparto "equitativo y visualmente razonable
   Norte a Usaquén (con respaldo y rollback 9954). Después se recalculan IPS y municipios, sin Google, con respaldo de
   `assignments`.
 - Costo Google Maps: 1.471 elementos ≈ 7,36 USD, solo para los tiempos del Norte desde Usaquén (autorizado).
+- Mover el punto del Norte cambia los tiempos de Bogotá hacia afuera (mejor tiempo entre sus celdas): con el tope de
+  360, la simulación y el recálculo del 2026-10-28 no movieron ninguna IPS de fuera; con el tope de 380 (decisión
+  aparte) entraron 5 IPS de Yopal. También cambia la matriz zona→zona de la cobertura por línea (se recalcula con
+  `scripts/fase2-recalculate.ts`): ese día nadie cambió de Zona, solo los minutos.
 - Estética del mapa: sin cambios de colores, opacidades ni capas. Cambia qué localidades pinta cada Zona y el texto de
   las cuatro insignias de Bogotá, ambas cosas por el reparto y los nombres aprobados.
 - Permisos y roles: ninguno.

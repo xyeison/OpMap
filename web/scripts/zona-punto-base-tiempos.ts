@@ -11,15 +11,19 @@
  * Modos (desde web/):
  *   npx tsx scripts/zona-punto-base-tiempos.ts --zona <kam_id>
  *        → dry-run (por defecto): zona, punto, pares, peticiones y costo. NO llama a Google ni escribe.
- *   npx tsx scripts/zona-punto-base-tiempos.ts --zona <kam_id> --run --max-elements 1500
- *        → llama a Google (tope duro de elementos, sin reintentos) y reemplaza los tiempos de la zona:
+ *   npx tsx scripts/zona-punto-base-tiempos.ts --zona <kam_id> --run --punto <lat>,<lng> --max-elements 1500
+ *        → llama a Google (tope duro de elementos, sin reintentos) y reemplaza los tiempos de la zona. --punto debe
+ *          coincidir con kams.lat/lng (confirma que el punto ya se movió: correrlo antes pagaría los tiempos viejos):
  *            IPS con ruta: travel_time (SEGUNDOS) y distance (km); IPS sin ruta: se borra el par (desde el punto
  *            nuevo no hay ruta; el motor lo trata como sin tiempo y la cola de pendientes lo vuelve a pedir).
  *            Municipio: status 'ok' / 'no_route' como en fase2b-municipios.
- *            Un error de Google o de red NO se guarda: se informa y el par queda con el tiempo anterior.
+ *            Un error de Google o de red NO se guarda: se informa y el par queda con el tiempo anterior. Tras 3 lotes
+ *            seguidos con error se detiene. Si algo quedó sin guardar, sale con código 1 y dice cómo repetir.
+ *            Los pares de IPS inactivas o sin coordenadas (fuera del plan) se borran: su tiempo es del punto viejo.
  *   --antes-de <fecha ISO>: solo los pares calculados antes de esa fecha (para repetir sin volver a pagar los que ya
- *   quedaron bien en una corrida anterior).
- * Después hay que recalcular (scripts/fase1-recalculate.ts --yes y scripts/fase2b-municipios.ts --assign).
+ *   quedaron bien en una corrida anterior; el script imprime la hora de inicio de cada corrida).
+ * Después hay que recalcular, sin Google: scripts/fase1-recalculate.ts --yes, scripts/fase2b-municipios.ts --assign y
+ * scripts/fase2-recalculate.ts (cobertura por línea: la matriz zona→zona usa el punto y la localidad base).
  */
 import path from 'path'
 import dotenv from 'dotenv'
@@ -34,10 +38,14 @@ interface Args {
   run: boolean
   maxElements: number | null
   antesDe: string | null
+  punto: { lat: number; lng: number } | null
 }
 
+/** Lotes seguidos con error (no fatales) tras los que se detiene la corrida: Google pudo facturarlos sin guardar nada. */
+const MAX_FALLAS_SEGUIDAS = 3
+
 function parseArgs(argv: string[]): Args {
-  const args: Args = { zona: '', run: false, maxElements: null, antesDe: null }
+  const args: Args = { zona: '', run: false, maxElements: null, antesDe: null, punto: null }
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
     if (arg === '--run') args.run = true
@@ -46,6 +54,10 @@ function parseArgs(argv: string[]): Args {
       const value = String(argv[++i] ?? '')
       if (Number.isNaN(Date.parse(value))) throw new Error('--antes-de debe ser una fecha ISO (p. ej. 2026-10-29T03:00:00Z)')
       args.antesDe = new Date(value).toISOString()
+    } else if (arg === '--punto') {
+      const [lat, lng] = String(argv[++i] ?? '').split(',').map(v => Number(v.trim()))
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) throw new Error('--punto debe ser "lat,lng" (p. ej. 4.706782,-74.039973)')
+      args.punto = { lat, lng }
     } else if (arg === '--max-elements') {
       const value = Number(argv[++i])
       if (!Number.isInteger(value) || value <= 0) throw new Error('--max-elements debe ser un entero positivo')
@@ -54,6 +66,7 @@ function parseArgs(argv: string[]): Args {
   }
   if (!/^[0-9a-f-]{36}$/i.test(args.zona)) throw new Error('--zona es obligatorio: el id (uuid) de la zona en kams')
   if (args.run && args.maxElements === null) throw new Error('--run exige --max-elements N (tope duro de elementos a pedir a Google)')
+  if (args.run && !args.punto) throw new Error('--run exige --punto lat,lng: el punto base nuevo, que debe estar ya en kams')
   if (!args.run && args.maxElements !== null) throw new Error('--max-elements solo tiene sentido con --run')
   return args
 }
@@ -100,6 +113,9 @@ async function main() {
   if (!zona) throw new Error(`No existe la zona ${args.zona}`)
   const origen = { lat: num(zona.lat), lng: num(zona.lng) }
   if (!finite(origen.lat) || !finite(origen.lng)) throw new Error('La zona no tiene punto base (lat/lng)')
+  if (args.punto && (Math.abs(args.punto.lat - origen.lat) > 1e-6 || Math.abs(args.punto.lng - origen.lng) > 1e-6)) {
+    throw new Error(`--punto ${args.punto.lat},${args.punto.lng} no es el punto base guardado (${origen.lat}, ${origen.lng}): no se llama a Google`)
+  }
 
   const pares = await todas<any>((from, to) =>
     supabaseAdmin
@@ -110,9 +126,13 @@ async function main() {
       .range(from, to)
   )
   const viejo = (calculatedAt: unknown) => !args.antesDe || !calculatedAt || String(calculatedAt) < args.antesDe
+  const enPlan = (p: any) => p.hospitals?.active === true && finite(num(p.hospitals?.lat)) && finite(num(p.hospitals?.lng))
   const ips: Destino[] = pares
-    .filter(p => p.hospitals?.active === true && finite(num(p.hospitals?.lat)) && finite(num(p.hospitals?.lng)) && viejo(p.calculated_at))
+    .filter(p => enPlan(p) && viejo(p.calculated_at))
     .map(p => ({ id: p.hospital_id, nombre: p.hospitals.name, lat: num(p.hospitals.lat) as number, lng: num(p.hospitals.lng) as number, antes: num(p.travel_time) }))
+  // Pares de IPS inactivas o sin coordenadas: tiempo del punto viejo que nadie recalcula; se borran (costo 0). Con
+  // --antes-de no se tocan (es una corrida de repaso).
+  const ipsFueraDelPlan: string[] = args.antesDe ? [] : pares.filter(p => !enPlan(p)).map(p => p.hospital_id)
   const ipsFuera = pares.length - ips.length
 
   const tiempos = await todas<any>((from, to) =>
@@ -133,6 +153,7 @@ async function main() {
   const planMunicipios = lotes(municipios)
   console.log(`Zona: ${zona.name} (${zona.base_city ?? '-'}, ${zona.area_id}) · punto base ${origen.lat}, ${origen.lng}`)
   console.log(`IPS: ${ips.length} pares${ipsFuera ? ` (se omiten ${ipsFuera}: inactivas, sin coordenadas o ya recalculadas)` : ''}`)
+  if (ipsFueraDelPlan.length > 0) console.log(`  Con --run se borran ${ipsFueraDelPlan.length} pares de IPS inactivas o sin coordenadas (tiempo del punto viejo; costo 0)`)
   console.log(`Municipios: ${municipios.length} pares${municipiosFuera ? ` (se omiten ${municipiosFuera})` : ''}`)
   console.log(`Plan: ${planIps.length + planMunicipios.length} petición(es) · ${elementos} elementos · costo ${usd(elementos * COST_PER_ELEMENT_USD)}`)
 
@@ -150,20 +171,38 @@ async function main() {
     throw new Error(`El plan necesita ${elementos} elementos y el tope es ${args.maxElements}: no se llama a Google`)
   }
 
+  const inicio = new Date().toISOString()
+  console.log(`\nInicio de la corrida: ${inicio} (para repetir lo que falte: --antes-de ${inicio})`)
+  if (ipsFueraDelPlan.length > 0) {
+    const { error } = await supabaseAdmin.from('hospital_kam_distances').delete().eq('kam_id', zona.id).in('hospital_id', ipsFueraDelPlan)
+    if (error) throw new Error(`Error borrando pares de IPS inactivas o sin coordenadas: ${error.message} (aún no se llamó a Google)`)
+  }
+
   let facturados = 0
   const errores: string[] = []
   const resumen = { ips_ok: 0, ips_sin_ruta: 0, municipios_ok: 0, municipios_sin_ruta: 0 }
   let detenido = false
+  let fallasSeguidas = 0
+  let sinPedir = 0
+  // Un lote que Google no respondió bien: se informa; un fatal o MAX_FALLAS_SEGUIDAS seguidos detienen la corrida
+  const loteFallido = (tipo: string, lote: Destino[], result: { status: string; billing_uncertain?: boolean; fatal?: boolean }) => {
+    errores.push(`${tipo}: Google respondió ${result.status} en un lote de ${lote.length}${result.billing_uncertain ? ' (facturación incierta)' : ''}`)
+    fallasSeguidas++
+    if (result.fatal || fallasSeguidas >= MAX_FALLAS_SEGUIDAS) detenido = true
+  }
 
   for (const lote of planIps) {
-    if (detenido) break
+    if (detenido) {
+      sinPedir += lote.length
+      continue
+    }
     const result = await requestDistanceMatrix([origen as { lat: number; lng: number }], lote.map(d => ({ lat: d.lat, lng: d.lng })), { networkRetries: 0 })
     facturados += result.elements_billed
     if (!result.ok) {
-      errores.push(`IPS: Google respondió ${result.status} en un lote de ${lote.length}${result.billing_uncertain ? ' (facturación incierta)' : ''}`)
-      if (result.fatal) detenido = true
+      loteFallido('IPS', lote, result)
       continue
     }
+    fallasSeguidas = 0
     const ahora = new Date().toISOString()
     const filas: Array<Record<string, unknown>> = []
     const sinRuta: string[] = []
@@ -190,14 +229,17 @@ async function main() {
   }
 
   for (const lote of planMunicipios) {
-    if (detenido) break
+    if (detenido) {
+      sinPedir += lote.length
+      continue
+    }
     const result = await requestDistanceMatrix([origen as { lat: number; lng: number }], lote.map(d => ({ lat: d.lat, lng: d.lng })), { networkRetries: 0 })
     facturados += result.elements_billed
     if (!result.ok) {
-      errores.push(`Municipios: Google respondió ${result.status} en un lote de ${lote.length}${result.billing_uncertain ? ' (facturación incierta)' : ''}`)
-      if (result.fatal) detenido = true
+      loteFallido('Municipios', lote, result)
       continue
     }
+    fallasSeguidas = 0
     const ahora = new Date().toISOString()
     const filas: TravelTimeUpsertRow[] = []
     lote.forEach((destino, j) => {
@@ -220,15 +262,23 @@ async function main() {
   }
 
   console.log('\nResultado')
+  if (ipsFueraDelPlan.length > 0) console.log(`  IPS inactivas o sin coordenadas: ${ipsFueraDelPlan.length} pares borrados`)
   console.log(`  IPS: ${resumen.ips_ok} con tiempo nuevo, ${resumen.ips_sin_ruta} sin ruta (par borrado)`)
   console.log(`  Municipios: ${resumen.municipios_ok} con tiempo nuevo, ${resumen.municipios_sin_ruta} sin ruta`)
   console.log(`  Elementos facturados por Google: ${facturados} · costo ${usd(facturados * COST_PER_ELEMENT_USD)}`)
   if (errores.length > 0) {
-    console.log(`  Sin guardar por error (${errores.length}); repetir con --antes-de <inicio de esta corrida>:`)
+    console.log(`  Sin guardar por error (${errores.length}):`)
     for (const linea of errores.slice(0, 30)) console.log(`    ${linea}`)
   }
-  if (detenido) console.log('  Google devolvió un error fatal: se detuvo antes de terminar.')
-  console.log('\nDespués: npx tsx scripts/fase1-recalculate.ts --yes y npx tsx scripts/fase2b-municipios.ts --assign (sin Google).')
+  if (detenido) console.log(`  Se detuvo antes de terminar (error fatal o ${MAX_FALLAS_SEGUIDAS} lotes seguidos con error): ${sinPedir} pares sin pedir.`)
+  if (detenido || errores.length > 0) {
+    console.log(`\nNO recalcular todavía: hay tiempos del punto viejo mezclados con los nuevos. Repetir lo que falta con`)
+    console.log(`  --antes-de ${inicio}`)
+    process.exitCode = 1
+    return
+  }
+  console.log('\nDespués, sin Google: npx tsx scripts/fase1-recalculate.ts --yes, npx tsx scripts/fase2b-municipios.ts --assign')
+  console.log('y npx tsx scripts/fase2-recalculate.ts (cobertura por línea).')
 }
 
 main().catch(error => {
