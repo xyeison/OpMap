@@ -1554,7 +1554,7 @@ export default function MapComponent({
                   </tr>
                   <tr>
                     <td><strong>Fecha:</strong></td>
-                    <td>{new Date(visit.visit_date).toLocaleDateString('es-CO')}</td>
+                    <td>{new Date(`${String(visit.visit_date).slice(0, 10)}T12:00:00Z`).toLocaleDateString('es-CO', { timeZone: 'UTC' })}</td>
                   </tr>
                   {visit.hospital_name && (
                     <tr>

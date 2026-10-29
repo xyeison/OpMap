@@ -452,6 +452,9 @@ cuota) sigue igual.
     ellas no se ven (spec, sección 11). Lo suyo lo ven en la app.
 40. **No se borran importaciones de VMO por la ruta vieja**: `DELETE /api/visits/import` responde 410, con el mismo
     interruptor que `DELETE /api/visits/imports` (con el importador apagado, el histórico no se puede volver a cargar).
+    Desde el 2026-10-29 esas rutas ya no existen: la importación de VMO volvió como puente del mapa de calor (solo
+    efectivas, por persona, upsert por `visits.vmo_id`, sin borrar nada;
+    `docs/decisiones/2026-10-29-visitas-vmo-mapa-de-calor.md`).
 
 **Abierto para el dueño (no cambiado)**: la precisión del GPS (`gps_accuracy_m`) es solo referencia (decisión 6).
 Con la ubicación aproximada del teléfono (1 a 3 km de error) una presencial puede pasar el radio de 500 m, y una sede

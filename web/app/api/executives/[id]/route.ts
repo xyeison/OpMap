@@ -155,6 +155,21 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       if (!data || data.length === 0) {
         return jsonError('Ejecutiva no encontrada', 404)
       }
+
+      // Las visitas de VMO van con la Zona de su persona (mapa de calor, 2026-10-29): se alinean las que tengan otra
+      // (también al guardar sin cambiar la Zona, por si la vez anterior falló)
+      if (input.base_kam_id !== undefined) {
+        const { error: visitasError } = await supabaseAdmin
+          .from('visits')
+          .update({ kam_id: input.base_kam_id })
+          .eq('executive_id', executiveId)
+          .eq('source', 'vmo_import')
+          .or(`kam_id.is.null,kam_id.neq.${input.base_kam_id}`)
+        if (visitasError) {
+          console.error('Error moviendo las visitas de VMO a la nueva zona:', visitasError)
+          return jsonError('Se guardó la ejecutiva, pero sus visitas de VMO no tomaron la nueva zona: guarda otra vez', 500)
+        }
+      }
     }
 
     if (input.lines !== undefined) {

@@ -296,6 +296,11 @@ visitas_agenda:    id, executive_id → executives, fecha date, hora time NULL (
 visits (+0840):    agenda_id → visitas_agenda (UNIQUE parcial visits_agenda_id_uidx: una visita no anulada por cita; la anulada conserva el
                    rastro), agendada boolean NOT NULL DEFAULT false; CHECK visits_agenda_check (agendada ⇒ agenda_id; agenda_id solo en las
                    de la app). Las 7.033 de VMO quedan agenda_id NULL y agendada false.
+visits (+0910):    vmo_id bigint UNIQUE (ID de la visita en VMO; CHECK solo en source = 'vmo_import'): llave de la importación del
+                   Excel de VMO › Visitas (2026-10-29). Las 7.033 viejas se borraron con respaldo (visits_vmo_respaldo_20261029,
+                   visit_imports_respaldo_20261029); la importación nueva no usa visit_imports.
+executives (+0910): vmo_nombre text UNIQUE (nombre del Ejecutivo Comercial como lo escribe VMO, normalizado: minúsculas, sin
+                   tildes ni signos). Decisión: docs/decisiones/2026-10-29-visitas-vmo-mapa-de-calor.md.
 funciones:         agenda_crear(p jsonb, p_user uuid) → jsonb { cita_id } (de hoy a hoy + 30 en Bogotá, no en día libre de día completo
                    registrado o aprobado, perfil en la fecha, sede activa de cuenta activa, médico que atiende en la sede o sede de la
                    cuenta y subtipo vigente, sin duplicados: 23505); agenda_cancelar(p_id, p_motivo, p_user) (pendiente de hoy o

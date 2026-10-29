@@ -83,7 +83,6 @@ import { GET as pendingAssignmentRoute } from '../app/api/hospitals/pending-assi
 import { POST as processPendingRoute } from '../app/api/hospitals/process-pending/route'
 import { POST as createUserRoute } from '../app/api/users/route'
 import { POST as importVisitsRoute } from '../app/api/visits/import/route'
-import { DELETE as deleteImportRoute } from '../app/api/visits/imports/route'
 import { PATCH as updateExecutiveRoute } from '../app/api/executives/[id]/route'
 import { GET as planAccountsRoute, POST as createAccountsRoute } from '../app/api/users/from-executives/route'
 import { generateTempPassword, planExecutiveAccounts } from '../lib/executive-accounts'
@@ -409,6 +408,15 @@ const POSTGREST_CONTROL_PARAMS = new Set(['select', 'order', 'limit', 'offset', 
 function matchesFilters(row: Record<string, unknown>, params: URLSearchParams): boolean {
   for (const [key, raw] of Array.from(params.entries())) {
     if (POSTGREST_CONTROL_PARAMS.has(key)) continue
+    if (key === 'or') {
+      // or=(col.op.valor,col.op.valor): basta con que se cumpla una
+      const alguna = raw.replace(/^\(|\)$/g, '').split(',').some(condicion => {
+        const [columna, ...resto] = condicion.split('.')
+        return matchesFilters(row, new URLSearchParams([[columna, resto.join('.')]]))
+      })
+      if (!alguna) return false
+      continue
+    }
     const value = row[key] === null || row[key] === undefined ? 'null' : String(row[key])
     if (raw.startsWith('eq.')) {
       if (value !== raw.slice(3)) return false
@@ -1430,19 +1438,42 @@ async function main() {
       const put = await updateExecutiveRoute(apiRequest(`/api/executives/${EVA_EXE}`, { method: 'PATCH', body: { notes: 'sin cambio de email' } }), { params: { id: EVA_EXE } })
       check('PATCH de una ejecutiva sin usuario: se enlaza con el usuario de su email aunque el email no cambie',
         put.status === 200 && putTables.executives[0].user_id === EVA_USER, `${put.status} ${(await put.text()).slice(0, 200)}`)
+
+      // Las visitas de VMO van con la Zona de su persona (mapa de calor, 2026-10-29)
+      const ZONA_VIEJA = '55555555-5555-4555-8555-555555555551'
+      const ZONA_NUEVA = '55555555-5555-4555-8555-555555555552'
+      const KAT = '66666666-6666-4666-8666-666666666666'
+      const zonaTables = {
+        users: fakeUsers(),
+        executives: [{ id: KAT, full_name: 'Katherinne Solano', email: null, status: 'active', user_id: null, company: 'VG', base_kam_id: null, odoo_employee_id: null, notes: null, color: null }],
+        kams: [{ id: ZONA_VIEJA, name: 'Valledupar', active: true }, { id: ZONA_NUEVA, name: 'Montería', active: true }],
+        visits: [
+          { id: 'vmo-sin-zona', executive_id: KAT, source: 'vmo_import', kam_id: null },
+          { id: 'vmo-con-zona', executive_id: KAT, source: 'vmo_import', kam_id: ZONA_VIEJA },
+          { id: 'de-la-app', executive_id: KAT, source: 'app', kam_id: ZONA_VIEJA },
+        ],
+        executive_lines: [], business_lines: [],
+      } as Record<string, Array<Record<string, unknown>>>
+      const zonaFake = fakeSupabase(zonaTables)
+      fetchHandler = zonaFake.handler
+      const mover = await updateExecutiveRoute(apiRequest(`/api/executives/${KAT}`, { method: 'PATCH', body: { base_kam_id: ZONA_NUEVA } }), { params: { id: KAT } })
+      const zonaDe = (id: string) => zonaTables.visits.find(v => v.id === id)?.kam_id
+      check('PATCH con Zona nueva: sus visitas de VMO la toman (también las que no tenían); las de la app no cambian',
+        mover.status === 200 && zonaDe('vmo-sin-zona') === ZONA_NUEVA && zonaDe('vmo-con-zona') === ZONA_NUEVA && zonaDe('de-la-app') === ZONA_VIEJA,
+        `${mover.status} ${JSON.stringify(zonaTables.visits)}`)
     }
 
-    print('\n7. Importador de VMO deshabilitado')
+    print('\n7. Importador de VMO (puente del mapa de calor): permiso y cuerpo')
     {
-      const fake = fakeSupabase({ users: fakeUsers(), visits: [{ id: 'v-app', visit_date: '2026-10-05' }], visit_imports: [] })
+      const fake = fakeSupabase({ users: fakeUsers(), visits: [{ id: 'v-app', visit_date: '2026-10-05', source: 'app' }], executives: [] })
       fetchHandler = fake.handler
-      const response = await importVisitsRoute(apiRequest('/api/visits/import', { method: 'POST', body: { month: 10, year: 2026, filename: 'vmo.xlsx', visits: [{ kam_name: 'X', visit_date: '2026-10-05' }] } }))
-      const body = await response.json()
-      check('POST /api/visits/import: 410 y no borra ni inserta visitas',
-        response.status === 410 && typeof body.error === 'string' && fake.writes().length === 0 && sameSet(fake.touched(), ['users']),
-        `${response.status} ${JSON.stringify(body).slice(0, 200)}`)
-      const del = await deleteImportRoute(apiRequest('/api/visits/imports?id=11111111-1111-4111-8111-999999999999', { method: 'DELETE' }))
-      check('DELETE /api/visits/imports: 410 y no borra el histórico de VMO', del.status === 410 && fake.writes().length === 0)
+      const sinPermiso = await importVisitsRoute(apiRequest('/api/visits/import', { method: 'POST', userId: VIEWER_ID, password: 'hash-viewer', body: { visitas: [], comerciales: [] } }))
+      check('POST /api/visits/import sin visits:manage: 403 y no escribe', sinPermiso.status === 403 && fake.writes().length === 0, `${sinPermiso.status}`)
+      const formatoViejo = await importVisitsRoute(apiRequest('/api/visits/import', { method: 'POST', body: { month: 10, year: 2026, filename: 'vmo.xlsx', visits: [{ kam_name: 'X', visit_date: '2026-10-05' }] } }))
+      const body = await formatoViejo.json()
+      check('POST /api/visits/import con el formato viejo (mes y año): 400 y no escribe',
+        formatoViejo.status === 400 && typeof body.error === 'string' && fake.writes().length === 0 && sameSet(fake.touched(), ['users']),
+        `${formatoViejo.status} ${JSON.stringify(body).slice(0, 200)}`)
     }
 
     print('\n8. Usuarios para las Ejecutivas Comerciales sin cuenta')
