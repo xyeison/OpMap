@@ -4,7 +4,6 @@ import React, { useState, useEffect, useMemo } from 'react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { useVisits } from '@/hooks/useVisits'
-import MapGroupFilter, { type GroupFilterConfig } from './MapGroupFilter'
 import MapSwitch from './MapSwitch'
 import MapVista, { type MapVistaConfig } from './MapVista'
 import {
@@ -46,13 +45,13 @@ interface MapControlsProps {
   onVisitsEnabledChange?: (enabled: boolean) => void
   // Vista: ver por Ejecutivos Comerciales o Zonas y la línea de negocio (null: sin selector)
   vista?: MapVistaConfig | null
-  // "Ver solo": Ejecutivos Comerciales (vista por línea) o zonas (vista de zonas)
-  groupFilter?: GroupFilterConfig | null
+  // "Ver solo" de la leyenda, para los textos de la pestaña Visitas (null: la vista no tiene lista)
+  verSolo?: VerSoloResumen | null
   // "Mostrar": capas que se ven
   mostrar?: MapMostrarConfig | null
   // Zonas (kam_id) cuyas visitas se muestran según el filtro; null = todas
   visitKamIds?: string[] | null
-  // "1 ejecutiva" en el botón flotante cuando hay filtro activo
+  // "IPS filtradas" en el botón flotante cuando el bloque IPS oculta puntos
   filterChipLabel?: string | null
   // Cada cambio abre la pestaña "Filtros" (botón "Filtros" de la hoja inferior)
   filtersTabRequest?: number
@@ -62,6 +61,14 @@ interface MapControlsProps {
 }
 
 const IPS_FILTER_CHECKS = ['quirofano', 'ortopedia', 'neurocirugia', 'columna'] as const
+
+// "Ver solo" de la leyenda, resumido: personas (vista por línea) o Zonas (vista de zonas) que quedan en el mapa
+export interface VerSoloResumen {
+  kind: 'executive' | 'zone'
+  // null = sin filtro
+  marcados: number | null
+  total: number
+}
 
 // "Mostrar" del panel de Filtros (desde el 2026-10-29 aquí y no en la leyenda)
 export interface MapMostrarConfig {
@@ -90,7 +97,7 @@ export default function MapControls({
   visitsEnabled = false,
   onVisitsEnabledChange,
   vista = null,
-  groupFilter = null,
+  verSolo = null,
   mostrar = null,
   visitKamIds = null,
   filterChipLabel = null,
@@ -207,18 +214,10 @@ export default function MapControls({
 
 
   // Texto del filtro principal en la pestaña de visitas
-  const groupNoun = groupFilter?.kind === 'zone' ? 'una zona' : 'un Ejecutivo Comercial'
-  let groupSummary = ''
-  if (groupFilter) {
-    const total = groupFilter.options.length
-    const marked = groupFilter.selected === null
-      ? total
-      : groupFilter.options.filter(o => groupFilter.selected!.has(o.id)).length
-    const noun = groupFilter.kind === 'zone' ? 'zonas' : 'Ejecutivos Comerciales'
-    groupSummary = groupFilter.selected === null
-      ? `Sin filtro: ${total} ${noun}`
-      : `Filtro: ${marked} de ${total} ${noun}`
-  }
+  const groupNoun = verSolo?.kind === 'zone' ? 'una Zona' : 'un Ejecutivo Comercial'
+  const verSoloTexto = !verSolo
+    ? ''
+    : `${verSolo.marcados === null ? 'Todos' : `${verSolo.marcados} de ${verSolo.total}`} ${verSolo.kind === 'zone' ? 'Zonas' : 'Ejecutivos Comerciales'}`
 
   const tabs: { id: 'filters' | 'visits'; label: string; icon: string }[] = [
     { id: 'filters', label: 'Filtros', icon: 'M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z' },
@@ -256,13 +255,6 @@ export default function MapControls({
           {vista && (
             <div className="mb-4 pb-4 border-b">
               <MapVista config={vista} touch={embedded} />
-            </div>
-          )}
-
-          {/* Ver solo: una o varias personas (vista por línea) o Zonas (vista de zonas) */}
-          {groupFilter && (
-            <div className="mb-4 pb-3 border-b">
-              <MapGroupFilter config={groupFilter} touch={embedded} />
             </div>
           )}
 
@@ -469,7 +461,7 @@ export default function MapControls({
                       ? `Debe seleccionar al menos un mes y ${groupNoun}`
                       : selectedMonths.length === 0
                       ? 'Debe seleccionar al menos un mes'
-                      : `Debe marcar al menos ${groupNoun} en la pestaña Filtros`
+                      : `Debe marcar al menos ${groupNoun} en la leyenda`
                     }
                   </p>
                 </div>
@@ -537,24 +529,12 @@ export default function MapControls({
             )}
           </div>
 
-          {/* Las visitas siguen el filtro principal de la pestaña Filtros */}
-          {groupFilter && (
+          {/* Las visitas siguen "Ver solo" de la leyenda */}
+          {verSolo && (
             <div className="mb-4 border-t pt-4">
-              <div className="flex items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="text-xs font-semibold text-gray-700">Ver solo</div>
-                  <div className="text-xs text-gray-500">{groupSummary}</div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('filters')}
-                  className={`flex-shrink-0 rounded-md px-2 text-xs font-medium text-gray-700 underline underline-offset-2 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 ${embedded ? 'min-h-[44px]' : 'min-h-[28px]'}`}
-                >
-                  Cambiar filtro
-                </button>
-              </div>
+              <div className="text-xs font-semibold text-gray-700">Ver solo: {verSoloTexto}</div>
               <p className="mt-1 text-xs text-gray-500">
-                Las visitas se muestran solo de las zonas que quedan en el mapa con el filtro.
+                Las visitas se muestran solo de las zonas que quedan en el mapa. Para elegir a quién, toca en la leyenda.
               </p>
             </div>
           )}

@@ -8,11 +8,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { useRouter } from 'next/navigation'
 import { VisitsHeatmapLayer } from './VisitsHeatmapLayer'
 import { formatTravelTimeFromSeconds } from '@/lib/format-utils'
-import MapControls, { type MapMostrarConfig } from './MapControls'
+import MapControls, { type MapMostrarConfig, type VerSoloResumen } from './MapControls'
 import { EMPTY_IPS_FILTER, isIpsFilterActive, matchesIpsFilter, type IpsServiceFilter } from '@/lib/hospital-service-filters'
 import MapController, { DeptosEnVista, ZoomGate } from './MapController'
 import HospitalMarker, { UnassignedHospitalMarker, IpsZoomLayer, formatZoneExecutives, ipsRadius, IPS_FULL_SIZE_ZOOM, type HospitalSelectHandler, type ZoneExecutive } from './HospitalMarker'
-import MapLegend, { MapLegendCard, type LegendEntry, type LegendNote, type LegendState } from './MapLegend'
+import MapLegend, { MapLegendCard, type LegendNote, type LegendState } from './MapLegend'
 import type { MapVistaConfig } from './MapVista'
 import MapBottomSheet, { SHEET_PEEK_PX, type SheetSnap } from './MapBottomSheet'
 import {
@@ -808,7 +808,7 @@ export default function MapComponent({
       })
     })
 
-    // Chip de cada Ejecutivo Comercial (leyenda y filtro): el color de la Zona donde es local; si no, el de la
+    // Chip de cada Ejecutivo Comercial en la leyenda: el color de la Zona donde es local; si no, el de la
     // primera de sus Zonas
     const executiveChipColor: Record<string, string> = {}
     const chipOf = (e: CoverageExecutive | null | undefined) => {
@@ -906,8 +906,9 @@ export default function MapComponent({
   }, [isLineMode, lineView])
 
   // ---------- "Ver solo": Ejecutivos Comerciales (vista por línea) o Zonas (vista de zonas) ----------
-  // Único mecanismo desde el 2026-10-29 (docs/specs/2026-10-29-mapa-filtros-y-leyenda.md): fuera del filtro el
-  // territorio queda casi blanco (el color de su Zona al 8 %) y sus IPS, insignias y visitas no se dibujan.
+  // Único mecanismo desde el 2026-10-29 (docs/specs/2026-10-29-mapa-filtros-y-leyenda.md), en la lista de la leyenda:
+  // fuera del filtro el territorio queda casi blanco (el color de su Zona al 8 %) y sus IPS, insignias y visitas no se
+  // dibujan.
   const filterKind: GroupFilterConfig['kind'] | null = isLineMode ? 'executive' : mapMode === 'zones' ? 'zone' : null
   const activeFilter = useMemo<ReadonlySet<string> | null>(
     () => (filterKind && filterIds ? new Set(filterIds) : null),
@@ -1915,9 +1916,9 @@ export default function MapComponent({
     : mapMode === 'zones'
       ? 'Vista de zonas'
       : (selectedLineName || 'Mapa')
-  // ---------- "Ver solo" (opciones de la lista) ----------
-  // Vista por línea: Ejecutivos Comerciales de la línea (mismo chip, iniciales y cuentas que la
-  // leyenda). Vista de zonas: zonas con el color de la vista.
+  // ---------- Lista de la leyenda y "Ver solo" ----------
+  // Vista por línea: Ejecutivos Comerciales de la línea con el chip de su Zona, iniciales y cuentas. Vista de zonas:
+  // zonas con el color de la vista.
   let groupFilter: GroupFilterConfig | null = null
   let vacantHint = ''
   if (filterKind) {
@@ -1958,10 +1959,14 @@ export default function MapComponent({
   }
   // Marcados que existen en la vista (un enlace puede traer ids de otra línea)
   const filteredOptionIds = groupFilter && activeFilter ? selectedOptionIds(groupFilter) : null
+  // "1 ejecutiva": va en el subtítulo de la leyenda de escritorio, donde está la lista
   const groupChipLabel = groupFilter && filteredOptionIds ? groupFilterChipLabel(groupFilter.kind, filteredOptionIds.length) : null
-  // El filtro "IPS" (servicios/camas) oculta puntos: el botón de filtros lo indica para que el mapa sin puntos se entienda
-  const ipsChipLabel = isIpsFilterActive(ipsServiceFilter) ? 'IPS filtradas' : null
-  const filterChipLabel = groupChipLabel && ipsChipLabel ? `${groupChipLabel} · ${ipsChipLabel}` : groupChipLabel ?? ipsChipLabel
+  // El bloque "IPS" (servicios/camas) oculta puntos: el botón de Filtros lo indica para que el mapa sin puntos se entienda
+  const filterChipLabel = isIpsFilterActive(ipsServiceFilter) ? 'IPS filtradas' : null
+  // Resumen de "Ver solo" para la pestaña Visitas
+  const verSolo: VerSoloResumen | null = groupFilter
+    ? { kind: groupFilter.kind, marcados: filteredOptionIds ? filteredOptionIds.length : null, total: groupFilter.options.length }
+    : null
 
   let viewSubtitle = isLineMode && lineView
     ? `${lineView.executives.length} ${lineView.executives.length === 1 ? 'Ejecutivo Comercial' : 'Ejecutivos Comerciales'} · ${lineView.rows.length} zonas`
@@ -1969,8 +1974,8 @@ export default function MapComponent({
   if (groupFilter && filteredOptionIds) {
     const only = filteredOptionIds.length === 1 ? groupFilter.options.find(o => o.id === filteredOptionIds[0]) : null
     viewSubtitle = only
-      ? `Filtro: ${only.label}`
-      : `Filtro: ${filteredOptionIds.length} de ${groupFilter.options.length} ${groupFilter.kind === 'executive' ? 'Ejecutivos Comerciales' : 'zonas'}`
+      ? `Ver solo: ${only.label}`
+      : `Ver solo: ${filteredOptionIds.length} de ${groupFilter.options.length} ${groupFilter.kind === 'executive' ? 'Ejecutivos Comerciales' : 'Zonas'}`
   }
 
   // Vista del panel de Filtros (spec 2026-10-14, en Filtros desde el 2026-10-29): Ejecutivos Comerciales (vista por
@@ -1987,38 +1992,6 @@ export default function MapComponent({
         lineaNombre: isLineMode && lineView ? lineView.line.name : selectedLineName
       }
     : null
-
-  let entriesTitle: string
-  let legendEntries: LegendEntry[]
-  if (isLineMode && lineView) {
-    entriesTitle = 'Ejecutivos Comerciales'
-    // Con filtro, la leyenda muestra solo los Ejecutivos Comerciales filtrados
-    legendEntries = lineView.executives.filter(e => !activeFilter || activeFilter.has(e.id)).map(e => {
-      const zoneCount = lineView.counts.zonesByExecutive[e.id] || 0
-      const ipsCount = ipsByExecutive[e.id] || 0
-      return {
-        key: e.id,
-        label: executiveName(e),
-        // Chip e iniciales del Ejecutivo Comercial: color de la Zona donde es local (colorDeEjecutivoEnLinea)
-        color: lineView.executiveChipColor[e.id] ?? NO_COVERAGE_DATA_COLOR,
-        initials: initialsOf(e.full_name),
-        detail: `${zoneCount} ${zoneCount === 1 ? 'zona' : 'zonas'} · ${ipsCount} IPS`
-      }
-    })
-  } else {
-    entriesTitle = 'Zonas'
-    legendEntries = kamStats
-      .filter(kam => !activeFilter || activeFilter.has(kam.id))
-      .map(kam => ({
-        key: kam.id,
-        label: zoneDisplayName(kam.name) || kam.name,
-        color: safeColor(kamColors[kam.id]),
-        // Mismas iniciales que la insignia de la zona en el mapa
-        initials: zoneInitials[kam.id] || initialsOf(kam.base_city || zoneDisplayName(kam.name)),
-        detail: `${kam.hospitalCount} IPS`
-      }))
-      .sort((a, b) => a.label.localeCompare(b.label, 'es'))
-  }
 
   const legendStates: LegendState[] = [
     { key: 'ips', label: 'Con IPS objetivo (visitar)', swatch: swatch(LEGEND_NEUTRAL_FILL, IPS_FILL_OPACITY), count: territoryLegend.ips },
@@ -2041,9 +2014,10 @@ export default function MapComponent({
     legendStates.push({ key: 'pending', label: 'Pendiente de calcular', swatch: swatch(PENDING_FILL_COLOR, PENDING_FILL_OPACITY, PENDING_BORDER_COLOR), count: territoryLegend.pending })
   }
 
-  // Muestras de los marcadores en la leyenda: una zona real del primer grupo de la lista (mismo color
+  // Muestras de los marcadores en la leyenda: una zona real del primer grupo que se ve (mismo color
   // e iniciales que en el mapa), el punto de IPS de ese color, la IPS sin zona y el racimo neutro
-  const sampleZone = zoneBadgeItems.find(z => !z.hollow && z.groupKey === legendEntries[0]?.key) ??
+  const firstVisibleGroup = filteredOptionIds?.[0] ?? groupFilter?.options[0]?.id
+  const sampleZone = zoneBadgeItems.find(z => !z.hollow && z.groupKey === firstVisibleGroup) ??
     zoneBadgeItems.find(z => !z.hollow)
   const sampleColor = sampleZone?.color ?? LEGEND_NEUTRAL_FILL
   const legendMarkers = {
@@ -2073,11 +2047,7 @@ export default function MapComponent({
   }
 
   const legendProps = {
-    entriesTitle,
-    entries: legendEntries,
-    emptyEntriesText: activeFilter
-      ? (isLineMode ? 'Ningún Ejecutivo Comercial en "Ver solo".' : 'Ninguna zona en "Ver solo".')
-      : (isLineMode ? 'Nadie lleva esta línea todavía.' : 'Sin datos.'),
+    grupo: groupFilter,
     states: legendStates,
     markers: legendMarkers,
     notes: legendNotes
@@ -2109,7 +2079,7 @@ export default function MapComponent({
     visitsEnabled,
     onVisitsEnabledChange: setVisitsEnabled,
     vista,
-    groupFilter,
+    verSolo,
     mostrar,
     visitKamIds,
     filterChipLabel,
@@ -2275,7 +2245,7 @@ export default function MapComponent({
 
       {/* Escritorio: leyenda flotante abajo a la izquierda */}
       {!isMobile && (
-        <MapLegendCard title="Leyenda" subtitle={viewLabel} collapsed={legendCollapsed} onCollapsedChange={setLegendCollapsed}>
+        <MapLegendCard title="Leyenda" subtitle={groupChipLabel ? `${viewLabel} · ${groupChipLabel}` : viewLabel} collapsed={legendCollapsed} onCollapsedChange={setLegendCollapsed}>
           <MapLegend {...legendProps} />
         </MapLegendCard>
       )}

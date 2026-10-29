@@ -28,8 +28,8 @@ Estilo autorizado por el dueño el 2026-10-11 (rama `ui/mapa-estetica`; constant
   nada y el mapa ya no llama a `/api/zones`. La vista por línea y la vista de zonas (`?mode=zones`, colores de
   `kams.color`) no cambiaron en nada: ni colores, ni opacidades, ni capas, ni marcadores.
 - *(Desde el 2026-10-29 "Ver por" y la línea de negocio están en Filtros → "Vista", no en la leyenda; mismos botones y
-  mismo comportamiento: ver "2026-10-29 · Leyenda solo para leer, un panel de Filtros y un buscador".)* **"Ver por" en
-  la leyenda** (autorizado por el dueño el 2026-10-14: "vista por zonas o por ejecutivos
+  mismo comportamiento: ver "2026-10-29 · Una sola lista (en la leyenda), un panel de Filtros y un buscador".)*
+  **"Ver por" en la leyenda** (autorizado por el dueño el 2026-10-14: "vista por zonas o por ejecutivos
   comerciales, y que pueda cambiar el plano"; spec `docs/specs/2026-10-14-mapa-vista-de-zonas-para-todos.md`):
   arriba de la leyenda (tarjeta de escritorio y hoja inferior de celular), un selector segmentado "Ver por"
   con dos botones, "Ejecutivos Comerciales" y "Zonas" (`aria-pressed`; 32 px de alto en escritorio, 44 px en
@@ -115,9 +115,10 @@ Estilo autorizado por el dueño el 2026-10-11 (rama `ui/mapa-estetica`; constant
   sus insignias se tocan de verdad; el mapa de escritorio abre en zoom 6, donde sale "4".
 - **Tarjetas al tocar**: IPS, IPS sin zona, zona y territorio abren una tarjeta (`MapPopups.tsx`); con
   cursor hay además un tooltip corto.
-- *(Superado el 2026-10-29 por "Ver solo": ver "2026-10-29 · Leyenda solo para leer, un panel de Filtros y un
-  buscador". Siguen la URL `exec=` / `zones=`, el chip "n ejecutivas", "Mostrar vacantes" y las visitas por zonas
-  visibles; cambian las casillas, el gris #f1f5f9 y el resaltado de la leyenda.)* **Filtro por Ejecutivo Comercial**
+- *(Superado el 2026-10-29 por "Ver solo" en la lista de la leyenda: ver "2026-10-29 · Una sola lista (en la leyenda),
+  un panel de Filtros y un buscador". Siguen la URL `exec=` / `zones=`, "Mostrar vacantes" y las visitas por zonas
+  visibles; la lista sale de Filtros, el chip "n ejecutivas" pasa al subtítulo de la leyenda y se quitan las casillas,
+  el gris #f1f5f9 y el resaltado de la leyenda.)* **Filtro por Ejecutivo Comercial**
   (pedido del dueño 2026-10-11: "los filtros no son por zona, sino por
   ejecutivo comercial"): primera sección de la pestaña "Filtros" (panel "Filtros y visitas" en
   escritorio; en celular, hoja inferior → "Filtros", filas de 44 px), componente
@@ -277,7 +278,7 @@ que ya había (ninguna clase ni color nuevo).
   localidad, dejando libres el buscador, la leyenda (escritorio) y la hoja inferior (teléfono). No resalta, no abre
   tarjeta ni añade capas o marcadores.
 - *(Desde el 2026-10-29 es el único buscador: encuentra también departamentos e IPS y la pestaña "Buscar" de "Filtros
-  y visitas" se quitó. Ver "2026-10-29 · Leyenda solo para leer, un panel de Filtros y un buscador".)*
+  y visitas" se quitó. Ver "2026-10-29 · Una sola lista (en la leyenda), un panel de Filtros y un buscador".)*
 
 ### 2026-10-29 · Fronteras oficiales del DANE (forma de los bordes, no estilo)
 
@@ -301,36 +302,42 @@ que ya había (ninguna clase ni color nuevo).
 - Nuevo Belén de Bajirá (27493) no está en la base: su área se pinta dentro de Riosucio (27615).
 - No cambian los colores, las opacidades, el borde blanco de 0,6 px, las capas, las tarjetas ni el buscador.
 
-### 2026-10-29 · Leyenda solo para leer, un panel de Filtros y un buscador (organización, no estilo)
+### 2026-10-29 · Una sola lista (en la leyenda), un panel de Filtros y un buscador (organización, no estilo)
 
 - Pedido del dueño: "Yo dejaría un tema de leyendas, solamente las leyendas, y tendría filtros y vistas aparte… Si yo
   solamente voy a ver a Johanna, solamente debería verse la zona que tiene ella asignada… se pone lo demás blanco"; dijo
-  "Sí, hazlo así" el 2026-10-29. Spec: `docs/specs/2026-10-29-mapa-filtros-y-leyenda.md`.
-- **Leyenda** (`web/components/MapLegend.tsx`): solo para leer, sin botones salvo plegarla. Lista las personas (vista
-  por línea) o las Zonas (vista de zonas) que se ven, con su chip, iniciales y "n zonas · m IPS"; con "Ver solo", solo
-  las del filtro. Debajo, los estados, los marcadores y las notas de siempre.
+  "Sí, hazlo así" el 2026-10-29. Al ver la primera versión pidió no repetir la lista: "no noto que haya simplificado
+  nada… tienes en la pestaña de filtros y visitas las opciones de elegir a los ejecutivos comerciales. También en
+  Leyenda lo tienes". Spec: `docs/specs/2026-10-29-mapa-filtros-y-leyenda.md`.
+- **Leyenda** (`web/components/MapLegend.tsx`): arriba, la ÚNICA lista de personas (vista por línea) o de Zonas (vista
+  de zonas), con su chip, iniciales y "n zonas · m IPS" (`MapGroupFilter.tsx`, regla en `web/lib/mapa-ver-solo.ts`,
+  pruebas en `web/scripts/mapa-filtros-check.ts`). Es la clave de colores y "Ver solo": filas que se tocan
+  (`aria-pressed`, 34 px; 44 px en celular). Sin filtro, tocar a alguien deja solo a esa persona; tocar otra la suma;
+  tocar una marcada la quita; si no queda nadie, o si quedan todas, vuelve a todo. "Ver todos" quita el filtro; con
+  filtro, las no marcadas van atenuadas y dice "Viendo 1 de 11". Reemplaza las casillas de Filtros ("Todos", "Ninguno",
+  "Solo") y el resaltado de la leyenda. Debajo, los estados, los marcadores y las notas de siempre, sin botones. Con
+  filtro, el subtítulo de la tarjeta de escritorio dice "Sustitutos óseos · 1 ejecutiva" (se lee también plegada) y
+  el de la hoja del celular "Ver solo: <nombre>".
 - **Panel "Filtros y visitas"** (escritorio: el panel flotante; celular: hoja inferior → "Filtros"). Pestaña
   "Filtros", en orden:
   1. **Vista** (`MapVista.tsx`): "Ver por" (Ejecutivos Comerciales o Zonas) y "Línea de negocio", los mismos botones y
      el mismo selector que estaban en la leyenda.
-  2. **Ver solo** (`MapGroupFilter.tsx`, regla en `web/lib/mapa-ver-solo.ts`, pruebas en
-     `web/scripts/mapa-filtros-check.ts`): la lista de personas o de Zonas, filas que se tocan (`aria-pressed`, 40 px;
-     48 px en celular). Sin filtro, tocar a alguien deja solo a esa persona; tocar otra la suma; tocar una marcada la
-     quita; si no queda nadie, o si quedan todas, vuelve a todo. "Ver todos" quita el filtro. Es el único mecanismo:
-     reemplaza las casillas ("Todos", "Ninguno", "Solo") y el clic de la leyenda.
-  3. **Mostrar** (`MapSwitch.tsx`): "Puntos de IPS", "Municipios de alcance" y "Vacantes" (Zonas sin cobertura e IPS
+  2. **Mostrar** (`MapSwitch.tsx`): "Puntos de IPS", "Municipios de alcance" y "Vacantes" (Zonas sin cobertura e IPS
      sin zona: por defecto sí sin filtro y no con filtro, como antes). Los dos primeros estaban en la leyenda.
-  4. **IPS**: una sola sección (antes eran dos con el mismo título y una lista aparte de cuántas había de cada
+  3. **IPS**: una sola sección (antes eran dos con el mismo título y una lista aparte de cuántas había de cada
      tipo): "Tipo" con la cifra de cada tipo en sus opciones ("Públicas (142)"), "Servicios", "Camas", "Limpiar" (quita
      el tipo, los servicios y las camas) y "Mostrando N IPS en el mapa". Mismas reglas de antes.
-  La pestaña "Visitas" no cambia. En escritorio el panel flotante llega hasta debajo del buscador y de los botones de
-  zoom (alto máximo `100vh - 212px`): antes los tapaba al abrirse.
+  La pestaña "Visitas" dice a quién siguen las visitas ("Ver solo: 1 de 11 Ejecutivos Comerciales") y que se elige en
+  la leyenda. El botón del panel (y el "Filtros" del celular) solo lleva el chip "IPS filtradas" cuando el bloque IPS
+  oculta puntos. En escritorio el panel flotante llega hasta debajo del buscador y de los botones de zoom (alto máximo
+  `100vh - 212px`): antes los tapaba al abrirse.
 - **Fuera de "Ver solo"**: el territorio (con IPS, de alcance o sin cobertura) queda con el color de su Zona a 0.08
   (`DIMMED_FILL_OPACITY`) y el borde a 0.3, sin tooltip ni tarjeta: el "blanco" que pidió el dueño, el mismo del
   resaltado de antes. Sus IPS, insignias y visitas no se dibujan (los racimos se recalculan con las insignias
   visibles). Fuera de alcance, sin acceso terrestre y pendiente no cambian. Antes el filtro dejaba esos territorios en
   gris #f1f5f9 a 0.5 (`FILTERED_OUT_*`, quitado).
-- **Se quitó**: el resaltado desde la leyenda (y su mini-muestra por zona) y la pestaña "Buscar".
+- **Se quitó**: el resaltado desde la leyenda (y su mini-muestra por zona), la lista repetida en Filtros y la pestaña
+  "Buscar".
 - **Buscador único** (`MapSearchBox.tsx`, `web/lib/buscar-territorios.ts`, pruebas en
   `web/scripts/mapa-buscar-check.ts`): "Buscar municipio, departamento o IPS…". Además de municipios, localidades y la
   ciudad de Bogotá, trae los 32 departamentos ("Casanare, departamento": encuadra sus municipios, hasta zoom 9) y las

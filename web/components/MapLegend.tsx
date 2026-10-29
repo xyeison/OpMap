@@ -1,20 +1,12 @@
 'use client'
 
 import { useState, type CSSProperties, type ReactNode } from 'react'
-import { readableTextColor } from './ZoneBadgeIcon'
+import MapGroupFilter, { type GroupFilterConfig } from './MapGroupFilter'
 
-// Leyenda del mapa, SOLO PARA LEER (dueño, 2026-10-29, docs/specs/2026-10-29-mapa-filtros-y-leyenda.md): qué significa
-// cada color (Ejecutivos Comerciales o Zonas de la vista, solo los que se ven), cada estado de territorio y cada
-// marcador. La vista, "Ver solo" y lo que se muestra se eligen en el panel de Filtros (MapControls). La misma pieza va
-// en la tarjeta de escritorio y en la hoja inferior de móvil.
-
-export interface LegendEntry {
-  key: string
-  label: string
-  detail: string
-  color: string
-  initials: string
-}
+// Leyenda del mapa (dueño, 2026-10-29, docs/specs/2026-10-29-mapa-filtros-y-leyenda.md): qué significa cada color
+// (los Ejecutivos Comerciales o las Zonas de la vista: la única lista, que al tocarla hace "Ver solo"), cada estado de
+// territorio y cada marcador. La vista, la línea, lo que se muestra y las IPS se eligen en el panel de Filtros
+// (MapControls). La misma pieza va en la tarjeta de escritorio y en la hoja inferior de móvil.
 
 export interface LegendState {
   key: string
@@ -42,9 +34,8 @@ export interface LegendNote {
 }
 
 export interface MapLegendProps {
-  entriesTitle: string
-  entries: LegendEntry[]
-  emptyEntriesText: string
+  // Personas o Zonas con su color y "Ver solo" (null si la vista no tiene lista)
+  grupo: GroupFilterConfig | null
   states: LegendState[]
   markers: LegendMarkers
   notes: LegendNote[]
@@ -60,36 +51,11 @@ const NOTE_CLASSES: Record<LegendNote['tone'], string> = {
 
 const SECTION_TITLE = 'text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-1.5'
 
-export default function MapLegend({ entriesTitle, entries, emptyEntriesText, states, markers, notes, touch = false }: MapLegendProps) {
-  const rowHeight = touch ? 'min-h-[44px]' : 'min-h-[34px]'
-
+export default function MapLegend({ grupo, states, markers, notes, touch = false }: MapLegendProps) {
   return (
     <div className="space-y-4">
-      {/* Colores de la vista: Ejecutivos Comerciales o Zonas (solo los que se ven) */}
-      <div>
-        <div className={SECTION_TITLE}>{entriesTitle}</div>
-        {entries.length === 0 ? (
-          <p className="text-xs text-gray-500">{emptyEntriesText}</p>
-        ) : (
-          <ul className="space-y-0.5">
-            {entries.map(entry => (
-              <li key={entry.key} className={`flex items-center gap-2.5 ${rowHeight}`}>
-                <span
-                  aria-hidden="true"
-                  className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-semibold ring-2 ring-white shadow-sm"
-                  style={{ backgroundColor: entry.color, color: readableTextColor(entry.color) }}
-                >
-                  {entry.initials}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm text-gray-900">{entry.label}</span>
-                  <span className="block truncate text-xs text-gray-500">{entry.detail}</span>
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      {/* Colores de la vista y "Ver solo": Ejecutivos Comerciales o Zonas */}
+      {grupo && <MapGroupFilter config={grupo} touch={touch} />}
 
       {/* Estados de los territorios */}
       <div>

@@ -34,7 +34,8 @@ interface MapBottomSheetProps {
   children: ReactNode
   // Panel de Filtros y visitas (altura completa); se mantiene montado para no perder su estado
   secondary?: ReactNode
-  // Filtro activo ("1 ejecutiva"): el botón "Filtros" de la barra pasa a ser este chip
+  // Bloque IPS activo ("IPS filtradas"): el botón "Filtros" de la barra pasa a ser este chip ("Ver solo" va en la leyenda
+  // y en el subtítulo)
   filterChip?: string | null
   // Al tocar "Filtros" (o el chip): abre la pestaña de filtros
   onOpenFilters?: () => void
