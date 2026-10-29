@@ -257,6 +257,20 @@ que ya había (ninguna clase ni color nuevo).
 - **Cómo llega el dato**: en la misma llamada perezosa de giros y compras (`GET /api/map/detalle/*`, campo `procesos` y
   `alcance` 'completo' o 'procesos'); sin la migración 0890 llega `procesos: null` y la tarjeta queda como antes.
 
+### 2026-10-28 · Buscador de municipios (control nuevo, pedido del dueño)
+
+- Pedido: "si alguien esta en el mapa y escribe 'Yop' que pueda salir los municipios y si le doy clic que me lleve a ese
+  municipio con zoom moderado". Spec: `docs/specs/2026-10-28-mapa-buscar-municipio.md`.
+- Campo "Buscar municipio…" sobre el mapa: arriba a la derecha, junto al zoom, en escritorio (320 px), y a lo ancho
+  arriba en el teléfono. Mismo estilo de tarjeta que la leyenda: blanco 95 %, borde gris, sombra suave, 44 px de alto.
+- Busca sin tildes ni mayúsculas en los 1.120 municipios, las 20 localidades y la ciudad de Bogotá; como mucho 8
+  resultados, "Nombre, Departamento". Lógica en `web/lib/buscar-territorios.ts`, con pruebas en
+  `web/scripts/mapa-buscar-check.ts`.
+- Al elegir, el mapa encuadra el polígono con `flyToBounds`: hasta zoom 11 para un municipio o la ciudad y 13 para una
+  localidad, dejando libres el buscador, la leyenda (escritorio) y la hoja inferior (teléfono). No resalta, no abre
+  tarjeta ni añade capas o marcadores.
+- La pestaña "Buscar" de "Filtros y visitas" sigue para las IPS.
+
 ### Lógica de Coloreado de Territorios Compartidos
 Para cualquier territorio (municipio o localidad) donde múltiples KAMs tienen IPS:
 
