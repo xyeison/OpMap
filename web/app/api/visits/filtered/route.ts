@@ -3,7 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { requireUser } from '@/lib/require-role'
 import { hasPermission } from '@/lib/permissions'
 import { fetchAllRows, isUuid, serverError } from '../../_lib/api-error'
-import { esColumnaInexistente } from '../_lib/visitas-mapa'
+import { conZonaEnVezDePersona, esColumnaInexistente } from '../_lib/visitas-mapa'
 
 // Visitas filtradas (heatmap del mapa y página de visitas). Requiere sesión.
 // Quien no tiene visits:view (Ejecutivos Comerciales, visor) ve solo el histórico de VMO, como antes de la 0830: las
@@ -85,6 +85,13 @@ export async function GET(request: NextRequest) {
     // Sin duplicados y ordenadas por fecha descendente
     const uniqueVisits = Array.from(new Map(allVisits.map(v => [v.id, v])).values())
     uniqueVisits.sort((a, b) => new Date(b.visit_date).getTime() - new Date(a.visit_date).getTime())
+
+    // Sin visits:view, las de VMO (por persona desde el 2026-10-29) van con el nombre de la zona, no el de la persona
+    if (soloHistorico && uniqueVisits.length > 0) {
+      const { data: zonas, error: errorZonas } = await supabaseAdmin.from('kams').select('id, name')
+      if (errorZonas) return serverError('visits/filtered GET (zonas)', errorZonas, 'Error al cargar las visitas')
+      return NextResponse.json(conZonaEnVezDePersona(uniqueVisits, new Map((zonas ?? []).map(z => [z.id as string, z.name as string]))))
+    }
 
     return NextResponse.json(uniqueVisits)
   } catch (error) {

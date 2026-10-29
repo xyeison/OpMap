@@ -18,8 +18,8 @@
  * corregir y anular solo el mismo día; las claves de cada respuesta = mobile/lib/claves-api.ts (también las del login
  * móvil y GET /api/auth/me), y los tipos de la app (mobile/lib/tipos.ts) se asignan a los del servidor al compilar;
  * los límites de la voz (6/min y 40/h al transcribir, 10/min y 60/h al proponer) con su 429 y Retry-After; los logs
- * sin la transcripción ni los textos de la visita aunque la base o Claude fallen; y el importador de VMO (deshabilitado
- * en la ruta): borra solo source = 'vmo_import' del mes y no inserta nada si el borrado falla. Si Anthropic rechaza la
+ * sin la transcripción ni los textos de la visita aunque la base o Claude fallen; y el importador de VMO (puente del mapa
+ * de calor, 2026-10-29): guarda por ID de VMO sin borrar nada ni tocar las visitas de la app. Si Anthropic rechaza la
  * petición completa con un 400, proponer y campos reintentan UNA vez con la petición mínima (sin betas, fallbacks,
  * thinking ni strict; solo effort low) y el aviso del log trae el tipo, el parámetro y el request_id sin nada de lo
  * dictado ni del contexto; 429, 5xx, red, tiempo agotado y 'refusal' no usan ese respaldo. El portador en páginas,
@@ -138,8 +138,7 @@ import {
 } from '../app/api/me/_lib/reporte-server'
 import { POST as login } from '../app/api/auth/login/route'
 import { GET as verMe } from '../app/api/auth/me/route'
-import { importarMesVmo } from '../app/api/visits/_lib/importar-vmo'
-import { DELETE as borrarImportacionVmo } from '../app/api/visits/import/route'
+import { importarVisitasVmo } from '../app/api/visits/_lib/importar-vmo'
 import { GET as verContexto, POST as pedirContexto } from '../app/api/me/contexto/route'
 import { GET as verVisitas, POST as reportarVisita } from '../app/api/me/visitas/route'
 import { PATCH as corregirVisita } from '../app/api/me/visitas/[id]/route'
@@ -404,8 +403,6 @@ function fakeSupabase(tablas: Tablas) {
     rechazoForzado: null as string | null,
     /** Error crudo de PostgREST que devuelve la próxima RPC visitas_* (para probar qué sale en los logs). */
     errorRpc: null as Fila | null,
-    /** El DELETE de visits falla (para probar que el importador de VMO no inserta nada). */
-    falloBorradoVisitas: false,
   }
   const json = (payload: unknown, status = 200) => new Response(JSON.stringify(payload), { status, headers: { 'content-type': 'application/json' } })
   const pgError = (code: string, message: string, status = 400) => json({ code, message, details: null, hint: null }, status)
@@ -870,7 +867,6 @@ function fakeSupabase(tablas: Tablas) {
       rows = store(table).filter(row => matchesFilters(row, url.searchParams))
       for (const row of rows) Object.assign(row, body as Fila)
     } else if (method === 'DELETE') {
-      if (table === 'visits' && estado.falloBorradoVisitas) return pgError('57014', 'canceling statement due to statement timeout', 500)
       rows = store(table).filter(row => matchesFilters(row, url.searchParams))
       // Disparador visits_app_sin_borrar (0830): una visita de la app no se borra.
       if (table === 'visits' && rows.some(row => row.source === 'app')) return pgError('23514', 'Las visitas de la app no se borran: se anulan con motivo')
@@ -2303,57 +2299,40 @@ async function main() {
       }
     }
 
-    print('\n13. Importador de VMO (la ruta sigue deshabilitada): reemplaza solo lo importado del mes')
+    print('\n13. Importador de VMO (puente del mapa de calor): guarda por ID de VMO y no toca las visitas de la app')
     {
-      const vmo = (id: string, fecha: string, extra: Fila = {}): Fila => ({ id, kam_id: KAM_BGA, kam_name: 'KAM Bucaramanga', visit_type: 'Visita efectiva', contact_type: 'Visita presencial', lat: 7.1, lng: -73.1, visit_date: fecha, hospital_id: null, imported_by: ADMIN_ID, imported_at: `${fecha}T12:00:00Z`, import_id: null, created_at: `${fecha}T12:00:00Z`, updated_at: `${fecha}T12:00:00Z`, source: 'vmo_import', executive_id: null, client_id: null, tipo: null, deleted_at: null, out_of_territory: false, ...extra })
-      const appDeSeptiembre = filaVisitaApp({ visit_date: '2026-09-15', checked_in_at: '2026-09-15T10:00:00.000-05:00', reported_at: '2026-09-15T10:05:00.000-05:00' })
-      tablas.visits.push(vmo('vmo-sep-1', '2026-09-03'), vmo('vmo-sep-2', '2026-09-28'), appDeSeptiembre, vmo('vmo-ago-1', '2026-08-30'), vmo('vmo-jul-1', '2026-07-10'))
-      const nuevas = (fecha: string) => [
-        { kam_id: KAM_BGA, kam_name: 'KAM Bucaramanga', visit_type: 'Visita efectiva', contact_type: 'Visita presencial', lat: 7.11, lng: -73.11, visit_date: fecha },
-        { kam_id: KAM_BGA, kam_name: 'KAM Bucaramanga', visit_type: 'Visita no efectiva', contact_type: 'Visita virtual', lat: 7.12, lng: -73.12, visit_date: fecha },
-      ]
-      const ids = () => tablas.visits.map(v => v.id as string)
-
-      const borradosAntes = fake.requests.filter(r => r.method === 'DELETE' && r.table === 'visits').length
-      const borrarImportacion = await pedir(borrarImportacionVmo, `/api/visits/import?importId=${randomUUID()}`, { method: 'DELETE', userId: ADMIN_ID })
+      const deLaApp = () => JSON.stringify(tablas.visits.filter(v => v.source === 'app'))
+      const appAntes = deLaApp()
+      const borradosAntes = fake.requests.filter(r => r.method === 'DELETE').length
+      const lote = {
+        visitas: [
+          { vmo_id: 900001, comercial: 'Ana  Ejecutiva ', fecha: '2026-09-10', lat: 7.11, lng: -73.11, presencial: true },
+          { vmo_id: 900002, comercial: 'Visitadora Nueva', fecha: '2026-09-11', lat: 7.12, lng: -73.12, presencial: false },
+        ],
+        comerciales: [{ nombre: 'Ana Ejecutiva', ultima: '2026-09-10' }, { nombre: 'Visitadora Nueva', ultima: '2026-09-11' }],
+      }
+      const r = await leer(await importarVisitasVmo(lote, ADMIN_ID, '2026-10-29'))
       check(
-        'DELETE /api/visits/import: 410 y no borra nada (el histórico de VMO ya no se puede volver a importar)',
-        borrarImportacion.status === 410 && fake.requests.filter(r => r.method === 'DELETE' && r.table === 'visits').length === borradosAntes,
-        borrarImportacion.body
+        '200: 2 visitas, Ana enlazada por su nombre y la persona que OpMap no tenía, creada (activa: visitó hace menos de 60 días)',
+        r.status === 200 && r.body.visitas === 2 && r.body.enlazados.length === 1 && r.body.enlazados[0].opmap === 'Ana Ejecutiva' &&
+          r.body.creados.length === 1 && r.body.creados[0].nombre === 'Visitadora Nueva' && r.body.creados[0].estado === 'active',
+        r.body
       )
-      const septiembre = await leer(await importarMesVmo({ month: 9, year: 2026, filename: 'vmo-septiembre.xlsx', visits: nuevas('2026-09-10') }, ADMIN_ID))
-      const borrado = fake.requests.filter(r => r.method === 'DELETE' && r.table === 'visits').slice(borradosAntes)
-      const deSeptiembre = tablas.visits.filter(v => String(v.visit_date).startsWith('2026-09'))
-      check('importar septiembre: 200 con las 2 visitas', septiembre.status === 200 && septiembre.body.successful === 2 && septiembre.body.failed === 0, septiembre.body)
+      const ana = tablas.visits.find(v => v.vmo_id === 900001)
       check(
-        'el borrado del mes va con source = vmo_import y entre el 1 de septiembre y el 1 de octubre',
-        borrado.length === 1 && borrado[0].params.get('source') === 'eq.vmo_import' && borrado[0].params.getAll('visit_date').join(' ') === 'gte.2026-09-01 lt.2026-10-01',
-        borrado.map(r => r.params.toString())
+        'la visita queda por persona: source vmo_import, la ejecutiva, su zona, su nombre, efectiva y el punto de VMO',
+        !!ana && ana.source === 'vmo_import' && ana.executive_id === EJEC_A && ana.kam_id === KAM_BGA && ana.kam_name === 'Ana Ejecutiva' &&
+          ana.visit_type === 'Visita efectiva' && ana.contact_type === 'Visita presencial' && ana.lat === 7.11 && ana.visit_date === '2026-09-10',
+        ana
       )
       check(
-        'se fueron las importadas de septiembre; la de la app de septiembre y las de otros meses siguen',
-        !ids().includes('vmo-sep-1') && !ids().includes('vmo-sep-2') && ids().includes(appDeSeptiembre.id as string) && ids().includes('vmo-ago-1') && ids().includes('vmo-jul-1'),
-        deSeptiembre.map(v => [v.id, v.source])
+        'no borra nada y las visitas de la app quedan idénticas',
+        fake.requests.filter(r => r.method === 'DELETE').length === borradosAntes && deLaApp() === appAntes
       )
-      check('las nuevas quedan como importadas (source vmo_import) con su import_id', deSeptiembre.filter(v => v.source === 'vmo_import').length === 2 && deSeptiembre.filter(v => v.source === 'vmo_import').every(v => typeof v.import_id === 'string'), deSeptiembre)
-
-      const visitasAntes = tablas.visits.length
-      fake.estado.falloBorradoVisitas = true
-      const agosto = await leer(await importarMesVmo({ month: 8, year: 2026, filename: 'vmo-agosto.xlsx', visits: nuevas('2026-08-12') }, ADMIN_ID))
-      fake.estado.falloBorradoVisitas = false
       check(
-        'si el borrado del mes falla: 500 "no se importó nada", ninguna visita insertada y el registro de importación quitado',
-        agosto.status === 500 && /no se importó nada/.test(agosto.body.error) && tablas.visits.length === visitasAntes && ids().includes('vmo-ago-1') && !(tablas.visit_imports ?? []).some(r => r.month === 8 && r.year === 2026),
-        { agosto: agosto.body, visitas: tablas.visits.length, antes: visitasAntes, importaciones: tablas.visit_imports }
-      )
-
-      fake.estado.sin0830 = true
-      const julio = await leer(await importarMesVmo({ month: 7, year: 2026, filename: 'vmo-julio.xlsx', visits: nuevas('2026-07-20') }, ADMIN_ID))
-      fake.estado.sin0830 = false
-      check(
-        'antes de la 0830 (sin la columna source): borra el mes como siempre e importa',
-        julio.status === 200 && julio.body.successful === 2 && !ids().includes('vmo-jul-1') && tablas.visits.filter(v => String(v.visit_date).startsWith('2026-07')).length === 2,
-        julio.body
+        'la llave de VMO queda en la ejecutiva enlazada (vmo_nombre normalizado)',
+        tablas.executives.find(e => e.id === EJEC_A)?.vmo_nombre === 'ana ejecutiva',
+        tablas.executives.find(e => e.id === EJEC_A)
       )
     }
 

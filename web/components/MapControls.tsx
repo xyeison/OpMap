@@ -21,6 +21,13 @@ import {
 // al padre (setVisits) en bucle mientras las visitas están apagadas
 const NO_VISITS: any[] = []
 
+/** Años del selector de visitas: desde 2024 (VMO tiene visitas desde agosto de 2024) hasta el año en curso. */
+const PRIMER_ANIO_VISITAS = 2024
+function aniosConVisitas(): number[] {
+  const actual = Math.max(new Date().getFullYear(), PRIMER_ANIO_VISITAS)
+  return Array.from({ length: actual - PRIMER_ANIO_VISITAS + 1 }, (_, i) => PRIMER_ANIO_VISITAS + i)
+}
+
 interface MapControlsProps {
   mapData: any
   hospitalTypeFilter: string
@@ -94,9 +101,10 @@ export default function MapControls({
   // Estados para visitas - Tipo de visualización
   const [visualizationType, setVisualizationType] = useState<'heatmap' | 'markers' | 'both'>('heatmap')
   
-  // Filtros de período - año con múltiples meses
-  const [selectedYear, setSelectedYear] = useState<number>(2025) // Año seleccionado
-  const [selectedMonths, setSelectedMonths] = useState<number[]>([7]) // Meses seleccionados (julio por defecto)
+  // Filtros de período - año con múltiples meses: por defecto el mes en curso (las visitas de VMO llegan por Excel,
+  // lib/vmo-visitas.ts; las de la app, en el día)
+  const [selectedYear, setSelectedYear] = useState<number>(() => new Date().getFullYear())
+  const [selectedMonths, setSelectedMonths] = useState<number[]>(() => [new Date().getMonth() + 1])
   
   // Filtros de contenido
   const [visitTypeFilter, setVisitTypeFilter] = useState('all')
@@ -548,7 +556,7 @@ export default function MapControls({
                 onChange={(e) => setSelectedYear(Number(e.target.value))}
                 className="px-3 py-1 text-xs font-medium border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                {[2023, 2024, 2025].map(year => (
+                {aniosConVisitas().map(year => (
                   <option key={year} value={year}>{year}</option>
                 ))}
               </select>

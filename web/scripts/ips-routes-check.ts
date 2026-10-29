@@ -83,7 +83,6 @@ import { GET as pendingAssignmentRoute } from '../app/api/hospitals/pending-assi
 import { POST as processPendingRoute } from '../app/api/hospitals/process-pending/route'
 import { POST as createUserRoute } from '../app/api/users/route'
 import { POST as importVisitsRoute } from '../app/api/visits/import/route'
-import { DELETE as deleteImportRoute } from '../app/api/visits/imports/route'
 import { PATCH as updateExecutiveRoute } from '../app/api/executives/[id]/route'
 import { GET as planAccountsRoute, POST as createAccountsRoute } from '../app/api/users/from-executives/route'
 import { generateTempPassword, planExecutiveAccounts } from '../lib/executive-accounts'
@@ -1432,17 +1431,17 @@ async function main() {
         put.status === 200 && putTables.executives[0].user_id === EVA_USER, `${put.status} ${(await put.text()).slice(0, 200)}`)
     }
 
-    print('\n7. Importador de VMO deshabilitado')
+    print('\n7. Importador de VMO (puente del mapa de calor): permiso y cuerpo')
     {
-      const fake = fakeSupabase({ users: fakeUsers(), visits: [{ id: 'v-app', visit_date: '2026-10-05' }], visit_imports: [] })
+      const fake = fakeSupabase({ users: fakeUsers(), visits: [{ id: 'v-app', visit_date: '2026-10-05', source: 'app' }], executives: [] })
       fetchHandler = fake.handler
-      const response = await importVisitsRoute(apiRequest('/api/visits/import', { method: 'POST', body: { month: 10, year: 2026, filename: 'vmo.xlsx', visits: [{ kam_name: 'X', visit_date: '2026-10-05' }] } }))
-      const body = await response.json()
-      check('POST /api/visits/import: 410 y no borra ni inserta visitas',
-        response.status === 410 && typeof body.error === 'string' && fake.writes().length === 0 && sameSet(fake.touched(), ['users']),
-        `${response.status} ${JSON.stringify(body).slice(0, 200)}`)
-      const del = await deleteImportRoute(apiRequest('/api/visits/imports?id=11111111-1111-4111-8111-999999999999', { method: 'DELETE' }))
-      check('DELETE /api/visits/imports: 410 y no borra el histórico de VMO', del.status === 410 && fake.writes().length === 0)
+      const sinPermiso = await importVisitsRoute(apiRequest('/api/visits/import', { method: 'POST', userId: VIEWER_ID, password: 'hash-viewer', body: { visitas: [], comerciales: [] } }))
+      check('POST /api/visits/import sin visits:manage: 403 y no escribe', sinPermiso.status === 403 && fake.writes().length === 0, `${sinPermiso.status}`)
+      const formatoViejo = await importVisitsRoute(apiRequest('/api/visits/import', { method: 'POST', body: { month: 10, year: 2026, filename: 'vmo.xlsx', visits: [{ kam_name: 'X', visit_date: '2026-10-05' }] } }))
+      const body = await formatoViejo.json()
+      check('POST /api/visits/import con el formato viejo (mes y año): 400 y no escribe',
+        formatoViejo.status === 400 && typeof body.error === 'string' && fake.writes().length === 0 && sameSet(fake.touched(), ['users']),
+        `${formatoViejo.status} ${JSON.stringify(body).slice(0, 200)}`)
     }
 
     print('\n8. Usuarios para las Ejecutivas Comerciales sin cuenta')

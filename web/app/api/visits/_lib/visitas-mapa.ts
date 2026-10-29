@@ -11,6 +11,14 @@ export function esColumnaInexistente(error: unknown): boolean {
 }
 
 /**
+ * Visitas de VMO para quien no tiene visits:view: desde el 2026-10-29 vienen por persona (kam_name = nombre del
+ * Ejecutivo Comercial) y entre ellos no se ven; en su lugar va el nombre de la zona (kam_id), como en el histórico viejo.
+ */
+export function conZonaEnVezDePersona<T extends { kam_id: string | null; kam_name: string | null }>(visitas: T[], zonas: Map<string, string>): T[] {
+  return visitas.map(visita => ({ ...visita, kam_name: (visita.kam_id && zonas.get(visita.kam_id)) || 'Sin zona' }))
+}
+
+/**
  * Corre la consulta sin las anuladas y, si la base aún no tiene deleted_at (antes de la 0830), otra vez sin ese
  * filtro. `consultar(true)` debe añadir `.is('deleted_at', null)`. Sirve para consultas GET (el error trae su código);
  * para conteos con `head: true` (HEAD, sin cuerpo de error) usar visitsTieneAnulacion.
