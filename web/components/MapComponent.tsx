@@ -79,7 +79,8 @@ import { useMediaQuery, matchesMediaQuery, MOBILE_QUERY, HOVER_QUERY } from './u
 import { usePermissions } from '@/hooks/usePermissions'
 import { zoneDisplayName } from '@/lib/zone-names'
 import { mapDataPlaceholder } from '@/lib/map-view'
-import { computeTerritoryWinners, territoryIdOf } from '@/lib/territory-rules'
+import { computeTerritoryWinners, territoryIdOf, zonaDeLocalidadSinIps } from '@/lib/territory-rules'
+import { CORREDOR_LABEL, isCorredor, type LocalidadPorCorredor } from '@/lib/bogota-corredores'
 // NO usar estimaciones - solo datos reales de Google Maps
 
 // Fix for default markers in Next.js
@@ -282,9 +283,21 @@ interface ResolvedTerritory {
   kamId?: string
   isVacant: boolean
   row?: MunicipalityZoneRow
-  // Localidad de Bogotá sin IPS ni zona residente: hereda, como alcance, la zona que gana Bogotá
+  // Localidad de Bogotá sin IPS ni zona residente: la celda de su corredor de salida (`corredor`) o, si no tiene,
+  // hereda como alcance la zona que gana Bogotá (`bogotaInherited`)
+  corredor?: string
   bogotaInherited?: boolean
 }
+
+// GET /api/municipality-coverage: filas de municipality_zone y celda de las localidades de Bogotá sin IPS por corredor
+interface MunicipalityCoverage {
+  rows: MunicipalityZoneRow[]
+  localidades: Record<string, LocalidadPorCorredor>
+}
+const EMPTY_MUNICIPALITY_COVERAGE: MunicipalityCoverage = { rows: [], localidades: {} }
+
+const corredorLabel = (corredor: string | undefined): string | null =>
+  isCorredor(corredor) ? CORREDOR_LABEL[corredor] : null
 
 
 // Leyenda de la capa de municipios
@@ -582,25 +595,31 @@ export default function MapComponent({
 
   // Reparto de municipios sin IPS por tiempo real de carretera (municipality_zone). Mientras la tabla
   // no exista o no tenga filas, la respuesta se trata como vacía y esos municipios quedan 'pending'.
-  const { data: municipalityRows = [] } = useQuery<MunicipalityZoneRow[]>({
+  const { data: municipalityCoverage = EMPTY_MUNICIPALITY_COVERAGE } = useQuery<MunicipalityCoverage>({
     queryKey: ['municipality-coverage'],
     queryFn: async () => {
       try {
         const res = await fetch('/api/municipality-coverage')
         if (!res.ok) {
           console.warn(`/api/municipality-coverage respondió ${res.status}; municipios sin IPS como pendientes`)
-          return []
+          return EMPTY_MUNICIPALITY_COVERAGE
         }
         const body = await res.json()
-        return Array.isArray(body?.rows) ? body.rows : []
+        return {
+          rows: Array.isArray(body?.rows) ? body.rows : [],
+          localidades: body?.localidades && typeof body.localidades === 'object' ? body.localidades : {},
+        }
       } catch (error) {
         console.warn('No se pudo cargar /api/municipality-coverage:', error)
-        return []
+        return EMPTY_MUNICIPALITY_COVERAGE
       }
     },
     staleTime: 60_000,
     refetchOnWindowFocus: false
   })
+
+  const municipalityRows = municipalityCoverage.rows
+  const localidadesPorCorredor = municipalityCoverage.localidades
 
   const municipalityByCode = useMemo(() => {
     const byCode: Record<string, MunicipalityZoneRow> = {}
@@ -676,15 +695,22 @@ export default function MapComponent({
     if (territoriesWithIps.has(code)) return { kind: 'ips', kamId: territoryWinners[code], isVacant }
     if (isVacant) return { kind: 'vacant', isVacant }
     if (isLocality) {
-      // Localidad sin IPS: la zona que vive en ella (territorio base); si no hay, hereda como alcance
-      // la zona que gana Bogotá (fila 11001 de municipality_zone o, en su defecto, la misma regla de
-      // mayoría sobre todas las localidades). No hay tiempos por carretera hacia localidades.
-      const resident = kamIndex.residentByArea[code]
-      if (resident) return { kind: 'reach', kamId: resident, isVacant }
+      // Localidad sin IPS (zonaDeLocalidadSinIps): la zona que vive en ella (territorio base); si no hay, la celda
+      // de su corredor de salida (Santa Fe, La Candelaria, Usme y Sumapaz, 2026-10-28); si no, hereda como alcance
+      // la zona que gana Bogotá (fila 11001 de municipality_zone o, en su defecto, la misma regla de mayoría sobre
+      // todas las localidades). No hay tiempos por carretera hacia localidades.
       const bogotaRow = municipalityByCode[BOGOTA_CODE]
       const fromRow = bogotaRow && (bogotaRow.kind === 'ips' || bogotaRow.kind === 'reach') ? bogotaRow.kam_id : null
-      const winner = fromRow && kamIndex.byId[fromRow] ? fromRow : territoryAnalysis.bogotaWinner
-      return winner ? { kind: 'reach', kamId: winner, isVacant, bogotaInherited: true } : { kind: 'pending', isVacant }
+      const zona = zonaDeLocalidadSinIps({
+        residente: kamIndex.residentByArea[code],
+        porCorredor: localidadesPorCorredor[code],
+        ganadorBogota: fromRow && kamIndex.byId[fromRow] ? fromRow : territoryAnalysis.bogotaWinner,
+        existe: kamId => !!kamIndex.byId[kamId],
+      })
+      if (!zona) return { kind: 'pending', isVacant }
+      if (zona.fuente === 'corredor') return { kind: 'reach', kamId: zona.kam_id, isVacant, corredor: zona.corredor }
+      if (zona.fuente === 'bogota') return { kind: 'reach', kamId: zona.kam_id, isVacant, bogotaInherited: true }
+      return { kind: 'reach', kamId: zona.kam_id, isVacant }
     }
     const row = municipalityByCode[code]
     if (!row) return { kind: 'pending', isVacant }
@@ -694,7 +720,7 @@ export default function MapComponent({
     }
     if (row.kind === 'out_of_reach' || row.kind === 'no_road') return { kind: row.kind, isVacant, row }
     return { kind: 'pending', isVacant, row }
-  }, [territoryAnalysis, kamIndex, municipalityByCode])
+  }, [territoryAnalysis, kamIndex, municipalityByCode, localidadesPorCorredor])
 
   // ---------- Datos derivados del modo por línea ----------
   const lineView = useMemo(() => {
@@ -1501,7 +1527,8 @@ export default function MapComponent({
       }
     } else if (t.kind === 'reach') {
       const minutes = t.row?.travel_minutes
-      meta = `De alcance · Zona ${zone || 'otra zona'}${t.bogotaInherited ? ' (gana Bogotá)' : ''}${minutes !== null && minutes !== undefined ? ` · ${formatMinutes(minutes)}` : ''}`
+      const motivo = t.corredor ? ` (corredor ${corredorLabel(t.corredor) || t.corredor})` : t.bogotaInherited ? ' (gana Bogotá)' : ''
+      meta = `De alcance · Zona ${zone || 'otra zona'}${motivo}${minutes !== null && minutes !== undefined ? ` · ${formatMinutes(minutes)}` : ''}`
     } else if (t.kind === 'out_of_reach') {
       meta = 'Fuera de alcance'
     } else if (t.kind === 'no_road') {
@@ -1528,7 +1555,9 @@ export default function MapComponent({
       if (t.kind === 'reach') {
         const kam = t.kamId ? kamIndex.byId[t.kamId] : null
         const zone = zoneLabelOf(t.kamId) || 'otra zona'
-        if (t.bogotaInherited) {
+        if (t.corredor) {
+          title = `Zona ${zone} · De alcance: localidad sin IPS hoy; va con la zona de su corredor de salida (${corredorLabel(t.corredor) || t.corredor})`
+        } else if (t.bogotaInherited) {
           title = `Zona ${zone} · De alcance: localidad sin IPS hoy; se asigna a la zona que gana Bogotá`
         } else if (t.row && t.row.travel_minutes !== null && t.row.travel_minutes !== undefined) {
           title = `Zona ${zone} · Alcance: ${formatMinutes(t.row.travel_minutes)} por carretera desde ${kam?.base_city || zone}`

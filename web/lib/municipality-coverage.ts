@@ -55,6 +55,7 @@ import {
   type BogotaRuleInput,
   type BogotaRuleStatus,
 } from './opmap-algorithm-simplified'
+import { localidadesPorCorredor, type LocalidadPorCorredor } from './bogota-corredores'
 import { pickMajorityKam } from './territory-rules'
 import { zoneDisplayName } from './zone-names'
 import {
@@ -92,6 +93,11 @@ export interface MunicipalityCoverageResponse {
   rows: MunicipalityCoverageRow[]
   /** computed_at de municipality_zone; null si se calculó en memoria (tabla vacía o sin migración). */
   computed_at: string | null
+  /**
+   * Localidades de Bogotá sin IPS con corredor (lib/bogota-corredores.ts: CORREDOR_DE_LOCALIDAD) → celda que las
+   * recibe. El mapa las usa solo si la localidad no tiene IPS asignadas ni zona residente. Vacío sin regla de Bogotá.
+   */
+  localidades: Record<string, LocalidadPorCorredor>
 }
 
 /** Fila de municipality_zone (sin computed_at). */
@@ -759,6 +765,33 @@ const toNumber = (value: unknown): number | null => {
   return Number.isFinite(n) ? n : null
 }
 
+const ZONE_COLUMNS = 'id, name, base_city, area_id, lat, lng, max_travel_time, priority, enable_level2, active, participates_in_assignment'
+
+function toZoneInput(z: any): MunicipalityZoneInput {
+  return {
+    id: z.id,
+    name: String(z.name ?? ''),
+    base_city: z.base_city ?? null,
+    area_id: String(z.area_id ?? '').trim(),
+    lat: toNumber(z.lat),
+    lng: toNumber(z.lng),
+    max_travel_time: toNumber(z.max_travel_time),
+    priority: toNumber(z.priority),
+    enable_level2: z.enable_level2 ?? null,
+    active: z.active === true,
+    participates_in_assignment: z.participates_in_assignment === true,
+  }
+}
+
+/** Celda de cada localidad de Bogotá sin IPS por su corredor, con las celdas elegibles del motor (activas y en la asignación). */
+export function localidadesDeBogota(
+  bogota: BogotaRuleInput | null,
+  zones: MunicipalityZoneInput[]
+): Record<string, LocalidadPorCorredor> {
+  const celdas = new Set(eligibleZones(zones).filter(isBogotaKam).map(zone => zone.id))
+  return localidadesPorCorredor(bogota?.config ?? null, celdas)
+}
+
 /**
  * Lee todo lo que necesita el motor. Solo SELECT. Si municipality_travel_times no existe, caché vacía;
  * sin regla de Bogotá válida (loadBogotaRule), bogota = null.
@@ -768,13 +801,7 @@ export async function loadMunicipalityInputs(db: SupabaseAdminClient = supabaseA
     fetchAll<any>('municipalities', (from, to) =>
       db.from('municipalities').select('code, name, department_code, lat, lng').order('code').range(from, to)
     ),
-    fetchAll<any>('kams', (from, to) =>
-      db
-        .from('kams')
-        .select('id, name, base_city, area_id, lat, lng, max_travel_time, priority, enable_level2, active, participates_in_assignment')
-        .order('id')
-        .range(from, to)
-    ),
+    fetchAll<any>('kams', (from, to) => db.from('kams').select(ZONE_COLUMNS).order('id').range(from, to)),
     fetchAll<any>('departments', (from, to) =>
       db.from('departments').select('code, name, excluded').order('code').range(from, to)
     ),
@@ -841,19 +868,7 @@ export async function loadMunicipalityInputs(db: SupabaseAdminClient = supabaseA
       lat: toNumber(m.lat),
       lng: toNumber(m.lng),
     })),
-    zones: zones.map(z => ({
-      id: z.id,
-      name: String(z.name ?? ''),
-      base_city: z.base_city ?? null,
-      area_id: String(z.area_id ?? '').trim(),
-      lat: toNumber(z.lat),
-      lng: toNumber(z.lng),
-      max_travel_time: toNumber(z.max_travel_time),
-      priority: toNumber(z.priority),
-      enable_level2: z.enable_level2 ?? null,
-      active: z.active === true,
-      participates_in_assignment: z.participates_in_assignment === true,
-    })),
+    zones: zones.map(toZoneInput),
     departments: departments.map(d => ({ code: String(d.code).trim(), name: String(d.name ?? ''), excluded: d.excluded === true })),
     adjacency: symmetricAdjacency(adjacencyRows),
     assigned,
@@ -1176,6 +1191,7 @@ export async function recomputeAndSaveMunicipalityZones(
   const response: MunicipalityCoverageResponse = {
     rows: toCoverageRows(inputs.municipalities, zoneRows),
     computed_at: saved.computed_at,
+    localidades: localidadesDeBogota(inputs.bogota, inputs.zones),
   }
   setMunicipalityCoverageCache(response)
   return {
@@ -1207,12 +1223,20 @@ export async function loadMunicipalityCoverage(db: SupabaseAdminClient = supabas
 
   if (stored.length === 0) {
     const inputs = await loadMunicipalityInputs(db)
-    return { rows: toCoverageRows(inputs.municipalities, computeMunicipalityZones(inputs)), computed_at: null }
+    return {
+      rows: toCoverageRows(inputs.municipalities, computeMunicipalityZones(inputs)),
+      computed_at: null,
+      localidades: localidadesDeBogota(inputs.bogota, inputs.zones),
+    }
   }
 
-  const municipalities = await fetchAll<any>('municipalities', (from, to) =>
-    db.from('municipalities').select('code, name, department_code').order('code').range(from, to)
-  )
+  const [municipalities, zones, bogotaRule] = await Promise.all([
+    fetchAll<any>('municipalities', (from, to) =>
+      db.from('municipalities').select('code, name, department_code').order('code').range(from, to)
+    ),
+    fetchAll<any>('kams', (from, to) => db.from('kams').select(ZONE_COLUMNS).order('id').range(from, to)),
+    loadBogotaRule(db),
+  ])
   const computedAt = stored.reduce<string | null>(
     (latest, row) => (row.computed_at && (!latest || row.computed_at > latest) ? row.computed_at : latest),
     null
@@ -1232,6 +1256,7 @@ export async function loadMunicipalityCoverage(db: SupabaseAdminClient = supabas
       zoneRows
     ),
     computed_at: computedAt,
+    localidades: localidadesDeBogota(bogotaRule.rule, zones.map(toZoneInput)),
   }
 }
 

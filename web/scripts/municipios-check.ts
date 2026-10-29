@@ -15,6 +15,7 @@
  *     municipios base: sin cambios. Con o sin la regla se piden los mismos pares a Google (costo).
  *  6. Coherencia con el algoritmo de IPS (competeForHospital) con los mismos tiempos y las zonas en su orden
  *     (por nombre), incluidos empates y un municipio fuera de alcance.
+ *  7. GET /api/municipality-coverage: `localidades` (localidadesDeBogota) usa las celdas elegibles del motor.
  *
  * Uso (desde web/): npx tsx scripts/municipios-check.ts   (incluida en npm run test)
  * Código de salida 1 si alguna prueba falla.
@@ -22,6 +23,7 @@
 import {
   buildDryRunReport,
   computeMunicipalityZones,
+  localidadesDeBogota,
   planGoogleRequests,
   symmetricAdjacency,
   type AssignedHospitalInput,
@@ -422,6 +424,29 @@ function seccionCoherenciaIps() {
   }
 }
 
+function seccionLocalidadesSinIps() {
+  print('7. Localidades de Bogotá sin IPS en la respuesta de GET (localidadesDeBogota)')
+  const SIN_IPS = ['1100103', '1100105', '1100117', '1100120']
+  const hoy = localidadesDeBogota(regla(360), ZONAS)
+  check(
+    'con la regla de hoy (k = 4): Santa Fe, Usme, La Candelaria y Sumapaz → San Cristóbal (corredor Oriente)',
+    JSON.stringify(Object.keys(hoy).sort()) === JSON.stringify(SIN_IPS) && SIN_IPS.every(code => hoy[code].kam_id === 'scr' && hoy[code].corredor === 'oriente'),
+    JSON.stringify(hoy)
+  )
+  check('sin regla de Bogotá: vacío', Object.keys(localidadesDeBogota(null, ZONAS)).length === 0)
+  const inactiva = ZONAS.map(z => (z.id === 'scr' ? { ...z, active: false } : z))
+  check('San Cristóbal inactiva: vacío (el mapa vuelve a la regla anterior)', Object.keys(localidadesDeBogota(regla(360), inactiva)).length === 0)
+  const fuera = ZONAS.map(z => (z.id === 'scr' ? { ...z, participates_in_assignment: false } : z))
+  check('San Cristóbal fuera de la asignación: vacío', Object.keys(localidadesDeBogota(regla(360), fuera)).length === 0)
+  const k2 = localidadesDeBogota(regla(360, { k: 2, grupos: { norte: 'cha', oriente: 'cha', occidente: 'eng', sur: 'eng' } }), ZONAS)
+  check('k = 2 (Norte + Oriente → Chapinero): las cuatro → Chapinero', SIN_IPS.every(code => k2[code]?.kam_id === 'cha'), JSON.stringify(k2))
+  const impostora = [...ZONAS, zona('ibx', 'Ibagué 2', '73001', 240)]
+  check(
+    'una zona de fuera de Bogotá en grupos no cuenta como celda',
+    Object.keys(localidadesDeBogota(regla(360, { grupos: { ...GRUPOS_K4, oriente: 'ibx' } }), impostora)).length === 0
+  )
+}
+
 function main() {
   print('Motor de municipios con Bogotá como una ciudad · pruebas puras (sin red)')
   print('')
@@ -431,6 +456,7 @@ function main() {
   seccionSinCorredor()
   seccionSinCambios()
   seccionCoherenciaIps()
+  seccionLocalidadesSinIps()
   print('')
   print(`Resultado: ${passed} OK, ${failed} con fallo`)
   if (failed > 0) process.exit(1)

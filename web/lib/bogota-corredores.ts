@@ -118,6 +118,44 @@ export function celdaParaCorredor(corredor: Corredor, config: Pick<BogotaConfig,
 }
 
 /**
+ * Corredor de salida de las localidades de Bogotá que hoy no tienen IPS (2026-10-28, spec
+ * docs/specs/2026-10-28-localidades-sin-ips-por-corredor.md). El mapa las pintaba con la Zona que gana Bogotá
+ * entera por camas, sin mirar dónde quedan (Santa Fe y Usme salían con Engativá). Ahora van con la celda de su
+ * corredor, como los municipios vecinos de afuera. Solo cuenta si la localidad no tiene IPS asignadas ni zona
+ * residente; con IPS manda la mayoría de camas. Una localidad que no esté aquí y se quede sin IPS sigue con la
+ * regla anterior (la Zona que gana Bogotá). `bogota_corredores` solo acepta municipios de 5 dígitos.
+ */
+export const CORREDOR_DE_LOCALIDAD: Readonly<Record<string, Corredor>> = {
+  '1100103': 'oriente', // Santa Fe: vía a Choachí
+  '1100105': 'oriente', // Usme: vía al Llano
+  '1100117': 'oriente', // La Candelaria: rodeada por Santa Fe
+  '1100120': 'oriente', // Sumapaz: se entra por Usme
+}
+
+export interface LocalidadPorCorredor {
+  kam_id: string
+  corredor: Corredor
+}
+
+/**
+ * Celda de cada localidad de CORREDOR_DE_LOCALIDAD según `grupos`, solo si esa celda está entre las activas (activa
+ * y en la asignación). Sin configuración, o con la celda inactiva, la localidad no sale y el mapa aplica la regla
+ * anterior.
+ */
+export function localidadesPorCorredor(
+  config: Pick<BogotaConfig, 'grupos'> | null,
+  activeCellIds: ReadonlySet<string>
+): Record<string, LocalidadPorCorredor> {
+  const localidades: Record<string, LocalidadPorCorredor> = {}
+  if (!config) return localidades
+  for (const [code, corredor] of Object.entries(CORREDOR_DE_LOCALIDAD)) {
+    const kamId = celdaParaCorredor(corredor, config)
+    if (kamId && activeCellIds.has(kamId)) localidades[code] = { kam_id: kamId, corredor }
+  }
+  return localidades
+}
+
+/**
  * Construye `grupos` para k a partir de la celda de cada corredor con k = 4.
  * receptoras[i] (opcional) elige la celda del grupo i de AGRUPACIONES_POR_K[k]; por defecto, la celda
  * del primer corredor del grupo.

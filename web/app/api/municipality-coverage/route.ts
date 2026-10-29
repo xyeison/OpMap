@@ -9,6 +9,7 @@ export const dynamic = 'force-dynamic'
 //   kind 'ips' (con IPS objetivo: hay que visitar), 'reach' (de alcance por carretera, sin IPS hoy),
 //   'out_of_reach' (la más cercana supera su tope), 'no_road' (sin acceso terrestre) o 'pending'.
 // Lee municipality_zone (cacheado 60 s en memoria). Nunca llama a Google Maps.
+// `localidades`: celda de las localidades de Bogotá sin IPS por su corredor (lib/bogota-corredores.ts).
 export async function GET(request: NextRequest) {
   const auth = await requireUser(request)
   if (!auth.ok) return auth.response
@@ -16,8 +17,8 @@ export async function GET(request: NextRequest) {
   try {
     // computed_at = null → municipality_zone aún vacía o sin migración: filas calculadas en memoria
     // (con IPS + lo que haya en caché; el resto 'pending'), sin guardar.
-    const { rows, computed_at }: MunicipalityCoverageResponse = await getMunicipalityCoverageCached()
-    return NextResponse.json({ rows, computed_at }, { headers: { 'Cache-Control': 'no-store' } })
+    const { rows, computed_at, localidades }: MunicipalityCoverageResponse = await getMunicipalityCoverageCached()
+    return NextResponse.json({ rows, computed_at, localidades }, { headers: { 'Cache-Control': 'no-store' } })
   } catch (error) {
     console.error('Error en GET /api/municipality-coverage:', error)
     return jsonError('Error al cargar los municipios', 500)
