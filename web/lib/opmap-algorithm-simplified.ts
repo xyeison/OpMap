@@ -8,6 +8,7 @@
 import { getSupabaseAdmin, type SupabaseAdminClient } from './supabase-admin'
 import {
   celdaParaCorredor,
+  corredorDeLocalidad,
   parseBogotaConfig,
   parseCorredorRows,
   resolveCorredor,
@@ -182,6 +183,37 @@ export interface BogotaAssignmentDetail {
   bogota_min_segundos: number
   /** kam_id de la celda con ese mejor tiempo */
   celda_min: string
+}
+
+/**
+ * assignments.detail de una IPS de Bogotá asignada por el sector de su localidad (2026-10-28, spec
+ * docs/specs/2026-10-28-bogota-4-sectores.md): el corredor de la localidad decide la celda, sin minutos.
+ */
+export interface BogotaSectorDetail {
+  corredor: Corredor
+  /** localidad de la IPS (11001xx) */
+  localidad: string
+}
+
+/**
+ * Celda de una IPS de Bogotá por el sector de su localidad: la que recibe el corredor de la localidad en
+ * bogota_config.grupos (CORREDOR_DE_LOCALIDAD). null = regla de siempre (territorio base y minutos): sin regla de
+ * Bogotá, IPS sin localidad de la tabla o celda del sector fuera de `activeCellIds` (inactiva o fuera de la
+ * asignación). travel_time = tiempo real de esa celda si existe (SEGUNDOS); si no, null.
+ */
+export function bogotaSectorCell(
+  hospital: Pick<EligibilityHospitalShape, 'locality_id'>,
+  rule: BogotaRuleInput | null,
+  activeCellIds: ReadonlySet<string>,
+  cellSeconds: (kamId: string) => number | null
+): { kam_id: string; travel_time: number | null; detail: BogotaSectorDetail } | null {
+  if (!rule) return null
+  const localidad = (hospital.locality_id || '').trim()
+  const corredor = corredorDeLocalidad(localidad)
+  if (!corredor) return null
+  const celda = celdaParaCorredor(corredor, rule.config)
+  if (!celda || !activeCellIds.has(celda)) return null
+  return { kam_id: celda, travel_time: cellSeconds(celda), detail: { corredor, localidad } }
 }
 
 /** Identificador interno del candidato virtual (nunca se guarda: se sustituye por la celda elegida). */
@@ -448,8 +480,11 @@ export interface Assignment {
   travel_time: number | null  // En SEGUNDOS (null si no hay tiempo calculado, p.ej. territorio forzado)
   assignment_type: 'forced' | 'base_territory' | 'competitive' | 'majority_rule' | 'bogota_corredor'
   is_base_territory: boolean
-  /** Solo en 'bogota_corredor' (columna assignments.detail jsonb). Las demás filas no llevan la clave. */
-  detail?: BogotaAssignmentDetail
+  /**
+   * Solo en 'bogota_corredor' (columna assignments.detail jsonb): hacia afuera BogotaAssignmentDetail; dentro de
+   * Bogotá, por sector, BogotaSectorDetail. Las demás filas no llevan la clave.
+   */
+  detail?: BogotaAssignmentDetail | BogotaSectorDetail
 }
 
 export interface DistanceRecord {
@@ -756,6 +791,33 @@ export class SimplifiedOpMapAlgorithm {
 
     console.log(`  Total territorios forzados: ${forcedTerritories.size}`)
     console.log(`  Total hospitales en territorios forzados: ${assignments.length}`)
+
+    // FASE 0b: Bogotá por sectores (2026-10-28). Cada IPS de Bogotá va a la celda del corredor de su localidad,
+    // antes del territorio base (la localidad de Chapinero es del sector Oriente aunque ahí viva la celda del Norte)
+    // y sin competir por minutos. Sin regla de Bogotá o con la celda del sector inactiva, sigue la regla de siempre.
+    if (this.bogotaRule) {
+      console.log('\n🧭 FASE 0b: Bogotá por sectores (corredor de cada localidad)...')
+      const activeCells = new Set(this.kams.filter(kam => hasValidKamArea(kam) && isBogotaKam(kam)).map(kam => kam.id))
+      const porCelda = new Map<string, number>()
+      for (const hospital of this.hospitals) {
+        if (assignedHospitals.has(hospital.id) || !isBogotaHospital(hospital)) continue
+        const sector = bogotaSectorCell(hospital, this.bogotaRule, activeCells, kamId => this.getDistance(hospital.id, kamId))
+        if (!sector) continue
+        assignments.push({
+          kam_id: sector.kam_id,
+          hospital_id: hospital.id,
+          travel_time: sector.travel_time,
+          assignment_type: 'bogota_corredor',
+          is_base_territory: false,
+          detail: sector.detail
+        })
+        assignedHospitals.add(hospital.id)
+        porCelda.set(sector.kam_id, (porCelda.get(sector.kam_id) || 0) + 1)
+      }
+      for (const [kamId, n] of Array.from(porCelda.entries())) {
+        console.log(`  ✓ ${this.kams.find(k => k.id === kamId)?.name ?? kamId}: ${n} IPS de su sector`)
+      }
+    }
     
     // FASE 1: Asignar territorios base (excepto los ya forzados)
     console.log('\n📍 FASE 1: Asignando territorios base...')

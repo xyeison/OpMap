@@ -214,6 +214,31 @@ console.log('\n4. Resumen de la simulación')
   check('Yopal (Casanare → Oriente → San Cristóbal) NO coincide con la forzada a Kennedy',
     yopal?.corredor === 'oriente' && yopal?.coincide === false && yopal?.celda_por_corredor?.kam_id === SAN_CRISTOBAL && yopal?.celda_forzada.nombre === 'Kennedy', yopal)
   check('nombres de zona sin el prefijo KAM', s.cambios.every(c => !/KAM/.test(`${c.antes?.zona} ${c.despues?.zona}`)))
+
+  // Sectores (2026-10-28): una IPS de Bogotá asignada por el sector de su localidad (detail.localidad) es
+  // 'bogota_corredor', pero NO es algo que Bogotá gane afuera
+  const usaquen = { id: 'u1', code: 'u1', name: 'IPS Usaquén', department_id: '11', municipality_id: '11001', locality_id: '1100101' }
+  const conSector = buildBogotaSimulationSummary({
+    propuesta: { k: 4, max_travel_minutes: 240, grupos: K4 },
+    cells, zones, hospitals: [...hospitals, usaquen],
+    before: [...before, { hospital_id: 'u1', kam_id: ENGATIVA, travel_time: 24 * 60, assignment_type: 'competitive' }],
+    after: [...after, { hospital_id: 'u1', kam_id: CHAPINERO, travel_time: 26 * 60, assignment_type: 'bogota_corredor', detail: { corredor: 'norte', localidad: '1100101' } }],
+    forced: [...forced, { territory_id: '1100101', territory_name: 'Usaquén', kam_id: KENNEDY, active: true }],
+    corredores: [...SEMILLA_CORREDORES],
+  })
+  check(
+    'sectores: la IPS de Usaquén cuenta en por_sector (Norte 1), no en por_corredor ni en sin corredor',
+    conSector.totales.por_sector.norte === 1 && conSector.totales.por_corredor.norte === 1 && conSector.totales.sin_corredor === 1,
+    conSector.totales
+  )
+  const u1 = conSector.cambios.find(c => c.hospital_id === 'u1')
+  check('sectores: el cambio de Usaquén lleva "sector", no "corredor"', u1?.despues?.sector === 'norte' && u1?.despues?.corredor === undefined, u1)
+  const forzadaUsaquen = conSector.forzadas.find(f => f.territory_id === '1100101')
+  check(
+    'sectores: una forzada de una localidad compara con la celda de su sector (Usaquén → Norte → Chapinero)',
+    forzadaUsaquen?.corredor === 'norte' && forzadaUsaquen?.celda_por_corredor?.kam_id === CHAPINERO && forzadaUsaquen?.coincide === false,
+    forzadaUsaquen
+  )
 }
 
 console.log('\n5. Ficha de la IPS: fila "Bogotá" y texto del corredor')
@@ -231,6 +256,10 @@ console.log('\n5. Ficha de la IPS: fila "Bogotá" y texto del corredor')
   check('sin celdas con distancia: sin fila agregada', bogotaDistanceAggregate([rows[0]], '15', 240) === null)
   check('texto "Bogotá (corredor Norte) → Chapinero"', bogotaAssignmentLabel('norte', 'Chapinero') === 'Bogotá (corredor Norte) → Chapinero')
   check('texto sin corredor', bogotaAssignmentLabel(null, 'Kennedy').startsWith('Bogotá (sin corredor'))
+  check(
+    'texto de una IPS de Bogotá asignada por su sector: "Bogotá, sector Norte → Bogotá Norte"',
+    bogotaAssignmentLabel('norte', 'Bogotá Norte', '1100101') === 'Bogotá, sector Norte → Bogotá Norte'
+  )
 }
 
 console.log(`\n${passed} pruebas OK, ${failed} fallidas`)

@@ -14,15 +14,23 @@ import {
   loadAdjacency,
   type EligibilityKam,
 } from '../../_lib/kam-eligibility'
-import { competeForHospital, loadBogotaRule, type BogotaAssignmentDetail } from '@/lib/opmap-algorithm-simplified'
+import {
+  bogotaSectorCell,
+  competeForHospital,
+  isBogotaKam,
+  loadBogotaRule,
+  type BogotaAssignmentDetail,
+  type BogotaSectorDetail,
+} from '@/lib/opmap-algorithm-simplified'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 // Asigna una IPS recién creada (o sin asignación) a su KAM siguiendo las reglas del algoritmo:
-//   0. asignación forzada del territorio, 1. territorio base, 2. competencia por tiempo real
-//   entre KAMs elegibles (mismo departamento / adyacentes N1-N2 / regla Bogotá), con la misma función
-//   que el recálculo completo (competeForHospital, incluida "Bogotá como una ciudad" por corredores).
+//   0. asignación forzada del territorio, 0b. IPS de Bogotá: la celda del sector (corredor) de su localidad
+//   (bogotaSectorCell, 2026-10-28), 1. territorio base, 2. competencia por tiempo real entre KAMs elegibles
+//   (mismo departamento / adyacentes N1-N2 / regla Bogotá), con las mismas funciones que el recálculo completo
+//   (competeForHospital, incluida "Bogotá como una ciudad" por corredores).
 // Las coordenadas y el territorio se leen SIEMPRE de public.hospitals (se ignora lo que mande el
 // cliente). Los tiempos se leen/escriben en hospital_kam_distances en SEGUNDOS, y solo se llama a
 // Google para los pares que faltan, en una petición con hasta 25 orígenes.
@@ -93,10 +101,10 @@ export async function POST(request: NextRequest) {
 
     const insertAssignment = async (row: {
       kam_id: string
-      travel_time: number
+      travel_time: number | null
       assignment_type: string
       is_base_territory: boolean
-      detail?: BogotaAssignmentDetail
+      detail?: BogotaAssignmentDetail | BogotaSectorDetail
     }) => {
       const { error } = await supabaseAdmin.from('assignments').insert({
         hospital_id: hospitalId,
@@ -151,6 +159,42 @@ export async function POST(request: NextRequest) {
         travelTimeMinutes: Math.round(travelTime / 60),
         isBaseTerritory: false,
         assignmentType: 'forced',
+        googleElements: 0,
+      })
+    }
+
+    // 2b. Bogotá por sectores: la celda del corredor de la localidad, antes del territorio base y sin minutos (la
+    // localidad de Chapinero es del sector Oriente aunque ahí viva la celda del Norte). Tiempo real si ya existe.
+    const { rule: bogotaRule } = await loadBogotaRule()
+    const sector = bogotaSectorCell(hospital, bogotaRule, new Set(kams.filter(isBogotaKam).map(kam => kam.id)), () => null)
+    const sectorKam = sector ? kams.find(k => k.id === sector.kam_id) : undefined
+    if (sector && sectorKam) {
+      const { data: distanceRow, error: distanceError } = await supabaseAdmin
+        .from('hospital_kam_distances')
+        .select('travel_time')
+        .eq('hospital_id', hospitalId)
+        .eq('kam_id', sectorKam.id)
+        .maybeSingle()
+      if (distanceError) return serverError('assign-to-kam (distancia del sector)', distanceError)
+      const travelTime: number | null = distanceRow?.travel_time ?? null
+
+      const insertError = await insertAssignment({
+        kam_id: sectorKam.id,
+        travel_time: travelTime,
+        assignment_type: 'bogota_corredor',
+        is_base_territory: false,
+        detail: sector.detail,
+      })
+      if (insertError) return respondInsertError(insertError, 'assign-to-kam (insert sector de Bogotá)')
+
+      return NextResponse.json({
+        success: true,
+        kamId: sectorKam.id,
+        kamName: sectorKam.name,
+        travelTime,
+        travelTimeMinutes: travelTime === null ? null : Math.round(travelTime / 60),
+        isBaseTerritory: false,
+        assignmentType: 'bogota_corredor',
         googleElements: 0,
       })
     }
@@ -275,7 +319,6 @@ export async function POST(request: NextRequest) {
     // 6. Mejor zona con la MISMA regla que el recálculo completo (competeForHospital): menor tiempo
     // dentro del tope; empate -> mayor prioridad; Bogotá compite como una ciudad hacia afuera y la
     // celda la decide el corredor cuando hay configuración (bogota_config + bogota_corredores).
-    const { rule: bogotaRule } = await loadBogotaRule()
     const outcome = competeForHospital(
       hospital,
       kams.map(kam => ({ ...kam, max_travel_time: kam.max_travel_time ?? 240, priority: kam.priority ?? 0 })),

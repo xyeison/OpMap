@@ -15,8 +15,11 @@
  *  4. k = 1/2/3/4, municipio sin corredor, celda no activa, empates e IPS de Bogotá sin cambios,
  *     ejecutando la clase SimplifiedOpMapAlgorithm en memoria (loadFromData, sin base de datos).
  *  5. Localidades de Bogotá sin IPS (spec docs/specs/2026-10-28-localidades-sin-ips-por-corredor.md):
- *     CORREDOR_DE_LOCALIDAD, celdasAplicadasPorCorredor, localidadesPorCorredor, el orden del mapa
- *     (zonaDeLocalidadSinIps) y, leyendo components/MapComponent.tsx, que las IPS manden y los textos del corredor.
+ *     celdasAplicadasPorCorredor, localidadesPorCorredor, el orden del mapa (zonaDeLocalidadSinIps) y, leyendo
+ *     components/MapComponent.tsx, que las IPS manden y los textos del corredor.
+ *  6. Bogotá en 4 sectores (spec docs/specs/2026-10-28-bogota-4-sectores.md): la tabla de las 20 localidades,
+ *     bogotaSectorCell y la clase (sector antes del territorio base, forzadas primero, celda inactiva → regla de siempre).
+ *     La sección de la clase ("Clase SimplifiedOpMapAlgorithm") ya refleja los sectores: Teusaquillo va a Occidente.
  *
  * Uso (desde web/): npx tsx scripts/bogota-check.ts   (incluida en npm run test)
  * Código de salida 1 si alguna prueba falla.
@@ -46,6 +49,7 @@ import {
 import {
   BOGOTA_VIRTUAL_ID,
   SimplifiedOpMapAlgorithm,
+  bogotaSectorCell,
   bogotaVirtualCandidate,
   chooseBogotaCell,
   competeForHospital,
@@ -153,10 +157,13 @@ const KAMS: AlgorithmKam[] = [BUCARAMANGA, CHAPINERO, ENGATIVA, IBAGUE, KENNEDY,
 const CELDAS = [CHAPINERO, ENGATIVA, KENNEDY, SAN_CRISTOBAL]
 const nameOf = (id: string | null | undefined) => KAMS.find(k => k.id === id)?.name ?? String(id)
 
+// Celda de cada corredor con k = 4 en estas pruebas (la celda del Norte vive en Chapinero, como antes de la 0903)
+const GRUPOS_K4: Record<Corredor, string> = { norte: CHAPINERO.id, occidente: ENGATIVA.id, sur: KENNEDY.id, oriente: SAN_CRISTOBAL.id }
+
 const config = (k: BogotaK, max = 240, receptoras?: string[]): BogotaConfig => ({
   k,
   max_travel_minutes: max,
-  grupos: gruposParaK(k, gruposPorDefecto(4, CELDAS)!, receptoras),
+  grupos: gruposParaK(k, GRUPOS_K4, receptoras),
 })
 const rule = (k: BogotaK = 4, max = 240, corredores: readonly CorredorRow[] = SEMILLA_CORREDORES, receptoras?: string[]): BogotaRuleInput => ({
   config: config(k, max, receptoras),
@@ -200,11 +207,15 @@ function seccionCorredores() {
   check('resolveCorredor: sin fila -> null (sin corredor)', resolveCorredor('41001', '41', filas) === null)
   check('resolveCorredor: sin department_code usa los 2 primeros dígitos del municipio', resolveCorredor('15238', null, filas) === 'norte')
 
-  const base = gruposPorDefecto(4, CELDAS)!
+  const NORTE_USAQUEN = { id: 'kam-1100101', area_id: '1100101' }
+  const porDefecto = gruposPorDefecto(4, [NORTE_USAQUEN, ...CELDAS.filter(c => c.id !== CHAPINERO.id)])!
   check(
-    'k = 4: cada corredor su celda (Norte Chapinero, Occidente Engativá, Sur Kennedy, Oriente San Cristóbal)',
-    base.norte === CHAPINERO.id && base.occidente === ENGATIVA.id && base.sur === KENNEDY.id && base.oriente === SAN_CRISTOBAL.id
+    'k = 4 por defecto: Norte → la celda de Usaquén (0903), Occidente Engativá, Sur Kennedy, Oriente San Cristóbal',
+    porDefecto.norte === NORTE_USAQUEN.id && porDefecto.occidente === ENGATIVA.id && porDefecto.sur === KENNEDY.id && porDefecto.oriente === SAN_CRISTOBAL.id
   )
+  check('sin celda en Usaquén no hay grupos por defecto (null)', gruposPorDefecto(4, CELDAS) === null)
+  // El resto de las pruebas usa la celda del Norte en Chapinero (GRUPOS_K4), como antes de la 0903
+  const base = GRUPOS_K4
   const k3 = gruposParaK(3, base)
   check('k = 3: Norte | Occidente | Sur + Oriente (Sur + Oriente -> Kennedy)', k3.norte === CHAPINERO.id && k3.occidente === ENGATIVA.id && k3.sur === KENNEDY.id && k3.oriente === KENNEDY.id)
   const k2 = gruposParaK(2, base)
@@ -458,17 +469,30 @@ async function seccionClase() {
 
   const teuA = teusaquillo.map(h => A.get(h.id))
   check(
-    'd. Teusaquillo: las 15 IPS quedan en Chapinero por mayoría (14 competitive + 1 majority_rule)',
-    teuA.every(x => x?.kam_id === CHAPINERO.id) &&
-      teuA.filter(x => x?.assignment_type === 'competitive').length === 14 &&
-      teuA.filter(x => x?.assignment_type === 'majority_rule').length === 1 &&
-      A.get('teu-15')?.travel_time === min(25),
+    'sectores: Teusaquillo (sector Occidente) → las 15 IPS a Engativá aunque Chapinero llegue antes (bogota_corredor, 40 min)',
+    teuA.every(x => x?.kam_id === ENGATIVA.id && x.assignment_type === 'bogota_corredor' && JSON.stringify(x.detail) === JSON.stringify({ corredor: 'occidente', localidad: '1100113' })) &&
+      A.get('teu-15')?.travel_time === min(40),
     teuA.map(x => `${nameOf(x?.kam_id)}:${x?.assignment_type}`).join(', ')
   )
-  const sameBogota = [...teusaquillo, chapineroBase].every(h => JSON.stringify(A.get(h.id)) === JSON.stringify(L.get(h.id)))
-  check('d. dentro de Bogotá la regla de corredores no cambia nada (idéntico con y sin configuración)', sameBogota)
-  check('d. ninguna IPS de Bogotá lleva detail ni bogota_corredor', [...teusaquillo, chapineroBase].every(h => !A.get(h.id)?.detail && A.get(h.id)?.assignment_type !== 'bogota_corredor'))
-  check('territorio base sin cambios (Chapinero en su localidad, Pereira en su municipio)', A.get(chapineroBase.id)?.assignment_type === 'base_territory' && A.get(chapineroBase.id)?.kam_id === CHAPINERO.id && A.get(pereiraBase.id)?.kam_id === PEREIRA.id && A.get(pereiraBase.id)?.travel_time === 0)
+  const teuL = teusaquillo.map(h => L.get(h.id))
+  check(
+    'd. sin regla de Bogotá, la de siempre: Teusaquillo en Chapinero por mayoría (14 competitive + 1 majority_rule)',
+    teuL.every(x => x?.kam_id === CHAPINERO.id) &&
+      teuL.filter(x => x?.assignment_type === 'competitive').length === 14 &&
+      teuL.filter(x => x?.assignment_type === 'majority_rule').length === 1 &&
+      L.get('teu-15')?.travel_time === min(25),
+    teuL.map(x => `${nameOf(x?.kam_id)}:${x?.assignment_type}`).join(', ')
+  )
+  check(
+    'sectores: la localidad de Chapinero es del sector Oriente → San Cristóbal, no el territorio base de la celda del Norte',
+    A.get(chapineroBase.id)?.kam_id === SAN_CRISTOBAL.id && A.get(chapineroBase.id)?.assignment_type === 'bogota_corredor' && A.get(chapineroBase.id)?.travel_time === null,
+    JSON.stringify(A.get(chapineroBase.id))
+  )
+  check(
+    'sin regla, territorio base de siempre (Chapinero en su localidad); Pereira en su municipio con y sin regla',
+    L.get(chapineroBase.id)?.assignment_type === 'base_territory' && L.get(chapineroBase.id)?.kam_id === CHAPINERO.id &&
+      A.get(pereiraBase.id)?.kam_id === PEREIRA.id && A.get(pereiraBase.id)?.travel_time === 0
+  )
   check('forzada sin cambios: Villavicencio -> San Cristóbal (forced, 464 min) aunque supere el tope', A.get(villavo.id)?.assignment_type === 'forced' && A.get(villavo.id)?.kam_id === SAN_CRISTOBAL.id && A.get(villavo.id)?.travel_time === min(464))
   const t = A.get(tunja.id)
   check(
@@ -491,37 +515,39 @@ async function seccionClase() {
 function seccionLocalidadesSinIps() {
   print('5. Localidades de Bogotá sin IPS: la celda de su corredor')
 
-  const SIN_IPS = { '1100103': 'Santa Fe', '1100105': 'Usme', '1100117': 'La Candelaria', '1100120': 'Sumapaz' }
-  check(
-    'CORREDOR_DE_LOCALIDAD: Santa Fe, Usme, La Candelaria y Sumapaz, las cuatro al corredor Oriente',
-    JSON.stringify(Object.keys(CORREDOR_DE_LOCALIDAD).sort()) === JSON.stringify(Object.keys(SIN_IPS).sort()) &&
-      Object.values(CORREDOR_DE_LOCALIDAD).every(c => c === 'oriente'),
-    JSON.stringify(CORREDOR_DE_LOCALIDAD)
-  )
+  const SIN_IPS = ['1100103', '1100105', '1100117', '1100120'] // Santa Fe, Usme, La Candelaria, Sumapaz
+  check('Santa Fe, Usme, La Candelaria y Sumapaz son del sector Oriente', SIN_IPS.every(code => CORREDOR_DE_LOCALIDAD[code] === 'oriente'))
   check('CORREDOR_DE_LOCALIDAD: solo códigos de localidad de Bogotá (11001 + 2 dígitos)', Object.keys(CORREDOR_DE_LOCALIDAD).every(code => /^11001\d{2}$/.test(code)))
 
   const activas = new Set(CELDAS.map(c => c.id))
   const k4 = localidadesPorCorredor(config(4), activas)
   check(
-    'k = 4 (Oriente → San Cristóbal): las cuatro van a San Cristóbal por el corredor Oriente',
-    Object.keys(SIN_IPS).every(code => k4[code]?.kam_id === SAN_CRISTOBAL.id && k4[code]?.corredor === 'oriente') && Object.keys(k4).length === 4,
+    'k = 4 (Oriente → San Cristóbal): las cuatro van a San Cristóbal por el corredor Oriente; salen las 20 localidades',
+    SIN_IPS.every(code => k4[code]?.kam_id === SAN_CRISTOBAL.id && k4[code]?.corredor === 'oriente') && Object.keys(k4).length === 20,
     JSON.stringify(k4)
   )
   const k2 = localidadesPorCorredor(config(2), activas)
-  check('k = 2 (Norte + Oriente → Chapinero): las cuatro van a Chapinero', Object.values(k2).length === 4 && Object.values(k2).every(l => l.kam_id === CHAPINERO.id), JSON.stringify(k2))
+  check('k = 2 (Norte + Oriente → Chapinero): las cuatro van a Chapinero', SIN_IPS.every(code => k2[code]?.kam_id === CHAPINERO.id), JSON.stringify(k2))
   check('sin configuración de Bogotá: ninguna (el mapa usa la regla anterior)', Object.keys(localidadesPorCorredor(null, activas)).length === 0)
   const sinSanCristobal = new Set([CHAPINERO.id, ENGATIVA.id, KENNEDY.id])
+  const sinOriente = localidadesPorCorredor(config(4), sinSanCristobal)
   check(
-    'celda del corredor inactiva o fuera de la asignación: ninguna (no se pasa a otra celda)',
-    Object.keys(localidadesPorCorredor(config(4), sinSanCristobal)).length === 0
+    'celda del corredor inactiva o fuera de la asignación: esas no salen (no se pasa a otra celda); las demás sí',
+    SIN_IPS.every(code => !(code in sinOriente)) && sinOriente['1100101']?.kam_id === CHAPINERO.id
   )
-  check('corredor sin celda en grupos: ninguna', Object.keys(localidadesPorCorredor({ grupos: { norte: CHAPINERO.id } }, activas)).length === 0)
+  const soloNorte = localidadesPorCorredor({ grupos: { norte: CHAPINERO.id } }, activas)
+  check('corredor sin celda en grupos: no sale; solo Usaquén (Norte)', JSON.stringify(Object.keys(soloNorte)) === JSON.stringify(['1100101']), JSON.stringify(soloNorte))
 
   const existe = (kamId: string) => CELDAS.some(c => c.id === kamId)
   const porCorredor = { kam_id: SAN_CRISTOBAL.id, corredor: 'oriente' }
   check(
-    'orden del mapa: la zona residente manda sobre el corredor',
+    'orden del mapa: el sector manda sobre la zona residente (Chapinero es Oriente aunque ahí viva la celda del Norte)',
     JSON.stringify(zonaDeLocalidadSinIps({ residente: CHAPINERO.id, porCorredor, ganadorBogota: ENGATIVA.id, existe })) ===
+      JSON.stringify({ kam_id: SAN_CRISTOBAL.id, fuente: 'corredor', corredor: 'oriente' })
+  )
+  check(
+    'orden del mapa: sin sector disponible, la zona residente',
+    JSON.stringify(zonaDeLocalidadSinIps({ residente: CHAPINERO.id, porCorredor: undefined, ganadorBogota: ENGATIVA.id, existe })) ===
       JSON.stringify({ kam_id: CHAPINERO.id, fuente: 'residente' })
   )
   check(
@@ -588,6 +614,77 @@ function seccionLocalidadesSinIps() {
   )
 }
 
+// ---------------------------------------------------------------------------
+// 6. Bogotá en 4 sectores: cada localidad va a la celda del corredor de su sector
+// ---------------------------------------------------------------------------
+
+async function seccionSectores() {
+  print('')
+  print('6. Bogotá en 4 sectores (la localidad decide la celda dentro de Bogotá)')
+
+  const SECTORES: Record<Corredor, string[]> = {
+    norte: ['1100101'],
+    occidente: ['1100109', '1100110', '1100111', '1100112', '1100113'],
+    sur: ['1100106', '1100107', '1100108', '1100114', '1100115', '1100116', '1100119'],
+    oriente: ['1100102', '1100103', '1100104', '1100105', '1100117', '1100118', '1100120'],
+  }
+  const esperado = Object.entries(SECTORES).flatMap(([corredor, codes]) => codes.map(code => `${code}:${corredor}`)).sort()
+  const tabla = Object.entries(CORREDOR_DE_LOCALIDAD).map(([code, corredor]) => `${code}:${corredor}`).sort()
+  check('la tabla tiene las 20 localidades con el sector aprobado (Norte 1, Occidente 5, Sur 7, Oriente 7)', JSON.stringify(tabla) === JSON.stringify(esperado), tabla.join(' '))
+
+  const activas = new Set(CELDAS.map(c => c.id))
+  const segundos = secondsFrom({ [CHAPINERO.id]: min(26), [ENGATIVA.id]: min(24), [SAN_CRISTOBAL.id]: min(30) })
+  const usaquen = bogotaSectorCell({ locality_id: '1100101' }, rule(4), activas, segundos)
+  check(
+    'Usaquén (Norte) → celda del Norte (Chapinero) aunque Engativá llegue 2 minutos antes; tiempo real de esa celda',
+    usaquen?.kam_id === CHAPINERO.id && usaquen.travel_time === min(26) && JSON.stringify(usaquen.detail) === JSON.stringify({ corredor: 'norte', localidad: '1100101' }),
+    JSON.stringify(usaquen)
+  )
+  check('localidad de Chapinero (Oriente) → San Cristóbal', bogotaSectorCell({ locality_id: '1100102' }, rule(4), activas, segundos)?.kam_id === SAN_CRISTOBAL.id)
+  check(
+    'k = 2 (Norte + Oriente juntos): Usaquén y Chapinero a la misma celda',
+    bogotaSectorCell({ locality_id: '1100101' }, rule(2), activas, segundos)?.kam_id === CHAPINERO.id &&
+      bogotaSectorCell({ locality_id: '1100102' }, rule(2), activas, segundos)?.kam_id === CHAPINERO.id
+  )
+  check('sin regla de Bogotá: null (regla de siempre)', bogotaSectorCell({ locality_id: '1100101' }, null, activas, segundos) === null)
+  check(
+    'IPS sin localidad o con una que no es de la tabla: null',
+    bogotaSectorCell({ locality_id: null }, rule(4), activas, segundos) === null && bogotaSectorCell({ locality_id: '1100199' }, rule(4), activas, segundos) === null
+  )
+  check('celda del sector inactiva: null', bogotaSectorCell({ locality_id: '1100101' }, rule(4), new Set([ENGATIVA.id, KENNEDY.id, SAN_CRISTOBAL.id]), segundos) === null)
+
+  // Clase completa: Usaquén con Engativá 2 minutos más cerca (24 contra 26, el caso del dueño)
+  const ips = (id: string, localidad: string) => hospital(id, '11001', { department_id: '11', locality_id: localidad })
+  const usa = [ips('usa-1', '1100101'), ips('usa-2', '1100101')]
+  const distancias: DistanceRecord[] = usa.flatMap(h => [dist(h.id, ENGATIVA, 24), dist(h.id, CHAPINERO, 26), dist(h.id, SAN_CRISTOBAL, 47), dist(h.id, KENNEDY, 44)])
+  const conRegla = await runClass(usa, distancias, rule(4))
+  check(
+    'clase: las IPS de Usaquén van a la celda del Norte con la regla (bogota_corredor, 26 min)',
+    conRegla.every(a => a.kam_id === CHAPINERO.id && a.assignment_type === 'bogota_corredor' && a.travel_time === min(26)),
+    JSON.stringify(conRegla)
+  )
+  const sinRegla = await runClass(usa, distancias, null)
+  check('clase: sin regla, a Engativá por 2 minutos (la regla de siempre)', sinRegla.every(a => a.kam_id === ENGATIVA.id && a.assignment_type === 'competitive'))
+  const forzada = await runClass(usa, distancias, rule(4), [
+    { territory_id: '1100101', territory_type: 'locality', territory_name: 'Usaquén', kam_id: KENNEDY.id, active: true },
+  ])
+  check('clase: una asignación forzada de la localidad sigue mandando', forzada.every(a => a.kam_id === KENNEDY.id && a.assignment_type === 'forced'))
+  const sinChapinero = await runClass(usa, distancias, rule(4), [], KAMS.filter(k => k.id !== CHAPINERO.id))
+  check('clase: con la celda del Norte inactiva, la regla de siempre (Engativá, competitive)', sinChapinero.every(a => a.kam_id === ENGATIVA.id && a.assignment_type === 'competitive'))
+
+  // La asignación de una IPS nueva (lectura del código, sin red): forzada → sector → territorio base → competencia
+  const ruta = readFileSync(path.join(__dirname, '..', 'app', 'api', 'hospitals', 'assign-to-kam', 'route.ts'), 'utf8')
+  const forzadaEn = ruta.indexOf(".from('forced_assignments')")
+  const sectorEn = ruta.indexOf('bogotaSectorCell(hospital')
+  const baseEn = ruta.indexOf('kams.find(k => isBaseTerritory(k, hospital))')
+  const competenciaEn = ruta.indexOf('competeForHospital(')
+  check(
+    'assign-to-kam: forzada, luego sector (bogotaSectorCell), luego territorio base y al final la competencia',
+    forzadaEn >= 0 && forzadaEn < sectorEn && sectorEn < baseEn && baseEn < competenciaEn,
+    JSON.stringify({ forzadaEn, sectorEn, baseEn, competenciaEn })
+  )
+}
+
 async function main() {
   print('Bogotá como una ciudad · pruebas puras (sin red)')
   print('')
@@ -596,6 +693,7 @@ async function main() {
   seccionAceptacion()
   await seccionClase()
   seccionLocalidadesSinIps()
+  await seccionSectores()
   print('')
   print(`Resultado: ${passed} OK, ${failed} con fallo`)
   if (failed > 0) process.exit(1)

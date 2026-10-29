@@ -97,7 +97,7 @@ export default function HospitalDetailPage() {
   const [assignment, setAssignment] = useState<{
     assignment_type: string | null
     travel_time: number | null
-    detail: { corredor?: string | null } | null
+    detail: { corredor?: string | null; localidad?: string | null } | null
   } | null>(null)
   const [editingDocumentsUrl, setEditingDocumentsUrl] = useState(false)
   const [documentsUrl, setDocumentsUrl] = useState('')
@@ -505,7 +505,7 @@ export default function HospitalDetailPage() {
                   <div>
                     <span className="text-gray-600">Asignación:</span>
                     <span className="ml-2 font-medium">
-                      {bogotaAssignmentLabel(assignment.detail?.corredor, kam.base_city || zoneDisplayName(kam.name))}
+                      {bogotaAssignmentLabel(assignment.detail?.corredor, zoneDisplayName(kam.name) || kam.base_city, assignment.detail?.localidad)}
                     </span>
                     {assignment.travel_time !== null && (
                       <span className="ml-2 text-sm text-gray-500">

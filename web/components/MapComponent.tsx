@@ -77,7 +77,7 @@ import {
 } from './mapStyles'
 import { useMediaQuery, matchesMediaQuery, MOBILE_QUERY, HOVER_QUERY } from './useMediaQuery'
 import { usePermissions } from '@/hooks/usePermissions'
-import { zoneDisplayName } from '@/lib/zone-names'
+import { bogotaSectorInitials, zoneDisplayName } from '@/lib/zone-names'
 import { mapDataPlaceholder } from '@/lib/map-view'
 import { computeTerritoryWinners, territoryIdOf, zonaDeLocalidadSinIps } from '@/lib/territory-rules'
 import { CORREDOR_LABEL, isCorredor, type LocalidadPorCorredor } from '@/lib/bogota-corredores'
@@ -695,10 +695,10 @@ export default function MapComponent({
     if (territoriesWithIps.has(code)) return { kind: 'ips', kamId: territoryWinners[code], isVacant }
     if (isVacant) return { kind: 'vacant', isVacant }
     if (isLocality) {
-      // Localidad sin IPS (zonaDeLocalidadSinIps): la zona que vive en ella (territorio base); si no hay, la celda
-      // de su corredor de salida (Santa Fe, La Candelaria, Usme y Sumapaz, 2026-10-28); si no, hereda como alcance
-      // la zona que gana Bogotá (fila 11001 de municipality_zone o, en su defecto, la misma regla de mayoría sobre
-      // todas las localidades). No hay tiempos por carretera hacia localidades.
+      // Localidad sin IPS (zonaDeLocalidadSinIps): la celda del sector (corredor) de la localidad, 4 sectores desde el
+      // 2026-10-28; si no está, la zona que vive en ella (territorio base); si no, hereda como alcance la zona que
+      // gana Bogotá (fila 11001 de municipality_zone o, en su defecto, la misma regla de mayoría sobre todas las
+      // localidades). No hay tiempos por carretera hacia localidades.
       const bogotaRow = municipalityByCode[BOGOTA_CODE]
       const fromRow = bogotaRow && (bogotaRow.kind === 'ips' || bogotaRow.kind === 'reach') ? bogotaRow.kam_id : null
       const zona = zonaDeLocalidadSinIps({
@@ -1348,9 +1348,19 @@ export default function MapComponent({
   const clusterSize = isMobile ? 30 : 34
   const badgeTextSize = isMobile ? 11 : 12
 
-  const zoneInitials = useMemo(() => uniqueCityInitials(
-    (mapData?.kams || []).map((k: any) => ({ id: k.id, city: k.base_city || zoneDisplayName(k.name) || k.name || '' }))
-  ), [mapData])
+  // Las Zonas de Bogotá por sector llevan su sector (N, Oc, S, Or), no la localidad de su punto base
+  const zoneInitials = useMemo(() => {
+    const kams: any[] = mapData?.kams || []
+    const sectorOf = (k: any) => bogotaSectorInitials(zoneDisplayName(k.name))
+    const initials = uniqueCityInitials(
+      kams.filter(k => !sectorOf(k)).map(k => ({ id: k.id, city: k.base_city || zoneDisplayName(k.name) || k.name || '' }))
+    )
+    kams.forEach(k => {
+      const sector = sectorOf(k)
+      if (sector) initials[k.id] = sector
+    })
+    return initials
+  }, [mapData])
 
   const zoneBadgeItems = useMemo<ZoneBadgeItem[]>(() => kamStats
     .filter((kam: any) => Number.isFinite(Number(kam.lat)) && Number.isFinite(Number(kam.lng)) && kam.lat && kam.lng)
@@ -1378,7 +1388,7 @@ export default function MapComponent({
         color,
         text: zoneInitials[kam.id] || initialsOf(kam.base_city || name),
         hollow,
-        shortName: shortCityName(kam.base_city) || name,
+        shortName: bogotaSectorInitials(name) ? name : shortCityName(kam.base_city) || name,
         label: `Zona ${name}`,
         groupKey: groupKeyForZone(kam.id),
         dimmed: isDimmedZone(kam.id),
@@ -1946,7 +1956,7 @@ export default function MapComponent({
         detail: `${zoneCount} ${zoneCount === 1 ? 'zona' : 'zonas'} · ${ipsCount} IPS`,
         zones: kamIds.length > 1
           ? kamIds.map(kamId => {
-              const city = shortCityName(lineView.baseCityOf(kamId)) || zoneLabelOf(kamId)
+              const city = bogotaSectorInitials(zoneLabelOf(kamId)) ? zoneLabelOf(kamId) : shortCityName(lineView.baseCityOf(kamId)) || zoneLabelOf(kamId)
               return {
                 key: kamId,
                 color: safeColor(kamColors[kamId], NO_COVERAGE_DATA_COLOR),

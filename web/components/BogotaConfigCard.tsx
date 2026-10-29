@@ -1,6 +1,6 @@
 'use client'
 
-// Tarjeta de /kams (solo admin): "Bogotá: cómo compite hacia afuera" (PR 3, 2026-10-11).
+// Tarjeta de /kams (solo admin): "Bogotá: sectores y corredores" (PR 3, 2026-10-11; sectores desde el 2026-10-28).
 // k = en cuántas zonas de Bogotá se reparte el cupo de Bogotá; celda que recibe cada grupo de
 // corredores; tope único. "Simular" ejecuta el motor en memoria (GET /api/kams/bogota-config/simulate,
 // solo lectura) y "Guardar" guarda la configuración (PUT /api/kams/bogota-config) SIN recalcular.
@@ -50,7 +50,8 @@ type SimulationResponse = BogotaSimulationSummary & { fuente_corredores: 'tabla'
 
 const K_OPTIONS: BogotaK[] = [1, 2, 3, 4]
 
-const cellLabel = (cell: Pick<Cell, 'name' | 'base_city'>) => cell.base_city || zoneDisplayName(cell.name)
+// Nombre de la zona ("Bogotá Norte"); la localidad del punto base solo si no hay nombre
+const cellLabel = (cell: Pick<Cell, 'name' | 'base_city'>) => zoneDisplayName(cell.name) || cell.base_city || ''
 
 const minutesText = (minutes: number | null | undefined) => {
   if (minutes === null || minutes === undefined) return 'sin tiempo'
@@ -77,7 +78,11 @@ function ChangeList({ items, empty }: { items: SimChange[]; empty: string }) {
             {' → '}
             {item.despues
               ? `${item.despues.zona} (${minutesText(item.despues.minutos)})${
-                  item.despues.corredor ? ` · corredor ${CORREDOR_LABEL[item.despues.corredor]}` : ''
+                  item.despues.sector
+                    ? ` · sector ${CORREDOR_LABEL[item.despues.sector]}`
+                    : item.despues.corredor
+                      ? ` · corredor ${CORREDOR_LABEL[item.despues.corredor]}`
+                      : ''
                 }`
               : 'Sin zona (fuera de alcance)'}
           </span>
@@ -232,12 +237,13 @@ export default function BogotaConfigCard() {
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 mb-4">
         <div>
           <h2 id="bogota-config-title" className="text-xl font-bold text-gray-900">
-            Bogotá: cómo compite hacia afuera
+            Bogotá: sectores y corredores
           </h2>
           <p className="text-sm text-gray-600 mt-1 max-w-3xl">
-            Dentro de Bogotá nada cambia: cada localidad se reparte por mayoría entre las zonas de Bogotá. Hacia
-            afuera, Bogotá compite como una sola ciudad: su tiempo es el mejor entre sus zonas y su tope es uno solo.
-            Si Bogotá gana una IPS, la recibe la zona del corredor de salida del municipio.
+            Dentro de Bogotá cada localidad es de un sector (Norte, Occidente, Sur u Oriente) y sus IPS van a la zona
+            de ese sector, sin contar minutos. Hacia afuera, Bogotá compite como una sola ciudad: su tiempo es el mejor
+            entre sus zonas y su tope es uno solo. Si Bogotá gana una IPS, la recibe la zona del corredor de salida del
+            municipio. Cada zona recibe su sector y su corredor.
           </p>
         </div>
         {data.updated_at && (
@@ -255,7 +261,7 @@ export default function BogotaConfigCard() {
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div>
-            <p className="text-sm font-medium text-gray-700 mb-2">¿En cuántas zonas se reparte Bogotá hacia afuera?</p>
+            <p className="text-sm font-medium text-gray-700 mb-2">¿En cuántas zonas se reparte Bogotá (sus sectores y lo que gana afuera)?</p>
             <div className="grid grid-cols-4 gap-2" role="radiogroup" aria-label="Número de zonas">
               {K_OPTIONS.map(option => (
                 <button
@@ -274,10 +280,10 @@ export default function BogotaConfigCard() {
               ))}
             </div>
             <p className="text-xs text-gray-500 mt-2">
-              {k === 4 && 'Cada corredor tiene su zona.'}
-              {k === 3 && 'Norte, Occidente y el grupo Sur y Oriente.'}
-              {k === 2 && 'Dos grupos: Norte y Oriente; Occidente y Sur.'}
-              {k === 1 && 'Una sola zona recibe todo lo que Bogotá gane afuera.'}
+              {k === 4 && 'Cada sector y su corredor tienen su zona.'}
+              {k === 3 && 'Norte, Occidente y el grupo Sur y Oriente (sectores y corredores).'}
+              {k === 2 && 'Dos grupos: Norte y Oriente; Occidente y Sur (sectores y corredores).'}
+              {k === 1 && 'Una sola zona recibe toda Bogotá y lo que gane afuera.'}
             </p>
 
             <label htmlFor="bogota-max" className="block text-sm font-medium text-gray-700 mt-5 mb-2">
@@ -448,9 +454,15 @@ function SimulationResult({ simulation, cellById }: { simulation: SimulationResp
         </div>
       </div>
       <p className="text-sm text-gray-700 mt-3">
-        Por corredor:{' '}
+        Por corredor (afuera):{' '}
         {(Object.keys(t.por_corredor) as Corredor[]).map(c => `${CORREDOR_LABEL[c]} ${t.por_corredor[c]}`).join(' · ')}
       </p>
+      {t.por_sector && (
+        <p className="text-sm text-gray-700 mt-1">
+          Por sector (IPS de Bogotá):{' '}
+          {(Object.keys(t.por_sector) as Corredor[]).map(c => `${CORREDOR_LABEL[c]} ${t.por_sector[c]}`).join(' · ')}
+        </p>
+      )}
       {t.otros_cambios > 0 && (
         <p className="text-xs text-gray-500 mt-1">
           Además, {t.otros_cambios} IPS cambiarían entre zonas que no son de Bogotá: son datos pendientes de
@@ -476,7 +488,7 @@ function SimulationResult({ simulation, cellById }: { simulation: SimulationResp
                   {cellById.get(cell.kam_id) ? cellLabel(cellById.get(cell.kam_id) as Cell) : cell.nombre}
                 </td>
                 <td className="py-2 pr-3 text-gray-700">
-                  {cell.corredores.length > 0 ? cell.corredores.map(c => CORREDOR_LABEL[c]).join(', ') : 'Solo su localidad'}
+                  {cell.corredores.length > 0 ? cell.corredores.map(c => CORREDOR_LABEL[c]).join(', ') : 'Sin sector ni corredor'}
                 </td>
                 <td className="py-2 pr-3 text-right">{cell.antes}</td>
                 <td className="py-2 pr-3 text-right">{cell.despues}</td>
