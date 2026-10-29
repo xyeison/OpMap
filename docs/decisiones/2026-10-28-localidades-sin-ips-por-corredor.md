@@ -11,8 +11,10 @@ oriente de San Cristóbal.
    de afuera (regla de Bogotá del 2026-10-11): Usme por la vía al Llano, Sumapaz (se entra por Usme), Santa Fe por la
    vía a Choachí y La Candelaria (rodeada por Santa Fe). Las cuatro van al corredor Oriente, que hoy recibe San
    Cristóbal.
-2. Si la gerencia cambia la celda del corredor Oriente en la configuración de Bogotá, las cuatro la siguen. Sin
-   configuración, o con esa celda inactiva, vuelve la regla anterior (la Zona que gana Bogotá).
+2. La celda del corredor es la que dejó el último recálculo (la que más municipios del corredor recibieron), no la
+   configuración guardada: si la gerencia cambia la celda del corredor Oriente, las cuatro la siguen al recalcular,
+   junto con Choachí, Une y el Meta. Sin regla de Bogotá, o con esa celda inactiva, vuelve la regla anterior (la Zona
+   que gana Bogotá).
 3. Con IPS manda, como siempre, la mayoría de camas, y la zona residente manda sobre el corredor.
 
 **Consecuencias**:
@@ -20,9 +22,11 @@ oriente de San Cristóbal.
   "va con la zona de su corredor de salida (Oriente)". Colores, opacidades y capas no cambian.
 - No cambia ninguna asignación de IPS ni ninguna cifra de camas. Las localidades sin IPS siguen sin entrar en ningún
   anexo, y no hay migración ni costo de Google.
+- En la tarjeta de cada Zona, la cuenta de territorios "de alcance" pasa a Engativá −4 y San Cristóbal +4.
 - La propuesta de 4 sectores por localidad sigue pendiente. Si se aprueba, reemplaza esta lista.
 
-**Dónde vive en el código**: `CORREDOR_DE_LOCALIDAD` y `localidadesPorCorredor` en `web/lib/bogota-corredores.ts`;
+**Dónde vive en el código**: `CORREDOR_DE_LOCALIDAD`, `celdasAplicadasPorCorredor` y `localidadesPorCorredor` en
+`web/lib/bogota-corredores.ts`;
 `zonaDeLocalidadSinIps` en `web/lib/territory-rules.ts`; `localidadesDeBogota` y el campo `localidades` de GET
 `/api/municipality-coverage` en `web/lib/municipality-coverage.ts`; `resolveTerritory` en
 `web/components/MapComponent.tsx`. Pruebas en `web/scripts/bogota-check.ts` (sección 5) y

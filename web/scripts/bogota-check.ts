@@ -15,17 +15,21 @@
  *  4. k = 1/2/3/4, municipio sin corredor, celda no activa, empates e IPS de Bogotá sin cambios,
  *     ejecutando la clase SimplifiedOpMapAlgorithm en memoria (loadFromData, sin base de datos).
  *  5. Localidades de Bogotá sin IPS (spec docs/specs/2026-10-28-localidades-sin-ips-por-corredor.md):
- *     CORREDOR_DE_LOCALIDAD, localidadesPorCorredor y el orden del mapa (zonaDeLocalidadSinIps).
+ *     CORREDOR_DE_LOCALIDAD, celdasAplicadasPorCorredor, localidadesPorCorredor, el orden del mapa
+ *     (zonaDeLocalidadSinIps) y, leyendo components/MapComponent.tsx, que las IPS manden y los textos del corredor.
  *
  * Uso (desde web/): npx tsx scripts/bogota-check.ts   (incluida en npm run test)
  * Código de salida 1 si alguna prueba falla.
  */
+import { readFileSync } from 'fs'
+import path from 'path'
 import {
   AGRUPACIONES_POR_K,
   CORREDORES,
   CORREDOR_DE_LOCALIDAD,
   SEMILLA_CORREDORES,
   celdaParaCorredor,
+  celdasAplicadasPorCorredor,
   gruposParaK,
   gruposPorDefecto,
   localidadesPorCorredor,
@@ -535,6 +539,53 @@ function seccionLocalidadesSinIps() {
     zonaDeLocalidadSinIps({ residente: null, porCorredor: { kam_id: 'kam-borrada', corredor: 'oriente' }, ganadorBogota: ENGATIVA.id, existe })?.fuente === 'bogota'
   )
   check('orden del mapa: sin nada, null (pendiente)', zonaDeLocalidadSinIps({ residente: null, porCorredor: null, ganadorBogota: null, existe }) === null)
+
+  // La celda del corredor sale del último recálculo (filas de municipality_zone), no de bogota_config.grupos
+  const esCelda = (kamId: string) => CELDAS.some(c => c.id === kamId)
+  const fila = (municipality_code: string, kam_id: string | null, kind = 'reach') => ({ municipality_code, kam_id, kind })
+  const aplicadas = celdasAplicadasPorCorredor(
+    [fila('25181', SAN_CRISTOBAL.id), fila('25845', SAN_CRISTOBAL.id), fila('50001', CHAPINERO.id, 'ips'), fila('15001', CHAPINERO.id)],
+    SEMILLA_CORREDORES,
+    esCelda
+  )
+  check(
+    'celdas aplicadas: Oriente → la celda que más municipios del corredor recibieron (Choachí y Une: San Cristóbal; Villavicencio: Chapinero)',
+    aplicadas.oriente === SAN_CRISTOBAL.id && aplicadas.norte === CHAPINERO.id,
+    JSON.stringify(aplicadas)
+  )
+  check(
+    'celdas aplicadas: no cuentan los fuera de alcance, los de zonas que no son celdas ni los municipios sin corredor (Bogotá)',
+    Object.keys(
+      celdasAplicadasPorCorredor(
+        [fila('25181', null, 'out_of_reach'), fila('25845', 'kam-73001'), fila('11001', ENGATIVA.id, 'ips')],
+        SEMILLA_CORREDORES,
+        esCelda
+      )
+    ).length === 0
+  )
+  const empate = celdasAplicadasPorCorredor([fila('25181', SAN_CRISTOBAL.id), fila('25845', KENNEDY.id)], SEMILLA_CORREDORES, esCelda)
+  check('celdas aplicadas: empate → el kam_id menor (determinista)', empate.oriente === [SAN_CRISTOBAL.id, KENNEDY.id].sort()[0], JSON.stringify(empate))
+  check(
+    'guardar Oriente → Chapinero sin recalcular no cambia las localidades: siguen con la celda del último recálculo',
+    localidadesPorCorredor({ grupos: aplicadas }, activas)['1100105']?.kam_id === SAN_CRISTOBAL.id
+  )
+
+  // El mapa (lectura del código, sin red): las IPS asignadas mandan y los textos dicen "corredor"
+  const componente = readFileSync(path.join(__dirname, '..', 'components', 'MapComponent.tsx'), 'utf8')
+  const resolver = componente.slice(componente.indexOf('const resolveTerritory = useCallback'))
+  const conIps = resolver.indexOf('territoriesWithIps.has(code)')
+  check(
+    'mapa: en resolveTerritory la mayoría de camas de las IPS va antes que la regla de la localidad sin IPS',
+    conIps >= 0 && conIps < resolver.indexOf('zonaDeLocalidadSinIps(')
+  )
+  check(
+    'mapa: el globo dice "(corredor …)" y solo sin corredor "(gana Bogotá)"',
+    componente.includes("t.corredor ? ` (corredor ${corredorLabel(t.corredor) || t.corredor})` : t.bogotaInherited ? ' (gana Bogotá)' : ''")
+  )
+  check(
+    'mapa: la tarjeta dice "va con la zona de su corredor de salida" antes del caso "gana Bogotá"',
+    /if \(t\.corredor\) \{\s*title = `Zona \$\{zone\} · De alcance: localidad sin IPS hoy; va con la zona de su corredor de salida[^`]*`\s*\} else if \(t\.bogotaInherited\)/.test(componente)
+  )
 }
 
 async function main() {

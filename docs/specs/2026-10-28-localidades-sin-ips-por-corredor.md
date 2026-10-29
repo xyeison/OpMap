@@ -13,14 +13,16 @@ oriente de San Cristóbal, al otro lado de la ciudad.
 Una localidad sin IPS y sin zona residente va con la celda de su corredor de salida, igual que los municipios vecinos
 de afuera (regla de Bogotá del 2026-10-11): Usme por la vía al Llano, Sumapaz (se entra por Usme), Santa Fe por la vía
 a Choachí y La Candelaria (rodeada por Santa Fe), las cuatro al corredor Oriente. Con la configuración de hoy
-(Oriente → San Cristóbal) las cuatro se pintan como alcance de San Cristóbal. Si la gerencia cambia el grupo del
-corredor Oriente, las localidades lo siguen.
+(Oriente → San Cristóbal) las cuatro se pintan como alcance de San Cristóbal. La celda del corredor es la que dejó el
+último recálculo (la celda de Bogotá que más municipios del corredor recibieron en `municipality_zone`), no la
+configuración guardada: igual que los municipios y las IPS, guardar la configuración no cambia el mapa hasta recalcular.
 
 ## Criterios de aceptación (se convierten en pruebas)
-- [ ] Con k = 4 (Oriente → San Cristóbal), las cuatro localidades salen con San Cristóbal y el corredor Oriente.
-- [ ] Con k = 2 (Norte + Oriente → Chapinero), salen con Chapinero.
-- [ ] Sin configuración de Bogotá, o con la celda del corredor inactiva o fuera de la asignación, no salen (el mapa
-      vuelve a la regla anterior: la Zona que gana Bogotá).
+- [ ] Con el último recálculo hecho con k = 4 (Oriente → San Cristóbal), las cuatro salen con San Cristóbal y el
+      corredor Oriente.
+- [ ] Guardar k = 2 (Norte + Oriente → Chapinero) sin recalcular no las cambia; al recalcular, salen con Chapinero.
+- [ ] Sin regla de Bogotá, con la celda del corredor inactiva o fuera de la asignación, o si la lectura falla, no
+      salen (el mapa vuelve a la regla anterior: la Zona que gana Bogotá) y el resto de los municipios se pinta igual.
 - [ ] Orden en el mapa: IPS asignadas (mayoría de camas) > zona residente > corredor > Zona que gana Bogotá > pendiente.
 - [ ] La tarjeta y el globo dicen que la localidad va por su corredor, no "gana Bogotá".
 
@@ -39,13 +41,16 @@ corredor Oriente, las localidades lo siguen.
 - Permisos / roles: ninguno. GET /api/municipality-coverage suma el campo `localidades`.
 
 ## Plan (archivos e interfaces)
-- `web/lib/bogota-corredores.ts`: `CORREDOR_DE_LOCALIDAD` y `localidadesPorCorredor(config, celdasActivas)` (puras).
+- `web/lib/bogota-corredores.ts`: `CORREDOR_DE_LOCALIDAD`, `celdasAplicadasPorCorredor` y
+  `localidadesPorCorredor` (puras).
 - `web/lib/territory-rules.ts`: `zonaDeLocalidadSinIps` (orden residente > corredor > Bogotá), pura.
 - `web/lib/municipality-coverage.ts`: la respuesta de GET y del recálculo lleva `localidades` (código → celda y
-  corredor), con las celdas elegibles de siempre (`eligibleZones` + `isBogotaKam`).
+  corredor) a partir de las filas de `municipality_zone` y de las celdas elegibles de siempre (`eligibleZones` +
+  `isBogotaKam`); si esa lectura falla, `{}` con aviso en el registro.
 - `web/app/api/municipality-coverage/route.ts`: devuelve `localidades`.
 - `web/components/MapComponent.tsx`: `resolveTerritory` usa `zonaDeLocalidadSinIps`; globo y tarjeta.
-- Pruebas en `web/scripts/bogota-check.ts`.
+- Pruebas en `web/scripts/bogota-check.ts` (sección 5, incluida la lectura de `MapComponent.tsx`) y
+  `web/scripts/municipios-check.ts` (sección 7).
 
 ## Verificación final
 `npm run check` y captura del mapa de Bogotá con Santa Fe, La Candelaria, Usme y Sumapaz en morado claro.

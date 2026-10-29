@@ -138,9 +138,37 @@ export interface LocalidadPorCorredor {
 }
 
 /**
- * Celda de cada localidad de CORREDOR_DE_LOCALIDAD según `grupos`, solo si esa celda está entre las activas (activa
- * y en la asignación). Sin configuración, o con la celda inactiva, la localidad no sale y el mapa aplica la regla
- * anterior.
+ * Celda que el último recálculo le dio a cada corredor: la celda de Bogotá que más municipios del corredor recibieron
+ * (filas 'ips' o 'reach' de municipality_zone). Las localidades sin IPS la usan en vez de `bogota_config.grupos`, así
+ * guardar la configuración no las cambia antes de recalcular, igual que a los municipios y las IPS. Empate: el kam_id
+ * menor (determinista). `esCelda` dice qué kam_id son celdas de Bogotá.
+ */
+export function celdasAplicadasPorCorredor(
+  filas: Iterable<{ municipality_code: string; kam_id: string | null; kind: string }>,
+  corredores: readonly CorredorRow[],
+  esCelda: (kamId: string) => boolean
+): Partial<Record<Corredor, string>> {
+  const votos = new Map<Corredor, Map<string, number>>()
+  for (const fila of Array.from(filas)) {
+    if (!fila.kam_id || (fila.kind !== 'ips' && fila.kind !== 'reach') || !esCelda(fila.kam_id)) continue
+    const corredor = resolveCorredor(fila.municipality_code, null, corredores)
+    if (!corredor) continue
+    const porCelda = votos.get(corredor) ?? new Map<string, number>()
+    porCelda.set(fila.kam_id, (porCelda.get(fila.kam_id) ?? 0) + 1)
+    votos.set(corredor, porCelda)
+  }
+  const grupos: Partial<Record<Corredor, string>> = {}
+  votos.forEach((porCelda, corredor) => {
+    const [celda] = Array.from(porCelda.entries()).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))[0]
+    grupos[corredor] = celda
+  })
+  return grupos
+}
+
+/**
+ * Celda de cada localidad de CORREDOR_DE_LOCALIDAD según `grupos` (en el servidor, los de celdasAplicadasPorCorredor),
+ * solo si esa celda está entre las activas (activa y en la asignación). Sin grupos, o con la celda inactiva, la
+ * localidad no sale y el mapa aplica la regla anterior.
  */
 export function localidadesPorCorredor(
   config: Pick<BogotaConfig, 'grupos'> | null,

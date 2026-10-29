@@ -55,7 +55,7 @@ import {
   type BogotaRuleInput,
   type BogotaRuleStatus,
 } from './opmap-algorithm-simplified'
-import { localidadesPorCorredor, type LocalidadPorCorredor } from './bogota-corredores'
+import { celdasAplicadasPorCorredor, localidadesPorCorredor, type LocalidadPorCorredor } from './bogota-corredores'
 import { pickMajorityKam } from './territory-rules'
 import { zoneDisplayName } from './zone-names'
 import {
@@ -95,7 +95,8 @@ export interface MunicipalityCoverageResponse {
   computed_at: string | null
   /**
    * Localidades de Bogotá sin IPS con corredor (lib/bogota-corredores.ts: CORREDOR_DE_LOCALIDAD) → celda que las
-   * recibe. El mapa las usa solo si la localidad no tiene IPS asignadas ni zona residente. Vacío sin regla de Bogotá.
+   * recibe según el último recálculo. El mapa las usa solo si la localidad no tiene IPS asignadas ni zona residente.
+   * Vacío sin regla de Bogotá o si no se pudo leer.
    */
   localidades: Record<string, LocalidadPorCorredor>
 }
@@ -783,13 +784,38 @@ function toZoneInput(z: any): MunicipalityZoneInput {
   }
 }
 
-/** Celda de cada localidad de Bogotá sin IPS por su corredor, con las celdas elegibles del motor (activas y en la asignación). */
+/**
+ * Celda de cada localidad de Bogotá sin IPS por su corredor. La celda del corredor sale de lo que dejó el último
+ * recálculo (`filas` de municipality_zone: celdasAplicadasPorCorredor), no de bogota_config.grupos: guardar la
+ * configuración no cambia el mapa hasta recalcular. Solo cuentan las celdas elegibles hoy (activas y en la asignación).
+ */
 export function localidadesDeBogota(
   bogota: BogotaRuleInput | null,
+  filas: Array<Pick<MunicipalityZoneRow, 'municipality_code' | 'kam_id' | 'kind'>>,
   zones: MunicipalityZoneInput[]
 ): Record<string, LocalidadPorCorredor> {
-  const celdas = new Set(eligibleZones(zones).filter(isBogotaKam).map(zone => zone.id))
-  return localidadesPorCorredor(bogota?.config ?? null, celdas)
+  if (!bogota) return {}
+  const celdasDeBogota = new Set(zones.filter(isBogotaKam).map(zone => zone.id))
+  const elegibles = new Set(eligibleZones(zones).filter(isBogotaKam).map(zone => zone.id))
+  const grupos = celdasAplicadasPorCorredor(filas, bogota.corredores, kamId => celdasDeBogota.has(kamId))
+  return localidadesPorCorredor({ grupos }, elegibles)
+}
+
+/** `localidades` de GET con la tabla llena. Si una lectura falla, ninguna (el mapa usa la regla anterior para esas cuatro). */
+async function loadLocalidadesDeBogota(
+  db: SupabaseAdminClient,
+  filas: MunicipalityZoneRow[]
+): Promise<Record<string, LocalidadPorCorredor>> {
+  try {
+    const [zones, bogotaRule] = await Promise.all([
+      fetchAll<any>('kams', (from, to) => db.from('kams').select(ZONE_COLUMNS).order('id').range(from, to)),
+      loadBogotaRule(db),
+    ])
+    return localidadesDeBogota(bogotaRule.rule, filas, zones.map(toZoneInput))
+  } catch (error) {
+    console.warn('GET /api/municipality-coverage: localidades por corredor sin calcular:', error instanceof Error ? error.message : error)
+    return {}
+  }
 }
 
 /**
@@ -1191,7 +1217,7 @@ export async function recomputeAndSaveMunicipalityZones(
   const response: MunicipalityCoverageResponse = {
     rows: toCoverageRows(inputs.municipalities, zoneRows),
     computed_at: saved.computed_at,
-    localidades: localidadesDeBogota(inputs.bogota, inputs.zones),
+    localidades: localidadesDeBogota(inputs.bogota, zoneRows, inputs.zones),
   }
   setMunicipalityCoverageCache(response)
   return {
@@ -1223,20 +1249,14 @@ export async function loadMunicipalityCoverage(db: SupabaseAdminClient = supabas
 
   if (stored.length === 0) {
     const inputs = await loadMunicipalityInputs(db)
+    const zoneRows = computeMunicipalityZones(inputs)
     return {
-      rows: toCoverageRows(inputs.municipalities, computeMunicipalityZones(inputs)),
+      rows: toCoverageRows(inputs.municipalities, zoneRows),
       computed_at: null,
-      localidades: localidadesDeBogota(inputs.bogota, inputs.zones),
+      localidades: localidadesDeBogota(inputs.bogota, zoneRows, inputs.zones),
     }
   }
 
-  const [municipalities, zones, bogotaRule] = await Promise.all([
-    fetchAll<any>('municipalities', (from, to) =>
-      db.from('municipalities').select('code, name, department_code').order('code').range(from, to)
-    ),
-    fetchAll<any>('kams', (from, to) => db.from('kams').select(ZONE_COLUMNS).order('id').range(from, to)),
-    loadBogotaRule(db),
-  ])
   const computedAt = stored.reduce<string | null>(
     (latest, row) => (row.computed_at && (!latest || row.computed_at > latest) ? row.computed_at : latest),
     null
@@ -1250,13 +1270,19 @@ export async function loadMunicipalityCoverage(db: SupabaseAdminClient = supabas
     nearest_minutes: toNumber(row.nearest_minutes),
     ips_count: toNumber(row.ips_count) ?? 0,
   }))
+  const [municipalities, localidades] = await Promise.all([
+    fetchAll<any>('municipalities', (from, to) =>
+      db.from('municipalities').select('code, name, department_code').order('code').range(from, to)
+    ),
+    loadLocalidadesDeBogota(db, zoneRows),
+  ])
   return {
     rows: toCoverageRows(
       municipalities.map(m => ({ code: String(m.code).trim(), name: String(m.name ?? ''), department_code: String(m.department_code ?? '').trim() })),
       zoneRows
     ),
     computed_at: computedAt,
-    localidades: localidadesDeBogota(bogotaRule.rule, zones.map(toZoneInput)),
+    localidades,
   }
 }
 
