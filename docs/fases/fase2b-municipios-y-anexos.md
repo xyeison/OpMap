@@ -23,7 +23,7 @@ scripts/fase2b-municipios.ts` (dry-run, sin Google) → el dueño autoriza el ga
     (hoy hay topes de 240 y 360 min). Sin ninguna candidata (San Andrés, Guainía) → `out_of_reach`
     sin "más cercana".
   - **Bogotá hacia afuera compite como UNA ciudad** (desde el 2026-10-28, igual que las IPS desde el
-    2026-10-11): mejor tiempo de sus celdas, tope único `bogota_config.max_travel_minutes` (360) y la
+    2026-10-11): mejor tiempo de sus celdas, tope único `bogota_config.max_travel_minutes` (380 desde el 2026-10-28) y la
     celda la decide el corredor del municipio (`docs/algoritmo-asignacion.md`, punto 8 de "Bogotá hacia
     afuera"; pruebas en `web/scripts/municipios-check.ts`).
 - **Modelo (0500)**, las 4 con RLS, sin políticas y solo service_role:
