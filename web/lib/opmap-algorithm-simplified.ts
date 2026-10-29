@@ -793,7 +793,7 @@ export class SimplifiedOpMapAlgorithm {
     console.log(`  Total hospitales en territorios forzados: ${assignments.length}`)
 
     // FASE 0b: Bogotá por sectores (2026-10-28). Cada IPS de Bogotá va a la celda del corredor de su localidad,
-    // antes del territorio base (la localidad de Chapinero es del sector Oriente aunque ahí viva la celda del Norte)
+    // antes del territorio base (el sector manda aunque en la localidad viva la celda de otro sector)
     // y sin competir por minutos. Sin regla de Bogotá o con la celda del sector inactiva, sigue la regla de siempre.
     if (this.bogotaRule) {
       console.log('\n🧭 FASE 0b: Bogotá por sectores (corredor de cada localidad)...')

@@ -7,8 +7,8 @@
 --   2. hospital_kam_distances y municipality_travel_times de la zona: se reemplazan por los respaldos _norte (los
 --      tiempos desde Chapinero), sin la columna respaldado_en; los pares de IPS borradas después se omiten.
 --   3. Los respaldos NO se borran (se borran a mano cuando el dueño dé por bueno el resultado).
--- Después hay que recalcular IPS y municipios (sin Google). Lo pagado a Google por los tiempos desde Usaquén no se
--- recupera.
+-- Después hay que recalcular, sin Google: IPS (fase1-recalculate --yes), municipios (fase2b-municipios --assign) y
+-- cobertura por línea (fase2-recalculate). Lo pagado a Google por los tiempos desde Usaquén no se recupera.
 -- =====================================================================================
 
 BEGIN;

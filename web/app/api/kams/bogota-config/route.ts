@@ -48,8 +48,8 @@ export async function GET(request: NextRequest) {
       config: saved?.config ?? null,
       updated_at: saved?.updated_at ?? null,
       updated_by_name: updatedByName,
-      // Configuración inicial aprobada (k = 4: Norte → Chapinero, Occidente → Engativá, Sur → Kennedy,
-      // Oriente → San Cristóbal), por si la fila no existe todavía
+      // Configuración inicial aprobada (k = 4: Norte → Bogotá Norte, con punto base en Usaquén desde la 0903;
+      // Occidente → Engativá, Sur → Kennedy, Oriente → San Cristóbal), por si la fila no existe todavía
       por_defecto: {
         k: DEFAULT_BOGOTA_K,
         max_travel_minutes: DEFAULT_BOGOTA_MAX_TRAVEL_MINUTES,

@@ -126,7 +126,8 @@ export interface ZonaDeLocalidadSinIps {
  * Zona de una localidad de Bogotá SIN IPS asignadas (el mapa la pinta como alcance). Orden:
  *   1. la celda del sector (corredor) de la localidad según el último recálculo (lib/bogota-corredores.ts:
  *      localidadesPorCorredor; 4 sectores desde el 2026-10-28), si el mapa tiene esa zona (`existe`). Va antes que la
- *      zona residente: la localidad de Chapinero es del sector Oriente aunque ahí viva la celda del Norte;
+ *      zona residente: el sector manda aunque en la localidad viva la celda de otro sector (así era Chapinero, del
+ *      Oriente, mientras el punto base del Norte estuvo ahí, hasta la 0903);
  *   2. la zona que vive en ella (territorio base);
  *   3. la Zona que gana Bogotá entera por camas (fila 11001 de municipality_zone o la misma mayoría), ya resuelta.
  * null = sin zona (pendiente).
