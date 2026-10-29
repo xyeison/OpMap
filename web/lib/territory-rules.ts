@@ -146,3 +146,31 @@ export function zonaDeLocalidadSinIps(opciones: {
   if (ganadorBogota) return { kam_id: ganadorBogota, fuente: 'bogota' }
   return null
 }
+
+/**
+ * Un territorio con IPS asignadas y otras sin zona se pinta con su Zona si la MAYORÍA está asignada (dueño,
+ * 2026-10-28: "si está asignada la mayoría, sí"); si no, se marca vacante. Mayoría como en el resto del mapa: más
+ * camas asignadas que sin zona y, si empatan, más IPS; un empate total no es mayoría. Sin IPS asignadas → false;
+ * sin IPS sin zona → true.
+ */
+export function mayoriaAsignada(
+  asignadas: Iterable<{ beds: number | null | undefined }>,
+  sinZona: Iterable<{ beds: number | null | undefined }>
+): boolean {
+  let camasAsignadas = 0
+  let ipsAsignadas = 0
+  for (const h of Array.from(asignadas)) {
+    camasAsignadas += safeBeds(h.beds)
+    ipsAsignadas++
+  }
+  let camasSinZona = 0
+  let ipsSinZona = 0
+  for (const h of Array.from(sinZona)) {
+    camasSinZona += safeBeds(h.beds)
+    ipsSinZona++
+  }
+  if (ipsAsignadas === 0) return false
+  if (ipsSinZona === 0) return true
+  if (camasAsignadas !== camasSinZona) return camasAsignadas > camasSinZona
+  return ipsAsignadas > ipsSinZona
+}

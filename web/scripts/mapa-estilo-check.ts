@@ -34,6 +34,7 @@ import {
   grisDeZona,
 } from '../components/mapStyles'
 import { bogotaSectorInitials } from '../lib/zone-names'
+import { mayoriaAsignada } from '../lib/territory-rules'
 
 let passed = 0
 let failed = 0
@@ -208,6 +209,20 @@ console.log('\n5. Un solo color por Zona en las dos vistas (dueño, 2026-10-28)'
   eq('sin tilde y en minúsculas también', bogotaSectorInitials('bogota sur'), 'S')
   eq('otra Zona ("Chapinero", "Barranquilla"): null', [bogotaSectorInitials('Chapinero'), bogotaSectorInitials('Barranquilla')].join(','), ',')
   eq('"Bogotá" sola o con otro nombre: null', [bogotaSectorInitials('Bogotá'), bogotaSectorInitials('Bogotá Centro')].join(','), ',')
+}
+
+// ---------------------------------------------------------------------------------------------
+// 7. Vacante por mayoría (dueño, 2026-10-28: "si está asignada la mayoría, sí"): un territorio con IPS asignadas y otras
+//    sin zona se pinta con su Zona si la mayoría (camas; si empatan, IPS) está asignada; si no, vacante.
+{
+  const camas = (...lista: Array<number | null>) => lista.map(beds => ({ beds }))
+  eq('Yopal: 5 asignadas con 204 camas y 2 sin zona con 124 → con su Zona', mayoriaAsignada(camas(60, 50, 40, 30, 24), camas(90, 34)), true)
+  eq('más camas sin zona → vacante', mayoriaAsignada(camas(50), camas(40, 30)), false)
+  eq('mismas camas: decide el número de IPS (2 contra 1 → con su Zona)', mayoriaAsignada(camas(30, 30), camas(60)), true)
+  eq('empate total (camas e IPS) → vacante', mayoriaAsignada(camas(40), camas(40)), false)
+  eq('IPS sin camas (0 o null): decide el número de IPS', mayoriaAsignada(camas(0, null, 0), camas(null)), true)
+  eq('sin IPS asignadas → vacante', mayoriaAsignada([], camas(10)), false)
+  eq('sin IPS sin zona → con su Zona', mayoriaAsignada(camas(10), []), true)
 }
 
 // ---------------------------------------------------------------------------------------------

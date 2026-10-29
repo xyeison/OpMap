@@ -75,7 +75,8 @@ Estilo autorizado por el dueño el 2026-10-11 (rama `ui/mapa-estetica`; constant
   regla de mayoría) relleno 0.55; de alcance (sin IPS hoy) mismo color a 0.22. Borde blanco fino
   (0.6 px, opacidad 0.7); nunca bordes gris oscuro ni negros. Hover (solo con cursor): relleno +0.15 y
   borde blanco de 1.5 px. Resaltar un Ejecutivo Comercial / zona desde la leyenda deja el resto a 0.08.
-- **Estados con color fijo**: vacante en la línea (o territorio solo con IPS sin zona): relleno pizarra
+- **Estados con color fijo**: vacante en la línea (o territorio solo con IPS sin zona, o cuya mayoría de IPS está sin
+  zona; desde el 2026-10-28 un territorio con la mayoría asignada se pinta con su Zona, `mayoriaAsignada`): relleno pizarra
   sólido #94a3b8 a 0.5 en municipios con IPS y 0.3 en los de alcance de la zona vacante, con borde
   pizarra #64748b sólido de 0.8 px (no blanco) para que se lea como "hueco" a escala país (antes
   #cbd5e1 a 0.35: el dueño pidió el 2026-10-11 que Bucaramanga se viera más); sin rayado ni borde rojo;
