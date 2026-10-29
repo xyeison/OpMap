@@ -54,7 +54,9 @@ scripts/fase2b-municipios.ts` (dry-run, sin Google) → el dueño autoriza el ga
   line_leader en su línea), `municipalities:recompute` (admin).
 - **Mapa** (excepción autorizada por el dueño 2026-10-11 a "no agregar capas"): capa completa de
   municipios y localidades desde `web/public/geo/municipios.json` (1.120, sin 11001) y
-  `localidades.json` (20), generados con `scripts/build-geojson.ts` (mapshaper). Estilo actualizado el
+  `localidades.json` (20), generados con `scripts/build-geojson.ts` (mapshaper; desde el 2026-10-29 a partir del
+  MGN 2025 del DANE, con detalle por departamento en `detalle/<dd>.json` desde zoom 10: ver "2026-10-29 · Fronteras
+  oficiales del DANE" en `docs/mapa-estetica.md`). Estilo actualizado el
   2026-10-11 (ver "Estética del Mapa"): con IPS 0,55; de alcance: mismo color a 0,22; fuera de alcance:
   #e5e7eb con borde #9ca3af discontinuo; sin acceso terrestre: #d1d5db con trama de puntos; pendiente:
   blanco con borde #e5e7eb. Leyenda "Con IPS objetivo (visitar)", "De alcance (sin IPS hoy)", "Fuera de
