@@ -118,18 +118,40 @@ export function celdaParaCorredor(corredor: Corredor, config: Pick<BogotaConfig,
 }
 
 /**
- * Corredor de salida de las localidades de Bogotá que hoy no tienen IPS (2026-10-28, spec
- * docs/specs/2026-10-28-localidades-sin-ips-por-corredor.md). El mapa las pintaba con la Zona que gana Bogotá
- * entera por camas, sin mirar dónde quedan (Santa Fe y Usme salían con Engativá). Ahora van con la celda de su
- * corredor, como los municipios vecinos de afuera. Solo cuenta si la localidad no tiene IPS asignadas ni zona
- * residente; con IPS manda la mayoría de camas. Una localidad que no esté aquí y se quede sin IPS sigue con la
- * regla anterior (la Zona que gana Bogotá). `bogota_corredores` solo acepta municipios de 5 dígitos.
+ * Sector de cada localidad de Bogotá (dueño, 2026-10-28: "Si, hazlo. Norte, Occidente, Sur y Oriente"; spec
+ * docs/specs/2026-10-28-bogota-4-sectores.md). El sector es el mismo corredor que usan los municipios de afuera, así
+ * cada Zona de Bogotá recibe su sector de la ciudad y lo que sale por su corredor:
+ *  - IPS de Bogotá: van a la celda del corredor de su localidad (bogotaSectorCell), sin minutos ni tope.
+ *  - Mapa: una localidad sin IPS se pinta con la celda de su corredor según el último recálculo.
+ * `bogota_corredores` solo acepta municipios de 5 dígitos; por eso la tabla vive aquí.
  */
 export const CORREDOR_DE_LOCALIDAD: Readonly<Record<string, Corredor>> = {
-  '1100103': 'oriente', // Santa Fe: vía a Choachí
-  '1100105': 'oriente', // Usme: vía al Llano
-  '1100117': 'oriente', // La Candelaria: rodeada por Santa Fe
-  '1100120': 'oriente', // Sumapaz: se entra por Usme
+  '1100101': 'norte', // Usaquén
+  '1100111': 'occidente', // Suba
+  '1100110': 'occidente', // Engativá
+  '1100109': 'occidente', // Fontibón
+  '1100112': 'occidente', // Barrios Unidos
+  '1100113': 'occidente', // Teusaquillo
+  '1100108': 'sur', // Kennedy
+  '1100107': 'sur', // Bosa
+  '1100119': 'sur', // Ciudad Bolívar
+  '1100106': 'sur', // Tunjuelito
+  '1100116': 'sur', // Puente Aranda
+  '1100114': 'sur', // Los Mártires
+  '1100115': 'sur', // Antonio Nariño
+  '1100102': 'oriente', // Chapinero
+  '1100103': 'oriente', // Santa Fe
+  '1100117': 'oriente', // La Candelaria
+  '1100104': 'oriente', // San Cristóbal
+  '1100118': 'oriente', // Rafael Uribe Uribe
+  '1100105': 'oriente', // Usme
+  '1100120': 'oriente', // Sumapaz
+}
+
+/** Corredor (sector) de una localidad de Bogotá, o null si no es una localidad de la tabla. */
+export function corredorDeLocalidad(localityId: string | null | undefined): Corredor | null {
+  const code = (localityId || '').trim()
+  return code ? CORREDOR_DE_LOCALIDAD[code] ?? null : null
 }
 
 export interface LocalidadPorCorredor {

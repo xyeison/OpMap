@@ -1,6 +1,6 @@
 'use client'
 
-// Tarjeta de /kams (solo admin): "Bogotá: cómo compite hacia afuera" (PR 3, 2026-10-11).
+// Tarjeta de /kams (solo admin): "Bogotá: sectores y corredores" (PR 3, 2026-10-11; sectores desde el 2026-10-28).
 // k = en cuántas zonas de Bogotá se reparte el cupo de Bogotá; celda que recibe cada grupo de
 // corredores; tope único. "Simular" ejecuta el motor en memoria (GET /api/kams/bogota-config/simulate,
 // solo lectura) y "Guardar" guarda la configuración (PUT /api/kams/bogota-config) SIN recalcular.
@@ -50,7 +50,8 @@ type SimulationResponse = BogotaSimulationSummary & { fuente_corredores: 'tabla'
 
 const K_OPTIONS: BogotaK[] = [1, 2, 3, 4]
 
-const cellLabel = (cell: Pick<Cell, 'name' | 'base_city'>) => cell.base_city || zoneDisplayName(cell.name)
+// Nombre de la zona ("Bogotá Norte"); la localidad del punto base solo si no hay nombre
+const cellLabel = (cell: Pick<Cell, 'name' | 'base_city'>) => zoneDisplayName(cell.name) || cell.base_city || ''
 
 const minutesText = (minutes: number | null | undefined) => {
   if (minutes === null || minutes === undefined) return 'sin tiempo'
@@ -232,12 +233,13 @@ export default function BogotaConfigCard() {
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 mb-4">
         <div>
           <h2 id="bogota-config-title" className="text-xl font-bold text-gray-900">
-            Bogotá: cómo compite hacia afuera
+            Bogotá: sectores y corredores
           </h2>
           <p className="text-sm text-gray-600 mt-1 max-w-3xl">
-            Dentro de Bogotá nada cambia: cada localidad se reparte por mayoría entre las zonas de Bogotá. Hacia
-            afuera, Bogotá compite como una sola ciudad: su tiempo es el mejor entre sus zonas y su tope es uno solo.
-            Si Bogotá gana una IPS, la recibe la zona del corredor de salida del municipio.
+            Dentro de Bogotá cada localidad es de un sector (Norte, Occidente, Sur u Oriente) y sus IPS van a la zona
+            de ese sector, sin contar minutos. Hacia afuera, Bogotá compite como una sola ciudad: su tiempo es el mejor
+            entre sus zonas y su tope es uno solo. Si Bogotá gana una IPS, la recibe la zona del corredor de salida del
+            municipio. Cada zona recibe su sector y su corredor.
           </p>
         </div>
         {data.updated_at && (
@@ -476,7 +478,7 @@ function SimulationResult({ simulation, cellById }: { simulation: SimulationResp
                   {cellById.get(cell.kam_id) ? cellLabel(cellById.get(cell.kam_id) as Cell) : cell.nombre}
                 </td>
                 <td className="py-2 pr-3 text-gray-700">
-                  {cell.corredores.length > 0 ? cell.corredores.map(c => CORREDOR_LABEL[c]).join(', ') : 'Solo su localidad'}
+                  {cell.corredores.length > 0 ? cell.corredores.map(c => CORREDOR_LABEL[c]).join(', ') : 'Sin sector ni corredor'}
                 </td>
                 <td className="py-2 pr-3 text-right">{cell.antes}</td>
                 <td className="py-2 pr-3 text-right">{cell.despues}</td>

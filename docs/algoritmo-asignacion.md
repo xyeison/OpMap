@@ -28,7 +28,9 @@ OpMap no asigna departamentos completos: cada territorio de KAM se construye com
 Los KAMs ubicados en localidades de Bogotá tienen reglas especiales:
 - Solo ellos compiten por IPS dentro de las localidades de Bogotá
 - Pueden expandirse a Cundinamarca y sus departamentos vecinos
-- Las localidades compartidas se asignan por mayoría de IPS ganadas
+- Desde el 2026-10-28 Bogotá se reparte en **4 sectores por localidad** (Norte, Occidente, Sur y Oriente): cada IPS
+  de Bogotá va a la Zona del sector de su localidad, sin minutos (ver "Bogotá en 4 sectores" abajo). Antes las
+  localidades compartidas se asignaban por mayoría de IPS ganadas
 - Esto evita que KAMs externos "invadan" la capital
 - Hacia afuera (IPS fuera de Bogotá) sus celdas compiten como UNA ciudad con tope único y reparto por
   corredor de salida: ver "Bogotá hacia afuera: una ciudad, cuatro corredores" (desde 2026-10-11)
@@ -280,6 +282,33 @@ La configuración individual permite estrategias diferenciadas como:
 - Zonas estratégicas con prioridad alta para ganar en casos de empate
 - Control selectivo de expansión según potencial de mercado
 
+## Bogotá en 4 sectores (desde el 2026-10-28)
+
+_Spec: `docs/specs/2026-10-28-bogota-4-sectores.md`. Decisión del dueño:
+`docs/decisiones/2026-10-28-bogota-4-sectores.md` ("Si, hazlo. Norte, Occidente, Sur y Oriente")._
+
+- Cada localidad pertenece a un sector, que es el mismo corredor que usan los municipios de afuera
+  (`CORREDOR_DE_LOCALIDAD` en `web/lib/bogota-corredores.ts`):
+  - **Norte**: Usaquén.
+  - **Occidente**: Suba, Engativá, Fontibón, Barrios Unidos, Teusaquillo.
+  - **Sur**: Kennedy, Bosa, Ciudad Bolívar, Tunjuelito, Puente Aranda, Los Mártires, Antonio Nariño.
+  - **Oriente**: Chapinero, Santa Fe, La Candelaria, San Cristóbal, Rafael Uribe Uribe, Usme, Sumapaz.
+- Una IPS de Bogotá va a la celda que recibe el corredor de su localidad (`bogota_config.grupos`), sin minutos ni
+  tope. Es la fase 0b del motor (`bogotaSectorCell`), después de las forzadas y antes del territorio base: la
+  localidad de Chapinero es del Oriente aunque ahí viva la celda del Norte. Se guarda `assignment_type =
+  'bogota_corredor'`, `detail = {"corredor":"norte","localidad":"1100101"}` y el tiempo real de esa celda (o null).
+- Sin regla de Bogotá, IPS sin localidad de la tabla o con la celda del sector inactiva: la regla de siempre
+  (territorio base, minutos y mayoría por camas).
+- Hacia afuera nada cambia: Bogotá compite como una ciudad y el corredor del municipio decide la celda. Así cada
+  Zona recibe su sector de la ciudad y lo que sale por su corredor: Usaquén y Chía quedan en la misma Zona.
+- Las celdas se llaman **Bogotá Norte** (punto base en Chapinero), **Bogotá Occidente** (Engativá), **Bogotá Sur**
+  (Kennedy) y **Bogotá Oriente** (San Cristóbal). El punto base del Norte sigue en Chapinero hasta que el dueño
+  autorice recalcular sus tiempos desde Usaquén (Google, cerca de 7,40 USD).
+- La asignación de una IPS nueva (`POST /api/hospitals/assign-to-kam`) aplica el mismo paso antes del territorio
+  base.
+- Mapa: una localidad sin IPS se pinta con la celda de su sector según el último recálculo, por encima de la zona
+  residente (`zonaDeLocalidadSinIps`).
+
 ## Bogotá hacia afuera: una ciudad, cuatro corredores
 
 _Desde el 2026-10-11. Spec: `docs/specs/2026-10-11-bogota-corredores.md`. Decisión del dueño:
@@ -295,8 +324,9 @@ rango". Pedido: que Bogotá (o cualquier ciudad grande partida en celdas) tenga 
 
 ### La regla
 
-1. **Dentro de Bogotá nada cambia**: por las IPS con `locality_id` 11001xx solo compiten celdas de Bogotá,
-   territorio base y regla de mayoría por camas en cada localidad, igual que antes.
+1. **Dentro de Bogotá** (hasta el 2026-10-28): por las IPS con `locality_id` 11001xx solo competían celdas de
+   Bogotá, territorio base y regla de mayoría por camas en cada localidad. Desde el 2026-10-28 decide el sector de
+   la localidad (ver "Bogotá en 4 sectores").
 2. **Territorio base y asignaciones forzadas**: sin cambios (las forzadas mandan sobre todo).
 3. **IPS fuera de Bogotá** (`department_id` distinto de '11'): si alguna celda es elegible para la IPS
    (`canKamCompeteForHospital`: Cundinamarca, sus limítrofes y nivel 2), las celdas **no compiten por
@@ -338,8 +368,8 @@ rango". Pedido: que Bogotá (o cualquier ciudad grande partida en celdas) tenga 
 
 Los grupos son fijos (`AGRUPACIONES_POR_K`); el administrador elige qué celda recibe cada grupo y cada grupo
 va a una celda distinta. `bogota_config.grupos` guarda siempre los cuatro corredores (con k = 2, Norte y
-Oriente apuntan a la misma celda). Una celda que no recibe ningún corredor solo conserva lo de dentro de
-Bogotá (su localidad, las que gane por mayoría) y sus forzadas.
+Oriente apuntan a la misma celda). Desde los sectores (2026-10-28), una celda que no recibe ningún corredor no recibe
+tampoco ningún sector: solo sus forzadas.
 
 ### Corredores sembrados (`bogota_corredores`, 145 filas: 29 departamentos + 116 municipios)
 
@@ -381,7 +411,7 @@ hoy con SQL (no hay pantalla); la fila del municipio gana sobre la del departame
 
 ### Dónde se configura y cómo se simula
 
-- `/kams` → tarjeta **"Bogotá: cómo compite hacia afuera"** (solo admin, permiso `kams:bogota-config`):
+- `/kams` → tarjeta **"Bogotá: sectores y corredores"** (solo admin, permiso `kams:bogota-config`):
   k (1–4), celda de cada grupo de corredores y tope único (60–600 min).
 - **Simular** → `GET /api/kams/bogota-config/simulate?k&max&norte&occidente&sur&oriente` (permiso
   `recalculate:complete`): corre el algoritmo completo **en memoria** con la configuración propuesta (sin

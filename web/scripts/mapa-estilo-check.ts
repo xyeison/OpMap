@@ -33,6 +33,7 @@ import {
   colorDeZonaEnLinea,
   grisDeZona,
 } from '../components/mapStyles'
+import { bogotaSectorInitials } from '../lib/zone-names'
 
 let passed = 0
 let failed = 0
@@ -194,6 +195,19 @@ console.log('\n5. Un solo color por Zona en las dos vistas (dueño, 2026-10-28)'
   eq('racimo con un solo color (mayúsculas o no): ese color', colorDeRacimo([{ color: '#2563EB', hollow: false }, { color: '#2563eb', hollow: false }]), '#2563EB')
   eq('racimo todo sin cobertura: el de la insignia hueca', colorDeRacimo([{ color: '#9aa0a6', hollow: true }, { color: '#b0b4b8', hollow: true }]), VACANT_BADGE_COLOR)
   eq('racimo mixto (alguna sin cobertura): neutro', colorDeRacimo([{ color: '#2563EB', hollow: false }, { color: '#2563EB', hollow: true }]), CLUSTER_NEUTRAL_COLOR)
+}
+
+// ---------------------------------------------------------------------------------------------
+// 6. Insignias de las Zonas de Bogotá por sector (dueño, 2026-10-28, docs/specs/2026-10-28-bogota-4-sectores.md):
+//    llevan el sector, no la localidad de su punto base; las demás Zonas siguen con su ciudad base.
+{
+  eq('"Bogotá Norte" → N', bogotaSectorInitials('Bogotá Norte'), 'N')
+  eq('"Bogotá Occidente" → Oc', bogotaSectorInitials('Bogotá Occidente'), 'Oc')
+  eq('"Bogotá Sur" → S', bogotaSectorInitials('Bogotá Sur'), 'S')
+  eq('"Bogotá Oriente" → Or (distinta de Occidente)', bogotaSectorInitials('Bogotá Oriente'), 'Or')
+  eq('sin tilde y en minúsculas también', bogotaSectorInitials('bogota sur'), 'S')
+  eq('otra Zona ("Chapinero", "Barranquilla"): null', [bogotaSectorInitials('Chapinero'), bogotaSectorInitials('Barranquilla')].join(','), ',')
+  eq('"Bogotá" sola o con otro nombre: null', [bogotaSectorInitials('Bogotá'), bogotaSectorInitials('Bogotá Centro')].join(','), ',')
 }
 
 // ---------------------------------------------------------------------------------------------

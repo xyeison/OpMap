@@ -231,6 +231,10 @@ console.log('\n5. Ficha de la IPS: fila "Bogotá" y texto del corredor')
   check('sin celdas con distancia: sin fila agregada', bogotaDistanceAggregate([rows[0]], '15', 240) === null)
   check('texto "Bogotá (corredor Norte) → Chapinero"', bogotaAssignmentLabel('norte', 'Chapinero') === 'Bogotá (corredor Norte) → Chapinero')
   check('texto sin corredor', bogotaAssignmentLabel(null, 'Kennedy').startsWith('Bogotá (sin corredor'))
+  check(
+    'texto de una IPS de Bogotá asignada por su sector: "Bogotá, sector Norte → Bogotá Norte"',
+    bogotaAssignmentLabel('norte', 'Bogotá Norte', '1100101') === 'Bogotá, sector Norte → Bogotá Norte'
+  )
 }
 
 console.log(`\n${passed} pruebas OK, ${failed} fallidas`)

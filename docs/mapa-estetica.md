@@ -82,10 +82,11 @@ Estilo autorizado por el dueño el 2026-10-11 (rama `ui/mapa-estetica`; constant
   conflicto #f59e0b a 0.4; sin equipo: rayado del color de la zona (capa SVG);
   fuera de alcance #e5e7eb a 0.5 con borde #9ca3af discontinuo de 0.8 px; sin acceso terrestre #d1d5db
   a 0.45 con trama de puntos (patrón SVG); pendiente blanco a 0.3 con borde #e5e7eb (solo lo que de
-  verdad falta calcular). Localidades de Bogotá sin IPS: la zona residente; si no hay, la celda de su corredor
-  de salida (desde el 2026-10-28: Santa Fe, La Candelaria, Usme y Sumapaz por el corredor Oriente,
-  `CORREDOR_DE_LOCALIDAD`); si no, la zona que gana Bogotá (fila 11001 de `municipality_zone`; respaldo: misma
-  regla de mayoría sobre las 20 localidades), pintadas como alcance (0.22).
+  verdad falta calcular). Localidades de Bogotá sin IPS: la celda de su sector (corredor) según el último
+  recálculo (desde el 2026-10-28, `CORREDOR_DE_LOCALIDAD`; hoy Santa Fe, La Candelaria, Usme y Sumapaz, del
+  Oriente); si no está, la zona residente; si no, la zona que gana Bogotá (fila 11001 de `municipality_zone`;
+  respaldo: misma regla de mayoría sobre las 20 localidades), pintadas como alcance (0.22). Las insignias de las
+  Zonas de Bogotá llevan su sector (N, Oc, S, Or; `bogotaSectorInitials`), no la localidad de su punto base.
 - **Puntos de IPS**: círculo del color de la vista (0.95) con borde blanco de 1.5 px; radio 4 px, 5.5 desde
   100 camas y 7 desde 300 camas; compactos (2.5 px) por debajo de zoom 6. IPS sin zona en la vista
   (incluye departamentos excluidos, p. ej. San Andrés): gris claro #9ca3af de 3.5 px (`IPS_UNZONED_COLOR`).

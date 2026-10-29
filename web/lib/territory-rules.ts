@@ -124,9 +124,10 @@ export interface ZonaDeLocalidadSinIps {
 
 /**
  * Zona de una localidad de Bogotá SIN IPS asignadas (el mapa la pinta como alcance). Orden:
- *   1. la zona que vive en ella (territorio base);
- *   2. la celda de su corredor de salida (lib/bogota-corredores.ts: localidadesPorCorredor, 2026-10-28), si el
- *      mapa tiene esa zona (`existe`);
+ *   1. la celda del sector (corredor) de la localidad según el último recálculo (lib/bogota-corredores.ts:
+ *      localidadesPorCorredor; 4 sectores desde el 2026-10-28), si el mapa tiene esa zona (`existe`). Va antes que la
+ *      zona residente: la localidad de Chapinero es del sector Oriente aunque ahí viva la celda del Norte;
+ *   2. la zona que vive en ella (territorio base);
  *   3. la Zona que gana Bogotá entera por camas (fila 11001 de municipality_zone o la misma mayoría), ya resuelta.
  * null = sin zona (pendiente).
  */
@@ -137,10 +138,10 @@ export function zonaDeLocalidadSinIps(opciones: {
   existe: (kamId: string) => boolean
 }): ZonaDeLocalidadSinIps | null {
   const { residente, porCorredor, ganadorBogota, existe } = opciones
-  if (residente) return { kam_id: residente, fuente: 'residente' }
   if (porCorredor?.kam_id && existe(porCorredor.kam_id)) {
     return { kam_id: porCorredor.kam_id, fuente: 'corredor', corredor: porCorredor.corredor }
   }
+  if (residente) return { kam_id: residente, fuente: 'residente' }
   if (ganadorBogota) return { kam_id: ganadorBogota, fuente: 'bogota' }
   return null
 }

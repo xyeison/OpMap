@@ -303,7 +303,7 @@ async function main() {
       a: zoneName(after?.kam_id),
       min_a: fmtMin(after?.seconds),
       corredor: corredor ? CORREDOR_LABEL[corredor] : '(sin corredor)',
-      bogota_min: fmtMin(detail?.bogota_min_segundos ?? info?.virtual?.min_seconds ?? null),
+      bogota_min: fmtMin((detail && 'bogota_min_segundos' in detail ? detail.bogota_min_segundos : null) ?? info?.virtual?.min_seconds ?? null),
       por_la_regla: legacyMap.get(id)?.kam_id !== after?.kam_id,
     })
   }
@@ -376,7 +376,7 @@ async function main() {
     const key = `${a.detail?.corredor ? CORREDOR_LABEL[a.detail.corredor] : '(sin corredor)'} -> ${zoneName(a.kam_id)}`
     cupo.set(key, (cupo.get(key) ?? 0) + 1)
   }
-  const corredorDistintoDeMin = nueva.filter(a => a.assignment_type === 'bogota_corredor' && a.detail && a.detail.celda_min !== a.kam_id).length
+  const corredorDistintoDeMin = nueva.filter(a => a.assignment_type === 'bogota_corredor' && a.detail && 'celda_min' in a.detail && a.detail.celda_min !== a.kam_id).length
 
   const count = (t: Movimiento['tipo']) => movimientos.filter(m => m.tipo === t).length
   const totals = {

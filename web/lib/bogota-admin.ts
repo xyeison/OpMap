@@ -263,8 +263,9 @@ export interface BuildSimulationInput {
 const minutesOf = (seconds: number | null | undefined) =>
   seconds === null || seconds === undefined || !Number.isFinite(seconds) ? null : Math.round(seconds / 60)
 
+// Nombre de la zona ("Bogotá Norte"); la localidad del punto base solo si no hay nombre
 function cellName(cell: Pick<SimCell, 'name' | 'base_city'>): string {
-  return (cell.base_city && cell.base_city.trim()) || cell.name.replace(/^\s*KAM\s+/i, '').trim()
+  return cell.name.replace(/^\s*KAM\s+/i, '').trim() || (cell.base_city && cell.base_city.trim()) || ''
 }
 
 /**
@@ -459,10 +460,14 @@ export function bogotaDistanceAggregate(
   }
 }
 
-/** Texto de la ficha para una asignación 'bogota_corredor': "Bogotá (corredor Norte) → Chapinero". */
-export function bogotaAssignmentLabel(corredor: string | null | undefined, cellName: string): string {
+/**
+ * Texto de la ficha para una asignación 'bogota_corredor': hacia afuera "Bogotá (corredor Norte) → Bogotá Norte"; una
+ * IPS de Bogotá asignada por el sector de su localidad (detail.localidad, 2026-10-28) "Bogotá, sector Norte → Bogotá Norte".
+ */
+export function bogotaAssignmentLabel(corredor: string | null | undefined, cellName: string, localidad?: string | null): string {
   if (typeof corredor === 'string' && (CORREDORES as readonly string[]).includes(corredor)) {
-    return `Bogotá (corredor ${CORREDOR_LABEL[corredor as Corredor]}) → ${cellName}`
+    const label = CORREDOR_LABEL[corredor as Corredor]
+    return localidad ? `Bogotá, sector ${label} → ${cellName}` : `Bogotá (corredor ${label}) → ${cellName}`
   }
   return `Bogotá (sin corredor: celda con menor tiempo) → ${cellName}`
 }

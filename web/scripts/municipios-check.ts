@@ -432,9 +432,15 @@ function seccionLocalidadesSinIps() {
   const hoy = localidadesDeBogota(regla(360), ultimo, ZONAS)
   check(
     'último recálculo (Meta, corredor Oriente: 2 municipios en San Cristóbal y 1 con IPS en Kennedy): las cuatro → San Cristóbal',
-    JSON.stringify(Object.keys(hoy).sort()) === JSON.stringify(SIN_IPS) && SIN_IPS.every(code => hoy[code].kam_id === 'scr' && hoy[code].corredor === 'oriente'),
+    SIN_IPS.every(code => hoy[code]?.kam_id === 'scr' && hoy[code]?.corredor === 'oriente'),
     JSON.stringify(hoy)
   )
+  check(
+    'las 20 localidades salen con la celda de su sector (Usaquén → Chapinero por Boyacá; Teusaquillo → Engativá por el Tolima; Kennedy → Kennedy por Fusagasugá)',
+    Object.keys(hoy).length === 20 && hoy['1100101']?.kam_id === 'cha' && hoy['1100113']?.kam_id === 'eng' && hoy['1100108']?.kam_id === 'ken',
+    JSON.stringify(hoy)
+  )
+  const sinLasCuatro = (localidades: Record<string, unknown>) => SIN_IPS.every(code => !(code in localidades))
   const k2 = regla(360, { k: 2, grupos: { norte: 'cha', oriente: 'cha', occidente: 'eng', sur: 'eng' } })
   check(
     'guardar k = 2 (Oriente → Chapinero) sin recalcular no las cambia: siguen con San Cristóbal',
@@ -444,13 +450,13 @@ function seccionLocalidadesSinIps() {
   check('al recalcular con k = 2: las cuatro → Chapinero', SIN_IPS.every(code => localidadesDeBogota(k2, recalculado, ZONAS)[code]?.kam_id === 'cha'))
   check('sin regla de Bogotá: vacío', Object.keys(localidadesDeBogota(null, ultimo, ZONAS)).length === 0)
   const inactiva = ZONAS.map(z => (z.id === 'scr' ? { ...z, active: false } : z))
-  check('San Cristóbal desactivada después del recálculo: vacío (el mapa vuelve a la regla anterior)', Object.keys(localidadesDeBogota(regla(360), ultimo, inactiva)).length === 0)
+  check('San Cristóbal desactivada después del recálculo: las del Oriente no salen (el mapa vuelve a la regla anterior)', sinLasCuatro(localidadesDeBogota(regla(360), ultimo, inactiva)))
   const fuera = ZONAS.map(z => (z.id === 'scr' ? { ...z, participates_in_assignment: false } : z))
-  check('San Cristóbal fuera de la asignación: vacío', Object.keys(localidadesDeBogota(regla(360), ultimo, fuera)).length === 0)
+  check('San Cristóbal fuera de la asignación: las del Oriente no salen', sinLasCuatro(localidadesDeBogota(regla(360), ultimo, fuera)))
   const sinOriente = ultimo.filter(row => !row.municipality_code.startsWith('50'))
-  check('ningún municipio del corredor Oriente con una celda: vacío', Object.keys(localidadesDeBogota(regla(360), sinOriente, ZONAS)).length === 0)
+  check('ningún municipio del corredor Oriente con una celda: las del Oriente no salen', sinLasCuatro(localidadesDeBogota(regla(360), sinOriente, ZONAS)))
   const aNeiva = ultimo.map(row => (row.municipality_code.startsWith('50') ? { ...row, kam_id: 'nei' } : row))
-  check('una zona de fuera de Bogotá que ganó los municipios del corredor no cuenta como celda', Object.keys(localidadesDeBogota(regla(360), aNeiva, ZONAS)).length === 0)
+  check('una zona de fuera de Bogotá que ganó los municipios del corredor no cuenta como celda', sinLasCuatro(localidadesDeBogota(regla(360), aNeiva, ZONAS)))
 }
 
 function main() {
