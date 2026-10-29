@@ -333,8 +333,9 @@ rango". Pedido: que Bogotá (o cualquier ciudad grande partida en celdas) tenga 
    separado**. Compite un candidato virtual **"Bogotá"** con:
    - tiempo = el **mejor tiempo real** (`hospital_kam_distances`, SEGUNDOS) entre las celdas elegibles que
      tienen distancia;
-   - tope = **`bogota_config.max_travel_minutes`** (240 por defecto; **360 desde el 2026-10-28**, decisión del
-     dueño `docs/decisiones/2026-10-28-municipios-por-corredor-de-bogota.md`), el mismo para toda Bogotá. Se ignora el
+   - tope = **`bogota_config.max_travel_minutes`** (240 por defecto; 360 desde el 2026-10-28, decisión del dueño
+     `docs/decisiones/2026-10-28-municipios-por-corredor-de-bogota.md`, y **380 (6 h 20) desde esa misma noche** para que
+     entre Yopal, `docs/decisiones/2026-10-28-bogota-tope-380.md`), el mismo para toda Bogotá. Se ignora el
      `kams.max_travel_time` de cada celda; las demás zonas conservan el suyo;
    - empate exacto con otra zona: gana la de mayor prioridad (la de la celda con el mejor tiempo), como siempre.
 4. **Si gana "Bogotá", la celda la decide el corredor de salida del municipio, no los minutos**:
@@ -449,7 +450,8 @@ hoy con SQL (no hay pantalla); la fila del municipio gana sobre la del departame
   se refrescaron con Google los tiempos de las 4 celdas a las 22 IPS de Meta y Casanare, que eran del 2025-08-07 con la
   vía al Llano cerrada (`scripts/tiempos-bogota-refrescar.ts`, 88 elementos, 0,44 USD): Villavicencio pasó de ~7 h 27
   a ~2 h 40 y Granada de ~9 h a ~4 h, y las dos quedan en San Cristóbal por el corredor Oriente sin forzarlas. Yopal
-  queda a ~6 h 30 (más que el tope de 360): sus 7 IPS quedan sin zona.
+  queda a ~6 h 30 (más que el tope de 360): sus 7 IPS quedan sin zona. Con el punto del Norte en Usaquén y el tope en
+  380 (misma noche), 5 de esas 7 IPS entran a Bogotá Oriente por el corredor de Casanare.
 - Con k = 2 (Norte + Oriente → Chapinero, Occidente + Sur → Engativá): Chapinero 64, Engativá 66, Kennedy 17,
   San Cristóbal 30; 35 IPS cambian y las mismas 4 quedan fuera de alcance.
 
