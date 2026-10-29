@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { useMap, useMapEvent } from 'react-leaflet'
+import { deptosEnVista, type Rectangulo } from '@/lib/geo-detalle'
 
 interface MapControllerProps {
   center?: [number, number]
@@ -36,4 +37,23 @@ export function ZoomGate({ min, children }: { min: number; children: ReactNode }
   const [zoom, setZoom] = useState(() => map.getZoom())
   useMapEvent('zoomend', () => setZoom(map.getZoom()))
   return zoom >= min ? <>{children}</> : null
+}
+
+/**
+ * Avisa, al terminar cada movimiento o zoom, qué departamentos se ven y el zoom (detalle de los polígonos al
+ * acercar, lib/geo-detalle.ts). No dibuja nada.
+ */
+export function DeptosEnVista({ rectangulos, onChange }: {
+  rectangulos: Record<string, Rectangulo[]>
+  onChange: (deptos: string[], zoom: number) => void
+}) {
+  const map = useMap()
+  const avisar = useCallback(() => {
+    const b = map.getBounds()
+    const zoom = map.getZoom()
+    onChange(deptosEnVista([b.getWest(), b.getSouth(), b.getEast(), b.getNorth()], zoom, rectangulos), zoom)
+  }, [map, rectangulos, onChange])
+  useEffect(() => { avisar() }, [avisar])
+  useMapEvent('moveend', avisar)
+  return null
 }

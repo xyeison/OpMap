@@ -1,7 +1,7 @@
 'use client'
 
 import { MapContainer, TileLayer, GeoJSON, CircleMarker, Tooltip, ZoomControl, AttributionControl, Pane } from 'react-leaflet'
-import { useQuery } from '@tanstack/react-query'
+import { useQueries, useQuery } from '@tanstack/react-query'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
@@ -10,7 +10,7 @@ import { VisitsHeatmapLayer } from './VisitsHeatmapLayer'
 import { formatTravelTimeFromSeconds } from '@/lib/format-utils'
 import MapControls from './MapControls'
 import { EMPTY_IPS_FILTER, isIpsFilterActive, matchesIpsFilter, type IpsServiceFilter } from '@/lib/hospital-service-filters'
-import MapController, { ZoomGate } from './MapController'
+import MapController, { DeptosEnVista, ZoomGate } from './MapController'
 import HospitalMarker, { UnassignedHospitalMarker, IpsZoomLayer, formatZoneExecutives, ipsRadius, IPS_FULL_SIZE_ZOOM, type HospitalSelectHandler, type ZoneExecutive } from './HospitalMarker'
 import MapLegend, { MapLegendCard, type LegendEntry, type LegendNote, type LegendState, type LegendViewBy, type LegendViewSelect } from './MapLegend'
 import MapBottomSheet, { SHEET_PEEK_PX, type SheetSnap } from './MapBottomSheet'
@@ -83,6 +83,7 @@ import { mapDataPlaceholder } from '@/lib/map-view'
 import { computeTerritoryWinners, mayoriaAsignada, territoryIdOf, zonaDeLocalidadSinIps } from '@/lib/territory-rules'
 import { CORREDOR_LABEL, isCorredor, type LocalidadPorCorredor } from '@/lib/bogota-corredores'
 import { geometriasDeTerritorio, rectanguloDeGeometrias, territoriosBuscables, type TerritorioBuscable } from '@/lib/buscar-territorios'
+import { DEPTO_LOCALIDADES, combinarDetalle, porDepto, rectangulosPorDepto, siguientesDeptos, urlDetalle } from '@/lib/geo-detalle'
 // NO usar estimaciones - solo datos reales de Google Maps
 
 // Fix for default markers in Next.js
@@ -595,6 +596,55 @@ export default function MapComponent({
   // Los puntos se agregan cuando ya están los polígonos (las visitas comparten su canvas y deben quedar encima)
   const geoSettled = (!!municipiosGeo || municipiosGeoError) && (!!localidadesGeo || localidadesGeoError)
 
+  // Detalle al acercar (dueño, 2026-10-29: los colores siguen las fronteras del DANE; lib/geo-detalle.ts): desde
+  // DETALLE_ZOOM los departamentos que se ven se pintan con public/geo/detalle/<dd>.json; al alejar, vista de país
+  const rectangulosDepto = useMemo(() => rectangulosPorDepto([
+    ...(Array.isArray(municipiosGeo?.features) ? municipiosGeo.features : []),
+    ...(Array.isArray(localidadesGeo?.features) ? localidadesGeo.features : [])
+  ]), [municipiosGeo, localidadesGeo])
+  const [deptosDetalle, setDeptosDetalle] = useState<readonly string[]>([])
+  const onDeptosEnVista = useCallback((visibles: string[], zoom: number) => {
+    setDeptosDetalle(antes => siguientesDeptos(antes, visibles, zoom))
+  }, [])
+  const detalleCargado = useCallback((resultados: Array<{ data?: any }>) => {
+    const detalle: Record<string, any[]> = {}
+    resultados.forEach((r, i) => {
+      if (Array.isArray(r.data?.features)) detalle[deptosDetalle[i]] = r.data.features
+    })
+    return detalle
+  }, [deptosDetalle])
+  const detallePorDepto = useQueries({
+    queries: deptosDetalle.map(depto => ({
+      queryKey: ['geo', 'detalle', depto],
+      queryFn: async () => {
+        const res = await fetch(urlDetalle(depto))
+        if (!res.ok) throw new Error(`Error ${res.status} al cargar ${urlDetalle(depto)}`)
+        return res.json()
+      },
+      ...geoQueryOptions
+    })),
+    combine: detalleCargado
+  })
+  // Departamentos pintados con detalle: entra en la clave de las capas que repiten la geometría
+  const firmaDetalle = Object.keys(detallePorDepto).sort().join('.')
+  // Una capa por departamento: el detalle de uno llega sin volver a crear los polígonos de los demás
+  const municipiosPorDepto = useMemo(
+    () => porDepto<any>(Array.isArray(municipiosGeo?.features) ? municipiosGeo.features : []),
+    [municipiosGeo]
+  )
+  const capasMunicipios = useMemo(() => Object.keys(municipiosPorDepto).sort().map(depto => ({
+    key: `geo-municipios-${depto}${detallePorDepto[depto] ? '-detalle' : ''}`,
+    data: { type: 'FeatureCollection', features: detallePorDepto[depto] ?? municipiosPorDepto[depto] }
+  })), [municipiosPorDepto, detallePorDepto])
+  const municipiosVista = useMemo(() => municipiosGeo && {
+    type: 'FeatureCollection',
+    features: combinarDetalle<any>(Array.isArray(municipiosGeo.features) ? municipiosGeo.features : [], detallePorDepto)
+  }, [municipiosGeo, detallePorDepto])
+  const localidadesVista = useMemo(() => localidadesGeo && (detallePorDepto[DEPTO_LOCALIDADES]
+    ? { type: 'FeatureCollection', features: detallePorDepto[DEPTO_LOCALIDADES] }
+    : localidadesGeo
+  ), [localidadesGeo, detallePorDepto])
+
   // Reparto de municipios sin IPS por tiempo real de carretera (municipality_zone). Mientras la tabla
   // no exista o no tenga filas, la respuesta se trata como vacía y esos municipios quedan 'pending'.
   const { data: municipalityCoverage = EMPTY_MUNICIPALITY_COVERAGE } = useQuery<MunicipalityCoverage>({
@@ -1027,13 +1077,14 @@ export default function MapComponent({
         const code = String(f?.properties?.code ?? '')
         return isNoEquipment(resolveTerritory(code, isLocality))
       }).map((f: any) => ({ ...f, properties: { ...f.properties, isLocality } }))
-    const features = [...pick(municipiosGeo, false), ...pick(localidadesGeo, true)]
+    // Misma geometría que el relleno (con el detalle de lo que se ve)
+    const features = [...pick(municipiosVista, false), ...pick(localidadesVista, true)]
     if (features.length === 0) return null
     const codes = features.map((f: any) => f.properties.code).join(',')
     let hash = 0
     for (let i = 0; i < codes.length; i++) hash = (hash * 31 + codes.charCodeAt(i)) | 0
-    return { data: { type: 'FeatureCollection', features }, key: `${lineView?.line.code}-${features.length}-${hash}` }
-  }, [isLineMode, municipiosGeo, localidadesGeo, isNoEquipment, resolveTerritory, lineView])
+    return { data: { type: 'FeatureCollection', features }, key: `${lineView?.line.code}-${features.length}-${hash}-${firmaDetalle}` }
+  }, [isLineMode, municipiosVista, localidadesVista, firmaDetalle, isNoEquipment, resolveTerritory, lineView])
 
   // Solo el relleno rayado: el borde blanco lo dibuja el canvas de encima
   const noEquipmentOverlayStyle = useCallback((feature?: any): L.PathOptions => {
@@ -1051,14 +1102,14 @@ export default function MapComponent({
 
   // Trama de puntos de "sin acceso terrestre" (solo municipios; no dependen de la línea)
   const noRoadOverlay = useMemo(() => {
-    const features = (Array.isArray(municipiosGeo?.features) ? municipiosGeo.features : []).filter((f: any) =>
+    const features = (Array.isArray(municipiosVista?.features) ? municipiosVista.features : []).filter((f: any) =>
       resolveTerritory(String(f?.properties?.code ?? ''), false).kind === 'no_road')
     if (features.length === 0) return null
     const codes = features.map((f: any) => String(f.properties?.code ?? '')).join(',')
     let hash = 0
     for (let i = 0; i < codes.length; i++) hash = (hash * 31 + codes.charCodeAt(i)) | 0
-    return { data: { type: 'FeatureCollection', features }, key: `sin-acceso-${features.length}-${hash}` }
-  }, [municipiosGeo, resolveTerritory])
+    return { data: { type: 'FeatureCollection', features }, key: `sin-acceso-${features.length}-${hash}-${firmaDetalle}` }
+  }, [municipiosVista, firmaDetalle, resolveTerritory])
 
   // Conteos de la leyenda y municipios por zona (con IPS / de alcance) para la tarjeta de cada zona
   const territorySummary = useMemo(() => {
@@ -2188,24 +2239,26 @@ export default function MapComponent({
           />
           <ZoomControl key={isMobile ? 'zoom-mobile' : 'zoom-desktop'} position={isMobile ? 'bottomright' : 'topright'} />
 
-          {/* Todos los municipios (sin Bogotá) y las localidades: un solo <GeoJSON> por colección, estilo
-              por feature. Con IPS: color de la zona 0.55; sin IPS: alcance / fuera de alcance / sin carretera. */}
-          {municipiosGeo && (
+          {/* Todos los municipios (sin Bogotá) y las localidades, estilo por feature. Con IPS: color de la zona 0.55;
+              sin IPS: alcance / fuera de alcance / sin carretera. Una capa por departamento: desde DETALLE_ZOOM la de
+              cada departamento que se ve cambia a su detalle sin volver a crear las demás. */}
+          {capasMunicipios.map(capa => (
             <GeoJSON
-              key="geo-municipios"
-              data={municipiosGeo}
+              key={capa.key}
+              data={capa.data as any}
               style={municipiosStyle}
               eventHandlers={municipiosHandlers}
             />
-          )}
-          {localidadesGeo && (
+          ))}
+          {localidadesVista && (
             <GeoJSON
-              key="geo-localidades"
-              data={localidadesGeo}
+              key={detallePorDepto[DEPTO_LOCALIDADES] ? 'geo-localidades-detalle' : 'geo-localidades'}
+              data={localidadesVista}
               style={localidadesStyle}
               eventHandlers={localidadesHandlers}
             />
           )}
+          <DeptosEnVista rectangulos={rectangulosDepto} onChange={onDeptosEnVista} />
           {/* Rayado "sin equipo" de la línea (SVG, sin eventos), en un panel bajo el canvas de territorios */}
           <Pane name={HATCH_PANE} style={{ zIndex: 390 }}>
             {noEquipmentOverlay && (

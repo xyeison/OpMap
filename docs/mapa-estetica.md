@@ -272,6 +272,25 @@ que ya había (ninguna clase ni color nuevo).
   tarjeta ni añade capas o marcadores.
 - La pestaña "Buscar" de "Filtros y visitas" sigue para las IPS.
 
+### 2026-10-29 · Fronteras oficiales del DANE (forma de los bordes, no estilo)
+
+- Pedido: "Porque las lineas de los colores no respetan las lineas fronterizas reales" (Zipaquirá y Nemocón); el
+  dueño dijo "Si" el 2026-10-29. Spec: `docs/specs/2026-10-29-mapa-poligonos-dane.md`. Decisión:
+  `docs/decisiones/2026-10-29-mapa-poligonos-dane.md`.
+- Los polígonos salen del Marco Geoestadístico Nacional 2025 del DANE (capa `MGN_ADM_MPIO_GRAFICO`) y los genera
+  `web/scripts/build-geojson.ts`. No se editan a mano: se vuelven a generar con el script.
+- Vista de país (`public/geo/municipios.json` y `localidades.json`): umbral de 600 m, 1,31 MB (0,36 MB comprimido),
+  el mismo peso de antes. Desde zoom 10 (`DETALLE_ZOOM`) el mapa pide `public/geo/detalle/<dd>.json` (umbral de 30 m)
+  de cada departamento con algún municipio a la vista (11 = las localidades) y al alejar vuelve a la vista de país
+  (`web/lib/geo-detalle.ts`). Una capa por departamento: el detalle de uno llega sin volver a crear los demás. El
+  rayado "sin equipo" y la trama "sin acceso terrestre" usan la misma geometría que el relleno.
+- Cada nivel sale de una sola pasada de mapshaper sobre todo el país: los vecinos comparten la misma frontera, sin
+  rendijas ni encimes. El generador lo mide; las pruebas están en `web/scripts/geo-detalle-check.ts`.
+- Localidades: recortadas con el polígono de Bogotá del DANE; cada pedazo de Bogotá que ninguna cubría pasa a la
+  localidad con la que comparte más frontera.
+- Nuevo Belén de Bajirá (27493) no está en la base: su área se pinta dentro de Riosucio (27615).
+- No cambian los colores, las opacidades, el borde blanco de 0,6 px, las capas, las tarjetas ni el buscador.
+
 ### Lógica de Coloreado de Territorios Compartidos
 Para cualquier territorio (municipio o localidad) donde múltiples KAMs tienen IPS:
 
