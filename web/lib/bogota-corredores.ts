@@ -49,12 +49,15 @@ export interface BogotaConfig {
 export const DEFAULT_BOGOTA_K: BogotaK = 4
 export const DEFAULT_BOGOTA_MAX_TRAVEL_MINUTES = 240
 
-/** area_id de la celda que recibe cada corredor con k = 4 (configuración inicial aprobada). */
+/**
+ * area_id de la celda que recibe cada corredor con k = 4 (configuración inicial aprobada). Desde los 4 sectores
+ * (2026-10-28, migración 0903) el punto base de Bogotá Norte está en Usaquén; antes estaba en Chapinero (1100102).
+ */
 export const CELDA_AREA_POR_CORREDOR: Record<Corredor, string> = {
-  norte: '1100102', // Chapinero
-  occidente: '1100110', // Engativá
-  sur: '1100108', // Kennedy
-  oriente: '1100104', // San Cristóbal
+  norte: '1100101', // Bogotá Norte (Usaquén)
+  occidente: '1100110', // Bogotá Occidente (Engativá)
+  sur: '1100108', // Bogotá Sur (Kennedy)
+  oriente: '1100104', // Bogotá Oriente (San Cristóbal)
 }
 
 /**

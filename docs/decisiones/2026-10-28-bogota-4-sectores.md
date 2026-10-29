@@ -38,9 +38,10 @@ había pedido antes un reparto "equitativo y visualmente razonable", Bogotá en 
   La mayor queda en 1,08 veces la menor; antes era 2,86 veces.
 - En el mapa cada sector queda de un solo color. Usaquén queda con Chía y el resto del corredor norte, y la localidad
   de Chapinero pasa al Oriente (morado). Las insignias de Bogotá muestran el sector (N, Oc, S, Or).
-- El punto base del Norte sigue en Chapinero, que queda en el Oriente: su insignia azul se dibuja en el morado de
-  Chapinero. Moverlo a Usaquén exige recalcular sus tiempos con Google (676 IPS y 795 municipios, 1.471 elementos,
-  cerca de 7,40 USD). Va aparte y necesita la autorización del dueño.
+- El punto base del Norte estaba en Chapinero, que queda en el Oriente. Pasa a Usaquén, al centro de sus 32 IPS
+  (4.706782, -74.039973), con sus tiempos rehechos con Google: 676 IPS y 795 municipios, 1.471 elementos, 7,36 USD.
+  El dueño lo autorizó: "Recalculalo asumo el costo". Se hace con la migración 0903 y
+  `scripts/zona-punto-base-tiempos.ts`. Los otros tres puntos ya están dentro de su sector y no se mueven.
 - Incluye el arreglo de las localidades sin IPS (`2026-10-28-localidades-sin-ips-por-corredor.md`): ahora las 20
   localidades tienen sector y el sector manda sobre la zona residente en el mapa.
 - Reemplaza la regla del 2026-10-11 según la cual dentro de Bogotá nada cambiaba (territorio base y mayoría por camas).
@@ -52,5 +53,7 @@ había pedido antes un reparto "equitativo y visualmente razonable", Bogotá en 
 - `zonaDeLocalidadSinIps` en `web/lib/territory-rules.ts` y `bogotaSectorInitials` en `web/lib/zone-names.ts`.
 - Pruebas: `web/scripts/bogota-check.ts` (secciones 5 y 6), `municipios-check.ts`, `mapa-estilo-check.ts` y
   `corredores-config-check.ts`.
-- Migración de datos `database/migrations/2026-10-28_0902_bogota_sectores_nombres.sql` (rollback 9953).
+- Migraciones de datos `database/migrations/2026-10-28_0902_bogota_sectores_nombres.sql` (rollback 9953) y
+  `2026-10-28_0903_bogota_norte_punto_base_usaquen.sql` (rollback 9954).
+- `web/scripts/zona-punto-base-tiempos.ts`: rehace con Google los tiempos de una zona desde su punto base nuevo.
 - Spec: `docs/specs/2026-10-28-bogota-4-sectores.md`.

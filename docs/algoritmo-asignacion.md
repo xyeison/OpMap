@@ -301,9 +301,9 @@ _Spec: `docs/specs/2026-10-28-bogota-4-sectores.md`. Decisión del dueño:
   (territorio base, minutos y mayoría por camas).
 - Hacia afuera nada cambia: Bogotá compite como una ciudad y el corredor del municipio decide la celda. Así cada
   Zona recibe su sector de la ciudad y lo que sale por su corredor: Usaquén y Chía quedan en la misma Zona.
-- Las celdas se llaman **Bogotá Norte** (punto base en Chapinero), **Bogotá Occidente** (Engativá), **Bogotá Sur**
-  (Kennedy) y **Bogotá Oriente** (San Cristóbal). El punto base del Norte sigue en Chapinero hasta que el dueño
-  autorice recalcular sus tiempos desde Usaquén (Google, cerca de 7,40 USD).
+- Las celdas se llaman **Bogotá Norte** (punto base en Usaquén desde la 0903; antes en Chapinero), **Bogotá
+  Occidente** (Engativá), **Bogotá Sur** (Kennedy) y **Bogotá Oriente** (San Cristóbal). Los tiempos del Norte se
+  rehicieron desde Usaquén con `scripts/zona-punto-base-tiempos.ts` (1.471 elementos, 7,36 USD, autorizado).
 - La asignación de una IPS nueva (`POST /api/hospitals/assign-to-kam`) aplica el mismo paso antes del territorio
   base.
 - Mapa: una localidad sin IPS se pinta con la celda de su sector según el último recálculo, por encima de la zona

@@ -157,10 +157,13 @@ const KAMS: AlgorithmKam[] = [BUCARAMANGA, CHAPINERO, ENGATIVA, IBAGUE, KENNEDY,
 const CELDAS = [CHAPINERO, ENGATIVA, KENNEDY, SAN_CRISTOBAL]
 const nameOf = (id: string | null | undefined) => KAMS.find(k => k.id === id)?.name ?? String(id)
 
+// Celda de cada corredor con k = 4 en estas pruebas (la celda del Norte vive en Chapinero, como antes de la 0903)
+const GRUPOS_K4: Record<Corredor, string> = { norte: CHAPINERO.id, occidente: ENGATIVA.id, sur: KENNEDY.id, oriente: SAN_CRISTOBAL.id }
+
 const config = (k: BogotaK, max = 240, receptoras?: string[]): BogotaConfig => ({
   k,
   max_travel_minutes: max,
-  grupos: gruposParaK(k, gruposPorDefecto(4, CELDAS)!, receptoras),
+  grupos: gruposParaK(k, GRUPOS_K4, receptoras),
 })
 const rule = (k: BogotaK = 4, max = 240, corredores: readonly CorredorRow[] = SEMILLA_CORREDORES, receptoras?: string[]): BogotaRuleInput => ({
   config: config(k, max, receptoras),
@@ -204,11 +207,15 @@ function seccionCorredores() {
   check('resolveCorredor: sin fila -> null (sin corredor)', resolveCorredor('41001', '41', filas) === null)
   check('resolveCorredor: sin department_code usa los 2 primeros dígitos del municipio', resolveCorredor('15238', null, filas) === 'norte')
 
-  const base = gruposPorDefecto(4, CELDAS)!
+  const NORTE_USAQUEN = { id: 'kam-1100101', area_id: '1100101' }
+  const porDefecto = gruposPorDefecto(4, [NORTE_USAQUEN, ...CELDAS.filter(c => c.id !== CHAPINERO.id)])!
   check(
-    'k = 4: cada corredor su celda (Norte Chapinero, Occidente Engativá, Sur Kennedy, Oriente San Cristóbal)',
-    base.norte === CHAPINERO.id && base.occidente === ENGATIVA.id && base.sur === KENNEDY.id && base.oriente === SAN_CRISTOBAL.id
+    'k = 4 por defecto: Norte → la celda de Usaquén (0903), Occidente Engativá, Sur Kennedy, Oriente San Cristóbal',
+    porDefecto.norte === NORTE_USAQUEN.id && porDefecto.occidente === ENGATIVA.id && porDefecto.sur === KENNEDY.id && porDefecto.oriente === SAN_CRISTOBAL.id
   )
+  check('sin celda en Usaquén no hay grupos por defecto (null)', gruposPorDefecto(4, CELDAS) === null)
+  // El resto de las pruebas usa la celda del Norte en Chapinero (GRUPOS_K4), como antes de la 0903
+  const base = GRUPOS_K4
   const k3 = gruposParaK(3, base)
   check('k = 3: Norte | Occidente | Sur + Oriente (Sur + Oriente -> Kennedy)', k3.norte === CHAPINERO.id && k3.occidente === ENGATIVA.id && k3.sur === KENNEDY.id && k3.oriente === KENNEDY.id)
   const k2 = gruposParaK(2, base)

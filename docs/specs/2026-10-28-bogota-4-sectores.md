@@ -38,17 +38,24 @@ Engativá 5.716. El dueño pidió un reparto "equitativo y visualmente razonable
 - [ ] Mapa: una localidad sin IPS va con su sector aunque tenga zona residente. La insignia de cada Zona de Bogotá
       muestra su sector (N, Oc, S, Or), no la localidad del punto base.
 
+## Punto base del Norte en Usaquén (autorizado: "Recalculalo asumo el costo")
+- El punto base de Bogotá Norte estaba en Chapinero, que queda en el Oriente. Pasa a Usaquén: area_id 1100101,
+  base_city "Usaquén" y el centro de sus 32 IPS activas (4.706782, -74.039973). Lo hace la migración 0903, que
+  respalda el punto y los tiempos anteriores; el rollback es la 9954.
+- Sus tiempos se rehacen desde el punto nuevo con `scripts/zona-punto-base-tiempos.ts --run` (dry-run: 676 IPS +
+  795 municipios = 1.471 elementos, 60 peticiones, 7,36 USD). Después se recalcula, sin Google.
+- `CELDA_AREA_POR_CORREDOR.norte` pasa a 1100101 (grupos por defecto).
+- Los otros tres puntos base ya quedan dentro de su sector (Engativá, Kennedy y San Cristóbal) y no se mueven.
+
 ## Fuera de alcance
-- Mover el punto base del Norte a Usaquén. Hoy está en Chapinero, que queda en Oriente, así que la insignia azul del
-  Norte se dibuja en el morado de Chapinero. Moverlo exige recalcular sus tiempos con Google (676 IPS + 795 municipios
-  = 1.471 elementos, cerca de 7,40 USD): va aparte, con dry-run y autorización.
 - Los polígonos del DANE (bordes reales), que el dueño dejó para después.
 - Editar los sectores desde la interfaz: la tabla vive en el código (`bogota_corredores` solo acepta municipios).
 
 ## Impacto
-- Datos: la migración 0902 renombra las 4 Zonas (con respaldo y rollback 9953). Después se recalculan IPS y municipios,
-  sin Google, con respaldo de `assignments`.
-- Costo Google Maps: 0.
+- Datos: la migración 0902 renombra las 4 Zonas (con respaldo y rollback 9953) y la 0903 mueve el punto base del
+  Norte a Usaquén (con respaldo y rollback 9954). Después se recalculan IPS y municipios, sin Google, con respaldo de
+  `assignments`.
+- Costo Google Maps: 1.471 elementos ≈ 7,36 USD, solo para los tiempos del Norte desde Usaquén (autorizado).
 - Estética del mapa: sin cambios de colores, opacidades ni capas. Cambia qué localidades pinta cada Zona y el texto de
   las cuatro insignias de Bogotá, ambas cosas por el reparto y los nombres aprobados.
 - Permisos y roles: ninguno.

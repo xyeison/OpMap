@@ -61,7 +61,8 @@ nada llama a Google.
   recta. Sin ruta → `no_road` (nadie); sobre el tope de la zona → `out_of_reach` (nadie).
 - **Google Maps cuesta dinero** (0,005 USD/elemento). Solo llama `web/lib/google-distance.ts` y los flujos
   documentados (`process-pending`, `ensure-routes`, `scripts/fase2b-municipios.ts --run`,
-  `scripts/tiempos-bogota-refrescar.ts --run`, que REEMPLAZA tiempos guardados). Cualquier
+  `scripts/tiempos-bogota-refrescar.ts --run` y `scripts/zona-punto-base-tiempos.ts --run`, que REEMPLAZAN tiempos
+  guardados). Cualquier
   llamada nueva o masiva: dry-run con cifra y autorización explícita del dueño antes. Los tiempos de IPS
   (`hospital_kam_distances`) son de agosto de 2025: si uno se ve raro, puede ser una vía cerrada ese mes.
 - **Crear/editar/activar una IPS NO recalcula** la asignación: queda en la cola de pendientes y el dueño
