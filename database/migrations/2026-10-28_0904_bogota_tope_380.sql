@@ -10,7 +10,7 @@
 -- Por qué: Yopal quedaba sin Zona. Bogotá Norte (punto base en Usaquén) llega en 6 h 17 al municipio y en 6 h 15 a la
 -- más cercana de sus IPS, por encima del tope de 6 h. Simulación con 380 (scripts/bogota-simulate.ts --tope 380): entran
 -- 5 de las 7 IPS de Yopal (a Bogotá Oriente por el corredor de Casanare) y ninguna otra IPS cambia; de los municipios
--- sin IPS asignadas entran Yopal, Recetor, Labranzagrande (Oriente) y Boavita (Norte).
+-- sin IPS asignadas entran Yopal y Recetor (Casanare, Oriente) y Labranzagrande y Boavita (Boyacá, Norte).
 -- Decisión: docs/decisiones/2026-10-28-bogota-tope-380.md
 --
 -- Qué hace (una sola transacción, todo o nada):
