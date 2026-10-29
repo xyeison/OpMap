@@ -279,11 +279,14 @@ que ya había (ninguna clase ni color nuevo).
   `docs/decisiones/2026-10-29-mapa-poligonos-dane.md`.
 - Los polígonos salen del Marco Geoestadístico Nacional 2025 del DANE (capa `MGN_ADM_MPIO_GRAFICO`) y los genera
   `web/scripts/build-geojson.ts`. No se editan a mano: se vuelven a generar con el script.
-- Vista de país (`public/geo/municipios.json` y `localidades.json`): umbral de 600 m, 1,31 MB (0,36 MB comprimido),
-  el mismo peso de antes. Desde zoom 10 (`DETALLE_ZOOM`) el mapa pide `public/geo/detalle/<dd>.json` (umbral de 30 m)
-  de cada departamento con algún municipio a la vista (11 = las localidades) y al alejar vuelve a la vista de país
-  (`web/lib/geo-detalle.ts`). Una capa por departamento: el detalle de uno llega sin volver a crear los demás. El
-  rayado "sin equipo" y la trama "sin acceso terrestre" usan la misma geometría que el relleno.
+- Vista de país (`public/geo/municipios.json` y `localidades.json`): umbral de 600 m (las localidades, 150 m),
+  1,40 MB y 0,38 MB con gzip; antes pesaba 1,47 MB y 0,40 MB. Desde zoom 10 (`DETALLE_ZOOM`) el mapa pide
+  `public/geo/detalle/<dd>.json` (umbral de 30 m; Cundinamarca 1,09 MB, 0,33 MB con gzip) de cada departamento con algún
+  municipio a la vista (11 = las localidades) y al alejar vuelve a la vista de país (`web/lib/geo-detalle.ts`).
+- El detalle cambia por lotes: se pinta cuando llegaron todos los departamentos que se ven; mientras tanto sigue el
+  lote anterior y, si uno falla, vuelve la vista de país. Una capa por departamento: el detalle de uno llega sin volver
+  a crear los demás. Cada capa de polígonos que entra se manda al fondo del canvas, para que las visitas queden encima.
+  El rayado "sin equipo" y la trama "sin acceso terrestre" usan la misma geometría que el relleno.
 - Cada nivel sale de una sola pasada de mapshaper sobre todo el país: los vecinos comparten la misma frontera, sin
   rendijas ni encimes. El generador lo mide; las pruebas están en `web/scripts/geo-detalle-check.ts`.
 - Localidades: recortadas con el polígono de Bogotá del DANE; cada pedazo de Bogotá que ninguna cubría pasa a la

@@ -83,7 +83,7 @@ import { mapDataPlaceholder } from '@/lib/map-view'
 import { computeTerritoryWinners, mayoriaAsignada, territoryIdOf, zonaDeLocalidadSinIps } from '@/lib/territory-rules'
 import { CORREDOR_LABEL, isCorredor, type LocalidadPorCorredor } from '@/lib/bogota-corredores'
 import { geometriasDeTerritorio, rectanguloDeGeometrias, territoriosBuscables, type TerritorioBuscable } from '@/lib/buscar-territorios'
-import { DEPTO_LOCALIDADES, combinarDetalle, porDepto, rectangulosPorDepto, siguientesDeptos, urlDetalle } from '@/lib/geo-detalle'
+import { DEPTO_LOCALIDADES, combinarDetalle, detalleVigente, loteDetalle, porDepto, rectangulosPorDepto, siguientesDeptos, urlDetalle } from '@/lib/geo-detalle'
 // NO usar estimaciones - solo datos reales de Google Maps
 
 // Fix for default markers in Next.js
@@ -606,14 +606,11 @@ export default function MapComponent({
   const onDeptosEnVista = useCallback((visibles: string[], zoom: number) => {
     setDeptosDetalle(antes => siguientesDeptos(antes, visibles, zoom))
   }, [])
-  const detalleCargado = useCallback((resultados: Array<{ data?: any }>) => {
-    const detalle: Record<string, any[]> = {}
-    resultados.forEach((r, i) => {
-      if (Array.isArray(r.data?.features)) detalle[deptosDetalle[i]] = r.data.features
-    })
-    return detalle
-  }, [deptosDetalle])
-  const detallePorDepto = useQueries({
+  const armarLote = useCallback(
+    (respuestas: Array<{ data?: any; isError?: boolean }>) => loteDetalle<any>(deptosDetalle, respuestas),
+    [deptosDetalle]
+  )
+  const lote = useQueries({
     queries: deptosDetalle.map(depto => ({
       queryKey: ['geo', 'detalle', depto],
       queryFn: async () => {
@@ -621,10 +618,18 @@ export default function MapComponent({
         if (!res.ok) throw new Error(`Error ${res.status} al cargar ${urlDetalle(depto)}`)
         return res.json()
       },
-      ...geoQueryOptions
+      ...geoQueryOptions,
+      // El detalle que deja de verse se libera a los 10 min; la vista de país queda toda la sesión
+      gcTime: 10 * 60 * 1000
     })),
-    combine: detalleCargado
+    combine: armarLote
   })
+  // Por lotes, para no juntar los dos niveles en un borde: el detalle cambia cuando llegó el de todos los
+  // departamentos que se ven (mientras tanto sigue el anterior); si alguno falla, vista de país
+  const [detallePorDepto, setDetallePorDepto] = useState<Record<string, any[]>>({})
+  useEffect(() => {
+    setDetallePorDepto(anterior => detalleVigente(anterior, lote))
+  }, [lote])
   // Departamentos pintados con detalle: entra en la clave de las capas que repiten la geometría
   const firmaDetalle = Object.keys(detallePorDepto).sort().join('.')
   // Una capa por departamento: el detalle de uno llega sin volver a crear los polígonos de los demás
@@ -1350,6 +1355,11 @@ export default function MapComponent({
       return { layer, code: String(feature.properties?.code ?? ''), name: String(feature.properties?.name ?? '') }
     }
     return {
+      // Comparten el canvas con las visitas, que deben quedar encima: cada capa de polígonos que entra (el detalle
+      // llega después de ellas) se manda al fondo
+      add: (e: any) => {
+        if (!e.propagatedFrom) e.target?.bringToBack?.()
+      },
       mouseover: (e: any) => {
         const ctx = territoryCtxRef.current
         const f = featureOf(e)

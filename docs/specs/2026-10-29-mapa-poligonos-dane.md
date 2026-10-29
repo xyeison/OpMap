@@ -27,6 +27,9 @@ preguntó si con más detalle "se volverá lentísimo".
       localidades); entre todos, los mismos códigos de la vista de país.
 - [ ] Desde zoom 10 el mapa pinta con el detalle los departamentos que se ven; al alejar vuelve a la vista de país.
       El rayado "sin equipo" y la trama "sin acceso terrestre" usan la misma geometría que el relleno.
+- [ ] El detalle cambia por lotes: no se juntan los dos niveles en un borde mientras carga, y si una descarga falla
+      vuelve la vista de país. Las visitas (desde zoom 10, mismo canvas) quedan encima de los polígonos.
+- [ ] El generador no escribe nada si falla la verificación.
 - [ ] Pruebas puras (`scripts/geo-detalle-check.ts`): archivos, departamentos visibles y combinación del detalle.
 
 ## Fuera de alcance

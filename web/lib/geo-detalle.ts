@@ -5,7 +5,8 @@
 // La vista de país (public/geo/municipios.json y localidades.json) es liviana. Desde DETALLE_ZOOM el mapa pide
 // public/geo/detalle/<dd>.json de cada departamento que se ve y lo pinta en lugar de su versión liviana; al alejar
 // vuelve a la vista de país. Los dos niveles salen de scripts/build-geojson.ts y en cada uno los vecinos comparten la
-// misma frontera. En pantalla no se juntan los dos niveles: todo departamento que se ve lleva detalle.
+// misma frontera. Para no juntar los dos niveles en un borde, el detalle cambia por lotes: se pinta cuando llegaron
+// todos los departamentos que se ven (mientras tanto sigue el lote anterior) y, si uno falla, vuelve la vista de país.
 
 /** Zoom desde el que se pinta el detalle */
 export const DETALLE_ZOOM = 10
@@ -71,12 +72,38 @@ export function deptosEnVista(vista: Rectangulo, zoom: number, rectangulos: Read
 }
 
 /**
- * Departamentos con detalle tras mover el mapa: por debajo de DETALLE_ZOOM ninguno; si no, los de antes más los que
- * se ven ahora (lo ya cargado sigue con detalle mientras no se aleje). Devuelve `antes` si no cambia nada.
+ * Departamentos que deben llevar detalle tras mover el mapa: los que se ven, o ninguno por debajo de DETALLE_ZOOM.
+ * Solo los que se ven: así el trabajo de cada zoom no crece al recorrer el país de cerca. Devuelve `antes` si no
+ * cambia nada (el mapa no vuelve a pintar).
  */
 export function siguientesDeptos(antes: readonly string[], visibles: readonly string[], zoom: number): readonly string[] {
-  const siguiente = zoom >= DETALLE_ZOOM ? Array.from(new Set([...antes, ...visibles])).sort() : []
+  const siguiente = zoom >= DETALLE_ZOOM ? Array.from(new Set(visibles)).sort() : []
   return siguiente.join(',') === antes.join(',') ? antes : siguiente
+}
+
+/** Detalle pedido para unos departamentos: listo (llegaron todos), cargando o con error (falló alguno) */
+export type LoteDetalle<T = FeatureGeo> = { estado: 'listo' | 'cargando' | 'error'; detalle: Record<string, T[]> }
+
+/** Arma el lote con las respuestas, en el mismo orden que `deptos` */
+export function loteDetalle<T = FeatureGeo>(
+  deptos: readonly string[],
+  respuestas: ReadonlyArray<{ data?: unknown; isError?: boolean }>
+): LoteDetalle<T> {
+  if (respuestas.some(r => r.isError)) return { estado: 'error', detalle: {} }
+  const detalle: Record<string, T[]> = {}
+  for (let i = 0; i < deptos.length; i++) {
+    const features = (respuestas[i]?.data as { features?: unknown } | undefined)?.features
+    if (!Array.isArray(features)) return { estado: 'cargando', detalle: {} }
+    detalle[deptos[i]] = features as T[]
+  }
+  return { estado: 'listo', detalle }
+}
+
+/** Detalle que se pinta: el lote cuando está listo, el anterior mientras carga, ninguno (vista de país) si falló */
+export function detalleVigente<T>(anterior: Record<string, T[]>, lote: LoteDetalle<T>): Record<string, T[]> {
+  if (lote.estado === 'listo') return lote.detalle
+  if (lote.estado === 'error') return Object.keys(anterior).length === 0 ? anterior : {}
+  return anterior
 }
 
 /** Las features agrupadas por departamento */

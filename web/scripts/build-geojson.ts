@@ -15,7 +15,8 @@
 //
 // Cada nivel sale de UNA pasada de mapshaper sobre municipios y localidades juntos: cada frontera es un solo arco que
 // usan los dos vecinos, así que no quedan rendijas ni encimes. La vista de país toma el umbral más fino de
-// PAIS_INTERVALOS_M que quepa en --pais-mb (el peso de antes); el detalle usa --detalle-m.
+// PAIS_INTERVALOS_M que quepa en el peso de antes (o en --pais-mb); el detalle usa DETALLE_M (o --detalle-m). Nada se
+// escribe si falla la verificación (códigos, localidades, rendijas, encimes).
 //
 // Ajuste de Bogotá: las localidades se recortan con el polígono de Bogotá del DANE y cada pedazo de Bogotá que
 // ninguna cubre pasa a la localidad con la que comparte más frontera.
@@ -24,7 +25,7 @@
 //
 // Uso (desde web/):
 //   npx tsx scripts/build-geojson.ts --dane <zip, carpeta o .shp> [--localidades <carpeta>] [--out <dir>]
-//     [--pais-mb 1.47] [--detalle-m 15] [--codes-file <json>]
+//     [--pais-mb <MB>] [--detalle-m <metros>] [--codes-file <json>]
 // Códigos: con SUPABASE_SERVICE_ROLE_KEY en .env.local se leen de municipalities (solo SELECT); con --codes-file se
 // usa ese archivo ([{code,name}] o [code]); sin ninguno, los del municipios.json actual (más 11001).
 import fs from 'fs'
@@ -46,8 +47,14 @@ const HUERFANOS: Record<string, string> = {
   // Nuevo Belén de Bajirá (Chocó) salió de Riosucio; en el mapa anterior el 99 % de su área ya era Riosucio
   '27493': '27615',
 }
-/** Umbrales de la vista de país en metros, del más fino al más grueso: se usa el primero que quepa en --pais-mb */
+/** Umbrales de la vista de país en metros, del más fino al más grueso: se usa el primero que quepa en el tope */
 const PAIS_INTERVALOS_M = [100, 150, 200, 250, 300, 400, 500, 600, 700, 800, 1000]
+/** Umbral de las localidades en la vista de país (más fino que el de los municipios) */
+const PAIS_LOCALIDADES_M = 150
+/** Tope de la vista de país: lo que pesaba antes (municipios.json 1.331.540 B + localidades.json 137.184 B) */
+const PESO_ANTES_BYTES = 1_468_724
+/** Umbral del detalle por departamento (zoom 10 o más) */
+const DETALLE_M = 30
 const PRECISION = '0.00001' // ≈ 1 m
 const LOCALIDADES = 20
 /** Lo que el polígono de Bogotá del DANE y las localidades ajustadas pueden diferir */
@@ -66,7 +73,7 @@ function arg(name: string): string | undefined {
   return i >= 0 ? process.argv[i + 1] : undefined
 }
 
-const mb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(2)} MB`
+const mb = (bytes: number) => `${(bytes / 1e6).toFixed(2)} MB`
 const comprimido = (texto: string) => zlib.gzipSync(texto, { level: 9 }).length
 const leer = (archivo: string): Coleccion => JSON.parse(fs.readFileSync(archivo, 'utf8'))
 const escribir = (archivo: string, datos: unknown) => fs.writeFileSync(archivo, JSON.stringify(datos))
@@ -328,8 +335,8 @@ async function main() {
   const daneArg = arg('dane')
   if (!daneArg) throw new Error('Falta --dane <MGN2025_MPIO_GRAFICO.zip, su carpeta o el .shp>')
   const outDir = path.resolve(arg('out') || path.join(WEB_DIR, 'public', 'geo'))
-  const paisMaxBytes = Math.round(Number(arg('pais-mb') || 1.47) * 1024 * 1024)
-  const detalleM = Number(arg('detalle-m') || 15)
+  const paisMaxBytes = arg('pais-mb') ? Math.round(Number(arg('pais-mb')) * 1024 * 1024) : PESO_ANTES_BYTES
+  const detalleM = Number(arg('detalle-m') || DETALLE_M)
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'opmap-dane-'))
   const fallas: string[] = []
 
@@ -354,6 +361,8 @@ async function main() {
     }
     const sinPoligono = [...base.nombres.keys()].filter(c => !nombreDane.has(c)).sort()
     if (sinPoligono.length) throw new Error(`Municipios de la base sin polígono en el DANE: ${sinPoligono.join(', ')}`)
+    // Solo los que faltan en la base: si un huérfano entra a municipalities, vuelve a tener su propio polígono
+    const recodificar = Object.fromEntries(sinBase.map(c => [c, HUERFANOS[c]]))
     const nombreMunicipio = (code: string) =>
       base.nombres.get(code) || actuales.get(code) || titulo(nombreDane.get(code) || code)
 
@@ -375,7 +384,7 @@ async function main() {
       '-rename-fields', 'code=mpio_cdpmp,dept=dpto_ccdgo', 'target=dane',
       '-filter-fields', 'code,dept', 'target=dane',
       '-filter', `code != '${BOGOTA}'`, 'target=dane',
-      '-each', `code = (${JSON.stringify(HUERFANOS)})[code] || code`, 'target=dane',
+      '-each', `code = (${JSON.stringify(recodificar)})[code] || code`, 'target=dane',
       '-dissolve', 'code', 'copy-fields=dept', 'target=dane',
       '-each', "layer = 'm'", 'target=dane',
       '-each', "layer = 'l'", 'target=loc',
@@ -383,7 +392,12 @@ async function main() {
       '-clean',
       '-simplify', `interval=${detalleM}`, 'keep-shapes',
       '-o', nivel(detalleM), 'format=geojson', `precision=${PRECISION}`,
-      ...PAIS_INTERVALOS_M.flatMap(m => ['-simplify', `interval=${m}`, 'keep-shapes', '-o', nivel(m), 'format=geojson', `precision=${PRECISION}`]),
+      // Vista de país: las localidades más finas (son pequeñas y Bogotá se mira de cerca); el arco que comparten con un
+      // municipio sigue siendo uno solo
+      ...PAIS_INTERVALOS_M.flatMap(m => [
+        '-simplify', 'variable', `interval=layer == 'l' ? ${Math.min(PAIS_LOCALIDADES_M, m)} : ${m}`, 'keep-shapes',
+        '-o', nivel(m), 'format=geojson', `precision=${PRECISION}`,
+      ]),
     ])
 
     // 4. Vista de país: el umbral más fino que quepa en el peso de antes
@@ -401,31 +415,20 @@ async function main() {
     }
     if (!pais) throw new Error(`Ningún umbral de ${PAIS_INTERVALOS_M.join(', ')} m cabe en ${mb(paisMaxBytes)}`)
 
-    // 5. Escribir
-    fs.mkdirSync(outDir, { recursive: true })
-    fs.writeFileSync(path.join(outDir, 'municipios.json'), pais.municipios)
-    fs.writeFileSync(path.join(outDir, 'localidades.json'), pais.localidades)
-    const detalleDir = path.join(outDir, 'detalle')
-    fs.mkdirSync(detalleDir, { recursive: true })
-    for (const viejo of fs.readdirSync(detalleDir).filter(f => f.endsWith('.json'))) fs.rmSync(path.join(detalleDir, viejo))
+    // 5. Detalle por departamento (en memoria: se escribe solo si todo pasa la verificación)
     const detalle = separar(nivel(detalleM), nombreMunicipio)
     const porDepto = new Map<string, Feature[]>()
     for (const f of [...detalle.municipios.features, ...detalle.localidades.features]) {
       const dept = f.properties.dept as string
       porDepto.set(dept, [...(porDepto.get(dept) || []), f])
     }
-    let detalleBytes = 0
-    let detalleComprimido = 0
-    let mayor = { dept: '', bytes: 0, comprimido: 0 }
-    for (const [dept, features] of [...porDepto.entries()].sort()) {
+    const archivosDetalle = [...porDepto.entries()].sort().map(([dept, features]) => {
       const texto = JSON.stringify(coleccion(features))
-      const bytes = Buffer.byteLength(texto)
-      const gz = comprimido(texto)
-      detalleBytes += bytes
-      detalleComprimido += gz
-      if (bytes > mayor.bytes) mayor = { dept, bytes, comprimido: gz }
-      fs.writeFileSync(path.join(detalleDir, `${dept}.json`), texto)
-    }
+      return { dept, texto, bytes: Buffer.byteLength(texto), comprimido: comprimido(texto) }
+    })
+    const detalleBytes = archivosDetalle.reduce((s, a) => s + a.bytes, 0)
+    const detalleComprimido = archivosDetalle.reduce((s, a) => s + a.comprimido, 0)
+    const mayor = archivosDetalle.reduce((m, a) => (a.bytes > m.bytes ? a : m), archivosDetalle[0])
 
     // 6. Verificación
     const municipiosPais = JSON.parse(pais.municipios) as Coleccion
@@ -448,20 +451,28 @@ async function main() {
       if (c.encimesKm2 > MAX_ENCIMES_KM2) fallas.push(`${etiqueta}: encimes de ${c.encimesKm2.toFixed(4)} km²`)
     }
 
-    const pesoAntes = 1.47 * 1024 * 1024
     console.log('')
     console.log('Resultado')
-    console.log(`  vista de país (umbral ${pais.m} m): municipios.json ${mb(Buffer.byteLength(pais.municipios))} (${municipiosPais.features.length}), localidades.json ${mb(Buffer.byteLength(pais.localidades))} (${localidadesPais.features.length}); comprimido ${mb(comprimido(pais.municipios) + comprimido(pais.localidades))}; tope ${mb(paisMaxBytes)} (antes ${mb(pesoAntes)})`)
-    console.log(`  detalle (umbral ${detalleM} m): ${porDepto.size} archivos, ${mb(detalleBytes)} en total (${mb(detalleComprimido)} comprimido); el mayor ${mayor.dept}.json ${mb(mayor.bytes)} (${mb(mayor.comprimido)} comprimido)`)
+    console.log(`  vista de país (umbral ${pais.m} m, localidades ${Math.min(PAIS_LOCALIDADES_M, pais.m)} m): municipios.json ${mb(Buffer.byteLength(pais.municipios))} (${municipiosPais.features.length}), localidades.json ${mb(Buffer.byteLength(pais.localidades))} (${localidadesPais.features.length}); comprimido ${mb(comprimido(pais.municipios) + comprimido(pais.localidades))}; tope ${mb(paisMaxBytes)} (antes ${mb(PESO_ANTES_BYTES)})`)
+    console.log(`  detalle (umbral ${detalleM} m): ${archivosDetalle.length} archivos, ${mb(detalleBytes)} en total (${mb(detalleComprimido)} comprimido); el mayor ${mayor.dept}.json ${mb(mayor.bytes)} (${mb(mayor.comprimido)} comprimido)`)
     for (const [etiqueta, c] of Object.entries(cobertura)) {
       console.log(`  ${etiqueta}: ${c.rendijas} rendijas (${c.rendijasKm2.toFixed(4)} km²), encimes ${c.encimesKm2.toFixed(4)} km²`)
     }
     if (fallas.length) {
-      console.error(`\nFALLAS:\n  - ${fallas.join('\n  - ')}`)
+      console.error(`\nFALLAS (no se escribió nada en ${outDir}):\n  - ${fallas.join('\n  - ')}`)
       process.exitCode = 1
-    } else {
-      console.log('  OK: códigos, Bogotá, rendijas y encimes')
+      return
     }
+
+    // 7. Escribir: solo con todo verificado
+    fs.mkdirSync(outDir, { recursive: true })
+    fs.writeFileSync(path.join(outDir, 'municipios.json'), pais.municipios)
+    fs.writeFileSync(path.join(outDir, 'localidades.json'), pais.localidades)
+    const detalleDir = path.join(outDir, 'detalle')
+    fs.mkdirSync(detalleDir, { recursive: true })
+    for (const viejo of fs.readdirSync(detalleDir).filter(f => f.endsWith('.json'))) fs.rmSync(path.join(detalleDir, viejo))
+    for (const a of archivosDetalle) fs.writeFileSync(path.join(detalleDir, `${a.dept}.json`), a.texto)
+    console.log(`  OK: códigos, Bogotá, rendijas y encimes; escrito en ${outDir}`)
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true })
   }

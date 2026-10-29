@@ -15,6 +15,8 @@ import {
   combinarDetalle,
   deptoDe,
   deptosEnVista,
+  detalleVigente,
+  loteDetalle,
   porDepto,
   rectangulosPorDepto,
   siguientesDeptos,
@@ -78,7 +80,7 @@ const veinte = Array.from({ length: 20 }, (_, i) => `11001${String(i + 1).padSta
 check('las 20 localidades (1100101…1100120), departamento 11',
   JSON.stringify(codigosLocalidades) === JSON.stringify(veinte) && localidades.every(f => f.properties.dept === '11'), codigosLocalidades)
 const pesoPais = statSync(path.join(GEO, 'municipios.json')).size + statSync(path.join(GEO, 'localidades.json')).size
-check('la vista de país no pesa más que antes (1,47 MB)', pesoPais <= 1.47 * 1024 * 1024, `${(pesoPais / 1024 / 1024).toFixed(2)} MB`)
+check('la vista de país no pesa más que antes (1.468.724 B)', pesoPais <= 1_468_724, `${pesoPais} B`)
 
 console.log('\n2. Detalle por departamento (public/geo/detalle/<dd>.json)')
 check('33 archivos: 32 departamentos y el 11 de las localidades', archivosDetalle.length === 33, archivosDetalle.length)
@@ -102,6 +104,33 @@ check('Ciudad Bolívar y Soacha comparten frontera en la vista de país', usmeSo
 const riosucioTurbo = fronteraCompartidaM(deUno(detalle['27'], '27615'), deUno(detalle['05'], '05837'))
 check('Riosucio (27.json, con Belén de Bajirá) y Turbo (05.json) comparten frontera entre archivos', riosucioTurbo > 1000, Math.round(riosucioTurbo))
 
+// Cuántos polígonos usan cada segmento: nunca más de dos (sin encimes ni repetidos) y, en Bogotá (sin costa ni
+// frontera con otro país), todo segmento de una localidad tiene vecino al otro lado (sin rendijas en el ajuste)
+function usosDeSegmentos(features: any[]): Map<string, number> {
+  const usos = new Map<string, number>()
+  for (const f of features) {
+    for (const r of anillos(f.geometry)) for (let i = 0; i < r.length - 1; i++) {
+      const k = clave(r[i], r[i + 1])
+      usos.set(k, (usos.get(k) || 0) + 1)
+    }
+  }
+  return usos
+}
+function sinVecino(localidades: any[], usos: Map<string, number>): number {
+  let n = 0
+  for (const f of localidades) {
+    for (const r of anillos(f.geometry)) for (let i = 0; i < r.length - 1; i++) if (usos.get(clave(r[i], r[i + 1])) !== 2) n++
+  }
+  return n
+}
+const usosPais = usosDeSegmentos([...municipios, ...localidades])
+const usosDetalle = usosDeSegmentos(Object.values(detalle).flat())
+const masDeDos = (usos: Map<string, number>) => [...usos.values()].filter(n => n > 2).length
+check('vista de país: ningún segmento lo usan más de dos polígonos', masDeDos(usosPais) === 0, masDeDos(usosPais))
+check('detalle (los 33 archivos juntos): ningún segmento lo usan más de dos polígonos', masDeDos(usosDetalle) === 0, masDeDos(usosDetalle))
+check('vista de país: todo borde de una localidad tiene vecino', sinVecino(localidades, usosPais) === 0, sinVecino(localidades, usosPais))
+check('detalle: todo borde de una localidad tiene vecino (también entre archivos)', sinVecino(detalle['11'] || [], usosDetalle) === 0, sinVecino(detalle['11'] || [], usosDetalle))
+
 console.log('\n4. Departamentos en la vista')
 const rectangulos = rectangulosPorDepto([...municipios, ...localidades])
 check('un rectángulo por municipio, agrupados por departamento (localidades → 11)',
@@ -124,8 +153,9 @@ console.log('\n5. Departamentos con detalle al mover el mapa')
 const a = siguientesDeptos([], ['25'], 11)
 const b = siguientesDeptos(a, ['15', '25'], 11)
 check('acerca: los que se ven', JSON.stringify(a) === '["25"]')
-check('mueve: suma los nuevos y conserva los de antes, en orden', JSON.stringify(b) === '["15","25"]')
-check('sin cambios: la misma lista (no vuelve a pintar)', siguientesDeptos(b, ['25'], 12) === b)
+check('mueve: los que se ven ahora, en orden', JSON.stringify(b) === '["15","25"]')
+check('mueve lejos: solo los nuevos (no se acumulan)', JSON.stringify(siguientesDeptos(b, ['68'], 11)) === '["68"]')
+check('sin cambios: la misma lista (no vuelve a pintar)', siguientesDeptos(b, ['25', '15'], 12) === b)
 check(`aleja por debajo de ${DETALLE_ZOOM}: ninguno`, siguientesDeptos(b, [], DETALLE_ZOOM - 1).length === 0)
 const vacia: readonly string[] = []
 check('lejos y sin nada: la misma lista', siguientesDeptos(vacia, [], 6) === vacia)
@@ -146,6 +176,18 @@ check('cambia solo los departamentos con detalle', combinado.length === 3 && com
 check('el detalle de las localidades no entra en los municipios', !combinado.includes(detalleLoc[0]))
 check('sin detalle: la vista de país igual', JSON.stringify(combinarDetalle(pais, {})) === JSON.stringify(pais))
 check('porDepto agrupa por departamento', JSON.stringify(Object.keys(porDepto(pais)).sort()) === '["05","25"]' && porDepto(pais)['25'].length === 2)
+
+console.log('\n7. Por lotes: no se juntan los dos niveles en un borde')
+const fc = (features: unknown[]) => ({ data: { type: 'FeatureCollection', features } })
+const listo = loteDetalle<string>(['15', '25'], [fc(['a']), fc(['b'])])
+check('llegaron todos: listo, cada uno con lo suyo', listo.estado === 'listo' && JSON.stringify(listo.detalle) === '{"15":["a"],"25":["b"]}')
+check('falta uno: cargando, sin detalle', loteDetalle(['15', '25'], [fc(['a']), {}]).estado === 'cargando')
+check('falló uno: error, sin detalle', loteDetalle(['15', '25'], [fc(['a']), { isError: true }]).estado === 'error')
+check('nada que pedir (lejos): listo y vacío', loteDetalle([], []).estado === 'listo' && Object.keys(loteDetalle([], []).detalle).length === 0)
+const anterior = { '25': ['viejo'] }
+check('mientras carga se queda el lote anterior', detalleVigente(anterior, { estado: 'cargando', detalle: {} }) === anterior)
+check('si falla, vuelve la vista de país', Object.keys(detalleVigente(anterior, { estado: 'error', detalle: {} })).length === 0)
+check('listo: el lote nuevo entero', JSON.stringify(detalleVigente(anterior, listo)) === JSON.stringify(listo.detalle))
 
 console.log(`\n${passed} OK, ${failed} fallas`)
 if (failed > 0) process.exit(1)
