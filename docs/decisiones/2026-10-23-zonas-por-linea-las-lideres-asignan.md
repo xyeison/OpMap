@@ -1,5 +1,9 @@
 # 2026-10-23 – Las líderes asignan su línea por Zona; se borran las líneas actuales para redistribuir; la dirección limita qué líneas puede tener cada persona
 
+> **Reemplazada en parte el 2026-10-29** (`2026-10-29-solo-admin-y-direccion-asignan.md`): desde ese día solo el
+> administrador y la dirección comercial dan o quitan líneas en Zonas; la líder de negocio es de consulta. El resto
+> (vacantes como personas, "Sin cobertura", líneas permitidas, grises por Zona) sigue vigente.
+
 **Contexto**: tras una reunión interna cuya acta va a las líderes, el dueño pidió que ellas "definan las zonas" viendo
 datos ciertos de cada una (IPS, municipios, población, giros de la ADRES) y que le "pongan la zona a la comercial o a la
 que esté vacante". Con sus palabras (2026-10-23): "yo quiero trabajar en Pereira: a la comercial de Pereira le pongo mi

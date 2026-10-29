@@ -1231,7 +1231,9 @@ async function main() {
       check('desvincular una sede que no es del médico → 404', noVinculada.status === 404, noVinculada)
     }
 
-    print('\n6. Visitantes: líder solo en sus líneas, ejecutiva con la línea, terminar sin borrar')
+    // Desde el 2026-10-29 la líder es de consulta: asignar y terminar visitantes es de la dirección comercial y el
+    // administrador (docs/decisiones/2026-10-29-solo-admin-y-direccion-asignan.md)
+    print('\n6. Visitantes: los asigna la dirección (la líder ya no), ejecutiva con la línea, terminar sin borrar')
     let visitanteA = ''
     {
       const ajena = await leer(
@@ -1241,22 +1243,29 @@ async function main() {
         )
       )
       check('line_leader NO asigna visitante en una línea ajena → 403 y no escribe', ajena.status === 403 && tablas.medico_visitantes.length === 0, ajena)
+      const liderPropia = await leer(
+        await asignarVisitante(
+          apiRequest(`/api/terceros/medicos/${medicoId}/visitantes`, { method: 'POST', userId: LIDER_ID, body: { executive_id: EJEC_1, line_id: LINEA_A } }),
+          params(medicoId)
+        )
+      )
+      check('line_leader tampoco asigna en SU línea → 403 y no escribe (es de consulta)', liderPropia.status === 403 && tablas.medico_visitantes.length === 0, liderPropia)
       const sinLinea = await leer(
         await asignarVisitante(
-          apiRequest(`/api/terceros/medicos/${medicoId}/visitantes`, { method: 'POST', userId: LIDER_ID, body: { executive_id: EJEC_2, line_id: LINEA_A } }),
+          apiRequest(`/api/terceros/medicos/${medicoId}/visitantes`, { method: 'POST', userId: DIRECTORA_ID, body: { executive_id: EJEC_2, line_id: LINEA_A } }),
           params(medicoId)
         )
       )
       check('la ejecutiva debe llevar esa línea (executive_lines) → 400', sinLinea.status === 400 && tablas.medico_visitantes.length === 0, sinLinea)
       const propia = await leer(
         await asignarVisitante(
-          apiRequest(`/api/terceros/medicos/${medicoId}/visitantes`, { method: 'POST', userId: LIDER_ID, body: { executive_id: EJEC_1, line_id: LINEA_A } }),
+          apiRequest(`/api/terceros/medicos/${medicoId}/visitantes`, { method: 'POST', userId: DIRECTORA_ID, body: { executive_id: EJEC_1, line_id: LINEA_A } }),
           params(medicoId)
         )
       )
       visitanteA = propia.body?.id ?? ''
       check(
-        'line_leader asigna en SU línea → 201 (desde hoy, sin hasta)',
+        'la dirección asigna en la línea → 201 (desde hoy, sin hasta)',
         propia.status === 201 && tablas.medico_visitantes.length === 1 && tablas.medico_visitantes[0].hasta === null && tablas.medico_visitantes[0].desde === HOY,
         propia
       )
@@ -1267,7 +1276,7 @@ async function main() {
       )
       const repetido = await leer(
         await asignarVisitante(
-          apiRequest(`/api/terceros/medicos/${medicoId}/visitantes`, { method: 'POST', userId: LIDER_ID, body: { executive_id: EJEC_1, line_id: LINEA_A } }),
+          apiRequest(`/api/terceros/medicos/${medicoId}/visitantes`, { method: 'POST', userId: DIRECTORA_ID, body: { executive_id: EJEC_1, line_id: LINEA_A } }),
           params(medicoId)
         )
       )
@@ -1304,21 +1313,21 @@ async function main() {
       check('line_leader NO termina un visitante de una línea ajena → 403', ajenaTerminar.status === 403, ajenaTerminar)
       const futuro = await leer(
         await terminarVisitante(
-          apiRequest(`/api/terceros/medicos/${medicoId}/visitantes/${visitanteA}`, { method: 'PATCH', userId: LIDER_ID, body: { hasta: '2999-01-01' } }),
+          apiRequest(`/api/terceros/medicos/${medicoId}/visitantes/${visitanteA}`, { method: 'PATCH', userId: DIRECTORA_ID, body: { hasta: '2999-01-01' } }),
           { params: { id: medicoId, visitanteId: visitanteA } }
         )
       )
       check('terminar con fecha futura → 400', futuro.status === 400, futuro)
       const antes = await leer(
         await terminarVisitante(
-          apiRequest(`/api/terceros/medicos/${medicoId}/visitantes/${visitanteA}`, { method: 'PATCH', userId: LIDER_ID, body: { hasta: '2000-01-01' } }),
+          apiRequest(`/api/terceros/medicos/${medicoId}/visitantes/${visitanteA}`, { method: 'PATCH', userId: DIRECTORA_ID, body: { hasta: '2000-01-01' } }),
           { params: { id: medicoId, visitanteId: visitanteA } }
         )
       )
       check('terminar antes del inicio (desde) → 400', antes.status === 400, antes)
       const terminado = await leer(
         await terminarVisitante(
-          apiRequest(`/api/terceros/medicos/${medicoId}/visitantes/${visitanteA}`, { method: 'PATCH', userId: LIDER_ID, body: { hasta: HOY } }),
+          apiRequest(`/api/terceros/medicos/${medicoId}/visitantes/${visitanteA}`, { method: 'PATCH', userId: DIRECTORA_ID, body: { hasta: HOY } }),
           { params: { id: medicoId, visitanteId: visitanteA } }
         )
       )
@@ -1354,14 +1363,14 @@ async function main() {
       check('visitante=me: con su única asignación terminada, la ejecutiva ya no ve al médico', miosTras.status === 200 && miosTras.body.total === 0, miosTras.body)
       const otraVez = await leer(
         await terminarVisitante(
-          apiRequest(`/api/terceros/medicos/${medicoId}/visitantes/${visitanteA}`, { method: 'PATCH', userId: LIDER_ID, body: { hasta: HOY } }),
+          apiRequest(`/api/terceros/medicos/${medicoId}/visitantes/${visitanteA}`, { method: 'PATCH', userId: DIRECTORA_ID, body: { hasta: HOY } }),
           { params: { id: medicoId, visitanteId: visitanteA } }
         )
       )
       check('terminar una asignación ya terminada → 409', otraVez.status === 409, otraVez)
       const deNuevo = await leer(
         await asignarVisitante(
-          apiRequest(`/api/terceros/medicos/${medicoId}/visitantes`, { method: 'POST', userId: LIDER_ID, body: { executive_id: EJEC_1, line_id: LINEA_A } }),
+          apiRequest(`/api/terceros/medicos/${medicoId}/visitantes`, { method: 'POST', userId: DIRECTORA_ID, body: { executive_id: EJEC_1, line_id: LINEA_A } }),
           params(medicoId)
         )
       )

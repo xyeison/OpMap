@@ -39,8 +39,9 @@ export type Permission =
   // y los médicos de un Ejecutivo Comercial a otra persona, a una nueva o a una vacante (y darlo de baja). Solo admin
   // y commercial_director: son los únicos que tienen a la vez equipo, cobertura y visitantes.
   | 'executives:transfer'
-  // Zonas por línea (spec 2026-10-23): dar o quitar la propia línea a un Ejecutivo Comercial o vacante que vive en la
-  // Zona (PUT/DELETE /api/executives/[id]/lineas/[lineId]); line_leader solo en su línea, lo limita la API.
+  // Zonas por línea (spec 2026-10-23): dar o quitar una línea a un Ejecutivo Comercial o vacante que vive en la Zona
+  // (PUT/DELETE /api/executives/[id]/lineas/[lineId]). Desde el 2026-10-29 solo admin y commercial_director: la
+  // líder de negocio es de consulta (docs/decisiones/2026-10-29-solo-admin-y-direccion-asignan.md).
   | 'executives:lines'
   | 'coverage:view'    // Fase 2: cobertura por línea (la API limita a las líneas del usuario)
   | 'coverage:edit'    // Fase 2: recalcular y ajustes manuales (line_leader solo en SU línea)
@@ -119,7 +120,7 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'kams:view',       // Puede ver KAMs
     'contracts:view',  // Solo ver contratos, NO editar
     'territories:view',  // Solo ver territorios, NO gestionar
-    'lines:view',        // lines:edit es del rol line_leader (restringido a su línea)
+    'lines:view',        // lines:edit solo admin y commercial_director (desde el 2026-10-29)
     'executives:view',
     'coverage:view',     // Solo las líneas que lleva como ejecutiva (GET /api/me/lines)
     'territory:view',    // Solo el anexo de su(s) ejecutivo(s) enlazado(s)
@@ -128,9 +129,11 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'secop:procesos',    // Radar de procesos de SECOP II sin contrato (2026-10-25); sin intelligence:view: ni compras ni /inteligencia
     'visits:report'      // Fase 7 F2: sus días libres y su cuota (si su usuario está enlazado a una ejecutiva)
   ],
-  // Líder de línea: lo de sales_manager + editar su línea y su cobertura.
-  // Las rutas /api/business-lines/** y /api/coverage/** restringen la edición a las líneas
-  // donde business_lines.leader_user_id = el usuario.
+  // Líder de negocio: SOLO CONSULTA desde el 2026-10-29 (dueño: "eso tiene que pasar por el administrador o por el
+  // director comercial"; docs/decisiones/2026-10-29-solo-admin-y-direccion-asignan.md). Ya no edita su línea, su
+  // cobertura, sus anexos ni los visitantes: asignar Ejecutivos a líneas y Zonas es del administrador y la dirección.
+  // Sigue con terceros:create y visits:report porque, si también es Ejecutiva Comercial (Yineth), reporta visitas en la
+  // app y ahí registra el médico, la cuenta o la sede que falte.
   line_leader: [
     'dashboard:view',
     'map:view',
@@ -139,23 +142,19 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'contracts:view',
     'territories:view',
     'lines:view',
-    'lines:edit',
     'executives:view',
-    'executives:lines',  // Dar o quitar SU línea a un Ejecutivo Comercial o vacante de la Zona (solo donde es líder; lo limita la API)
     'coverage:view',
-    'coverage:edit',
     'territory:view',
-    'territory:snapshot',
     'intelligence:view',
     'secop:procesos',
     'terceros:view',
-    'terceros:create',
-    'visitantes:manage', // Solo en las líneas donde business_lines.leader_user_id = el usuario (lo limita la API)
+    'terceros:create',   // Solo para la app de visita (registrar lo que falte al reportar)
     'daysoff:view',      // Fase 7 F2: ve (sin aprobar) los días libres de las ejecutivas de SUS líneas
     'visits:report'      // Fase 7 F2: sus días libres y su cuota (si también es ejecutiva)
   ],
-  // Dirección comercial: todo lo de ver + gestionar líneas, equipo y cobertura de todas las líneas.
-  // Sin users:manage ni recalculate:complete.
+  // Director comercial: todo lo de ver + gestionar líneas, equipo y cobertura de todas las líneas; con el administrador,
+  // el único que asigna Ejecutivos Comerciales a líneas y Zonas (dueño, 2026-10-29). Sin users:manage ni
+  // recalculate:complete.
   commercial_director: [
     'dashboard:view',
     'map:view',
@@ -441,13 +440,13 @@ export function getHomeRoute(role: Role | undefined): string | null {
 export function getRoleTitle(role: Role): string {
   const titles: Record<Role, string> = {
     admin: 'Administrador',
-    sales_manager: 'Ventas',
+    sales_manager: 'Ejecutivo comercial',
     contract_manager: 'Contratos',
     data_manager: 'Datos',
     viewer: 'Visualizador',
     user: 'Usuario',
-    line_leader: 'Líder de línea',
-    commercial_director: 'Dirección comercial',
+    line_leader: 'Líder de negocio',
+    commercial_director: 'Director comercial',
     hr: 'Recursos humanos'
   }
   

@@ -605,7 +605,8 @@ console.log('13. Permisos de terceros por rol (contrato F1)')
 const matriz: [Role, Permission[], Permission[]][] = [
   ['admin', ['terceros:view', 'terceros:create', 'terceros:manage', 'visitantes:manage'], []],
   ['commercial_director', ['terceros:view', 'terceros:create', 'terceros:manage', 'visitantes:manage'], []],
-  ['line_leader', ['terceros:view', 'terceros:create', 'visitantes:manage'], ['terceros:manage']],
+  // Desde el 2026-10-29 la líder es de consulta: ya no asigna visitantes (terceros:create sigue, para la app de visita)
+  ['line_leader', ['terceros:view', 'terceros:create'], ['terceros:manage', 'visitantes:manage']],
   ['sales_manager', ['terceros:view', 'terceros:create'], ['terceros:manage', 'visitantes:manage']],
   ['data_manager', ['terceros:view', 'terceros:create', 'terceros:manage'], ['visitantes:manage']],
   ['viewer', ['terceros:view'], ['terceros:create', 'terceros:manage', 'visitantes:manage']],

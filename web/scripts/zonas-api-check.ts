@@ -723,7 +723,9 @@ async function main() {
     eq('Pereira: Paula vive allí aunque no lleve ninguna línea (para poder darle la suya)', residentesDe(body, 'Pereira'), ['Paula Mora'])
     check('Carla, sin zona base, no vive en ninguna Zona', !body.zonas.some(zona => zona.residentes.some(residente => residente.id === CARLA)))
     eq('nada de las otras líneas en la respuesta (ni ids, ni códigos, ni nombres)', queTraeDe(r.text, TOKENS_OTRAS_LINEAS), [])
-    eq('acceso: asigna y ajusta en su línea; sin administrar Zonas; ve compras públicas', body.acceso, { asignar: true, ajustar: true, comprasPublicas: true, administrar: false })
+    // Desde el 2026-10-29 la líder es de consulta: ve su línea pero no asigna ni ajusta (lo hacen el administrador y la
+    // dirección comercial; docs/decisiones/2026-10-29-solo-admin-y-direccion-asignan.md)
+    eq('acceso: la líder ve su línea pero no asigna ni ajusta; sin administrar Zonas; ve compras públicas', body.acceso, { asignar: false, ajustar: false, comprasPublicas: true, administrar: false })
     check('nota: cobertura solo en sus líneas', body.notas.some(nota => nota.includes('solo en las líneas que lideras o llevas (Sustitutos óseos)')), body.notas)
   }
 
@@ -746,7 +748,7 @@ async function main() {
     const invalida = await pedir(LIDER_S, '?line=NO%20VALE!')
     check('código de línea no válido: 400', invalida.status === 400, invalida.body)
     const otra = await pedir(LIDER_R)
-    eq('la líder de Reemplazo articular abre con su línea y puede asignar', [otra.status, (otra.body as ZonasResponse).linea?.code, (otra.body as ZonasResponse).acceso.asignar], [200, 'reemplazo', true])
+    eq('la líder de Reemplazo articular abre con su línea, solo para consultar', [otra.status, (otra.body as ZonasResponse).linea?.code, (otra.body as ZonasResponse).acceso.asignar], [200, 'reemplazo', false])
   }
 
   print('\nadmin · ?line=reemplazo: Bogotá, alcance y cifras')

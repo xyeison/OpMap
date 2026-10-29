@@ -1835,7 +1835,7 @@ async function main() {
       }
       const cuerpo = { destino: { tipo: 'vacante' }, dar_de_baja: true, guardar_anexo_final: false } // desactivar por defecto
       for (const [id, nombre, userId, rolVisible] of [
-        [LILI, 'Lili Líder', LIDER_ID, 'Líder de línea'],
+        [LILI, 'Lili Líder', LIDER_ID, 'Líder de negocio'],
         [ADELA, 'Adela Admin', ADMIN_ID, 'Administrador'],
       ] as const) {
         const vista = await previa(id, cuerpo, DIRECTORA_ID)

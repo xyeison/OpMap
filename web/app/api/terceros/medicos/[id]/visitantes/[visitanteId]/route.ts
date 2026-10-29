@@ -1,6 +1,6 @@
 // PATCH /api/terceros/medicos/[id]/visitantes/[visitanteId] (visitantes:manage) — { hasta } termina la asignación.
-// Nunca se borra: la fila queda como historia (desde → hasta). El líder de línea solo termina visitantes de las
-// líneas que lidera (403). hasta va de desde a hoy (hora de Colombia). Contrato:
+// Nunca se borra: la fila queda como historia (desde → hasta). Desde el 2026-10-29 lo hacen el administrador y la
+// dirección comercial; quien tenga visitantes:manage sin ver todas las líneas solo termina los de las suyas (403). hasta va de desde a hoy (hora de Colombia). Contrato:
 // docs/fases/fase6-visitas-f1-terceros.md.
 import { NextRequest, NextResponse } from 'next/server'
 import { requirePermission } from '@/lib/require-role'
