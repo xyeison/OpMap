@@ -32,7 +32,7 @@ import {
 } from './MapPopups'
 import { textoSinIps } from '@/lib/mapa-detalle'
 import type { IpsDetalle, TerritorioDetalle } from '@/lib/types/mapa-detalle'
-import { zoneBadgeHeight, initialsOf, uniqueCityInitials, shortCityName, readableTextColor } from './ZoneBadgeIcon'
+import { zoneBadgeHeight, initialsOf, cityInitials, uniqueCityInitials, shortCityName, readableTextColor } from './ZoneBadgeIcon'
 import ZoneBadgeLayer, { type ZoneBadgeItem } from './ZoneBadgeLayer'
 import MapLabelsLayer from './MapLabelsLayer'
 import MapSearchBox from './MapSearchBox'
@@ -458,7 +458,7 @@ export default function MapComponent({
   const [sheetSnap, setSheetSnap] = useState<SheetSnap>('peek')
   // Cada toque en "Filtros" de la hoja inferior abre la pestaña de filtros
   const [filtersTabRequest, setFiltersTabRequest] = useState(0)
-  // "Mostrar vacantes" elegido a mano, válido solo para el estado del filtro en que se eligió (con
+  // "Sin cobertura e IPS sin Zona" (antes "Mostrar vacantes") elegido a mano, válido solo para el estado del filtro en que se eligió (con
   // filtro / sin filtro); si no, por defecto: sí sin filtro, no con filtro
   const [vacantPref, setVacantPref] = useState<{ filtered: boolean; value: boolean } | null>(null)
   const [activePopup, setActivePopup] = useState<ActivePopup | null>(null)
@@ -787,8 +787,8 @@ export default function MapComponent({
       if (!zoneNameById[k.id]) zoneNameById[k.id] = k.name
     })
 
-    // Orden de las zonas de cada Ejecutivo Comercial (alfabético por ciudad base): "zona 2 de 4" en la tarjeta y el
-    // color de su chip. Desde el 2026-10-28 cada zona va con su propio color (kams.color), igual que en la
+    // Orden de las zonas de cada Ejecutivo Comercial (alfabético por ciudad base): mini-muestras de la leyenda,
+    // "zona 2 de 4" en la tarjeta y el color de su chip. Desde el 2026-10-28 cada zona va con su propio color (kams.color), igual que en la
     // vista de Zonas, y no con un tono del color del Ejecutivo Comercial (decisión del dueño).
     const kamById: Record<string, any> = {}
     ;(mapData?.kams || []).forEach((k: any) => { kamById[k.id] = k })
@@ -838,7 +838,9 @@ export default function MapComponent({
       executiveChipColor,
       byKam,
       zoneNameById,
+      zonesOfExecutive,
       zoneOrder,
+      baseCityOf,
       counts: { zonesByExecutive, vacant, conflict, noEquipment }
     }
   }, [mapData, kamColors])
@@ -918,8 +920,8 @@ export default function MapComponent({
   const showVacant = vacantPref && vacantPref.filtered === filterIsActive ? vacantPref.value : !filterIsActive
   const changeShowVacant = useCallback((value: boolean) => setVacantPref({ filtered: filterIsActive, value }), [filterIsActive])
 
-  // Zona visible con el filtro. Sin zona (IPS sin zona) y zonas vacantes en la línea: según "Mostrar
-  // vacantes". Zonas en conflicto o sin datos de cobertura: solo sin filtro.
+  // Zona visible con el filtro. Sin zona (IPS sin zona) y Zonas sin cobertura en la línea: según "Sin cobertura e IPS
+  // sin Zona". Zonas en conflicto o sin datos de cobertura: solo sin filtro.
   const isZoneVisible = useCallback((kamId: string | null | undefined): boolean => {
     if (!kamId) return showVacant
     if (isLineMode && lineView) {
@@ -1284,15 +1286,39 @@ export default function MapComponent({
   // Va al resultado: una IPS, a su punto (zoom 15 como mínimo) con su tarjeta abierta; un territorio,
   // encuadrado con zoom moderado (hasta 9 un departamento, 11 un municipio o la ciudad, 13 una localidad) y dejando
   // libres el buscador y la leyenda (escritorio) o la hoja inferior (móvil)
+  // Tarjeta de IPS que espera el fin del vuelo: se cancela si llega otro resultado o si el vuelo se interrumpe
+  const cancelarTarjetaPendienteRef = useRef<(() => void) | null>(null)
   const irATerritorio = useCallback((territorio: TerritorioBuscable) => {
     const map = mapRef.current
     if (!map) return
+    cancelarTarjetaPendienteRef.current?.()
     if (territorio.tipo === 'ips') {
       if (territorio.lat === undefined || territorio.lng === undefined) return
       const ipsId = territorio.ipsId ?? null
-      // La tarjeta se abre al terminar el vuelo: así Leaflet la encuadra con la vista final, debajo del buscador
-      map.once('moveend', () => openHospitalPopup(ipsId))
+      // La tarjeta se abre al terminar el vuelo: así Leaflet la encuadra con la vista final, debajo del buscador. Si
+      // la persona arrastra, gira la rueda, pellizca o mueve con el teclado, Leaflet corta el vuelo y el moveend de ese
+      // gesto ya no debe abrirla
+      let terminado = false
+      const cancelar = () => {
+        terminado = true
+        map.off('moveend', abrir)
+        map.off('movestart', cancelar)
+        map.off('zoomstart', cancelar)
+        if (cancelarTarjetaPendienteRef.current === cancelar) cancelarTarjetaPendienteRef.current = null
+      }
+      const abrir = () => {
+        if (terminado) return
+        cancelar()
+        openHospitalPopup(ipsId)
+      }
+      map.on('moveend', abrir)
       map.flyTo([territorio.lat, territorio.lng], Math.max(map.getZoom(), 15), { duration: 0.8 })
+      // Después de flyTo: él mismo dispara zoomstart y movestart al arrancar
+      if (!terminado) {
+        map.on('movestart', cancelar)
+        map.on('zoomstart', cancelar)
+        cancelarTarjetaPendienteRef.current = cancelar
+      }
       return
     }
     const rectangulo = rectanguloDeGeometrias(
@@ -1357,8 +1383,8 @@ export default function MapComponent({
 
   // ---------- Capas de puntos (memoizadas: cambiar de vista solo cambia colores) ----------
 
-  // Filtro por Ejecutivo Comercial / zona: las IPS de los demás no se dibujan; las IPS sin zona solo
-  // con "Mostrar vacantes"
+  // "Ver solo" por Ejecutivo Comercial / zona: las IPS de los demás no se dibujan; las IPS sin zona solo
+  // con "Sin cobertura e IPS sin Zona"
   const visibleAssignments = useMemo(
     () => filteredAssignments.filter((a: any) => isZoneVisible(a.kams?.id)),
     [filteredAssignments, isZoneVisible]
@@ -1920,6 +1946,8 @@ export default function MapComponent({
   // Vista por línea: Ejecutivos Comerciales de la línea con el chip de su Zona, iniciales y cuentas. Vista de zonas:
   // zonas con el color de la vista.
   let groupFilter: GroupFilterConfig | null = null
+  // Interruptor de Zonas sin cobertura e IPS sin Zona ("vacante" es solo la persona por contratar, dueño 2026-10-23)
+  let vacantLabel = 'IPS sin Zona'
   let vacantHint = ''
   if (filterKind) {
     let options: GroupFilterOption[]
@@ -1927,16 +1955,30 @@ export default function MapComponent({
       options = lineView.executives.map(e => {
         const zoneCount = lineView.counts.zonesByExecutive[e.id] || 0
         const ipsCount = ipsByExecutive[e.id] || 0
+        const kamIds = lineView.zonesOfExecutive[e.id] || []
         return {
           id: e.id,
           label: executiveName(e),
           detail: `${zoneCount} ${zoneCount === 1 ? 'zona' : 'zonas'} · ${ipsCount} IPS`,
           color: lineView.executiveChipColor[e.id] ?? NO_COVERAGE_DATA_COLOR,
-          initials: initialsOf(e.full_name)
+          initials: initialsOf(e.full_name),
+          // Varias Zonas: una mini-muestra por Zona con su color (decisión 2026-10-28), en el orden de la tarjeta
+          zones: kamIds.length > 1
+            ? kamIds.map(kamId => {
+                const city = bogotaSectorInitials(zoneLabelOf(kamId)) ? zoneLabelOf(kamId) : shortCityName(lineView.baseCityOf(kamId)) || zoneLabelOf(kamId)
+                return {
+                  key: kamId,
+                  color: safeColor(kamColors[kamId], NO_COVERAGE_DATA_COLOR),
+                  text: zoneInitials[kamId] || cityInitials(city),
+                  title: city
+                }
+              })
+            : undefined
         }
       })
       const vacantZones = lineView.counts.vacant
-      vacantHint = `${vacantZones} ${vacantZones === 1 ? 'zona' : 'zonas'} sin Ejecutivo Comercial en esta línea e IPS sin zona`
+      vacantLabel = 'Sin cobertura e IPS sin Zona'
+      vacantHint = `${vacantZones} ${vacantZones === 1 ? 'Zona' : 'Zonas'} sin cobertura en esta línea`
     } else {
       options = kamStats
         .map(kam => ({
@@ -1948,7 +1990,7 @@ export default function MapComponent({
         }))
         .sort((a, b) => a.label.localeCompare(b.label, 'es'))
       const unzoned = mapData.unassignedHospitals.length
-      vacantHint = `${unzoned} IPS sin zona`
+      vacantHint = `${unzoned} IPS`
     }
     groupFilter = {
       kind: filterKind,
@@ -2061,6 +2103,7 @@ export default function MapComponent({
     onShowReach: setShowReach,
     showVacant,
     onShowVacant: changeShowVacant,
+    vacantLabel,
     vacantHint
   }
 

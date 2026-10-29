@@ -1,7 +1,7 @@
 'use client'
 
-// Interruptor del panel de Filtros del mapa ("Mostrar": puntos de IPS, municipios de alcance, vacantes). Filas de al
-// menos 44 px en táctil.
+// Interruptor del panel de Filtros del mapa ("Mostrar": puntos de IPS, municipios de alcance, Zonas sin cobertura e IPS
+// sin Zona). Filas de al menos 44 px en táctil.
 export default function MapSwitch({ checked, onChange, label, hint, touch = false }: {
   checked: boolean
   onChange: (value: boolean) => void

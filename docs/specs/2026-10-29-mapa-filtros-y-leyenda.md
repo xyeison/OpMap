@@ -27,7 +27,8 @@ pestaña "Buscar" (IPS, municipios y departamentos).
   Filtros y el resaltado de la leyenda. Debajo, cada estado y cada marcador, sin botones.
 - **Un solo panel "Filtros"**, con la pestaña Filtros y la de Visitas. Filtros tiene, en orden:
   1. **Vista**: ver por Ejecutivos Comerciales o por Zonas, y la línea de negocio.
-  2. **Mostrar**: puntos de IPS, municipios de alcance y Zonas sin cobertura con IPS sin zona.
+  2. **Mostrar**: puntos de IPS, municipios de alcance y "Sin cobertura e IPS sin Zona" (antes "Vacantes": "vacante"
+     es solo la persona por contratar).
   3. **IPS**: tipo, servicios y camas, con las mismas reglas de hoy, en una sola sección (hoy son dos con el mismo
      título y una lista aparte de cuántas hay de cada tipo, que pasa a las opciones de "Tipo").
   Visitas dice a quién siguen las visitas ("Ver solo: 1 de 11") y que se elige en la leyenda.
@@ -39,7 +40,8 @@ pestaña "Buscar" (IPS, municipios y departamentos).
 ## Criterios de aceptación
 - [ ] La lista de personas (o de Zonas) aparece una sola vez: en la leyenda. Filtros no la tiene.
 - [ ] Tocar en la lista sin filtro deja solo esa persona; tocar otra la suma; tocar una marcada la quita (si no
-      queda ninguna, sin filtro); con todas marcadas, sin filtro. Prueba pura en `scripts/mapa-filtros-check.ts`.
+      queda ninguna, sin filtro); al marcar la última que faltaba, sin filtro. Con una sola persona en la lista,
+      tocarla la deja marcada (si no, el toque no haría nada) y tocarla otra vez quita el filtro. Prueba pura en `scripts/mapa-filtros-check.ts`.
 - [ ] Fuera del filtro, el territorio va con el color de su Zona casi transparente (como el resaltado de antes) y
       sin tooltip ni tarjeta; puntos, insignias y visitas de los demás no se dibujan.
 - [ ] El buscador encuentra departamentos e IPS además de municipios, localidades y la ciudad de Bogotá. Prueba en
@@ -54,7 +56,14 @@ cambia. Los filtros de IPS y de Visitas no cambian.
 ## Impacto
 - Datos / migración: no. Costo Google Maps: 0.
 - Estética del mapa: el territorio fuera del filtro pasa de gris (#f1f5f9 al 50 %) al color de su Zona al 8 %, el
-  "blanco" que pidió el dueño. Se quita el resaltado de una sola Zona dentro de una persona.
+  "blanco" que pidió el dueño. Se quita el resaltado de una sola Zona dentro de una persona; sus mini-muestras quedan,
+  solo para leer.
+- Presentación (no colores ni capas): el buscador pasa de 320 a 352 px y sus resultados van en dos renglones; con su
+  lista abierta va por encima del panel; el margen de arriba de todas las tarjetas pasa de 12 a 68 px (alto máximo
+  56 px menos) para no quedar bajo el buscador; el panel de Filtros de escritorio llega hasta debajo del buscador y
+  del zoom.
+- Una IPS buscada abre su tarjeta aunque esté fuera de "Ver solo" u oculta por otro filtro (se buscó a propósito): lo
+  confirma el dueño.
 - Permisos: iguales.
 
 ## Plan (archivos e interfaces)

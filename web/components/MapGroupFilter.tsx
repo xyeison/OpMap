@@ -3,11 +3,21 @@
 import { alternarVerSolo } from '@/lib/mapa-ver-solo'
 import { readableTextColor } from './ZoneBadgeIcon'
 
-// Lista de la leyenda del mapa: los Ejecutivos Comerciales (vista por línea) o las Zonas (vista de zonas) con su color.
-// Es la clave de colores y, al tocar, "Ver solo" (dueño, 2026-10-29: una sola lista, en la leyenda; spec
+// Lista de la leyenda del mapa: los Ejecutivos Comerciales (vista por línea, con una mini-muestra por Zona si cubren
+// varias) o las Zonas (vista de zonas) con su color. Es la clave de colores y, al tocar, "Ver solo" (dueño, 2026-10-29: una sola lista, en la leyenda; spec
 // docs/specs/2026-10-29-mapa-filtros-y-leyenda.md). Tocar a alguien deja solo lo suyo en color y lo demás casi blanco;
 // tocar otra la suma; tocar una marcada la quita; "Ver todos" vuelve a todo (lib/mapa-ver-solo.ts). Filas de al menos
 // 44 px en táctil.
+
+// Zona de un Ejecutivo Comercial con varias: mini-muestra con el color de la Zona en el mapa (decisión 2026-10-28)
+export interface GroupFilterZone {
+  key: string
+  color: string
+  // Iniciales de la ciudad base ("Ch"), las mismas de la insignia en el mapa
+  text: string
+  // Nombre corto de la ciudad base ("Chapinero")
+  title: string
+}
 
 export interface GroupFilterOption {
   id: string
@@ -16,6 +26,8 @@ export interface GroupFilterOption {
   detail: string
   color: string
   initials: string
+  // Solo si el Ejecutivo Comercial cubre más de una Zona en la línea
+  zones?: GroupFilterZone[]
 }
 
 export interface GroupFilterConfig {
@@ -101,6 +113,18 @@ export default function MapGroupFilter({ config, touch = false }: { config: Grou
                       </svg>
                     )}
                   </button>
+                  {option.zones && option.zones.length > 1 && (
+                    // Una mini-muestra por Zona con su color, solo para leer (el "Ver solo" es por persona)
+                    <ul className={`flex flex-wrap gap-x-2 gap-y-1 pl-[34px] pb-1.5 ${filtered && !pressed ? 'opacity-50' : ''}`}>
+                      {option.zones.map(zone => (
+                        <li key={zone.key} title={zone.title} className="inline-flex items-center gap-1 text-[11px] font-medium text-gray-700">
+                          <span aria-hidden="true" className="opmap-legend-dot opmap-legend-dot--zone" style={{ backgroundColor: zone.color }} />
+                          <span aria-hidden="true">{zone.text}</span>
+                          <span className="sr-only">{zone.title}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </li>
               )
             })}

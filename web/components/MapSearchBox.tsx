@@ -51,7 +51,8 @@ export default function MapSearchBox({ territorios, onSelect, className = '' }: 
   }
 
   return (
-    <div className={`z-[1000] ${className}`}>
+    // Con la lista abierta va por encima del panel de Filtros (z 9995) y de la hoja del celular; cerrada, debajo
+    <div className={`${mostrarLista ? 'z-[9997]' : 'z-[1000]'} ${className}`}>
       <div className="relative">
         <svg
           className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-gray-400"

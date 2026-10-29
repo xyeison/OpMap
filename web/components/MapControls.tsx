@@ -76,9 +76,10 @@ export interface MapMostrarConfig {
   onShowIps: (value: boolean) => void
   showReach: boolean
   onShowReach: (value: boolean) => void
-  // Zonas sin cobertura en la línea (o vacantes) e IPS sin zona
+  // Zonas sin cobertura en la línea e IPS sin Zona ("Sin cobertura e IPS sin Zona"; en la vista de zonas, "IPS sin Zona")
   showVacant: boolean
   onShowVacant: (value: boolean) => void
+  vacantLabel: string
   vacantHint: string
 }
 
@@ -215,9 +216,12 @@ export default function MapControls({
 
   // Texto del filtro principal en la pestaña de visitas
   const groupNoun = verSolo?.kind === 'zone' ? 'una Zona' : 'un Ejecutivo Comercial'
+  // "todos los Ejecutivos Comerciales (11)" / "1 de 11 Ejecutivos Comerciales"; en la vista de zonas, con Zonas
   const verSoloTexto = !verSolo
     ? ''
-    : `${verSolo.marcados === null ? 'Todos' : `${verSolo.marcados} de ${verSolo.total}`} ${verSolo.kind === 'zone' ? 'Zonas' : 'Ejecutivos Comerciales'}`
+    : verSolo.marcados === null
+      ? `${verSolo.kind === 'zone' ? 'todas las Zonas' : 'todos los Ejecutivos Comerciales'} (${verSolo.total})`
+      : `${verSolo.marcados} de ${verSolo.total} ${verSolo.kind === 'zone' ? 'Zonas' : 'Ejecutivos Comerciales'}`
 
   const tabs: { id: 'filters' | 'visits'; label: string; icon: string }[] = [
     { id: 'filters', label: 'Filtros', icon: 'M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z' },
@@ -264,7 +268,7 @@ export default function MapControls({
               <div className={`${SECTION_TITLE} mb-1`}>Mostrar</div>
               <MapSwitch label="Puntos de IPS" checked={mostrar.showIps} onChange={mostrar.onShowIps} touch={embedded} />
               <MapSwitch label="Municipios de alcance" checked={mostrar.showReach} onChange={mostrar.onShowReach} touch={embedded} />
-              <MapSwitch label="Vacantes" hint={mostrar.vacantHint} checked={mostrar.showVacant} onChange={mostrar.onShowVacant} touch={embedded} />
+              <MapSwitch label={mostrar.vacantLabel} hint={mostrar.vacantHint} checked={mostrar.showVacant} onChange={mostrar.onShowVacant} touch={embedded} />
             </div>
           )}
 
@@ -371,7 +375,9 @@ export default function MapControls({
             )}
 
             <p className="mt-3 rounded-lg bg-gray-100 px-3 py-2 text-xs font-medium text-gray-700" aria-live="polite">
-              Mostrando {filteredAssignments.length + filteredUnassignedHospitals.length} IPS en el mapa
+              {mostrar && !mostrar.showIps
+                ? 'Puntos de IPS apagados (en "Mostrar")'
+                : `Mostrando ${filteredAssignments.length + filteredUnassignedHospitals.length} IPS en el mapa`}
             </p>
           </div>
         </div>
@@ -532,9 +538,10 @@ export default function MapControls({
           {/* Las visitas siguen "Ver solo" de la leyenda */}
           {verSolo && (
             <div className="mb-4 border-t pt-4">
-              <div className="text-xs font-semibold text-gray-700">Ver solo: {verSoloTexto}</div>
+              <div className="text-xs font-semibold text-gray-700">Visitas de {verSoloTexto}</div>
               <p className="mt-1 text-xs text-gray-500">
-                Las visitas se muestran solo de las zonas que quedan en el mapa. Para elegir a quién, toca en la leyenda.
+                Siguen a &quot;Ver solo&quot;: solo las de las Zonas que quedan en el mapa. Para elegir a quién, toca en la
+                leyenda.
               </p>
             </div>
           )}
