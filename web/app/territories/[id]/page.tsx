@@ -162,7 +162,7 @@ export default function TerritoryDetailPage() {
           {/* Statistics Cards */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-              <div className="text-sm text-gray-500">Hospitales</div>
+              <div className="text-sm text-gray-500">IPS</div>
               <div className="text-2xl font-bold text-gray-900">{stats.hospital_count}</div>
               <div className="text-xs text-gray-500 mt-1">
                 {stats.active_hospitals} activos
@@ -200,7 +200,7 @@ export default function TerritoryDetailPage() {
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-8">
             <div className="px-6 py-4 border-b border-gray-200">
               <h2 className="text-lg font-semibold text-gray-900">
-                Hospitales ({hospitals.length})
+                IPS ({hospitals.length})
               </h2>
             </div>
             
@@ -209,7 +209,7 @@ export default function TerritoryDetailPage() {
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Hospital
+                      IPS
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Código
@@ -290,7 +290,7 @@ export default function TerritoryDetailPage() {
               
               {hospitals.length === 0 && (
                 <div className="text-center py-8 text-gray-500">
-                  No hay hospitales en este territorio
+                  No hay IPS en este territorio
                 </div>
               )}
             </div>
@@ -310,7 +310,7 @@ export default function TerritoryDetailPage() {
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Hospital
+                        IPS
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Tipo

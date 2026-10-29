@@ -61,7 +61,7 @@ export default function HospitalsPage() {
       if (!response.ok) {
         const error = await response.json()
         console.error('Error loading hospitals:', error)
-        throw new Error(error.error || 'Error al cargar hospitales')
+        throw new Error(error.error || 'Error al cargar las IPS')
       }
       
       const data = await response.json()
@@ -196,16 +196,16 @@ export default function HospitalsPage() {
       if (!response.ok) {
         const error = await response.json()
         const issues = Array.isArray(error.issues) ? error.issues.map((issue: any) => issue.message).join('. ') : ''
-        throw new Error(issues || error.error || 'Error al crear hospital')
+        throw new Error(issues || error.error || 'Error al crear la IPS')
       }
 
       const data = await response.json()
       const warnings: string[] = Array.isArray(data.warnings) ? data.warnings : []
 
       if (!data.active) {
-        alert('Hospital agregado (inactivo: no se asigna a ninguna zona hasta activarlo)')
+        alert('IPS agregada (inactiva: no se asigna a ninguna zona hasta activarla)')
       } else {
-        alert(`Hospital agregado.${warnings.length > 0 ? `\n\n${warnings.join('\n')}` : ''}`)
+        alert(`IPS agregada.${warnings.length > 0 ? `\n\n${warnings.join('\n')}` : ''}`)
       }
       queryClient.invalidateQueries({ queryKey: PENDING_QUERY_KEY })
 
@@ -228,7 +228,7 @@ export default function HospitalsPage() {
       handleUpdate()
     } catch (error: any) {
       console.error('Error adding hospital:', error)
-      alert(`Error al agregar hospital: ${error.message || 'Error desconocido'}`)
+      alert(`Error al agregar la IPS: ${error.message || 'Error desconocido'}`)
     } finally {
       setIsSubmitting(false)
     }
@@ -267,7 +267,7 @@ export default function HospitalsPage() {
       <div className="container mx-auto p-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-center mb-8">
         <div>
-          <h1 className="text-3xl sm:text-4xl font-bold text-gray-900">Hospitales / IPS</h1>
+          <h1 className="text-3xl sm:text-4xl font-bold text-gray-900">IPS</h1>
           <p className="text-gray-600 mt-2">Gestión de instituciones prestadoras de salud</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -295,7 +295,7 @@ export default function HospitalsPage() {
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
             </svg>
-            Agregar Hospital
+            Agregar IPS
           </button>
         </PermissionGuard>
         </div>
@@ -447,7 +447,7 @@ export default function HospitalsPage() {
             {/* Contador de resultados */}
             <div className="ml-auto flex items-center gap-2">
               <span className="text-sm text-gray-600">
-                {filteredHospitals?.length || 0} hospitales encontrados
+                {filteredHospitals?.length || 0} IPS encontradas
               </span>
             </div>
           </div>
@@ -460,7 +460,7 @@ export default function HospitalsPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
               <span className="text-sm text-amber-800">
-                Mostrando hospitales {statusFilter === 'inactive' ? 'inactivos' : 'activos e inactivos'}
+                Mostrando IPS {statusFilter === 'inactive' ? 'inactivas' : 'activas e inactivas'}
               </span>
             </div>
           </div>
@@ -506,7 +506,7 @@ export default function HospitalsPage() {
               }}
               className="w-full px-3 py-2 text-sm bg-gray-900 text-white hover:bg-black rounded transition-colors"
             >
-              Ver detalle del hospital
+              Ver detalle de la IPS
             </button>
           </div>
         ))}
@@ -518,7 +518,7 @@ export default function HospitalsPage() {
           <thead className="bg-gray-100">
             <tr>
               <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                Hospital
+                IPS
               </th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">
                 Municipio
@@ -589,7 +589,7 @@ export default function HospitalsPage() {
         </table>
         {filteredHospitals && filteredHospitals.length > 20 && (
           <div className="bg-gray-50 px-6 py-3 text-sm text-gray-600">
-            Mostrando 20 de {filteredHospitals.length} hospitales
+            Mostrando 20 de {filteredHospitals.length} IPS
           </div>
         )}
       </div>
@@ -599,7 +599,7 @@ export default function HospitalsPage() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-2xl w-full max-h-[90vh] overflow-y-auto border border-gray-100">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-2xl font-bold text-gray-900">Agregar Nuevo Hospital</h3>
+              <h3 className="text-2xl font-bold text-gray-900">Agregar nueva IPS</h3>
               <button
                 onClick={() => {
                   setShowAddModal(false)
@@ -628,7 +628,7 @@ export default function HospitalsPage() {
             <div className="grid grid-cols-2 gap-4">
               <div className="col-span-2">
                 <label className="block text-sm font-medium mb-1">
-                  Nombre del Hospital *
+                  Nombre de la IPS *
                 </label>
                 <input
                   type="text"
@@ -782,7 +782,7 @@ export default function HospitalsPage() {
 
               <div>
                 <label className="block text-sm font-medium mb-1">
-                  Tipo de Hospital *
+                  Tipo de IPS *
                 </label>
                 <select
                   className="w-full p-2 border rounded"
@@ -802,7 +802,7 @@ export default function HospitalsPage() {
                     checked={newHospital.active}
                     onChange={(e) => setNewHospital({...newHospital, active: e.target.checked})}
                   />
-                  <span className="text-sm font-medium">Hospital activo</span>
+                  <span className="text-sm font-medium">IPS activa</span>
                 </label>
               </div>
             </div>
@@ -837,7 +837,7 @@ export default function HospitalsPage() {
                 className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
                 disabled={isSubmitting}
               >
-                {isSubmitting ? 'Agregando...' : 'Agregar Hospital'}
+                {isSubmitting ? 'Agregando...' : 'Agregar IPS'}
               </button>
             </div>
           </div>

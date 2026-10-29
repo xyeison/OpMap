@@ -3,8 +3,9 @@
 // Fase 3 · Inteligencia de giros directos de la ADRES por IPS, municipio, zona y Ejecutivo Comercial.
 // Dos fuentes: Reporte 29 (subsidiado, por mes de proceso) e "Identifica tu Giro" (por giro, contributivo
 // y subsidiado, con entidad ordenadora). Datos: GET /api/intelligence/giros (permiso intelligence:view).
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
 import GirosMonthlyChart, { SEGMENTS_REGIMEN, SEGMENTS_TIPO } from '@/components/GirosMonthlyChart'
@@ -206,7 +207,10 @@ export default function InteligenciaPage() {
           </div>
         }
       >
-        <InteligenciaTabs />
+        {/* useSearchParams exige Suspense en el build (Next 14.2) */}
+        <Suspense fallback={null}>
+          <InteligenciaTabs />
+        </Suspense>
       </PermissionGuard>
     </ProtectedRoute>
   )
@@ -214,21 +218,17 @@ export default function InteligenciaPage() {
 
 type Tab = 'giros' | 'secop' | 'fuentes'
 
-// Pestañas de /inteligencia (?tab=secop | fuentes). La URL se lee al montar y se actualiza con
-// replaceState (sin useSearchParams, que exige Suspense en el build).
+// Pestañas de /inteligencia (?tab=secop | fuentes). La pestaña sigue a la URL, también al llegar desde el menú
+// ("Compras públicas" estando en ADRES, dueño 2026-10-29); tocar una pestaña cambia la URL con replaceState.
 function InteligenciaTabs() {
   const { can } = usePermissions()
+  const tabEnUrl = useSearchParams().get('tab')
   const [tab, setTab] = useState<Tab>('giros')
   const canFuentes = can('fuentes:manage')
 
   useEffect(() => {
-    try {
-      const value = new URLSearchParams(window.location.search).get('tab')
-      if (value === 'secop' || value === 'fuentes') setTab(value)
-    } catch {
-      // sin URL: pestaña por defecto
-    }
-  }, [])
+    setTab(tabEnUrl === 'secop' || tabEnUrl === 'fuentes' ? tabEnUrl : 'giros')
+  }, [tabEnUrl])
 
   const tabs: Array<{ value: Tab; label: string }> = [
     { value: 'giros', label: 'Giros y población' },

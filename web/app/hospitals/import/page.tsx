@@ -158,7 +158,7 @@ export default function RepsImportPage() {
             <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
             </svg>
-            Volver a hospitales
+            Volver a IPS
           </Link>
           <h1 className="text-3xl sm:text-4xl font-bold text-gray-900">Importar del REPS</h1>
           <p className="text-gray-600 mt-2">

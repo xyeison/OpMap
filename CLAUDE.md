@@ -49,7 +49,9 @@ nada llama a Google.
 
 ## Reglas que no se deducen del código (IMPORTANTE)
 
-- **Terminología en la UI**: persona → "Ejecutivo Comercial", territorio → "Zona". Las Regiones (tabla `zones`)
+- **Terminología en la UI**: persona → "Ejecutivo Comercial", territorio → "Zona", hospital → "IPS" (dueño, 2026-10-29;
+  la ruta `/hospitals` y la tabla `hospitals` no cambian). El menú va por grupos (Terceros, Empleados, Inteligencia de
+  Mercado, Configuración: `docs/specs/2026-10-29-menu-por-grupos.md`). Las Regiones (tabla `zones`)
   se quitaron de la interfaz el 2026-10-14; la tabla queda sin uso. Nunca "KAM" en texto visible. En código siguen
   `kams`, `kam_id`, rutas `/kams`.
 - **Modelo**: cada fila de `kams` es una ZONA (ciudad base = `area_id`), no una persona. Personas =

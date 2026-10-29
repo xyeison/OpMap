@@ -228,7 +228,7 @@ export default function ProviderContracts({ proveedorId }: ProviderContractsProp
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Hospital
+                    IPS
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Contrato
@@ -256,7 +256,7 @@ export default function ProviderContracts({ proveedorId }: ProviderContractsProp
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>
                         <div className="text-sm font-medium text-gray-900">
-                          {contract.hospital_name || 'Hospital'}
+                          {contract.hospital_name || 'IPS'}
                         </div>
                         <div className="text-xs text-gray-500">
                           {contract.municipality_name}, {contract.department_name}
@@ -288,7 +288,7 @@ export default function ProviderContracts({ proveedorId }: ProviderContractsProp
                         href={`/hospitals/${contract.hospital_id}`}
                         className="text-gray-600 hover:text-gray-900"
                       >
-                        Ver Hospital →
+                        Ver IPS →
                       </Link>
                     </td>
                   </tr>
