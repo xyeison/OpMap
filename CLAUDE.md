@@ -84,6 +84,12 @@ nada llama a Google.
   persona, una persona nueva o una vacante; una vacante se convierte en la persona con "Contratar"
   (`docs/decisiones/2026-10-12-traspaso-de-ejecutivas.md`).
 - **Las líderes asignan su línea por Zona** (dueño, 2026-10-23, `docs/decisiones/2026-10-23-zonas-por-linea-las-lideres-asignan.md`): en `/kams` ("Zonas") cada líder da o quita SU línea a quien vive en la Zona, persona o vacante (una vacante ES una persona autorizada por la gerencia: compite por alcance igual); la dirección puede fijar "líneas permitidas" por persona (`executive_allowed_lines`, 0860 APLICADA el 2026-10-23; el 2026-10-24 el dueño quitó todas: hoy nadie está restringido y todas pueden tener todas las líneas; sin filas = sin restricción; la API rechaza líneas fuera); si otra persona de la misma Zona ya lleva la línea, Zonas avisa y ofrece pasarla de una a la otra en un paso; la celda sin nadie se llama "Sin cobertura" (nunca "Vacante") y en el mapa por línea va en gris con un tono por Zona (`grisDeZona`, autorizado el 2026-10-23); la 0870 BORRA `executive_lines` con respaldo (`executive_lines_respaldo_20261023`) y solo se aplica con autorización del dueño, seguida del recálculo.
+- **Visitas de VMO = puente del mapa de calor** (dueño, 2026-10-29, `docs/decisiones/2026-10-29-visitas-vmo-mapa-de-calor.md`):
+  en `/visits` se sube el Excel de VMO › Visitas; entran solo las hechas ("Visita realizada" y "Visita extra") con
+  coordenadas, con fecha real y por persona (llaves `visits.vmo_id` y `executives.vmo_nombre`; si la persona no existe se
+  crea, activa si visitó en 60 días; la Zona de la visita sigue a la de la persona); nada del médico sale del navegador;
+  reimportar no duplica. Sin `visits:view` cada quien ve solo sus visitas de VMO. Sin IPS por visita. Migración 0910
+  (rollback 9956).
 - **Territorio y contratos**: el anexo de territorio (Anexo A IPS, Anexo B municipios) va al contrato de
   cada Ejecutivo Comercial; las versiones (`territory_snapshots`) son inmutables.
 - **SECOP I** se cuenta por el valor ADJUDICADO a cada contratista desde `f789-7hwg` (`fuente = 'secop1'`); el

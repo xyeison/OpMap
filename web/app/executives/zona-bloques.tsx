@@ -244,7 +244,9 @@ export function Bloque({
               {visitas.otras > 0 ? ` · Otras ${numeroEs(visitas.otras)}` : ''}
             </Linea>
             <Linea>
-              Presenciales {numeroEs(visitas.presenciales)} · Virtuales {numeroEs(visitas.virtuales)} · {numeroEs(visitas.ipsVisitadas)} IPS visitadas
+              Presenciales {numeroEs(visitas.presenciales)} · Virtuales {numeroEs(visitas.virtuales)}
+              {/* Las visitas de VMO llegan sin IPS desde el 2026-10-29: la cifra solo va cuando hay alguna */}
+              {visitas.ipsVisitadas > 0 ? ` · ${numeroEs(visitas.ipsVisitadas)} IPS visitadas` : ''}
             </Linea>
             <Linea tenue>
               {visitas.ultimaVisita ? `Última visita registrada en la zona: ${fechaEs(visitas.ultimaVisita)}` : 'Sin visitas registradas en VMO para esta zona'}
