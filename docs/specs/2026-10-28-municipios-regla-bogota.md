@@ -52,11 +52,10 @@ Causa (investigada el 2026-10-27/28, solo lectura):
 - Datos / migración: sin cambios de esquema. Datos (autorizados por el dueño, "Si dale."): la 0900 respalda
   `assignments` y `municipality_zone` y sube `bogota_config.max_travel_minutes` de 240 a 360 (**APLICADA el
   2026-10-28, antes del merge**); después, recálculo completo de IPS y de municipios desde la caché.
-- Asignaciones forzadas: el dueño pidió quitarlas ("quiero revisar el propio sistema que propone"). La 0901 las
-  desactiva con respaldo, pero **no se aplica todavía**: los tiempos de las IPS de Meta y Casanare desde Bogotá son del
-  2025-08-07, con la vía al Llano cerrada (Villavicencio a 441–471 min y ~375 km; lo normal es ~2 h 30). Sin
-  recalcularlos con Google (dry-run y autorización del dueño), las 22 IPS de Villavicencio, Granada y Yopal quedarían
-  sin zona.
+- Asignaciones forzadas: el dueño pidió quitarlas ("quiero revisar el propio sistema que propone") y autorizó 0,44 USD
+  de Google. La 0901 (**APLICADA el 2026-10-28**) las desactivó con respaldo; `scripts/tiempos-bogota-refrescar.ts`
+  reemplazó los 88 tiempos de Bogotá a Meta y Casanare, que eran del 2025-08-07 con la vía al Llano cerrada. Villavicencio
+  y Granada quedan en San Cristóbal sin forzar; las 7 IPS de Yopal (~6 h 30) quedan sin zona.
 - Costo Google Maps: **0** (las IPS usan `hospital_kam_distances` y los municipios `municipality_travel_times`).
 - Estética del mapa: no cambia el estilo. Aparte, el dueño pidió el 2026-10-28 cambiar los colores de las
   4 zonas de Bogotá (`docs/decisiones/2026-10-28-colores-zonas-bogota.md`).

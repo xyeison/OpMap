@@ -60,8 +60,10 @@ nada llama a Google.
 - **Municipios sin IPS** se reparten por tiempo REAL de carretera (Google, driving). Nunca por línea
   recta. Sin ruta → `no_road` (nadie); sobre el tope de la zona → `out_of_reach` (nadie).
 - **Google Maps cuesta dinero** (0,005 USD/elemento). Solo llama `web/lib/google-distance.ts` y los flujos
-  documentados (`process-pending`, `ensure-routes`, `scripts/fase2b-municipios.ts --run`). Cualquier
-  llamada nueva o masiva: dry-run con cifra y autorización explícita del dueño antes.
+  documentados (`process-pending`, `ensure-routes`, `scripts/fase2b-municipios.ts --run`,
+  `scripts/tiempos-bogota-refrescar.ts --run`, que REEMPLAZA tiempos guardados). Cualquier
+  llamada nueva o masiva: dry-run con cifra y autorización explícita del dueño antes. Los tiempos de IPS
+  (`hospital_kam_distances`) son de agosto de 2025: si uno se ve raro, puede ser una vía cerrada ese mes.
 - **Crear/editar/activar una IPS NO recalcula** la asignación: queda en la cola de pendientes y el dueño
   decide cuándo correr "Calcular rutas y asignar pendientes" (ver `docs/ips-pendientes.md`).
 - **Estética del mapa**: estilo autorizado por el dueño el 2026-10-11 (`web/components/mapStyles.ts`,

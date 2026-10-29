@@ -415,6 +415,11 @@ hoy con SQL (no hay pantalla); la fila del municipio gana sobre la del departame
 - Forzadas (se conservan): Villavicencio 50001 (14 IPS) y Granada 50313 (1 IPS) → San Cristóbal coinciden
   con el corredor Oriente; Yopal 85001 (7 IPS) → Kennedy **no** coincide (Casanare → Oriente → San
   Cristóbal) hasta que el dueño decida.
+- *2026-10-28*: el dueño quitó las tres forzadas ("quiero revisar el propio sistema que propone"; migración 0901). Antes
+  se refrescaron con Google los tiempos de las 4 celdas a las 22 IPS de Meta y Casanare, que eran del 2025-08-07 con la
+  vía al Llano cerrada (`scripts/tiempos-bogota-refrescar.ts`, 88 elementos, 0,44 USD): Villavicencio pasó de ~7 h 27
+  a ~2 h 40 y Granada de ~9 h a ~4 h, y las dos quedan en San Cristóbal por el corredor Oriente sin forzarlas. Yopal
+  queda a ~6 h 30 (más que el tope de 360): sus 7 IPS quedan sin zona.
 - Con k = 2 (Norte + Oriente → Chapinero, Occidente + Sur → Engativá): Chapinero 64, Engativá 66, Kennedy 17,
   San Cristóbal 30; 35 IPS cambian y las mismas 4 quedan fuera de alcance.
 
