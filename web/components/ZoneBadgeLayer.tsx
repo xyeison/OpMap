@@ -25,9 +25,8 @@ export interface ZoneBadgeItem {
   shortName: string
   // Nombre accesible de la insignia ("Zona Chapinero")
   label: string
-  // Grupo en la vista (Ejecutivo Comercial en la línea, la zona en la vista de Zonas): lo que se resalta desde la leyenda
+  // Grupo en la vista (Ejecutivo Comercial en la línea, la zona en la vista de Zonas): muestra de la leyenda
   groupKey: string | null
-  dimmed: boolean
   tooltipTitle: string
   tooltipMeta?: string | null
 }
@@ -114,7 +113,7 @@ const SingleBadge = memo(function SingleBadge({ zone, size, textSize, showToolti
   const icon = zoneBadgeIcon({ color: zone.color, size, text: zone.text, textSize, hollow: zone.hollow, label: zone.label })
   const eventHandlers = useMemo(() => ({ click: () => onSelect(zone.id, position) }), [onSelect, zone.id, position])
   return (
-    <Marker position={position} icon={icon} zIndexOffset={1000} opacity={zone.dimmed ? 0.35 : 1} eventHandlers={eventHandlers}>
+    <Marker position={position} icon={icon} zIndexOffset={1000} eventHandlers={eventHandlers}>
       {showTooltip && (
         <Tooltip direction="top" opacity={1} className="opmap-tooltip">
           <div className="opmap-tooltip__title">{zone.tooltipTitle}</div>
@@ -150,7 +149,6 @@ const ClusterBadge = memo(function ClusterBadge({ members, size, textSize, showT
   const names = useMemo(() => members.map(m => m.shortName).sort((a, b) => a.localeCompare(b, 'es')), [members])
   const label = `${members.length} zonas: ${names.join(', ')}`
   const icon = zoneClusterIcon({ color, size, count: members.length, textSize: textSize + 1, hollow: allHollow, label })
-  const dimmed = members.every(m => m.dimmed)
 
   const eventHandlers = useMemo(() => ({
     click: () => {
@@ -176,7 +174,7 @@ const ClusterBadge = memo(function ClusterBadge({ members, size, textSize, showT
   }), [map, members, position, insetLeft, insetBottom, onClusterList])
 
   return (
-    <Marker position={position} icon={icon} zIndexOffset={1200} opacity={dimmed ? 0.35 : 1} eventHandlers={eventHandlers}>
+    <Marker position={position} icon={icon} zIndexOffset={1200} eventHandlers={eventHandlers}>
       {showTooltip && (
         <Tooltip direction="top" opacity={1} className="opmap-tooltip">
           <div className="opmap-tooltip__title">{members.length} zonas</div>

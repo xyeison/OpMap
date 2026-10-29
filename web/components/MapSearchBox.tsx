@@ -3,9 +3,9 @@
 import { useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { buscarTerritorios, MIN_LETRAS, type TerritorioBuscable } from '@/lib/buscar-territorios'
 
-// Buscador de municipios sobre el mapa (dueño, 2026-10-28): al escribir "Yop" sale "Yopal, Casanare"; al elegirlo, el
-// mapa encuadra ese municipio (onSelect). Busca sin tildes en los municipios, las localidades y la ciudad de Bogotá
-// (lib/buscar-territorios.ts). Teclado: flechas, Enter (el resaltado o el primero) y Escape.
+// Buscador del mapa (dueño, 2026-10-28; el único desde el 2026-10-29): al escribir "Yop" sale "Yopal, Casanare"; al
+// elegirlo, el mapa va ahí (onSelect). Busca sin tildes en municipios, departamentos, localidades, la ciudad de Bogotá e
+// IPS (lib/buscar-territorios.ts). Teclado: flechas, Enter (el resaltado o el primero) y Escape.
 
 interface MapSearchBoxProps {
   territorios: readonly TerritorioBuscable[]
@@ -51,7 +51,8 @@ export default function MapSearchBox({ territorios, onSelect, className = '' }: 
   }
 
   return (
-    <div className={`z-[1000] ${className}`}>
+    // Con la lista abierta va por encima del panel de Filtros (z 9995) y de la hoja del celular; cerrada, debajo
+    <div className={`${mostrarLista ? 'z-[9997]' : 'z-[1000]'} ${className}`}>
       <div className="relative">
         <svg
           className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-gray-400"
@@ -69,10 +70,10 @@ export default function MapSearchBox({ territorios, onSelect, className = '' }: 
           aria-expanded={mostrarLista}
           aria-controls={listaId}
           aria-autocomplete="list"
-          aria-label="Buscar municipio"
+          aria-label="Buscar municipio, departamento o IPS"
           autoComplete="off"
           enterKeyHint="search"
-          placeholder="Buscar municipio…"
+          placeholder="Buscar municipio, departamento o IPS…"
           value={texto}
           onChange={event => {
             setTexto(event.target.value)
@@ -108,11 +109,11 @@ export default function MapSearchBox({ territorios, onSelect, className = '' }: 
         <ul
           id={listaId}
           role="listbox"
-          aria-label="Municipios encontrados"
+          aria-label="Resultados de la búsqueda"
           className="mt-1 max-h-[min(60vh,22rem)] overflow-y-auto rounded-xl border border-gray-200 bg-white py-1 shadow-[0_4px_20px_rgba(15,23,42,0.12)]"
         >
           {resultados.length === 0 ? (
-            <li className="px-3 py-2.5 text-sm text-gray-500">Ningún municipio coincide</li>
+            <li className="px-3 py-2.5 text-sm text-gray-500">Nada coincide</li>
           ) : (
             resultados.map((territorio, index) => (
               <li
@@ -125,11 +126,12 @@ export default function MapSearchBox({ territorios, onSelect, className = '' }: 
                   elegir(territorio)
                 }}
                 onMouseEnter={() => setResaltado(index)}
-                className={`flex min-h-[44px] cursor-pointer items-center px-3 text-sm ${index === resaltado ? 'bg-gray-100' : ''}`}
+                className={`flex min-h-[44px] cursor-pointer items-center px-3 py-1.5 text-sm ${index === resaltado ? 'bg-gray-100' : ''}`}
               >
-                <span className="truncate">
-                  <span className="font-medium text-gray-900">{territorio.nombre}</span>
-                  {territorio.detalle && <span className="text-gray-500">, {territorio.detalle}</span>}
+                {/* Dos renglones: el nombre largo de una IPS se corta sin esconder su municipio */}
+                <span className="min-w-0">
+                  <span className="block truncate font-medium text-gray-900">{territorio.nombre}</span>
+                  {territorio.detalle && <span className="block truncate text-xs text-gray-500">{territorio.detalle}</span>}
                 </span>
               </li>
             ))

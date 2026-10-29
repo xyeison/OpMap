@@ -4,7 +4,8 @@ import React, { useState, useEffect, useMemo } from 'react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { useVisits } from '@/hooks/useVisits'
-import MapGroupFilter, { type GroupFilterConfig } from './MapGroupFilter'
+import MapSwitch from './MapSwitch'
+import MapVista, { type MapVistaConfig } from './MapVista'
 import {
   EMPTY_IPS_FILTER,
   IPS_FILTER_HINTS,
@@ -37,20 +38,20 @@ interface MapControlsProps {
   onVisitsChange?: (visits: any[]) => void
   onShowHeatmapChange?: (show: boolean) => void
   onShowMarkersChange?: (show: boolean) => void
-  onHospitalSelect?: (hospitalId: string | null) => void
-  onMapNavigate?: (lat: number, lng: number, zoom: number) => void
   // 'floating': botón y panel flotante (escritorio). 'embedded': contenido dentro de la hoja inferior (móvil)
   variant?: 'floating' | 'embedded'
   // Visitas apagadas por defecto: sin consulta ni mapa de calor hasta activarlas
   visitsEnabled?: boolean
   onVisitsEnabledChange?: (enabled: boolean) => void
-  // Tras elegir un resultado de búsqueda (en móvil, la hoja se recoge)
-  onSearchSelect?: () => void
-  // Filtro principal: Ejecutivos Comerciales (vista por línea) o zonas (vista de zonas)
-  groupFilter?: GroupFilterConfig | null
+  // Vista: ver por Ejecutivos Comerciales o Zonas y la línea de negocio (null: sin selector)
+  vista?: MapVistaConfig | null
+  // "Ver solo" de la leyenda, para los textos de la pestaña Visitas (null: la vista no tiene lista)
+  verSolo?: VerSoloResumen | null
+  // "Mostrar": capas que se ven
+  mostrar?: MapMostrarConfig | null
   // Zonas (kam_id) cuyas visitas se muestran según el filtro; null = todas
   visitKamIds?: string[] | null
-  // "1 ejecutiva" en el botón flotante cuando hay filtro activo
+  // "IPS filtradas" en el botón flotante cuando el bloque IPS oculta puntos
   filterChipLabel?: string | null
   // Cada cambio abre la pestaña "Filtros" (botón "Filtros" de la hoja inferior)
   filtersTabRequest?: number
@@ -61,6 +62,29 @@ interface MapControlsProps {
 
 const IPS_FILTER_CHECKS = ['quirofano', 'ortopedia', 'neurocirugia', 'columna'] as const
 
+// "Ver solo" de la leyenda, resumido: personas (vista por línea) o Zonas (vista de zonas) que quedan en el mapa
+export interface VerSoloResumen {
+  kind: 'executive' | 'zone'
+  // null = sin filtro
+  marcados: number | null
+  total: number
+}
+
+// "Mostrar" del panel de Filtros (desde el 2026-10-29 aquí y no en la leyenda)
+export interface MapMostrarConfig {
+  showIps: boolean
+  onShowIps: (value: boolean) => void
+  showReach: boolean
+  onShowReach: (value: boolean) => void
+  // Zonas sin cobertura en la línea e IPS sin Zona ("Sin cobertura e IPS sin Zona"; en la vista de zonas, "IPS sin Zona")
+  showVacant: boolean
+  onShowVacant: (value: boolean) => void
+  vacantLabel: string
+  vacantHint: string
+}
+
+const SECTION_TITLE = 'text-[11px] font-semibold uppercase tracking-wide text-gray-500'
+
 export default function MapControls({
   mapData,
   hospitalTypeFilter,
@@ -70,13 +94,12 @@ export default function MapControls({
   onVisitsChange,
   onShowHeatmapChange,
   onShowMarkersChange,
-  onHospitalSelect,
-  onMapNavigate,
   variant = 'floating',
   visitsEnabled = false,
   onVisitsEnabledChange,
-  onSearchSelect,
-  groupFilter = null,
+  vista = null,
+  verSolo = null,
+  mostrar = null,
   visitKamIds = null,
   filterChipLabel = null,
   filtersTabRequest = 0,
@@ -85,9 +108,7 @@ export default function MapControls({
 }: MapControlsProps) {
   const embedded = variant === 'embedded'
   const [isOpen, setIsOpen] = useState(false)
-  const [activeTab, setActiveTab] = useState<'filters' | 'visits' | 'search'>('filters')
-  const [searchTerm, setSearchTerm] = useState('')
-  const [searchResults, setSearchResults] = useState<any[]>([])
+  const [activeTab, setActiveTab] = useState<'filters' | 'visits'>('filters')
   // Texto de los campos de camas (el filtro solo guarda números válidos)
   const [minBedsText, setMinBedsText] = useState(ipsServiceFilter.minBeds === null ? '' : String(ipsServiceFilter.minBeds))
   const [maxBedsText, setMaxBedsText] = useState(ipsServiceFilter.maxBeds === null ? '' : String(ipsServiceFilter.maxBeds))
@@ -97,6 +118,17 @@ export default function MapControls({
   )
   // Sin ningún dato del REPS importado, marcar un servicio dejaría el mapa sin puntos: se desactiva
   const ipsServiceAvailable = useMemo(() => ipsServiceAvailability(mapData?.hospitals), [mapData])
+  // Cuántas IPS hay de cada tipo (van en las opciones de "Tipo")
+  const ipsPorTipo = useMemo(() => {
+    const hospitals: any[] = mapData?.hospitals || []
+    return {
+      Publico: hospitals.filter(h => h.type === 'Publico').length,
+      Privada: hospitals.filter(h => h.type === 'Privada').length,
+      Mixta: hospitals.filter(h => h.type === 'Mixta').length,
+      sinTipo: hospitals.filter(h => !h.type).length
+    }
+  }, [mapData])
+  const ipsFilterActive = hospitalTypeFilter !== 'all' || isIpsFilterActive(ipsServiceFilter)
   
   // Estados para visitas - Tipo de visualización
   const [visualizationType, setVisualizationType] = useState<'heatmap' | 'markers' | 'both'>('heatmap')
@@ -174,91 +206,6 @@ export default function MapControls({
     }
   }, [showHeatmap, onShowHeatmapChange])
 
-  // Función de búsqueda mejorada
-  useEffect(() => {
-    if (searchTerm.length > 2) {
-      const results: any[] = []
-      const searchLower = searchTerm.toLowerCase()
-      
-      // Buscar hospitales
-      mapData.hospitals?.forEach((hospital: any) => {
-        if (hospital.name.toLowerCase().includes(searchLower) ||
-            hospital.code.toLowerCase().includes(searchLower)) {
-          results.push({
-            type: 'hospital',
-            id: hospital.id,
-            name: hospital.name,
-            code: hospital.code,
-            municipality: mapData.municipalityNames[hospital.municipality_id] || hospital.municipality_id,
-            lat: hospital.lat,
-            lng: hospital.lng
-          })
-        }
-      })
-      
-      // Buscar municipios únicos
-      const uniqueMunicipalities = new Map()
-      const uniqueDepartments = new Map()
-      
-      mapData.hospitals?.forEach((hospital: any) => {
-        // Municipios
-        if (!uniqueMunicipalities.has(hospital.municipality_id)) {
-          const municipalityName = mapData.municipalityNames[hospital.municipality_id] || hospital.municipality_name || hospital.municipality_id
-          if (municipalityName && municipalityName.toLowerCase().includes(searchLower)) {
-            // Calcular centro aproximado del municipio
-            const hospitalsInMunicipality = mapData.hospitals.filter((h: any) => h.municipality_id === hospital.municipality_id)
-            const avgLat = hospitalsInMunicipality.reduce((sum: number, h: any) => sum + h.lat, 0) / hospitalsInMunicipality.length
-            const avgLng = hospitalsInMunicipality.reduce((sum: number, h: any) => sum + h.lng, 0) / hospitalsInMunicipality.length
-            
-            uniqueMunicipalities.set(hospital.municipality_id, {
-              type: 'municipality',
-              id: hospital.municipality_id,
-              name: municipalityName,
-              department: hospital.department_name || '',
-              hospitalCount: hospitalsInMunicipality.length,
-              lat: avgLat,
-              lng: avgLng
-            })
-          }
-        }
-        
-        // Departamentos
-        if (!uniqueDepartments.has(hospital.department_id)) {
-          const departmentName = hospital.department_name || hospital.department_id
-          if (departmentName && departmentName.toLowerCase().includes(searchLower)) {
-            // Calcular centro aproximado del departamento
-            const hospitalsInDepartment = mapData.hospitals.filter((h: any) => h.department_id === hospital.department_id)
-            const avgLat = hospitalsInDepartment.reduce((sum: number, h: any) => sum + h.lat, 0) / hospitalsInDepartment.length
-            const avgLng = hospitalsInDepartment.reduce((sum: number, h: any) => sum + h.lng, 0) / hospitalsInDepartment.length
-            
-            uniqueDepartments.set(hospital.department_id, {
-              type: 'department',
-              id: hospital.department_id,
-              name: departmentName,
-              hospitalCount: hospitalsInDepartment.length,
-              lat: avgLat,
-              lng: avgLng
-            })
-          }
-        }
-      })
-      
-      // Agregar departamentos primero
-      uniqueDepartments.forEach(department => results.push(department))
-      // Luego municipios
-      uniqueMunicipalities.forEach(municipality => results.push(municipality))
-      
-      // Ordenar resultados: departamentos primero, luego municipios, luego hospitales
-      results.sort((a, b) => {
-        const typeOrder = { department: 0, municipality: 1, hospital: 2 }
-        return typeOrder[a.type as keyof typeof typeOrder] - typeOrder[b.type as keyof typeof typeOrder]
-      })
-      
-      setSearchResults(results.slice(0, 15)) // Limitar a 15 resultados
-    } else {
-      setSearchResults([])
-    }
-  }, [searchTerm, mapData])
 
   useEffect(() => {
     if (onShowMarkersChange) {
@@ -268,23 +215,17 @@ export default function MapControls({
 
 
   // Texto del filtro principal en la pestaña de visitas
-  const groupNoun = groupFilter?.kind === 'zone' ? 'una zona' : 'un Ejecutivo Comercial'
-  let groupSummary = ''
-  if (groupFilter) {
-    const total = groupFilter.options.length
-    const marked = groupFilter.selected === null
-      ? total
-      : groupFilter.options.filter(o => groupFilter.selected!.has(o.id)).length
-    const noun = groupFilter.kind === 'zone' ? 'zonas' : 'Ejecutivos Comerciales'
-    groupSummary = groupFilter.selected === null
-      ? `Sin filtro: ${total} ${noun}`
-      : `Filtro: ${marked} de ${total} ${noun}`
-  }
+  const groupNoun = verSolo?.kind === 'zone' ? 'una Zona' : 'un Ejecutivo Comercial'
+  // "todos los Ejecutivos Comerciales (11)" / "1 de 11 Ejecutivos Comerciales"; en la vista de zonas, con Zonas
+  const verSoloTexto = !verSolo
+    ? ''
+    : verSolo.marcados === null
+      ? `${verSolo.kind === 'zone' ? 'todas las Zonas' : 'todos los Ejecutivos Comerciales'} (${verSolo.total})`
+      : `${verSolo.marcados} de ${verSolo.total} ${verSolo.kind === 'zone' ? 'Zonas' : 'Ejecutivos Comerciales'}`
 
-  const tabs: { id: 'filters' | 'visits' | 'search'; label: string; icon: string }[] = [
+  const tabs: { id: 'filters' | 'visits'; label: string; icon: string }[] = [
     { id: 'filters', label: 'Filtros', icon: 'M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z' },
-    { id: 'visits', label: 'Visitas', icon: 'M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0zM15 11a3 3 0 11-6 0 3 3 0 016 0z' },
-    { id: 'search', label: 'Buscar', icon: 'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z' }
+    { id: 'visits', label: 'Visitas', icon: 'M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0zM15 11a3 3 0 11-6 0 3 3 0 016 0z' }
   ]
 
   const tabBar = (
@@ -314,143 +255,130 @@ export default function MapControls({
       {/* Tab de Filtros */}
       {activeTab === 'filters' && (
         <div>
-          <h3 className="text-sm font-semibold mb-3">Filtros del Mapa</h3>
-
-          {/* Filtro principal: Ejecutivos Comerciales (vista por línea) o zonas (vista de zonas) */}
-          {groupFilter && (
-            <div className="mb-4 pb-3 border-b">
-              <MapGroupFilter config={groupFilter} touch={embedded} />
+          {/* Vista: ver por Ejecutivos Comerciales o Zonas y la línea de negocio */}
+          {vista && (
+            <div className="mb-4 pb-4 border-b">
+              <MapVista config={vista} touch={embedded} />
             </div>
           )}
 
-          {/* Filtro de tipo de hospital */}
-          <div className="mb-3">
-            <label className="text-xs font-semibold text-gray-700 block mb-2">Tipo de Hospital</label>
-            <select 
+          {/* Mostrar: capas que se ven */}
+          {mostrar && (
+            <div className="mb-4 pb-3 border-b">
+              <div className={`${SECTION_TITLE} mb-1`}>Mostrar</div>
+              <MapSwitch label="Puntos de IPS" checked={mostrar.showIps} onChange={mostrar.onShowIps} touch={embedded} />
+              <MapSwitch label="Municipios de alcance" checked={mostrar.showReach} onChange={mostrar.onShowReach} touch={embedded} />
+              <MapSwitch label={mostrar.vacantLabel} hint={mostrar.vacantHint} checked={mostrar.showVacant} onChange={mostrar.onShowVacant} touch={embedded} />
+            </div>
+          )}
+
+          {/* IPS: tipo, servicios y capacidad del REPS (Fase 3) y camas. Solo ocultan puntos; el territorio no cambia */}
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <span className={SECTION_TITLE}>IPS</span>
+              {ipsFilterActive && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHospitalTypeFilter('all')
+                    setMinBedsText('')
+                    setMaxBedsText('')
+                    onIpsServiceFilterChange?.(EMPTY_IPS_FILTER)
+                  }}
+                  className="text-xs text-gray-600 underline hover:text-gray-900"
+                >
+                  Limpiar
+                </button>
+              )}
+            </div>
+            <label htmlFor="map-tipo-ips" className="text-xs font-semibold text-gray-700 block mb-1">Tipo</label>
+            <select
+              id="map-tipo-ips"
               value={hospitalTypeFilter}
               onChange={(e) => setHospitalTypeFilter(e.target.value)}
               className={`w-full px-3 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent transition-all bg-white ${embedded ? 'h-11' : 'py-2'}`}
             >
-              <option value="all">Todos los hospitales</option>
-              <option value="Publico">Públicos</option>
-              <option value="Privada">Privados</option>
-              <option value="Mixta">Mixtos</option>
-              <option value="sin_tipo">Sin clasificar</option>
+              <option value="all">Todas</option>
+              <option value="Publico">Públicas ({ipsPorTipo.Publico})</option>
+              <option value="Privada">Privadas ({ipsPorTipo.Privada})</option>
+              <option value="Mixta">Mixtas ({ipsPorTipo.Mixta})</option>
+              <option value="sin_tipo">Sin clasificar ({ipsPorTipo.sinTipo})</option>
             </select>
-            <div className="mt-2 px-3 py-2 bg-gray-100 rounded-lg text-xs text-gray-700 font-medium">
-              <svg className="w-3 h-3 inline mr-1" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd"></path>
-              </svg>
-              Mostrando {filteredAssignments.length + filteredUnassignedHospitals.length} hospitales
-            </div>
-          </div>
 
-          {/* Fase 3: IPS por servicios y capacidad del REPS (solo oculta puntos; el territorio no cambia) */}
-          {onIpsServiceFilterChange && (
-            <div className="mb-3 pt-3 border-t">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold text-gray-700">IPS</span>
-                {isIpsFilterActive(ipsServiceFilter) && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMinBedsText('')
-                      setMaxBedsText('')
-                      onIpsServiceFilterChange(EMPTY_IPS_FILTER)
+            {onIpsServiceFilterChange && (
+              <>
+                <div className="mt-3 mb-1 text-xs font-semibold text-gray-700">Servicios</div>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                  {IPS_FILTER_CHECKS.map(key => {
+                    // Se puede desmarcar siempre; marcar solo si hay datos del REPS para esa casilla
+                    const unavailable = !ipsServiceAvailable[key] && !ipsServiceFilter[key]
+                    return (
+                      <label
+                        key={key}
+                        title={unavailable ? IPS_SERVICE_UNAVAILABLE_HINT : IPS_FILTER_HINTS[key]}
+                        className={`flex items-center gap-2 text-sm ${unavailable ? 'text-gray-400 cursor-not-allowed' : 'text-gray-700 cursor-pointer'} ${embedded ? 'min-h-[44px]' : 'py-0.5'}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={ipsServiceFilter[key]}
+                          disabled={unavailable}
+                          onChange={e => onIpsServiceFilterChange({ ...ipsServiceFilter, [key]: e.target.checked })}
+                          className="h-4 w-4 rounded border-gray-300"
+                        />
+                        {IPS_FILTER_LABELS[key]}
+                      </label>
+                    )
+                  })}
+                </div>
+                <div className="mt-2 flex items-center gap-2">
+                  <span className="text-xs text-gray-600 shrink-0">Camas</span>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    placeholder="mín."
+                    aria-label="Camas mínimas"
+                    value={minBedsText}
+                    onChange={e => {
+                      setMinBedsText(e.target.value)
+                      onIpsServiceFilterChange({ ...ipsServiceFilter, minBeds: parseBedsInput(e.target.value) })
                     }}
-                    className="text-xs text-gray-600 underline hover:text-gray-900"
-                  >
-                    Limpiar
-                  </button>
+                    className={`w-full min-w-0 px-2 text-sm border border-gray-300 rounded-lg bg-white ${embedded ? 'h-11' : 'py-1'}`}
+                  />
+                  <span className="text-xs text-gray-500">a</span>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    placeholder="máx."
+                    aria-label="Camas máximas"
+                    value={maxBedsText}
+                    onChange={e => {
+                      setMaxBedsText(e.target.value)
+                      onIpsServiceFilterChange({ ...ipsServiceFilter, maxBeds: parseBedsInput(e.target.value) })
+                    }}
+                    className={`w-full min-w-0 px-2 text-sm border border-gray-300 rounded-lg bg-white ${embedded ? 'h-11' : 'py-1'}`}
+                  />
+                </div>
+                {ipsServiceAvailable.any ? (
+                  <p className="mt-1 text-xs text-gray-500">
+                    Datos del REPS (camas del REPS o, si no hay, las de la ficha).
+                    {ipsWithoutReps > 0 ? ` ${ipsWithoutReps} IPS aún sin datos del REPS quedan ocultas al filtrar por servicio.` : ''}
+                  </p>
+                ) : (
+                  <p className="mt-1 text-xs text-gray-500">
+                    Los servicios se activan cuando se importen del REPS (Hospitales, &quot;Importar del REPS&quot;). Mientras tanto
+                    se puede filtrar por camas (las de la ficha).
+                  </p>
                 )}
-              </div>
-              <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-                {IPS_FILTER_CHECKS.map(key => {
-                  // Se puede desmarcar siempre; marcar solo si hay datos del REPS para esa casilla
-                  const unavailable = !ipsServiceAvailable[key] && !ipsServiceFilter[key]
-                  return (
-                    <label
-                      key={key}
-                      title={unavailable ? IPS_SERVICE_UNAVAILABLE_HINT : IPS_FILTER_HINTS[key]}
-                      className={`flex items-center gap-2 text-sm ${unavailable ? 'text-gray-400 cursor-not-allowed' : 'text-gray-700 cursor-pointer'} ${embedded ? 'min-h-[44px]' : 'py-0.5'}`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={ipsServiceFilter[key]}
-                        disabled={unavailable}
-                        onChange={e => onIpsServiceFilterChange({ ...ipsServiceFilter, [key]: e.target.checked })}
-                        className="h-4 w-4 rounded border-gray-300"
-                      />
-                      {IPS_FILTER_LABELS[key]}
-                    </label>
-                  )
-                })}
-              </div>
-              <div className="mt-2 flex items-center gap-2">
-                <span className="text-xs text-gray-600 shrink-0">Camas</span>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min={0}
-                  placeholder="mín."
-                  aria-label="Camas mínimas"
-                  value={minBedsText}
-                  onChange={e => {
-                    setMinBedsText(e.target.value)
-                    onIpsServiceFilterChange({ ...ipsServiceFilter, minBeds: parseBedsInput(e.target.value) })
-                  }}
-                  className={`w-full min-w-0 px-2 text-sm border border-gray-300 rounded-lg bg-white ${embedded ? 'h-11' : 'py-1'}`}
-                />
-                <span className="text-xs text-gray-500">a</span>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min={0}
-                  placeholder="máx."
-                  aria-label="Camas máximas"
-                  value={maxBedsText}
-                  onChange={e => {
-                    setMaxBedsText(e.target.value)
-                    onIpsServiceFilterChange({ ...ipsServiceFilter, maxBeds: parseBedsInput(e.target.value) })
-                  }}
-                  className={`w-full min-w-0 px-2 text-sm border border-gray-300 rounded-lg bg-white ${embedded ? 'h-11' : 'py-1'}`}
-                />
-              </div>
-              {ipsServiceAvailable.any ? (
-                <p className="mt-1 text-xs text-gray-500">
-                  Datos del REPS (camas del REPS o, si no hay, las de la ficha).
-                  {ipsWithoutReps > 0 ? ` ${ipsWithoutReps} IPS aún sin datos del REPS quedan ocultas al filtrar por servicio.` : ''}
-                </p>
-              ) : (
-                <p className="mt-1 text-xs text-gray-500">
-                  Los servicios se activan cuando se importen del REPS (Hospitales, &quot;Importar del REPS&quot;). Mientras tanto
-                  se puede filtrar por camas (las de la ficha).
-                </p>
-              )}
-            </div>
-          )}
+              </>
+            )}
 
-          {/* "Solo con Contratos" se quitó el 2026-10-24: el mapa ya no manda los contratos cargados a mano; giros ADRES y
-              compras SECOP de 12 meses van en las tarjetas (spec docs/specs/2026-10-24-mapa-giros-y-compras-12-meses.md). */}
-
-          {/* Estadísticas por tipo */}
-          <div className="text-xs space-y-1 pt-2 border-t">
-            <div className="flex justify-between">
-              <span>Públicos:</span>
-              <span className="font-medium">{mapData.hospitals.filter((h: any) => h.type === 'Publico').length}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Privados:</span>
-              <span className="font-medium">{mapData.hospitals.filter((h: any) => h.type === 'Privada').length}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Mixtos:</span>
-              <span className="font-medium">{mapData.hospitals.filter((h: any) => h.type === 'Mixta').length}</span>
-            </div>
-            <div className="flex justify-between text-gray-400">
-              <span>Sin clasificar:</span>
-              <span className="font-medium">{mapData.hospitals.filter((h: any) => !h.type).length}</span>
-            </div>
+            <p className="mt-3 rounded-lg bg-gray-100 px-3 py-2 text-xs font-medium text-gray-700" aria-live="polite">
+              {mostrar && !mostrar.showIps
+                ? 'Puntos de IPS apagados (en "Mostrar")'
+                : `Mostrando ${filteredAssignments.length + filteredUnassignedHospitals.length} IPS en el mapa`}
+            </p>
           </div>
         </div>
       )}
@@ -539,7 +467,7 @@ export default function MapControls({
                       ? `Debe seleccionar al menos un mes y ${groupNoun}`
                       : selectedMonths.length === 0
                       ? 'Debe seleccionar al menos un mes'
-                      : `Debe marcar al menos ${groupNoun} en la pestaña Filtros`
+                      : `Debe marcar al menos ${groupNoun} en la leyenda`
                     }
                   </p>
                 </div>
@@ -607,24 +535,13 @@ export default function MapControls({
             )}
           </div>
 
-          {/* Las visitas siguen el filtro principal de la pestaña Filtros */}
-          {groupFilter && (
+          {/* Las visitas siguen "Ver solo" de la leyenda */}
+          {verSolo && (
             <div className="mb-4 border-t pt-4">
-              <div className="flex items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="text-xs font-semibold text-gray-700">{groupFilter.title}</div>
-                  <div className="text-xs text-gray-500">{groupSummary}</div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('filters')}
-                  className={`flex-shrink-0 rounded-md px-2 text-xs font-medium text-gray-700 underline underline-offset-2 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 ${embedded ? 'min-h-[44px]' : 'min-h-[28px]'}`}
-                >
-                  Cambiar filtro
-                </button>
-              </div>
+              <div className="text-xs font-semibold text-gray-700">Visitas de {verSoloTexto}</div>
               <p className="mt-1 text-xs text-gray-500">
-                Las visitas se muestran solo de las zonas que quedan en el mapa con el filtro.
+                Siguen a &quot;Ver solo&quot;: solo las de las Zonas que quedan en el mapa. Para elegir a quién, toca en la
+                leyenda.
               </p>
             </div>
           )}
@@ -698,104 +615,6 @@ export default function MapControls({
         </div>
       )}
 
-      {/* Tab de Búsqueda */}
-      {activeTab === 'search' && (
-        <div>
-          <h3 className="text-sm font-semibold mb-3">Buscar en el Mapa</h3>
-          
-          <div className="mb-3">
-            <input
-              type="text"
-              placeholder="Buscar hospital, municipio o departamento..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className={`w-full px-3 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent transition-all bg-white ${embedded ? 'h-11' : 'py-2'}`}
-            />
-          </div>
-
-          {searchResults.length > 0 && (
-            <div className="space-y-2 max-h-96 overflow-y-auto">
-              {searchResults.map((result, index) => (
-                <button
-                  key={index}
-                  onClick={() => {
-                    // Centrar mapa en el resultado
-                    const zoomLevel = result.type === 'hospital' ? 16 : 
-                                    result.type === 'municipality' ? 13 : 
-                                    9 // departamento
-                    
-                    // Navegar al punto usando la nueva función
-                    if (onMapNavigate) {
-                      onMapNavigate(result.lat, result.lng, zoomLevel)
-                    }
-                    
-                    // Si es un hospital, abrir su tarjeta en el mapa
-                    if (result.type === 'hospital' && onHospitalSelect) {
-                      onHospitalSelect(result.id)
-                    }
-
-                    setIsOpen(false)
-                    onSearchSelect?.()
-                  }}
-                  className="w-full text-left px-3 py-2 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors"
-                >
-                  <div className="flex items-center gap-2">
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                      result.type === 'hospital' ? 'bg-gray-900' : 
-                      result.type === 'municipality' ? 'bg-gray-600' : 
-                      'bg-gray-400'
-                    }`}>
-                      <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        {result.type === 'hospital' ? (
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
-                        ) : result.type === 'municipality' ? (
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path>
-                        ) : (
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                        )}
-                      </svg>
-                    </div>
-                    <div className="flex-1">
-                      <div className="text-sm font-medium text-gray-900">{result.name}</div>
-                      {result.type === 'hospital' && (
-                        <>
-                          <div className="text-xs text-gray-500">Hospital - Código: {result.code}</div>
-                          {result.municipality && (
-                            <div className="text-xs text-gray-400">{result.municipality}</div>
-                          )}
-                        </>
-                      )}
-                      {result.type === 'municipality' && (
-                        <>
-                          <div className="text-xs text-gray-500">Municipio - {result.hospitalCount} IPS</div>
-                          {result.department && (
-                            <div className="text-xs text-gray-400">{result.department}</div>
-                          )}
-                        </>
-                      )}
-                      {result.type === 'department' && (
-                        <div className="text-xs text-gray-500">Departamento - {result.hospitalCount} IPS</div>
-                      )}
-                    </div>
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-
-          {searchTerm.length > 0 && searchTerm.length <= 2 && (
-            <div className="text-xs text-gray-500 mt-2">
-              Escriba al menos 3 caracteres para buscar
-            </div>
-          )}
-
-          {searchTerm.length > 2 && searchResults.length === 0 && (
-            <div className="text-xs text-gray-500 mt-2">
-              No se encontraron resultados
-            </div>
-          )}
-        </div>
-      )}
     </div>
   )
 
@@ -839,7 +658,9 @@ export default function MapControls({
 
       {/* Panel de controles */}
       {isOpen && (
-        <div className="fixed bottom-16 right-4 z-[9995] bg-white rounded-2xl shadow-2xl border border-gray-100" style={{ width: 'min(360px, calc(100vw - 2rem))', maxHeight: 'calc(100vh - 120px)', overflowY: 'auto' }}>
+        // Alto máximo: arriba deja libres el buscador y los botones de zoom del mapa (terminan ~138 px bajo el borde de
+        // la ventana; abajo van 64 px del botón)
+        <div className="fixed bottom-16 right-4 z-[9995] bg-white rounded-2xl shadow-2xl border border-gray-100" style={{ width: 'min(360px, calc(100vw - 2rem))', maxHeight: 'calc(100vh - 212px)', overflowY: 'auto' }}>
           {/* Botón de cerrar dentro del panel */}
           <button
             onClick={() => setIsOpen(false)}

@@ -1,11 +1,13 @@
-// Buscador de municipios del mapa (dueño, 2026-10-28: "si alguien esta en el mapa y escribe 'Yop' que pueda salir los
-// municipios y si le doy clic que me lleve a ese municipio con zoom moderado"). Funciones PURAS, sin E/S: las usa el
-// mapa (components/MapSearchBox.tsx) y las prueba scripts/mapa-buscar-check.ts.
+// Buscador del mapa (dueño, 2026-10-28: "si alguien esta en el mapa y escribe 'Yop' que pueda salir los municipios y si
+// le doy clic que me lleve a ese municipio con zoom moderado"; desde el 2026-10-29 es el único y trae también
+// departamentos e IPS). Funciones PURAS, sin E/S: las usa el mapa (components/MapSearchBox.tsx) y las prueba
+// scripts/mapa-buscar-check.ts.
 //
-// Se busca en los 1.121 municipios (sin Bogotá, que se pinta por localidades), las 20 localidades de Bogotá y la
-// ciudad de Bogotá. Sin importar tildes ni mayúsculas ("cucuta" encuentra Cúcuta). Orden: el nombre empieza por lo
-// escrito; luego una palabra del nombre empieza por lo escrito ("gai" → Puerto Gaitán); luego lo contiene. A igualdad,
-// el nombre más corto y después el orden alfabético.
+// Se busca en los 1.121 municipios (sin Bogotá, que se pinta por localidades), sus departamentos, las 20 localidades de
+// Bogotá, la ciudad de Bogotá y las IPS activas con punto (por nombre o código). Sin importar tildes ni mayúsculas
+// ("cucuta" encuentra Cúcuta). Orden: el nombre empieza por lo escrito; luego una palabra del nombre empieza por lo
+// escrito ("gai" → Puerto Gaitán); luego lo contiene (o el código de la IPS lo contiene). A igualdad, primero los
+// territorios, el nombre más corto y después el orden alfabético.
 
 /** Departamentos de Colombia por código DANE (los mismos de /api/locations/departments). */
 export const DEPARTAMENTOS: Readonly<Record<string, string>> = {
@@ -71,15 +73,20 @@ export const LOCALIDADES_BOGOTA: Readonly<Record<string, string>> = {
 /** Código del resultado "Bogotá D.C." (la ciudad: el mapa la encuadra por sus localidades urbanas, sin Sumapaz). */
 export const BOGOTA_CIUDAD = '11001'
 
-export type TipoTerritorio = 'municipio' | 'localidad' | 'ciudad'
+export type TipoTerritorio = 'municipio' | 'localidad' | 'ciudad' | 'departamento' | 'ips'
 
 export interface TerritorioBuscable {
-  /** Código DANE: municipio (5 dígitos), localidad (7) o la ciudad de Bogotá (11001) */
+  /** Código DANE: municipio (5 dígitos), localidad (7), la ciudad de Bogotá (11001) o departamento (2); IPS: "ips:<id>" */
   code: string
   nombre: string
-  /** Lo que va después de la coma: el departamento, o "Bogotá D.C. · localidad" */
+  /** Lo que va después de la coma: el departamento, "Bogotá D.C. · localidad", "departamento" o "IPS en <municipio>" */
   detalle: string
   tipo: TipoTerritorio
+  /** Solo IPS: su id (abre su tarjeta), su punto y su código (también se busca por él) */
+  ipsId?: string
+  lat?: number
+  lng?: number
+  alias?: string
 }
 
 /** Minúsculas, sin tildes ni diéresis y con un solo espacio entre palabras. */
@@ -97,7 +104,8 @@ export const MIN_LETRAS = 2
 
 /**
  * Territorios que coinciden con lo escrito, en orden: empieza por (0), una palabra empieza por (1), contiene (2); a
- * igualdad, nombre más corto y después alfabético (es). Como mucho `limite`. Vacío con menos de MIN_LETRAS letras.
+ * igualdad, primero los territorios y después las IPS, el nombre más corto y después alfabético (es). Como mucho
+ * `limite`. Vacío con menos de MIN_LETRAS letras.
  */
 export function buscarTerritorios(termino: string, lista: readonly TerritorioBuscable[], limite = 8): TerritorioBuscable[] {
   const t = normalizar(termino)
@@ -108,12 +116,14 @@ export function buscarTerritorios(termino: string, lista: readonly TerritorioBus
     let rango = -1
     if (nombre.startsWith(t)) rango = 0
     else if (nombre.split(/[\s-]+/).some(palabra => palabra.startsWith(t))) rango = 1
-    else if (nombre.includes(t)) rango = 2
+    else if (nombre.includes(t) || (territorio.alias && normalizar(territorio.alias).includes(t))) rango = 2
     if (rango >= 0) conRango.push({ territorio, rango, nombre })
   }
+  const esIps = (territorio: TerritorioBuscable) => (territorio.tipo === 'ips' ? 1 : 0)
   conRango.sort(
     (a, b) =>
       a.rango - b.rango ||
+      esIps(a.territorio) - esIps(b.territorio) ||
       a.nombre.length - b.nombre.length ||
       a.territorio.nombre.localeCompare(b.territorio.nombre, 'es') ||
       a.territorio.detalle.localeCompare(b.territorio.detalle, 'es')
@@ -158,21 +168,38 @@ export function rectanguloDeGeometrias(geometrias: readonly Geometria[]): [[numb
   return Number.isFinite(sur) ? [[sur, oeste], [norte, este]] : null
 }
 
+/** Una IPS del mapa para el buscador (con su punto: sin coordenadas no se puede ir a ella). */
+export interface IpsBuscable {
+  id: string
+  name: string
+  code?: string | null
+  lat: number
+  lng: number
+  municipio?: string | null
+}
+
 /**
- * Lista para el buscador a partir de las capas del mapa: municipios (nombre de la base si existe), las localidades con
- * su nombre con tildes y la ciudad de Bogotá (si hay localidades).
+ * Lista del buscador del mapa (único desde el 2026-10-29: reemplaza la pestaña "Buscar" de Filtros). Va con los
+ * municipios (nombre de la base si existe), los departamentos que tienen alguno, las localidades con su nombre con
+ * tildes, la ciudad de Bogotá (si hay localidades) y las IPS con coordenadas.
  */
 export function territoriosBuscables(
   municipios: ReadonlyArray<{ code: string; name?: string | null; dept?: string | null }>,
   localidades: ReadonlyArray<{ code: string; name?: string | null }>,
-  nombreDeMunicipio: (code: string) => string | null | undefined
+  nombreDeMunicipio: (code: string) => string | null | undefined,
+  ips: readonly IpsBuscable[] = []
 ): TerritorioBuscable[] {
   const lista: TerritorioBuscable[] = []
+  const departamentos = new Set<string>()
   for (const m of municipios) {
     const nombre = (nombreDeMunicipio(m.code) || m.name || '').trim()
     if (!nombre) continue
     const dept = (m.dept || m.code.slice(0, 2)).padStart(2, '0')
+    departamentos.add(dept)
     lista.push({ code: m.code, nombre, detalle: DEPARTAMENTOS[dept] ?? '', tipo: 'municipio' })
+  }
+  for (const dept of Array.from(departamentos).sort()) {
+    if (DEPARTAMENTOS[dept]) lista.push({ code: dept, nombre: DEPARTAMENTOS[dept], detalle: 'departamento', tipo: 'departamento' })
   }
   for (const l of localidades) {
     const nombre = LOCALIDADES_BOGOTA[l.code] ?? (l.name || '').trim()
@@ -180,18 +207,41 @@ export function territoriosBuscables(
     lista.push({ code: l.code, nombre, detalle: 'Bogotá D.C. · localidad', tipo: 'localidad' })
   }
   if (localidades.length > 0) lista.push({ code: BOGOTA_CIUDAD, nombre: 'Bogotá D.C.', detalle: 'ciudad', tipo: 'ciudad' })
+  for (const h of ips) {
+    const nombre = (h.name || '').trim()
+    if (!nombre || !Number.isFinite(h.lat) || !Number.isFinite(h.lng)) continue
+    const municipio = (h.municipio || '').trim()
+    lista.push({
+      code: `ips:${h.id}`,
+      nombre,
+      detalle: municipio ? `IPS en ${municipio}` : 'IPS',
+      tipo: 'ips',
+      ipsId: h.id,
+      lat: h.lat,
+      lng: h.lng,
+      ...(h.code ? { alias: h.code } : {})
+    })
+  }
   return lista
 }
 
 /** Sumapaz: localidad rural enorme; la ciudad de Bogotá se encuadra sin ella. */
 export const SUMAPAZ = '1100120'
 
-type ConGeometria = { properties?: { code?: string } | null; geometry?: Geometria }
+type ConGeometria = { properties?: { code?: string; dept?: string | null } | null; geometry?: Geometria }
 
-/** Geometrías que encuadran un resultado: su polígono, o las localidades urbanas para la ciudad de Bogotá. */
+/**
+ * Geometrías que encuadran un resultado: su polígono; las localidades urbanas para la ciudad de Bogotá; o los
+ * municipios de un departamento (código de 2 dígitos; Bogotá no es uno: va por localidades).
+ */
 export function geometriasDeTerritorio(code: string, municipios: readonly ConGeometria[], localidades: readonly ConGeometria[]): Geometria[] {
   if (code === BOGOTA_CIUDAD) {
     return localidades.filter(f => f.properties?.code !== SUMAPAZ).map(f => f.geometry)
+  }
+  if (code.length === 2) {
+    return municipios
+      .filter(f => (f.properties?.dept || String(f.properties?.code ?? '').slice(0, 2)) === code)
+      .map(f => f.geometry)
   }
   const capa = code.length === 7 ? localidades : municipios
   return capa.filter(f => f.properties?.code === code).map(f => f.geometry)

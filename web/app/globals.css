@@ -345,7 +345,7 @@ main:has(.opmap-map-page) {
   border-width: 1px;
 }
 
-/* Mini-muestra de una zona (tono) bajo un Ejecutivo Comercial con varias zonas */
+/* Mini-muestra de una Zona (su color) bajo un Ejecutivo Comercial con varias, en la lista de la leyenda */
 .opmap-legend-dot--zone {
   width: 12px;
   height: 12px;
