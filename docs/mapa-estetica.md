@@ -365,6 +365,17 @@ que ya había (ninguna clase ni color nuevo).
   hospitalarias" (fila "Hospitales") a "Estadísticas de las IPS" (fila "IPS"), la tarjeta de una visita dice "IPS:" y
   el aviso del bloque IPS de Filtros manda a "IPS, Importar del REPS" (antes "Hospitales"). Nada más del mapa cambia.
 
+### 2026-10-30 · La barra de arriba con el diseño de la app (armazón, no estilo del mapa)
+
+- Etapa 1 del diseño de la web (`docs/specs/2026-10-30-diseno-web-etapa-1.md`, aprobada por el dueño el 2026-10-30):
+  la barra de arriba de toda la web es la de la app. En el Mapa conserva su alto (48 px en el celular, 64 px en
+  escritorio) y el menú sigue en cajón; cambia su aspecto: blanca (negra si la persona eligió Oscuro), de borde a
+  borde, con la letra DM Sans y la inicial de la persona (su nombre y "Cerrar sesión" pasaron al pie del menú).
+- **El mapa en sí no cambia**: la leyenda, los filtros, el buscador, la hoja del celular y la ventana de elegir línea
+  conservan la letra de antes (Inter, en `.opmap-map-page` de `web/app/map/page.tsx`; prueba en
+  `web/scripts/tema-check.ts`). Colores, opacidades, capas, marcadores y tarjetas, iguales. Pasarlos a DM Sans queda
+  para cuando el dueño lo autorice.
+
 ### Lógica de Coloreado de Territorios Compartidos
 Para cualquier territorio (municipio o localidad) donde múltiples KAMs tienen IPS:
 

@@ -5,6 +5,9 @@
  * F1b (actividades de campo): "Quién soy" dice su papel según el caso —"Líder · Trauma" y "Ejecutivo Comercial ·
  * Sustitutos óseos · Bucaramanga" (papelesDePersona de lib/persona.ts; Paola, los dos)—. Sin la persona (aún no se
  * sabe), lo de antes: su Ejecutivo Comercial y su zona. "Mis días libres" solo con Ejecutivo Comercial (hasta F3).
+ *
+ * Tema (etapa 1 del diseño, dueño 2026-10-30): Claro, Oscuro o Automático (el del teléfono), como al final del menú de
+ * OpMap; en el navegador es el mismo de OpMap (lib/tema-preferencia.tsx).
  */
 import Constants from 'expo-constants'
 import { useRouter } from 'expo-router'
@@ -17,13 +20,18 @@ import { Icono } from '../../lib/iconos'
 import { muestraDiasLibres, papelesDePersona } from '../../lib/persona'
 import { plural, tituloRol } from '../../lib/reglas'
 import { useSesion } from '../../lib/sesion'
-import { ALTO_TOQUE_MIN, Aviso, Boton, Fila, Pantalla, Subtitulo, Tarjeta, Texto, confirmar, useColores } from '../../lib/ui'
+import type { PreferenciaTema } from '../../lib/tema'
+import { useTemaApp } from '../../lib/tema-preferencia'
+import { ALTO_TOQUE_MIN, Aviso, Boton, Chip, Fila, Pantalla, Subtitulo, Tarjeta, Texto, confirmar, useColores } from '../../lib/ui'
+
+const TEMAS: ReadonlyArray<readonly [PreferenciaTema, string]> = [['claro', 'Claro'], ['oscuro', 'Oscuro'], ['auto', 'Automático']]
 
 export default function Ajustes() {
   const router = useRouter()
   const c = useColores()
   const { perfil, salir, sinConfirmar } = useSesion()
   const { resumen } = useCola()
+  const { preferencia, elegir } = useTemaApp()
   const [saliendo, setSaliendo] = useState(false)
   const version = Constants.expoConfig?.version ?? '—'
   const papeles = papelesDePersona(perfil?.persona, perfil?.ejecutiva?.zona)
@@ -83,6 +91,15 @@ export default function Ajustes() {
           </View>
         </Tarjeta>
       ) : null}
+
+      <Tarjeta>
+        <Subtitulo>Tema</Subtitulo>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+          {TEMAS.map(([valor, texto]) => (
+            <Chip key={valor} texto={texto} activo={preferencia === valor} alPresionar={() => elegir(valor)} />
+          ))}
+        </View>
+      </Tarjeta>
 
       <Tarjeta>
         <Subtitulo>App</Subtitulo>

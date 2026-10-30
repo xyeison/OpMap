@@ -132,7 +132,15 @@ nada llama a Google.
   - el contacto lleva teléfono y/o correo y no se repite entre los activos de la cuenta (409 con `existente`);
   - la visita institucional exige contacto.
 
-  Migración 0950 (rollback 9960): solo con autorización del dueño; borra con respaldo los médicos de prueba "otro".
+  Migración 0950 (rollback 9960) APLICADA el 2026-10-30 con autorización del dueño; borró con respaldo los médicos de
+  prueba "otro".
+- **Un solo diseño, el de la app (tipo Uber)** (dueño, 2026-10-30, `docs/specs/2026-10-30-diseno-web-etapa-1.md`): por
+  etapas, una por PR. La paleta es la de la app: `web/lib/tema.ts` = `mobile/lib/paleta.ts` (una prueba lo exige), letra
+  DM Sans. Cada persona elige Claro, Oscuro o Automático (menú de OpMap y Ajustes de la app); se guarda en el navegador o
+  el teléfono con la clave `opmap.tema.v1`, nunca en la base, y en el navegador vale para OpMap y `/campo`. El menú lleva
+  todas las opciones del rol, en acordeón por grupo. Las páginas aún no rehechas siguen en claro (`<main data-tema="claro">`);
+  la rehecha lleva `data-sigue-tema`. En el Mapa solo cambia la barra de arriba: su leyenda, filtros y buscador conservan
+  la letra de antes (Inter) hasta que el dueño autorice cambiarlos (`docs/mapa-estetica.md`).
 - **Territorio y contratos**: el anexo de territorio (Anexo A IPS, Anexo B municipios) va al contrato de
   cada Ejecutivo Comercial; las versiones (`territory_snapshots`) son inmutables.
 - **SECOP I** se cuenta por el valor ADJUDICADO a cada contratista desde `f789-7hwg` (`fuente = 'secop1'`); el

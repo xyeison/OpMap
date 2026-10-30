@@ -27,7 +27,6 @@ import {
   Text,
   TextInput,
   View,
-  useColorScheme,
   type StyleProp,
   type TextInputProps,
   type TextStyle,
@@ -37,6 +36,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { HeaderHeightContext } from 'expo-router/react-navigation'
 import { glifoDe, type NombreIcono } from './iconos-nombres'
 import { ALTO_TOQUE_MIN, COLORES_CLAROS, COLORES_OSCUROS, LETRA, MAX_ESCALA_TEXTO, SOMBRA, TAMANO, type Colores } from './paleta'
+import { useEsquema } from './tema-preferencia'
 
 // ---------------------------------------------------------------------------------------------
 // Colores y tamaños (viven en lib/paleta.ts, puro, para que las pruebas los lean en Node)
@@ -46,8 +46,9 @@ export { ALTO_TOQUE_MIN, COLORES_CLAROS, COLORES_OSCUROS, LETRA, MAX_ESCALA_TEXT
 export { contraste } from './paleta'
 export type { Colores }
 
+/** Los colores del tema que eligió la persona (Claro, Oscuro o Automático; lib/tema-preferencia.tsx). */
 export function useColores(): Colores {
-  return useColorScheme() === 'dark' ? COLORES_OSCUROS : COLORES_CLAROS
+  return useEsquema() === 'dark' ? COLORES_OSCUROS : COLORES_CLAROS
 }
 
 // ---------------------------------------------------------------------------------------------

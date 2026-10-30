@@ -15,7 +15,8 @@
  * calendario, 18 tiempos y contexto en memoria (token, sesión, audio), 19 el resto de pantallas, 20 el estilo visual tipo
  * Uber (tokens y contrastes, croquis, encabezado blanco y barra) y 21 la persona de campo y el ciclo de vida de la cita
  * (F1b de docs/specs/2026-10-15-actividades-de-campo.md: el espejo de web/lib/agenda-ciclo.ts, "¿Qué pasó con esto?",
- * la dirección comercial, cuota y días libres sin Ejecutivo Comercial, "Como", otra fecha y los textos).
+ * la dirección comercial, cuota y días libres sin Ejecutivo Comercial, "Como", otra fecha y los textos) y 22 el tema de
+ * OpMap (Claro, Oscuro o Automático en Ajustes, la misma clave que la web, espejo de web/lib/tema.ts).
  * Contrato: docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md (secciones "App móvil", "Pruebas" y "F4.1").
  *
  * Uso (desde mobile/): npx tsx scripts/movil-check.ts   (va dentro de npm run check)
@@ -192,6 +193,7 @@ import { pruebas as pruebasTiempos } from './checks/18-tiempos'
 import { pruebas as pruebasPantallas } from './checks/19-pantallas'
 import { pruebas as pruebasEstilo } from './checks/20-estilo'
 import { pruebas as pruebasPersona } from './checks/21-persona'
+import { pruebas as pruebasTema } from './checks/22-tema'
 
 // Este archivo corre en Node (tsx), pero el programa de tipos es el de la app (sin @types/node, que chocaría con los
 // tipos de React Native): fs y path con lo mínimo que se usa aquí.
@@ -1996,8 +1998,8 @@ async function main() {
   }
 
   // -------------------------------------------------------------------------
-  // Secciones 15 a 19 (spec 2026-10-15), 20 (estilo tipo Uber) y 21 (F1b, persona de campo): un archivo por paquete en
-  // scripts/checks/, con el mismo marco.
+  // Secciones 15 a 19 (spec 2026-10-15), 20 (estilo tipo Uber), 21 (F1b, persona de campo) y 22 (el tema de OpMap): un
+  // archivo por paquete en scripts/checks/, con el mismo marco.
   {
     const probador: Probador = { check, seccion, lanza }
     await pruebasNavegacion(probador)
@@ -2007,6 +2009,7 @@ async function main() {
     await pruebasPantallas(probador)
     await pruebasEstilo(probador)
     await pruebasPersona(probador)
+    await pruebasTema(probador)
   }
 
   console.log(`\n${total - fallas}/${total} pruebas pasaron`)

@@ -9,6 +9,11 @@ import PermissionGuard from '@/components/PermissionGuard'
 import type { MapLine, MapMode } from '@/components/MapComponent'
 import { setMapHeaderTitle } from '@/components/mapHeaderStore'
 import { lineForExecutivesView, resolveMapView } from '@/lib/map-view'
+import { Inter } from 'next/font/google'
+
+// La letra de antes (Inter): el resto de la web pasó a DM Sans (etapa 1 del diseño, 2026-10-30), pero la leyenda, los
+// filtros, el buscador y la hoja del mapa solo cambian si el dueño lo autoriza aparte (docs/mapa-estetica.md)
+const inter = Inter({ subsets: ['latin'] })
 
 const MapComponent = dynamic(
   () => import('@/components/MapComponent').then((mod) => mod.default),
@@ -250,7 +255,7 @@ function MapPageContent() {
         }
       >
         {/* Alto de la pantalla menos la cabecera (48 px en móvil, 64 px en escritorio); sin scroll de página */}
-        <div className="opmap-map-page relative">
+        <div className={`opmap-map-page relative ${inter.className}`}>
           {renderBody()}
         </div>
       </PermissionGuard>
