@@ -237,8 +237,22 @@ for (const ruta of Array.from(new Set(ORDEN.map(href => href.split('?')[0])))) {
   check(`${ruta} tiene su página`, existsSync(path.join(APP, ruta.slice(1), 'page.tsx')))
 }
 check('/territories sigue existiendo', existsSync(path.join(APP, 'territories', 'page.tsx')))
-// Médicos y Aseguradoras: "Próximamente", sin datos (dueño, 2026-10-29)
-for (const ruta of ['medicos', 'aseguradoras']) {
+// Médicos vuelve el 2026-10-30 (dueño: "En la web también, recuerda que son 1 sola tabla para web+app"): la lista, el
+// detalle y "Nuevo médico", que solo se crea con CC o CE
+const paginaMedicos = readFileSync(path.join(APP, 'medicos', 'page.tsx'), 'utf8')
+check(
+  '/medicos muestra los médicos (MedicosTab, MedicoDetalleModal y MedicoForm) con terceros:view, ya no "Próximamente"',
+  !paginaMedicos.includes('@/components/Proximamente') && /<MedicosTab /.test(paginaMedicos) && /<MedicoDetalleModal/.test(paginaMedicos) && /<MedicoForm/.test(paginaMedicos) && /permission="terceros:view"/.test(paginaMedicos)
+)
+const COMPONENTES_TERCEROS = path.join(__dirname, '..', 'components', 'terceros')
+const formularioMedico = readFileSync(path.join(COMPONENTES_TERCEROS, 'MedicoForm.tsx'), 'utf8')
+const detalleMedico = readFileSync(path.join(COMPONENTES_TERCEROS, 'MedicoDetalleModal.tsx'), 'utf8')
+check(
+  'en la web el médico se crea y se corrige solo con CC o CE (TIPOS_DOC_MEDICO_NUEVO); uno guardado con otro tipo pide elegir',
+  /TIPOS_DOC_MEDICO_NUEVO\.map/.test(formularioMedico) && !/TIPOS_DOC_MEDICO\.map/.test(formularioMedico) && /TIPOS_DOC_MEDICO_NUEVO\.map/.test(detalleMedico) && !/TIPOS_DOC_MEDICO\.map/.test(detalleMedico) && /elige CC o CE/.test(detalleMedico)
+)
+// Aseguradoras: "Próximamente", sin datos (dueño, 2026-10-29)
+for (const ruta of ['aseguradoras']) {
   // Sin los comentarios (la de Médicos nombra su API para decir que no cambia)
   const pagina = readFileSync(path.join(APP, ruta, 'page.tsx'), 'utf8').split('\n').filter(linea => !linea.trim().startsWith('//')).join('\n')
   check(`/${ruta} es "Próximamente" y no pide datos`, pagina.includes("@/components/Proximamente") && !/\/api\/|fetch\(|Medicos?Tab|MedicoForm/.test(pagina))
