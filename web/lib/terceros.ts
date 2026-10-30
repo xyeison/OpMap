@@ -70,6 +70,20 @@ export const TIPOS_DOC_MEDICO = [
 export type TipoDocMedico = (typeof TIPOS_DOC_MEDICO)[number]['valor']
 export const VALORES_TIPO_DOC_MEDICO = valoresDe<TipoDocMedico>(TIPOS_DOC_MEDICO)
 
+/**
+ * Para crear, corregir o verificar un médico: solo la cédula de ciudadanía o la de extranjería, para no repetirlos
+ * (dueño, 2026-10-30, docs/decisiones/2026-10-30-medicos-y-contactos-sin-duplicados.md). TIPOS_DOC_MEDICO sigue con
+ * todos para mostrar los que ya estaban guardados.
+ */
+export const TIPOS_DOC_MEDICO_NUEVO = [
+  { valor: 'CC', etiqueta: 'Cédula de ciudadanía' },
+  { valor: 'CE', etiqueta: 'Cédula de extranjería' },
+] as const satisfies readonly Opcion[]
+export type TipoDocMedicoNuevo = (typeof TIPOS_DOC_MEDICO_NUEVO)[number]['valor']
+export const VALORES_TIPO_DOC_MEDICO_NUEVO = valoresDe<TipoDocMedicoNuevo>(TIPOS_DOC_MEDICO_NUEVO)
+/** El mensaje de un documento de médico que no es CC ni CE. */
+export const MENSAJE_DOC_MEDICO_CC_CE = 'El documento del médico es la cédula de ciudadanía (CC) o la cédula de extranjería (CE)'
+
 /** Misma lista que el CHECK de medicos.especialidades (el orden es el de la interfaz). */
 export const ESPECIALIDADES = [
   { valor: 'ortopedia', etiqueta: 'Ortopedia y traumatología' },

@@ -12,7 +12,8 @@ import {
   VALORES_MODALIDAD_FACTURACION,
   VALORES_ROL_CONTACTO,
   VALORES_ROL_MEDICO_SEDE,
-  VALORES_TIPO_DOC_MEDICO,
+  MENSAJE_DOC_MEDICO_CC_CE,
+  VALORES_TIPO_DOC_MEDICO_NUEVO,
   VALORES_TIPO_ID_CUENTA,
   errorModalidad,
   leerPagina,
@@ -127,8 +128,11 @@ const claseSchema = z.enum(VALORES_CLASE_CUENTA, {
 const tipoIdCuentaSchema = z.enum(VALORES_TIPO_ID_CUENTA, {
   errorMap: () => ({ message: 'Elige el tipo de identificación: NIT, CC, CE, PA u otro' }),
 })
-const tipoDocMedicoSchema = z.enum(VALORES_TIPO_DOC_MEDICO, {
-  errorMap: () => ({ message: 'Elige el tipo de documento del médico' }),
+// Crear, corregir y verificar: solo CC o CE (dueño, 2026-10-30). Sin tipo: "Elige el tipo de documento del médico".
+const tipoDocMedicoSchema = z.enum(VALORES_TIPO_DOC_MEDICO_NUEVO, {
+  errorMap: (issue, ctx) => ({
+    message: issue.code === 'invalid_enum_value' ? MENSAJE_DOC_MEDICO_CC_CE : ctx.defaultError && 'Elige el tipo de documento del médico',
+  }),
 })
 const modalidadSchema = z
   .enum(VALORES_MODALIDAD_FACTURACION, {

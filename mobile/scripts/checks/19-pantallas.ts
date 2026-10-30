@@ -23,6 +23,7 @@ import {
   textoSiguienteCita,
   textoUbicacionTomada,
 } from '../../lib/pantallas'
+import { TIPOS_DOC_MEDICO_NUEVO } from '../../lib/terceros'
 import type { CitaItem, EstadoCita } from '../../lib/tipos'
 import type { Probador } from './probador'
 
@@ -451,6 +452,13 @@ export async function pruebas(t: Probador): Promise<void> {
     )
 
     const medico = leer('app/(app)/medico/nuevo.tsx')
+    // Sin duplicados (dueño, 2026-10-30): el documento del médico es CC o CE
+    t.check(
+      'Nuevo médico: solo cédula de ciudadanía y de extranjería (TIPOS_DOC_MEDICO_NUEVO = CC, CE), ni pasaporte ni "otro"',
+      TIPOS_DOC_MEDICO_NUEVO.map(tipo => tipo.valor).join() === 'CC,CE' &&
+        /\{TIPOS_DOC_MEDICO_NUEVO\.map\(opcion =>/.test(medico) &&
+        !/TIPOS_DOC_MEDICO\.map|'Pasaporte'|=== 'otro'/.test(medico)
+    )
     const accion = bloque(medico, 'const accion =', 'const avisoPie =')
     const pieMedico = bloque(medico, 'pie={', '\n    >\n')
     t.check(

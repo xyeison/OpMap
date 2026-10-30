@@ -25,12 +25,12 @@ import { avisarRetorno, leerPedido } from '../../../lib/retorno'
 import {
   ESPECIALIDADES,
   ROLES_MEDICO_SEDE,
-  TIPOS_DOC_MEDICO,
+  TIPOS_DOC_MEDICO_NUEVO,
   limpiarNombre,
   tipoIdCuentaDeMedico,
   validarDocumentoMedico,
 } from '../../../lib/terceros'
-import type { EspecialidadMedico, MedicoPublico, MedicoVerificarRespuesta, RolMedicoSede, SedeBusquedaItem, TipoDocMedico } from '../../../lib/tipos'
+import type { EspecialidadMedico, MedicoPublico, MedicoVerificarRespuesta, RolMedicoSede, SedeBusquedaItem, TipoDocMedicoNuevo } from '../../../lib/tipos'
 import { Aviso, Boton, Campo, Chip, Grupo, Pantalla, Subtitulo, Tarjeta, Texto, useColores } from '../../../lib/ui'
 
 interface SedeElegida {
@@ -57,7 +57,7 @@ function NuevoMedico() {
   const cercanas = (pedido?.sedes ?? []).filter(s => s.distancia_m !== null).slice(0, 6)
   const distancias = new Map((pedido?.sedes ?? []).map(s => [s.id, s.distancia_m]))
 
-  const [tipo, setTipo] = useState<TipoDocMedico>('CC')
+  const [tipo, setTipo] = useState<TipoDocMedicoNuevo>('CC')
   const [numero, setNumero] = useState('')
   const [nombre, setNombre] = useState(pedido?.nombre ?? '')
   const [municipio, setMunicipio] = useState<string | null>(pedido?.municipio ? pedido.municipio.slice(0, 5) : null)
@@ -220,10 +220,10 @@ function NuevoMedico() {
       <Tarjeta estilo={{ gap: 12 }}>
         <Subtitulo>1. Documento y nombre</Subtitulo>
         <Grupo>
-          {TIPOS_DOC_MEDICO.map(opcion => (
+          {TIPOS_DOC_MEDICO_NUEVO.map(opcion => (
             <Chip
               key={opcion.valor}
-              texto={opcion.valor === 'otro' ? 'Otro' : opcion.valor === 'PA' ? 'Pasaporte' : opcion.valor}
+              texto={opcion.valor}
               activo={tipo === opcion.valor}
               alPresionar={() => {
                 setTipo(opcion.valor)

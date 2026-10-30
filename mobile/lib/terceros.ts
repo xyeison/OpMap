@@ -6,7 +6,7 @@
  * El documento del médico se DIGITA (nunca se dicta ni lo propone la IA), se valida aquí con la misma regla que el
  * servidor y viaja solo en el cuerpo de POST /api/terceros/medicos[/verificar]; nunca se muestra en listas.
  */
-import type { ClaseCuenta, EspecialidadMedico, RolMedicoSede, TipoDocMedico, TipoIdCuenta } from './tipos'
+import type { ClaseCuenta, EspecialidadMedico, RolMedicoSede, TipoDocMedico, TipoDocMedicoNuevo, TipoIdCuenta } from './tipos'
 
 export interface Opcion<T extends string = string> {
   valor: T
@@ -20,6 +20,16 @@ export const TIPOS_DOC_MEDICO: readonly Opcion<TipoDocMedico>[] = [
   { valor: 'PEP', etiqueta: 'Permiso especial de permanencia' },
   { valor: 'PPT', etiqueta: 'Permiso por protección temporal' },
   { valor: 'otro', etiqueta: 'Otro' },
+]
+
+/**
+ * Los tipos que ofrece Nuevo médico: solo cédula de ciudadanía o de extranjería, para no repetir médicos (dueño,
+ * 2026-10-30; el servidor rechaza los demás con "El documento del médico es la cédula de ciudadanía (CC) o la cédula de
+ * extranjería (CE)"). TIPOS_DOC_MEDICO sigue con todos para mostrar los ya guardados.
+ */
+export const TIPOS_DOC_MEDICO_NUEVO: readonly Opcion<TipoDocMedicoNuevo>[] = [
+  { valor: 'CC', etiqueta: 'Cédula de ciudadanía' },
+  { valor: 'CE', etiqueta: 'Cédula de extranjería' },
 ]
 
 /** Etiqueta corta del tipo de documento para los chips ("CC", "CE"…). */

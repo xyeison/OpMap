@@ -14,6 +14,7 @@ import {
   ROLES_MEDICO_SEDE,
   SUBTIPOS_SEMILLA,
   TIPOS_DOC_MEDICO,
+  TIPOS_DOC_MEDICO_NUEVO,
   TIPOS_ID_CUENTA,
   VALORES_CLASE_CUENTA,
   VALORES_ESPECIALIDAD,
@@ -470,6 +471,16 @@ eq('especialidades sin repetir', nuevo?.especialidades, ['ortopedia', 'columna']
 eq('sede_id en minúsculas', nuevo?.sedes.map(s => s.sede_id), [UUID_A, UUID_B])
 eq('correo en minúsculas', nuevo?.email, 'juan.perez@ejemplo.com')
 check('descarta activo y created_by', nuevo !== undefined && !('activo' in nuevo) && !('created_by' in nuevo))
+// Médicos sin duplicados (dueño, 2026-10-30): el documento es la cédula de ciudadanía o la de extranjería
+const SOLO_CC_CE = 'cédula de ciudadanía (CC) o la cédula de extranjería (CE)'
+valido('médico con cédula de extranjería', medicoCreateSchema.safeParse({ ...medicoBase, tipo_documento: 'CE', numero_documento: 'E12345' }))
+for (const tipo of ['PA', 'PEP', 'PPT', 'otro']) {
+  invalido(`médico nuevo con ${tipo} → solo CC o CE`, medicoCreateSchema.safeParse({ ...medicoBase, tipo_documento: tipo, numero_documento: 'X12345' }), SOLO_CC_CE)
+  invalido(`corregir el documento a ${tipo} → solo CC o CE`, medicoUpdateSchema.safeParse({ tipo_documento: tipo, numero_documento: 'X12345' }), SOLO_CC_CE)
+  invalido(`verificar con ${tipo} → solo CC o CE`, medicoVerificarSchema.safeParse({ tipo_documento: tipo, numero_documento: 'X12345' }), SOLO_CC_CE)
+}
+eq('TIPOS_DOC_MEDICO_NUEVO: CC y CE (para crear, corregir y verificar)', TIPOS_DOC_MEDICO_NUEVO.map(t => t.valor), ['CC', 'CE'])
+eq('TIPOS_DOC_MEDICO sigue con todos (para mostrar lo que ya estaba guardado)', TIPOS_DOC_MEDICO.map(t => t.valor), ['CC', 'CE', 'PA', 'PEP', 'PPT', 'otro'])
 invalido('médico sin sedes (lista vacía)', medicoCreateSchema.safeParse({ ...medicoBase, sedes: [] }), 'al menos una sede')
 invalido('médico sin sedes (sin campo)', medicoCreateSchema.safeParse({ ...medicoBase, sedes: undefined }), 'al menos una sede')
 invalido('médico sin número de documento', medicoCreateSchema.safeParse({ ...medicoBase, numero_documento: undefined }), 'número de documento')
@@ -502,7 +513,7 @@ invalido(
 invalido('teléfono corto', medicoCreateSchema.safeParse({ ...medicoBase, telefono: '123' }), 'al menos 7 dígitos')
 invalido('correo inválido', medicoCreateSchema.safeParse({ ...medicoBase, email: 'no-es-correo' }), 'Correo no válido')
 eq('correo vacío → null', medicoCreateSchema.safeParse({ ...medicoBase, email: '' }).data?.email, null)
-eq('pasaporte normalizado', medicoCreateSchema.safeParse({ ...medicoBase, tipo_documento: 'PA', numero_documento: 'ab-123 45' }).data?.numero_documento, 'AB12345')
+eq('cédula de extranjería normalizada (letras en mayúscula, sin guiones ni espacios)', medicoCreateSchema.safeParse({ ...medicoBase, tipo_documento: 'CE', numero_documento: 'ab-123 45' }).data?.numero_documento, 'AB12345')
 
 console.log('11. Edición y verificación de médico')
 valido('cambiar nombre', medicoUpdateSchema.safeParse({ nombre: 'Juan Carlos Pérez' }))
