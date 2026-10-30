@@ -15,7 +15,7 @@
  *     que se guarda (patrones de cédula, cotizantes que no son empresa, supervisión reducida al cargo).
  */
 import type Anthropic from '@anthropic-ai/sdk'
-import { esNitJuridico, normalizeNit } from '../secop'
+import { esNitJuridico, normalizeNit, normalizeText } from '../secop'
 import { codigoNorm, type ContratoActual, type Diferencia, type SiaContratoLeido } from './normalizar'
 import type { TipoDocumento } from './tipos'
 
@@ -223,7 +223,20 @@ export function leerRespuesta(message: RespuestaIA): { datos: DatosExtraccion; u
 // ---------------------------------------------------------------------------------------------
 
 const RE_CEDULA = /\b(c\.?\s?c\.?|c[eé]dula( de ciudadan[ií]a)?|identificad[oa] con|documento( de identidad)?( n[oº°.]*)?)\s*(n[oº°.]*\s*)?[:#]?\s*\d{1,3}([.\s]?\d{3}){1,3}\b/gi
-const RE_EMPRESA = /\b(s\.?\s?a\.?\s?s\.?|s\.?\s?a\.?|ltda\.?|e\.?\s?s\.?\s?e\.?|sociedad|corporaci[oó]n|fundaci[oó]n|consorcio|uni[oó]n temporal|limitada|cooperativa|grupo)\b/i
+/** Razón social inequívoca de empresa (sin NIT, una palabra como "grupo" o "sociedad" no basta: "Grupo de María López"). */
+const RE_EMPRESA = /(\bs\.?\s?a\.?\s?s\.?(?=\s|$|[),.;])|\bs\.?\s?a\.(?=\s|$|[),;])|\bltda\b|\blimitada\b|\be\.?\s?s\.?\s?e\.?(?=\s|$|[),;])|\bconsorcio\b|\buni[oó]n temporal\b|\bs\.?\s?en\s?c\.?)/i
+/** Palabras de un cargo o dependencia: lo único que se guarda de la supervisión. */
+const RE_CARGO = /\b(subgerent|gerent|director|jef[ea]|coordinador|supervisor|profesional|l[ií]der|secretari|asesor|auxiliar|enfermer|m[eé]dic|instrumentador|almac[eé]n|interventor|comit[eé]|oficina|[aá]rea|servicio|subdirector|referente|ingenier|qu[ií]mic|regente|administrador|tesorer|contador)/i
+
+/** De la supervisión, el primer trozo que nombra un cargo o dependencia; si ninguno lo hace (¿un nombre?), nada. */
+export function soloCargo(texto: string | null): string | null {
+  if (!texto) return null
+  const trozo = texto
+    .split(/,|\(|\)|;| [–-] /)
+    .map(t => t.trim())
+    .find(t => t && RE_CARGO.test(t))
+  return trozo ?? null
+}
 
 export function quitarDatosPersonales(texto: string): string {
   return texto.replace(RE_CEDULA, '[dato personal omitido]')
@@ -239,17 +252,21 @@ function sanearValor<T>(valor: T): T {
 /**
  * Lo que se guarda: sin patrones de cédula en ningún texto; NIT de contratista y entidad normalizados (el del contratista
  * solo si es de empresa); cotizantes solo empresas (NIT de persona jurídica, o sin NIT pero con razón social de empresa);
- * supervisión reducida al cargo (lo que va antes de la primera coma, punto y coma, paréntesis o guion entre espacios).
+ * supervisión reducida al cargo (soloCargo: si ningún trozo nombra un cargo, null); el ganador solo si es una de esas empresas.
  */
 export function sanearExtraccion(datos: DatosExtraccion): DatosExtraccion {
   const d = sanearValor(JSON.parse(JSON.stringify(datos)) as DatosExtraccion)
   const nitContratista = normalizeNit(d.contrato.contratista?.nit)
   d.contrato.contratista = { nombre: d.contrato.contratista?.nombre ?? '', nit: esNitJuridico(nitContratista) ? nitContratista : null }
   d.contrato.entidad = { nombre: d.contrato.entidad?.nombre ?? '', nit: normalizeNit(d.contrato.entidad?.nit) }
-  if (d.contrato.supervision) d.contrato.supervision = d.contrato.supervision.split(/,|\(|;| [–-] /)[0].trim() || null
+  d.contrato.supervision = soloCargo(d.contrato.supervision)
   d.mercado.cotizantes = (d.mercado.cotizantes ?? [])
     .map(c => ({ nombre: c.nombre, nit: normalizeNit(c.nit) }))
     .filter(c => (c.nit ? esNitJuridico(c.nit) : RE_EMPRESA.test(c.nombre)))
+  // El ganador solo si es uno de los cotizantes empresa (o la empresa contratista)
+  const empresas = [...d.mercado.cotizantes.map(c => c.nombre), d.contrato.contratista.nit ? d.contrato.contratista.nombre : ''].map(n => normalizeText(n)).filter(Boolean)
+  const ganador = normalizeText(d.mercado.ganador)
+  if (ganador && !empresas.some(e => ganador.includes(e) || e.includes(ganador))) d.mercado.ganador = null
   return d
 }
 

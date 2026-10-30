@@ -15,6 +15,8 @@
 --      personas: el dueño no quiere datos de médicos de SIA, así que no hay es_persona ni proveedor_hash (la spec los
 --      proponía; no hacen falta si nunca se guarda una persona). No se suma con secop_contratos: se enlaza por
 --      secop_contrato_id (ON DELETE SET NULL: la reclasificación de SECOP puede reescribir filas).
+--      Columnas de control de la carga: ficha_intentos/ficha_error (una ficha que falla no frena a las demás) e
+--      ia_intentos/ia_lote_id/ia_ultimo_error (la lectura con IA no se repite ni se paga dos veces por el mismo lote).
 --   4. public.contrato_documentos: documentos de la ficha (uno por (contrato, ianx, ianxa)) con su estado: descargado
 --      (copia en el bucket), solo_enlace, anonimizacion_pendiente, restringido o error.
 --   5. public.contrato_extracciones: lo que leyó Claude de los PDF (modelo, version_prompt, datos, discrepancias), y
@@ -135,11 +137,16 @@ CREATE TABLE IF NOT EXISTS public.sia_contratos (
   ficha_url                text          NOT NULL,
   ficha                    jsonb,
   ficha_leida_at           timestamptz,
+  ficha_intentos           integer       NOT NULL DEFAULT 0,
+  ficha_error              text,
   refrescar_solicitado_at  timestamptz,
   estado_revision          text          NOT NULL DEFAULT 'nuevo',
   motivo_descarte          text,
   revisado_por             uuid,
   revisado_at              timestamptz,
+  ia_intentos              integer       NOT NULL DEFAULT 0,
+  ia_lote_id               text,
+  ia_ultimo_error          text,
   raw                      jsonb,
   imported_at              timestamptz   NOT NULL DEFAULT now(),
   updated_at               timestamptz   NOT NULL DEFAULT now(),
@@ -159,8 +166,10 @@ CREATE TABLE IF NOT EXISTS public.sia_contratos (
     OR (linea = 'no_clasificado' AND alcance = 'enlazado')
   ),
   CONSTRAINT sia_contratos_lineas_check         CHECK (lineas <@ ARRAY['trauma', 'reemplazo', 'columna', 'deportiva', 'neurocirugia', 'otros_implantes']::text[]),
+  -- Con cruce siempre se sabe cómo. Al revés no se exige: si la reclasificación de SECOP borra la fila, el ON DELETE SET NULL
+  -- deja secop_cruce sin id y el DELETE de secop_contratos no debe fallar (la próxima carga lo recalcula).
   CONSTRAINT sia_contratos_cruce_check          CHECK (
-    (secop_cruce IS NULL OR secop_cruce IN ('codigo', 'contratista_fecha')) AND ((secop_cruce IS NULL) = (secop_contrato_id IS NULL))
+    (secop_cruce IS NULL OR secop_cruce IN ('codigo', 'contratista_fecha')) AND (secop_contrato_id IS NULL OR secop_cruce IS NOT NULL)
   ),
   CONSTRAINT sia_contratos_revision_check       CHECK (estado_revision IN ('nuevo', 'importado', 'descartado')),
   CONSTRAINT sia_contratos_descarte_check       CHECK (estado_revision <> 'descartado' OR length(trim(coalesce(motivo_descarte, ''))) > 0),
@@ -314,6 +323,9 @@ COMMENT ON COLUMN public.sia_contratos.valor_vigente IS 'cto_valor_vigente de SI
 COMMENT ON COLUMN public.sia_contratos.secop_cruce IS 'Cómo casó con SECOP: codigo (misma entidad y código) o contratista_fecha (NIT, firma ±7 días y valor).';
 COMMENT ON COLUMN public.sia_contratos.ficha IS 'Ficha leída (sin personas: solo contratistas empresa; sin supervisores): publicación en SECOP, novedades.';
 COMMENT ON COLUMN public.sia_contratos.refrescar_solicitado_at IS '"Actualizar desde SIA" en un contrato: la próxima corrida local relee la ficha si es posterior a ficha_leida_at.';
+COMMENT ON COLUMN public.sia_contratos.ficha_intentos IS 'Lecturas fallidas de la ficha; a la tercera deja de intentarse sola (no frena a los demás cada noche). "Actualizar desde SIA" la vuelve a pedir.';
+COMMENT ON COLUMN public.sia_contratos.ia_intentos IS 'Veces que se mandaron sus documentos a la IA (web/scripts/sia-extraer.ts no reintenta más de 2: cada intento cuesta).';
+COMMENT ON COLUMN public.sia_contratos.ia_lote_id IS 'Lote de la Batch API en vuelo con este contrato (no se vuelve a mandar hasta recogerlo).';
 COMMENT ON COLUMN public.sia_contratos.raw IS 'Fila original de Get_CTOs_Base sin el botón de detalle y con los contratistas reducidos a las empresas.';
 COMMENT ON TABLE public.contrato_documentos IS
   'Documentos de la ficha de SIA (deduplicados por ianx, ianxa). descargado = copia en el bucket privado contratos-sia '
@@ -400,6 +412,13 @@ BEGIN
             'anonimizacion_pendiente', NULL, NULL);
     INSERT INTO public.contrato_extracciones (sia_contrato_id, documento_ids, modelo, version_prompt, datos)
     SELECT sc_id, array_agg(id), 'modelo-prueba', 'v-prueba', '{}'::jsonb FROM public.contrato_documentos WHERE sia_contrato_id = sc_id;
+    -- la reclasificación de SECOP puede borrar una fila cruzada: el DELETE no debe fallar
+    INSERT INTO public.secop_contratos (id) VALUES ('00000000-0000-4000-8000-000000000921');
+    UPDATE public.sia_contratos SET secop_contrato_id = '00000000-0000-4000-8000-000000000921', secop_cruce = 'codigo' WHERE id = sc_id;
+    DELETE FROM public.secop_contratos WHERE id = '00000000-0000-4000-8000-000000000921';
+    IF EXISTS (SELECT 1 FROM public.sia_contratos WHERE id = sc_id AND secop_contrato_id IS NOT NULL) THEN
+      RAISE EXCEPTION '0920 SIA: borrar la fila de SECOP no dejó el cruce en null';
+    END IF;
     SELECT count(*) INTO n FROM public.hospital_contracts
     WHERE contracting_model IS NOT NULL AND contracting_model NOT IN ('contratacion_directa', 'licitacion', 'invitacion_privada', 'subasta_inversa');
     IF n > 0 THEN RAISE EXCEPTION '0920 SIA: hay % contratos con un modelo fuera del CHECK nuevo', n; END IF;

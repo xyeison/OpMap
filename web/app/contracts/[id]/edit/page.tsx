@@ -130,7 +130,8 @@ export default function ContractEditPage() {
     const p = data.precarga
     setContract(prev => ({
       ...prev,
-      hospital_id: p.hospital_id || prev.hospital_id,
+      // La IPS elegida manda (puede ser otra sede del mismo NIT); la de SIA/SECOP solo si aún no hay ninguna
+      hospital_id: prev.hospital_id || p.hospital_id || '',
       contract_number: p.contract_number,
       current_provider: p.current_provider,
       proveedor_id: data.proveedor?.id ?? undefined,

@@ -12,7 +12,7 @@
  *     Invitado", 3.7.1) y reutiliza las cookies. Las descargas mandan el Referer de la ficha (3.7.3).
  */
 import * as cheerio from 'cheerio'
-import { SIA_BASE_URL, fechaParaSia, fichaUrl, type SiaFilaRaw } from './normalizar'
+import { SIA_BASE_URL, fechaParaSia, fichaUrl, leerContratistas, type SiaFilaRaw } from './normalizar'
 import { nombreDeContentDisposition } from './ficha'
 
 export const SIA_PAUSA_MS = 1500
@@ -81,6 +81,25 @@ export function parseCtosBase(texto: string): { total: number | null; filas: Sia
   if (!Array.isArray(aaData)) throw new SiaError('Get_CTOs_Base: la respuesta no trae aaData', false)
   const total = Number((interno as { iTotalRecords?: unknown }).iTotalRecords)
   return { total: Number.isFinite(total) ? total : null, filas: aaData as SiaFilaRaw[] }
+}
+
+/**
+ * Respuesta de Get_CTOs_Base reducida a las filas con alguna empresa, y en ellas solo las empresas (NIT, nombre y tipo). Es lo
+ * único que se guarda en la caché en disco: de personas naturales no queda nada (spec, sección 8).
+ */
+export function soloEmpresas(r: { total: number | null; filas: SiaFilaRaw[] }): { iTotalRecords: number | null; aaData: SiaFilaRaw[] } {
+  const aaData: SiaFilaRaw[] = []
+  for (const f of r.filas) {
+    const empresas = leerContratistas(f.cto_nit_contratistas, f.cto_contratistas, f.cto_tipo_contratistas).filter(c => c.esEmpresa)
+    if (empresas.length === 0) continue
+    aaData.push({
+      ...f,
+      cto_nit_contratistas: empresas.map(e => e.nit).join('<br>'),
+      cto_contratistas: empresas.map(e => e.nombre ?? '').join('<br>'),
+      cto_tipo_contratistas: empresas.map(e => e.tipo ?? '').join('<br>'),
+    })
+  }
+  return { iTotalRecords: r.total, aaData }
 }
 
 /** Campos ocultos del formulario ASP.NET y el destino del postback del enlace "Ingresa como Invitado". */
@@ -172,7 +191,8 @@ export class SiaCliente {
   /** fetch con timeout, reintentos (red, 429, 5xx) y espera creciente. Sigue redirecciones guardando cookies. */
   private async pedir(url: string, init: Omit<RequestInit, 'headers'> & { headers?: Record<string, string> }): Promise<Response> {
     let ultimo: unknown = null
-    for (let intento = 1; intento <= this.reintentos; intento++) {
+    // Un intento más los reintentos (3 reintentos = hasta 4 peticiones)
+    for (let intento = 1; intento <= this.reintentos + 1; intento++) {
       try {
         this.peticiones++
         const headers: Record<string, string> = { 'User-Agent': this.userAgent, 'Accept-Language': 'es-CO,es;q=0.9', ...(init.headers ?? {}) }
@@ -183,7 +203,11 @@ export class SiaCliente {
         let saltos = 0
         let actual = url
         while (res.status >= 300 && res.status < 400 && res.headers.get('location') && saltos < 5) {
-          actual = new URL(res.headers.get('location') as string, actual).toString()
+          const destino = new URL(res.headers.get('location') as string, actual)
+          // Solo dentro del portal: las cookies de la sesión de invitado no salen de SIA
+          if (destino.origin !== SIA_BASE_URL) break
+          actual = destino.toString()
+          await this.esperar(this.pausaMs)
           const cookieSalto = this.cabeceraCookies()
           res = await this.fetchImpl(actual, {
             method: 'GET',
@@ -200,7 +224,7 @@ export class SiaCliente {
       } catch (error) {
         ultimo = error
         const reintentable = error instanceof SiaError ? error.reintentable : true
-        if (!reintentable || intento === this.reintentos) break
+        if (!reintentable || intento === this.reintentos + 1) break
         const espera = this.pausaMs * 2 ** intento
         this.log(`  SIA: reintento ${intento} en ${Math.round(espera / 1000)} s (${error instanceof Error ? error.message : String(error)})`)
         await this.esperar(espera)
@@ -233,8 +257,8 @@ export class SiaCliente {
     })
   }
 
-  private async conCache(clave: string, fn: () => Promise<string>, sinCache = false): Promise<string> {
-    const guardado = this.cache && !sinCache ? await this.cache.get(clave) : null
+  private async conCache(clave: string, fn: () => Promise<string>): Promise<string> {
+    const guardado = this.cache ? await this.cache.get(clave) : null
     if (guardado !== null) return guardado
     const valor = await fn()
     if (this.cache) await this.cache.set(clave, valor)
@@ -266,30 +290,29 @@ export class SiaCliente {
         r = await intentar()
       }
       if (r.status >= 400) throw new SiaError(`Get_CTOs_Base HTTP ${r.status}`, false)
-      parseCtosBase(r.text) // valida antes de guardar en caché
-      return r.text
+      // Lo que queda en caché (disco del equipo que corre la carga) va SIN filas de personas naturales ni sus datos
+      return JSON.stringify({ d: JSON.stringify(soloEmpresas(parseCtosBase(r.text))) })
     })
     return parseCtosBase(texto)
   }
 
   /** HTML de la ficha del contrato. */
-  async getFicha(idc: number, opts: { sinCache?: boolean } = {}): Promise<string> {
-    return this.conCache(`ficha:${idc}`, async () => {
-      const intentar = () =>
-        this.enCola(async () => {
-          const res = await this.pedir(fichaUrl(idc), { method: 'GET', headers: { Accept: 'text/html', Referer: `${SIA_BASE_URL}${SIA_INFORME_PATH}` } })
-          return { status: res.status, url: (res as Response & { urlFinal?: string }).urlFinal ?? '', text: await res.text() }
-        })
-      let r = await intentar()
-      if ((r.status >= 400 || esPaginaLogin(r.url, r.text)) && !this.sesionIntentada) {
-        this.log('  SIA: la ficha pidió sesión; login de invitado')
-        await this.loginInvitado()
-        r = await intentar()
-      }
-      if (r.status >= 400) throw new SiaError(`Ficha ${idc}: HTTP ${r.status}`, false)
-      if (esPaginaLogin(r.url, r.text)) throw new SiaError(`Ficha ${idc}: el portal pidió sesión aun después del login de invitado`, false)
-      return r.text
-    }, opts.sinCache)
+  /** HTML de la ficha. Sin caché: trae supervisores y se lee una vez por contrato. */
+  async getFicha(idc: number): Promise<string> {
+    const intentar = () =>
+      this.enCola(async () => {
+        const res = await this.pedir(fichaUrl(idc), { method: 'GET', headers: { Accept: 'text/html', Referer: `${SIA_BASE_URL}${SIA_INFORME_PATH}` } })
+        return { status: res.status, url: (res as Response & { urlFinal?: string }).urlFinal ?? '', text: await res.text() }
+      })
+    let r = await intentar()
+    if ((r.status >= 400 || esPaginaLogin(r.url, r.text)) && !this.sesionIntentada) {
+      this.log('  SIA: la ficha pidió sesión; login de invitado')
+      await this.loginInvitado()
+      r = await intentar()
+    }
+    if (r.status >= 400) throw new SiaError(`Ficha ${idc}: HTTP ${r.status}`, false)
+    if (esPaginaLogin(r.url, r.text)) throw new SiaError(`Ficha ${idc}: el portal pidió sesión aun después del login de invitado`, false)
+    return r.text
   }
 
   /** Descarga un documento del handler que enlaza la ficha (solo esas URL; nunca otros handlers). */

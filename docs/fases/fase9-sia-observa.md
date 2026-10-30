@@ -37,25 +37,33 @@ puede correr en una ruta de cron.
 1. Contratos de cada entidad validada de IPS pública (primero las de más contratos clasificados en SECOP), ventanas de un mes de
    los últimos 60 días. Solo empresas (NIT de persona jurídica) con objeto de las líneas (clasificador de SECOP `v2`).
    Personas naturales: nada (ni hash). Upsert por `sia_idc` sin pisar la revisión (`estado_revision`, motivo, enlace).
-2. Cruce con SECOP: misma entidad + código normalizado (`CD/26-1262` = `CD261262`, en SECOP va en `referencia`); desempate por
-   NIT del contratista y firma ±7 días; si no hay código que case, NIT + firma ±7 días + valor. Prefiere la fila `secop2`.
-3. Enlace con Contratos: por el `idc` del `documents_link` o por el mismo número en la misma IPS. Solo escribe lo vacío.
-4. Fichas de hasta 40 contratos nuevos (y los "Actualizar desde SIA" pedidos): documentos deduplicados por `(ianx, ianxa)`,
+2. Cruce con SECOP: misma entidad + código normalizado (`CD/26-1262` = `CD261262`, en SECOP va en `referencia`), y además
+   el mismo contratista o la firma a ±60 días (los códigos cortos se repiten cada año); si casan varios, desempate por NIT y
+   firma ±7 días; si no hay código que case, NIT + firma ±7 días + valor. Prefiere la fila del mismo contratista y de `secop2`.
+   Ante la duda, no cruza.
+3. Enlace con Contratos: primero el `idc` del `documents_link`; por número solo si es inequívoco (un contrato a cada lado) y
+   con el inicio a ±180 días. Solo escribe lo vacío. Una entidad que falla se anota en el mensaje y se sigue con la siguiente.
+4. Fichas de hasta 40 contratos nuevos (y los "Actualizar desde SIA" pedidos, que además vuelven a pedir a `Get_CTOs_Base` el
+   mes de la firma para traer valor vigente, adiciones, liberaciones y fechas nuevos): documentos deduplicados por `(ianx, ianxa)`,
    copia al bucket de los tipos clave (contrato, estudio previo, anexo técnico, propuesta, novedad, liquidación) y estado de los
-   demás (`solo_enlace`, `anonimizacion_pendiente`, `restringido`, `error`). Nunca se envía el correo de anonimización.
+   demás (`solo_enlace`, `anonimizacion_pendiente`, `restringido`, `error`). Nunca se envía el correo de anonimización. Una
+   ficha que falla suma un intento (`ficha_intentos`) y a la tercera se deja hasta que alguien pida actualizar.
 5. Estado en `fuentes_estado` (`sia_observa`, ejecutor `manual`): bloqueo de 30 min, cursor por entidad, mensaje con cifras.
 
-Carga al portal: una petición a la vez, 1,5 s entre peticiones, 3 reintentos con espera creciente, 60 s de timeout, caché de
-20 h en `web/.sia-cache/` (no va a git).
+Carga al portal: una petición a la vez, 1,5 s entre peticiones, 3 reintentos con espera creciente, 60 s de timeout, redirecciones
+solo dentro de SIA. Caché de 20 h de `Get_CTOs_Base` en `web/.sia-cache/` (no va a git) con SOLO las filas de empresas; lo vencido se
+borra al arrancar; las fichas no se guardan en caché.
 
 ## Lectura con IA (`sia-extraer.ts`)
 
-- `--dry-run`: cuántos contratos y páginas. `--lote`: crea un lote de la Batch API (mitad de precio); `--recoger`: guarda los
-  resultados. `--directo --idc N`: uno ya.
+- `--dry-run`: cuántos contratos y páginas. `--lote`: crea un lote de la Batch API (mitad de precio; queda en
+  `sia_contratos.ia_lote_id` y no se reenvía mientras esté en vuelo); `--recoger`: guarda los resultados. `--directo --idc N`: uno
+  ya. Máximo 2 intentos por contrato (`ia_intentos`): un rechazo o una respuesta sin la herramienta no se paga cada noche.
 - Modelo `claude-opus-5-5`, pensamiento adaptativo, esfuerzo alto, herramienta estricta `registrar_contrato` (esquema de la
   sección 7 de la spec; cada dato con su documento y página). Máximo 32 MB y 600 páginas por solicitud: van primero contrato y
   estudio previo.
-- Se sanea (sin cédulas, cotizantes solo empresas, supervisión solo el cargo), se compara con SIA (`discrepancias`) y se guarda
+- Se sanea (sin cédulas; cotizantes solo empresas con NIT o razón social inequívoca; supervisión solo el cargo, o nada; ganador solo
+  si es una de esas empresas), se compara con SIA (`discrepancias`) y se guarda
   en `contrato_extracciones` con el modelo y `version_prompt`. Nada pasa a Contratos solo.
 
 ## En la app

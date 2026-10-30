@@ -133,7 +133,8 @@ export interface FichaSia {
   secciones: string[]
 }
 
-const HANDLER_RE = /filehandler_guess_anonimo\.ashx/i
+/** Solo el handler de documentos del propio portal (cualquier otro enlace se ignora). */
+const HANDLER_PATH = '/handlers/filehandler_guess_anonimo.ashx'
 
 /** Etiquetas de Información Básica (texto normalizado → campo). La primera que case gana. */
 const ETIQUETAS: ReadonlyArray<[keyof FichaBasica, RegExp]> = [
@@ -269,8 +270,13 @@ export function parseFicha(html: string): FichaSia {
   const vistos = new Set<string>()
   $('a').each((_, a) => {
     const href = String($(a).attr('href') ?? '')
-    if (!HANDLER_RE.test(href)) return
-    const url = new URL(href, SIA_BASE_URL)
+    let url: URL
+    try {
+      url = new URL(href, SIA_BASE_URL)
+    } catch {
+      return
+    }
+    if (url.origin !== SIA_BASE_URL || url.pathname.toLowerCase() !== HANDLER_PATH) return
     const ianx = Number(url.searchParams.get('ianx'))
     const ianxa = Number(url.searchParams.get('ianxa'))
     if (!Number.isSafeInteger(ianx) || !Number.isSafeInteger(ianxa) || ianx <= 0 || ianxa <= 0) return
@@ -304,7 +310,8 @@ export function parseFicha(html: string): FichaSia {
         if (cells.length === 0 || cells.every(c => !c) || /no (hay|existen|se encontraron) (registros|datos)/.test(normalizeText(cells.join(' ')))) return
         const fecha = cells.map(c => siaFecha(c)).find(Boolean) ?? null
         const valor = cells.map(c => (/\$|\d{1,3}(,\d{3})+/.test(c) ? siaDinero(c) : null)).find(v => v !== null) ?? null
-        const detalle = [...cells].filter(c => !siaFecha(c) && siaDinero(c) === null).sort((a, b) => b.length - a.length)[0] ?? null
+        // En cesiones el texto suele ser el nombre de quien cede o recibe (puede ser una persona): no se guarda
+        const detalle = nombre === 'cesion' ? null : [...cells].filter(c => !siaFecha(c) && siaDinero(c) === null).sort((a, b) => b.length - a.length)[0] ?? null
         novedades.push({ tipo: nombre, fecha, valor, detalle: siaTexto(detalle, 1000) })
       })
   })

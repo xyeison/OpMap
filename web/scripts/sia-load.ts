@@ -42,8 +42,10 @@ async function main() {
     log(`   ${r.mensaje}`)
   }
 
-  const { count: sinEnlace } = await db.from('sia_contratos').select('id', { count: 'exact', head: true }).eq('alcance', 'enlazado')
-  if (args.enlazar || args['solo-enlazar'] || (sinEnlace ?? 0) === 0) {
+  // Paso 2: cuando se pide, o la primera vez (todavía ningún contrato de SIA enlazado con Contratos). No cada noche: los que no
+  // aparecen se volverían a buscar en ~7 ventanas cada vez.
+  const { count: enlazados } = await db.from('sia_contratos').select('id', { count: 'exact', head: true }).not('hospital_contract_id', 'is', null)
+  if (args.enlazar || args['solo-enlazar'] || (!dryRun && (enlazados ?? 0) === 0)) {
     log('2. Contratos de OpMap que ya enlazan la ficha de SIA')
     const r = await enlazarContratosConFicha({ db, cliente, log, dryRun })
     log(`   ${r.encontrados} de ${r.revisados} encontrados en SIA`)
@@ -53,7 +55,7 @@ async function main() {
   if (!args['sin-fichas'] && !args['solo-enlazar'] && !dryRun && fichas > 0) {
     log(`3. Fichas y documentos (hasta ${fichas})`)
     const r = await procesarFichas({ db, cliente, limite: fichas, log })
-    log(`   ${r.fichas} fichas · ${r.documentos} documentos (${Object.entries(r.porEstado).map(([k, v]) => `${v} ${k}`).join(', ') || 'ninguno nuevo'})`)
+    log(`   ${r.fichas} fichas · ${r.documentos} documentos (${Object.entries(r.porEstado).map(([k, v]) => `${v} ${k}`).join(', ') || 'ninguno nuevo'})${r.errores ? ` · ${r.errores} fichas con error` : ''}`)
   }
 
   log(`Listo en ${Math.round((Date.now() - inicio) / 1000)} s · ${cliente.peticiones} peticiones a SIA`)

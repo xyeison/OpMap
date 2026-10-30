@@ -1,7 +1,8 @@
 /**
  * SIA Observa · utilidades comunes de los scripts locales (sia-smoke, sia-entidades, sia-load, sia-extraer). No es un
  * script ejecutable. Lee web/.env.local (Supabase con service_role; SIA_CONTACTO para el User-Agent) y guarda la caché de
- * respuestas del portal en web/.sia-cache/ (no va a git): una consulta igual en menos de SIA_CACHE_HORAS no vuelve a SIA.
+ * Get_CTOs_Base en web/.sia-cache/ (no va a git; solo filas de empresas, sin personas): una consulta igual en menos de
+ * SIA_CACHE_HORAS no vuelve a SIA y lo vencido se borra al arrancar. Las fichas no se guardan en caché.
  */
 import fs from 'fs'
 import path from 'path'
@@ -16,6 +17,15 @@ export const SIA_CACHE_DIR = path.resolve(__dirname, '..', '..', '.sia-cache')
 export const SIA_CACHE_HORAS = 20
 
 export function cacheEnDisco(horas = SIA_CACHE_HORAS, dir = SIA_CACHE_DIR): SiaCache {
+  // Lo vencido se borra al arrancar (no se acumula): la clave de la ventana diaria cambia cada día
+  try {
+    for (const nombre of fs.readdirSync(dir)) {
+      const archivo = path.join(dir, nombre)
+      if (Date.now() - fs.statSync(archivo).mtimeMs > horas * 3_600_000) fs.unlinkSync(archivo)
+    }
+  } catch {
+    // sin carpeta todavía
+  }
   return {
     async get(clave) {
       const archivo = path.join(dir, `${createHash('sha256').update(clave).digest('hex')}.txt`)

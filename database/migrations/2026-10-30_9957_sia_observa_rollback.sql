@@ -5,14 +5,16 @@
 -- ANTES DE EJECUTAR: parar el launchd de scripts/sia-load.ts en el Mac del dueño y desplegar el código sin las rutas
 --   /api/sia/* (o dejarlas: responden 503 "falta la migración 0920" si las tablas no existen). Vaciar el bucket desde el
 --   panel de Supabase (Storage → contratos-sia → seleccionar todo → borrar): Supabase no deja borrar un bucket con
---   objetos y este script no toca storage.objects.
+--   objetos. Supabase además prohíbe borrar en storage.buckets por SQL (trigger protect_buckets_delete, visto el 2026-10-30):
+--   este script NO borra el bucket; después de correrlo, borrar el bucket vacío desde el panel (Storage → contratos-sia →
+--   Delete bucket).
 --
 -- Qué deshace (una transacción, todo o nada):
 --   1. hospital_contracts.sia_contrato_id, secop_contrato_id y lineas (se pierde el enlace de los contratos importados;
 --      los contratos quedan intactos).
 --   2. Las tablas secop_descartes_bandeja, contrato_extracciones, contrato_documentos, sia_contratos y sia_entidades.
 --   3. hospitals.sia_entidad_id y sia_mapeado_at.
---   4. El bucket contratos-sia (si está vacío) y la fila sia_observa de fuentes_estado.
+--   4. La fila sia_observa de fuentes_estado (el bucket se borra desde el panel, ver arriba).
 --   5. check_contracting_model vuelve a (contratacion_directa, licitacion, invitacion_privada) SOLO si ningún contrato
 --      quedó con subasta_inversa; si hay, aborta y dice cuántos (hay que cambiarlos a mano antes).
 --
@@ -62,7 +64,6 @@ ALTER TABLE public.hospitals
 
 DROP TABLE IF EXISTS public.sia_entidades;
 
-DELETE FROM storage.buckets WHERE id = 'contratos-sia';
 DELETE FROM public.fuentes_estado WHERE fuente = 'sia_observa';
 
 ALTER TABLE public.hospital_contracts DROP CONSTRAINT IF EXISTS check_contracting_model;

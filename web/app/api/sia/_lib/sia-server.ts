@@ -10,8 +10,10 @@
 import type { SupabaseAdminClient } from '@/lib/supabase-admin'
 import { esNitJuridico, normalizeNit } from '@/lib/secop'
 import {
+  SIA_ENLACE_DIAS,
   SIA_IMPORTAR_MESES,
   codigoNorm,
+  diasEntre,
   diferenciasConSia,
   hoyBogota,
   precargaDesdeSecop,
@@ -44,6 +46,16 @@ function revisar<T>(r: { data: T | null; error: { code?: string; message: string
     throw new Error(`${contexto}: ${r.error.message}`)
   }
   return r.data as T
+}
+
+/** Todas las filas (PostgREST corta en 1.000): páginas de 1.000 hasta que una venga incompleta. */
+async function todas(pagina: (desde: number) => PromiseLike<{ data: unknown; error: { code?: string; message: string } | null }>, contexto: string): Promise<unknown[]> {
+  const out: unknown[] = []
+  for (let desde = 0; ; desde += 1000) {
+    const filas = revisar((await pagina(desde)) as { data: unknown[] | null; error: { code?: string; message: string } | null }, contexto) ?? []
+    out.push(...filas)
+    if (filas.length < 1000) return out
+  }
 }
 
 /** Envuelve un manejador: la migración sin aplicar es 503, no 500. */
@@ -129,8 +141,8 @@ export interface Importable {
 
 async function idsSecopTomados(db: SupabaseAdminClient, nit: string): Promise<Set<string>> {
   const deSia = revisar(await db.from('sia_contratos').select('secop_contrato_id').eq('nit_entidad', nit).not('secop_contrato_id', 'is', null), 'sia_contratos') as Array<{ secop_contrato_id: string }>
-  const descartes = revisar(await db.from('secop_descartes_bandeja').select('secop_contrato_id'), 'secop_descartes_bandeja') as Array<{ secop_contrato_id: string }>
-  const enContratos = revisar(await db.from('hospital_contracts').select('secop_contrato_id').not('secop_contrato_id', 'is', null), 'hospital_contracts') as Array<{ secop_contrato_id: string }>
+  const descartes = (await todas(i => db.from('secop_descartes_bandeja').select('secop_contrato_id').order('secop_contrato_id').range(i, i + 999), 'secop_descartes_bandeja')) as Array<{ secop_contrato_id: string }>
+  const enContratos = (await todas(i => db.from('hospital_contracts').select('secop_contrato_id').not('secop_contrato_id', 'is', null).order('id').range(i, i + 999), 'hospital_contracts')) as Array<{ secop_contrato_id: string }>
   return new Set([...deSia, ...descartes, ...enContratos].map(x => x.secop_contrato_id))
 }
 
@@ -234,7 +246,11 @@ async function siaDeContrato(db: SupabaseAdminClient, hc: ContratoActual & { id:
   const norm = codigoNorm(hc.contract_number)
   if (!h?.nit || !norm) return null
   const porCodigo = revisar(await db.from('sia_contratos').select(COLS_SIA).eq('nit_entidad', h.nit).eq('codigo_norm', norm).limit(2), 'sia_contratos') as unknown as SiaFila[]
-  return porCodigo.length === 1 ? porCodigo[0] : null
+  // Por número solo si es inequívoco y del mismo periodo (los números se repiten entre años): misma regla que el enlace de la carga
+  if (porCodigo.length !== 1) return null
+  const inicio = porCodigo[0].fecha_inicio ?? porCodigo[0].fecha_firma
+  const hcInicio = (hc as { start_date?: string | null }).start_date ?? null
+  return inicio && hcInicio && Math.abs(diasEntre(hcInicio, inicio)) <= SIA_ENLACE_DIAS ? porCodigo[0] : null
 }
 
 export async function siaDeHospitalContract(db: SupabaseAdminClient, hcId: string): Promise<Respuesta> {
@@ -264,7 +280,12 @@ export async function pedirActualizacion(db: SupabaseAdminClient, hcId: string):
   if (!sia) return fallo(404, 'Este contrato no está enlazado con SIA Observa')
   revisar(await db.from('sia_contratos').update({ refrescar_solicitado_at: new Date().toISOString() }).eq('id', sia.id), 'sia_contratos')
   if (!hc.sia_contrato_id) revisar(await db.from('hospital_contracts').update({ sia_contrato_id: sia.id }).eq('id', hc.id).is('sia_contrato_id', null), 'hospital_contracts')
-  return ok({ ok: true, mensaje: 'Pedido: la próxima carga nocturna de SIA (02:00, en el equipo del dueño) relee la ficha y los documentos. Las diferencias se muestran aquí para aprobar.' })
+  return ok({
+    ok: true,
+    mensaje:
+      'Pedido: la próxima carga nocturna de SIA (02:00, en el equipo del dueño) vuelve a leer este contrato en SIA (valores, adiciones, ' +
+      'liberaciones y fechas), su ficha y sus documentos. Mañana las diferencias aparecen aquí para aprobar; nada cambia solo.',
+  })
 }
 
 export async function enlaceDocumento(db: SupabaseAdminClient, docId: string): Promise<Respuesta> {
@@ -307,9 +328,9 @@ export async function detectados(db: SupabaseAdminClient, f: FiltrosDetectados, 
   if (f.linea) qs = qs.eq('linea', f.linea)
   const sia = (revisar(await qs.order('fecha_firma', { ascending: false }).limit(1000), 'sia_contratos') as unknown as SiaFila[]).filter(x => !hospitalesZona || hospitalesZona.has(x.hospital_id as string))
 
-  const todosSia = revisar(await db.from('sia_contratos').select('secop_contrato_id, nit_entidad, codigo_norm'), 'sia_contratos') as Array<{ secop_contrato_id: string | null; nit_entidad: string; codigo_norm: string | null }>
-  const descartes = revisar(await db.from('secop_descartes_bandeja').select('secop_contrato_id'), 'secop_descartes_bandeja') as Array<{ secop_contrato_id: string }>
-  const enContratos = revisar(await db.from('hospital_contracts').select('secop_contrato_id').not('secop_contrato_id', 'is', null), 'hospital_contracts') as Array<{ secop_contrato_id: string }>
+  const todosSia = (await todas(i => db.from('sia_contratos').select('secop_contrato_id, nit_entidad, codigo_norm').order('id').range(i, i + 999), 'sia_contratos')) as Array<{ secop_contrato_id: string | null; nit_entidad: string; codigo_norm: string | null }>
+  const descartes = (await todas(i => db.from('secop_descartes_bandeja').select('secop_contrato_id').order('secop_contrato_id').range(i, i + 999), 'secop_descartes_bandeja')) as Array<{ secop_contrato_id: string }>
+  const enContratos = (await todas(i => db.from('hospital_contracts').select('secop_contrato_id').not('secop_contrato_id', 'is', null).order('id').range(i, i + 999), 'hospital_contracts')) as Array<{ secop_contrato_id: string }>
   const tomados = new Set([...todosSia.map(x => x.secop_contrato_id), ...descartes.map(x => x.secop_contrato_id), ...enContratos.map(x => x.secop_contrato_id)].filter(Boolean) as string[])
   const codigosSia = new Set(todosSia.filter(x => x.codigo_norm).map(x => `${x.nit_entidad}|${x.codigo_norm}`))
   let qsec = db.from('secop_contratos').select(COLS_SECOP).neq('linea', 'no_clasificado').eq('es_persona', false).not('hospital_id', 'is', null).gte('fecha_firma', desde)
@@ -323,7 +344,7 @@ export async function detectados(db: SupabaseAdminClient, f: FiltrosDetectados, 
       (!hospitalesZona || hospitalesZona.has(s.hospital_id as string))
   )
   // Contratos que ya están en Contratos con el mismo número en la misma IPS: no son "detectados"
-  const hcs = revisar(await db.from('hospital_contracts').select('hospital_id, contract_number'), 'hospital_contracts') as Array<{ hospital_id: string; contract_number: string | null }>
+  const hcs = (await todas(i => db.from('hospital_contracts').select('hospital_id, contract_number').order('id').range(i, i + 999), 'hospital_contracts')) as Array<{ hospital_id: string; contract_number: string | null }>
   const yaEnContratos = new Set(hcs.map(h => `${h.hospital_id}|${codigoNorm(h.contract_number)}`))
 
   const ids = Array.from(new Set([...sia.map(x => x.hospital_id), ...secop.map(x => x.hospital_id)].filter(Boolean) as string[]))

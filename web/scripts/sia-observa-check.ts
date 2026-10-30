@@ -229,7 +229,7 @@ async function main() {
     }) as typeof fetch
     const cliente = new SiaCliente({ fetch: fetchFalso, esperar: async ms => void esperas.push(ms), userAgent: 'OpMap-SIA/test' })
     const r = await cliente.getContratosEntidad(ORINOQUIA_GUID, '2026-06-01', '2026-07-31')
-    eq('Get_CTOs_Base: pide sesión → login de invitado → 503 → reintento → datos', [r.filas.length, ctosLlamadas, cliente.conSesion], [8, 3, true])
+    eq('Get_CTOs_Base: pide sesión → login de invitado → 503 → reintento → datos (sin la fila de la persona)', [r.filas.length, r.total, ctosLlamadas, cliente.conSesion], [7, 8, 3, true])
     const ctos = pedidos.filter(x => x.url.endsWith('/Get_CTOs_Base'))
     eq('cuerpo con las fechas en formato del datepicker', JSON.parse(ctos[0].body ?? '{}'), { ENTIDADES_ID: ORINOQUIA_GUID, txtFechaDesde: '2026/06/01', txtFechaHasta: '2026/07/31' })
     check('las cookies del login viajan en la petición siguiente', (ctos[1].headers.Cookie ?? '').includes('.ASPXAUTH=invitado'))
@@ -256,8 +256,8 @@ async function main() {
   console.log('\n7. Sync con Supabase falso')
   {
     const hcs = [
-      { id: 'hc-1111', hospital_id: ORINOQUIA_HOSPITAL, contract_number: 'CD/25-1111', documents_link: null, sia_contrato_id: null },
-      { id: 'hc-1262', hospital_id: ORINOQUIA_HOSPITAL, contract_number: 'otro', documents_link: `${fichaUrl(12910254)}&ide=${ORINOQUIA_GUID}`, sia_contrato_id: null },
+      { id: 'hc-1111', hospital_id: ORINOQUIA_HOSPITAL, contract_number: 'CD/25-1111', start_date: '2025-05-22', documents_link: null, sia_contrato_id: null },
+      { id: 'hc-1262', hospital_id: ORINOQUIA_HOSPITAL, contract_number: 'otro', start_date: '2026-07-02', documents_link: `${fichaUrl(12910254)}&ide=${ORINOQUIA_GUID}`, sia_contrato_id: null },
     ]
     const { db, tablas } = fakeSupabase({
       tablas: {
@@ -292,6 +292,7 @@ async function main() {
   check('sin cron de Vercel para SIA (SIA corta conexiones fuera de Colombia)', !vercel.crons.some(c => c.path.includes('sia')))
 
   await extraccionChecks()
+  await correccionesRevisor()
 
   console.log(`\n${passed} pasaron, ${failed} fallaron`)
   if (failed > 0) process.exit(1)
@@ -349,6 +350,108 @@ async function extraccionChecks() {
     ['custom_requirements', { custom_requirements: pre.custom_requirements }],
   ])
   eq('ya igual a lo leído: sin diferencias', ext.diferenciasConIa({ ...vacio, ...pre }, pre), [])
+}
+
+/** Lo que encontró el subagente revisor el 2026-10-30 (cada caso reproducía un problema antes de la corrección). */
+async function correccionesRevisor() {
+  console.log('\n10. Correcciones de la revisión')
+  const { emparejarConContratos } = await import('../lib/sia-observa/normalizar')
+  const { soloEmpresas } = await import('../lib/sia-observa/client')
+  const { soloCargo, sanearExtraccion } = await import('../lib/sia-observa/extraccion')
+  const base = { codigo_norm: '061', nit_contratista: '901386177', fecha_firma: '2026-06-25', valor_inicial: 510281732 }
+  const otro: SecopCandidato = { id: 'x', fuente: 'secop2', numero_contrato: 'CO1.PCCNTR.1', referencia: '061', proceso: null, documento_proveedor: '900078411', fecha_firma: '2024-03-01', valor: 1000 }
+  check('código corto que se repite: otro contratista y otro año → sin cruce', elegirSecop(base, [otro]) === null)
+  eq('mismo código y mismo contratista aunque la fecha difiera → cruza', elegirSecop(base, [{ ...otro, documento_proveedor: '901386177' }])?.secopId, 'x')
+  eq('mismo código, otro contratista pero firma a ±60 días → cruza', elegirSecop(base, [{ ...otro, fecha_firma: '2026-06-01' }])?.secopId, 'x')
+  const constancia: SecopCandidato[] = [
+    { id: 'a', fuente: 'secop1', numero_contrato: '20-4-1', referencia: 'CD-061', proceso: null, documento_proveedor: '900078411', fecha_firma: '2026-06-25', valor: 1 },
+    { id: 'b', fuente: 'secop1', numero_contrato: '20-4-1', referencia: 'CD-061', proceso: null, documento_proveedor: '901386177', fecha_firma: '2026-06-25', valor: 2 },
+  ]
+  eq('SECOP I con la constancia repetida por contratista: la fila del mismo contratista', elegirSecop({ ...base, codigo_norm: 'CD061' }, constancia)?.secopId, 'b')
+
+  const desalineado = leerContratistas('901386177; 1000000002', 'FARMA S.A.S, PERSONA DE PRUEBA DOS', 'Persona Jurídica; Persona Natural')
+  check('consorcio con nombres desalineados: la empresa sin nombre (nunca el de la persona)', desalineado[0].esEmpresa && desalineado[0].nombre === null && !JSON.stringify(desalineado).includes('PERSONA'))
+  check('un solo tipo para dos NIT: no descarta la empresa', leerContratistas('901386177; 1000000002', 'A; B', 'Persona Natural')[0].esEmpresa)
+
+  const sia = (id: string, idc: number, codigo: string | null, inicio: string) => ({ id, sia_idc: idc, codigo_norm: codigo, fecha_inicio: inicio, fecha_firma: inicio })
+  const hc = (id: string, numero: string | null, inicio: string, link: string | null = null, siaId: string | null = null) => ({ id, contract_number: numero, documents_link: link, start_date: inicio, sia_contrato_id: siaId })
+  eq('enlace: el idc del documents_link manda sobre el número', emparejarConContratos([sia('s1', 11, 'CD251111', '2025-03-21')], [hc('h-num', 'CD/25-1111', '2025-05-22'), hc('h-link', 'otro', '2025-05-22', fichaUrl(11))]), [{ siaId: 's1', hcId: 'h-link', via: 'enlace' }])
+  eq('enlace por número: inicio a ±180 días', emparejarConContratos([sia('s1', 11, 'CD251111', '2025-03-21')], [hc('h1', 'CD/25-1111', '2025-05-22')]).length, 1)
+  eq('enlace por número: otro año → no', emparejarConContratos([sia('s1', 11, '061', '2026-06-25')], [hc('h1', '061', '2024-02-01')]), [])
+  eq('enlace por número: dos contratos de SIA con el mismo número → ninguno', emparejarConContratos([sia('s1', 11, '061', '2026-06-25'), sia('s2', 12, '061', '2026-06-20')], [hc('h1', '061', '2026-07-01')]), [])
+  eq('enlace por número: un contrato guardado que enlaza OTRA ficha no se toma', emparejarConContratos([sia('s1', 11, '061', '2026-06-25')], [hc('h1', '061', '2026-07-01', fichaUrl(99))]), [])
+  eq('enlace por número: un contrato guardado ya enlazado a otro de SIA no se toma', emparejarConContratos([sia('s1', 11, '061', '2026-06-25')], [hc('h1', '061', '2026-07-01', null, 's9')]), [])
+
+  const reducido = soloEmpresas(parseCtosBase(leer('get-ctos-base-orinoquia.json')))
+  const textoReducido = JSON.stringify(reducido)
+  check('caché: sin la fila de la persona ni el nombre o la cédula del consorciado', reducido.aaData.length === 7 && !textoReducido.includes('1000000001') && !textoReducido.includes('1000000002') && !textoReducido.includes('PERSONA'))
+
+  const fichaRara = parseFicha('<h3>Documentos</h3><a href="https://otro.example.com/handlers/filehandler_guess_anonimo.ashx?ianx=1&ianxa=2">x.pdf --> 2026/07/09</a><a href="/otra/filehandler_guess_anonimo.ashx?ianx=3&ianxa=4">y.pdf</a><a href="/handlers/filehandler_guess_anonimo.ashx?ianx=5&ianxa=6&eid=e">z.pdf --> 2026/07/09</a>')
+  eq('documentos: solo el handler del propio portal', fichaRara.documentos.map(d => d.nombre), ['z.pdf'])
+  const cesion = parseFicha('<h3>Novedades</h3><h4>Cesión</h4><table><tr><td>2026/01/10</td><td>PERSONA CESIONARIA INVENTADA</td></tr></table>')
+  eq('novedad de cesión: sin el texto (puede ser el nombre de una persona)', cesion.novedades.map(n => [n.tipo, n.fecha, n.detalle]), [['cesion', '2026-01-10', null]])
+
+  eq('supervisión: el cargo aunque el nombre vaya primero; un nombre solo → nada', [soloCargo('Juan Pérez Gómez, Subgerente Científico'), soloCargo('MARIA LOPEZ'), soloCargo(null)], ['Subgerente Científico', null, null])
+  const datos = JSON.parse(leer('extraccion-cd-26-1262.json')).datos
+  const raro = sanearExtraccion({ ...datos, mercado: { ...datos.mercado, ganador: 'MARIA LOPEZ', cotizantes: [...datos.mercado.cotizantes, { nombre: 'Grupo de María López', nit: null }] } })
+  check('ganador que no es una empresa cotizante: nada; "Grupo de …" sin NIT no pasa', raro.mercado.ganador === null && !raro.mercado.cotizantes.some((c: { nombre: string }) => c.nombre.includes('María')))
+  eq('ganador empresa: se conserva', sanearExtraccion(datos).mercado.ganador, 'FARMAORTOPEDICOS S.A.S (menor valor)')
+
+  {
+    const pedidos: string[] = []
+    const fetchRedir = (async (input: unknown, init: RequestInit = {}) => {
+      pedidos.push(`${String(input)} ${(init.headers as Record<string, string>)?.Cookie ?? ''}`)
+      if (String(input).includes('Login.aspx') && init.method === 'GET') return new Response(leer('login.html'), { status: 200, headers: { 'set-cookie': 'S=1; path=/' } })
+      return new Response('', { status: 302, headers: { location: 'https://evil.example.com/robar' } })
+    }) as typeof fetch
+    const c = new SiaCliente({ fetch: fetchRedir, esperar: async () => {} })
+    await c.getFicha(1).catch(() => {})
+    check('redirección a otro sitio: no se sigue y las cookies no salen de SIA', !pedidos.some(p => p.includes('evil.example.com')))
+    let intentos = 0
+    const siempre503 = new SiaCliente({ fetch: (async () => (intentos++, new Response('x', { status: 503 }))) as unknown as typeof fetch, esperar: async () => {}, reintentos: 3 })
+    await siempre503.descargarDocumento('/handlers/filehandler_guess_anonimo.ashx?ianx=1&ianxa=2').catch(() => {})
+    eq('3 reintentos = 4 peticiones como máximo', intentos, 4)
+  }
+
+  {
+    // Una entidad que falla no frena a las demás; una ficha que falla tampoco
+    const { sincronizarContratos, procesarFichas } = await import('../lib/sia-observa/sync')
+    const { db, tablas } = fakeSupabase({
+      tablas: {
+        sia_entidades: [
+          { guid: 'g-mala', nombre: 'MALA', nit: '891855029', prioridad: 9, validado_at: '2026-10-30' },
+          { guid: ORINOQUIA_GUID, nombre: 'HRO', nit: '891855029', prioridad: 1, validado_at: '2026-10-30' },
+        ],
+        sia_contratos: [],
+        secop_contratos: [],
+        hospitals: [{ id: ORINOQUIA_HOSPITAL, nit: '891855029' }],
+        hospital_contracts: [],
+        fuentes_estado: [],
+        contrato_documentos: [],
+      },
+      rpcs: { secop_nits_ips: [{ nit: '891855029', hospital_id: ORINOQUIA_HOSPITAL, publica: true }] },
+    })
+    const fetchMixto = (async (_input: unknown, init: RequestInit = {}) => {
+      const body = JSON.parse(String(init.body ?? '{}'))
+      if (body.ENTIDADES_ID === 'g-mala') return new Response('error', { status: 500 })
+      return new Response(leer('get-ctos-base-orinoquia.json'), { status: 200 })
+    }) as typeof fetch
+    const r = await sincronizarContratos({ db, cliente: new SiaCliente({ fetch: fetchMixto, esperar: async () => {} }), hoy: '2026-10-30' })
+    const estado = (tablas.get('fuentes_estado') as Array<Record<string, unknown>>)[0]
+    check('entidad con error: se registra y se sigue con la siguiente', r.terminado && r.guardadas === 6 && String(estado?.mensaje).includes('MALA'), [r, estado?.mensaje])
+
+    const filas = tablas.get('sia_contratos') as Array<Record<string, unknown>>
+    for (const f of filas) f.ficha_intentos = 0
+    let fichas = 0
+    const fetchFicha = (async (input: unknown) => {
+      if (String(input).includes('idc=12910254')) return new Response('caído', { status: 500 })
+      fichas++
+      return new Response('<html><h3>Documentos</h3></html>', { status: 200 })
+    }) as typeof fetch
+    const rf = await procesarFichas({ db, cliente: new SiaCliente({ fetch: fetchFicha, esperar: async () => {} }), limite: 10 })
+    const mala = filas.find(f => f.sia_idc === 12910254)
+    check('ficha con error: suma un intento y las demás se leen', rf.errores === 1 && rf.fichas === filas.length - 1 && mala?.ficha_intentos === 1 && mala?.ficha_leida_at === undefined, [rf, mala?.ficha_intentos])
+  }
 }
 
 main().catch(error => {

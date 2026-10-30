@@ -590,4 +590,13 @@ con bloqueo de 30 min renovado tras cada ventana.
   ofrece (guardar con esa opción falla hoy). La migración 0920 lo amplía.
 - `business_lines.code` = `perossal, reemplazo, columna, deportiva, trauma`; el clasificador de SECOP usa además
   `neurocirugia` y `otros_implantes`. `sia_contratos.linea` usa los valores del clasificador (mismo CHECK que SECOP).
-- `storage.buckets` solo tiene `geojson`.
+- `storage.buckets` solo tiene `geojson`. Supabase prohíbe `DELETE` directo en `storage.buckets`/`objects` (trigger
+  `protect_buckets_delete`): el rollback 9957 no borra el bucket; se borra desde el panel.
+
+### Revisión (subagente `revisor`, 2026-10-30)
+
+Corregido antes del PR: el CHECK del cruce con SECOP impedía borrar filas de `secop_contratos` cruzadas (bloqueante); cruce y
+enlace por código ahora exigen contratista o fecha cercana y unicidad; consorcios con listas desalineadas sin nombres; saneo de la
+IA más estricto (supervisión, ganador, cotizantes); caché sin personas y sin fichas; errores por entidad y por ficha aislados;
+"Actualizar desde SIA" relee los valores; la IA no repite contratos fallidos ni lotes en vuelo; importar no cambia la IPS elegida;
+redirecciones solo dentro de SIA y 3 reintentos reales.

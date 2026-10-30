@@ -24,16 +24,19 @@ import { TIPOS_CLAVE, clasificarRespuestaDocumento, fichaParaGuardar, parseFicha
 import {
   SIA_FUENTE,
   SIA_VENTANA_DIAS,
-  codigoNorm,
   diasEntre,
   elegirSecop,
+  emparejarConContratos,
   hoyBogota,
+  idcDeFila,
   mapFilaSia,
   siaDeEnlace,
   sumarDias,
   ventanasMensuales,
+  type ContratoParaEnlace,
   type SecopCandidato,
   type SiaContratoRow,
+  type SiaParaEnlace,
   type SiaDescarte,
 } from './normalizar'
 import { analizarPdf } from './pdf'
@@ -137,8 +140,10 @@ export async function sincronizarEntidad(
   const rows = new Map<number, SiaContratoRow>()
   let encontrado = false
   for (const ventana of ventanas) {
-    const { filas } = await cliente.getContratosEntidad(entidad.guid, ventana.desde, ventana.hasta)
-    conteo.filas += filas.length
+    const { total, filas } = await cliente.getContratosEntidad(entidad.guid, ventana.desde, ventana.hasta)
+    // El cliente ya quitó las filas de personas naturales (ni la caché las guarda): solo se cuentan
+    conteo.filas += total ?? filas.length
+    conteo.descartes.persona += Math.max(0, (total ?? filas.length) - filas.length)
     for (const raw of filas) {
       const r = mapFilaSia(raw, { entidadGuid: entidad.guid, hospitalPorNit: ctx.hospitalPorNit, idcEnlazados: ctx.idcEnlazados, clasificacionVersion: CLASIFICACION_VERSION })
       if ('descarte' in r) {
@@ -197,8 +202,9 @@ export async function cruzarConSecop(db: SupabaseAdminClient, nit: string, rows:
 }
 
 /**
- * Enlaza con hospital_contracts de las IPS del mismo NIT: por idc en documents_link o por el mismo código normalizado.
- * Escribe solo lo vacío (hospital_contracts.sia_contrato_id; sia_contratos.hospital_contract_id y estado 'importado').
+ * Enlaza con hospital_contracts de las IPS del mismo NIT (emparejarConContratos: idc del documents_link, o número inequívoco
+ * con inicio a ±180 días). Escribe solo lo vacío: hospital_contracts.sia_contrato_id; sia_contratos.hospital_contract_id y
+ * estado 'importado'.
  */
 export async function enlazarHospitalContracts(db: SupabaseAdminClient, nit: string, idcs: number[]): Promise<number> {
   if (idcs.length === 0) return 0
@@ -206,17 +212,16 @@ export async function enlazarHospitalContracts(db: SupabaseAdminClient, nit: str
   if (error) falla('hospitals', error)
   const ids = (hospitales ?? []).map(h => (h as { id: string }).id)
   if (ids.length === 0) return 0
-  const { data: hcs, error: e2 } = await db.from('hospital_contracts').select('id, contract_number, documents_link, sia_contrato_id').in('hospital_id', ids)
+  const { data: hcs, error: e2 } = await db.from('hospital_contracts').select('id, contract_number, documents_link, start_date, sia_contrato_id').in('hospital_id', ids)
   if (e2) falla('hospital_contracts', e2)
-  const { data: sias, error: e3 } = await db.from('sia_contratos').select('id, sia_idc, codigo_norm, hospital_contract_id, estado_revision').in('sia_idc', idcs)
+  const { data: sias, error: e3 } = await db.from('sia_contratos').select('id, sia_idc, codigo_norm, fecha_inicio, fecha_firma, hospital_contract_id, estado_revision').in('sia_idc', idcs)
   if (e3) falla('sia_contratos', e3)
-  let enlaces = 0
-  for (const sia of (sias ?? []) as Array<{ id: string; sia_idc: number; codigo_norm: string | null; hospital_contract_id: string | null; estado_revision: string }>) {
-    const hc = ((hcs ?? []) as Array<{ id: string; contract_number: string | null; documents_link: string | null; sia_contrato_id: string | null }>).find(
-      h => siaDeEnlace(h.documents_link)?.idc === Number(sia.sia_idc) || (sia.codigo_norm !== null && codigoNorm(h.contract_number) === sia.codigo_norm)
-    )
-    if (!hc) continue
-    enlaces++
+  const filas = (sias ?? []) as Array<SiaParaEnlace & { hospital_contract_id: string | null; estado_revision: string | null }>
+  const contratos = (hcs ?? []) as ContratoParaEnlace[]
+  const parejas = emparejarConContratos(filas, contratos)
+  for (const { siaId, hcId } of parejas) {
+    const sia = filas.find(f => f.id === siaId) as (typeof filas)[number]
+    const hc = contratos.find(h => h.id === hcId) as ContratoParaEnlace
     if (!sia.hospital_contract_id) {
       const patch: Record<string, unknown> = { hospital_contract_id: hc.id }
       if ((sia.estado_revision ?? 'nuevo') === 'nuevo') patch.estado_revision = 'importado'
@@ -228,7 +233,7 @@ export async function enlazarHospitalContracts(db: SupabaseAdminClient, nit: str
       if (e5) falla('hospital_contracts (enlace)', e5)
     }
   }
-  return enlaces
+  return parejas.length
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -236,9 +241,9 @@ export async function enlazarHospitalContracts(db: SupabaseAdminClient, nit: str
 // ---------------------------------------------------------------------------------------------
 
 export interface SiaCursor {
-  pasada: { inicio: string; desde: string; hasta: string; entidades: string[]; indice: number; guardadas: number; personas: number; sin_linea: number; cruces: number; enlaces: number } | null
+  pasada: { inicio: string; desde: string; hasta: string; entidades: string[]; indice: number; guardadas: number; personas: number; sin_linea: number; cruces: number; enlaces: number; errores?: string[] } | null
   ultima_pasada?: { fin: string; desde: string; hasta: string; entidades: number; guardadas: number; personas: number; sin_linea: number; cruces: number; enlaces: number }
-  /** Otras claves del cursor (p. ej. lotes_ia de scripts/sia-extraer.ts): se conservan tal cual. */
+  /** Otras claves que alguien guarde en el cursor: se conservan tal cual. */
   [otra: string]: unknown
 }
 
@@ -318,13 +323,21 @@ export async function sincronizarContratos(opts: SincronizarOpciones): Promise<R
     while (pasada.indice < pasada.entidades.length && (opts.maxEntidades === undefined || hechas < opts.maxEntidades)) {
       const entidad = porGuid.get(pasada.entidades[pasada.indice])
       if (entidad) {
-        const r = await sincronizarEntidad(db, cliente, entidad, ventanas, ctx, { log })
-        pasada.guardadas += r.guardadas
-        pasada.personas += r.descartes.persona
-        pasada.sin_linea += r.descartes.sin_linea
-        pasada.cruces += r.cruces
-        pasada.enlaces += r.enlaces
-        log(`  ${entidad.nombre} (${entidad.nit}): ${r.filas} filas · ${r.guardadas} guardadas · ${r.cruces} con SECOP · ${r.enlaces} enlazadas`)
+        try {
+          const r = await sincronizarEntidad(db, cliente, entidad, ventanas, ctx, { log })
+          pasada.guardadas += r.guardadas
+          pasada.personas += r.descartes.persona
+          pasada.sin_linea += r.descartes.sin_linea
+          pasada.cruces += r.cruces
+          pasada.enlaces += r.enlaces
+          log(`  ${entidad.nombre} (${entidad.nit}): ${r.filas} filas · ${r.guardadas} guardadas · ${r.cruces} con SECOP · ${r.enlaces} enlazadas`)
+        } catch (error) {
+          // Una entidad que falla (portal caído para ella, respuesta enorme) no frena a las demás; la migración sin aplicar sí aborta
+          if (error instanceof SiaTablasFaltantes) throw error
+          const detalle = error instanceof Error ? error.message : String(error)
+          pasada.errores = [...(pasada.errores ?? []), `${entidad.nombre}: ${detalle}`.slice(0, 200)].slice(-20)
+          log(`  ${entidad.nombre} (${entidad.nit}): ERROR ${detalle}`)
+        }
       }
       pasada.indice++
       hechas++
@@ -333,7 +346,8 @@ export async function sincronizarContratos(opts: SincronizarOpciones): Promise<R
     }
     const terminado = pasada.indice >= pasada.entidades.length
     const resumen = { entidades: pasada.indice, guardadas: pasada.guardadas, personas: pasada.personas, sin_linea: pasada.sin_linea, cruces: pasada.cruces, enlaces: pasada.enlaces }
-    const mensaje = mensajePasada(resumen, terminado)
+    const errores = pasada.errores ?? []
+    const mensaje = mensajePasada(resumen, terminado) + (errores.length > 0 ? ` ${errores.length} entidades con error (se reintentan mañana): ${errores.slice(0, 5).join(' | ')}` : '')
     const nuevo: SiaCursor = terminado ? { ...cursor, pasada: null, ultima_pasada: { fin: new Date().toISOString(), desde: pasada.desde, hasta: pasada.hasta, ...resumen } } : cursor
     await cerrarFuente(db, SIA_FUENTE, { estado: terminado ? 'ok' : 'corriendo', filas: pasada.guardadas, mensaje, cursor: nuevo as unknown as Record<string, unknown> })
     return { terminado, entidades: pasada.indice, guardadas: pasada.guardadas, mensaje }
@@ -408,19 +422,26 @@ export interface ResultadoFichas {
   documentos: number
   descargados: number
   porEstado: Record<string, number>
+  errores: number
 }
 
 interface ContratoParaFicha {
   id: string
   sia_idc: number
   nit_entidad: string
+  entidad_guid: string
+  fecha_firma: string | null
   ficha_url: string
   ficha_leida_at: string | null
   refrescar_solicitado_at: string | null
+  ficha_intentos: number | null
 }
 
+/** Lecturas fallidas de una ficha antes de dejarla (hasta que alguien pida "Actualizar desde SIA"). */
+export const MAX_INTENTOS_FICHA = 3
+
 export async function contratosParaFicha(db: SupabaseAdminClient, limite: number): Promise<ContratoParaFicha[]> {
-  const cols = 'id, sia_idc, nit_entidad, ficha_url, ficha_leida_at, refrescar_solicitado_at'
+  const cols = 'id, sia_idc, nit_entidad, entidad_guid, fecha_firma, ficha_url, ficha_leida_at, refrescar_solicitado_at, ficha_intentos'
   const { data: pedidos, error } = await db.from('sia_contratos').select(cols).not('refrescar_solicitado_at', 'is', null).limit(500)
   if (error) falla('sia_contratos', error)
   const refrescar = ((pedidos ?? []) as ContratoParaFicha[]).filter(c => !c.ficha_leida_at || (c.refrescar_solicitado_at as string) > c.ficha_leida_at)
@@ -429,6 +450,7 @@ export async function contratosParaFicha(db: SupabaseAdminClient, limite: number
     .select(cols)
     .is('ficha_leida_at', null)
     .not('hospital_id', 'is', null)
+    .lt('ficha_intentos', MAX_INTENTOS_FICHA)
     .order('fecha_firma', { ascending: false, nullsFirst: false })
     .limit(limite)
   if (e2) falla('sia_contratos', e2)
@@ -470,33 +492,74 @@ async function procesarDocumento(db: SupabaseAdminClient, cliente: SiaCliente, c
   return { ...comun, estado: 'descargado', storage_path: ruta, descargado_at: new Date().toISOString() }
 }
 
+/**
+ * "Actualizar desde SIA": vuelve a pedir a Get_CTOs_Base el mes de la firma del contrato para traer valores, adiciones,
+ * liberaciones y fechas nuevos (la ventana diaria solo cubre 60 días). Se guarda aunque ya no clasifique (alcance enlazado).
+ */
+async function releerFila(db: SupabaseAdminClient, cliente: SiaCliente, contrato: ContratoParaFicha, ctx: SiaContexto): Promise<boolean> {
+  if (!contrato.fecha_firma) return false
+  const [y, m] = contrato.fecha_firma.split('-').map(Number)
+  const desde = `${contrato.fecha_firma.slice(0, 7)}-01`
+  const finMes = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10)
+  const hasta = finMes < hoyBogota() ? finMes : hoyBogota()
+  const { filas } = await cliente.getContratosEntidad(contrato.entidad_guid, desde, hasta)
+  const raw = filas.find(f => idcDeFila(f) === Number(contrato.sia_idc))
+  if (!raw) return false
+  const r = mapFilaSia(raw, { entidadGuid: contrato.entidad_guid, hospitalPorNit: ctx.hospitalPorNit, idcEnlazados: new Set([Number(contrato.sia_idc)]), clasificacionVersion: CLASIFICACION_VERSION })
+  if (!('row' in r)) return false
+  const { error } = await db.from('sia_contratos').upsert(r.row, { onConflict: 'sia_idc' })
+  if (error) falla('sia_contratos (relectura)', error)
+  return true
+}
+
 export async function procesarFichas(opts: { db: SupabaseAdminClient; cliente: SiaCliente; limite: number; log?: Log }): Promise<ResultadoFichas> {
   const { db, cliente } = opts
   const log = opts.log ?? (() => {})
   const contratos = await contratosParaFicha(db, opts.limite)
-  const res: ResultadoFichas = { fichas: 0, documentos: 0, descargados: 0, porEstado: {} }
+  const res: ResultadoFichas = { fichas: 0, documentos: 0, descargados: 0, porEstado: {}, errores: 0 }
+  let ctx: SiaContexto | null = null
   for (const contrato of contratos) {
     const refresco = Boolean(contrato.refrescar_solicitado_at && (!contrato.ficha_leida_at || contrato.refrescar_solicitado_at > contrato.ficha_leida_at))
-    const html = await cliente.getFicha(contrato.sia_idc, { sinCache: refresco })
-    const ficha = parseFicha(html)
-    const { data: existentes, error } = await db.from('contrato_documentos').select('ianx, ianxa, estado').eq('sia_contrato_id', contrato.id)
-    if (error) falla('contrato_documentos', error)
-    const previo = new Map(((existentes ?? []) as Array<{ ianx: number; ianxa: number; estado: string }>).map(d => [`${d.ianx}:${d.ianxa}`, d.estado]))
-    for (const doc of ficha.documentos) {
-      const estadoPrevio = previo.get(`${doc.ianx}:${doc.ianxa}`)
-      // Ya resuelto: no se vuelve a pedir (descargado, solo enlace o restringido). La anonimización se reintenta solo si piden actualizar.
-      if (estadoPrevio && estadoPrevio !== 'error' && !(refresco && estadoPrevio === 'anonimizacion_pendiente')) continue
-      const fila = await procesarDocumento(db, cliente, contrato, doc)
-      const { error: e2 } = await db.from('contrato_documentos').upsert(fila, { onConflict: 'sia_contrato_id,ianx,ianxa' })
-      if (e2) falla('contrato_documentos (upsert)', e2)
-      res.documentos++
-      res.porEstado[fila.estado] = (res.porEstado[fila.estado] ?? 0) + 1
-      if (fila.estado === 'descargado') res.descargados++
+    try {
+      if (refresco) {
+        ctx = ctx ?? (await cargarContextoSia(db))
+        const releida = await releerFila(db, cliente, contrato, ctx)
+        log(`  ${contrato.sia_idc}: valores ${releida ? 'releídos de Get_CTOs_Base' : 'no encontrados en el mes de la firma (quedan los anteriores)'}`)
+      }
+      const html = await cliente.getFicha(contrato.sia_idc)
+      const ficha = parseFicha(html)
+      const { data: existentes, error } = await db.from('contrato_documentos').select('ianx, ianxa, estado').eq('sia_contrato_id', contrato.id)
+      if (error) falla('contrato_documentos', error)
+      const previo = new Map(((existentes ?? []) as Array<{ ianx: number; ianxa: number; estado: string }>).map(d => [`${d.ianx}:${d.ianxa}`, d.estado]))
+      for (const doc of ficha.documentos) {
+        const estadoPrevio = previo.get(`${doc.ianx}:${doc.ianxa}`)
+        // Ya resuelto: no se vuelve a pedir (descargado, solo enlace o restringido). La anonimización se reintenta solo si piden actualizar.
+        if (estadoPrevio && estadoPrevio !== 'error' && !(refresco && estadoPrevio === 'anonimizacion_pendiente')) continue
+        const fila = await procesarDocumento(db, cliente, contrato, doc)
+        const { error: e2 } = await db.from('contrato_documentos').upsert(fila, { onConflict: 'sia_contrato_id,ianx,ianxa' })
+        if (e2) falla('contrato_documentos (upsert)', e2)
+        res.documentos++
+        res.porEstado[fila.estado] = (res.porEstado[fila.estado] ?? 0) + 1
+        if (fila.estado === 'descargado') res.descargados++
+      }
+      const { error: e3 } = await db
+        .from('sia_contratos')
+        .update({ ficha: fichaParaGuardar(ficha), ficha_leida_at: new Date().toISOString(), ficha_intentos: 0, ficha_error: null })
+        .eq('id', contrato.id)
+      if (e3) falla('sia_contratos (ficha)', e3)
+      res.fichas++
+      log(`  ficha ${contrato.sia_idc}: ${ficha.documentos.length} documentos, ${ficha.novedades.length} novedades`)
+    } catch (error) {
+      // Una ficha que falla no frena a las demás; tras MAX_INTENTOS_FICHA se deja (hasta que alguien pida actualizar)
+      if (error instanceof SiaTablasFaltantes) throw error
+      const detalle = (error instanceof Error ? error.message : String(error)).slice(0, 500)
+      res.errores++
+      log(`  ficha ${contrato.sia_idc}: ERROR ${detalle}`)
+      const patch: Record<string, unknown> = { ficha_intentos: (contrato.ficha_intentos ?? 0) + 1, ficha_error: detalle }
+      // Un refresco que falla no se repite cada noche: queda "leída" con el error a la vista
+      if (refresco) patch.ficha_leida_at = new Date().toISOString()
+      await db.from('sia_contratos').update(patch).eq('id', contrato.id)
     }
-    const { error: e3 } = await db.from('sia_contratos').update({ ficha: fichaParaGuardar(ficha), ficha_leida_at: new Date().toISOString() }).eq('id', contrato.id)
-    if (e3) falla('sia_contratos (ficha)', e3)
-    res.fichas++
-    log(`  ficha ${contrato.sia_idc}: ${ficha.documentos.length} documentos, ${ficha.novedades.length} novedades`)
   }
   return res
 }

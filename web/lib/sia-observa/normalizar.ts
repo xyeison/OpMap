@@ -147,13 +147,17 @@ export function leerContratistas(nitsRaw: unknown, nombresRaw: unknown, tiposRaw
   const nombres = separarLista(nombresRaw)
   const tipos = separarLista(tiposRaw)
   const total = Math.max(nits.length, nombres.length)
+  // Listas desalineadas (p. ej. NIT separados y nombres en un solo texto): emparejar por posición podría pegarle el nombre de
+  // una persona a la empresa. Entonces solo se confía en el NIT y no se guarda ningún nombre.
+  const alineados = nits.length === nombres.length
+  const tiposAlineados = tipos.length === total
   const out: SiaContratista[] = []
   for (let i = 0; i < total; i++) {
-    const tipo = tipos[i] ?? (tipos.length === 1 ? tipos[0] : null)
+    const tipo = tiposAlineados ? tipos[i] : null
     const nit = normalizeNit(nits[i] ?? null)
     const tipoNatural = /natural/.test(normalizeText(tipo))
     const esEmpresa = !tipoNatural && esNitJuridico(nit)
-    out.push(esEmpresa ? { nit, nombre: siaTexto(nombres[i] ?? null, 300), tipo: siaTexto(tipo, 80), esEmpresa } : { nit: null, nombre: null, tipo: null, esEmpresa: false })
+    out.push(esEmpresa ? { nit, nombre: alineados ? siaTexto(nombres[i] ?? null, 300) : null, tipo: siaTexto(tipo, 80), esEmpresa } : { nit: null, nombre: null, tipo: null, esEmpresa: false })
   }
   return out
 }
@@ -356,18 +360,25 @@ export interface SiaCruce {
 
 const ORDEN_FUENTE: Record<string, number> = { secop2: 0, secop1: 1, integrado: 2 }
 
-function cercaDeFirma(a: string | null, b: string | null): boolean {
-  return Boolean(a && b && Math.abs(diasEntre(a, b)) <= SIA_CRUCE_DIAS)
+function cercaDeFirma(a: string | null, b: string | null, dias = SIA_CRUCE_DIAS): boolean {
+  return Boolean(a && b && Math.abs(diasEntre(a, b)) <= dias)
 }
+
+/** Con un solo contrato que casa por código basta el mismo contratista o una firma a ±60 días (los códigos tipo "061" se repiten cada año). */
+export const SIA_CRUCE_CODIGO_DIAS = 60
 
 /** Identidad del contrato en SECOP (el mismo contrato llega por secop2 y por el Integrado). */
 function claveSecop(c: SecopCandidato): string {
   return c.numero_contrato ?? c.referencia ?? c.id
 }
 
-/** El mejor por fuente (secop2 > secop1 > integrado), luego la firma más cercana. */
-function mejor(candidatos: SecopCandidato[], firma: string | null): SecopCandidato {
+/** El mejor: el del mismo contratista (en SECOP I la constancia se repite por contratista), luego por fuente (secop2 > secop1 >
+ * integrado) y luego la firma más cercana. */
+function mejor(candidatos: SecopCandidato[], firma: string | null, nitContratista: string): SecopCandidato {
   return [...candidatos].sort((a, b) => {
+    const ca = a.documento_proveedor === nitContratista ? 0 : 1
+    const cb = b.documento_proveedor === nitContratista ? 0 : 1
+    if (ca !== cb) return ca - cb
     const fa = ORDEN_FUENTE[a.fuente] ?? 9
     const fb = ORDEN_FUENTE[b.fuente] ?? 9
     if (fa !== fb) return fa - fb
@@ -380,8 +391,9 @@ function mejor(candidatos: SecopCandidato[], firma: string | null): SecopCandida
 /**
  * Contrato de SECOP que corresponde al de SIA, entre los de la MISMA entidad. Regla (spec, Fase 1.6):
  *   1. Código: codigo_norm igual al de la referencia, el número o el proceso de SECOP (en SECOP II el código de la
- *      entidad, "CD/26-1262", va en `referencia`). Si casan varios contratos distintos, desempata el NIT del
- *      contratista y la firma a ±7 días; si aun así quedan varios, no hay cruce (mejor nada que uno equivocado).
+ *      entidad, "CD/26-1262", va en `referencia`). Un solo contrato que casa debe además ser del mismo contratista o
+ *      firmado a ±60 días (los códigos cortos se repiten cada año). Si casan varios, desempata el NIT del contratista y
+ *      la firma a ±7 días; si aun así quedan varios, no hay cruce (mejor nada que uno equivocado).
  *   2. Sin código que case: mismo NIT de contratista + firma a ±7 días + mismo valor inicial (±1 %), y un solo
  *      contrato que cumpla.
  * Entre filas del mismo contrato (secop2 e Integrado) se prefiere secop2.
@@ -400,9 +412,11 @@ export function elegirSecop(
     let grupos = agrupar(porCodigo)
     if (grupos.length > 1) {
       grupos = grupos.filter(g => g.some(c => c.documento_proveedor === sia.nit_contratista && cercaDeFirma(c.fecha_firma, sia.fecha_firma)))
+    } else if (grupos.length === 1) {
+      grupos = grupos.filter(g => g.some(c => c.documento_proveedor === sia.nit_contratista || cercaDeFirma(c.fecha_firma, sia.fecha_firma, SIA_CRUCE_CODIGO_DIAS)))
     }
     if (grupos.length === 1) {
-      const elegido = mejor(grupos[0], sia.fecha_firma)
+      const elegido = mejor(grupos[0], sia.fecha_firma, sia.nit_contratista)
       return { secopId: elegido.id, via: 'codigo', valorSecop: elegido.valor }
     }
     if (grupos.length > 1) return null
@@ -417,7 +431,7 @@ export function elegirSecop(
   )
   const grupos = agrupar(porContratista)
   if (grupos.length !== 1) return null
-  const elegido = mejor(grupos[0], sia.fecha_firma)
+  const elegido = mejor(grupos[0], sia.fecha_firma, sia.nit_contratista)
   return { secopId: elegido.id, via: 'contratista_fecha', valorSecop: elegido.valor }
 }
 
@@ -435,6 +449,56 @@ export function siaDeEnlace(link: unknown): { idc: number; ide: string | null } 
   if (!Number.isSafeInteger(idc) || idc <= 0) return null
   const ide = (params.get('ide') ?? '').toLowerCase()
   return { idc, ide: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(ide) ? ide : null }
+}
+
+/** Lo que el enlace con hospital_contracts necesita de cada lado. */
+export interface SiaParaEnlace {
+  id: string
+  sia_idc: number
+  codigo_norm: string | null
+  fecha_inicio: string | null
+  fecha_firma: string | null
+}
+export interface ContratoParaEnlace {
+  id: string
+  contract_number: string | null
+  documents_link: string | null
+  start_date: string | null
+  sia_contrato_id: string | null
+}
+
+/** Por número, el inicio del contrato guardado y el de SIA no pueden distar más de esto (los números se repiten entre años). */
+export const SIA_ENLACE_DIAS = 180
+
+/**
+ * Parejas SIA ↔ Contratos de las IPS del mismo NIT. Primero el idc del documents_link (lo puso una persona). Después el
+ * número, solo si es inequívoco: un único contrato guardado con ese número (sin enlace a otra ficha de SIA ni otro contrato
+ * de SIA ya enlazado), un único contrato de SIA con ese número y el inicio a ±180 días. Un contrato guardado nunca queda
+ * con dos contratos de SIA.
+ */
+export function emparejarConContratos(sias: readonly SiaParaEnlace[], hcs: readonly ContratoParaEnlace[]): Array<{ siaId: string; hcId: string; via: 'enlace' | 'codigo' }> {
+  const out: Array<{ siaId: string; hcId: string; via: 'enlace' | 'codigo' }> = []
+  const usados = new Set<string>()
+  const libre = (hc: ContratoParaEnlace, siaId: string) => !usados.has(hc.id) && (hc.sia_contrato_id === null || hc.sia_contrato_id === siaId)
+  const pendientes: SiaParaEnlace[] = []
+  for (const sia of sias) {
+    const hc = hcs.find(h => siaDeEnlace(h.documents_link)?.idc === Number(sia.sia_idc) && libre(h, sia.id))
+    if (hc) {
+      usados.add(hc.id)
+      out.push({ siaId: sia.id, hcId: hc.id, via: 'enlace' })
+    } else pendientes.push(sia)
+  }
+  for (const sia of pendientes) {
+    if (!sia.codigo_norm || sias.filter(x => x.codigo_norm === sia.codigo_norm).length !== 1) continue
+    const candidatos = hcs.filter(h => codigoNorm(h.contract_number) === sia.codigo_norm && !siaDeEnlace(h.documents_link) && libre(h, sia.id))
+    if (candidatos.length !== 1) continue
+    const inicioSia = sia.fecha_inicio ?? sia.fecha_firma
+    const hc = candidatos[0]
+    if (!inicioSia || !hc.start_date || Math.abs(diasEntre(hc.start_date, inicioSia)) > SIA_ENLACE_DIAS) continue
+    usados.add(hc.id)
+    out.push({ siaId: sia.id, hcId: hc.id, via: 'codigo' })
+  }
+  return out
 }
 
 export type ModeloContratacion = 'contratacion_directa' | 'licitacion' | 'invitacion_privada' | 'subasta_inversa'
