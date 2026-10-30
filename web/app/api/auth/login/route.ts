@@ -15,6 +15,9 @@ const TOO_MANY_ATTEMPTS = 'Demasiados intentos de inicio de sesión. Intenta de 
 // { cliente: 'movil' } el MISMO token firmado se entrega en el cuerpo, sin Set-Cookie; la app lo guarda en
 // el almacén seguro y lo manda en "Authorization: Bearer" (solo vale en /api/*). Mismos límites de intentos.
 const CLIENTE_MOVIL = 'movil'
+// La app de campo en el navegador (/campo, 2026-10-30): el cuerpo del móvil Y la cookie de la web, para que entrar en
+// la app deje también dentro de OpMap (un solo ingreso; mismo origen, mismo token).
+const CLIENTE_CAMPO_WEB = 'campo-web'
 
 /** Instante ISO en que expira un token recién firmado (exp del payload, que es iat + 7 días). */
 function expiraAt(token: string): string {
@@ -118,7 +121,8 @@ export async function POST(request: NextRequest) {
     if (typeof rawEmail !== 'string' || typeof password !== 'string' || !rawEmail.trim() || !password) {
       return NextResponse.json({ error: 'Email y contraseña son requeridos' }, { status: 400 })
     }
-    const esMovil = cliente === CLIENTE_MOVIL
+    const conCookieTambien = cliente === CLIENTE_CAMPO_WEB
+    const esMovil = cliente === CLIENTE_MOVIL || conCookieTambien
     if (rawEmail.length > 320 || password.length > 1024) {
       return invalidCredentials()
     }
@@ -208,7 +212,9 @@ export async function POST(request: NextRequest) {
         usuario: { id: user.id, full_name: user.full_name, role: user.role },
         ejecutiva,
       }
-      return NextResponse.json(respuesta, { headers: { 'Cache-Control': 'no-store' } })
+      const json = NextResponse.json(respuesta, { headers: { 'Cache-Control': 'no-store' } })
+      if (conCookieTambien) json.cookies.set(SESSION_COOKIE_NAME, token, sessionCookieOptions())
+      return json
     }
 
     // 7b. Web: cookie de sesión

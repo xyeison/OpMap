@@ -95,6 +95,10 @@ export default function Ajustes() {
         </Texto>
       </Tarjeta>
 
+      {/* En el navegador la app vive dentro de OpMap (/campo, 2026-10-30): volver a la web sin escribir la dirección */}
+      {Platform.OS === 'web' ? (
+        <Boton titulo="Ir a OpMap" variante="secundario" alPresionar={() => globalThis.location?.assign('/')} />
+      ) : null}
       <Boton titulo="Cerrar sesión" variante="peligro" cargando={saliendo} alPresionar={() => void cerrarSesion()} />
     </Pantalla>
   )

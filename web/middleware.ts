@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
+import { esAppDeCampo } from '@/lib/app-campo'
 import { SESSION_COOKIE_NAME } from '@/lib/session-config'
 import { verifySessionEdge } from '@/lib/session-edge'
 
@@ -44,14 +45,8 @@ function isPublicApi(pathname: string): boolean {
 // Mantener sincronizada con la lista del matcher de `config` (abajo).
 const STATIC_FILE_RE = /\.(ico|png|jpe?g|svg|webp|gif|css|js|map|txt|xml|json|woff2?|ttf)$/i
 
-/**
- * La app de campo en la web (/campo, dueño 2026-10-30): solo su página y sus archivos, sin datos. Tiene su propio
- * ingreso (token de portador); los datos siguen detrás de /api/* con sesión o token.
- */
-export function esAppDeCampo(pathname: string): boolean {
-  return pathname === '/campo' || pathname.startsWith('/campo/')
-}
-
+// La app de campo en la web (/campo, lib/app-campo.ts esAppDeCampo): solo su página y sus archivos, sin datos. Tiene su
+// propio ingreso (token de portador); los datos siguen detrás de /api/* con sesión o token.
 function isPublicPage(pathname: string): boolean {
   return (
     pathname === '/login' ||

@@ -23,7 +23,7 @@ import {
   type MotivoInvalidacion,
 } from '../../lib/contexto-memoria'
 import { lineaRegistroApi, rutaPatron } from '../../lib/http'
-import { TIEMPO_ME_FONDO_MS, TIEMPO_ME_MS, arranqueDeSesion } from '../../lib/sesion-reglas'
+import { TIEMPO_ME_FONDO_MS, TIEMPO_ME_MS, arranqueDeSesion, clienteDeLogin, probarSesionDeLaWeb } from '../../lib/sesion-reglas'
 import { MARCAS_REPORTE, MAX_RECORRIDO_MS, crearRegistroMarcas, marcar } from '../../lib/tiempos'
 import { MemoriaToken, type LlaveroToken } from '../../lib/token'
 import type { ContextoResponse } from '../../lib/tipos'
@@ -280,6 +280,28 @@ export async function pruebas(t: Probador): Promise<void> {
     t.check('sin token (o vencido) → sin_sesion, aunque haya perfil', arranqueDeSesion({ perfilGuardado: perfil, tokenVigente: false }) === 'sin_sesion' && arranqueDeSesion({ perfilGuardado: null, tokenVigente: false }) === 'sin_sesion')
     t.check('perfil de otro usuario que el del token → confirmar_antes', arranqueDeSesion({ perfilGuardado: perfil, tokenVigente: true, uidDelToken: 'usuario-2' }) === 'confirmar_antes' && arranqueDeSesion({ perfilGuardado: perfil, tokenVigente: true, uidDelToken: 'usuario-1' }) === 'entrar_y_confirmar')
     t.check('perfil dañado (sin id) → confirmar_antes', arranqueDeSesion({ perfilGuardado: { usuario: { id: '' } }, tokenVigente: true }) === 'confirmar_antes' && arranqueDeSesion({ perfilGuardado: {} as never, tokenVigente: true }) === 'confirmar_antes')
+
+    // Un solo ingreso con la web de OpMap (la app en el navegador, /campo, 2026-10-30)
+    t.check(
+      "clienteDeLogin: en el navegador 'campo-web' (el servidor pone además la cookie de la web); en el teléfono 'movil'",
+      clienteDeLogin(true) === 'campo-web' && clienteDeLogin(false) === 'movil'
+    )
+    t.check(
+      'probarSesionDeLaWeb: solo en el navegador y sin un token vigente (sin token o vencido) se pide el de la sesión de la web',
+      probarSesionDeLaWeb({ esWeb: true, tokenVigente: false }) && !probarSesionDeLaWeb({ esWeb: true, tokenVigente: true }) && !probarSesionDeLaWeb({ esWeb: false, tokenVigente: false })
+    )
+    const sesionWeb = leer('lib/sesion.ts')
+    const apiWeb = leer('lib/api.ts')
+    t.check(
+      'sesion.ts al abrir: en el navegador sin token vigente pide la sesión de la web (sesionDeLaWeb) antes de "sin_sesion" y, si llega, entra con ese token',
+      /probarSesionDeLaWeb\(\{ esWeb: Platform\.OS === 'web', tokenVigente/.test(sesionWeb) && /await api\.sesionDeLaWeb\(\)/.test(sesionWeb) && /await guardarToken\(respuesta\.token\)/.test(sesionWeb)
+    )
+    t.check(
+      "api.ts: el login manda clienteDeLogin(Platform.OS === 'web') y sesionDeLaWeb es POST /api/auth/sesion-app sin token",
+      /cliente: clienteDeLogin\(Platform\.OS === 'web'\)/.test(apiWeb) && /peticion<LoginMovilResponse>\('\/api\/auth\/sesion-app', \{[^}]*metodo: 'POST'[^}]*sinToken: true/.test(apiWeb)
+    )
+    const ajustes = leer('app/(app)/ajustes.tsx')
+    t.check('Ajustes: "Ir a OpMap" solo en el navegador (vuelve a la web sin escribir la dirección)', /Platform\.OS === 'web'[\s\S]{0,400}Ir a OpMap/.test(ajustes))
 
     const sesion = leer('lib/sesion.ts')
     const abrir = sesion.slice(sesion.indexOf('// Al abrir la app.'), sesion.indexOf('// 401 en cualquier petición'))

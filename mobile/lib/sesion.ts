@@ -14,15 +14,16 @@
  * guarda también si el servidor tiene F1a (`servidor`: /api/auth/me sin la clave `persona` = 'sin_f1a').
  */
 import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Platform } from 'react-native'
 import * as api from './api'
 import { borrarClave, borrarToken, guardarJson, guardarToken, leerJson, leerToken } from './almacen'
 import { olvidarContextoGuardado } from './contexto-guardado'
 import { olvidarContextoEnMemoria } from './contexto-memoria'
 import { MENSAJE_SESION_VENCIDA, aApiError } from './errores'
 import { personaDeMe, servidorDeMe, type ServidorDeCampo } from './persona'
-import { TIEMPO_ME_FONDO_MS, TIEMPO_ME_MS, arranqueDeSesion } from './sesion-reglas'
+import { TIEMPO_ME_FONDO_MS, TIEMPO_ME_MS, arranqueDeSesion, probarSesionDeLaWeb } from './sesion-reglas'
 import { leerCargaToken, tokenVencido } from './token'
-import type { EjecutivaMovil, PersonaMovil, UsuarioMovil } from './tipos'
+import type { EjecutivaMovil, LoginMovilResponse, PersonaMovil, UsuarioMovil } from './tipos'
 
 const CLAVE_PERFIL = 'opmap.perfil.v1'
 
@@ -132,11 +133,42 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
     [olvidar]
   )
 
+  /**
+   * Un solo ingreso con la web de OpMap (2026-10-30, docs/specs/2026-10-30-agendamiento-lider-un-ingreso.md): la app en el
+   * navegador sin token vigente pide el de la sesión de la web (POST /api/auth/sesion-app, con la cookie): quien entró por
+   * "Agendamiento" no vuelve a escribir su contraseña. true si entró; sin sesión en la web, false y sigue como siempre.
+   */
+  const entrarConLaWeb = useCallback(async (): Promise<boolean> => {
+    let respuesta: LoginMovilResponse
+    try {
+      respuesta = await api.sesionDeLaWeb()
+    } catch {
+      return false
+    }
+    generacion.current++
+    olvidarContextoEnMemoria()
+    await guardarToken(respuesta.token)
+    const nuevo: Perfil = { usuario: { ...respuesta.usuario }, ejecutiva: respuesta.ejecutiva, expira_at: respuesta.expira_at }
+    await guardarJson(CLAVE_PERFIL, nuevo).catch(() => undefined)
+    if (!montado.current) return true
+    setPerfil(nuevo)
+    setSinConfirmar(false)
+    setAviso(null)
+    setEstado('con_sesion')
+    // Como después de entrar: la persona de campo (y el correo) llegan con GET /api/auth/me en segundo plano
+    void confirmar(respuesta.token, nuevo, TIEMPO_ME_FONDO_MS)
+    return true
+  }, [confirmar])
+
   // Al abrir la app.
   useEffect(() => {
     montado.current = true
     ;(async () => {
       const token = await leerToken()
+      // En el navegador, sin token vigente: primero la sesión de la web (un solo ingreso)
+      if (probarSesionDeLaWeb({ esWeb: Platform.OS === 'web', tokenVigente: token !== null && !tokenVencido(token) })) {
+        if (await entrarConLaWeb()) return
+      }
       if (token && tokenVencido(token)) {
         await olvidar(MENSAJE_SESION_VENCIDA)
         return
@@ -162,7 +194,7 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
     return () => {
       montado.current = false
     }
-  }, [confirmar, olvidar])
+  }, [confirmar, olvidar, entrarConLaWeb])
 
   // 401 en cualquier petición → olvidar el token.
   useEffect(() => api.alVencerSesion(() => void olvidar(MENSAJE_SESION_VENCIDA)), [olvidar])

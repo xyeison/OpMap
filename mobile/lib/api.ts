@@ -26,6 +26,7 @@ import {
 } from './http'
 import { parteAudio } from './subida-audio'
 import { cuerpoCancelar, cuerpoMotivo } from './agenda-ciclo'
+import { clienteDeLogin } from './sesion-reglas'
 import type {
   AgendaResponse,
   CamposDictadoResponse,
@@ -180,9 +181,18 @@ export async function peticion<T>(ruta: string, opciones: OpcionesPeticion = {})
 export function login(email: string, password: string): Promise<LoginMovilResponse> {
   return peticion<LoginMovilResponse>('/api/auth/login', {
     metodo: 'POST',
-    cuerpo: { email: email.trim().toLowerCase(), password, cliente: 'movil' },
+    // En el navegador (/campo) 'campo-web': el servidor pone además la cookie de la web (un solo ingreso, 2026-10-30)
+    cuerpo: { email: email.trim().toLowerCase(), password, cliente: clienteDeLogin(Platform.OS === 'web') },
     sinToken: true,
   })
+}
+
+/**
+ * La app en el navegador, abierta desde OpMap (Agendamiento): el token de la sesión de la web, sin volver a escribir la
+ * contraseña (POST /api/auth/sesion-app con la cookie, que el navegador manda solo en el mismo origen). 401 sin sesión.
+ */
+export function sesionDeLaWeb(): Promise<LoginMovilResponse> {
+  return peticion<LoginMovilResponse>('/api/auth/sesion-app', { metodo: 'POST', sinToken: true, timeoutMs: 10_000 })
 }
 
 /** Quién es la sesión. `timeoutMs`: al abrir la app se espera poco (TIEMPO_ME_MS de lib/sesion-reglas.ts). */

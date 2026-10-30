@@ -44,3 +44,25 @@ export function arranqueDeSesion(o: {
   if (o.uidDelToken && o.uidDelToken !== id) return 'confirmar_antes'
   return 'entrar_y_confirmar'
 }
+
+// ---------------------------------------------------------------------------------------------
+// Un solo ingreso con la web de OpMap (la app en el navegador, /campo, dueño 2026-10-30;
+// docs/specs/2026-10-30-agendamiento-lider-un-ingreso.md)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * El `cliente` del login: en el navegador 'campo-web' (el servidor responde como al móvil y además pone la cookie de la
+ * web: entrar en la app deja también dentro de OpMap); en el teléfono 'movil' (solo el token, sin cookie).
+ */
+export function clienteDeLogin(esWeb: boolean): 'movil' | 'campo-web' {
+  return esWeb ? 'campo-web' : 'movil'
+}
+
+/**
+ * ¿Pedir el token a la sesión de la web (POST /api/auth/sesion-app) al abrir? Solo en el navegador y sin un token vigente
+ * (no hay, o venció): quien entró por "Agendamiento" desde OpMap ya tiene la cookie y no vuelve a escribir su contraseña.
+ * En el teléfono nunca (no hay cookie de la web).
+ */
+export function probarSesionDeLaWeb(o: { esWeb: boolean; tokenVigente: boolean }): boolean {
+  return o.esWeb && !o.tokenVigente
+}

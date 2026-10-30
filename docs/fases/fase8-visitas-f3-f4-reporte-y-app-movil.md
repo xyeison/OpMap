@@ -225,6 +225,13 @@ business_lines, PRIMARY KEY)`, RLS sin políticas, solo service_role.
   full_name, role }, ejecutiva: { id, full_name, zona } | null }` sin `Set-Cookie`; mismos límites de intentos.
   Sin `cliente` sigue igual que hoy (cookie). `POST /api/auth/logout` con portador → 200.
 - `GET /api/auth/me` con portador → el usuario y su ejecutiva enlazada (lo que la app necesita al abrir).
+- **Un solo ingreso con la web** (la app en el navegador, `/campo`, 2026-10-30; spec
+  `docs/specs/2026-10-30-agendamiento-lider-un-ingreso.md`):
+  - `POST /api/auth/login` con `cliente: 'campo-web'` responde como el móvil y además pone la cookie de la web.
+  - `POST /api/auth/sesion-app` toma la cookie de la web y devuelve el mismo token, con la forma del login móvil.
+    Solo con portador o sin nada → 401; desde otro sitio → 403.
+  - La app en el navegador lo pide al abrir si no tiene un token vigente.
+  - La web olvida `opmap.token.v1` y `opmap.perfil.v1` al entrar y al salir; la cola sin señal se queda.
 - CORS solo con `NODE_ENV !== 'production'` para `http://localhost:8081` y `http://127.0.0.1:8081`:
   `Access-Control-Allow-Origin` (el origen pedido, si está en la lista), `-Headers: authorization, content-type`,
   `-Methods: GET, POST, PATCH, DELETE, OPTIONS`, `OPTIONS` → 204. Pruebas: en producción ninguna cabecera CORS.

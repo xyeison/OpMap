@@ -164,7 +164,9 @@ export const loginMovilSchema = cuerpo({
     .string({ required_error: 'Escribe tu contraseña', invalid_type_error: 'Escribe tu contraseña' })
     .min(1, 'Escribe tu contraseña')
     .max(1024, 'Contraseña no válida'),
-  cliente: z.literal('movil', { errorMap: () => ({ message: "El cliente de la app es 'movil'" }) }),
+  // 'campo-web': la app de campo en el navegador (/campo, 2026-10-30): además del token, la cookie de la web (un solo
+  // ingreso para la web y la app).
+  cliente: z.enum(['movil', 'campo-web'], { errorMap: () => ({ message: "El cliente de la app es 'movil' o 'campo-web'" }) }),
 })
 
 export type LoginMovil = z.infer<typeof loginMovilSchema>

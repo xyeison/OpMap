@@ -14,6 +14,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { NextRequest } from 'next/server'
 import { middleware } from '../middleware'
+import { CLAVES_SESION_APP_CAMPO, olvidarSesionAppCampo } from '../lib/app-campo'
 
 for (const key of ['SUPABASE_SERVICE_ROLE_KEY', 'NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_URL', 'SESSION_SECRET']) delete process.env[key]
 process.env.SESSION_SECRET = 'secreto-de-prueba-campo-web-check-0123456789abcdefghijklmnopqrstuvwxyz'
@@ -72,6 +73,34 @@ async function main() {
       (script.match(/process\.exit\(1\)/g) ?? []).length >= 2
   )
   check('public/campo no se versiona (web/.gitignore)', /^\/public\/campo\/$/m.test(leer('.gitignore')))
+
+  console.log('\n4. Un solo ingreso: la web olvida la sesión de la app al entrar y al salir (2026-10-30)')
+  const quitadas: string[] = []
+  const almacen = { removeItem: (clave: string) => void quitadas.push(clave) }
+  olvidarSesionAppCampo(almacen)
+  check(
+    'olvidarSesionAppCampo quita el token y el perfil de la app (las claves de mobile/lib/almacen.ts y sesion.ts), no su cola sin señal',
+    JSON.stringify(quitadas) === JSON.stringify(['opmap.token.v1', 'opmap.perfil.v1']) && !quitadas.some(clave => /cola/.test(clave)),
+    quitadas
+  )
+  let lanzo = false
+  try {
+    olvidarSesionAppCampo({ removeItem: () => { throw new Error('modo privado') } })
+    olvidarSesionAppCampo(null)
+  } catch {
+    lanzo = true
+  }
+  check('olvidarSesionAppCampo nunca lanza (sin almacenamiento o en modo privado)', !lanzo)
+  const movil = (archivo: string) => readFileSync(path.join(raiz, '..', 'mobile', archivo), 'utf8')
+  check(
+    'las claves son las mismas que usa la app (CLAVE_TOKEN de almacen.ts y CLAVE_PERFIL de sesion.ts)',
+    movil('lib/almacen.ts').includes(`const CLAVE_TOKEN = '${CLAVES_SESION_APP_CAMPO[0]}'`) && movil('lib/sesion.ts').includes(`const CLAVE_PERFIL = '${CLAVES_SESION_APP_CAMPO[1]}'`)
+  )
+  const contexto = leer('contexts/UserContext.tsx')
+  check(
+    'UserContext: el login y el logout de la web olvidan la sesión de la app (olvidarSesionAppCampo)',
+    (contexto.match(/olvidarSesionAppCampo\(localStorage\)/g) ?? []).length === 2
+  )
 
   console.log(`\n${passed} pruebas bien, ${failed} con falla`)
   if (failed > 0) process.exit(1)
