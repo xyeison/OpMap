@@ -123,10 +123,14 @@ el siguiente `--apply`, o se vinculan a mano.
 | `GET /api/hospitals/[id]/reps-services` | `hospitals:view` | Servicios y capacidad para la ficha |
 | `GET /api/intelligence/giros` | `intelligence:view` (nuevo) | Ranking por IPS, municipio, zona o ejecutivo |
 | `GET /api/intelligence/giros/hospital/[id]` | `hospitals:view` | Tarjeta "Giros ADRES" de la ficha |
+| `GET /api/intelligence/giros/variacion` | `intelligence:view` | "IPS con cambios fuera de lo normal": últimos 3, 6 o 12 meses contra los anteriores o el año anterior, frente al mercado, con Welch / mes atípico, Benjamini–Hochberg y Mann–Kendall (spec `docs/specs/2026-10-29-giros-variaciones.md`) |
 
 `intelligence:view` lo tienen admin, commercial_director, line_leader, data_manager y viewer.
 
 - **Páginas**: `/hospitals/reps` ("Cruce REPS"), `/hospitals/import`, `/inteligencia`.
+- **Período en `/inteligencia`** (2026-10-29): selector con los últimos 3, 6 o 12 meses, todo lo cargado, cada año con
+  datos o "Personalizado" con mes y año en listas (`components/PeriodoGiros.tsx`, `lib/periodo-giros.ts`); ya no hay
+  `<input type="month">`.
 - **Ficha de IPS**: secciones "Sede REPS", "Servicios y capacidad (REPS)" y "Giros ADRES".
 - **Filtros**: en `/hospitals` y en el bloque **IPS** de "Filtros y visitas" del mapa, que solo oculta
   puntos (no cambia estilos; ver `docs/mapa-estetica.md`).
