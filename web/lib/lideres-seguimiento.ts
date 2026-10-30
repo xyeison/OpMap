@@ -2,7 +2,10 @@
 // la agenda de tres semanas y la calidad del registro. Sirven igual para el histórico guardado (GET
 // /api/lideres/historico) y para la vista previa de un Excel antes de guardarlo. Puro: pruebas en
 // scripts/lideres-historico-check.ts.
-import type { EstadoHistorico, TipoHistorico } from './lideres-historico'
+import { normalizarTexto, type EstadoHistorico, type TipoHistorico } from './lideres-historico'
+
+/** Nombre que se usa cuando la fila no trae ciudad: no cuenta como una ciudad más. */
+export const SIN_CIUDAD = 'Sin ciudad'
 
 export interface ActividadSeguimiento {
   fecha: string | null
@@ -70,7 +73,7 @@ function resumir(lider: string, actividades: ActividadSeguimiento[], desde: stri
     canceladasSinObservacion: canceladas.filter(actividad => !actividad.con_observacion).length,
     sinCerrar: sinCerrar.length,
     pctCerradas: pasadas ? (realizadas.length + canceladas.length) / pasadas : null,
-    ciudades: new Set(realizadas.map(actividad => actividad.ciudad)).size,
+    ciudades: new Set(realizadas.map(actividad => actividad.ciudad).filter(ciudad => ciudad !== SIN_CIUDAD)).size,
     contactos: realizadas.reduce((suma, actividad) => suma + actividad.contactos, 0),
     planificadas: actividades.filter(actividad => actividad.estado === 'planificada').length,
     ultima: realizadas.map(actividad => actividad.fecha as string).sort().pop() ?? null,
@@ -162,6 +165,8 @@ export function calidadRegistro(actividades: ActividadSeguimiento[], conCodigos:
     realizadasSinContactos: actividades.filter(actividad => actividad.estado === 'realizada' && actividad.contactos === 0).length,
     fechasIlegibles: actividades.filter(actividad => !actividad.fecha).length,
     tiposAMano: actividades.filter(actividad => actividad.tipo_a_mano).length,
-    ciudadesSinCodigo: conCodigos ? new Set(actividades.filter(actividad => !actividad.municipio_id).map(actividad => actividad.ciudad)).size : 0,
+    ciudadesSinCodigo: conCodigos
+      ? new Set(actividades.filter(actividad => !actividad.municipio_id && actividad.ciudad !== SIN_CIUDAD).map(actividad => normalizarTexto(actividad.ciudad))).size
+      : 0,
   }
 }

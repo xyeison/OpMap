@@ -20,8 +20,13 @@ la solución que propongas en la app".
    - estado: realizada, cancelada, sin cerrar o planificada;
    - cuántos médicos o contactos se anotaron;
    - si tenía observación.
-5. **Qué no se guarda**: los nombres de médicos o contactos y el texto de las observaciones. Se leen en el navegador y
-   no se envían, como con las visitas de VMO: pueden traer datos de médicos y de pacientes.
+5. **Qué no se guarda (ningún texto libre)**: los nombres de médicos o contactos, el texto de las observaciones y el de un
+   tipo escrito a mano (se guarda solo la marca "a mano"). De una fecha ilegible solo se guardan los dígitos y
+   separadores. Se leen en el navegador y no se envían, como con las visitas de VMO: pueden traer datos de médicos y de
+   pacientes ("Cirugía paciente…").
+6. **Líderes que ya se fueron**: también se reconocen (usuario inactivo), porque el histórico es suyo. Si dos personas
+   coinciden, gana la líder de negocio; si sigue la duda, no se adivina. La vista previa avisa cuando la persona
+   reconocida no es líder de negocio o está inactiva.
 
 **Consecuencias**:
 - La directora ve en OpMap, desde ya, lo que hoy ve en el Excel:

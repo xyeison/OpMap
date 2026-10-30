@@ -36,6 +36,7 @@ interface ArchivoLocal {
   corte: string
   filas: FilaTracker[]
   sinLider: number
+  estadosNoReconocidos: number
 }
 
 async function sha256(buffer: ArrayBuffer): Promise<string> {
@@ -126,12 +127,20 @@ export default function SeguimientoLideres() {
       const libro = XLSX.read(buffer, { type: 'array' })
       const hoja = libro.Sheets[HOJA_TRACKER] ?? (libro.SheetNames.length === 1 ? libro.Sheets[libro.SheetNames[0]] : undefined)
       if (!hoja) throw new Error('El archivo no tiene la hoja REGISTRO del Tracker de líderes.')
-      const filas = XLSX.utils.sheet_to_json<unknown[]>(hoja, { header: 1, raw: true, defval: '', blankrows: true })
+      // range: 0 → desde la fila 1 de la hoja, aunque el rango guardado empiece más abajo (los números de fila cuadran)
+      const filas = XLSX.utils.sheet_to_json<unknown[]>(hoja, { header: 1, raw: true, defval: '', blankrows: true, range: 0 })
       const corte = hoyBogota()
       const lectura = leerTracker(filas, corte)
       if (!lectura.ok) throw new Error(lectura.error)
-      const nuevo: ArchivoLocal = { nombre: archivo.name, huella: await sha256(buffer), corte, filas: lectura.lectura.filas, sinLider: lectura.lectura.sinLider }
-      setLocal(nuevo)
+      const nuevo: ArchivoLocal = {
+        nombre: archivo.name,
+        huella: await sha256(buffer),
+        corte,
+        filas: lectura.lectura.filas,
+        sinLider: lectura.lectura.sinLider,
+        estadosNoReconocidos: lectura.lectura.estadosNoReconocidos,
+      }
+      setLocal(null)
       const respuesta = await fetch('/api/lideres/historico', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -139,7 +148,9 @@ export default function SeguimientoLideres() {
       })
       const cuerpo = await respuesta.json().catch(() => null)
       if (!respuesta.ok) throw new Error(cuerpo?.error ?? `Error ${respuesta.status}`)
+      // El archivo se muestra solo con su vista previa (si falla, no queda un tablero sin "Descartar")
       setVista(cuerpo.vistaPrevia as VistaPreviaTracker)
+      setLocal(nuevo)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo leer el archivo')
     } finally {
@@ -186,7 +197,7 @@ export default function SeguimientoLideres() {
         ciudad: ciudadPorTexto.get(fila.ciudad_texto)?.nombre ?? primeraGrafia.get(normalizarTexto(fila.ciudad_texto)) ?? 'Sin ciudad',
         municipio_id: ciudadPorTexto.get(fila.ciudad_texto)?.municipio_id ?? null,
         tipo: fila.tipo,
-        tipo_a_mano: fila.tipo_texto !== null,
+        tipo_a_mano: fila.tipo_a_mano,
         estado: fila.estado,
         contactos: fila.contactos,
         con_observacion: fila.con_observacion,
@@ -198,7 +209,7 @@ export default function SeguimientoLideres() {
       ciudad: fila.ciudad,
       municipio_id: fila.municipio_id,
       tipo: fila.tipo,
-      tipo_a_mano: fila.tipo_texto !== null,
+      tipo_a_mano: fila.tipo_a_mano,
       estado: fila.estado,
       contactos: fila.contactos,
       con_observacion: fila.con_observacion,
@@ -208,6 +219,10 @@ export default function SeguimientoLideres() {
   const corte = local?.corte ?? historico?.carga?.corte ?? hoyBogota()
   const nombresLideres = useMemo(() => Array.from(new Set(actividades.map(actividad => actividad.lider))).sort((a, b) => a.localeCompare(b, 'es')), [actividades])
   const colorDe = (nombre: string) => COLORES_LIDER[Math.max(0, nombresLideres.indexOf(nombre)) % COLORES_LIDER.length]
+  // Si la líder elegida ya no está en los datos (otro Excel o "Descartar"), vuelve a todas
+  useEffect(() => {
+    if (lider !== 'Todas' && !nombresLideres.includes(lider)) setLider('Todas')
+  }, [lider, nombresLideres])
   const elegidas = useMemo(() => (lider === 'Todas' ? actividades : actividades.filter(actividad => actividad.lider === lider)), [actividades, lider])
   const resumen = useMemo(() => resumenPorLider(actividades, periodo, corte), [actividades, periodo, corte])
   const fila = lider === 'Todas' ? resumen.total : resumen.lideres.find(item => item.lider === lider) ?? resumen.total
@@ -262,7 +277,10 @@ export default function SeguimientoLideres() {
               <strong>Vista previa de &ldquo;{local.nombre}&rdquo;</strong>: {entero(vista.filas)} actividades ({entero(vista.porEstado.realizada)} realizadas,{' '}
               {entero(vista.porEstado.cancelada)} canceladas, {entero(vista.porEstado.sin_cerrar)} sin cerrar y {entero(vista.porEstado.planificada)} planificadas)
               {local.sinLider > 0 ? `; ${entero(local.sinLider)} filas sin líder no se guardan` : ''}
-              {vista.fechasIlegibles > 0 ? `; ${entero(vista.fechasIlegibles)} con la fecha ilegible (se guardan con su texto)` : ''}. Abajo ves el
+              {local.estadosNoReconocidos > 0
+                ? `; ${entero(local.estadosNoReconocidos)} con un estado que no es "Exitosa" ni "Cancelada" cuentan como sin cerrar (o planificadas, si son de hoy en adelante)`
+                : ''}
+              {vista.fechasIlegibles > 0 ? `; ${entero(vista.fechasIlegibles)} con la fecha ilegible (se guardan sin fecha, con los dígitos que tengan)` : ''}. Abajo ves el
               seguimiento con este archivo.
             </p>
             <ul className="text-sm text-gray-700 grid sm:grid-cols-2 gap-x-6 gap-y-1">
@@ -272,6 +290,7 @@ export default function SeguimientoLideres() {
                   <span className="text-gray-400">→</span>
                   {item.nombre ? <span className="truncate text-gray-900">{item.nombre}</span> : <span className="text-red-700 font-medium">no está en OpMap</span>}
                   <span className="text-xs text-gray-500 tabular-nums whitespace-nowrap">({entero(item.filas)})</span>
+                  {item.aviso && <span className="text-xs text-amber-700 whitespace-nowrap">{item.aviso}</span>}
                 </li>
               ))}
             </ul>
@@ -346,7 +365,7 @@ export default function SeguimientoLideres() {
             <Cifra etiqueta="Realizadas" valor={entero(fila.realizadas)} nota='con resultado "Exitosa"' />
             <Cifra etiqueta="Vencidas sin cerrar" valor={entero(fila.sinCerrar)} nota="fecha pasada, sin resultado" alerta={fila.sinCerrar > 0} />
             <Cifra etiqueta="Canceladas" valor={entero(fila.canceladas)} nota={`${entero(fila.canceladasSinObservacion)} sin observación`} alerta={fila.canceladasSinObservacion > 0} />
-            <Cifra etiqueta="Planificadas" valor={entero(fila.planificadas)} nota="después del corte" />
+            <Cifra etiqueta="Planificadas" valor={entero(fila.planificadas)} nota="del día de la carga en adelante" />
             <Cifra etiqueta="Ciudades" valor={entero(fila.ciudades)} nota="con alguna realizada" />
             <Cifra etiqueta="Contactos anotados" valor={entero(fila.contactos)} nota="en las realizadas" />
           </div>

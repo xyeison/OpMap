@@ -17,7 +17,9 @@ import {
   contarContactos,
   crearResolutorCiudades,
   estadoDeTexto,
+  estadoReconocido,
   fechaDeCelda,
+  fechaIlegible,
   leerTracker,
   reconocerLider,
   tipoDeTexto,
@@ -64,13 +66,17 @@ eq('tipos escritos a mano: "correria con Ana" → correría, "cirugia rodilla" �
   { tipo: 'cirugia', aMano: true },
   { tipo: 'otro', aMano: true },
 ])
-eq('estados: Exitosa, Cancelada, vacío pasado y vacío futuro', [estadoDeTexto('Exitosa', '2026-10-01', CORTE), estadoDeTexto('Cancelada', '2026-10-01', CORTE), estadoDeTexto('', '2026-10-01', CORTE), estadoDeTexto('', '2026-11-03', CORTE), estadoDeTexto('', null, CORTE)], [
+eq('estados: Exitosa, Cancelada, vacío pasado, vacío de hoy (aún puede cerrarse), vacío futuro y sin fecha', [estadoDeTexto('Exitosa', '2026-10-01', CORTE), estadoDeTexto('Cancelada', '2026-10-01', CORTE), estadoDeTexto('', '2026-10-01', CORTE), estadoDeTexto('', CORTE, CORTE), estadoDeTexto('', '2026-11-03', CORTE), estadoDeTexto('', null, CORTE)], [
   'realizada',
   'cancelada',
   'sin_cerrar',
   'planificada',
+  'planificada',
   'sin_cerrar',
 ])
+check('estados reconocidos: vacío, Exitosa y Cancelada; "Reprogramada" no', estadoReconocido('') && estadoReconocido('Exitosa') && estadoReconocido('cancelada') && !estadoReconocido('Reprogramada'))
+eq('una hora en la fecha no la pasa al día siguiente (46315,75 = 20-oct a las 18:00)', fechaDeCelda(46315.75, CORTE), '2026-10-20')
+eq('fecha ilegible: solo dígitos y separadores, nunca letras', [fechaIlegible('31/02/2026'), fechaIlegible('mañana con el Dr. Pérez'), fechaIlegible('')], ['31/02/2026', 'sin fecha', 'sin fecha'])
 eq('contactos: se cuentan los nombres, no se guardan', [contarContactos('Dr. Uno, Dra. Dos; Dr. Tres'), contarContactos(''), contarContactos('Dr. Uno\nDr. Dos')], [3, 0, 2])
 
 console.log('\n2. Leer la hoja REGISTRO')
@@ -79,12 +85,12 @@ const hoja: unknown[][] = [
   ENCABEZADO,
   [46315, 'Ana Líder', 'Bogota', 'Correría', 'Exitosa', 'Dr. Secreto Uno, Dra. Secreta Dos', 'Paciente Juan Pérez, cirugía de rodilla'],
   ['', '', '', '', '', '', ''],
-  ['31/02/2026', 'Ana Líder', 'Verona', 'Congreso Verona', '', '', ''],
+  ['31/02/2026', 'Ana Líder', 'Verona', 'Cirugía paciente Juan Gómez cédula 1234', 'Reprogramada', '', ''],
   ['5/11/2026', 'Beto Líder', 'cartagena', 'Cena comercial', '', 'Dr. Uno', ''],
   [46316, '', 'Cali', 'Otro', 'Exitosa', '', ''],
 ]
 const leida = leerTracker(hoja, CORTE)
-check('lee las filas con líder (3) y cuenta la que no tiene (1); salta las vacías', leida.ok && leida.lectura.filas.length === 3 && leida.lectura.sinLider === 1, leida)
+check('lee las filas con líder (3), cuenta la que no tiene (1) y el estado no reconocido (1); salta las vacías', leida.ok && leida.lectura.filas.length === 3 && leida.lectura.sinLider === 1 && leida.lectura.estadosNoReconocidos === 1, leida)
 const filas = leida.ok ? leida.lectura.filas : []
 eq('la primera fila, tal cual se guarda', filas[0], {
   fila: 2,
@@ -93,18 +99,18 @@ eq('la primera fila, tal cual se guarda', filas[0], {
   lider_texto: 'Ana Líder',
   ciudad_texto: 'Bogota',
   tipo: 'correria',
-  tipo_texto: null,
+  tipo_a_mano: false,
   estado: 'realizada',
   contactos: 2,
   con_observacion: true,
 })
-check('ningún nombre de médico ni texto de observación sale de la lectura', !JSON.stringify(filas).match(/Secret|Juan P|rodilla|Dr\./), JSON.stringify(filas))
-check('la fecha ilegible queda con su texto y sin cerrar; el tipo escrito a mano queda con su texto', filas[1].fecha === null && filas[1].fecha_texto === '31/02/2026' && filas[1].estado === 'sin_cerrar' && filas[1].tipo_texto === 'Congreso Verona' && filas[1].tipo === 'congreso')
+check('ningún nombre de médico, observación ni tipo escrito a mano sale de la lectura', !JSON.stringify(filas).match(/Secret|Juan|rodilla|Dr\.|paciente|1234/), JSON.stringify(filas))
+check('la fecha ilegible queda con sus dígitos y sin cerrar; el tipo escrito a mano queda marcado, sin su texto', filas[1].fecha === null && filas[1].fecha_texto === '31/02/2026' && filas[1].estado === 'sin_cerrar' && filas[1].tipo_a_mano && filas[1].tipo === 'cirugia')
 check('la del 5 de noviembre (después del corte) queda planificada, fila 5', filas[2].estado === 'planificada' && filas[2].fila === 5)
 const sinColumna = leerTracker([['Fecha', 'Líder', 'Ciudad']], CORTE)
 check('sin las columnas del Tracker: error que dice cuáles faltan', !sinColumna.ok && sinColumna.error.includes('Tipo de actividad') && sinColumna.error.includes('Observaciones'), sinColumna)
-const conTitulo = leerTracker([[''], ['', ''], ENCABEZADO, [46315, 'Ana Líder', 'Cali', 'Otro', 'Exitosa', '', '']], CORTE)
-check('el encabezado puede estar más abajo (filas vacías arriba); la fila sigue siendo la de la hoja', conTitulo.ok && conTitulo.lectura.filas[0].fila === 4, conTitulo)
+const conTitulo = leerTracker([['TRACKER LÍDERES 2026'], ['', ''], ENCABEZADO, [46315, 'Ana Líder', 'Cali', 'Otro', 'Exitosa', '', '']], CORTE)
+check('el encabezado puede estar debajo de un título; la fila sigue siendo la de la hoja', conTitulo.ok && conTitulo.lectura.filas[0].fila === 4, conTitulo)
 
 console.log('\n3. Reconocer a la líder y la ciudad')
 const usuarios = [
@@ -117,7 +123,16 @@ const usuarios = [
 eq('"Paola Jiménez" → Yineth Paola Jiménez Escobar (sin importar tildes)', reconocerLider('Paola Jimenez', usuarios), 'u-paola')
 eq('"Alejandra Cobo": gana la líder de negocio aunque otra usuaria tenga el mismo nombre', reconocerLider('Alejandra Cobo', usuarios), 'u-ale')
 eq('"Sindy Ramírez" → Sindy Lorena Ramirez de la Rosa', reconocerLider('Sindy Ramírez', usuarios), 'u-sindy')
-check('una inactiva o un nombre que no está: no se adivina', reconocerLider('Stefanía Gómez', usuarios) === null && reconocerLider('Nadie Aquí', usuarios) === null)
+eq('una líder que ya se fue (inactiva) también se reconoce: el histórico es suyo', reconocerLider('Stefanía Gómez', usuarios), 'u-vieja')
+check('un nombre que no está o de una sola palabra ("Rosa"): no se adivina', reconocerLider('Nadie Aquí', usuarios) === null && reconocerLider('Rosa', [...usuarios, { id: 'u-rosa', full_name: 'Rosa Pérez', role: 'line_leader', active: true }]) === null)
+eq(
+  'la líder inactiva gana a una Ejecutiva Comercial activa con un nombre parecido',
+  reconocerLider('Diana Gómez', [
+    { id: 'lider-ida', full_name: 'Diana Gómez Rojas', role: 'line_leader', active: false },
+    { id: 'ejecutiva', full_name: 'Diana Carolina Gómez Pérez', role: 'sales_manager', active: true },
+  ]),
+  'lider-ida'
+)
 check('dos líderes con las mismas palabras: no se adivina', reconocerLider('Ana', [...usuarios, { id: 'a1', full_name: 'Ana María Uno', role: 'line_leader', active: true }, { id: 'a2', full_name: 'Ana Dos', role: 'line_leader', active: true }]) === null)
 const municipios = [
   { code: '11001', name: 'Bogotá, D.C.' },
@@ -141,11 +156,15 @@ eq('"Armenia" es de dos departamentos: la capital (63001)', ciudad('Armenia'), '
 check('dos municipios con el mismo nombre y ninguno capital: sin código; Verona, La Guajira y vacío: sin código', ciudad('Betania') === null && ciudad('Verona') === null && ciudad('La Guajira') === null && ciudad('') === null)
 
 console.log('\n4. Validar la carga (lo que manda el navegador)')
-const FILA: FilaTracker = { fila: 2, fecha: '2026-10-20', fecha_texto: null, lider_texto: 'Ana', ciudad_texto: 'Bogota', tipo: 'correria', tipo_texto: null, estado: 'realizada', contactos: 1, con_observacion: false }
+const FILA: FilaTracker = { fila: 2, fecha: '2026-10-20', fecha_texto: null, lider_texto: 'Ana', ciudad_texto: 'Bogota', tipo: 'correria', tipo_a_mano: false, estado: 'realizada', contactos: 1, con_observacion: false }
 const CARGA = { archivo: 'Tracker Líderes.xlsx', huella: 'a'.repeat(64), corte: CORTE, filas: [FILA], confirmar: false }
 check('carga buena', validarCarga(CARGA).ok)
 const mala = (cambios: Record<string, unknown>) => validarCarga({ ...CARGA, filas: [{ ...FILA, ...cambios }] })
-check('rechaza una fila con nombres u observaciones (campos de más)', !mala({ medicos: 'Dr. Uno' }).ok && !mala({ observaciones: 'x' }).ok)
+check('rechaza una fila con nombres, observaciones o el texto del tipo (campos de más)', !mala({ medicos: 'Dr. Uno' }).ok && !mala({ observaciones: 'x' }).ok && !mala({ tipo_texto: 'Cirugía paciente' }).ok)
+check(
+  'rechaza fechas que no existen (31-feb), fecha con texto de fecha y una fecha ilegible con letras',
+  !mala({ fecha: '2026-02-31' }).ok && !validarCarga({ ...CARGA, corte: '2026-02-31' }).ok && !mala({ fecha_texto: '20/10/2026' }).ok && !mala({ fecha: null, fecha_texto: 'con el Dr. X' }).ok && mala({ fecha: null, fecha_texto: '31/02/2026', estado: 'sin_cerrar' }).ok
+)
 check('rechaza: tipo o estado que no existen, sin fecha ni texto, planificada sin fecha, contactos negativos', !mala({ tipo: 'visita_paciente' }).ok && !mala({ estado: 'hecha' }).ok && !mala({ fecha: null }).ok && !mala({ fecha: null, fecha_texto: 'x', estado: 'planificada' }).ok && !mala({ contactos: -1 }).ok)
 check('rechaza filas repetidas, huella que no es sha256 y sin confirmar', !validarCarga({ ...CARGA, filas: [FILA, FILA] }).ok && !validarCarga({ ...CARGA, huella: 'abc' }).ok && !validarCarga({ ...CARGA, confirmar: undefined }).ok)
 
@@ -237,7 +256,7 @@ async function main() {
   const leer = async (respuesta: Response) => ({ status: respuesta.status, body: await respuesta.json() })
   const filasCarga: FilaTracker[] = [
     { ...FILA, fila: 2, lider_texto: 'Ana Líder', ciudad_texto: 'bogota' },
-    { ...FILA, fila: 3, lider_texto: 'Ana Líder', ciudad_texto: 'Verona', tipo: 'otro', tipo_texto: 'Congreso Verona' },
+    { ...FILA, fila: 3, lider_texto: 'Ana Líder', ciudad_texto: 'Verona', tipo: 'otro', tipo_a_mano: true },
     { ...FILA, fila: 4, lider_texto: 'Beto Líder', ciudad_texto: 'cartagena', estado: 'planificada', fecha: '2026-11-05' },
   ]
   const carga = { archivo: 'Tracker Líderes.xlsx', huella: 'b'.repeat(64), corte: CORTE, filas: filasCarga }
@@ -249,8 +268,8 @@ async function main() {
     vista.status === 200 &&
       JSON.stringify(vista.body.vistaPrevia.lideres) ===
         JSON.stringify([
-          { lider_texto: 'Ana Líder', filas: 2, user_id: 'u-ana', nombre: 'Ana María Líder' },
-          { lider_texto: 'Beto Líder', filas: 1, user_id: 'u-beto', nombre: 'Beto Líder Dos' },
+          { lider_texto: 'Ana Líder', filas: 2, user_id: 'u-ana', nombre: 'Ana María Líder', aviso: null },
+          { lider_texto: 'Beto Líder', filas: 1, user_id: 'u-beto', nombre: 'Beto Líder Dos', aviso: null },
         ]) &&
       JSON.stringify(vista.body.vistaPrevia.ciudadesSinCodigo) === JSON.stringify([{ ciudad_texto: 'Verona', filas: 1 }]) &&
       JSON.stringify(vista.body.vistaPrevia.ciudades) ===
@@ -262,6 +281,12 @@ async function main() {
     vista.body
   )
   check('la vista previa no escribe nada', !llamadas.some(llamada => llamada.metodo !== 'GET'))
+  tablas.users.push({ id: 'u-carla', full_name: 'Carla Ventas Uno', role: 'sales_manager', active: true }, { id: 'u-ida', full_name: 'Irene Ida Líder', role: 'line_leader', active: false })
+  const conAvisos = await leer(
+    await procesarCargaTracker({ ...carga, filas: [...filasCarga, { ...FILA, fila: 5, lider_texto: 'Carla Ventas' }, { ...FILA, fila: 6, lider_texto: 'Irene Ida' }], confirmar: false }, 'u-dir')
+  )
+  const aviso = (texto: string) => conAvisos.body.vistaPrevia.lideres.find((item: { lider_texto: string }) => item.lider_texto === texto)?.aviso
+  check('la vista previa avisa si la persona reconocida no es líder de negocio o está inactiva', aviso('Carla Ventas') === 'no es líder de negocio' && aviso('Irene Ida') === 'inactiva' && aviso('Ana Líder') === null, conAvisos.body.vistaPrevia.lideres)
 
   console.log('\n7. Guardar')
   const sinMigracion = await leer(await procesarCargaTracker({ ...carga, confirmar: true }, 'u-dir'))

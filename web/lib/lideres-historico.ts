@@ -1,8 +1,9 @@
 // Histórico del Excel "Tracker Líderes" de la directora comercial (dueño, 2026-10-29,
 // docs/decisiones/2026-10-29-historico-tracker-lideres.md). El navegador lee la hoja REGISTRO y se queda con lo que
 // sirve para el seguimiento: fecha, líder, ciudad, tipo, estado, cuántos médicos o contactos y si tenía observación.
-// Los nombres de médicos o contactos y el texto de las observaciones NO salen del navegador (pueden traer datos de
-// médicos y de pacientes). El servidor reconoce a cada líder (su usuario) y cada ciudad (código DANE) y reemplaza el
+// Ningún texto libre sale del navegador: ni los nombres de médicos o contactos, ni las observaciones, ni un tipo
+// escrito a mano (solo la marca "a mano"), ni una fecha ilegible (solo sus dígitos y separadores). Pueden traer datos de
+// médicos y de pacientes. El servidor reconoce a cada líder (su usuario) y cada ciudad (código DANE) y reemplaza el
 // histórico completo: el Excel manda. Puro (sin red): lo usan /lideres y /api/lideres/historico.
 // Pruebas: scripts/lideres-historico-check.ts.
 
@@ -46,21 +47,24 @@ export const ESTADO_TEXTO: Record<EstadoHistorico, string> = {
 
 /** Filas por carga (el Excel de hoy tiene 263). */
 export const MAX_FILAS_TRACKER = 5000
+/** El encabezado se busca en las primeras filas con algo escrito (puede haber un título encima). */
+export const FILAS_PARA_ENCABEZADO = 10
 
 /** Lo único que se manda y se guarda de cada fila. */
 export interface FilaTracker {
   /** Número de fila en la hoja (la del encabezado es la 1). */
   fila: number
-  /** AAAA-MM-DD; null si no se pudo leer (va el texto en fecha_texto). */
+  /** AAAA-MM-DD; null si no se pudo leer. */
   fecha: string | null
+  /** Si no se pudo leer: solo sus dígitos y separadores ("31/02/2026"), o "sin fecha". Nunca texto libre. */
   fecha_texto: string | null
   /** El nombre de la líder como está en el Excel. */
   lider_texto: string
   /** La ciudad como está en el Excel. */
   ciudad_texto: string
   tipo: TipoHistorico
-  /** El tipo como está en el Excel, cuando no es uno de la lista (escrito a mano). */
-  tipo_texto: string | null
+  /** El tipo no es uno de la lista del Excel (se escribió a mano). El texto no se manda: puede traer datos de pacientes. */
+  tipo_a_mano: boolean
   estado: EstadoHistorico
   /** Cuántos médicos o contactos se anotaron (sin sus nombres). */
   contactos: number
@@ -71,6 +75,14 @@ export interface LecturaTracker {
   filas: FilaTracker[]
   /** Filas de la hoja con algo escrito pero sin líder (no se guardan). */
   sinLider: number
+  /** Filas con un estado que no es "Exitosa" ni "Cancelada" ni vacío ("Reprogramada"…): se cuentan como sin cerrar o planificadas. */
+  estadosNoReconocidos: number
+}
+
+/** Solo dígitos y separadores de una fecha ilegible (sin letras: no entra texto libre). */
+export function fechaIlegible(valor: unknown): string {
+  const solo = String(valor ?? '').replace(/[^0-9 /.:-]/g, '').replace(/\s+/g, ' ').trim().slice(0, 40)
+  return /[0-9]/.test(solo) ? solo : 'sin fecha'
 }
 
 /** Sin tildes, minúsculas, sin signos y con un espacio entre palabras: "Bogotá, D.C." → "bogota d c". */
@@ -108,7 +120,8 @@ export function fechaDeCelda(valor: unknown, corte: string): string | null {
   let mes: number
   let dia: number
   if (typeof valor === 'number' && Number.isFinite(valor)) {
-    const fecha = new Date(Date.UTC(1899, 11, 30) + Math.round(valor) * 86400000)
+    // floor: la parte decimal es la hora (18:00 del 20 sigue siendo el 20)
+    const fecha = new Date(Date.UTC(1899, 11, 30) + Math.floor(valor) * 86400000)
     ;[anio, mes, dia] = [fecha.getUTCFullYear(), fecha.getUTCMonth() + 1, fecha.getUTCDate()]
   } else if (valor instanceof Date && !Number.isNaN(valor.getTime())) {
     ;[anio, mes, dia] = [valor.getFullYear(), valor.getMonth() + 1, valor.getDate()]
@@ -155,12 +168,21 @@ export function tipoDeTexto(valor: unknown): { tipo: TipoHistorico; aMano: boole
   return { tipo: 'otro', aMano: true }
 }
 
-/** "Exitosa" → realizada; "Cancelada" → cancelada; vacío → planificada si la fecha es posterior al corte, si no, sin cerrar. */
+/**
+ * "Exitosa" → realizada; "Cancelada" → cancelada; lo demás → planificada si la fecha es la del corte o posterior (lo de
+ * hoy aún puede cerrarse), si no, sin cerrar.
+ */
 export function estadoDeTexto(valor: unknown, fecha: string | null, corte: string): EstadoHistorico {
   const t = normalizarTexto(valor)
   if (t.startsWith('exitos')) return 'realizada'
   if (t.startsWith('cancel')) return 'cancelada'
-  return fecha && fecha > corte ? 'planificada' : 'sin_cerrar'
+  return fecha && fecha >= corte ? 'planificada' : 'sin_cerrar'
+}
+
+/** ¿El estado escrito es uno de los del Excel (Exitosa, Cancelada o vacío)? */
+export function estadoReconocido(valor: unknown): boolean {
+  const t = normalizarTexto(valor)
+  return t === '' || t.startsWith('exitos') || t.startsWith('cancel')
 }
 
 /** Cuántos nombres hay en la celda de médicos o contactos (separados por coma, punto y coma o salto de línea). */
@@ -172,18 +194,28 @@ export function contarContactos(valor: unknown): number {
 }
 
 /**
- * Lee la hoja REGISTRO como arreglo de filas (la primera con algo escrito es el encabezado). Devuelve solo los campos de
- * FilaTracker: los nombres de médicos o contactos y el texto de las observaciones se cuentan y se descartan aquí.
+ * Lee la hoja REGISTRO como arreglo de filas desde la fila 1 (sheet_to_json con range: 0). El encabezado es la primera
+ * de las FILAS_PARA_ENCABEZADO filas con algo escrito que tiene todas las columnas (puede haber un título encima).
+ * Devuelve solo los campos de FilaTracker: los nombres de médicos o contactos, las observaciones, el tipo escrito a mano
+ * y el texto de una fecha ilegible se cuentan o se reducen aquí y no salen.
  * @param corte AAAA-MM-DD: el día de la carga (decide planificada o sin cerrar).
  */
 export function leerTracker(filas: unknown[][], corte: string): { ok: true; lectura: LecturaTracker } | { ok: false; error: string } {
-  const inicio = filas.findIndex(fila => Array.isArray(fila) && fila.some(celda => texto(celda) !== ''))
-  if (inicio === -1) return { ok: false, error: 'La hoja REGISTRO está vacía.' }
-  const columnas = indicesColumnas(filas[inicio])
-  if (!columnas.ok) return { ok: false, error: `A la hoja REGISTRO le faltan las columnas: ${columnas.faltan.join(', ')}.` }
+  const conAlgo = filas.map((fila, indice) => ({ fila, indice })).filter(({ fila }) => Array.isArray(fila) && fila.some(celda => texto(celda) !== ''))
+  if (conAlgo.length === 0) return { ok: false, error: 'La hoja REGISTRO está vacía.' }
+  const candidatas = conAlgo.slice(0, FILAS_PARA_ENCABEZADO)
+  const encontrada = candidatas.find(({ fila }) => indicesColumnas(fila).ok)
+  if (!encontrada) {
+    const primera = indicesColumnas(candidatas[0].fila)
+    return { ok: false, error: `A la hoja REGISTRO le faltan las columnas: ${primera.ok ? '' : primera.faltan.join(', ')}.` }
+  }
+  const columnas = indicesColumnas(encontrada.fila)
+  if (!columnas.ok) return { ok: false, error: 'No se encontró el encabezado de la hoja REGISTRO.' }
+  const inicio = encontrada.indice
   const i = columnas.indices
   const salida: FilaTracker[] = []
   let sinLider = 0
+  let estadosNoReconocidos = 0
   for (let n = inicio + 1; n < filas.length; n++) {
     const fila = filas[n] ?? []
     if (!fila.some(celda => texto(celda) !== '')) continue
@@ -195,21 +227,22 @@ export function leerTracker(filas: unknown[][], corte: string): { ok: true; lect
     const fecha = fechaDeCelda(fila[i.fecha], corte)
     const crudoFecha = fila[i.fecha]
     const tipo = tipoDeTexto(fila[i.tipo])
+    if (!estadoReconocido(fila[i.estado])) estadosNoReconocidos++
     salida.push({
       fila: n + 1,
       fecha,
-      fecha_texto: fecha ? null : (texto(crudoFecha instanceof Date ? crudoFecha.toISOString().slice(0, 10) : crudoFecha) || 'sin fecha').slice(0, 40),
+      fecha_texto: fecha ? null : fechaIlegible(crudoFecha instanceof Date ? crudoFecha.toISOString().slice(0, 10) : crudoFecha),
       lider_texto: lider.slice(0, 120),
       ciudad_texto: texto(fila[i.ciudad]).slice(0, 120),
       tipo: tipo.tipo,
-      tipo_texto: tipo.aMano ? texto(fila[i.tipo]).slice(0, 120) || null : null,
+      tipo_a_mano: tipo.aMano,
       estado: estadoDeTexto(fila[i.estado], fecha, corte),
       contactos: Math.min(200, contarContactos(fila[i.contactos])),
       con_observacion: texto(fila[i.observaciones]) !== '',
     })
   }
   if (salida.length > MAX_FILAS_TRACKER) return { ok: false, error: `El registro tiene ${salida.length} filas; el máximo es ${MAX_FILAS_TRACKER}.` }
-  return { ok: true, lectura: { filas: salida, sinLider } }
+  return { ok: true, lectura: { filas: salida, sinLider, estadosNoReconocidos } }
 }
 
 // ---------------------------------------------------------------------------
@@ -224,24 +257,24 @@ export interface UsuarioRef {
 }
 
 /**
- * La líder del Excel ("Paola Jiménez") es el usuario activo cuyo nombre contiene todas sus palabras ("Yineth Paola
- * Jiménez Escobar"), primero entre las líderes de negocio y si no, entre todos. Si hay más de uno, o ninguno, null: no
- * se adivina.
+ * La líder del Excel ("Paola Jiménez", al menos dos palabras) es el usuario cuyo nombre contiene todas sus palabras
+ * ("Yineth Paola Jiménez Escobar"), activo o no: el histórico también es de las que ya se fueron.
+ * - Si hay uno solo, ese.
+ * - Si hay varios, la única líder de negocio entre ellos (activa o no). Así una líder que se fue no queda a nombre de
+ *   una Ejecutiva Comercial con un nombre parecido.
+ * - Si no, null: no se adivina (y la vista previa lo dice).
  */
 export function reconocerLider(nombre: string, usuarios: UsuarioRef[]): string | null {
   const palabras = normalizarTexto(nombre).split(' ').filter(palabra => palabra.length >= 3)
-  if (palabras.length === 0) return null
+  if (palabras.length < 2) return null
   const contiene = (usuario: UsuarioRef) => {
     const suyas = new Set(normalizarTexto(usuario.full_name).split(' '))
     return palabras.every(palabra => suyas.has(palabra))
   }
-  const activos = usuarios.filter(usuario => usuario.active)
-  for (const grupo of [activos.filter(usuario => usuario.role === 'line_leader'), activos]) {
-    const candidatos = grupo.filter(contiene)
-    if (candidatos.length === 1) return candidatos[0].id
-    if (candidatos.length > 1) return null
-  }
-  return null
+  const candidatos = usuarios.filter(contiene)
+  if (candidatos.length === 1) return candidatos[0].id
+  const lideres = candidatos.filter(usuario => usuario.role === 'line_leader')
+  return lideres.length === 1 ? lideres[0].id : null
 }
 
 export interface MunicipioRef {
@@ -302,7 +335,15 @@ export interface CargaTracker {
 }
 
 const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/
-const CLAVES_FILA = ['fila', 'fecha', 'fecha_texto', 'lider_texto', 'ciudad_texto', 'tipo', 'tipo_texto', 'estado', 'contactos', 'con_observacion']
+const FECHA_ILEGIBLE_RE = /^[0-9 /.:-]{1,40}$/
+const CLAVES_FILA = ['fila', 'fecha', 'fecha_texto', 'lider_texto', 'ciudad_texto', 'tipo', 'tipo_a_mano', 'estado', 'contactos', 'con_observacion']
+
+/** ¿AAAA-MM-DD es un día que existe (no el 31 de febrero)? */
+function diaReal(iso: unknown): iso is string {
+  if (typeof iso !== 'string' || !FECHA_RE.test(iso)) return false
+  const fecha = new Date(`${iso}T12:00:00Z`)
+  return !Number.isNaN(fecha.getTime()) && fecha.toISOString().slice(0, 10) === iso
+}
 
 /** Valida el cuerpo de POST /api/lideres/historico. Rechaza cualquier campo de más en las filas (privacidad). */
 export function validarCarga(cuerpo: unknown): { ok: true; carga: CargaTracker } | { ok: false; error: string } {
@@ -310,7 +351,7 @@ export function validarCarga(cuerpo: unknown): { ok: true; carga: CargaTracker }
   const c = cuerpo as Record<string, unknown>
   if (typeof c.archivo !== 'string' || !c.archivo.trim() || c.archivo.length > 200) return { ok: false, error: 'Falta el nombre del archivo' }
   if (typeof c.huella !== 'string' || !/^[0-9a-f]{64}$/.test(c.huella)) return { ok: false, error: 'Huella del archivo inválida' }
-  if (typeof c.corte !== 'string' || !FECHA_RE.test(c.corte)) return { ok: false, error: 'corte debe ser AAAA-MM-DD' }
+  if (!diaReal(c.corte)) return { ok: false, error: 'corte debe ser una fecha AAAA-MM-DD' }
   if (typeof c.confirmar !== 'boolean') return { ok: false, error: 'confirmar debe ser sí o no' }
   if (!Array.isArray(c.filas) || c.filas.length === 0) return { ok: false, error: 'El registro no tiene filas' }
   if (c.filas.length > MAX_FILAS_TRACKER) return { ok: false, error: `Máximo ${MAX_FILAS_TRACKER} filas` }
@@ -322,13 +363,15 @@ export function validarCarga(cuerpo: unknown): { ok: true; carga: CargaTracker }
     if (extra.length) return { ok: false, error: `La fila trae campos que no se guardan: ${extra.join(', ')}` }
     if (!Number.isInteger(f.fila) || (f.fila as number) < 2 || vistas.has(f.fila as number)) return { ok: false, error: 'Número de fila inválido o repetido' }
     vistas.add(f.fila as number)
-    if (!(f.fecha === null || (typeof f.fecha === 'string' && FECHA_RE.test(f.fecha)))) return { ok: false, error: `Fila ${f.fila}: fecha inválida` }
-    if ((f.fecha === null) !== (typeof f.fecha_texto === 'string' && f.fecha_texto.length > 0)) return { ok: false, error: `Fila ${f.fila}: sin fecha va el texto de la fecha` }
-    if (typeof f.fecha_texto === 'string' && f.fecha_texto.length > 40) return { ok: false, error: `Fila ${f.fila}: texto de fecha muy largo` }
+    if (!(f.fecha === null || diaReal(f.fecha))) return { ok: false, error: `Fila ${f.fila}: fecha inválida` }
+    if (f.fecha !== null && f.fecha_texto !== null) return { ok: false, error: `Fila ${f.fila}: con fecha no va el texto de la fecha` }
+    if (f.fecha === null && !(f.fecha_texto === 'sin fecha' || (typeof f.fecha_texto === 'string' && FECHA_ILEGIBLE_RE.test(f.fecha_texto)))) {
+      return { ok: false, error: `Fila ${f.fila}: la fecha ilegible solo lleva dígitos y separadores` }
+    }
     if (typeof f.lider_texto !== 'string' || !f.lider_texto.trim() || f.lider_texto.length > 120) return { ok: false, error: `Fila ${f.fila}: falta la líder` }
     if (typeof f.ciudad_texto !== 'string' || f.ciudad_texto.length > 120) return { ok: false, error: `Fila ${f.fila}: ciudad inválida` }
     if (!(TIPOS_HISTORICO as readonly string[]).includes(f.tipo as string)) return { ok: false, error: `Fila ${f.fila}: tipo inválido` }
-    if (!(f.tipo_texto === null || (typeof f.tipo_texto === 'string' && f.tipo_texto.length <= 120))) return { ok: false, error: `Fila ${f.fila}: tipo escrito inválido` }
+    if (typeof f.tipo_a_mano !== 'boolean') return { ok: false, error: `Fila ${f.fila}: tipo_a_mano debe ser sí o no` }
     if (!(ESTADOS_HISTORICO as readonly string[]).includes(f.estado as string)) return { ok: false, error: `Fila ${f.fila}: estado inválido` }
     if (f.estado === 'planificada' && f.fecha === null) return { ok: false, error: `Fila ${f.fila}: una actividad planificada necesita fecha` }
     if (!Number.isInteger(f.contactos) || (f.contactos as number) < 0 || (f.contactos as number) > 200) return { ok: false, error: `Fila ${f.fila}: contactos inválido` }

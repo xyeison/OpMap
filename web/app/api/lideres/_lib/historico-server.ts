@@ -8,6 +8,7 @@ import { fetchAllRows } from '../../_lib/api-error'
 import {
   crearResolutorCiudades,
   ESTADOS_HISTORICO,
+  normalizarTexto,
   reconocerLider,
   validarCarga,
   type EstadoHistorico,
@@ -18,8 +19,11 @@ import {
 
 export interface VistaPreviaTracker {
   filas: number
-  /** Cada líder del Excel con su usuario de OpMap (null: no se reconoce y no se puede guardar). */
-  lideres: Array<{ lider_texto: string; filas: number; user_id: string | null; nombre: string | null }>
+  /**
+   * Cada líder del Excel con su usuario de OpMap (null: no se reconoce y no se puede guardar) y un aviso si el usuario
+   * no es líder de negocio o está inactivo (para que la directora lo vea antes de guardar).
+   */
+  lideres: Array<{ lider_texto: string; filas: number; user_id: string | null; nombre: string | null; aviso: string | null }>
   /** Ciudades sin código DANE (se guardan con su texto). */
   ciudadesSinCodigo: Array<{ ciudad_texto: string; filas: number }>
   /** Cada ciudad escrita que sí se reconoce, con su código y su nombre del DANE (la vista previa la muestra así). */
@@ -40,7 +44,7 @@ export interface FilaHistorico {
   ciudad: string
   ciudad_texto: string
   tipo: TipoHistorico
-  tipo_texto: string | null
+  tipo_a_mano: boolean
   estado: EstadoHistorico
   contactos: number
   con_observacion: boolean
@@ -53,9 +57,11 @@ export interface HistoricoRespuesta {
   filas: FilaHistorico[]
 }
 
+// La migración 0920 sin aplicar: tabla (42P01, PGRST205) o función (PGRST202) que no existen. Nada más (una columna que
+// falte es otro error y no debe decir "falta la 0920").
 const esTablaInexistente = (error: unknown) => {
-  const { code, message } = (error ?? {}) as { code?: string; message?: string }
-  return code === '42P01' || code === 'PGRST202' || code === 'PGRST205' || /does not exist|could not find the (table|function)/i.test(message ?? '')
+  const { code } = (error ?? {}) as { code?: string }
+  return code === '42P01' || code === 'PGRST202' || code === 'PGRST205'
 }
 
 async function leerUsuarios(): Promise<UsuarioRef[]> {
@@ -80,6 +86,7 @@ export async function procesarCargaTracker(cuerpo: unknown, userId: string): Pro
 
   const [usuarios, municipios] = await Promise.all([leerUsuarios(), leerMunicipios()])
   const nombres = new Map(usuarios.map(usuario => [usuario.id, usuario.full_name]))
+  const porId = new Map(usuarios.map(usuario => [usuario.id, usuario]))
   const nombreMunicipio = new Map(municipios.map(municipio => [municipio.code, municipio.name]))
   const resolverCiudad = crearResolutorCiudades(municipios)
   const reconocidas = new Map<string, string>()
@@ -100,12 +107,17 @@ export async function procesarCargaTracker(cuerpo: unknown, userId: string): Pro
   }
   const vistaPrevia: VistaPreviaTracker = {
     filas: carga.filas.length,
-    lideres: Array.from(lideres, ([lider_texto, dato]) => ({
-      lider_texto,
-      filas: dato.filas,
-      user_id: dato.user_id,
-      nombre: dato.user_id ? nombres.get(dato.user_id) ?? null : null,
-    })).sort((a, b) => b.filas - a.filas || a.lider_texto.localeCompare(b.lider_texto, 'es')),
+    lideres: Array.from(lideres, ([lider_texto, dato]) => {
+      const usuario = dato.user_id ? porId.get(dato.user_id) : undefined
+      const avisos = usuario ? [usuario.role !== 'line_leader' ? 'no es líder de negocio' : null, usuario.active ? null : 'inactiva'].filter(Boolean) : []
+      return {
+        lider_texto,
+        filas: dato.filas,
+        user_id: dato.user_id,
+        nombre: usuario?.full_name ?? null,
+        aviso: avisos.length ? avisos.join(' y ') : null,
+      }
+    }).sort((a, b) => b.filas - a.filas || a.lider_texto.localeCompare(b.lider_texto, 'es')),
     ciudadesSinCodigo: Array.from(ciudades, ([ciudad_texto, filas]) => ({ ciudad_texto, filas })).sort((a, b) => b.filas - a.filas),
     ciudades: Array.from(reconocidas, ([ciudad_texto, municipio_id]) => ({ ciudad_texto, municipio_id, nombre: nombreMunicipio.get(municipio_id) ?? ciudad_texto })),
     porEstado,
@@ -157,7 +169,7 @@ export async function leerHistoricoTracker(): Promise<Response> {
     fetchAllRows<Omit<FilaHistorico, 'lider' | 'ciudad'>>((from, to) =>
       supabaseAdmin
         .from('lideres_historico')
-        .select('fila, fecha, fecha_texto, user_id, lider_texto, municipio_id, ciudad_texto, tipo, tipo_texto, estado, contactos, con_observacion')
+        .select('fila, fecha, fecha_texto, user_id, lider_texto, municipio_id, ciudad_texto, tipo, tipo_a_mano, estado, contactos, con_observacion')
         .order('fila')
         .range(from, to)
     ),
@@ -167,13 +179,19 @@ export async function leerHistoricoTracker(): Promise<Response> {
   if (filas.error) throw filas.error
   const nombres = new Map(usuarios.map(usuario => [usuario.id, usuario.full_name]))
   const municipiosPorCodigo = new Map(municipios.map(municipio => [municipio.code, municipio.name]))
+  // Las ciudades sin código se agrupan como en la vista previa: sin tildes ni mayúsculas, con la primera forma escrita
+  const primeraGrafia = new Map<string, string>()
+  for (const fila of filas.data) {
+    const clave = normalizarTexto(fila.ciudad_texto)
+    if (!fila.municipio_id && clave && !primeraGrafia.has(clave)) primeraGrafia.set(clave, fila.ciudad_texto)
+  }
   const respuesta: HistoricoRespuesta = {
     disponible: true,
     carga: { ...carga, importado_por: nombres.get(carga.importado_por) ?? null },
     filas: filas.data.map(fila => ({
       ...fila,
       lider: nombres.get(fila.user_id) ?? fila.lider_texto,
-      ciudad: (fila.municipio_id && municipiosPorCodigo.get(fila.municipio_id)) || fila.ciudad_texto || 'Sin ciudad',
+      ciudad: (fila.municipio_id && municipiosPorCodigo.get(fila.municipio_id)) || primeraGrafia.get(normalizarTexto(fila.ciudad_texto)) || 'Sin ciudad',
     })),
   }
   return NextResponse.json(respuesta, { headers: { 'Cache-Control': 'no-store' } })

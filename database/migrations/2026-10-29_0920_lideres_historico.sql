@@ -9,10 +9,10 @@
 -- Qué hace:
 --   1. lideres_historico_cargas: una fila por cada vez que la directora (o el administrador) sube el Excel: nombre del
 --      archivo, su sha256, la fecha de corte, cuántas filas y quién.
---   2. lideres_historico: la copia del Excel para el seguimiento: fecha (o el texto si no se lee), líder (users.id y
---      el nombre como está en el Excel), ciudad (código DANE si se reconoce y el texto), tipo, estado, CUÁNTOS
---      contactos y si tenía observación. Sin nombres de médicos o contactos ni texto de observaciones: no hay columnas
---      para eso.
+--   2. lideres_historico: la copia del Excel para el seguimiento: fecha (o, si no se lee, solo sus dígitos y separadores),
+--      líder (users.id y el nombre como está en el Excel), ciudad (código DANE si se reconoce y el texto), tipo de la
+--      lista y si se escribió a mano (sin ese texto), estado, CUÁNTOS contactos y si tenía observación. Sin nombres de
+--      médicos o contactos ni textos libres (observaciones, tipo escrito a mano): no hay columnas para eso.
 --   3. lideres_historico_reemplazar(p_carga jsonb, p_filas jsonb, p_user uuid): en una transacción, registra la carga,
 --      borra las filas anteriores y escribe las nuevas (el Excel manda: si la directora corrige una fila, OpMap la
 --      corrige). Solo service_role.
@@ -61,19 +61,20 @@ CREATE TABLE IF NOT EXISTS public.lideres_historico (
   municipio_id    varchar(5)  REFERENCES public.municipalities(code),
   ciudad_texto    text        NOT NULL,
   tipo            text        NOT NULL,
-  tipo_texto      text,
+  tipo_a_mano     boolean     NOT NULL DEFAULT false,
   estado          text        NOT NULL,
   contactos       smallint    NOT NULL DEFAULT 0,
   con_observacion boolean     NOT NULL DEFAULT false,
   created_at      timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT lideres_historico_fila_check     CHECK (fila >= 2),
   CONSTRAINT lideres_historico_lider_check    CHECK (char_length(btrim(lider_texto)) BETWEEN 1 AND 120),
+  -- Fecha ilegible: solo dígitos y separadores (o "sin fecha"), para que no entre texto libre
   CONSTRAINT lideres_historico_fecha_check    CHECK ((fecha IS NULL) = (fecha_texto IS NOT NULL)
-                                                     AND (fecha_texto IS NULL OR char_length(fecha_texto) BETWEEN 1 AND 40)),
+                                                     AND (fecha_texto IS NULL OR fecha_texto = 'sin fecha'
+                                                          OR fecha_texto ~ '^[0-9 /.:-]{1,40}$')),
   CONSTRAINT lideres_historico_ciudad_check   CHECK (char_length(ciudad_texto) <= 120),
   CONSTRAINT lideres_historico_tipo_check     CHECK (tipo IN ('visita_medico', 'correria', 'reunion_clinica', 'congreso',
-                                                               'capacitacion', 'cena', 'almuerzo', 'cirugia', 'otro')
-                                                     AND (tipo_texto IS NULL OR char_length(tipo_texto) <= 120)),
+                                                               'capacitacion', 'cena', 'almuerzo', 'cirugia', 'otro')),
   CONSTRAINT lideres_historico_estado_check   CHECK (estado IN ('realizada', 'cancelada', 'sin_cerrar', 'planificada')
                                                      AND (estado <> 'planificada' OR fecha IS NOT NULL)),
   CONSTRAINT lideres_historico_contactos_check CHECK (contactos BETWEEN 0 AND 200),
@@ -96,7 +97,7 @@ COMMENT ON TABLE public.lideres_historico_cargas IS
   'Cada carga del Excel "Tracker Líderes": archivo, sha256, corte, filas y quién la subió.';
 
 -- Reemplaza el histórico con una carga. p_carga: {archivo, huella, corte}. p_filas: arreglo de
--- {fila, user_id, lider_texto, fecha, fecha_texto, municipio_id, ciudad_texto, tipo, tipo_texto, estado, contactos,
+-- {fila, user_id, lider_texto, fecha, fecha_texto, municipio_id, ciudad_texto, tipo, tipo_a_mano, estado, contactos,
 --  con_observacion}. Devuelve {carga_id, filas}. 22023 si p_user no es un usuario activo o la carga no trae filas.
 CREATE OR REPLACE FUNCTION public.lideres_historico_reemplazar(p_carga jsonb, p_filas jsonb, p_user uuid)
 RETURNS jsonb
@@ -121,14 +122,16 @@ BEGIN
   VALUES (p_carga->>'archivo', p_carga->>'huella', (p_carga->>'corte')::date, jsonb_array_length(p_filas), p_user)
   RETURNING id INTO v_carga;
 
-  DELETE FROM public.lideres_historico;
+  -- Con WHERE: PostgREST (rol authenticator) carga pg-safeupdate, que rechaza un DELETE sin WHERE también dentro de
+  -- una función. La carga recién registrada aún no tiene filas, así que esto borra todo lo anterior.
+  DELETE FROM public.lideres_historico WHERE carga_id <> v_carga;
 
   INSERT INTO public.lideres_historico (carga_id, fila, user_id, lider_texto, fecha, fecha_texto, municipio_id,
-                                        ciudad_texto, tipo, tipo_texto, estado, contactos, con_observacion)
+                                        ciudad_texto, tipo, tipo_a_mano, estado, contactos, con_observacion)
   SELECT v_carga, f.fila, f.user_id, f.lider_texto, f.fecha, f.fecha_texto, f.municipio_id, f.ciudad_texto, f.tipo,
-         f.tipo_texto, f.estado, f.contactos, f.con_observacion
+         coalesce(f.tipo_a_mano, false), f.estado, f.contactos, f.con_observacion
   FROM jsonb_to_recordset(p_filas) AS f(fila integer, user_id uuid, lider_texto text, fecha date, fecha_texto text,
-                                         municipio_id varchar(5), ciudad_texto text, tipo text, tipo_texto text,
+                                         municipio_id varchar(5), ciudad_texto text, tipo text, tipo_a_mano boolean,
                                          estado text, contactos smallint, con_observacion boolean);
   GET DIAGNOSTICS v_n = ROW_COUNT;
   RETURN jsonb_build_object('carga_id', v_carga, 'filas', v_n);
@@ -160,7 +163,7 @@ BEGIN
   END IF;
   -- Ninguna columna para nombres de médicos u observaciones
   IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'lideres_historico'
-             AND column_name IN ('contactos_texto', 'medicos', 'observaciones', 'observacion')) THEN
+             AND column_name IN ('contactos_texto', 'medicos', 'observaciones', 'observacion', 'tipo_texto')) THEN
     RAISE EXCEPTION '0920: lideres_historico no debe tener columnas de nombres ni de observaciones';
   END IF;
 
@@ -176,10 +179,10 @@ BEGIN
       jsonb_build_array(
         jsonb_build_object('fila', 2, 'user_id', v_user, 'lider_texto', 'Prueba Novecientos', 'fecha', '2026-10-20',
                            'fecha_texto', NULL, 'municipio_id', '11001', 'ciudad_texto', 'Bogota', 'tipo', 'correria',
-                           'tipo_texto', NULL, 'estado', 'realizada', 'contactos', 3, 'con_observacion', true),
+                           'tipo_a_mano', false, 'estado', 'realizada', 'contactos', 3, 'con_observacion', true),
         jsonb_build_object('fila', 3, 'user_id', v_user, 'lider_texto', 'Prueba Novecientos', 'fecha', NULL,
                            'fecha_texto', '31/02/2026', 'municipio_id', NULL, 'ciudad_texto', 'Verona', 'tipo', 'otro',
-                           'tipo_texto', 'Congreso Verona', 'estado', 'sin_cerrar', 'contactos', 0, 'con_observacion', false)
+                           'tipo_a_mano', true, 'estado', 'sin_cerrar', 'contactos', 0, 'con_observacion', false)
       ),
       v_user);
     IF (v_res->>'filas')::int <> 2 OR (SELECT count(*) FROM public.lideres_historico) <> 2 THEN
@@ -192,7 +195,7 @@ BEGIN
       jsonb_build_object('archivo', 'Tracker Líderes (2).xlsx', 'huella', repeat('b', 64), 'corte', '2026-10-30'),
       jsonb_build_array(jsonb_build_object('fila', 2, 'user_id', v_user, 'lider_texto', 'Prueba Novecientos', 'fecha', '2026-11-05',
                            'fecha_texto', NULL, 'municipio_id', '13001', 'ciudad_texto', 'Cartagena', 'tipo', 'congreso',
-                           'tipo_texto', NULL, 'estado', 'planificada', 'contactos', 0, 'con_observacion', false)),
+                           'tipo_a_mano', false, 'estado', 'planificada', 'contactos', 0, 'con_observacion', false)),
       v_user);
     IF (SELECT count(*) FROM public.lideres_historico) <> 1 OR (SELECT count(*) FROM public.lideres_historico_cargas) <> v_cargas + 2 THEN
       RAISE EXCEPTION '0920: la segunda carga no reemplazó (o no quedó en la bitácora)';
@@ -209,7 +212,7 @@ BEGIN
       PERFORM public.lideres_historico_reemplazar(
         jsonb_build_object('archivo', 'x.xlsx', 'huella', repeat('c', 64), 'corte', '2026-10-29'),
         jsonb_build_array(jsonb_build_object('fila', 2, 'user_id', v_user, 'lider_texto', 'P', 'fecha', NULL, 'fecha_texto', NULL,
-                             'municipio_id', NULL, 'ciudad_texto', '', 'tipo', 'otro', 'tipo_texto', NULL, 'estado', 'sin_cerrar',
+                             'municipio_id', NULL, 'ciudad_texto', '', 'tipo', 'otro', 'tipo_a_mano', false, 'estado', 'sin_cerrar',
                              'contactos', 0, 'con_observacion', false)),
         v_user);
       RAISE EXCEPTION '0920: aceptó una fila sin fecha ni texto de la fecha';
@@ -219,7 +222,7 @@ BEGIN
       PERFORM public.lideres_historico_reemplazar(
         jsonb_build_object('archivo', 'x.xlsx', 'huella', repeat('c', 64), 'corte', '2026-10-29'),
         jsonb_build_array(jsonb_build_object('fila', 2, 'user_id', v_user, 'lider_texto', 'P', 'fecha', '2026-10-01', 'fecha_texto', NULL,
-                             'municipio_id', NULL, 'ciudad_texto', 'x', 'tipo', 'visita_paciente', 'tipo_texto', NULL, 'estado', 'realizada',
+                             'municipio_id', NULL, 'ciudad_texto', 'x', 'tipo', 'visita_paciente', 'tipo_a_mano', false, 'estado', 'realizada',
                              'contactos', 0, 'con_observacion', false)),
         v_user);
       RAISE EXCEPTION '0920: aceptó un tipo que no existe';
@@ -231,7 +234,17 @@ BEGIN
       RAISE EXCEPTION '0920: aceptó un usuario nulo';
     EXCEPTION WHEN invalid_parameter_value THEN NULL;
     END;
-    v_casos := v_casos || 'rechazos (sin filas, sin fecha, tipo, usuario)'::text;
+    BEGIN
+      PERFORM public.lideres_historico_reemplazar(
+        jsonb_build_object('archivo', 'x.xlsx', 'huella', repeat('c', 64), 'corte', '2026-10-29'),
+        jsonb_build_array(jsonb_build_object('fila', 2, 'user_id', v_user, 'lider_texto', 'P', 'fecha', NULL, 'fecha_texto', 'mañana con el Dr. X',
+                             'municipio_id', NULL, 'ciudad_texto', 'x', 'tipo', 'otro', 'tipo_a_mano', false, 'estado', 'sin_cerrar',
+                             'contactos', 0, 'con_observacion', false)),
+        v_user);
+      RAISE EXCEPTION '0920: aceptó texto libre en la fecha';
+    EXCEPTION WHEN check_violation THEN NULL;
+    END;
+    v_casos := v_casos || 'rechazos (sin filas, sin fecha, texto en la fecha, tipo, usuario)'::text;
 
     RAISE SQLSTATE 'P0920';
   EXCEPTION
