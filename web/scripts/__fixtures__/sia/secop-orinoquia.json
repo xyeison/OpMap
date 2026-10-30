@@ -1,0 +1,145 @@
+{
+ "_fixture": "REAL: filas de secop_contratos del Hospital Regional de la Orinoqu\u00eda (NIT 891855029) con l\u00ednea, firmadas desde 2025 (SELECT del 2026-10-30). Solo empresas.",
+ "filas": [
+  {
+   "id": "10880eb6-e9f4-4e41-9eac-01ae07622115",
+   "fuente": "integrado",
+   "numero_contrato": "CO1.PCCNTR.7556663",
+   "referencia": "CD/25-1068",
+   "proceso": null,
+   "documento_proveedor": "900078411",
+   "fecha_firma": "2025-02-25",
+   "valor": 4270556724
+  },
+  {
+   "id": "57878d83-ab95-42de-a821-67f15b70165e",
+   "fuente": "secop2",
+   "numero_contrato": "CO1.PCCNTR.7556663",
+   "referencia": "CD/25-1068",
+   "proceso": "CO1.BDOS.7697778",
+   "documento_proveedor": "900078411",
+   "fecha_firma": "2025-02-25",
+   "valor": 4270556724
+  },
+  {
+   "id": "2e3db616-e17f-4725-b2fa-058a95d154b8",
+   "fuente": "secop2",
+   "numero_contrato": "CO1.PCCNTR.7683054",
+   "referencia": "CD/25-1111",
+   "proceso": "CO1.BDOS.7859116",
+   "documento_proveedor": "901386177",
+   "fecha_firma": "2025-03-21",
+   "valor": 1256302480
+  },
+  {
+   "id": "664bc72f-0621-41f3-a6df-8fddec7c7542",
+   "fuente": "integrado",
+   "numero_contrato": "CO1.PCCNTR.7683054",
+   "referencia": "CD/25-1111",
+   "proceso": null,
+   "documento_proveedor": "901386177",
+   "fecha_firma": "2025-03-21",
+   "valor": 1256302480
+  },
+  {
+   "id": "0dc130a1-b077-49c1-8b20-7913c9c66608",
+   "fuente": "secop2",
+   "numero_contrato": "CO1.PCCNTR.8337523",
+   "referencia": "CD/25-1437",
+   "proceso": "CO1.BDOS.8770457",
+   "documento_proveedor": "900078411",
+   "fecha_firma": "2025-09-17",
+   "valor": 1000000000
+  },
+  {
+   "id": "9e7f415e-bcea-4902-a03f-463f0031749d",
+   "fuente": "integrado",
+   "numero_contrato": "CO1.PCCNTR.8337523",
+   "referencia": "CD/25-1437",
+   "proceso": null,
+   "documento_proveedor": "900078411",
+   "fecha_firma": "2025-09-17",
+   "valor": 1000000000
+  },
+  {
+   "id": "287aced8-2c7c-460b-b9df-46c1fd618fd5",
+   "fuente": "secop2",
+   "numero_contrato": "CO1.PCCNTR.8654635",
+   "referencia": "CD/25-1658",
+   "proceso": "CO1.BDOS.9190039",
+   "documento_proveedor": "901386177",
+   "fecha_firma": "2025-11-29",
+   "valor": 641384274
+  },
+  {
+   "id": "c10f6ff7-7673-48b4-a286-17bc2b20edf1",
+   "fuente": "integrado",
+   "numero_contrato": "CO1.PCCNTR.8654635",
+   "referencia": "CD/25-1658",
+   "proceso": null,
+   "documento_proveedor": "901386177",
+   "fecha_firma": "2025-11-29",
+   "valor": 641384274
+  },
+  {
+   "id": "7e4f087b-3435-45df-8030-94e27176f8c4",
+   "fuente": "secop2",
+   "numero_contrato": "CO1.PCCNTR.8683563",
+   "referencia": "CD/25-1783",
+   "proceso": "CO1.BDOS.9230697",
+   "documento_proveedor": "900078411",
+   "fecha_firma": "2025-12-06",
+   "valor": 1658466448
+  },
+  {
+   "id": "afa884f6-f248-44d9-a78e-c1781ec0e542",
+   "fuente": "integrado",
+   "numero_contrato": "CO1.PCCNTR.8683563",
+   "referencia": "CD/25-1783",
+   "proceso": null,
+   "documento_proveedor": "900078411",
+   "fecha_firma": "2025-12-06",
+   "valor": 1658466448
+  },
+  {
+   "id": "c131d0ab-902b-49cc-b703-54a6219047dc",
+   "fuente": "secop2",
+   "numero_contrato": "CO1.PCCNTR.9413801",
+   "referencia": "CD/26-1103",
+   "proceso": "CO1.BDOS.10122105",
+   "documento_proveedor": "900078411",
+   "fecha_firma": "2026-03-24",
+   "valor": 4524124620
+  },
+  {
+   "id": "a593e4e2-dbbe-4b9b-9cfe-3c83f08de403",
+   "fuente": "integrado",
+   "numero_contrato": "CO1.PCCNTR.9413801",
+   "referencia": "CD/26-1103",
+   "proceso": null,
+   "documento_proveedor": "900078411",
+   "fecha_firma": "2026-03-24",
+   "valor": 4524124620
+  },
+  {
+   "id": "f62d8b5e-0274-4e03-b431-5c10c8864f05",
+   "fuente": "secop2",
+   "numero_contrato": "CO1.PCCNTR.9587962",
+   "referencia": "CD/26-1262",
+   "proceso": "CO1.BDOS.10369546",
+   "documento_proveedor": "901386177",
+   "fecha_firma": "2026-06-25",
+   "valor": 510281732
+  },
+  {
+   "id": "b7f91582-1e23-490f-8181-b2e19e3e1586",
+   "fuente": "integrado",
+   "numero_contrato": "CO1.PCCNTR.9587962",
+   "referencia": "CD/26-1262",
+   "proceso": null,
+   "documento_proveedor": "901386177",
+   "fecha_firma": "2026-06-25",
+   "valor": 510281732
+  }
+ ]
+}

@@ -13,6 +13,7 @@ import { useUser } from '@/contexts/UserContext'
 import HospitalGirosCard from '@/components/HospitalGirosCard'
 import HospitalSecopCard from '@/components/HospitalSecopCard'
 import HospitalProcesosCard from '@/components/HospitalProcesosCard'
+import HospitalSiaCard from '@/components/HospitalSiaCard'
 import HospitalEntornoCard from '@/components/HospitalEntornoCard'
 import HospitalRepsPanel from '@/components/HospitalRepsPanel'
 import { bogotaAssignmentLabel } from '@/lib/bogota-admin'
@@ -568,6 +569,8 @@ export default function HospitalDetailPage() {
         <HospitalSecopCard hospitalId={hospitalId} />
         {/* Procesos de SECOP II publicados sin contrato (radar, 2026-10-25): aparte de las compras; secop:procesos, sin procesos no aparece */}
         <HospitalProcesosCard hospitalId={hospitalId} />
+        {/* Contratos reportados a SIA Observa (2026-10-29): empresas con objeto de las líneas; contracts:view, sin contratos no aparece */}
+        <HospitalSiaCard hospitalId={hospitalId} />
         <HospitalEntornoCard hospitalId={hospitalId} />
 
         {/* Doctores */}
