@@ -59,10 +59,43 @@ export function clienteDeLogin(esWeb: boolean): 'movil' | 'campo-web' {
 }
 
 /**
- * ¿Pedir el token a la sesión de la web (POST /api/auth/sesion-app) al abrir? Solo en el navegador y sin un token vigente
- * (no hay, o venció): quien entró por "Agendamiento" desde OpMap ya tiene la cookie y no vuelve a escribir su contraseña.
- * En el teléfono nunca (no hay cookie de la web).
+ * La marca de "cerrar sesión no llegó al servidor" (en el navegador, revisión 2026-10-30): sin señal la cookie de la web
+ * pudo quedar viva y, sin la marca, al volver a abrir la app entraría sola con ella. Mientras exista, la app no la usa y,
+ * al abrir, vuelve a avisar al servidor; se quita al lograrlo o con un ingreso nuevo (en la app, o en OpMap:
+ * web/lib/app-campo.ts CLAVE_SALIDA_PENDIENTE_APP_CAMPO, la misma clave).
  */
-export function probarSesionDeLaWeb(o: { esWeb: boolean; tokenVigente: boolean }): boolean {
-  return o.esWeb && !o.tokenVigente
+export const CLAVE_SALIDA_PENDIENTE = 'opmap.salida-pendiente.v1'
+
+/**
+ * ¿Pedir el token a la sesión de la web (POST /api/auth/sesion-app) al abrir? Solo en el navegador, sin un token vigente
+ * (no hay, o venció) y sin una salida pendiente: quien entró por "Agendamiento" desde OpMap ya tiene la cookie y no
+ * vuelve a escribir su contraseña. En el teléfono nunca (no hay cookie de la web).
+ */
+export function probarSesionDeLaWeb(o: { esWeb: boolean; tokenVigente: boolean; salidaPendiente?: boolean }): boolean {
+  return o.esWeb && !o.tokenVigente && !o.salidaPendiente
+}
+
+/** Al cerrar sesión, ¿dejar la marca? Solo en el navegador y si el servidor no respondió (sin señal o tardó). */
+export function dejarSalidaPendiente(o: { esWeb: boolean; avisado: boolean }): boolean {
+  return o.esWeb && !o.avisado
+}
+
+/**
+ * Al abrir con la marca, ¿volver a avisar al servidor? Solo sin un token vigente: con uno, alguien ya entró de nuevo (en
+ * otra pestaña) y avisar borraría la cookie de esa sesión nueva.
+ */
+export function reintentarSalida(o: { salidaPendiente: boolean; tokenVigente: boolean }): boolean {
+  return o.salidaPendiente && !o.tokenVigente
+}
+
+/**
+ * Otra pestaña del navegador cambió el token de la app (OpMap lo borra al entrar y al salir; otra pestaña de la app lo
+ * guarda o lo borra): esta pestaña lo sigue (revisión 2026-10-30). Sin token → 'cerrar' (la cola se queda); con otro
+ * token → 'abrir' de nuevo con ese; con el mismo, nada. `anterior` undefined: esta pestaña aún no había leído el token
+ * (está abriendo) y leerá el nuevo sola.
+ */
+export function cambioDeTokenEnOtraPestana(o: { nuevo: string | null; anterior: string | null | undefined }): 'cerrar' | 'abrir' | 'nada' {
+  if (o.anterior === undefined) return 'nada'
+  if (!o.nuevo) return o.anterior ? 'cerrar' : 'nada'
+  return o.nuevo === o.anterior ? 'nada' : 'abrir'
 }

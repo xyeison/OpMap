@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 import type { Role } from '@/lib/permissions'
-import { olvidarSesionAppCampo } from '@/lib/app-campo'
+import { marcarSalidaPendienteAppCampo, olvidarSesionAppCampo } from '@/lib/app-campo'
 
 interface User {
   id: string
@@ -108,18 +108,22 @@ export function UserProvider({ children }: { children: ReactNode }) {
   }
 
   const logout = async () => {
+    let avisado = false
     try {
-      await fetch('/api/auth/logout', {
+      const response = await fetch('/api/auth/logout', {
         method: 'POST',
       })
+      avisado = response.ok
     } catch (error) {
       console.error('Error en logout:', error)
     }
     
     setUser(null)
     localStorage.removeItem('opmap_user')
-    // Cerrar sesión en OpMap cierra también la app de campo en este navegador (no su cola sin señal)
+    // Cerrar sesión en OpMap cierra también la app de campo en este navegador (no su cola sin señal). Si el servidor no
+    // se enteró, la cookie pudo quedar viva: la marca evita que la app entre sola con ella
     olvidarSesionAppCampo(localStorage)
+    if (!avisado) marcarSalidaPendienteAppCampo(localStorage)
     window.location.href = '/login'
   }
 

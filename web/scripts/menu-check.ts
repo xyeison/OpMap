@@ -255,6 +255,7 @@ for (const ruta of Array.from(new Set(ORDEN.map(href => href.split('?')[0])))) {
   check(`${ruta} tiene su página`, existsSync(path.join(APP, ruta.slice(1), 'page.tsx')))
 }
 check('Agendamiento abre la app de campo: la arma el build (construir-campo.mjs), no es una página de Next', existsSync(path.join(__dirname, 'construir-campo.mjs')) && !existsSync(path.join(APP, 'campo')))
+check('/campo/agenda existe en la app de campo (mobile/app/(app)/agenda.tsx)', existsSync(path.join(__dirname, '..', '..', 'mobile', 'app', '(app)', 'agenda.tsx')))
 check('/territories sigue existiendo', existsSync(path.join(APP, 'territories', 'page.tsx')))
 // Médicos y Aseguradoras: "Próximamente", sin datos (dueño, 2026-10-29)
 for (const ruta of ['medicos', 'aseguradoras']) {

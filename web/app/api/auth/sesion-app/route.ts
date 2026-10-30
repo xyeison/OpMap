@@ -3,11 +3,15 @@
 // el token que la app necesita, sin volver a escribir su contraseña. Es el MISMO token de la cookie (mismo formato que el
 // del login móvil): no da más permisos ni más tiempo.
 //   - Exige la cookie de la web: solo con el portador → 401 (no sirve para alargar un token de la app).
+//   - Solo para quien usa la app de campo (campo:app, las líderes: el mismo criterio del menú "Agendamiento"); los demás
+//     roles → 403 (revisión 2026-10-30): la cookie httpOnly del administrador o de la dirección no se vuelve un token que
+//     el JavaScript de la página puede leer. Los demás entran a la app con su contraseña, como siempre.
 //   - Exige el mismo origen: un Origin de otro sitio o Sec-Fetch-Site cross-site → 403 (la cookie es SameSite=Lax y
 //     esta ruta es POST, pero se comprueba igual).
 //   - Respuesta: LoginMovilResponse { token, expira_at, usuario, ejecutiva }, como el login móvil, sin caché.
 import { NextResponse, type NextRequest } from 'next/server'
 import { ejecutivaEnlazada, getUserFromRequest, readCookie } from '@/lib/auth-server'
+import { rolePermissions } from '@/lib/permissions'
 import type { LoginMovilResponse } from '@/lib/reporte-visitas'
 import { SESSION_COOKIE_NAME, SESSION_MAX_AGE_SECONDS } from '@/lib/session'
 
@@ -47,6 +51,8 @@ export async function POST(request: NextRequest) {
     // getUserFromRequest lee la cookie (manda sobre el portador) y valida firma, vencimiento, usuario activo y pv
     const user = await getUserFromRequest(request)
     if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+    // El permiso del rol y no hasPermission: hasPermission deja pasar al administrador (lo tiene todo)
+    if (!(rolePermissions[user.role] ?? []).includes('campo:app')) return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 })
 
     let ejecutiva: LoginMovilResponse['ejecutiva'] = null
     try {
