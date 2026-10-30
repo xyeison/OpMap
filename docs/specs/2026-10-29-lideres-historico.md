@@ -67,7 +67,7 @@ Mientras la app no esté lista, la directora sigue con el Excel y no tiene en Op
 - [x] Menú: `/lideres` con `lideres:seguimiento` solo para admin y dirección comercial.
 
 ## Impacto
-- Datos: migración `0920_lideres_historico` con rollback `9957`, sin aplicar (autorización del dueño). La tabla
+- Datos: migración `0920_lideres_historico` con rollback `9957`, APLICADA el 2026-10-29 con autorización del dueño. La tabla
   `lideres_historico` es una copia derivada del Excel, y cada carga queda en `lideres_historico_cargas`.
   - El borrado del reemplazo lleva WHERE: PostgREST carga pg-safeupdate, comprobado el 2026-10-29 en
     `pg_roles.authenticator`.

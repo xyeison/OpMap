@@ -38,7 +38,7 @@ la solución que propongas en la app".
   Y sin las fórmulas rotas del Excel.
 - **Cuando las líderes reporten en la app**, la directora deja de subir el Excel. El histórico queda y la vista suma
   lo de la app.
-- **Datos**: migración `0920_lideres_historico` con su rollback `9957`, solo con autorización del dueño. Crea la tabla
+- **Datos**: migración `0920_lideres_historico` con su rollback `9957`, aplicada el 2026-10-29 con autorización del dueño. Crea la tabla
   `lideres_historico`, la bitácora de cargas y una función que reemplaza todo en una transacción.
 - **Costo**: Google Maps 0. La ciudad sale de la lista de municipios del DANE, nunca de una búsqueda.
 - **Descartado por ahora**: guardar los nombres de los médicos o enlazarlos a las fichas de Médicos (pediría cruzar
