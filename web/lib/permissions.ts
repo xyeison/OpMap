@@ -56,6 +56,9 @@ export type Permission =
   | 'secop:procesos'
   | 'kams:bogota-config'       // PR 3: Bogotá hacia afuera (k celdas, corredores, tope único). Solo admin
   | 'fuentes:manage'           // PR 7: panel "Fuentes de datos" (estado y "Actualizar ahora") y lista vigilada de SECOP. Solo admin
+  // Seguimiento de las líderes en /lideres (dueño, 2026-10-29, docs/decisiones/2026-10-29-historico-tracker-lideres.md):
+  // ver y cargar el histórico del Excel "Tracker Líderes". Admin y commercial_director; las líderes no se ven entre ellas.
+  | 'lideres:seguimiento'
   | 'terceros:view'            // Fase 6 F1: ver cuentas, sedes, médicos (sin documento) y contactos (/terceros)
   | 'terceros:create'          // Fase 6 F1: crear cuentas, sedes, médicos y contactos
   | 'terceros:manage'          // Fase 6 F1: editar o desactivar, ver documentos, confirmar sedes, marcar cliente y modalidad
@@ -93,6 +96,7 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'executives:edit',
     'executives:transfer',
     'executives:lines',
+    'lideres:seguimiento',
     'coverage:view',
     'coverage:edit',
     'map:all-lines',
@@ -170,6 +174,7 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'executives:edit',
     'executives:transfer', // Traspaso de un Ejecutivo Comercial a otra persona, una nueva o una vacante
     'executives:lines',    // Dar o quitar cualquier línea a un Ejecutivo Comercial o vacante desde Zonas
+    'lideres:seguimiento', // Seguimiento de las líderes (/lideres) y carga del Excel "Tracker Líderes"
     'coverage:view',
     'coverage:edit',
     'map:all-lines',
