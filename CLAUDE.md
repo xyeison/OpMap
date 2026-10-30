@@ -46,6 +46,9 @@ nada llama a Google.
 6. Decisiones del dueño que cambian reglas de negocio: anotar en `docs/decisiones/` (plantilla ahí).
 7. Antes de `/entregar` un cambio mediano o grande: subagente `revisor` (`.claude/agents/revisor.md`) sobre
    el diff y la spec; corregir solo lo que afecte corrección o reglas.
+8. Método de trabajo: skills de Superpowers copiadas en `.claude/skills/` (brainstorming, writing-plans,
+   test-driven-development, systematic-debugging, verification-before-completion, requesting-code-review…;
+   `docs/superpowers.md`). Este archivo manda sobre ellas: PR con `/entregar`, no merge local.
 
 ## Reglas que no se deducen del código (IMPORTANTE)
 
@@ -150,6 +153,7 @@ nada llama a Google.
 - `docs/arquitectura-y-scripts.md` – scripts Python, estructura de carpetas, archivos clave.
 - `docs/historico-resultados.md` – cifras de 2025 y colores originales (histórico, no vigente).
 - `docs/FLUJO_DE_TRABAJO_IA.md` – cómo trabajamos con Claude Code en este repo y por qué.
+- `docs/superpowers.md` – skills de Superpowers (obra) instaladas en el repo: versión, hook de inicio, precedencia y cómo actualizar.
 - `web/docs/ROLES_AND_PERMISSIONS.md` – roles y permisos.
 
 ## Al compactar el contexto

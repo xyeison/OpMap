@@ -48,6 +48,14 @@
           { "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/check-on-stop.sh", "timeout": 120 }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          { "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/superpowers-session-start.sh", "timeout": 10 }
+        ]
+      }
     ]
   }
 }
