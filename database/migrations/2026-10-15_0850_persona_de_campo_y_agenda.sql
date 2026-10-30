@@ -1,6 +1,12 @@
 -- =====================================================================================
 -- OpMap · feat/actividades-de-campo (actividades de campo · F1a: persona de campo y agenda con resultado) · 0850
--- Proyecto: norvxqgohddgsdkggqzq · Generado: 2026-10-15 · ESTADO: NO APLICADA
+-- Proyecto: norvxqgohddgsdkggqzq · Generado: 2026-10-15 · Puesta al día: 2026-10-29 · ESTADO: NO APLICADA
+--
+-- Puesta al día del 2026-10-29: la 0910 (visitas de VMO por persona, aplicada ese día) añadió visits.vmo_id, así que
+--   visits tiene 46 columnas antes de esta migración (no 45) y vmo_id es conocida. Comprobado ese día con una consulta
+--   de solo lectura: el visits_app_check nuevo lo cumplen las 4 visitas de la app y las 23.930 de VMO; las 27 citas y
+--   las 4 visitas de la app tienen un Ejecutivo Comercial con usuario (el relleno de user_id no se detiene); las
+--   funciones que se reemplazan siguen con el md5 de la 0840.
 --
 -- Spec (fuente de verdad de nombres): docs/specs/2026-10-15-actividades-de-campo.md (secciones "Modelo de datos",
 --   "Ciclo de vida de lo programado" y "0850"). Decisiones del dueño: docs/decisiones/2026-10-15-actividades-de-campo.md
@@ -81,7 +87,8 @@
 --   mismo médico ese día, segunda "otra fecha", client_id ajeno) (409); 23P01 choque de media hora (409, con el error en
 --   `hora`); P0002 inexistente o ajena (404). Cualquier error deshace la cita o la visita.
 --
--- Depende de: 0830 y 0840 (aplicadas el 2026-10-14: visits con 45 columnas, visitas_agenda con 17, y las funciones con
+-- Depende de: 0830, 0840 (aplicadas el 2026-10-14) y 0910 (2026-10-29: visits.vmo_id → visits con 46 columnas),
+--   visitas_agenda con 17 columnas, y las funciones con
 --   el md5 de sus archivos), 0820 (ejecutivas_traspasar, no se toca), 0810 (dias_libres, config_personas,
 --   config_general, config_registrar, visitas_sin_borrar), 0800 (medicos, medico_sedes, medico_visitantes, cuentas,
 --   sedes, subtipos_institucionales, terceros_crear_medico), users, executives, executive_lines, business_lines, kams y
@@ -124,6 +131,7 @@ DECLARE
                                        'transcript', 'input_mode', 'out_of_territory', 'created_by', 'updated_by',
                                        'deleted_at', 'deleted_reason',
                                        'agenda_id', 'agendada',
+                                       'vmo_id',
                                        'user_id'];
   v_agenda    constant text[] := ARRAY['id', 'executive_id', 'fecha', 'hora', 'tipo', 'medico_id', 'cuenta_id',
                                        'subtipo_id', 'sede_id', 'nota', 'estado', 'visita_id', 'cancelada_at',
@@ -159,12 +167,12 @@ BEGIN
     RAISE EXCEPTION '0850: hay % versiones de public.agenda_cancelar; se esperaba una (la de la 0840 o la de la 0850)', v_n;
   END IF;
 
-  -- visits: las 45 columnas de la 0840 (más user_id si la 0850 ya se aplicó) y ninguna desconocida.
+  -- visits: las 45 columnas de la 0840 y vmo_id de la 0910 (más user_id si la 0850 ya se aplicó) y ninguna desconocida.
   SELECT count(*) INTO v_nuevas FROM information_schema.columns
   WHERE table_schema = 'public' AND table_name = 'visits' AND column_name = 'user_id';
   SELECT count(*) INTO v_n FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'visits';
-  IF v_n <> 45 + v_nuevas THEN
-    RAISE EXCEPTION '0850: visits tiene % columnas; se esperaban 45 (las de la 0840) más % de la 0850 ya presente', v_n, v_nuevas;
+  IF v_n <> 46 + v_nuevas THEN
+    RAISE EXCEPTION '0850: visits tiene % columnas; se esperaban 46 (las 45 de la 0840 y vmo_id de la 0910) más % de la 0850 ya presente', v_n, v_nuevas;
   END IF;
   SELECT count(*) INTO v_n FROM information_schema.columns c
   WHERE c.table_schema = 'public' AND c.table_name = 'visits' AND c.column_name <> ALL (v_visits);
@@ -2109,8 +2117,8 @@ BEGIN
     RAISE EXCEPTION '0850: visitas_agenda tiene % columnas; se esperaban 24 (17 de la 0840 + 7)', v_n;
   END IF;
   SELECT count(*) INTO v_n FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'visits';
-  IF v_n <> 46 THEN
-    RAISE EXCEPTION '0850: visits tiene % columnas; se esperaban 46 (45 de la 0840 + user_id)', v_n;
+  IF v_n <> 47 THEN
+    RAISE EXCEPTION '0850: visits tiene % columnas; se esperaban 47 (45 de la 0840 + vmo_id de la 0910 + user_id)', v_n;
   END IF;
   FOR v_col IN
     SELECT * FROM (VALUES

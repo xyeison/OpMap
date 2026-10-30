@@ -27,14 +27,16 @@
 --      quitan los CHECK nuevos y las columnas user_id, motivo_codigo, no_realizada_at, no_realizada_motivo,
 --      eliminada_at, eliminada_por y viene_de, y executive_id vuelve a NOT NULL (17 columnas, como la 0840).
 --   5. visits: visits_app_check vuelve al de la 0830, se quitan visits_user_date_idx y visits_user_next_step_idx y la
---      columna user_id (45 columnas, como la 0840).
+--      columna user_id (46 columnas: las 45 de la 0840 y vmo_id de la 0910, que este rollback no toca).
 --   NO toca la 0840 ni la 0830 en lo demás, ni 0800, 0810 ni 0820.
 --
 -- PÉRDIDAS (NOTICE con las cifras antes de quitar): el motivo_codigo de las citas canceladas (el texto del motivo se
---   queda en cancelada_motivo) y la columna user_id (se puede volver a calcular desde executives.user_id). Las 7.033
---   visitas importadas de VMO NO cambian (se comprueba al final).
+--   queda en cancelada_motivo) y la columna user_id (se puede volver a calcular desde executives.user_id). Las visitas
+--   importadas de VMO (23.930 el 2026-10-29) NO cambian (se comprueba al final).
 --
--- Orden: 9947, 9946 y 9945 (este), y después 9944 si se quisiera deshacer también la 0840.
+-- Orden: primero los rollbacks de las fases siguientes de actividades de campo, si se aplicaron (sus números serán
+--   nuevos: 9946 y 9947 ya son de las líneas permitidas y de borrar líneas, 2026-10-23), luego este, y después 9944 si
+--   se quisiera deshacer también la 0840.
 -- Re-ejecutable: sí (IF EXISTS en todo; si la 0850 no está, solo vuelve a dejar las funciones de la 0840).
 -- =====================================================================================
 
@@ -1144,7 +1146,7 @@ COMMENT ON COLUMN public.visitas_agenda.estado IS 'pendiente | hecha (con visita
 COMMENT ON COLUMN public.visitas_agenda.cancelada_motivo IS 'Motivo de la cancelación (opcional, ≤ 300).';
 
 -- -------------------------------------------------------------------------------------
--- 5. visits vuelve a la 0840 (45 columnas; visits_app_check de la 0830)
+-- 5. visits vuelve a la 0840 y la 0910 (46 columnas; visits_app_check de la 0830)
 -- -------------------------------------------------------------------------------------
 
 ALTER TABLE public.visits DROP CONSTRAINT IF EXISTS visits_app_check;
@@ -1226,8 +1228,8 @@ BEGIN
     RAISE EXCEPTION 'Rollback 0850: quedan columnas o índices de la 0850';
   END IF;
   SELECT count(*) INTO v_n FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'visits';
-  IF v_n <> 45 THEN
-    RAISE EXCEPTION 'Rollback 0850: visits tiene % columnas; debían quedar las 45 de la 0840', v_n;
+  IF v_n <> 46 THEN
+    RAISE EXCEPTION 'Rollback 0850: visits tiene % columnas; debían quedar 46 (las 45 de la 0840 y vmo_id de la 0910)', v_n;
   END IF;
   SELECT count(*) INTO v_n FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'visitas_agenda';
   IF v_n <> 17 THEN
@@ -1278,7 +1280,7 @@ BEGIN
   IF v_antes IS NULL OR v_n::text <> v_antes[1] OR v_md5 <> v_antes[2] OR v_md5_t <> v_antes[3] THEN
     RAISE EXCEPTION 'Rollback 0850: las visitas importadas cambiaron (antes %, después % / %)', array_to_string(v_antes, ' / '), v_n, v_md5;
   END IF;
-  RAISE NOTICE 'Rollback 0850 OK: sin las funciones, disparadores, columnas ni índices de la 0850; visits con 45 columnas y visitas_agenda con 17; las funciones son las de la 0840 (md5); % importada(s) intactas (huella %).',
+  RAISE NOTICE 'Rollback 0850 OK: sin las funciones, disparadores, columnas ni índices de la 0850; visits con 46 columnas y visitas_agenda con 17; las funciones son las de la 0840 (md5); % importada(s) intactas (huella %).',
     v_n, v_md5;
 END;
 $$;
