@@ -1,8 +1,8 @@
 -- =====================================================================================
 -- OpMap · feat/campo-sin-senal (la app de campo sin señal) · 0940 — Marcas en vez de rechazos, motivos de lista,
 --   médico no listado, foto y hora del teléfono
--- Proyecto: norvxqgohddgsdkggqzq · Generado: 2026-10-30 · NO EJECUTADA TODAVÍA (se aplica solo con autorización del dueño,
---   en la misma ventana que el despliegue del código de la rama).
+-- Proyecto: norvxqgohddgsdkggqzq · Generado: 2026-10-30 · APLICADA el 2026-10-30 21:54 UTC con autorización del dueño,
+--   después del despliegue del PR #59 (ensayo previo con BEGIN; … ROLLBACK;).
 --
 -- Spec: docs/specs/2026-10-30-campo-sin-senal-pwa.md. Decisión del dueño (2026-10-30):
 --   docs/decisiones/2026-10-30-campo-sin-senal-marcas-en-vez-de-rechazos.md ("No bloquees a nadie por sospechas, solo

@@ -785,11 +785,15 @@ tablas tienen FKs hacia `business_lines`, `executives` y `users`.
 
 # Migraciones — App de campo sin señal · marcas en vez de rechazos, motivos, médico no listado y foto (0940)
 
-> **ESTADO: NO APLICADA.** Se aplica solo con autorización del dueño y en la misma ventana que el despliegue de la
-> rama `feat/campo-sin-senal` (el servidor funciona sin ella con las reglas de la 0850: `conOSin0940` en
-> `web/app/api/me/_lib/reporte-server.ts`). Spec `docs/specs/2026-10-30-campo-sin-senal-pwa.md`; decisión
-> `docs/decisiones/2026-10-30-campo-sin-senal-marcas-en-vez-de-rechazos.md`. Sin ensayar en Postgres local: antes de
-> aplicar, ensayo con `BEGIN; … ROLLBACK;` (el bloque DO final comprueba columnas, tabla, funciones, bucket y radio).
+> **ESTADO: APLICADA en producción el 2026-10-30 a las 21:54 UTC** (`norvxqgohddgsdkggqzq`), con autorización del dueño y
+> después del despliegue del PR #59 (master `83833c9`). Primero el ensayo completo con `BEGIN; … ROLLBACK;` (pasó el
+> bloque DO final y la base volvió a la 0850: 0 columnas nuevas, radio 500) y luego la aplicación real seguida de
+> `NOTIFY pgrst, 'reload schema'`. Comprobado después: 7 columnas nuevas en `visits`, 8 motivos activos, bucket
+> `visitas-fotos` privado, `visitas_foto` creada, `radio_presencial_m` vigente = 300 y `visitas_registrar` con md5
+> `730bc8d50f4568a31a2ce42764f7fdd2`. No había visitas de la app en la base (0 filas `source = 'app'`), así que ninguna
+> fila existente cambió. Spec `docs/specs/2026-10-30-campo-sin-senal-pwa.md`; decisión
+> `docs/decisiones/2026-10-30-campo-sin-senal-marcas-en-vez-de-rechazos.md`. El servidor sigue tolerando la base sin ella
+> (`conOSin0940` en `web/app/api/me/_lib/reporte-server.ts`), por si hubiera que correr la 9959.
 
 | # | Archivo | Qué hace | Destructivo |
 |---|---|---|---|
