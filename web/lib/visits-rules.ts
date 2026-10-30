@@ -124,7 +124,7 @@ export const VALORES_MEDIO_TELEFONICA = valoresDe<MedioTelefonica>(MEDIOS_TELEFO
 
 /** Roles que pueden aprobar días libres (config_general.aprobacion_dias_libres.aprueban). admin siempre puede. */
 export const ROLES_APROBADORES = [
-  { valor: 'commercial_director', etiqueta: 'Dirección comercial' },
+  { valor: 'commercial_director', etiqueta: 'Director comercial' },
   { valor: 'hr', etiqueta: 'Recursos humanos' },
 ] as const satisfies readonly Opcion[]
 export type RolAprobador = (typeof ROLES_APROBADORES)[number]['valor']

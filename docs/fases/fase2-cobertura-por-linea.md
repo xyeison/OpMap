@@ -42,8 +42,8 @@ contraseña de los 2 usuarios nuevos desde `/users`.
   la tabla completa. No usa Google Maps (solo distancias ya guardadas).
 - **Permisos** (`web/lib/permissions.ts`): `coverage:view`, `coverage:edit`, `map:all-lines`.
   admin todo; commercial_director todos los `:view` + lines/executives/coverage edit + map:all-lines;
-  line_leader = sales_manager + lines:edit + coverage:view/edit (las APIs limitan la edición a la línea
-  donde `business_lines.leader_user_id` = ella; no puede cambiar líder ni estado de la línea);
+  line_leader = sales_manager + coverage:view (desde el 2026-10-29 es de consulta: no edita líneas ni
+  ajusta cobertura; `docs/decisiones/2026-10-29-solo-admin-y-direccion-asignan.md`);
   data_manager y viewer: coverage:view + map:all-lines; sales_manager: coverage:view (sus líneas).
 - **Qué líneas ve cada usuario** (`resolveUserLines`, única regla para `/api/me/lines`, `/api/coverage`
   y `/api/map/data`): map:all-lines → todas; líder → las que lidera; usuario enlazado a una ejecutiva
@@ -51,7 +51,7 @@ contraseña de los 2 usuarios nuevos desde `/users`.
 - **API**: `GET /api/me/lines`; `GET /api/coverage?line=<code>` (403 si no es suya);
   `POST /api/coverage/recalculate` (coverage:edit, global e idempotente);
   `POST /api/coverage/overrides` {line_id, kam_id, executive_id, reason} y
-  `DELETE /api/coverage/overrides/[id]` (coverage:edit; line_leader solo su línea; recalculan);
+  `DELETE /api/coverage/overrides/[id]` (coverage:edit: admin y commercial_director; recalculan);
   `GET /api/map/data?line=<code>` añade `coverage` (misma forma que /api/coverage) y `executives`;
   sin `?line` (vista "Zonas"), sin cobertura. Desde el 2026-10-14 la ruta pide `map:view` y la vista de zonas es
   para todos; sin map:all-lines, `kams[].executives` solo trae a quienes llevan alguna de sus líneas, y quien no

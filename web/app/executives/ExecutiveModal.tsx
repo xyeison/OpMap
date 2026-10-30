@@ -329,8 +329,8 @@ export default function ExecutiveModal({ executive, zones, lines, onClose, onSav
           <div>
             <span className="block text-sm font-medium text-gray-700 mb-1">Líneas permitidas (restricción de la dirección)</span>
             <p className="text-xs text-gray-500 mb-2">
-              Toca una línea para permitirla o quitarla (etiquetas). Sin ninguna marcada, puede tener cualquier línea y cualquier líder
-              puede darle la suya desde Zonas. Las líneas asignadas deben estar entre las permitidas.
+              Toca una línea para permitirla o quitarla (etiquetas). Sin ninguna marcada, puede tener cualquier línea; la dirección o el
+              administrador se la dan desde Zonas. Las líneas asignadas deben estar entre las permitidas.
             </p>
             {lines.length === 0 ? (
               <p className="text-sm text-gray-500">No hay líneas de negocio configuradas.</p>

@@ -7,7 +7,7 @@
  * reach    : la más cercana que lleva la línea, dentro de business_lines.max_reach_minutes.
  * manual   : ajuste del líder de línea (coverage_overrides), gana sobre el cálculo.
  * vacant   : nadie que lleve la línea está dentro del tope (nearest_* dice quién es la más cercana).
- * conflict : dos o más ejecutivas viven en la zona y llevan la línea; el líder debe repartir.
+ * conflict : dos o más ejecutivas viven en la zona y llevan la línea; la dirección comercial reparte con un ajuste manual.
  */
 export type CoverageKind = 'local' | 'reach' | 'manual' | 'vacant' | 'conflict'
 

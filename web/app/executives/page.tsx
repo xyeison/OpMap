@@ -51,7 +51,6 @@ function ExecutivesContent() {
   const canVerDatos = puedeVerDatosDeZona(role)
   // Traspaso (spec 2026-10-12): pasar lo de una persona a otra, a una nueva o a una vacante (admin, director comercial)
   const canTransfer = can('executives:transfer')
-  const showActions = canEdit || canTransfer
 
   const [executives, setExecutives] = useState<Executive[]>([])
   const [lines, setLines] = useState<BusinessLine[]>([])
@@ -248,7 +247,14 @@ function ExecutivesContent() {
     return (
       <div className={layout === 'table' ? 'flex items-center justify-center gap-0.5' : 'flex flex-wrap gap-2'}>
         {!canEdit && (
-          <BotonAccion layout={layout} icono={ICONO_VER} etiqueta="Ver" titulo={`Ver la ficha de ${executive.full_name}`} onClick={() => openView(executive)} />
+          <BotonAccion
+            layout={layout}
+            icono={ICONO_VER}
+            etiqueta="Ver"
+            titulo={linesError ? 'No se puede ver la ficha sin cargar las líneas' : `Ver la ficha de ${executive.full_name}`}
+            onClick={() => openView(executive)}
+            disabled={Boolean(linesError)}
+          />
         )}
         {canEdit && (
           <BotonAccion
@@ -266,7 +272,7 @@ function ExecutivesContent() {
             tono="verde"
             icono={ICONO_CONTRATAR}
             etiqueta="Contratar"
-            titulo="La vacante pasa a ser la persona contratada y conserva todo lo que tenía"
+            titulo={linesError ? 'No se puede contratar sin cargar las líneas' : 'Contratar: la vacante pasa a ser la persona contratada y conserva todo lo que tenía'}
             onClick={() => {
               avisar('')
               setContratando(executive)
@@ -280,7 +286,7 @@ function ExecutivesContent() {
             tono="azul"
             icono={ICONO_TRASPASAR}
             etiqueta="Traspasar"
-            titulo={linesError ? 'No se puede traspasar sin cargar las líneas' : 'Pasar sus líneas, zonas, ajustes y médicos a otra persona'}
+            titulo={linesError ? 'No se puede traspasar sin cargar las líneas' : 'Traspasar: pasar sus líneas, zonas, ajustes y médicos a otra persona'}
             onClick={() => openTraspaso(executive, null)}
             disabled={Boolean(linesError)}
           />
@@ -426,9 +432,7 @@ function ExecutivesContent() {
                   <th className="px-6 py-4 text-center text-xs font-bold text-gray-700 uppercase tracking-wider">Estado</th>
                   <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Correo</th>
                   <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Empresa</th>
-                  {showActions && (
-                    <th className="px-6 py-4 text-center text-xs font-bold text-gray-700 uppercase tracking-wider">Acciones</th>
-                  )}
+                  <th className="px-6 py-4 text-center text-xs font-bold text-gray-700 uppercase tracking-wider">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -475,7 +479,7 @@ function ExecutivesContent() {
                         {executive.email || <span className="text-gray-400">Sin correo</span>}
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-700 whitespace-nowrap">{executive.company}</td>
-                      {showActions && <td className="px-4 py-4">{renderActions(executive, 'table')}</td>}
+                      <td className="px-4 py-4">{renderActions(executive, 'table')}</td>
                     </tr>
                   )
                 })}
@@ -521,7 +525,7 @@ function ExecutivesContent() {
                     {executive.email || 'Sin correo'} · {executive.company}
                   </div>
                   {executive.notes && <div className="mt-1 text-xs text-gray-500 break-words">{executive.notes}</div>}
-                  {showActions && <div className="mt-3 pt-3 border-t border-gray-100">{renderActions(executive, 'card')}</div>}
+                  <div className="mt-3 pt-3 border-t border-gray-100">{renderActions(executive, 'card')}</div>
                 </div>
               )
             })}

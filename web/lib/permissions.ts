@@ -7,8 +7,8 @@ export type Role =
   | 'data_manager'
   | 'viewer'
   | 'user'
-  | 'line_leader'          // Fase 2: líder de una línea de negocio (ajusta la cobertura de SU línea)
-  | 'commercial_director'  // Fase 2: dirección comercial (ve y ajusta todas las líneas)
+  | 'line_leader'          // Fase 2: líder de negocio; desde el 2026-10-29 solo consulta (no asigna ni ajusta)
+  | 'commercial_director'  // Fase 2: dirección comercial (ve y ajusta todas las líneas; con el admin, los únicos que asignan)
   | 'hr'                   // Fase 7 F2: recursos humanos (calendario y días libres; aprueba en bloque)
 
 export type Permission =
@@ -44,10 +44,10 @@ export type Permission =
   // líder de negocio es de consulta (docs/decisiones/2026-10-29-solo-admin-y-direccion-asignan.md).
   | 'executives:lines'
   | 'coverage:view'    // Fase 2: cobertura por línea (la API limita a las líneas del usuario)
-  | 'coverage:edit'    // Fase 2: recalcular y ajustes manuales (line_leader solo en SU línea)
+  | 'coverage:edit'    // Fase 2: recalcular y ajustes manuales (admin y commercial_director desde el 2026-10-29)
   | 'map:all-lines'    // Fase 2: ver el mapa de cualquier línea (la vista "Zonas" es de map:view desde 2026-10-14)
   | 'territory:view'           // Fase 2b: anexo de territorio por ejecutivo comercial (la API limita por línea/ejecutivo)
-  | 'territory:snapshot'       // Fase 2b: guardar versiones inmutables del anexo (line_leader solo SU línea)
+  | 'territory:snapshot'       // Fase 2b: guardar versiones inmutables del anexo (admin y commercial_director)
   | 'municipalities:recompute' // Fase 2b: recalcular municipality_zone con la caché (sin Google)
   | 'intelligence:view'        // Fase 3: inteligencia de giros ADRES (/inteligencia, GET /api/intelligence/giros)
   // Procesos de SECOP II sin contrato (radar comercial, spec 2026-10-25): la sección de las tarjetas del mapa y la tarjeta de
@@ -59,7 +59,7 @@ export type Permission =
   | 'terceros:view'            // Fase 6 F1: ver cuentas, sedes, médicos (sin documento) y contactos (/terceros)
   | 'terceros:create'          // Fase 6 F1: crear cuentas, sedes, médicos y contactos
   | 'terceros:manage'          // Fase 6 F1: editar o desactivar, ver documentos, confirmar sedes, marcar cliente y modalidad
-  | 'visitantes:manage'        // Fase 6 F1: asignar y terminar visitantes de un médico (line_leader solo SUS líneas; lo limita la API)
+  | 'visitantes:manage'        // Fase 6 F1: asignar y terminar visitantes de un médico (admin y commercial_director desde el 2026-10-29)
   | 'visits:config'            // Fase 7 F2: ver y cambiar la configuración de visitas, subtipos y la cuota de cualquiera (/configuracion)
   | 'calendar:manage'          // Fase 7 F2: días de empresa y de ciudad, cargar festivos, anular días del calendario
   | 'daysoff:approve'          // Fase 7 F2: ver todos los días libres, aprobar o rechazar en bloque, registrar o anular por otra persona

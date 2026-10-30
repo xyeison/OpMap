@@ -85,7 +85,7 @@ export interface LineaParaTexto {
  *   Por alcance   → "La atiende Vacante Barranquilla (por contratar) desde Barranquilla, a 2 h 26 por carretera."
  *   Sin cobertura → "Nadie que lleve Medicina deportiva llega en menos de 4 h por carretera. La más cercana es
  *                    Vacante Bogotá (por contratar), a 9 h 15."
- *   Conflicto     → "Más de una persona de la Zona lleva Medicina deportiva: Ana y Beto. Resuélvelo con un ajuste manual."
+ *   Conflicto     → "Más de una persona de la Zona lleva Medicina deportiva: Ana y Beto. Se resuelve con un ajuste manual."
  */
 export function textoEstado(enLinea: ZonaEnLinea, linea?: LineaParaTexto | null): { titulo: string; detalle: string | null } {
   const titulo = ESTADO_PLAZA_LABELS[enLinea.estado]
@@ -122,7 +122,7 @@ export function textoEstado(enLinea: ZonaEnLinea, linea?: LineaParaTexto | null)
       return { titulo, detalle: `Nadie que lleve ${nombreLinea} llega${tope} por carretera.${masCercana}` }
     }
     case 'conflicto':
-      return { titulo, detalle: `Más de una persona de la Zona lleva ${nombreLinea}${enLinea.nota ? `: ${enLinea.nota}` : ''}. Resuélvelo con un ajuste manual.` }
+      return { titulo, detalle: `Más de una persona de la Zona lleva ${nombreLinea}${enLinea.nota ? `: ${enLinea.nota}` : ''}. Se resuelve con un ajuste manual.` }
   }
 }
 

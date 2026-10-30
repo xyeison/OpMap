@@ -1311,6 +1311,17 @@ async function main() {
         )
       )
       check('line_leader NO termina un visitante de una línea ajena → 403', ajenaTerminar.status === 403, ajenaTerminar)
+      const propiaTerminar = await leer(
+        await terminarVisitante(
+          apiRequest(`/api/terceros/medicos/${medicoId}/visitantes/${visitanteA}`, { method: 'PATCH', userId: LIDER_ID, body: { hasta: HOY } }),
+          { params: { id: medicoId, visitanteId: visitanteA } }
+        )
+      )
+      check(
+        'line_leader tampoco termina un visitante de SU línea → 403 y no escribe (es de consulta)',
+        propiaTerminar.status === 403 && tablas.medico_visitantes.find(visitante => visitante.id === visitanteA)?.hasta === null,
+        propiaTerminar
+      )
       const futuro = await leer(
         await terminarVisitante(
           apiRequest(`/api/terceros/medicos/${medicoId}/visitantes/${visitanteA}`, { method: 'PATCH', userId: DIRECTORA_ID, body: { hasta: '2999-01-01' } }),

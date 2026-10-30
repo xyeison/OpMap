@@ -986,6 +986,11 @@ for (const [rol, tiene, noTiene] of matriz) {
 }
 eq('PERMISOS_CALENDARIO', PERMISOS_CALENDARIO, ['calendar:manage', 'daysoff:approve', 'daysoff:view', 'visits:report'])
 eq('getRoleTitle(hr) = "Recursos humanos"', getRoleTitle('hr'), 'Recursos humanos')
+eq(
+  'los cuatro perfiles del negocio (dueño, 2026-10-29)',
+  (['admin', 'commercial_director', 'line_leader', 'sales_manager'] as Role[]).map(getRoleTitle),
+  ['Administrador', 'Director comercial', 'Líder de negocio', 'Ejecutivo comercial']
+)
 check('el rol hr se acepta al crear o editar usuarios', roleSchema.safeParse('hr').success)
 check('un rol inventado no', !roleSchema.safeParse('rrhh').success)
 check('ningún texto visible del menú dice "KAM"', (['admin', 'commercial_director', 'hr', 'line_leader', 'sales_manager'] as Role[]).every(rol => getNavigationMenu(rol).every(item => !/kam/i.test(item.name))))
