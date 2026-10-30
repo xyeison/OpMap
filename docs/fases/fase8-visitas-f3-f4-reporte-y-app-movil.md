@@ -927,3 +927,89 @@ usuario no tiene líneas para reportar"; 503 "…falta aplicar la migración 085
   fallaron y se revirtieron.
 - 0850 y 9945: sin ensayar aquí (no hay Postgres local); estructura revisada y huellas md5 recalculadas. El ensayo con
   `BEGIN; … ROLLBACK;` queda para el orquestador.
+
+## F5 Sin señal: PWA, cola en IndexedDB, foto y marcas en vez de rechazos (2026-10-30)
+
+Spec `docs/specs/2026-10-30-campo-sin-senal-pwa.md`; decisiones del dueño en
+`docs/decisiones/2026-10-30-campo-sin-senal-marcas-en-vez-de-rechazos.md`. Rama `feat/campo-sin-senal`.
+
+### Qué cambia para la persona de campo
+- La app en `/campo` se agrega a la pantalla de inicio (manifest, íconos) y abre sin señal: Workbox precarga toda la
+  app exportada y sirve `/campo/index.html` a cualquier ruta (`web/scripts/campo-sw.mjs`, generado en el build por
+  `construir-campo.mjs`). La pantalla "Agregar a inicio" explica los pasos en Android y iPhone y avisa del modo incógnito.
+- La visita se guarda SIEMPRE en el teléfono (IndexedDB) y se sube sola: al guardar, al abrir, al volver la señal, cada
+  minuto y con Background Sync donde existe (Chrome en Android; en iPhone no hay y sube al abrir). Estados visibles:
+  pendiente / subiendo / enviada / con error, con el error del servidor y la espera creciente (1 min, 2, 4… hasta 15).
+- Franja siempre visible arriba: "En línea" / "Sin conexión", "X visitas pendientes por subir" (y las fotos) y "Subir
+  ahora"; "Actualizar" cuando hay una versión nueva (nunca se recarga con una subida en curso).
+- Ya no bloquea la ubicación: lejos de la IPS, sin GPS, precisión baja o IPS sin coordenadas se guardan y se marcan.
+  El GPS se toma solo al guardar (hasta 20 s, se queda con la lectura más precisa; nunca en segundo plano) y se muestra
+  la precisión. Aviso de habeas data en Reportar, Hoy e Ingreso.
+- Médico no listado (nombre + especialidad) en la visita, para validar después; motivo de la no efectiva de una lista
+  cerrada (con "Otro" + texto); foto opcional comprimida en el teléfono (1600 px, JPEG 70 %), que sube aparte.
+- Sesión vencida sin señal: se sigue reportando a la cola; al volver la señal pide entrar y sube. Cerrar sesión avisa
+  cuántas visitas y fotos hay sin subir y no las borra.
+
+### Base de datos (0940, NO aplicada; rollback 9959)
+- `visits`: `tz`, `gps_at`, `marcas text[] NOT NULL DEFAULT '{}'` (GIN), `en_sitio`, `foto_path`, `medico_no_listado`
+  jsonb, `motivo_codigo`. `visits_app_check` nuevo: médica con `medico_id` O `medico_no_listado`; presencial sin
+  `distance_m` permitido; `en_sitio` solo con distancia; marcas del conjunto conocido.
+- `motivos_no_efectiva` (código, nombre, orden, activo) con 8 motivos; la API la expone en el contexto.
+- `visitas_registrar` reescrita sobre la 0850: sin rechazos de día, radio, GPS ni sede sin coordenadas. Marcas:
+  `sin_ubicacion`, `precision_baja` (> 100 m), `ips_sin_coordenadas`, `lejos_de_ips` (`greatest(dist − precisión, 0) >
+  radio_presencial_m`), `hora_inconsistente` (hora del teléfono > now() + 5 min o fecha < hoy − 7), `medico_por_validar`.
+  Punto del mapa: GPS → sede → municipio → zona; sin ninguno, 23514. Devuelve `marcas` y `en_sitio` (también la
+  repetida). Nueva `visitas_foto(p_client, p_user, p_path)`. Bucket privado `visitas-fotos` (2 MB, image/jpeg).
+  `radio_presencial_m` pasa a 300 con `config_registrar`.
+- El servidor tolera la base sin la 0940 (`faltaMigracion0940`, `conOSin0940`, `leerMotivos` → `[]`): con la 0850
+  siguen las reglas viejas y `/api/me/visitas/foto` responde 503.
+
+### API
+- `POST /api/me/visitas`: el cuerpo admite `tz`, `gps_at`, `motivo_codigo`, `medico_no_listado`, presencial con `lat/lng`
+  null y `medico_id` null (exactamente uno de médico o no listado). `validarVisita` ya no rechaza por ubicación ni por
+  día (`marcasDeVisita` es el espejo puro de las marcas de la base). Respuesta con `marcas`, `en_sitio`, `gps_accuracy_m`,
+  `medico_no_listado`, `motivo_codigo`, `foto`.
+- `POST /api/me/visitas/foto` (multipart `client_id` + `foto` JPEG ≤ 2 MB): sube a `visitas-fotos/<user>/<client_id>.jpg`
+  (upsert) y enlaza con `visitas_foto`; 404 si la visita no es suya. `GET ?client_id=` → enlace firmado de 10 minutos.
+- `GET /api/me/contexto`: `motivos_no_efectiva` y coordenadas (`cuenta_id`, `lat`, `lng`) en `mis_medicos[].sedes` (para
+  medir desde el teléfono sin señal).
+- `GET /api/visits/filtered`: `marca=<marca>|sin_marcas` (filtro "Marca de la visita (app de campo)" en el mapa).
+- `next.config.js`: `Permissions-Policy: camera=(self), microphone=(self), geolocation=(self)`.
+
+### App (`mobile/`)
+- `lib/almacen-idb.ts` (idb; base `opmap-campo` v1: `kv` y `fotos`; migra desde localStorage sin borrar; nunca
+  `deleteDB`/`deleteObjectStore`), `lib/almacen.ts` (token en IndexedDB en la web), `lib/cola.ts` v2 (`pendiente |
+  enviando | enviada | no_enviada`, `proximo_intento_at`, `esperaReintento`, migración de la v1), `lib/cola-fotos.ts`,
+  `lib/cola-contexto.tsx` (visitas y después fotos; reintentos; `registrarSync`), `lib/conexion(-reglas).ts`,
+  `lib/pwa(-reglas).ts`, `lib/foto(-reglas).ts`, `lib/estado-cola.ts`, `lib/instalacion.ts`, `lib/sesion.ts`
+  (`entrar_vencida`, `olvidar({ conservar })`), `lib/ubicacion-pasos.ts` (20 s, mejor lectura), `lib/propuesta.ts`
+  (`marcasPrevistas`, médico no listado, motivos; la IPS elegida se conserva sin médico), `lib/tarjeta-resumen.ts`
+  (la tarjeta de voz con marca abre completa), `components/EstadoCola.tsx`, `components/reporte/FotoVisita.tsx`,
+  `app/(app)/instalar.tsx`, `public/{manifest.json,sw-registro.js,sw-cola.js,index.html}`.
+- Pruebas: `scripts/checks/22-sin-senal.ts` (22a–22e) y los ajustes de las demás a las marcas; en la web
+  `reporte-check` (4b), `reporte-api-check` (espejo 0940 y storage falso) y `campo-web-check` (genera un `sw.js` real).
+
+### Verificación (2026-10-30)
+- `web`: `npm run check` (typecheck, lint, 48 suites; `reporte-check` 402, `reporte-api-check` 456, `campo-web-check` 24).
+- `mobile`: `npm run check` (tsc + 1054 pruebas).
+- `node scripts/construir-campo.mjs` local genera `public/campo/sw.js` (ver el resumen del PR).
+- Pendiente del dueño: aplicar la 0940 en la misma ventana que el despliegue y la lista de pruebas en un Android y un
+  iPhone reales (`mobile/README.md`, "Sin señal").
+
+### Correcciones del revisor del proyecto (2026-10-30)
+- 0940: las marcas se agregan con `array_append` (con `text[] || 'literal'` PostgreSQL leía el literal como arreglo y
+  toda visita con marca habría fallado con 22P02); el DO final lo vigila sobre el cuerpo de la función.
+- `sw-cola.js`: cada cambio de estado se escribe sobre UNA visita en su propia transacción (`actualizarElemento`), nunca la
+  cola entera con una copia vieja (perdía lo que la página agregara durante la subida); y sube solo la cola del usuario
+  del token (`uidDelToken`), no la de otros usuarios del mismo teléfono.
+- `lib/cola.ts`: la v1 se une a la v2 solo mientras la v2 no exista (si no, lo quitado revivía en cada apertura); la poda
+  de "con error" va por el último intento, no por la fecha de la visita.
+- `lib/cola-contexto.tsx`: la foto cuya visita ya se envió y se podó de la cola (otro día) se sube igual.
+- `POST /api/me/visitas`: topes, configuración, vigencia del subtipo y contexto se miran en la FECHA DE LA VISITA (como la
+  base), no en hoy, ya que se aceptan visitas de otro día (`validarVisita` recibe `fechaVisita`).
+- Filtro del mapa "En sitio": es la columna booleana `en_sitio`, no una marca del arreglo.
+- `POST /api/me/visitas/foto` revisa los bytes mágicos JPEG (FF D8 FF), no solo el tipo declarado.
+- Rollback 9959: la protección cuenta también las anuladas (el CHECK de la 0850 las cubre). La precisión del GPS se
+  redondea a metros enteros en el TS como en la base.
+- Queda anotado, sin cambiar: si IndexedDB falla una vez y la cola cae a localStorage, al volver IndexedDB se lee solo
+  esta (`kvLeer` no une las dos); es el caso de un navegador con el almacenamiento bloqueado, que la app ya avisa.

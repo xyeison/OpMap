@@ -123,6 +123,19 @@ nada llama a Google.
   misma app de `mobile/` se publica en `/campo` de OpMap. `npm run build` la arma con `scripts/construir-campo.mjs` en
   `public/campo` (no se versiona). Llama a la API de su mismo origen. `/campo` es pública como página (`esAppDeCampo`
   del middleware). Sin tiendas: cada push a master la publica.
+- **La app de campo trabaja sin señal y el servidor MARCA, no rechaza** (dueño, 2026-10-30,
+  `docs/decisiones/2026-10-30-campo-sin-senal-marcas-en-vez-de-rechazos.md`, spec `docs/specs/2026-10-30-campo-sin-senal-pwa.md`):
+  la visita siempre se guarda (otro día, lejos de la IPS, sin GPS, precisión baja, IPS sin coordenadas, hora del
+  teléfono rara) y `visitas_registrar` deja `visits.marcas` (`en_sitio` con radio `radio_presencial_m` = 300 m
+  descontando la precisión; `precision_baja` > 100 m; `hora_inconsistente` si la hora del teléfono va por delante del
+  servidor o la visita tiene más de 7 días). Solo siguen rechazando los topes, el perfil, las líneas y el médico/sede
+  que no cuadran. La no efectiva lleva un motivo de la lista cerrada `motivos_no_efectiva`; el "médico no listado" se
+  guarda en la visita (`medico_no_listado`, marca `medico_por_validar`), no se crea. La foto va aparte
+  (`/api/me/visitas/foto`, bucket privado `visitas-fotos`, JPEG ≤ 2 MB). Todo eso es la migración **0940 (NO aplicada
+  todavía; rollback 9959)**: el servidor funciona sin ella (`conOSin0940`), con las reglas viejas de la 0850. En la app:
+  todo primero en IndexedDB (`lib/almacen-idb.ts`, nunca se borra una base ni un almacén), cola v2 con espera creciente
+  y estados visibles, fotos en su propia cola, Background Sync solo donde existe (`sw-cola.js`), versión nueva solo cuando
+  no hay subida en curso, un 401 conserva perfil, contexto y cola; `/campo/sw.js` lo genera Workbox en el build.
 - **Territorio y contratos**: el anexo de territorio (Anexo A IPS, Anexo B municipios) va al contrato de
   cada Ejecutivo Comercial; las versiones (`territory_snapshots`) son inmutables.
 - **SECOP I** se cuenta por el valor ADJUDICADO a cada contratista desde `f789-7hwg` (`fuente = 'secop1'`); el
@@ -167,7 +180,7 @@ nada llama a Google.
   por `config_registrar`/`config_cerrar`), calendario y festivos, días libres con aprobación en bloque, rol `hr`,
   cuota del periodo; `/configuracion` y `/calendario` (migración 0810 aplicada 2026-10-12).
 - `docs/specs/2026-10-12-traspaso-ejecutivo-comercial.md` – traspaso de un Ejecutivo Comercial y "Contratar" (0820 aplicada 2026-10-12).
-- `docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md` – app de visita F3+F4: visitas de la app en `visits` + `visit_lines`, `visitas_registrar/editar/anular`, `/api/me/*` (contexto, visitas, voz, números), token de portador, app Expo en `mobile/` (migración 0830 aplicada 2026-10-14); F4.1 agenda (`visitas_agenda`, `/api/me/agenda*`, `/api/me/voz/campos`; 0840 aplicada 2026-10-14); desde 2026-10-15 la cita lleva hora obligatoria y la agenda es un calendario, y `/api/me/*` mide con `Server-Timing` y líneas `[tiempos]` (`docs/specs/2026-10-15-usabilidad-y-agenda-con-hora.md`); F4.2 (F1a de `docs/specs/2026-10-15-actividades-de-campo.md`): la persona de campo es el usuario (líderes y Ejecutivos Comerciales; la dirección comercial no agenda ni reporta) y la cita se cierra con su resultado (no se hizo, cancelar con motivo, eliminar por error, otra fecha), choque de media hora y sin tope (migración 0850 APLICADA el 2026-10-30). Desde el 2026-10-30 la app es solo para las líderes (ver la regla de arriba).
+- `docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md` – app de visita F3+F4: visitas de la app en `visits` + `visit_lines`, `visitas_registrar/editar/anular`, `/api/me/*` (contexto, visitas, voz, números), token de portador, app Expo en `mobile/` (migración 0830 aplicada 2026-10-14); F4.1 agenda (`visitas_agenda`, `/api/me/agenda*`, `/api/me/voz/campos`; 0840 aplicada 2026-10-14); desde 2026-10-15 la cita lleva hora obligatoria y la agenda es un calendario, y `/api/me/*` mide con `Server-Timing` y líneas `[tiempos]` (`docs/specs/2026-10-15-usabilidad-y-agenda-con-hora.md`); F4.2 (F1a de `docs/specs/2026-10-15-actividades-de-campo.md`): la persona de campo es el usuario (líderes y Ejecutivos Comerciales; la dirección comercial no agenda ni reporta) y la cita se cierra con su resultado (no se hizo, cancelar con motivo, eliminar por error, otra fecha), choque de media hora y sin tope (migración 0850 APLICADA el 2026-10-30). Desde el 2026-10-30 la app es solo para las líderes (ver la regla de arriba). F5 sin señal (PWA en `/campo` con service worker, cola en IndexedDB, foto, marcas en vez de rechazos; migración 0940 NO aplicada, rollback 9959; `docs/specs/2026-10-30-campo-sin-senal-pwa.md`).
 - `docs/arquitectura-y-scripts.md` – scripts Python, estructura de carpetas, archivos clave.
 - `docs/historico-resultados.md` – cifras de 2025 y colores originales (histórico, no vigente).
 - `docs/FLUJO_DE_TRABAJO_IA.md` – cómo trabajamos con Claude Code en este repo y por qué.

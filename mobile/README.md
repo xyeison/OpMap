@@ -47,16 +47,58 @@ ellas la voz responde 503 y la app sigue por toques.
 ## Sesión
 
 El ingreso usa el mismo correo y contraseña de la web. `POST /api/auth/login` con `cliente: 'movil'` devuelve un
-token firmado (7 días) que se guarda en el almacén seguro del teléfono (`expo-secure-store`; en el navegador,
-`localStorage`) y viaja como `Authorization: Bearer`. La contraseña nunca se guarda. Cerrar sesión = olvidar el
-token; cambiar la contraseña en la web lo revoca. Un 401 en cualquier pantalla devuelve al ingreso.
+token firmado (7 días) que se guarda en el almacén seguro del teléfono (`expo-secure-store`; en el navegador, en
+IndexedDB, base `opmap-campo`) y viaja como `Authorization: Bearer`. La contraseña nunca se guarda. Cerrar sesión =
+olvidar el token, el perfil y el contexto (las visitas y fotos sin subir NO se borran: la app avisa cuántas hay);
+cambiar la contraseña en la web lo revoca. Un 401 en cualquier pantalla devuelve al ingreso conservando el perfil, el
+contexto y la cola: al volver a entrar, sube lo pendiente. Si el token vence sin señal, la app sigue abierta con lo
+guardado para seguir reportando ("sesión vencida: entra al volver la señal").
 
 ## Sin señal
 
-Cada visita lleva un `client_id` (uuid). "Confirmar" la guarda primero en el teléfono (AsyncStorage, una cola por
-usuario) y luego la envía. Sin señal queda pendiente y se reintenta sola al volver a la app, al volver la señal y
-cada minuto, **hasta las 23:59 del día de la visita** (hora de Colombia). Pasada la medianoche queda "no enviada"
-con aviso: no se reportan días anteriores. Reintentar es seguro: el servidor reconoce el `client_id` y no duplica.
+Spec `docs/specs/2026-10-30-campo-sin-senal-pwa.md`. Cada visita lleva un `client_id` (uuid). "Confirmar" la guarda
+primero en el teléfono (IndexedDB en la web, AsyncStorage en Expo; una cola por usuario, `lib/cola.ts`) y luego la
+envía. Sin señal queda **pendiente** y se reintenta sola al volver a la app, al volver la señal, cada minuto, al tocar
+"Subir ahora" y, donde existe Background Sync (Chrome en Android), aunque la app esté cerrada (`public/sw-cola.js`).
+En iPhone no hay Background Sync: sube al abrir la app. Un error de red espera cada vez más (1, 2, 4… hasta 15 min);
+un rechazo del servidor (400) deja la visita **con error** y su mensaje, sin borrarla. Reintentar es seguro: el
+servidor reconoce el `client_id` y no duplica. Una visita se marca enviada solo cuando el servidor la confirma. La foto
+sube aparte, después de su visita, con sus propios reintentos. Las visitas de otro día se envían igual (el servidor las
+marca). Nada se borra al cerrar sesión ni al actualizar la app.
+
+La app en la web (`/campo`) se instala como PWA: `public/manifest.json`, `public/index.html` y `public/sw-registro.js`
+registran el service worker que Workbox genera en el build de OpMap (`web/scripts/campo-sw.mjs`): precarga toda la app
+y abre sin señal. La versión nueva espera a que no haya subida en curso ("Actualizar" en la franja); IndexedDB nunca se
+borra (una versión nueva no pierde pendientes). La pantalla "Agregar a inicio" (Ajustes) explica cómo instalarla y
+avisa que en modo incógnito los datos no se conservan.
+
+### Pruebas en teléfonos reales antes de entregar (Android con Chrome e iPhone con Safari)
+
+Con la rama publicada (preview de Vercel o producción) y la app instalada desde la pantalla de inicio:
+
+1. **Instalar**: Android → Chrome → menú ⋮ → "Agregar a la pantalla de inicio" (o "Instalar app"); iPhone → Safari →
+   Compartir → "Agregar a pantalla de inicio". Abrir desde el ícono: debe verse sin la barra del navegador. En Ajustes →
+   "Agregar a la pantalla de inicio" debe decir que ya está instalada.
+2. **Datos para sin señal**: con señal, abrir Hoy y Reportar una vez (baja médicos, IPS, motivos). En Hoy, al final,
+   "Datos para trabajar sin señal… actualizados <fecha>".
+3. **Modo avión, 3 visitas con foto**: activar modo avión; la franja dice "Sin conexión". Reportar 3 visitas (una con
+   médico no listado, una no efectiva con motivo de la lista, una con foto). Cada una queda "Pendiente" en Hoy y la
+   franja cuenta "3 visitas pendientes por subir · 1 foto pendiente". Cerrar la app del todo y volver a abrirla sin
+   señal: las 3 siguen ahí.
+4. **Vuelve la señal**: quitar el modo avión. En menos de un minuto (o con "Subir ahora") pasan a "Enviada", después la
+   foto. En la web, el mapa con el filtro "Marca de la visita" muestra sus marcas (sin ubicación / en sitio, médico por
+   validar). Ninguna duplicada (mismo `client_id`).
+5. **Cortar internet a mitad de subida**: encolar 3 visitas sin señal, quitar el modo avión y volver a ponerlo apenas
+   empiece a subir. Las que alcanzaron a subir quedan "Enviada"; las demás "Pendiente" con "reintenta en…". Al volver
+   la señal se completan sin duplicados.
+6. **Sesión vencida**: en la web, cambiar la contraseña del usuario (revoca el token). En el teléfono, sin señal, reportar
+   una visita (queda en la cola). Con señal, la app pide entrar ("Tu sesión venció") sin borrar la cola; al entrar, sube.
+7. **Versión nueva con pendientes**: con una visita pendiente y sin señal, publicar una versión nueva. Al volver la señal,
+   la franja ofrece "Actualizar"; la visita pendiente sube y, después, "Actualizar" recarga la app. La visita sigue
+   enviada y nada se perdió.
+8. **GPS**: en una IPS con coordenadas, la tarjeta dice "en sitio" con la precisión (±N m); a más de 300 m, "lejos de la
+   IPS: queda marcada" y se puede guardar igual. Con el GPS apagado, "sin ubicación" y se guarda igual.
+9. **Incógnito**: abrir `/campo` en una pestaña de incógnito: la app avisa que lo guardado puede perderse.
 
 ## Verificación
 
@@ -64,14 +106,15 @@ con aviso: no se reportan días anteriores. Reintentar es seguro: el servidor re
 cd mobile
 npm run check                      # tsc --noEmit + pruebas puras (scripts/movil-check.ts), sin red
 npx expo export --platform web     # la app compila (sale en dist/, que no se versiona)
+# en web/: node scripts/construir-campo.mjs   → public/campo con sw.js (Workbox) para probar la PWA con `next dev`
 ```
 
 En el navegador (React Native Web), contra el servidor local: `npm run dev` en `web/` y luego
 `EXPO_PUBLIC_API_URL=http://localhost:3000 npx expo start --web --port 8081`. En desarrollo el servidor responde
 CORS solo a `http://localhost:8081` y `http://127.0.0.1:8081` (en producción no hay CORS). Para ver las pantallas
 con sesión sin escribir contraseñas, se pone en `localStorage` (`opmap.token.v1`) un token emitido por el servidor
-local para un usuario de prueba; sin servidor, la app abre con el perfil guardado (`opmap.perfil.v1`) en modo
-"sin conexión". Probar en el navegador a 390 px de ancho; el GPS y el micrófono los pide el
+local para un usuario de prueba (en IndexedDB `opmap-campo` → `kv`, o en `localStorage`: la app lo migra); sin
+servidor, la app abre con el perfil guardado (`opmap.perfil.v1`) en modo "sin conexión". Probar en el navegador a 390 px de ancho; el GPS y el micrófono los pide el
 navegador.
 
 Verificación completa sin tocar producción (como se hizo el 2026-10-14): un PostgREST falso en memoria (el de
