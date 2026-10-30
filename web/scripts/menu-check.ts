@@ -50,8 +50,9 @@ function eq<T>(name: string, actual: T, expected: T) {
 const ROLES = Object.keys(rolePermissions) as Role[]
 const hrefs = (rol: Role | undefined) => getNavigationMenu(rol).map(item => item.href)
 
-// Orden canónico del menú completo (el de admin)
+// Orden canónico del menú completo (el de admin, más Agendamiento: primero y solo de la líder, 2026-10-30)
 const ORDEN = [
+  '/campo/agenda',
   '/map',
   '/hospitals',
   '/terceros',
@@ -78,9 +79,10 @@ const INTELIGENCIA = ['/inteligencia', '/inteligencia?tab=secop']
 // ---------------------------------------------------------------------------------------------
 console.log('1. Menú exacto por rol (orden del dueño, 2026-10-29)')
 const ESPERADO: Record<Role, string[]> = {
-  admin: ORDEN,
+  admin: ORDEN.filter(href => href !== '/campo/agenda'),
   sales_manager: ['/map', '/hospitals', ...TERCEROS, '/executives', '/lideres', '/calendario', '/kams', '/lines', '/contracts', '/configuracion'],
-  line_leader: ['/map', '/hospitals', ...TERCEROS, '/executives', '/lideres', '/calendario', '/kams', '/lines', ...INTELIGENCIA, '/contracts', '/configuracion'],
+  // Agendamiento (dueño, 2026-10-30): primero, la agenda de la líder en la app de campo
+  line_leader: ['/campo/agenda', '/map', '/hospitals', ...TERCEROS, '/executives', '/lideres', '/calendario', '/kams', '/lines', ...INTELIGENCIA, '/contracts', '/configuracion'],
   commercial_director: ['/map', '/hospitals', ...TERCEROS, '/providers', '/executives', '/lideres', '/calendario', '/kams', '/lines', ...INTELIGENCIA, '/contracts', '/visits', '/configuracion'],
   hr: ['/executives', '/lideres', '/calendario', '/lines'],
   contract_manager: ['/map', '/hospitals', '/providers', '/executives', '/lideres', '/lines', '/contracts', '/compliance', '/mi-empresa'],
@@ -93,6 +95,20 @@ for (const rol of ROLES) {
 }
 eq('sin rol: menú vacío', getNavigationMenu(undefined), [])
 check('ESPERADO cubre todos los roles', ROLES.every(rol => rol in ESPERADO) && Object.keys(ESPERADO).length === ROLES.length)
+// La app de campo es solo para las líderes (2026-10-30): solo ellas tienen campo:app y su "Agendamiento"
+eq(
+  'Agendamiento: "Agendamiento" → /campo/agenda, sin grupo y primero, solo para quien tiene campo:app (line_leader)',
+  ROLES.filter(rol => getNavigationMenu(rol).some(item => item.href.startsWith('/campo'))),
+  ['line_leader']
+)
+eq('Agendamiento de la líder', getNavigationMenu('line_leader')[0], { name: 'Agendamiento', href: '/campo/agenda', icon: 'calendar' })
+// (hasPermission da todo al admin; el menú sale de la lista de cada rol: el admin no lidera líneas y no lo ve)
+eq('campo:app está solo en la lista de line_leader', ROLES.filter(rol => (rolePermissions[rol] ?? []).includes('campo:app')), ['line_leader'])
+const navegacion = readFileSync(path.join(__dirname, '..', 'components', 'NavigationWithPermissions.tsx'), 'utf8')
+check(
+  'el menú abre /campo como página completa (<a>, no Link de Next: la app de campo no es una página de Next)',
+  /esAppDeCampo\(item\.href\)/.test(navegacion) && /<a\b[\s\S]{0,200}href=\{item\.href\}/.test(navegacion)
+)
 
 // ---------------------------------------------------------------------------------------------
 console.log('2. Reglas del orden para todo rol')
@@ -102,7 +118,7 @@ for (const rol of ROLES) {
   check(`${rol}: toda opción está en el orden canónico`, posiciones.every(p => p >= 0), menu)
   check(`${rol}: respeta el orden canónico`, posiciones.every((p, i) => i === 0 || p > posiciones[i - 1]), menu)
   check(`${rol}: sin opciones repetidas`, new Set(menu).size === menu.length, menu)
-  if (hasPermission(rol, 'map:view')) check(`${rol}: el Mapa va primero`, menu[0] === '/map', menu)
+  if (hasPermission(rol, 'map:view')) check(`${rol}: el Mapa va primero (después de Agendamiento, si lo tiene)`, menu.filter(href => href !== '/campo/agenda')[0] === '/map', menu)
   if (menu.includes('/configuracion')) check(`${rol}: Parámetros (/configuracion) va al final`, menu[menu.length - 1] === '/configuracion', menu)
   check(
     `${rol}: sin Dashboard, Municipios ni Regiones en el menú`,
@@ -234,8 +250,12 @@ eq('PERMISOS_CONFIGURACION', PERMISOS_CONFIGURACION, ['visits:config', 'territor
 console.log('7. Páginas en disco')
 const APP = path.join(__dirname, '..', 'app')
 for (const ruta of Array.from(new Set(ORDEN.map(href => href.split('?')[0])))) {
+  // Agendamiento abre la app de campo, que no es una página de Next: la arma scripts/construir-campo.mjs (campo-web-check)
+  if (ruta.startsWith('/campo/')) continue
   check(`${ruta} tiene su página`, existsSync(path.join(APP, ruta.slice(1), 'page.tsx')))
 }
+check('Agendamiento abre la app de campo: la arma el build (construir-campo.mjs), no es una página de Next', existsSync(path.join(__dirname, 'construir-campo.mjs')) && !existsSync(path.join(APP, 'campo')))
+check('/campo/agenda existe en la app de campo (mobile/app/(app)/agenda.tsx)', existsSync(path.join(__dirname, '..', '..', 'mobile', 'app', '(app)', 'agenda.tsx')))
 check('/territories sigue existiendo', existsSync(path.join(APP, 'territories', 'page.tsx')))
 // Médicos y Aseguradoras: "Próximamente", sin datos (dueño, 2026-10-29)
 for (const ruta of ['medicos', 'aseguradoras']) {

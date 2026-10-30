@@ -69,6 +69,25 @@ export function borrarToken(): Promise<void> {
   return memoriaToken.borrar()
 }
 
+/**
+ * En el navegador: avisa cuando OTRA pestaña cambia el token (OpMap lo borra al entrar y al salir; otra pestaña de la app
+ * lo guarda o lo borra), con el valor nuevo (null si lo borró) y el que esta pestaña tenía en memoria (undefined si aún no
+ * lo había leído). El evento storage no llega a la pestaña que lo cambió. Lo de memoria se suelta antes de avisar: la
+ * próxima lectura es la del navegador. En el teléfono no hace nada.
+ */
+export function alCambiarTokenEnOtraPestana(oyente: (cambio: { nuevo: string | null; anterior: string | null | undefined }) => void): () => void {
+  const ventana = globalThis as { addEventListener?: (tipo: string, f: (e: { key: string | null; newValue: string | null }) => void) => void; removeEventListener?: (tipo: string, f: (e: { key: string | null; newValue: string | null }) => void) => void }
+  if (!esWeb || typeof ventana.addEventListener !== 'function') return () => undefined
+  const alCambiar = (evento: { key: string | null; newValue: string | null }) => {
+    // key null: se vació todo el almacenamiento (localStorage.clear())
+    if (evento.key !== null && evento.key !== CLAVE_TOKEN) return
+    const anterior = memoriaToken.releer()
+    oyente({ nuevo: evento.key === null ? null : evento.newValue, anterior })
+  }
+  ventana.addEventListener('storage', alCambiar)
+  return () => ventana.removeEventListener?.('storage', alCambiar)
+}
+
 /** Un 401 con ese token: ninguna petición siguiente lo manda (la sesión lo borra luego del llavero). */
 export function olvidarTokenPor401(token: string | null | undefined): void {
   memoriaToken.olvidarSiEs(token)

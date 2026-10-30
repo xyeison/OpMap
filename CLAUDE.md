@@ -122,7 +122,9 @@ nada llama a Google.
 - **La app de campo también es web** (dueño, 2026-10-30, `docs/decisiones/2026-10-30-app-de-campo-en-la-web.md`): la
   misma app de `mobile/` se publica en `/campo` de OpMap. `npm run build` la arma con `scripts/construir-campo.mjs` en
   `public/campo` (no se versiona). Llama a la API de su mismo origen. `/campo` es pública como página (`esAppDeCampo`
-  del middleware). Sin tiendas: cada push a master la publica.
+  de `lib/app-campo.ts`). Sin tiendas: cada push a master la publica. Las líderes la abren con "Agendamiento" en el menú de
+  OpMap (permiso `campo:app`), con un solo ingreso: login `campo-web` y `POST /api/auth/sesion-app`
+  (`docs/specs/2026-10-30-agendamiento-lider-un-ingreso.md`).
 - **Territorio y contratos**: el anexo de territorio (Anexo A IPS, Anexo B municipios) va al contrato de
   cada Ejecutivo Comercial; las versiones (`territory_snapshots`) son inmutables.
 - **SECOP I** se cuenta por el valor ADJUDICADO a cada contratista desde `f789-7hwg` (`fuente = 'secop1'`); el

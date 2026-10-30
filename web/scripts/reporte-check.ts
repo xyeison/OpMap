@@ -30,6 +30,7 @@ import { ejecutivaEnlazada, esRutaApi, getUserFromRequest, readBearer, readSessi
 import { middleware } from '../middleware'
 import { POST as login } from '../app/api/auth/login/route'
 import { POST as logout } from '../app/api/auth/logout/route'
+import { POST as sesionApp } from '../app/api/auth/sesion-app/route'
 import { GET as me } from '../app/api/auth/me/route'
 import { GENERAL_POR_DEFECTO, MENSAJE_SIN_EJECUTIVA, type ConteoVigencia, type GeneralVigencia } from '../lib/visits-rules'
 import { haversineM as haversineMovil } from '../../mobile/lib/geo'
@@ -931,7 +932,7 @@ seccion('8. Esquemas zod (mensajes en español, límites)')
 
   const loginOk = loginMovilSchema.safeParse({ email: ' Ana@Test.local ', password: 'secreta', cliente: 'movil' })
   check('loginMovilSchema: email normalizado y cliente movil', loginOk.success && loginOk.data.email === 'ana@test.local' && loginOk.data.cliente === 'movil')
-  check('loginMovilSchema: cliente web → mensaje', mensajeZod(loginMovilSchema.safeParse({ email: 'a@b.co', password: 'x', cliente: 'web' }), 'cliente') === "El cliente de la app es 'movil'")
+  check('loginMovilSchema: cliente web → mensaje', mensajeZod(loginMovilSchema.safeParse({ email: 'a@b.co', password: 'x', cliente: 'web' }), 'cliente') === "El cliente de la app es 'movil' o 'campo-web'")
   check('loginMovilSchema: sin contraseña → mensaje', mensajeZod(loginMovilSchema.safeParse({ email: 'a@b.co', cliente: 'movil' }), 'password') === 'Escribe tu contraseña')
 }
 
@@ -1383,6 +1384,10 @@ seccion('10f. Dictado por campo (decisión 9): reparto normalizado, prompt y con
 
 const USUARIO_ANA = '11111111-1111-4111-8111-111111111111'
 const USUARIO_VIEWER = '22222222-2222-4222-8222-222222222222'
+// sesion-app (revisión 2026-10-30): solo las líderes (campo:app); el administrador y una líder inactiva no
+const USUARIO_LIDER = '44444444-4444-4444-8444-444444444444'
+const USUARIO_ADMIN = '55555555-5555-4555-8555-555555555555'
+const USUARIO_INACTIVA = '66666666-6666-4666-8666-666666666666'
 const KAM1 = '33333333-3333-4333-8333-333333333333'
 const CLAVE_ANA = 'Clave-de-prueba-123'
 const HASH_ANA = bcrypt.hashSync(CLAVE_ANA, 4)
@@ -1392,6 +1397,9 @@ const tablas: Record<string, Fila[]> = {
   users: [
     { id: USUARIO_ANA, email: 'ana@test.local', full_name: 'Ana Pérez', role: 'sales_manager', active: true, created_at: '2026-10-01T00:00:00Z', password: HASH_ANA },
     { id: USUARIO_VIEWER, email: 'viewer@test.local', full_name: 'Viewer', role: 'viewer', active: true, created_at: '2026-10-01T00:00:00Z', password: 'hash-viewer' },
+    { id: USUARIO_LIDER, email: 'lider@test.local', full_name: 'Lucía Líder', role: 'line_leader', active: true, created_at: '2026-10-01T00:00:00Z', password: 'hash-lider' },
+    { id: USUARIO_ADMIN, email: 'admin@test.local', full_name: 'Admin', role: 'admin', active: true, created_at: '2026-10-01T00:00:00Z', password: 'hash-admin' },
+    { id: USUARIO_INACTIVA, email: 'inactiva@test.local', full_name: 'Inés Inactiva', role: 'line_leader', active: false, created_at: '2026-10-01T00:00:00Z', password: 'hash-inactiva' },
   ],
   executives: [
     { id: EJEC, full_name: 'Ana Pérez', status: 'active', user_id: USUARIO_ANA, base_kam_id: KAM1 },
@@ -1527,6 +1535,48 @@ async function sesion() {
     check('login móvil de un usuario sin ejecutiva → ejecutiva null (y la contraseña heredada se migra a bcrypt)', viewerMovil.status === 200 && viewerMovil.body?.ejecutiva === null && String(tablas.users[1].password).startsWith('$2'), viewerMovil.body)
     const salir = await leer(await logout())
     check('POST /api/auth/logout con portador → 200', salir.status === 200)
+
+    // Un solo ingreso para la web y la app de campo en el navegador (/campo, 2026-10-30)
+    const campoWeb = await leer(await login(peticion('http://localhost:3000/api/auth/login', { method: 'POST', body: { email: 'ana@test.local', password: CLAVE_ANA, cliente: 'campo-web' } })))
+    check(
+      "login { cliente: 'campo-web' } (la app en el navegador) → el cuerpo del móvil Y la cookie de la web: un solo ingreso",
+      campoWeb.status === 200 && typeof campoWeb.body?.token === 'string' && campoWeb.body.usuario?.id === USUARIO_ANA && 'ejecutiva' in campoWeb.body && (campoWeb.headers.get('set-cookie') ?? '').includes(`${SESSION_COOKIE_NAME}=`),
+      { status: campoWeb.status, cookie: campoWeb.headers.get('set-cookie'), cuerpo: campoWeb.body }
+    )
+    // La ruta lee `cliente` a mano (lo prueba el login de arriba); el contrato de la app es loginMovilSchema
+    check('el contrato del login de la app (loginMovilSchema, el de mobile/lib/tipos.ts) acepta también campo-web', loginMovilSchema.safeParse({ email: 'a@b.co', password: 'x', cliente: 'campo-web' }).success)
+
+    const cookieDe = (usuario: string, password: string) => `${SESSION_COOKIE_NAME}=${encodeURIComponent(tokenDe(usuario, password))}`
+    const puenteDe = async (cookie: string, cabeceras: Record<string, string> = {}) =>
+      leer(await sesionApp(peticion('http://localhost:3000/api/auth/sesion-app', { method: 'POST', headers: { cookie, origin: 'http://localhost:3000', 'sec-fetch-site': 'same-origin', ...cabeceras } })))
+    const puente = await puenteDe(cookieDe(USUARIO_LIDER, 'hash-lider'))
+    check(
+      'POST /api/auth/sesion-app con la cookie de una líder → el mismo token de la cookie, expira_at, usuario y ejecutiva (la forma del login móvil)',
+      puente.status === 200 && puente.body?.token === tokenDe(USUARIO_LIDER, 'hash-lider') && puente.body.usuario?.id === USUARIO_LIDER && puente.body.usuario.role === 'line_leader' && 'ejecutiva' in puente.body && puente.body.ejecutiva === null && !Number.isNaN(Date.parse(puente.body.expira_at ?? '')) && puente.headers.get('cache-control') === 'no-store',
+      puente.body
+    )
+    check('sesion-app no deja pasar la contraseña ni el email', !JSON.stringify(puente.body).includes('password') && !('email' in (puente.body?.usuario ?? {})))
+    const cookieAna = `${SESSION_COOKIE_NAME}=${encodeURIComponent(tokenDe(USUARIO_ANA))}`
+    const deEjecutivo = await puenteDe(cookieAna)
+    const deAdmin = await puenteDe(cookieDe(USUARIO_ADMIN, 'hash-admin'))
+    check(
+      'sesion-app solo para quien usa la app de campo (campo:app): un Ejecutivo Comercial o el administrador → 403 sin token (entran con su contraseña)',
+      deEjecutivo.status === 403 && deAdmin.status === 403 && deEjecutivo.body?.token === undefined && deAdmin.body?.token === undefined,
+      { ejecutivo: deEjecutivo.status, admin: deAdmin.status }
+    )
+    const inactiva = await puenteDe(cookieDe(USUARIO_INACTIVA, 'hash-inactiva'))
+    const pvViejo = await puenteDe(cookieDe(USUARIO_LIDER, 'contraseña-anterior'))
+    check('sesion-app con la cookie de una líder inactiva o de antes de cambiar la contraseña (pv viejo) → 401 sin token', inactiva.status === 401 && pvViejo.status === 401 && inactiva.body?.token === undefined && pvViejo.body?.token === undefined, { inactiva: inactiva.status, pvViejo: pvViejo.status })
+    const mismoSitio = await puenteDe(cookieDe(USUARIO_LIDER, 'hash-lider'), { 'sec-fetch-site': 'same-site' })
+    check('sesion-app desde otro subdominio del mismo sitio (Sec-Fetch-Site same-site) → 403 sin token', mismoSitio.status === 403 && mismoSitio.body?.token === undefined, mismoSitio.status)
+    const soloPortador = await leer(await sesionApp(peticion('http://localhost:3000/api/auth/sesion-app', { method: 'POST', headers: { authorization: `Bearer ${tokenDe(USUARIO_ANA)}` } })))
+    const sinNada = await leer(await sesionApp(peticion('http://localhost:3000/api/auth/sesion-app', { method: 'POST' })))
+    check('sesion-app solo con portador o sin nada → 401 (no sirve para alargar un token)', soloPortador.status === 401 && sinNada.status === 401 && soloPortador.body?.token === undefined)
+    const ajeno = await leer(await sesionApp(peticion('http://localhost:3000/api/auth/sesion-app', { method: 'POST', headers: { cookie: cookieAna, origin: 'http://evil.test' } })))
+    const cruzado = await leer(await sesionApp(peticion('http://localhost:3000/api/auth/sesion-app', { method: 'POST', headers: { cookie: cookieAna, 'sec-fetch-site': 'cross-site' } })))
+    check('sesion-app desde otro sitio (Origin ajeno o Sec-Fetch-Site cross-site) → 403 sin token', ajeno.status === 403 && cruzado.status === 403 && ajeno.body?.token === undefined && cruzado.body?.token === undefined)
+    const cookieRota = await leer(await sesionApp(peticion('http://localhost:3000/api/auth/sesion-app', { method: 'POST', headers: { cookie: `${SESSION_COOKIE_NAME}=basura` } })))
+    check('sesion-app con una cookie inválida → 401', cookieRota.status === 401)
   }
 
   seccion('9c. Middleware: portador en /api/*, CORS solo en desarrollo')

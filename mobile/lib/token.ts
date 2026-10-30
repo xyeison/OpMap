@@ -113,6 +113,20 @@ export class MemoriaToken {
     }
   }
 
+  /**
+   * Otra pestaña del navegador cambió el token (evento storage): lo de memoria ya no vale y la próxima lectura vuelve al
+   * llavero (revisión 2026-10-30). Devuelve el que había en memoria (undefined si aún no se había leído: entonces no
+   * toca la lectura en curso).
+   */
+  releer(): string | null | undefined {
+    const anterior = this.valor
+    if (anterior !== undefined) {
+      this.valor = undefined
+      this.lectura = null
+    }
+    return anterior
+  }
+
   /** Un 401 con este token: se olvida en memoria (si sigue siendo el de ahora). El llavero lo borra la sesión. */
   olvidarSiEs(token: string | null | undefined): void {
     if (!token || this.valor !== token) return
