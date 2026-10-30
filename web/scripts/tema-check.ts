@@ -108,5 +108,30 @@ try {
 check('con el almacenamiento bloqueado (modo privado) no lanza y queda en automático', !lanzo && conBloqueo === 'oscuro', { lanzo, conBloqueo })
 check('sin matchMedia (navegador viejo) → claro', correrScript(() => 'auto', null) === 'claro')
 
+console.log('\n6. El tema y la letra en toda la web (layout, Tailwind y useTema)')
+const leer = (archivo: string) => readFileSync(path.join(raiz, archivo), 'utf8')
+const layout = leer('app/layout.tsx')
+check(
+  'app/layout.tsx usa DM Sans de next/font/google con 400, 500 y 700 (como la app), y ya no Inter',
+  /import \{ DM_Sans \} from 'next\/font\/google'/.test(layout) && /weight: \['400', '500', '700'\]/.test(layout) && !/Inter\(/.test(layout)
+)
+check(
+  'el tema va antes de pintar: SCRIPT_TEMA_INICIAL en <head> y cssDeTemas() en un <style>; <html> con suppressHydrationWarning',
+  /<head>[\s\S]*dangerouslySetInnerHTML=\{\{ __html: SCRIPT_TEMA_INICIAL \}\}[\s\S]*dangerouslySetInnerHTML=\{\{ __html: cssDeTemas\(\) \}\}[\s\S]*<\/head>/.test(layout) &&
+    /<html lang="es" suppressHydrationWarning>/.test(layout)
+)
+check('el cuerpo usa los papeles (bg-fondo text-texto); las páginas siguen en claro (main conserva su fondo de hoy)', /<body className=\{`\$\{dmSans\.className\} bg-fondo text-texto`\}>/.test(layout) && /from-white via-gray-50 to-white/.test(layout))
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const tailwind = require('../tailwind.config.js') as { theme: { extend: { colors: Record<string, unknown> } } }
+const nombres = (Object.keys(PAPELES_CLAROS) as Array<keyof Papeles>).map(papel => [variableCss(papel).replace('--color-', ''), `var(${variableCss(papel)})`])
+const faltan = nombres.filter(([nombre, valor]) => tailwind.theme.extend.colors[nombre] !== valor).map(([nombre]) => nombre)
+check('tailwind.config.js: cada papel es un color por nombre que lee su variable (bg-fondo, text-texto-suave, bg-acento…)', faltan.length === 0, faltan)
+const useTema = leer('hooks/useTema.ts')
+check(
+  "useTema: guarda en opmap.tema.v1 sin lanzar, pone data-tema y sigue al sistema (prefers-color-scheme) y a otras pestañas (storage)",
+  /window\.localStorage\.setItem\(CLAVE_TEMA, preferencia\)/.test(useTema) && /try \{/.test(useTema) &&
+    /dataset\.tema = /.test(useTema) && /\(prefers-color-scheme: dark\)/.test(useTema) && /addEventListener\('storage'/.test(useTema)
+)
+
 console.log(`\n${passed} pruebas bien, ${failed} con falla`)
 if (failed > 0) process.exit(1)
