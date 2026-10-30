@@ -782,3 +782,20 @@ tablas tienen FKs hacia `business_lines`, `executives` y `users`.
 - Re-ejecutable (`IF NOT EXISTS`, `DROP CONSTRAINT IF EXISTS` + `ADD`, `CREATE OR REPLACE`).
 - Rollback: **9944 antes que 9943** (la 9943 borra las visitas de la app, que `visitas_agenda.visita_id` referencia, y
   quita columnas de `visits` que usa el cuerpo de la 0840) y, por tanto, antes que 9942, 9941 y 9940.
+
+# Migraciones — App de campo sin señal · marcas en vez de rechazos, motivos, médico no listado y foto (0940)
+
+> **ESTADO: NO APLICADA.** Se aplica solo con autorización del dueño y en la misma ventana que el despliegue de la
+> rama `feat/campo-sin-senal` (el servidor funciona sin ella con las reglas de la 0850: `conOSin0940` en
+> `web/app/api/me/_lib/reporte-server.ts`). Spec `docs/specs/2026-10-30-campo-sin-senal-pwa.md`; decisión
+> `docs/decisiones/2026-10-30-campo-sin-senal-marcas-en-vez-de-rechazos.md`. Sin ensayar en Postgres local: antes de
+> aplicar, ensayo con `BEGIN; … ROLLBACK;` (el bloque DO final comprueba columnas, tabla, funciones, bucket y radio).
+
+| # | Archivo | Qué hace | Destructivo |
+|---|---|---|---|
+| 21 | `2026-10-30_0940_campo_sin_senal.sql` | Añade a `visits` `tz`, `gps_at`, `marcas text[] NOT NULL DEFAULT '{}'` (índice GIN `visits_marcas_idx`), `en_sitio`, `foto_path`, `medico_no_listado jsonb`, `motivo_codigo`; reemplaza `visits_app_check` (médica con `medico_id` O `medico_no_listado`; presencial sin `distance_m`; `en_sitio` solo con distancia; marcas del conjunto; `foto_path` ≤ 300). Crea `motivos_no_efectiva` (8 motivos, RLS, solo service_role). Reemplaza `visitas_registrar` sobre la 0850: sin rechazos de otro día, radio, GPS ni sede sin coordenadas → marcas `sin_ubicacion`, `precision_baja` (> 100 m), `ips_sin_coordenadas`, `lejos_de_ips` (`greatest(dist − precisión, 0) > radio_presencial_m`), `hora_inconsistente` (hora del teléfono > now() + 5 min o fecha < hoy − 7), `medico_por_validar`; motivo de la lista obligatorio si viene `motivo_codigo` (y rellena `failure_reason` con su nombre); punto del mapa GPS → sede → municipio → zona (sin ninguno, 23514); devuelve `marcas` y `en_sitio`. Nueva `visitas_foto(p_client uuid, p_user uuid, p_path text)`. Bucket privado `visitas-fotos` (2 MB, image/jpeg). `radio_presencial_m` → 300 con `config_registrar` (si no está ya). | No (columnas nuevas con default; las filas existentes no cambian) |
+| — | `2026-10-30_9959_campo_sin_senal_rollback.sql` | Devuelve `visitas_registrar` y `visits_app_check` EXACTAMENTE a la 0850, borra `visitas_foto`, las columnas nuevas, la tabla `motivos_no_efectiva` y vuelve el radio a 500. **Aborta** si hay visitas sin `medico_id` o presenciales sin `distance_m` (las que la 0940 permitió): hay que anularlas o completarlas antes. No borra el bucket (las fotos se dejan). | Sí (columnas y tabla; se protege con el RAISE) |
+
+- Orden: después de la 0850 (aplicada el 2026-10-30). Tras aplicar: `NOTIFY pgrst, 'reload schema';`. Costo Google: 0.
+- El radio pasa de 500 a 300 m como parámetro (`config_general.radio_presencial_m`, decisión del dueño); la dirección lo
+  cambia desde la web como cualquier parámetro.
