@@ -13,6 +13,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { citaOtraFechaSchema } from '@/lib/reporte-visitas-schemas'
 import { MENSAJE_CITA_NO_EXISTE, mensajeFechaCita, mensajeHoraCita, type CitaResponse } from '@/lib/reporte-visitas'
 import { hoyBogota } from '@/lib/visits-rules'
+import { appSoloLideres, comoDeLaApp } from '@/lib/persona-campo'
 import { ahora, idDeRuta, requirePersonaDeCampo } from '../../../../config-visitas/_lib/visitas-server'
 import { cargarCitaItem, errorReporte, respuestaErrorAgenda } from '../../../_lib/reporte-server'
 import { medirRuta } from '../../../_lib/tiempos'
@@ -35,6 +36,9 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     const parsed = citaOtraFechaSchema.safeParse(await readJson(request))
     if (!parsed.success) return jsonError(zodMessage(parsed.error), 400, { errores: erroresDeZod(parsed.error.issues) })
     const datos = parsed.data
+    // App solo para líderes (dueño, 2026-10-30): como líder siempre; "Como Ejecutivo Comercial" → 403 (va por VMO).
+    const como = comoDeLaApp(datos.como, appSoloLideres(process.env))
+    if (!como.ok) return jsonError(como.error, 403, { errores: [{ campo: 'como', mensaje: como.error }] })
 
     const instante = ahora()
     const hoy = hoyBogota(instante)
@@ -45,7 +49,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
     try {
       // jsonb de agenda_otra_fecha: allow-list. Sin `nota` (clave ausente) la base copia la de la anterior.
-      const p: Record<string, unknown> = { fecha: datos.fecha, hora: datos.hora, sede_id: datos.sede_id, como: datos.como ?? null }
+      const p: Record<string, unknown> = { fecha: datos.fecha, hora: datos.hora, sede_id: datos.sede_id, como: como.como }
       if (datos.nota !== undefined) p.nota = datos.nota
       const { data, error } = await t.fase('rpc', () => supabaseAdmin.rpc('agenda_otra_fecha', { p_id: id, p, p_user: auth.user.id }))
       if (error) {

@@ -14,8 +14,10 @@
  * ingreso.
  *
  * F1b (actividades de campo, A1): la dirección comercial no agenda ni reporta: al entrar ve "La dirección comercial sigue
- * a su equipo en la web (Equipo)" con "Cerrar sesión" y no entra a las pestañas (lo decide su rol, que el login ya trae:
- * lib/persona.ts estadoPersona). Los demás entran como siempre; lo que el servidor no les deja hacer, lo dice él.
+ * a su equipo en la web" con "Cerrar sesión" y no entra a las pestañas (lo decide su rol, que el login ya trae:
+ * lib/persona.ts estadoPersona). La app es solo para las líderes (dueño, 2026-10-30): quien el servidor dejó fuera con
+ * su porqué (sin_persona, p. ej. "Las visitas de los Ejecutivos Comerciales se registran en VMO") ve ese aviso igual.
+ * Los demás entran como siempre; lo que el servidor no les deja hacer, lo dice él.
  */
 import { Redirect, useRouter } from 'expo-router'
 import { Tabs } from 'expo-router/js-tabs'
@@ -26,7 +28,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Logo } from '../../components/Logo'
 import { Icono } from '../../lib/iconos'
 import { OCULTAS, PESTANAS, SIN_ENCABEZADO } from '../../lib/navegacion'
-import { MENSAJE_DIRECCION_EN_LA_WEB, entraALasPestanas, estadoPersona } from '../../lib/persona'
+import { avisoFuera, entraALasPestanas, estadoPersona } from '../../lib/persona'
 import { useSesion } from '../../lib/sesion'
 import { ALTO_TOQUE_MIN, Aviso, Boton, Cargando, LETRA, Pantalla, TAMANO, Texto, Titulo, useColores, useFuente } from '../../lib/ui'
 
@@ -101,10 +103,10 @@ function Encabezado({ titulo, izquierda, derecha }: { titulo: string; izquierda:
 }
 
 /**
- * La dirección comercial (A1): no agenda ni reporta en la app; sigue a su equipo en la web. Solo el mensaje, quién es y
- * "Cerrar sesión" (sin pestañas).
+ * Quien no entra a las pestañas: la dirección comercial (A1: sigue a su equipo en la web) o quien el servidor dejó fuera
+ * con su porqué (app solo para líderes, dueño 2026-10-30). Solo el aviso, quién es y "Cerrar sesión".
  */
-function SoloEnLaWeb() {
+function FueraDeLaApp({ titulo, texto }: { titulo: string; texto: string }) {
   const { perfil, salir } = useSesion()
   const [saliendo, setSaliendo] = useState(false)
   const nombre = perfil?.usuario.full_name?.trim().split(/\s+/)[0] ?? ''
@@ -114,8 +116,8 @@ function SoloEnLaWeb() {
       <Pantalla>
         <Logo ancho={96} />
         <Titulo>{nombre ? `Hola, ${nombre}` : 'Hola'}</Titulo>
-        <Aviso tono="info" titulo={MENSAJE_DIRECCION_EN_LA_WEB}>
-          La app es para quien agenda y reporta en campo: las líderes y los Ejecutivos Comerciales.
+        <Aviso tono="info" titulo={titulo}>
+          {texto}
         </Aviso>
         {perfil?.usuario.email ? <Texto suave peque>{`Entraste como ${perfil.usuario.email}.`}</Texto> : null}
         <Boton
@@ -138,7 +140,8 @@ export default function AppLayout() {
   const fuente = useFuente()
   if (estado === 'cargando') return <Cargando texto="Abriendo VG Visitas…" />
   if (estado !== 'con_sesion') return <Redirect href="/login" />
-  if (!entraALasPestanas(estadoPersona({ role: perfil?.usuario.role, persona: perfil?.persona, sinConfirmar }))) return <SoloEnLaWeb />
+  const quien = estadoPersona({ role: perfil?.usuario.role, persona: perfil?.persona, sinPersona: perfil?.sinPersona, sinConfirmar })
+  if (!entraALasPestanas(quien)) return <FueraDeLaApp {...avisoFuera(quien, perfil?.sinPersona)} />
 
   return (
     <>

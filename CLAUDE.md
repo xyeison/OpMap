@@ -98,11 +98,17 @@ nada llama a Google.
   crea, activa si visitó en 60 días; la Zona de la visita sigue a la de la persona); nada del médico sale del navegador;
   reimportar no duplica. Sin `visits:view` cada quien ve solo sus visitas de VMO. Sin IPS por visita. Migración 0910
   (rollback 9956).
-- **Seguimiento de las líderes con el Excel "Tracker Líderes"** (dueño, 2026-10-29, `docs/decisiones/2026-10-29-historico-tracker-lideres.md`;
-  reemplaza la A15 del 2026-10-15): en `/lideres` (permiso `lideres:seguimiento`: admin y dirección) la directora sube el
-  Excel; el navegador manda solo fecha, líder, ciudad, tipo, estado, cuántos contactos y si había observación (ningún
-  texto libre: ni nombres de médicos, ni observaciones, ni el tipo escrito a mano) y cada carga reemplaza el histórico
-  (`lideres_historico`, migración 0920 APLICADA el 2026-10-29; su DELETE lleva WHERE por pg-safeupdate de PostgREST). Cuando las líderes reporten en la app (PR #48 y sus fases), se deja de subir el Excel.
+- **Histórico del Excel "Tracker Líderes"** (dueño, 2026-10-29, `docs/decisiones/2026-10-29-historico-tracker-lideres.md`;
+  reemplaza la A15 del 2026-10-15): `/lideres` (permiso `lideres:seguimiento`: admin y dirección) muestra el histórico.
+  Desde el 2026-10-30 el Excel NO se sube allí: se carga una sola vez con `scripts/lideres-historico-cargar.ts`, que manda
+  solo fecha, líder, ciudad, tipo, estado, cuántos contactos y si había observación (ningún texto libre: ni nombres de
+  médicos, ni observaciones, ni el tipo escrito a mano) y reemplaza el histórico (`lideres_historico`, migración 0920
+  APLICADA el 2026-10-29; su DELETE lleva WHERE por pg-safeupdate de PostgREST).
+- **La app de campo es SOLO para las líderes** (dueño, 2026-10-30, `docs/decisiones/2026-10-30-app-de-campo-solo-lideres.md`):
+  los Ejecutivos Comerciales siguen reportando en VMO. Quien solo es Ejecutivo Comercial no entra: `/api/auth/me` →
+  `sin_persona` y `/api/me/*` → 403. Paola entra solo como líder. La regla está en el servidor
+  (`appSoloLideres` de `lib/persona-campo.ts`); `APP_CAMPO_EJECUTIVOS=true` la apaga (las pruebas de F3 y F4; en
+  producción no se pone).
 - **Territorio y contratos**: el anexo de territorio (Anexo A IPS, Anexo B municipios) va al contrato de
   cada Ejecutivo Comercial; las versiones (`territory_snapshots`) son inmutables.
 - **SECOP I** se cuenta por el valor ADJUDICADO a cada contratista desde `f789-7hwg` (`fuente = 'secop1'`); el

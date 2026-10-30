@@ -35,6 +35,12 @@ export interface Perfil {
    */
   persona?: PersonaMovil | null
   /**
+   * Sin persona, por qué (MeResponse.sin_persona; app solo para líderes, dueño 2026-10-30: "Las visitas de los
+   * Ejecutivos Comerciales se registran en VMO"): con él la app no entra a las pestañas y lo muestra (estadoPersona).
+   * null o sin el dato: no se sabe.
+   */
+  sinPersona?: string | null
+  /**
    * Qué servidor respondió la última vez GET /api/auth/me (servidorDeMe): 'sin_f1a' si no manda la persona (sin la
    * 0850: la app no ofrece "No se hizo", Eliminar, "Agendar otra fecha" ni "¿Qué pasó con esto?"). Sin el dato: no se
    * sabe y la app sigue como está.
@@ -95,6 +101,7 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
           usuario: { id: respuesta.user.id, full_name: respuesta.user.full_name, role: respuesta.user.role, email: respuesta.user.email },
           ejecutiva: respuesta.ejecutiva,
           persona: personaDeMe(respuesta, guardado?.persona),
+          sinPersona: respuesta.sin_persona ?? null,
           servidor: servidorDeMe(respuesta),
           expira_at: guardado?.expira_at ?? expiraDelToken(token),
         }
@@ -171,7 +178,13 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
       try {
         const respuesta = await api.me(token, TIEMPO_ME_FONDO_MS)
         if (!montado.current || generacion.current !== desde) return
-        const nuevo: Perfil = { ...base, ejecutiva: respuesta.ejecutiva, persona: personaDeMe(respuesta, base.persona), servidor: servidorDeMe(respuesta) }
+        const nuevo: Perfil = {
+          ...base,
+          ejecutiva: respuesta.ejecutiva,
+          persona: personaDeMe(respuesta, base.persona),
+          sinPersona: respuesta.sin_persona ?? null,
+          servidor: servidorDeMe(respuesta),
+        }
         await guardarJson(CLAVE_PERFIL, nuevo).catch(() => undefined)
         if (!montado.current || generacion.current !== desde) return
         setPerfil(nuevo)

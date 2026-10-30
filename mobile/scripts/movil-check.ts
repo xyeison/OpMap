@@ -923,7 +923,7 @@ async function main() {
       login: 'token expira_at usuario ejecutiva',
       usuario: 'id full_name role',
       ejecutivaMovil: 'id full_name zona',
-      me: 'user ejecutiva persona',
+      me: 'user ejecutiva persona sin_persona',
       // Persona de campo (0850; F1b de actividades de campo: la app la usa)
       persona: 'rol lineas',
       lineaPersona: 'id nombre como',

@@ -3,6 +3,13 @@
 **Estado**: pedido del dueño del 2026-10-29. Decisión: `docs/decisiones/2026-10-29-historico-tracker-lideres.md`
 (reemplaza la A15 del 2026-10-15).
 
+**Cambio del 2026-10-30** (`docs/decisiones/2026-10-30-app-de-campo-solo-lideres.md`): ya no hay "Subir el Excel" en
+`/lideres`.
+- El histórico se carga una sola vez con `web/scripts/lideres-historico-cargar.ts`: la misma lectura, vista previa y
+  reemplazo de abajo.
+- Lo nuevo, las líderes lo reportan en la app.
+- `/lideres` queda con las vistas y `POST /api/lideres/historico` ya no existe.
+
 ## Problema
 La directora comercial lleva en un Excel lo que hacen sus 5 líderes. El dueño quiere que el seguimiento viva en OpMap:
 - las líderes reportarán en la app (fases de `docs/specs/2026-10-15-actividades-de-campo.md`, que empiezan con F1a en el

@@ -26,13 +26,17 @@ import {
   MENSAJE_COMO_NO_VALIDO,
   MENSAJE_DIRECCION_NO_REPORTA,
   MENSAJE_EJECUTIVA_AJENA,
+  MENSAJE_EJECUTIVO_EN_VMO,
   MENSAJE_LINEA_AJENA,
   MENSAJE_MEDICO_AJENO,
   MENSAJE_SIN_LINEAS,
   MENSAJE_SIN_LINEAS_LIDER,
   MENSAJE_SIN_ZONA,
+  appSoloLideres,
+  comoDeLaApp,
   ejecutivoDeLaCita,
   ejecutivoDeLaVisita,
+  lineasDeLaApp,
   lineasDelMedico,
   lineasParaReportar,
   medicoDeLineas,
@@ -191,6 +195,25 @@ const mensajes = {
 }
 const faltan = Object.entries(mensajes).filter(([, texto]) => !SQL.includes(texto.replace(/'/g, "''"))).map(([nombre]) => nombre)
 check('cada mensaje de lib/persona-campo.ts está, letra por letra, en la 0850', faltan.length === 0, faltan)
+
+console.log('\n7. La app de campo es solo para las líderes (dueño, 2026-10-30): los Ejecutivos Comerciales van por VMO')
+check(
+  'appSoloLideres: sin APP_CAMPO_EJECUTIVOS (producción), sí; con "true" (sin importar mayúsculas ni espacios), no; con otra cosa, sí',
+  appSoloLideres({}) && appSoloLideres({ APP_CAMPO_EJECUTIVOS: '' }) && appSoloLideres({ APP_CAMPO_EJECUTIVOS: 'false' }) && appSoloLideres({ APP_CAMPO_EJECUTIVOS: '1' }) && !appSoloLideres({ APP_CAMPO_EJECUTIVOS: 'true' }) && !appSoloLideres({ APP_CAMPO_EJECUTIVOS: ' TRUE ' })
+)
+const soloEc = { ec: [ORTOPEDIA], lider: [], todas: [ORTOPEDIA] }
+const dosPapeles = { ec: [ORTOPEDIA], lider: [TRAUMA], todas: [ORTOPEDIA, TRAUMA].sort() }
+const soloLider = { ec: [], lider: [TRAUMA], todas: [TRAUMA] }
+const ninguna = { ec: [], lider: [], todas: [] }
+check('quien solo es Ejecutivo Comercial → MENSAJE_EJECUTIVO_EN_VMO', igual(lineasDeLaApp(soloEc, true), { ok: false, error: MENSAJE_EJECUTIVO_EN_VMO }))
+check('Paola (los dos papeles) → solo sus líneas de líder, sin las de Ejecutivo Comercial', igual(lineasDeLaApp(dosPapeles, true), { ok: true, ec: [], lider: [TRAUMA], todas: [TRAUMA] }))
+check('una líder sigue igual; sin ninguna línea sigue sin líneas (rolDePersona da null: MENSAJE_SIN_LINEAS)', igual(lineasDeLaApp(soloLider, true), { ok: true, ...soloLider }) && igual(lineasDeLaApp(ninguna, true), { ok: true, ...ninguna }) && rolDePersona([], []) === null)
+check('con los Ejecutivos Comerciales adentro (soloLideres false), todo como antes', [soloEc, dosPapeles, soloLider, ninguna].every(lineas => igual(lineasDeLaApp(lineas, false), { ok: true, ...lineas })))
+check(
+  'comoDeLaApp: solo para líderes, sin "como" o como líder → lider; "como ejecutivo" → MENSAJE_EJECUTIVO_EN_VMO',
+  igual(comoDeLaApp(null, true), { ok: true, como: 'lider' }) && igual(comoDeLaApp(undefined, true), { ok: true, como: 'lider' }) && igual(comoDeLaApp('lider', true), { ok: true, como: 'lider' }) && igual(comoDeLaApp('ejecutivo', true), { ok: false, error: MENSAJE_EJECUTIVO_EN_VMO })
+)
+check('comoDeLaApp con los Ejecutivos Comerciales adentro: el que llegó, o null (decide la base, C12)', igual(comoDeLaApp(null, false), { ok: true, como: null }) && igual(comoDeLaApp('ejecutivo', false), { ok: true, como: 'ejecutivo' }) && igual(comoDeLaApp('lider', false), { ok: true, como: 'lider' }))
 
 // ---------------------------------------------------------------------------------------------
 console.log(`\n${passed} pruebas bien, ${failed} con falla`)

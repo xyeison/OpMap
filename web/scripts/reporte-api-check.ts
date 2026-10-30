@@ -118,6 +118,7 @@ import {
   MENSAJE_COMO_NO_VALIDO,
   MENSAJE_DIRECCION_NO_REPORTA,
   MENSAJE_EJECUTIVA_AJENA,
+  MENSAJE_EJECUTIVO_EN_VMO,
   MENSAJE_MEDICO_AJENO,
   MENSAJE_SIN_LINEAS,
   ejecutivoDeLaCita,
@@ -308,6 +309,9 @@ const FAKE_SUPABASE_URL = 'http://supabase.test'
 process.env.NEXT_PUBLIC_SUPABASE_URL = FAKE_SUPABASE_URL
 process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-de-prueba'
 process.env.SESSION_SECRET = 'secreto-de-prueba-reporte-api-check-0123456789abcdefghijklmnopqrstuvwxyz'
+// Las secciones 1 a 15 prueban la app con los Ejecutivos Comerciales adentro (F3, F4 y F1a). La 16 la prueba solo para
+// las líderes, como en producción (dueño, 2026-10-30: sin esta variable).
+process.env.APP_CAMPO_EJECUTIVOS = 'true'
 
 // ---------------------------------------------------------------------------
 // Reloj falso (martes 13 de octubre de 2026, 10:42 en Bogotá)
@@ -3227,6 +3231,84 @@ async function main() {
       check('GET /api/visits/stats: no cuenta las de la app sin Ejecutivo Comercial', stats.status === 200 && stats.body.totalVisits === deMapa.length && stats.body.effectiveVisits === deMapa.filter(v => v.visit_type === 'Visita efectiva').length, { stats: stats.body, deMapa: deMapa.length })
       const zonas = await pedir(zonasSinVisitar, '/api/visits/unvisited-zones?year=2026&month=10', { userId: ADMIN_ID })
       check('GET /api/visits/unvisited-zones: una visita como líder junto al Hospital del sur no lo marca como visitado', zonas.status === 200 && zonas.body.unvisitedHospitalsList.some((h: { id: string }) => h.id === H_LEJOS), zonas.body)
+
+      print('\n16. App de campo solo para líderes (dueño, 2026-10-30): quien solo es Ejecutivo Comercial va por VMO; Paola, solo como líder')
+      delete process.env.APP_CAMPO_EJECUTIVOS
+      try {
+        const meDe = async (userId: string) => leer(await verMe(new NextRequest('http://localhost:3000/api/auth/me', { headers: { authorization: `Bearer ${tokenDe(userId)}` } })))
+        const meAna = await meDe(VENTAS_ID)
+        check(
+          `Ana (solo Ejecutiva Comercial): GET /api/auth/me → persona null y sin_persona "${MENSAJE_EJECUTIVO_EN_VMO}" (la app no entra a las pestañas)`,
+          meAna.status === 200 && ok('me', meAna.body) && meAna.body.persona === null && meAna.body.sin_persona === MENSAJE_EJECUTIVO_EN_VMO && meAna.body.ejecutiva?.id === EJEC_A,
+          meAna.body
+        )
+        const antesAna = { visitas: visitasApp().length, citas: tablas.visitas_agenda.length }
+        const ctxAna = await pedir(verContexto, '/api/me/contexto', { portador: true, userId: VENTAS_ID })
+        const visitaAna = await visitaDe(VENTAS_ID, cuerpoVisita())
+        const citaAna = await agendaDe(VENTAS_ID, { fecha: MANANA, hora: '15:00', tipo: 'medica', medico_id: M1, sede_id: S1 })
+        check(
+          `Ana: contexto, reportar y agendar → 403 "${MENSAJE_EJECUTIVO_EN_VMO}"; nada guardado`,
+          [ctxAna, visitaAna, citaAna].every(r => r.status === 403 && r.body?.error === MENSAJE_EJECUTIVO_EN_VMO) && visitasApp().length === antesAna.visitas && tablas.visitas_agenda.length === antesAna.citas,
+          { ctx: ctxAna.body, visita: visitaAna.body, cita: citaAna.body }
+        )
+
+        const mePaola = await meDe(PAOLA_ID)
+        check(
+          'Paola: GET /api/auth/me → persona solo de líder (rol lider, solo trauma "como líder") y sin_persona null',
+          mePaola.status === 200 && ok('me', mePaola.body) && mePaola.body.persona?.rol === 'lider' && JSON.stringify(mePaola.body.persona.lineas) === JSON.stringify([{ id: L_TRA, nombre: 'Trauma', como: 'lider' }]) && mePaola.body.sin_persona === null,
+          mePaola.body
+        )
+        const ctxSolo = await pedir(verContexto, '/api/me/contexto', { portador: true, userId: PAOLA_ID })
+        const cs = ctxSolo.body as W.ContextoResponse
+        check(
+          'Paola: contexto como líder: sin Ejecutivo Comercial ni zona, solo trauma, solo su médico de trauma y sin meta',
+          ctxSolo.status === 200 && ok('contexto', cs) && cs.persona?.rol === 'lider' && cs.persona.executive_id === null && cs.persona.lineas.map(l => `${l.id}:${l.como}`).join() === `${L_TRA}:lider` && cs.ejecutiva.zona === null && cs.ejecutiva.lineas.map(l => l.id).join() === L_TRA && cs.mis_medicos.map(m => m.id).join() === M_TRA && cs.hoy.meta.medica === 0 && cs.hoy.meta.institucional === 0,
+          cs && { persona: cs.persona, ejecutiva: cs.ejecutiva, medicos: cs.mis_medicos.map(m => m.id), meta: cs.hoy?.meta }
+        )
+        const numerosSolo = await pedir(verNumeros, '/api/me/numeros?mes=2026-10', { portador: true, userId: PAOLA_ID })
+        check('Paola: Mis números sin cuota (null), como una líder', numerosSolo.status === 200 && ok('numeros', numerosSolo.body) && numerosSolo.body.cuota === null, numerosSolo.body)
+        const antesSolo = visitasApp().length
+        const sustitutosSolo = await visitaDe(PAOLA_ID, cuerpoVisita({ medico_id: M_SUS, lineas: [L_SUS] }))
+        check(
+          `Paola: reportar con su línea de Ejecutiva (sustitutos) → 400 con "${MENSAJE_LINEAS_AJENAS}" en "lineas"; nada guardado`,
+          sustitutosSolo.status === 400 && (sustitutosSolo.body?.errores ?? []).some((e: W.ErrorVisita) => e.campo === 'lineas' && e.mensaje === MENSAJE_LINEAS_AJENAS) && visitasApp().length === antesSolo,
+          sustitutosSolo.body
+        )
+        // Otro día: el 14 ya tiene la cita de trauma de la sección 15 (una por médico y día).
+        const citaSinComo = await agendaDe(PAOLA_ID, { fecha: '2026-10-16', hora: '16:00', tipo: 'medica', medico_id: M_TRA, sede_id: S1 })
+        const rpcCrear = fake.rpcs.filter(r => r.nombre === 'agenda_crear').at(-1)
+        check(
+          'Paola: agendar sin "como" → como líder: la API se lo pide así a la base (que si no la agendaría como Ejecutiva)',
+          citaSinComo.status === 201 && citaSinComo.body.cita.como === 'lider' && filaCita(citaSinComo.body.cita.id)?.executive_id === null && rpcCrear?.args.p.como === 'lider',
+          { cita: citaSinComo.body, args: rpcCrear?.args }
+        )
+        const antesCitas = tablas.visitas_agenda.length
+        const citaComoEc = await agendaDe(PAOLA_ID, { fecha: MANANA, hora: '17:00', tipo: 'medica', medico_id: M_SUS, sede_id: S1, como: 'ejecutivo' })
+        check(
+          `Paola: agendar "Como Ejecutivo Comercial" → 403 "${MENSAJE_EJECUTIVO_EN_VMO}" (con el error en "como"); nada guardado`,
+          citaComoEc.status === 403 && citaComoEc.body?.error === MENSAJE_EJECUTIVO_EN_VMO && citaComoEc.body?.errores?.[0]?.campo === 'como' && tablas.visitas_agenda.length === antesCitas,
+          citaComoEc.body
+        )
+        const idSinComo = citaSinComo.body?.cita?.id as string
+        const cancelada = await pedir(cancelarCita, `/api/me/agenda/${idSinComo}/cancelar`, { method: 'POST', body: CUERPO_MOTIVO_APP, id: idSinComo, portador: true, userId: PAOLA_ID })
+        const otraComoEc = await pedir(otraFechaCita, `/api/me/agenda/${idSinComo}/otra-fecha`, { method: 'POST', body: { ...CUERPO_OTRA_FECHA_APP, como: 'ejecutivo' }, id: idSinComo, portador: true, userId: PAOLA_ID })
+        const otraSolo = await pedir(otraFechaCita, `/api/me/agenda/${idSinComo}/otra-fecha`, { method: 'POST', body: CUERPO_OTRA_FECHA_APP, id: idSinComo, portador: true, userId: PAOLA_ID })
+        const rpcOtra = fake.rpcs.filter(r => r.nombre === 'agenda_otra_fecha').at(-1)
+        check(
+          `Paola: otra fecha "Como Ejecutivo Comercial" → 403 "${MENSAJE_EJECUTIVO_EN_VMO}"; con el cuerpo de la app (como null) → 201 y la base recibe como lider`,
+          cancelada.status === 200 && otraComoEc.status === 403 && otraComoEc.body?.error === MENSAJE_EJECUTIVO_EN_VMO && otraSolo.status === 201 && otraSolo.body.cita.como === 'lider' && rpcOtra?.args.p.como === 'lider',
+          { cancelada: cancelada.body, otraComoEc: otraComoEc.body, otraSolo: otraSolo.body, args: rpcOtra?.args }
+        )
+
+        const [meLuciaSolo, meAdminSolo, meDirectoraSolo] = await Promise.all([meDe(LIDER_ID), meDe(ADMIN_ID), meDe(DIRECTORA_ID)])
+        check(
+          `una líder sin Ejecutivo Comercial sigue igual; un administrador sin líneas → sin_persona "${MENSAJE_SIN_LINEAS}"; la dirección → sin_persona null (la app la reconoce por su rol)`,
+          meLuciaSolo.body?.persona?.rol === 'lider' && meLuciaSolo.body.sin_persona === null && meAdminSolo.body?.persona === null && meAdminSolo.body.sin_persona === MENSAJE_SIN_LINEAS && meDirectoraSolo.body?.persona === null && meDirectoraSolo.body.sin_persona === null,
+          { lucia: meLuciaSolo.body, admin: meAdminSolo.body, directora: meDirectoraSolo.body }
+        )
+      } finally {
+        process.env.APP_CAMPO_EJECUTIVOS = 'true'
+      }
     }
 
     check('nada salió a la red salvo al Supabase falso', fake.external.length === 0, fake.external)

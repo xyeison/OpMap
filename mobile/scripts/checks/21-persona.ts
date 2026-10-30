@@ -64,6 +64,8 @@ import {
   ETIQUETA_COMO,
   MENSAJE_DIRECCION_EN_LA_WEB,
   MENSAJE_SIN_LINEAS,
+  TEXTO_APP_DE_LIDERES,
+  avisoFuera,
   comoPorDefecto,
   conCicloDeVida,
   eligeComo,
@@ -211,6 +213,25 @@ export async function pruebas(t: Probador): Promise<void> {
         entraALasPestanas('sin_lineas') &&
         entraALasPestanas('sin_saber')
     )
+    const EN_VMO = 'Las visitas de los Ejecutivos Comerciales se registran en VMO'
+    check(
+      'app solo para líderes (2026-10-30): sin persona y con el porqué del servidor (sin_persona) → fuera: no entra; sin señal o sin el porqué, como antes',
+      estadoPersona({ role: 'sales_manager', persona: null, sinPersona: EN_VMO }) === 'fuera' &&
+        estadoPersona({ role: 'admin', persona: null, sinPersona: MENSAJE_SIN_LINEAS }) === 'fuera' &&
+        !entraALasPestanas('fuera') &&
+        estadoPersona({ role: 'sales_manager', persona: null, sinPersona: EN_VMO, sinConfirmar: true }) === 'sin_saber' &&
+        estadoPersona({ role: 'sales_manager', persona: null, sinPersona: '  ' }) === 'sin_lineas' &&
+        estadoPersona({ role: 'sales_manager', persona: null, sinPersona: null }) === 'sin_lineas' &&
+        estadoPersona({ role: 'line_leader', persona: LUCIA, sinPersona: EN_VMO }) === 'campo' &&
+        estadoPersona({ role: 'commercial_director', persona: null, sinPersona: EN_VMO }) === 'direccion'
+    )
+    check(
+      'avisoFuera: la dirección ve el mensaje de la web; quien queda fuera, el porqué del servidor (o "sin líneas"); los dos con para quién es la app',
+      JSON.stringify(avisoFuera('direccion', null)) === JSON.stringify({ titulo: MENSAJE_DIRECCION_EN_LA_WEB, texto: TEXTO_APP_DE_LIDERES }) &&
+        JSON.stringify(avisoFuera('fuera', EN_VMO)) === JSON.stringify({ titulo: EN_VMO, texto: TEXTO_APP_DE_LIDERES }) &&
+        avisoFuera('fuera', null).titulo === MENSAJE_SIN_LINEAS &&
+        TEXTO_APP_DE_LIDERES === 'La app es para las líderes de negocio: agendan y reportan en campo.'
+    )
     check(
       'personaDeMe: la del servidor manda (también null); un servidor sin la 0850 (sin la clave) deja la que se sabía',
       personaDeMe({ persona: LUCIA }, null) === LUCIA && personaDeMe({ persona: null }, LUCIA) === null && personaDeMe({}, PAOLA) === PAOLA && personaDeMe({}, undefined) === undefined
@@ -296,7 +317,11 @@ export async function pruebas(t: Probador): Promise<void> {
     )
     const web = leer('web/lib/persona-campo.ts')
     check('MENSAJE_SIN_LINEAS es el mismo texto del servidor (web/lib/persona-campo.ts)', web.includes(`export const MENSAJE_SIN_LINEAS = '${MENSAJE_SIN_LINEAS}'`))
-    check('el mensaje de la dirección comercial: "La dirección comercial sigue a su equipo en la web (Equipo)"', MENSAJE_DIRECCION_EN_LA_WEB === 'La dirección comercial sigue a su equipo en la web (Equipo)')
+    check('el mensaje de la dirección comercial: "La dirección comercial sigue a su equipo en la web" (sin "(Equipo)", que aún no existe)', MENSAJE_DIRECCION_EN_LA_WEB === 'La dirección comercial sigue a su equipo en la web')
+    check(
+      'el porqué de quien solo es Ejecutivo Comercial es el mismo texto del servidor (MENSAJE_EJECUTIVO_EN_VMO de web/lib/persona-campo.ts)',
+      web.includes(`export const MENSAJE_EJECUTIVO_EN_VMO = '${EN_VMO}'`)
+    )
   }
 
   // -------------------------------------------------------------------------
@@ -623,10 +648,11 @@ export async function pruebas(t: Probador): Promise<void> {
 
     const layout = leer('mobile/app/(app)/_layout.tsx')
     check(
-      'la dirección comercial ve el mensaje de la web y no entra a las pestañas (antes de dibujar las Tabs)',
-      /if \(!entraALasPestanas\(estadoPersona\(\{ role: perfil\?\.usuario\.role, persona: perfil\?\.persona, sinConfirmar \}\)\)\) return <SoloEnLaWeb \/>/.test(layout) &&
-        layout.indexOf('return <SoloEnLaWeb />') < layout.indexOf('<Tabs') &&
-        /titulo=\{MENSAJE_DIRECCION_EN_LA_WEB\}/.test(layout) &&
+      'la dirección comercial y quien el servidor dejó fuera (sin_persona) ven su aviso y no entran a las pestañas (antes de dibujar las Tabs)',
+      /const quien = estadoPersona\(\{ role: perfil\?\.usuario\.role, persona: perfil\?\.persona, sinPersona: perfil\?\.sinPersona, sinConfirmar \}\)/.test(layout) &&
+        /if \(!entraALasPestanas\(quien\)\) return <FueraDeLaApp \{\.\.\.avisoFuera\(quien, perfil\?\.sinPersona\)\} \/>/.test(layout) &&
+        layout.indexOf('return <FueraDeLaApp') < layout.indexOf('<Tabs') &&
+        /<Aviso tono="info" titulo=\{titulo\}>/.test(layout) &&
         /titulo="Cerrar sesión"/.test(layout)
     )
     check('la barra de abajo no cambia: hoy, reportar, agenda, numeros y ajustes', PESTANAS.map(p => p.ruta).join() === 'hoy,reportar,agenda,numeros,ajustes')
@@ -722,6 +748,12 @@ export async function pruebas(t: Probador): Promise<void> {
     check(
       'la sesión guarda la persona de /api/auth/me (personaDeMe) al confirmar y, después de entrar, la pide en segundo plano (completarPersona)',
       /persona: personaDeMe\(respuesta, guardado\?\.persona\)/.test(sesion) && /void completarPersona\(respuesta\.token, nuevo\)/.test(sesion) && /api\.me\(token, TIEMPO_ME_FONDO_MS\)/.test(entre(sesion, 'const completarPersona = useCallback(', 'const entrar = useCallback('))
+    )
+    check(
+      'la sesión guarda el porqué sin persona de /api/auth/me (sin_persona) al confirmar y al completar la persona; al entrar, sin saberlo',
+      /sinPersona: respuesta\.sin_persona \?\? null/.test(entre(sesion, 'const confirmar = useCallback(', 'catch (lanzado)')) &&
+        /sinPersona: respuesta\.sin_persona \?\? null/.test(entre(sesion, 'const completarPersona = useCallback(', 'catch (lanzado)')) &&
+        !/sinPersona/.test(entre(sesion, 'const entrar = useCallback(', 'void completarPersona('))
     )
     check(
       'la sesión guarda qué servidor respondió /api/auth/me (servidorDeMe) al confirmar y al completar la persona; al entrar, sin saberlo (queda como está)',

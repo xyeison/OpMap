@@ -18,6 +18,8 @@ import { fetchAllRows, jsonError } from '@/app/api/kams/_lib/kam-shared'
 import {
   MENSAJE_DIRECCION_NO_REPORTA,
   MENSAJE_SIN_LINEAS,
+  appSoloLideres,
+  lineasDeLaApp,
   lineasParaReportar,
   rolDePersona,
   type LineaCampo,
@@ -434,7 +436,8 @@ export type PersonaCampoResult = { ok: true; persona: PersonaCampo } | { ok: fal
  * Lee la persona de campo del usuario con las filas reales (su Ejecutivo Comercial activo y sus líneas, las líneas que
  * lidera) y la arma con lib/persona-campo.ts. La dirección comercial → MENSAJE_DIRECCION_NO_REPORTA (A1); sin líneas →
  * MENSAJE_SIN_LINEAS. Un Ejecutivo Comercial sin zona sí pasa aquí (como antes): el reporte lo rechaza después con
- * MENSAJE_SIN_ZONA (validarVisita y la base).
+ * MENSAJE_SIN_ZONA (validarVisita y la base). Con la app solo para líderes (dueño, 2026-10-30: lineasDeLaApp), quien
+ * solo es Ejecutivo Comercial → MENSAJE_EJECUTIVO_EN_VMO y Paola entra solo como líder, sin su Ejecutivo Comercial.
  */
 export async function personaDeCampo(user: Pick<SessionUser, 'id' | 'role' | 'active' | 'full_name'>): Promise<PersonaCampoResult> {
   if (user.role === 'commercial_director') return { ok: false, error: MENSAJE_DIRECCION_NO_REPORTA }
@@ -454,15 +457,21 @@ export async function personaDeCampo(user: Pick<SessionUser, 'id' | 'role' | 'ac
         )
       ).map(vinculo => vinculo.line_id)
     : []
-  const { ec, lider, todas } = lineasParaReportar({
-    usuario: { id: user.id, role: user.role, active: user.active },
-    ejecutiva: fila ? { id: fila.id, status: fila.status, base_kam_id: fila.base_kam_id } : null,
-    lineasEjecutiva,
-    lineas: lideradas,
-  })
+  const soloLideres = appSoloLideres(process.env)
+  const deLaApp = lineasDeLaApp(
+    lineasParaReportar({
+      usuario: { id: user.id, role: user.role, active: user.active },
+      ejecutiva: fila ? { id: fila.id, status: fila.status, base_kam_id: fila.base_kam_id } : null,
+      lineasEjecutiva,
+      lineas: lideradas,
+    }),
+    soloLideres
+  )
+  if (!deLaApp.ok) return { ok: false, error: deLaApp.error }
+  const { ec, lider, todas } = deLaApp
   const rol = rolDePersona(ec, lider)
   if (!rol) return { ok: false, error: MENSAJE_SIN_LINEAS }
-  const ejecutiva = fila ? (await armarPersonas([fila]))[0] : null
+  const ejecutiva = fila && !soloLideres ? (await armarPersonas([fila]))[0] : null
   return {
     ok: true,
     persona: {

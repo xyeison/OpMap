@@ -2,9 +2,16 @@
 
 **Estado**: aprobada en su concepción por el dueño el 2026-10-15, con sus respuestas A1–A17
 (`docs/decisiones/2026-10-15-actividades-de-campo.md`). F1a escrita (rama `feat/campo-f1a`, PR #48; la 0850 sin aplicar).
-F1b escrita en la rama `feat/campo-f1b` (sin migración), con las correcciones de la revisión del 2026-10-30: faltan las
-capturas y la prueba en el iPhone del dueño, contra un servidor con la 0850 (ver "F1b"). Queda abierto lo de "Lo que
-sigue abierto".
+F1b escrita en la rama `feat/campo-f1b` (sin migración), con las correcciones de la revisión del 2026-10-30. Falta la
+prueba en el iPhone del dueño, contra un servidor con la 0850 (ver "F1b"). Queda abierto lo de "Lo que sigue abierto".
+
+**Cambio del dueño del 2026-10-30** (`docs/decisiones/2026-10-30-app-de-campo-solo-lideres.md`): la app es SOLO para las
+líderes. Los Ejecutivos Comerciales siguen reportando en VMO.
+- El servidor no da persona a quien solo es Ejecutivo Comercial: `sin_persona` en `/api/auth/me` y 403 en `/api/me/*`.
+- Paola entra solo como líder.
+- Lo de esta spec sobre Ejecutivos Comerciales en la app, y lo de Paola "como Ejecutivo Comercial" (C4, C12 y A13 en
+  la app), queda dormido. Lo vuelve a encender `APP_CAMPO_EJECUTIVOS=true` en el servidor, para cuando la app reemplace
+  a VMO.
 
 **Fuentes**:
 - Estudio del 2026-10-15, de solo lectura: modelo de datos, Excel de la directora, vista de la directora y tipos de
@@ -1015,10 +1022,16 @@ también en `web/scripts/reporte-api-check.ts`):
    lee VoiceOver): lo de días anteriores se cierra con "No se hizo". Al cerrar o cancelar queda "Anotado…" con "Agendar
    otra fecha".
 2. **La dirección comercial se reconoce por su rol** (`commercial_director`, que el login ya trae), no por `persona`: así
-   no depende de una consulta. Ve "La dirección comercial sigue a su equipo en la web (Equipo)" y "Cerrar sesión". Quien
-   el servidor confirma sin líneas sí entra a las pestañas (para poder salir o ver Ajustes) y Hoy le dice "Tu usuario no
-   tiene líneas para reportar"; sin el dato (recién entró, sin señal, un servidor sin la 0850) la app sigue como antes y
-   decide el servidor: nunca deja fuera a nadie por no saber. La persona del contexto, si llegó, manda sobre la del perfil.
+   no depende de una consulta.
+   - Ve "La dirección comercial sigue a su equipo en la web" ("(Equipo)" se quitó: esa página llega en F4) y "Cerrar
+     sesión".
+   - Desde el 2026-10-30 (app solo para líderes), quien el servidor deja fuera diciendo por qué (`sin_persona`) ve ese
+     aviso igual y no entra a las pestañas. Por ejemplo, "Las visitas de los Ejecutivos Comerciales se registran en VMO",
+     o un administrador sin líneas.
+   - Si el servidor confirma "sin líneas" sin decir por qué (un servidor anterior), la persona entra y Hoy se lo dice.
+   - Sin el dato (recién entró, sin señal, un servidor sin la 0850), la app sigue como antes y decide el servidor: nunca
+     deja fuera a nadie por no saber.
+   - La persona del contexto, si llegó, manda sobre la del perfil.
 3. **(C-F1b-3) `viene_de_fecha` y `viene_de_estado` en `CitaItem`** (aditivo en `armarCitaItems`: una consulta más, solo
    con citas que vienen de otra): sin eso el detalle no puede decir "Viene de la cita del 12 oct · No se hizo" cuando la
    anterior es de otro mes (Mi agenda carga por mes). Si la anterior está hecha, el detalle dice "No efectiva" (solo una

@@ -72,7 +72,7 @@ export const CLAVES_API = {
   login: exactas<LoginMovilResponse>()(['token', 'expira_at', 'usuario', 'ejecutiva']),
   usuario: exactas<UsuarioMovil>()(['id', 'full_name', 'role']),
   ejecutivaMovil: exactas<EjecutivaMovil>()(['id', 'full_name', 'zona']),
-  me: exactas<MeResponse>()(['user', 'ejecutiva', 'persona']),
+  me: exactas<MeResponse>()(['user', 'ejecutiva', 'persona', 'sin_persona']),
   // Persona de campo (0850; la app la usa desde F1b)
   persona: exactas<PersonaMovil>()(['rol', 'lineas']),
   lineaPersona: exactas<LineaPersona>()(['id', 'nombre', 'como']),

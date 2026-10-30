@@ -10,8 +10,10 @@ la solución que propongas en la app".
 1. **Reemplaza la A15 del 2026-10-15** ("no se importa el histórico del Excel"): el histórico SÍ se importa.
 2. Va en "Líderes de negocio" (`/lideres`, menú Empleados). Lo ven el administrador y la dirección comercial
    (permiso `lideres:seguimiento`). Las líderes no se ven entre ellas (A2).
-3. La directora sube el Excel tal como lo lleva hoy, y puede volver a subirlo hasta que las líderes reporten en la app.
-   Cada carga reemplaza el histórico completo: el Excel manda, y si ella corrige una fila, OpMap la corrige.
+3. ~~La directora sube el Excel tal como lo lleva hoy, y puede volver a subirlo hasta que las líderes reporten en la
+   app.~~ **Reemplazado el 2026-10-30** (`2026-10-30-app-de-campo-solo-lideres.md`): el Excel ya no se sube en
+   `/lideres`. Su histórico se carga una sola vez con `web/scripts/lideres-historico-cargar.ts`, y lo nuevo, las líderes
+   lo reportan en la app. Esa carga sigue reemplazando el histórico completo.
 4. **Qué se guarda de cada fila**:
    - fecha;
    - líder (su usuario de OpMap);
@@ -36,8 +38,8 @@ la solución que propongas en la app".
   - calidad del registro.
 
   Y sin las fórmulas rotas del Excel.
-- **Cuando las líderes reporten en la app**, la directora deja de subir el Excel. El histórico queda y la vista suma
-  lo de la app.
+- **Desde el 2026-10-30 la directora no sube el Excel**: las líderes reportan en la app. El histórico queda; la vista de
+  lo que hacen en la app llega con F4 (`/equipo`).
 - **Datos**: migración `0920_lideres_historico` con su rollback `9957`, aplicada el 2026-10-29 con autorización del dueño. Crea la tabla
   `lideres_historico`, la bitácora de cargas y una función que reemplaza todo en una transacción.
 - **Costo**: Google Maps 0. La ciudad sale de la lista de municipios del DANE, nunca de una búsqueda.
@@ -46,6 +48,7 @@ la solución que propongas en la app".
 
 **Dónde vive en el código**:
 - `web/lib/lideres-historico.ts` lee y normaliza la hoja REGISTRO. Lo prueba `web/scripts/lideres-historico-check.ts`.
-- `web/app/api/lideres/historico/route.ts` resuelve líderes y ciudades, muestra la vista previa y guarda.
-- `web/app/lideres/page.tsx` tiene la vista de la directora.
+- `web/app/api/lideres/_lib/historico-server.ts` resuelve líderes y ciudades, arma la vista previa y guarda. Lo llama
+  `web/scripts/lideres-historico-cargar.ts` (desde el 2026-10-30, la única carga).
+- `web/app/api/lideres/historico/route.ts` (solo GET) y `web/app/lideres/page.tsx` dan la vista de la directora.
 - `database/migrations/2026-10-29_0920_lideres_historico.sql`.
