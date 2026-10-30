@@ -16,8 +16,8 @@ puede correr en una ruta de cron.
 
 ## Pasos del dueño (una vez)
 
-1. **Migración**: revisar y aprobar `database/migrations/2026-10-30_0930_sia_observa.sql` (aditiva; rollback 9958). Se aplica
-   en la misma ventana que el despliegue. Después: `NOTIFY pgrst, 'reload schema';`.
+1. **Migración**: `database/migrations/2026-10-30_0930_sia_observa.sql` (aditiva; rollback 9958) APLICADA el 2026-10-30 con
+   autorización del dueño, en la misma ventana que el despliegue del PR #50, seguida de `NOTIFY pgrst, 'reload schema';`.
 2. **En el Mac** (en Colombia), en `web/.env.local`, además de lo que ya hay (`NEXT_PUBLIC_SUPABASE_URL`,
    `SUPABASE_SERVICE_ROLE_KEY`):
    - `SIA_CONTACTO=<correo de la empresa>`: va en el User-Agent para que la Auditoría sepa quién consulta.

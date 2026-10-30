@@ -1,7 +1,7 @@
 -- =====================================================================================
 -- OpMap · feat/agente-sia-observa (contratos y documentos de SIA Observa) · 0930 — Tablas de SIA, enlaces y bucket
--- Proyecto: norvxqgohddgsdkggqzq · Generado: 2026-10-30 · NO APLICADA TODAVÍA (autorizada por el dueño el 2026-10-30,
---   "Aplicar y desplegar": se aplica en la misma ventana que el despliegue del PR #50).
+-- Proyecto: norvxqgohddgsdkggqzq · Generado: 2026-10-30 · APLICADA el 2026-10-30 con autorización del dueño ("Aplicar y
+--   desplegar"), en la misma ventana que el despliegue del PR #50.
 --
 -- Spec: docs/specs/2026-10-29-agente-sia-observa.md (sección 6 "Migración propuesta", ajustada a las convenciones del
 --   repo y a lo visto con SELECT el 2026-10-30; ver "Notas de implementación").

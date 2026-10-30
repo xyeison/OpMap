@@ -103,7 +103,7 @@ nada llama a Google.
   (`web/scripts/sia-load.ts` con launchd) y Vercel solo lee Supabase (`/api/sia/*`). Solo empresas con objeto de las líneas;
   de personas naturales nada. Como un ciudadano: una petición a la vez, 1,5 s, nunca el correo de anonimización. Nada entra a
   `hospital_contracts` sin aprobación humana (importar o "Aplicar" cada diferencia). La lectura con Claude
-  (`scripts/sia-extraer.ts`) cuesta dinero: `--dry-run` antes. Migración 0930 (rollback 9958; la 0920 es la de las líderes) NO aplicada.
+  (`scripts/sia-extraer.ts`) cuesta dinero: `--dry-run` antes. Migración 0930 (rollback 9958; la 0920 es la de las líderes) APLICADA el 2026-10-30.
 - **Seguimiento de las líderes con el Excel "Tracker Líderes"** (dueño, 2026-10-29, `docs/decisiones/2026-10-29-historico-tracker-lideres.md`;
   reemplaza la A15 del 2026-10-15): en `/lideres` (permiso `lideres:seguimiento`: admin y dirección) la directora sube el
   Excel; el navegador manda solo fecha, líder, ciudad, tipo, estado, cuántos contactos y si había observación (ningún
