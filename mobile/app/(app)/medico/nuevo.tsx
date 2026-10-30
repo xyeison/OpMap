@@ -3,8 +3,10 @@
  * propone la IA), nombre, ciudad, especialidad y al menos una sede donde atiende. Primero se verifica el documento
  * (POST /api/terceros/medicos/verificar): si ya existe se muestra el existente y se usa ese; si hay nombres
  * parecidos se ofrecen. Las sedes salen de las cercanas, del buscador de sedes o de "Crear consultorio" (una cuenta
- * consultorio con el GPS del sitio). Al crear, vuelve a Reportar con el médico puesto en la tarjeta que lo pidió.
- * El documento solo viaja en el cuerpo de las peticiones y nunca se muestra en listas.
+ * consultorio con el GPS del sitio). Al crear, vuelve a la pantalla que lo pidió: Reportar, con el médico puesto en la
+ * tarjeta, o Agendar (CLAVE_RETORNO_AGENDAR, 2026-10-30), que lo elige al volver (medicoParaAgendar: Agendar se monta de
+ * cero y toma su vuelta). Desde Agendar no se está en el sitio: el
+ * consultorio queda sin ubicación. El documento solo viaja en el cuerpo de las peticiones y nunca se muestra en listas.
  *
  * Spec 2026-10-15: cada error va junto a su campo (erroresNuevoMedico) y "Verificar" / "Crear médico" quedan fijos al
  * pie (Pantalla.pie), con el error del servidor encima: a la vista aunque el formulario sea largo o el teclado esté.
@@ -21,16 +23,16 @@ import { erroresNuevoMedico } from '../../../lib/pantallas'
 import { medicoParaReportar, sedeConsultorio } from '../../../lib/propuesta'
 import { sinCortes } from '../../../lib/reglas'
 import { SoloEnFoco } from '../../../lib/montaje'
-import { avisarRetorno, leerPedido } from '../../../lib/retorno'
+import { CLAVE_RETORNO_AGENDAR, avisarRetorno, leerPedido, medicoParaAgendar } from '../../../lib/retorno'
 import {
   ESPECIALIDADES,
   ROLES_MEDICO_SEDE,
-  TIPOS_DOC_MEDICO,
+  TIPOS_DOC_MEDICO_NUEVO,
   limpiarNombre,
   tipoIdCuentaDeMedico,
   validarDocumentoMedico,
 } from '../../../lib/terceros'
-import type { EspecialidadMedico, MedicoPublico, MedicoVerificarRespuesta, RolMedicoSede, SedeBusquedaItem, TipoDocMedico } from '../../../lib/tipos'
+import type { EspecialidadMedico, MedicoPublico, MedicoVerificarRespuesta, RolMedicoSede, SedeBusquedaItem, TipoDocMedicoNuevo } from '../../../lib/tipos'
 import { Aviso, Boton, Campo, Chip, Grupo, Pantalla, Subtitulo, Tarjeta, Texto, useColores } from '../../../lib/ui'
 
 interface SedeElegida {
@@ -57,7 +59,7 @@ function NuevoMedico() {
   const cercanas = (pedido?.sedes ?? []).filter(s => s.distancia_m !== null).slice(0, 6)
   const distancias = new Map((pedido?.sedes ?? []).map(s => [s.id, s.distancia_m]))
 
-  const [tipo, setTipo] = useState<TipoDocMedico>('CC')
+  const [tipo, setTipo] = useState<TipoDocMedicoNuevo>('CC')
   const [numero, setNumero] = useState('')
   const [nombre, setNombre] = useState(pedido?.nombre ?? '')
   const [municipio, setMunicipio] = useState<string | null>(pedido?.municipio ? pedido.municipio.slice(0, 5) : null)
@@ -86,10 +88,12 @@ function NuevoMedico() {
     // GPS de aquí está a 0 m). Las demás quedan "desconocidas" y decide el servidor.
     const conocidas = new Map(distancias)
     for (const sede of sedes) if (sede.distancia_m !== null) conocidas.set(sede.sede_id, sede.distancia_m)
-    avisarRetorno({ tipo: 'medico', clave, medico: medicoParaReportar(medico, conocidas) })
+    // Agendar no está montado (SoloEnFoco): el médico va a su vuelta; Reportar sí oye el aviso
+    if (clave === CLAVE_RETORNO_AGENDAR) medicoParaAgendar(medico.id)
+    else avisarRetorno({ tipo: 'medico', clave, medico: medicoParaReportar(medico, conocidas) })
     setNumero('')
     if (router.canGoBack()) router.back()
-    else router.replace('/reportar')
+    else router.replace(clave === CLAVE_RETORNO_AGENDAR ? '/agenda/nueva' : '/reportar')
   }
 
   const usarExistente = async (id: string) => {
@@ -220,10 +224,10 @@ function NuevoMedico() {
       <Tarjeta estilo={{ gap: 12 }}>
         <Subtitulo>1. Documento y nombre</Subtitulo>
         <Grupo>
-          {TIPOS_DOC_MEDICO.map(opcion => (
+          {TIPOS_DOC_MEDICO_NUEVO.map(opcion => (
             <Chip
               key={opcion.valor}
-              texto={opcion.valor === 'otro' ? 'Otro' : opcion.valor === 'PA' ? 'Pasaporte' : opcion.valor}
+              texto={opcion.valor}
               activo={tipo === opcion.valor}
               alPresionar={() => {
                 setTipo(opcion.valor)
@@ -354,7 +358,13 @@ function NuevoMedico() {
             textoElegir="Atiende aquí"
             alElegir={item => agregarSede({ sede_id: item.id, nombre: item.nombre, cuenta_nombre: item.cuenta_nombre, distancia_m: null })}
           />
-          <Boton titulo="Crear consultorio" detalle="Cuenta consultorio del médico con el GPS de aquí" variante="secundario" cargando={ocupado} alPresionar={() => void crearConsultorio()} />
+          <Boton
+            titulo="Crear consultorio"
+            detalle={pedido?.punto || pedido?.puntoFinal ? 'Cuenta consultorio del médico con el GPS de aquí' : 'Cuenta consultorio del médico, sin ubicación (no estás en el sitio)'}
+            variante="secundario"
+            cargando={ocupado}
+            alPresionar={() => void crearConsultorio()}
+          />
         </Tarjeta>
       ) : null}
 

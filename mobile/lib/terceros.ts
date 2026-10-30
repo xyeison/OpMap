@@ -6,7 +6,7 @@
  * El documento del médico se DIGITA (nunca se dicta ni lo propone la IA), se valida aquí con la misma regla que el
  * servidor y viaja solo en el cuerpo de POST /api/terceros/medicos[/verificar]; nunca se muestra en listas.
  */
-import type { ClaseCuenta, EspecialidadMedico, RolMedicoSede, TipoDocMedico, TipoIdCuenta } from './tipos'
+import type { ClaseCuenta, EspecialidadMedico, RolMedicoSede, TipoDocMedico, TipoDocMedicoNuevo, TipoIdCuenta } from './tipos'
 
 export interface Opcion<T extends string = string> {
   valor: T
@@ -20,6 +20,16 @@ export const TIPOS_DOC_MEDICO: readonly Opcion<TipoDocMedico>[] = [
   { valor: 'PEP', etiqueta: 'Permiso especial de permanencia' },
   { valor: 'PPT', etiqueta: 'Permiso por protección temporal' },
   { valor: 'otro', etiqueta: 'Otro' },
+]
+
+/**
+ * Los tipos que ofrece Nuevo médico: solo cédula de ciudadanía o de extranjería, para no repetir médicos (dueño,
+ * 2026-10-30; el servidor rechaza los demás con "El documento del médico es la cédula de ciudadanía (CC) o la cédula de
+ * extranjería (CE)"). TIPOS_DOC_MEDICO sigue con todos para mostrar los ya guardados.
+ */
+export const TIPOS_DOC_MEDICO_NUEVO: readonly Opcion<TipoDocMedicoNuevo>[] = [
+  { valor: 'CC', etiqueta: 'Cédula de ciudadanía' },
+  { valor: 'CE', etiqueta: 'Cédula de extranjería' },
 ]
 
 /** Etiqueta corta del tipo de documento para los chips ("CC", "CE"…). */
@@ -109,3 +119,52 @@ export function municipioDe(codigo: string | null | undefined): string | null {
   const limpio = (codigo ?? '').trim().slice(0, 5)
   return /^\d{5}$/.test(limpio) ? limpio : null
 }
+
+// ---------------------------------------------------------------------------------------------
+// Contactos sin duplicados (dueño, 2026-10-30; web/lib/terceros.ts y contactoCreateSchema de web/lib/terceros-schemas.ts):
+// nombre, y teléfono y/o correo. Si en la cuenta ya hay uno con ese teléfono o correo, el servidor responde 409 con él.
+// ---------------------------------------------------------------------------------------------
+
+/** Los mismos textos de la web (lo prueba scripts/checks: deben ser iguales letra por letra). */
+export const MENSAJE_CONTACTO_SIN_TELEFONO_NI_CORREO = 'Escribe el teléfono o el correo del contacto'
+export const MENSAJE_CONTACTO_REPETIDO = 'Ese contacto ya está en la cuenta (el mismo teléfono o el mismo correo)'
+export const MENSAJE_TELEFONO_CONTACTO = 'Teléfono no válido: debe tener al menos 7 dígitos'
+export const MENSAJE_CORREO_CONTACTO = 'Correo no válido'
+
+const CORREO_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+export interface DatosNuevoContacto {
+  nombre: string
+  telefono: string
+  email: string
+}
+
+/** Lo que le falta a cada campo del contacto nuevo (vacío si está completo): las mismas reglas del servidor. */
+export function erroresNuevoContacto(datos: DatosNuevoContacto): Partial<Record<'nombre' | 'telefono' | 'email', string>> {
+  const errores: Partial<Record<'nombre' | 'telefono' | 'email', string>> = {}
+  const nombre = limpiarNombre(datos.nombre)
+  if (!nombre) errores.nombre = 'Escribe el nombre del contacto'
+  else if (nombre.replace(/[^\p{L}]/gu, '').length < 2) errores.nombre = 'El nombre del contacto debe tener al menos 2 letras'
+  const telefono = limpiarNombre(datos.telefono)
+  const email = datos.email.trim()
+  if (telefono && (telefono.length > 60 || (telefono.match(/\d/g) ?? []).length < 7)) errores.telefono = MENSAJE_TELEFONO_CONTACTO
+  if (email && (email.length > 320 || !CORREO_RE.test(email))) errores.email = MENSAJE_CORREO_CONTACTO
+  if (!telefono && !email) errores.telefono = MENSAJE_CONTACTO_SIN_TELEFONO_NI_CORREO
+  return errores
+}
+
+/** El cuerpo de POST /api/terceros/contactos: textos limpios; el correo en minúsculas; lo vacío, null. */
+export function cuerpoNuevoContacto(datos: DatosNuevoContacto & { cuenta_id: string; sede_id: string | null; cargo: string }) {
+  const telefono = limpiarNombre(datos.telefono)
+  const email = datos.email.trim().toLowerCase()
+  const cargo = limpiarNombre(datos.cargo)
+  return {
+    cuenta_id: datos.cuenta_id,
+    sede_id: datos.sede_id,
+    nombre: limpiarNombre(datos.nombre),
+    cargo_texto: cargo || null,
+    telefono: telefono || null,
+    email: email || null,
+  }
+}
+

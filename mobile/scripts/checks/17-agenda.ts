@@ -74,6 +74,7 @@ import {
 import { tieneClaves } from '../../lib/claves-api'
 import { diasEntre, sumarDias, sumarMeses } from '../../lib/fechas'
 import { MENSAJE_CITA_PASADA, MENSAJE_HORA_CITA, formularioCitaVacio, type FormularioCita } from '../../lib/propuesta'
+import { VIGENCIA_VUELTA_AGENDAR_MS, guardarAgendarAntesDeCrear, medicoParaAgendar, tomarVueltaAgendar } from '../../lib/retorno'
 import type { CitaItem, DiaLibreItem } from '../../lib/tipos'
 import type { Probador } from './probador'
 
@@ -461,8 +462,59 @@ export async function pruebas(t: Probador): Promise<void> {
     // Revisión 2026-10-15: un solo buscador de médicos (había dos: el filtro del selector y "Buscar otro médico en OpMap").
     check(
       'Agendar: un solo buscador de médicos: el del Selector, que ofrece "Buscar en OpMap" (buscarFuera) con lo escrito',
-      selectorMedico.includes('buscarFuera={{') && /donde: 'OpMap'/.test(selectorMedico) && /consulta=\{consulta\}/.test(selectorMedico) && !sinComentarios(nueva).includes('Buscar otro médico en OpMap') && !selectorMedico.includes('extra=')
+      selectorMedico.includes('buscarFuera={{') && /donde: 'OpMap'/.test(selectorMedico) && /consulta=\{consulta\}/.test(selectorMedico) && !sinComentarios(nueva).includes('Buscar otro médico en OpMap') && !/extra=\{\s*<Buscador/.test(selectorMedico)
     )
+    // Dueño, 2026-10-30: "debería dejarme crearlo si no lo encuentra"; "si no encuentra nada que coincide, aparece la
+    // opción crear médico"
+    check(
+      'Agendar: "Crear médico" solo en la búsqueda de OpMap que no encontró a nadie (siNoHay), con lo buscado como nombre; no siempre a la vista',
+      /siNoHay=\{buscado => \(\s*<Boton titulo="Crear médico"[^>]*alPresionar=\{\(\) => crearMedico\(buscado\)\}/.test(selectorMedico) && !/extra=/.test(selectorMedico),
+      selectorMedico.slice(0, 300)
+    )
+    check(
+      'Agendar: antes de ir guarda su formulario (guardarAgendarAntesDeCrear) y pide Nuevo médico con CLAVE_RETORNO_AGENDAR y el nombre',
+      /const crearMedico = \(nombre: string\) => \{\s*guardarAgendarAntesDeCrear\(formulario\)\s*fijarPedido\(\{ clave: CLAVE_RETORNO_AGENDAR, nombre, [^)]*\}\)\s*router\.push\('\/medico\/nuevo'\)/.test(nueva)
+    )
+    check(
+      'Agendar: al montarse toma su vuelta (lo que llevaba) y, con el contexto, elige al médico que quedó; si no es de sus líneas de líder, lo dice',
+      /const \[vuelta\] = useState\(\(\) => tomarVueltaAgendar\(\)\)/.test(nueva) &&
+        /useState<FormularioCita>\(\(\) => vuelta\?\.formulario \?\?/.test(nueva) &&
+        /if \(!contexto \|\| !vuelta\?\.medicoId \|\| vueltaAplicada\.current\) return\s*vueltaAplicada\.current = true\s*void ponerMedicoCreado\(vuelta\.medicoId, contexto\)/.test(nueva) &&
+        /medicosDelPapel\(ctx\.mis_medicos, persona, como\)\.find\(m => m\.id === id\)/.test(nueva) &&
+        /aún no es de tus líneas de líder/.test(nueva)
+    )
+    const nuevoMedico = leer('mobile/app/(app)/medico/nuevo.tsx')
+    check(
+      'Nuevo médico: pedido por Agendar deja el médico en la vuelta (medicoParaAgendar; Agendar no está montado), si no avisa a Reportar; sin pantalla anterior vuelve a Agendar; sin GPS el consultorio queda sin ubicación',
+      /if \(clave === CLAVE_RETORNO_AGENDAR\) medicoParaAgendar\(medico\.id\)\s*else avisarRetorno\(/.test(nuevoMedico) &&
+        /router\.replace\(clave === CLAVE_RETORNO_AGENDAR \? '\/agenda\/nueva' : '\/reportar'\)/.test(nuevoMedico) &&
+        /sin ubicación \(no estás en el sitio\)/.test(nuevoMedico)
+    )
+    {
+      // La vuelta a Agendar (revisión 2026-10-30): de verdad, con el módulo
+      const borrador: FormularioCita = { ...formularioCitaVacio('2026-10-20', []), hora: '10:30', nota: 'Llevar muestras' }
+      const sinVuelta = tomarVueltaAgendar(1_000)
+      guardarAgendarAntesDeCrear(borrador, 1_000)
+      medicoParaAgendar('m-nuevo')
+      const vuelta = tomarVueltaAgendar(2_000)
+      const otraVez = tomarVueltaAgendar(3_000)
+      guardarAgendarAntesDeCrear(borrador, 1_000)
+      const cancelada = tomarVueltaAgendar(1_500)
+      guardarAgendarAntesDeCrear(borrador, 0)
+      const vencida = tomarVueltaAgendar(VIGENCIA_VUELTA_AGENDAR_MS + 1)
+      medicoParaAgendar('sin-vuelta')
+      const sinGuardar = tomarVueltaAgendar(1_000)
+      check(
+        'la vuelta a Agendar: trae el formulario y el médico una sola vez; sin médico (volvió sin crear) trae el formulario; vencida o sin guardar, nada',
+        sinVuelta === null &&
+          vuelta?.medicoId === 'm-nuevo' && vuelta.formulario.hora === '10:30' && vuelta.formulario.nota === 'Llevar muestras' && vuelta.formulario.fecha === '2026-10-20' &&
+          otraVez === null &&
+          cancelada?.medicoId === null && cancelada.formulario.fecha === '2026-10-20' &&
+          vencida === null &&
+          sinGuardar === null,
+        { vuelta, otraVez, cancelada, vencida, sinGuardar }
+      )
+    }
     const calendarioAgendar = bloqueJsx(nueva, 'CalendarioMes', 'alCambiar={elegirFecha}')
     check(
       'Agendar (0850, A4): el calendario desde hoy y SIN tope (sin hasta), con sus marcas, y pide cada mes al llegar a él',

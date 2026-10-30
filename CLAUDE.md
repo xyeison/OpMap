@@ -125,6 +125,14 @@ nada llama a Google.
   de `lib/app-campo.ts`). Sin tiendas: cada push a master la publica. Las líderes la abren con "Agendamiento" en el menú de
   OpMap (permiso `campo:app`), con un solo ingreso: login `campo-web` y `POST /api/auth/sesion-app`
   (`docs/specs/2026-10-30-agendamiento-lider-un-ingreso.md`).
+- **Médicos y contactos sin duplicados** (dueño, 2026-10-30, `docs/decisiones/2026-10-30-medicos-y-contactos-sin-duplicados.md`):
+  - el médico se crea y se corrige solo con CC o CE, en `/medicos`, Reportar y Agendar (una sola tabla web+app);
+  - se crea desde la búsqueda que no encontró a nadie; "Nuevo médico" arriba solo si la lista cabe en una página;
+  - el que crea una líder queda de sus líneas de líder (`medico_lineas`);
+  - el contacto lleva teléfono y/o correo y no se repite entre los activos de la cuenta (409 con `existente`);
+  - la visita institucional exige contacto.
+
+  Migración 0950 (rollback 9960): solo con autorización del dueño; borra con respaldo los médicos de prueba "otro".
 - **Territorio y contratos**: el anexo de territorio (Anexo A IPS, Anexo B municipios) va al contrato de
   cada Ejecutivo Comercial; las versiones (`territory_snapshots`) son inmutables.
 - **SECOP I** se cuenta por el valor ADJUDICADO a cada contratista desde `f789-7hwg` (`fuente = 'secop1'`); el

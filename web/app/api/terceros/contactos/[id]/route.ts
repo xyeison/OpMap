@@ -5,8 +5,8 @@ import { requirePermission } from '@/lib/require-role'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { jsonError, readJson, zodMessage } from '@/app/api/kams/_lib/kam-shared'
 import { contactoUpdateSchema } from '@/lib/terceros-schemas'
-import type { ContactoRow } from '@/lib/terceros'
-import { errorInterno, idDeRuta } from '../../_lib/terceros-server'
+import { MENSAJE_CONTACTO_REPETIDO, MENSAJE_CONTACTO_SIN_TELEFONO_NI_CORREO, type ContactoRow } from '@/lib/terceros'
+import { contactoRepetido, errorInterno, idDeRuta } from '../../_lib/terceros-server'
 
 type Params = { params: { id: string } }
 
@@ -24,12 +24,30 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
     const { data: actualData, error: actualError } = await supabaseAdmin
       .from('contactos')
-      .select('id, cuenta_id')
+      .select('id, cuenta_id, telefono, email, activo')
       .eq('id', contactoId)
       .limit(1)
     if (actualError) throw actualError
-    const actual = actualData && actualData.length > 0 ? (actualData[0] as { id: string; cuenta_id: string }) : null
+    const actual =
+      actualData && actualData.length > 0
+        ? (actualData[0] as { id: string; cuenta_id: string; telefono: string | null; email: string | null; activo: boolean })
+        : null
     if (!actual) return jsonError('Contacto no encontrado', 404)
+
+    // Sin duplicados (dueño, 2026-10-30), solo entre los ACTIVOS (los dados de baja son historia, como en la 0950): uno
+    // activo no queda sin teléfono ni correo, ni con los de otro activo de la cuenta. Reactivar también lo revisa.
+    const queda = {
+      telefono: input.telefono !== undefined ? input.telefono : actual.telefono,
+      email: input.email !== undefined ? input.email : actual.email,
+    }
+    const quedaActivo = input.activo !== undefined ? input.activo : actual.activo !== false
+    const tocaDatos = input.telefono !== undefined || input.email !== undefined
+    const reactiva = input.activo === true && actual.activo === false
+    if (quedaActivo && (tocaDatos || reactiva)) {
+      if (!queda.telefono && !queda.email) return jsonError(MENSAJE_CONTACTO_SIN_TELEFONO_NI_CORREO, 400)
+      const repetido = await contactoRepetido(actual.cuenta_id, queda, actual.id)
+      if (repetido) return NextResponse.json({ error: MENSAJE_CONTACTO_REPETIDO, existente: repetido }, { status: 409 })
+    }
 
     if (input.sede_id) {
       const { data: sedeData, error: sedeError } = await supabaseAdmin
@@ -54,6 +72,11 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     const { data, error } = await supabaseAdmin.from('contactos').update(cambios).eq('id', contactoId).select('*')
     if (error) {
       if (error.code === '23514') return jsonError('La sede elegida no es de la cuenta del contacto o faltan datos', 400)
+      if (error.code === '23505') {
+        // Otro tomó ese teléfono o correo a la vez (índices únicos de la 0950)
+        const existente = await contactoRepetido(actual.cuenta_id, queda, actual.id)
+        return NextResponse.json(existente ? { error: MENSAJE_CONTACTO_REPETIDO, existente } : { error: MENSAJE_CONTACTO_REPETIDO }, { status: 409 })
+      }
       throw error
     }
     if (!data || data.length === 0) return jsonError('Contacto no encontrado', 404)

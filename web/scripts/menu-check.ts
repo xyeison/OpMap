@@ -257,8 +257,34 @@ for (const ruta of Array.from(new Set(ORDEN.map(href => href.split('?')[0])))) {
 check('Agendamiento abre la app de campo: la arma el build (construir-campo.mjs), no es una página de Next', existsSync(path.join(__dirname, 'construir-campo.mjs')) && !existsSync(path.join(APP, 'campo')))
 check('/campo/agenda existe en la app de campo (mobile/app/(app)/agenda.tsx)', existsSync(path.join(__dirname, '..', '..', 'mobile', 'app', '(app)', 'agenda.tsx')))
 check('/territories sigue existiendo', existsSync(path.join(APP, 'territories', 'page.tsx')))
-// Médicos y Aseguradoras: "Próximamente", sin datos (dueño, 2026-10-29)
-for (const ruta of ['medicos', 'aseguradoras']) {
+// Médicos vuelve el 2026-10-30 (dueño: "En la web también, recuerda que son 1 sola tabla para web+app"): la lista, el
+// detalle y "Nuevo médico", que solo se crea con CC o CE
+const paginaMedicos = readFileSync(path.join(APP, 'medicos', 'page.tsx'), 'utf8')
+check(
+  '/medicos muestra los médicos (MedicosTab, MedicoDetalleModal y MedicoForm) con terceros:view, ya no "Próximamente"',
+  !paginaMedicos.includes('@/components/Proximamente') && /<MedicosTab /.test(paginaMedicos) && /<MedicoDetalleModal/.test(paginaMedicos) && /<MedicoForm/.test(paginaMedicos) && /permission="terceros:view"/.test(paginaMedicos)
+)
+check(
+  '/medicos: "Nuevo médico" arriba solo si la lista cabe en una página; si no, "Crear médico" desde la búsqueda que no encontró a nadie, con ese nombre (dueño, 2026-10-30)',
+  /\{puedeCrear && hayVariasPaginas === false && \(/.test(paginaMedicos) &&
+    /<MedicosTab [^>]*onCrear=\{puedeCrear \? crearConNombre : undefined\} onPaginacion=\{setHayVariasPaginas\}/.test(paginaMedicos) &&
+    /nombreInicial=\{abierto\.nombre\}/.test(paginaMedicos)
+)
+const COMPONENTES_TERCEROS = path.join(__dirname, '..', 'components', 'terceros')
+const listaMedicos = readFileSync(path.join(COMPONENTES_TERCEROS, 'MedicosTab.tsx'), 'utf8')
+check(
+  'la lista de médicos: sin filtros avisa si pasa de una página; con una búsqueda sin resultados ofrece "Crear médico" con lo buscado',
+  /if \(!busqueda && !municipio && !soloMios\) onPaginacion\?\.\(cuantos > TERCEROS_POR_PAGINA\)/.test(listaMedicos) &&
+    /\{busqueda && onCrear && \([\s\S]{0,200}onClick=\{\(\) => onCrear\(busqueda\)\}[\s\S]{0,200}Crear médico/.test(listaMedicos)
+)
+const formularioMedico = readFileSync(path.join(COMPONENTES_TERCEROS, 'MedicoForm.tsx'), 'utf8')
+const detalleMedico = readFileSync(path.join(COMPONENTES_TERCEROS, 'MedicoDetalleModal.tsx'), 'utf8')
+check(
+  'en la web el médico se crea y se corrige solo con CC o CE (TIPOS_DOC_MEDICO_NUEVO); uno guardado con otro tipo pide elegir',
+  /TIPOS_DOC_MEDICO_NUEVO\.map/.test(formularioMedico) && !/TIPOS_DOC_MEDICO\.map/.test(formularioMedico) && /TIPOS_DOC_MEDICO_NUEVO\.map/.test(detalleMedico) && !/TIPOS_DOC_MEDICO\.map/.test(detalleMedico) && /elige CC o CE/.test(detalleMedico)
+)
+// Aseguradoras: "Próximamente", sin datos (dueño, 2026-10-29)
+for (const ruta of ['aseguradoras']) {
   // Sin los comentarios (la de Médicos nombra su API para decir que no cambia)
   const pagina = readFileSync(path.join(APP, ruta, 'page.tsx'), 'utf8').split('\n').filter(linea => !linea.trim().startsWith('//')).join('\n')
   check(`/${ruta} es "Próximamente" y no pide datos`, pagina.includes("@/components/Proximamente") && !/\/api\/|fetch\(|Medicos?Tab|MedicoForm/.test(pagina))

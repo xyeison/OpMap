@@ -248,16 +248,25 @@ export interface VisitanteMedico {
 export const visitanteVigenteEn = (fila: Pick<VisitanteMedico, 'desde' | 'hasta'>, fecha: string): boolean =>
   fila.desde <= fecha && (fila.hasta === null || fila.hasta >= fecha)
 
+/** Una fila de medico_lineas (0950): el médico es de esa línea desde `desde` porque lo creó su líder (2026-10-30). */
+export interface LineaPropiaMedico {
+  medico_id: string
+  line_id: string
+  desde: string
+}
+
 /**
  * Las líneas de las que un médico "es" en una fecha (C9): la línea de cada visitante vigente y, si ese visitante es un
  * Ejecutivo Comercial activo, también todas sus líneas. `lineasDeEjecutivasActivas`: executive_lines de los Ejecutivos
- * Comerciales ACTIVOS (los demás no están).
+ * Comerciales ACTIVOS (los demás no están). `propias` (0950): las de medico_lineas, desde su fecha: el médico que creó
+ * una líder es de sus líneas aunque aún no tenga visitante.
  */
 export function lineasDelMedico(
   medicoId: string,
   visitantes: readonly VisitanteMedico[],
   lineasDeEjecutivasActivas: ReadonlyMap<string, readonly string[]>,
-  fecha: string
+  fecha: string,
+  propias: readonly LineaPropiaMedico[] = []
 ): Set<string> {
   const lineas = new Set<string>()
   for (const fila of visitantes) {
@@ -265,21 +274,23 @@ export function lineasDelMedico(
     lineas.add(fila.line_id)
     for (const linea of lineasDeEjecutivasActivas.get(fila.executive_id) ?? []) lineas.add(linea)
   }
+  for (const fila of propias) if (fila.medico_id === medicoId && fila.desde <= fecha) lineas.add(fila.line_id)
   return lineas
 }
 
 /**
  * Espejo de medico_de_lineas (C9): el médico tiene un visitante vigente en alguna línea de `lineas`, o su visitante
- * vigente es un Ejecutivo Comercial activo con alguna de ellas. Visitante vencido, de otra línea y de otro Ejecutivo
- * Comercial: no.
+ * vigente es un Ejecutivo Comercial activo con alguna de ellas, o (0950) lo creó la líder de una de ellas
+ * (`propias`, desde su fecha). Visitante vencido, de otra línea y de otro Ejecutivo Comercial: no.
  */
 export function medicoDeLineas(
   medicoId: string,
   lineas: readonly string[],
   visitantes: readonly VisitanteMedico[],
   lineasDeEjecutivasActivas: ReadonlyMap<string, readonly string[]>,
-  fecha: string
+  fecha: string,
+  propias: readonly LineaPropiaMedico[] = []
 ): boolean {
-  const delMedico = lineasDelMedico(medicoId, visitantes, lineasDeEjecutivasActivas, fecha)
+  const delMedico = lineasDelMedico(medicoId, visitantes, lineasDeEjecutivasActivas, fecha, propias)
   return lineas.some(linea => delMedico.has(linea))
 }
