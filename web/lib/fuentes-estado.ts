@@ -13,15 +13,17 @@
  */
 import type { SupabaseAdminClient } from './supabase-admin'
 
-export type FuenteId = 'secop_ii' | 'secop_i' | 'secop_integrado' | 'secop_procesos' | 'reps_sedes' | 'bdua' | 'minsalud_cifras' | 'adres_identifica'
-export type FuenteAutomatica = Exclude<FuenteId, 'adres_identifica'>
+export type FuenteId = 'secop_ii' | 'secop_i' | 'secop_integrado' | 'secop_procesos' | 'reps_sedes' | 'bdua' | 'minsalud_cifras' | 'adres_identifica' | 'sia_observa'
+/** Las que corre Vercel (cron y "Actualizar ahora"). La ADRES va por GitHub Actions y SIA Observa en el Mac del dueño. */
+export type FuenteAutomatica = Exclude<FuenteId, 'adres_identifica' | 'sia_observa'>
 
 export interface FuenteDefinicion {
   id: FuenteId
   nombre: string
   /** Expresión cron (UTC) — la misma que en web/vercel.json o .github/workflows/datos.yml. */
   programacion: string
-  ejecutor: 'vercel_cron' | 'github_actions'
+  /** manual = la corre un script fuera de Vercel (SIA Observa: el Mac del dueño con launchd, porque SIA corta conexiones fuera de Colombia). */
+  ejecutor: 'vercel_cron' | 'github_actions' | 'manual'
 }
 
 export const FUENTES: readonly FuenteDefinicion[] = [
@@ -36,6 +38,9 @@ export const FUENTES: readonly FuenteDefinicion[] = [
   { id: 'bdua', nombre: 'BDUA · Afiliados por municipio', programacion: '0 8 4 * *', ejecutor: 'vercel_cron' },
   { id: 'minsalud_cifras', nombre: 'MinSalud · Cifras de aseguramiento', programacion: '0 8 5 * *', ejecutor: 'vercel_cron' },
   { id: 'adres_identifica', nombre: 'ADRES · Identifica tu Giro', programacion: '0 7 3 * *', ejecutor: 'github_actions' },
+  // SIA Observa (spec 2026-10-29): contratos y documentos de las IPS públicas. Corre en el Mac del dueño (web/scripts/sia-load.ts
+  // con launchd a las 02:00 de Bogotá). Misma fila que siembra la migración 0920.
+  { id: 'sia_observa', nombre: 'SIA Observa · Contratos y documentos', programacion: '0 7 * * *', ejecutor: 'manual' },
 ] as const
 
 export const FUENTES_AUTOMATICAS: readonly FuenteAutomatica[] = ['secop_ii', 'secop_i', 'secop_integrado', 'secop_procesos', 'reps_sedes', 'bdua', 'minsalud_cifras'] as const

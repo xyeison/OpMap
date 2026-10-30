@@ -587,6 +587,7 @@ export interface ContratoActual {
   max_endeudamiento?: number | null
   requires_capital_trabajo?: boolean | null
   min_capital_trabajo?: number | null
+  custom_requirements?: string | null
 }
 
 export interface Diferencia {
@@ -595,6 +596,8 @@ export interface Diferencia {
   actual: string | number | boolean | null
   propuesto: string | number | boolean | null
   fuente: 'sia' | 'ia'
+  /** Columnas de hospital_contracts que se escriben si la persona la aprueba (PUT /api/contracts/[id]). */
+  cambios: Record<string, string | number | boolean>
 }
 
 /**
@@ -605,22 +608,22 @@ export function diferenciasConSia(actual: ContratoActual, sia: SiaContratoLeido)
   const out: Diferencia[] = []
   const valorSia = sia.valor_vigente ?? sia.valor_inicial
   if (valorSia !== null && (actual.contract_value === null || Math.abs(Number(actual.contract_value) - valorSia) >= 1)) {
-    out.push({ campo: 'contract_value', etiqueta: 'Valor (vigente en SIA)', actual: actual.contract_value, propuesto: valorSia, fuente: 'sia' })
+    out.push({ campo: 'contract_value', etiqueta: 'Valor (vigente en SIA)', actual: actual.contract_value, propuesto: valorSia, fuente: 'sia', cambios: { contract_value: valorSia } })
   }
   const inicio = sia.fecha_inicio ?? sia.fecha_firma
-  if (inicio && actual.start_date !== inicio) out.push({ campo: 'start_date', etiqueta: 'Fecha de inicio', actual: actual.start_date, propuesto: inicio, fuente: 'sia' })
+  if (inicio && actual.start_date !== inicio) out.push({ campo: 'start_date', etiqueta: 'Fecha de inicio', actual: actual.start_date, propuesto: inicio, fuente: 'sia', cambios: { start_date: inicio } })
   const fin = sia.fecha_fin_ampliada ?? sia.fecha_fin
-  if (fin && actual.end_date !== fin) out.push({ campo: 'end_date', etiqueta: 'Fecha de finalización', actual: actual.end_date, propuesto: fin, fuente: 'sia' })
+  if (fin && actual.end_date !== fin) out.push({ campo: 'end_date', etiqueta: 'Fecha de finalización', actual: actual.end_date, propuesto: fin, fuente: 'sia', cambios: { end_date: fin } })
   if (sia.codigo && codigoNorm(actual.contract_number) !== codigoNorm(sia.codigo)) {
-    out.push({ campo: 'contract_number', etiqueta: 'Número de contrato', actual: actual.contract_number, propuesto: sia.codigo, fuente: 'sia' })
+    out.push({ campo: 'contract_number', etiqueta: 'Número de contrato', actual: actual.contract_number, propuesto: sia.codigo, fuente: 'sia', cambios: { contract_number: sia.codigo } })
   }
   if (sia.modalidad) {
     const modelo = modeloContratacion(sia.modalidad)
-    if (actual.contracting_model !== modelo) out.push({ campo: 'contracting_model', etiqueta: `Modelo de contratación (SIA: ${sia.modalidad})`, actual: actual.contracting_model, propuesto: modelo, fuente: 'sia' })
+    if (actual.contracting_model !== modelo) out.push({ campo: 'contracting_model', etiqueta: `Modelo de contratación (SIA: ${sia.modalidad})`, actual: actual.contracting_model, propuesto: modelo, fuente: 'sia', cambios: { contracting_model: modelo } })
   }
   if (!siaDeEnlace(actual.documents_link)) {
     const propuesto = actual.documents_link ? `${sia.ficha_url} ; ${actual.documents_link}` : sia.ficha_url
-    out.push({ campo: 'documents_link', etiqueta: 'Link de documentos (ficha de SIA)', actual: actual.documents_link, propuesto, fuente: 'sia' })
+    out.push({ campo: 'documents_link', etiqueta: 'Link de documentos (ficha de SIA)', actual: actual.documents_link, propuesto, fuente: 'sia', cambios: { documents_link: propuesto } })
   }
   return out
 }
