@@ -21,6 +21,8 @@ export function useVisits(filters?: {
   allMonths?: boolean // Para incluir todos los meses en el rango
   visitType?: string
   contactType?: string
+  /** 0940 (app sin señal): una marca del servidor (en_sitio, lejos_de_ips, sin_ubicacion…) o 'sin_marcas'. */
+  marca?: string
   kamId?: string
   kamIds?: string[]  // Para múltiples KAMs
 } | null) {
@@ -70,6 +72,9 @@ export function useVisits(filters?: {
       }
       if (filters?.contactType) {
         params.append('contactType', filters.contactType)
+      }
+      if (filters?.marca) {
+        params.append('marca', filters.marca)
       }
       if (filters?.kamIds && filters.kamIds.length > 0) {
         params.append('kamIds', filters.kamIds.join(','))

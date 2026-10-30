@@ -142,6 +142,84 @@ export const MENSAJE_CONTACTO_OTRA_CUENTA = 'Ese contacto no es de la cuenta ele
 export const MENSAJE_LINEAS_AJENAS = 'Alguna de las líneas no es tuya'
 export const MENSAJE_VISITA_NO_EDITABLE = 'Solo puedes corregir o anular tus visitas del mismo día'
 
+// --- App sin señal (0940, dueño 2026-10-30: "no bloquees a nadie por sospechas, solo deja las marcas") ---------
+
+/**
+ * Marcas que deja visitas_registrar (0940) en visits.marcas. Nunca bloquean: alimentan el tablero y el mapa de calor.
+ *   en_sitio: (distancia a la sede − precisión del GPS) ≤ radio vigente · lejos_de_ips: lo contrario · sin_ubicacion:
+ *   presencial sin GPS · precision_baja: más de PRECISION_BAJA_M · ips_sin_coordenadas: la sede no tiene lat/lng ·
+ *   hora_inconsistente: hora del teléfono posterior a la llegada al servidor (más de la tolerancia) o visita de más de
+ *   DIAS_MAX_ATRAS días · medico_por_validar: médica con "médico no listado" (nombre y especialidad, sin medico_id).
+ */
+export const MARCAS_VISITA = [
+  { valor: 'en_sitio', etiqueta: 'En sitio' },
+  { valor: 'lejos_de_ips', etiqueta: 'Lejos de la IPS' },
+  { valor: 'sin_ubicacion', etiqueta: 'Sin ubicación' },
+  { valor: 'precision_baja', etiqueta: 'Precisión baja' },
+  { valor: 'ips_sin_coordenadas', etiqueta: 'IPS sin coordenadas' },
+  { valor: 'hora_inconsistente', etiqueta: 'Hora inconsistente' },
+  { valor: 'medico_por_validar', etiqueta: 'Médico por validar' },
+] as const
+export type MarcaVisita = (typeof MARCAS_VISITA)[number]['valor']
+export const VALORES_MARCA_VISITA: readonly MarcaVisita[] = MARCAS_VISITA.map(marca => marca.valor)
+export const etiquetaMarca = (valor: string | null | undefined) => MARCAS_VISITA.find(marca => marca.valor === valor)?.etiqueta ?? (valor ?? '')
+/** Precisión del GPS (metros) desde la que la visita queda 'precision_baja'. */
+export const PRECISION_BAJA_M = 100
+/** Una visita con más de estos días (visit_date frente a hoy en Bogotá) queda 'hora_inconsistente'. */
+export const DIAS_MAX_ATRAS = 7
+/** Radio de "en sitio" por defecto desde la 0940 (radio_presencial_m: 300 m; antes 500 m de rechazo). */
+export const RADIO_EN_SITIO_POR_DEFECTO_M = 300
+export const MAX_NOMBRE_MEDICO_NO_LISTADO = 200
+export const MAX_ESPECIALIDAD_MEDICO_NO_LISTADO = 60
+export const MENSAJE_MEDICO_NO_LISTADO_SIN_NOMBRE = 'Escribe el nombre del médico no listado'
+export const MENSAJE_MEDICO_DOS_VECES = 'Manda el médico de OpMap o el médico no listado, no los dos'
+export const MENSAJE_MOTIVO_NO_EFECTIVA_NO_VALIDO = 'Motivo de la visita no efectiva no válido'
+/** Sin GPS y la sede sin coordenadas ni municipio ubicado: el único rechazo por ubicación que queda (visits.lat NOT NULL). */
+export const MENSAJE_SIN_PUNTO_PARA_EL_MAPA = 'Sin ubicación del teléfono, la sede no tiene coordenadas ni municipio ubicado: toma la ubicación o elige otra sede'
+
+// --- Foto de la visita (0940): JPEG comprimido en el teléfono (1600 px, 70 %), hasta 2 MB, bucket privado ----------
+export const FOTO_BUCKET = 'visitas-fotos'
+export const FOTO_MAX_BYTES = 2 * 1024 * 1024
+export const FOTO_TIPOS = ['image/jpeg', 'image/jpg'] as const
+export const MENSAJE_FOTO_FORMATO = 'La foto debe ser JPEG'
+export const MENSAJE_FOTO_TAMANO = `La foto no puede superar ${FOTO_MAX_BYTES / (1024 * 1024)} MB`
+export const MENSAJE_FOTO_FALTA = 'Falta la foto (campo "foto")'
+export const MENSAJE_FOTO_VISITA = 'Esa visita no existe o no es tuya'
+/** Segundos que vale el enlace firmado para ver la foto. */
+export const FOTO_ENLACE_SEGUNDOS = 600
+
+/** Revisa la foto que llega por multipart (tipo y tamaño). Puro: null si sirve, el mensaje si no. */
+export function revisarFoto(foto: { type: string; size: number } | null | undefined): string | null {
+  if (!foto) return MENSAJE_FOTO_FALTA
+  const mime = (foto.type || '').split(';')[0].trim().toLowerCase()
+  if (!(FOTO_TIPOS as readonly string[]).includes(mime)) return MENSAJE_FOTO_FORMATO
+  if (foto.size <= 0) return MENSAJE_FOTO_FALTA
+  if (foto.size > FOTO_MAX_BYTES) return MENSAJE_FOTO_TAMANO
+  return null
+}
+
+/** Ruta de la foto en el bucket: por persona y visita (client_id), siempre .jpg; la segunda subida la reemplaza. */
+/** JPEG de verdad: los bytes empiezan por FF D8 FF (el tipo que declara el cliente no basta). */
+export function esJpeg(bytes: Uint8Array): boolean {
+  return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
+}
+
+export function rutaFoto(userId: string, clientId: string): string {
+  return `${userId}/${clientId}.jpg`
+}
+
+/** Médico que no está en OpMap, escrito en la visita (0940). Quien tiene terceros:create lo crea o lo cruza después. */
+export interface MedicoNoListado {
+  nombre: string
+  especialidad: string | null
+}
+
+/** Un motivo de la lista cerrada de la visita no efectiva (motivos_no_efectiva, 0940). */
+export interface MotivoNoEfectiva {
+  codigo: string
+  nombre: string
+}
+
 export function mensajeFueraDeRadio(distanciaM: number, sede: string, radioM: number): string {
   return `Estás a ${distanciaM} m de ${sede}; el radio es ${radioM} m`
 }
@@ -301,14 +379,25 @@ export interface VisitaCreateBase {
    * cancelada o ya hecha se rechaza (23514 → 400).
    */
   agenda_id: string | null
+  /** 0940: zona horaria del teléfono (IANA); null si la app no la manda (app anterior). */
+  tz: string | null
+  /** 0940: hora de la lectura del GPS con que va lat/lng (ISO con zona); null sin GPS o app anterior. */
+  gps_at: string | null
+  /** 0940: motivo de la lista cerrada (motivos_no_efectiva.codigo) de la no efectiva; null con texto libre o efectiva. */
+  motivo_codigo: string | null
 }
 
+/**
+ * Médica: con el médico de OpMap (medico_id) o, desde la 0940, con el "médico no listado" (nombre y especialidad):
+ * exactamente uno de los dos.
+ */
 export type VisitaCreateTipo =
-  | { tipo: 'medica'; medico_id: string; cuenta_id: null; subtipo_id: null; contacto_id: null }
-  | { tipo: 'institucional'; medico_id: null; cuenta_id: string; subtipo_id: string; contacto_id: string | null }
+  | { tipo: 'medica'; medico_id: string | null; medico_no_listado: MedicoNoListado | null; cuenta_id: null; subtipo_id: null; contacto_id: null }
+  | { tipo: 'institucional'; medico_id: null; medico_no_listado: null; cuenta_id: string; subtipo_id: string; contacto_id: string | null }
 
+/** Presencial: desde la 0940 puede ir SIN ubicación (lat y lng null → marca 'sin_ubicacion'); si trae una, trae las dos. */
 export type VisitaCreateModalidad =
-  | { modalidad: 'presencial'; lat: number; lng: number; medio: null }
+  | { modalidad: 'presencial'; lat: number | null; lng: number | null; medio: null }
   | { modalidad: 'telefonica'; medio: MedioTelefonica }
 
 /** Cuerpo de POST /api/me/visitas: tipo y modalidad discriminados. */
@@ -383,6 +472,8 @@ export interface ContextoValidacion {
    * fuera de territorio y con el médico de sus líneas (C9). Sin el dato: como Ejecutivo Comercial (como hasta la 0840).
    */
   como_lider?: boolean
+  /** 0940: códigos activos de motivos_no_efectiva. Sin el dato no se revisa el motivo (lo hace la base). */
+  motivos?: readonly string[]
 }
 
 /** Configuración vigente de la persona (la misma de ContextoResponse.config). */
@@ -410,10 +501,84 @@ export interface ErrorVisita {
 export interface ResultadoValidacion {
   ok: boolean
   errores: ErrorVisita[]
-  /** Metros a la sede (presencial con sede ubicada); null si no aplica. */
+  /** Metros a la sede (presencial con GPS y sede ubicada); null si no aplica. */
   distance_m: number | null
   /** Médica a un médico del que no es visitante (suma a su meta, queda marcada). */
   out_of_territory: boolean
+  /** 0940: las marcas que dejará la base (la misma regla: marcasDeVisita). */
+  marcas: MarcaVisita[]
+  /** 0940: (distancia − precisión) ≤ radio; null sin distancia. */
+  en_sitio: boolean | null
+}
+
+/** Lo que mira marcasDeVisita (todo opcional salvo la modalidad). */
+export interface EntradaMarcas {
+  modalidad: Modalidad
+  /** Punto del teléfono (null sin GPS). */
+  punto: Punto | null
+  /** Precisión del GPS en metros (null si no se sabe). */
+  precision: number | null
+  /** La sede elegida (null si no existe); sin lat/lng = sin coordenadas. */
+  sede: { lat: number | null; lng: number | null } | null
+  radio_m: number
+  checked_in_at: string
+  reported_at: string
+  /** Reloj del servidor (la llegada al servidor). */
+  ahora: Date
+  /** Hoy en Bogotá (de `ahora`); por defecto se calcula. */
+  hoy?: string
+  /** Médica con médico no listado (sin medico_id). */
+  medico_no_listado: boolean
+}
+
+export interface ResultadoMarcas {
+  marcas: MarcaVisita[]
+  distance_m: number | null
+  en_sitio: boolean | null
+}
+
+/**
+ * ESPEJO de las marcas de visitas_registrar (0940), en el mismo orden en que la base las agrega. La misma función la
+ * usan validarVisita (la API) y la app (mobile/lib/propuesta.ts marcasPrevistas, copia) para mostrarlas antes de
+ * confirmar. Puro.
+ */
+export function marcasDeVisita(entrada: EntradaMarcas): ResultadoMarcas {
+  const marcas: MarcaVisita[] = []
+  const hoy = entrada.hoy ?? hoyBogota(entrada.ahora)
+  const ahoraMs = entrada.ahora.getTime()
+  const llegadaMs = Date.parse(entrada.checked_in_at)
+  const reporteMs = Date.parse(entrada.reported_at)
+  const tolerancia = TOLERANCIA_RELOJ_SEGUNDOS * 1000
+  const fecha = Number.isNaN(llegadaMs) ? null : fechaBogota(entrada.checked_in_at)
+  const limite = sumarDiasIso(hoy, -DIAS_MAX_ATRAS)
+  if ((!Number.isNaN(llegadaMs) && llegadaMs > ahoraMs + tolerancia) || (!Number.isNaN(reporteMs) && reporteMs > ahoraMs + tolerancia) || (fecha !== null && fecha < limite)) {
+    marcas.push('hora_inconsistente')
+  }
+  if (entrada.medico_no_listado) marcas.push('medico_por_validar')
+  let distance_m: number | null = null
+  let en_sitio: boolean | null = null
+  if (entrada.modalidad === 'presencial') {
+    const conGps = !!entrada.punto && esPunto(entrada.punto.lat, entrada.punto.lng)
+    // La base redondea la precisión a metros enteros (round(...)::integer): aquí igual, para marcar lo mismo.
+    const precision = entrada.precision === null || !Number.isFinite(entrada.precision) ? null : Math.round(entrada.precision)
+    if (!conGps) marcas.push('sin_ubicacion')
+    else if (precision !== null && precision > PRECISION_BAJA_M) marcas.push('precision_baja')
+    const sedeUbicada = !!entrada.sede && esPunto(entrada.sede.lat, entrada.sede.lng)
+    if (entrada.sede && !sedeUbicada) marcas.push('ips_sin_coordenadas')
+    else if (sedeUbicada && conGps) {
+      distance_m = haversineM(entrada.punto as Punto, { lat: entrada.sede!.lat as number, lng: entrada.sede!.lng as number })
+      en_sitio = Math.max(distance_m - (precision ?? 0), 0) <= entrada.radio_m
+      if (!en_sitio) marcas.push('lejos_de_ips')
+    }
+  }
+  return { marcas, distance_m, en_sitio }
+}
+
+/** AAAA-MM-DD ± n días (sin zona: fechas de calendario). */
+function sumarDiasIso(fecha: string, n: number): string {
+  const [a, m, d] = fecha.split('-').map(Number)
+  const fechaUtc = new Date(Date.UTC(a, m - 1, d + n))
+  return fechaUtc.toISOString().slice(0, 10)
 }
 
 /**
@@ -421,9 +586,13 @@ export interface ResultadoValidacion {
  * primero); `hoy` es la fecha de Bogotá de `ahora` (por defecto, ahora mismo). Nunca escribe nada.
  *
  * El paso 1 (idempotencia) NO está aquí: quien llama debe buscar antes el client_id y, si ya existe, devolver esa
- * visita con `repetida: true` SIN validar (un reintento de la cola sin señal después de medianoche, o una visita
- * que ya llenó el tope, no debe convertirse en un 400). Por si acaso, las visitas de `visitasDeHoy` con el mismo
- * client_id no cuentan para los topes. `visitasDeHoy` = las de ella con visit_date = hoy y deleted_at NULL.
+ * visita con `repetida: true` SIN validar (un reintento de la cola sin señal, o una visita que ya llenó el tope, no
+ * debe convertirse en un 400). Por si acaso, las visitas de `visitasDeHoy` con el mismo client_id no cuentan para los
+ * topes. `visitasDeHoy` = las de ella con visit_date = la fecha de la visita y deleted_at NULL.
+ *
+ * 0940 (dueño, 2026-10-30): ya NO rechaza por otro día, por el radio, por falta de GPS ni por sede sin coordenadas: eso
+ * son MARCAS (marcasDeVisita). Siguen rechazando perfil, topes, líneas ajenas, médico que no atiende en la sede,
+ * reporte anterior a la llegada y textos. Médica con medico_id o con medico_no_listado (exactamente uno).
  */
 export function validarVisita(entrada: {
   datos: VisitaCreate
@@ -431,33 +600,28 @@ export function validarVisita(entrada: {
   config: ConfigContexto
   hoy?: string
   ahora?: Date
+  /** 0940: la fecha (Bogotá) de la visita; con otro día aceptado, el subtipo se mira en ESA fecha (como la base). Por defecto, hoy. */
+  fechaVisita?: string
   visitasDeHoy: readonly VisitaDeHoy[]
 }): ResultadoValidacion {
   const { datos, contexto, config } = entrada
-  const hoy = entrada.hoy ?? hoyBogota(entrada.ahora ?? new Date())
+  const ahora = entrada.ahora ?? new Date()
+  const hoy = entrada.hoy ?? hoyBogota(ahora)
+  const fechaReglas = entrada.fechaVisita ?? hoy
   const visitasDeHoy = entrada.visitasDeHoy.filter(visita => !visita.client_id || visita.client_id !== datos.client_id)
   const errores: ErrorVisita[] = []
   const falla = (campo: string, mensaje: string) => errores.push({ campo, mensaje })
-  let distance_m: number | null = null
   let out_of_territory = false
 
-  // 2. Persona activa; con Ejecutivo Comercial, con zona (como líder no hay zona); mismo día; reporte no anterior a la
-  //    llegada
+  // 2. Persona activa; con Ejecutivo Comercial, con zona (como líder no hay zona); reporte no anterior a la llegada
   if (!contexto.ejecutiva.activa) falla('executive_id', MENSAJE_SIN_EJECUTIVA)
   else if (!contexto.como_lider && !contexto.ejecutiva.con_zona) falla('executive_id', MENSAJE_SIN_ZONA)
 
-  // Como la base (paso 2 de visitas_registrar): la fecha en Bogotá debe ser hoy y la llegada no puede ir más de
-  // TOLERANCIA_RELOJ_SEGUNDOS por delante del reloj del servidor (un teléfono con el reloj adelantado unos segundos
-  // pasa; uno adelantado media hora, no).
   const llegadaMs = Date.parse(datos.checked_in_at)
   const reporteMs = Date.parse(datos.reported_at)
-  const ahoraMs = (entrada.ahora ?? new Date()).getTime()
   if (!esInstanteIso(datos.checked_in_at) || Number.isNaN(llegadaMs)) falla('checked_in_at', 'La hora de llegada no es válida')
-  else if (fechaBogota(datos.checked_in_at) !== hoy) falla('checked_in_at', MENSAJE_SOLO_HOY)
-  else if (llegadaMs > ahoraMs + TOLERANCIA_RELOJ_SEGUNDOS * 1000) falla('checked_in_at', MENSAJE_LLEGADA_FUTURA)
   if (!esInstanteIso(datos.reported_at) || Number.isNaN(reporteMs)) falla('reported_at', 'La hora del reporte no es válida')
   else if (!Number.isNaN(llegadaMs) && reporteMs < llegadaMs) falla('reported_at', MENSAJE_REPORTE_ANTES_DE_LLEGADA)
-  else if (reporteMs > ahoraMs + TOLERANCIA_RELOJ_SEGUNDOS * 1000) falla('reported_at', MENSAJE_REPORTE_FUTURO)
 
   // Próxima reunión y reintento: nunca antes de la fecha de la visita (si no, nacería como compromiso vencido).
   const fechaVisita = esInstanteIso(datos.checked_in_at) && !Number.isNaN(llegadaMs) ? fechaBogota(datos.checked_in_at) : null
@@ -473,7 +637,13 @@ export function validarVisita(entrada: {
   if (!sede) falla('sede_id', MENSAJE_SEDE_NO_EXISTE)
   else if (sede.cuenta_activa === false) falla(datos.tipo === 'institucional' ? 'cuenta_id' : 'sede_id', MENSAJE_CUENTA_INACTIVA)
 
-  if (datos.tipo === 'medica') {
+  const noListado = datos.tipo === 'medica' && datos.medico_no_listado !== null
+  if (datos.tipo === 'medica' && !datos.medico_id && !datos.medico_no_listado) falla('medico_id', 'Elige el médico')
+  else if (datos.tipo === 'medica' && datos.medico_id && datos.medico_no_listado) falla('medico_id', MENSAJE_MEDICO_DOS_VECES)
+  else if (datos.tipo === 'medica' && noListado) {
+    // 0940: médico no listado: nombre obligatorio; nadie lo busca en OpMap; queda 'medico_por_validar'.
+    if (!datos.medico_no_listado?.nombre.trim()) falla('medico_no_listado', MENSAJE_MEDICO_NO_LISTADO_SIN_NOMBRE)
+  } else if (datos.tipo === 'medica') {
     const medico = contexto.medico && contexto.medico.id === datos.medico_id ? contexto.medico : null
     if (!medico || !medico.activo) falla('medico_id', MENSAJE_MEDICO_NO_EXISTE)
     else {
@@ -488,7 +658,7 @@ export function validarVisita(entrada: {
   } else {
     if (sede && sede.cuenta_id !== datos.cuenta_id) falla('cuenta_id', MENSAJE_SEDE_NO_DE_LA_CUENTA)
     const subtipo = contexto.subtipo && contexto.subtipo.id === datos.subtipo_id ? contexto.subtipo : null
-    if (!subtipo || !subtipoVigenteEn(subtipo, hoy)) falla('subtipo_id', MENSAJE_SUBTIPO_NO_VIGENTE)
+    if (!subtipo || !subtipoVigenteEn(subtipo, fechaReglas)) falla('subtipo_id', MENSAJE_SUBTIPO_NO_VIGENTE)
     if (datos.contacto_id) {
       const contacto = contexto.contacto && contexto.contacto.id === datos.contacto_id ? contexto.contacto : null
       if (!contacto || contacto.cuenta_id !== datos.cuenta_id) falla('contacto_id', MENSAJE_CONTACTO_OTRA_CUENTA)
@@ -496,17 +666,23 @@ export function validarVisita(entrada: {
     }
   }
 
-  // 5. Modalidad
-  if (datos.modalidad === 'presencial') {
-    if (!esPunto(datos.lat, datos.lng)) falla('lat', 'La ubicación del teléfono es obligatoria en una visita presencial')
-    else if (sede) {
-      if (!esPunto(sede.lat, sede.lng)) falla('sede_id', MENSAJE_SEDE_SIN_UBICACION)
-      else {
-        distance_m = haversineM({ lat: datos.lat, lng: datos.lng }, { lat: sede.lat as number, lng: sede.lng as number })
-        if (distance_m > config.radio_m) falla('lat', mensajeFueraDeRadio(distance_m, sede.nombre, config.radio_m))
-      }
-    }
-  } else {
+  // 5. Modalidad. Presencial (0940): la ubicación, el radio y las coordenadas de la sede ya no rechazan: marcan.
+  //    Único rechazo que queda: sin GPS y con una sede sin coordenadas (la base no tendría punto para el mapa salvo el
+  //    municipio o la zona; aquí no se conocen, así que lo decide la base).
+  const punto = datos.modalidad === 'presencial' && esPunto(datos.lat, datos.lng) ? { lat: datos.lat as number, lng: datos.lng as number } : null
+  const resultadoMarcas = marcasDeVisita({
+    modalidad: datos.modalidad,
+    punto,
+    precision: datos.gps_accuracy_m,
+    sede: sede ? { lat: sede.lat, lng: sede.lng } : null,
+    radio_m: config.radio_m,
+    checked_in_at: datos.checked_in_at,
+    reported_at: datos.reported_at,
+    ahora,
+    hoy,
+    medico_no_listado: noListado,
+  })
+  if (datos.modalidad === 'telefonica') {
     if (!config.telefonica.habilitada) falla('modalidad', MENSAJE_TELEFONICA_NO_HABILITADA)
     else {
       if (!config.telefonica.medios.includes(datos.medio)) falla('medio', mensajeMedio(config.telefonica.medios))
@@ -515,8 +691,13 @@ export function validarVisita(entrada: {
     }
   }
 
-  // 6. Tope por médico (solo efectivas)
-  if (datos.tipo === 'medica' && datos.efectiva) {
+  // 5b. Motivo de la lista (0940): si viene y se conoce la lista, debe estar en ella.
+  if (!datos.efectiva && datos.motivo_codigo && contexto.motivos && !contexto.motivos.includes(datos.motivo_codigo)) {
+    falla('motivo_codigo', MENSAJE_MOTIVO_NO_EFECTIVA_NO_VALIDO)
+  }
+
+  // 6. Tope por médico (solo efectivas, con médico de OpMap)
+  if (datos.tipo === 'medica' && datos.efectiva && datos.medico_id) {
     const alMedicoHoy = visitasDeHoy.filter(v => v.efectiva && v.medico_id === datos.medico_id).length
     if (alMedicoHoy >= config.tope_visitas_medico_dia) falla('medico_id', MENSAJE_TOPE_MEDICO)
   }
@@ -525,7 +706,7 @@ export function validarVisita(entrada: {
   if (datos.lineas.length === 0) falla('lineas', 'Elige al menos una línea')
   else if (datos.lineas.some(id => !contexto.ejecutiva.lineas.includes(id))) falla('lineas', MENSAJE_LINEAS_AJENAS)
 
-  return { ok: errores.length === 0, errores, distance_m, out_of_territory }
+  return { ok: errores.length === 0, errores, distance_m: resultadoMarcas.distance_m, out_of_territory, marcas: resultadoMarcas.marcas, en_sitio: resultadoMarcas.en_sitio }
 }
 
 /** ¿El subtipo rige en esa fecha? */
@@ -1484,6 +1665,10 @@ export interface SedeDeMedico {
   cuenta_nombre: string | null
   /** Metros desde el punto pedido; null si no se mandó lat/lng o la sede no tiene coordenadas. */
   distancia_m: number | null
+  /** 0940 (app sin señal): la cuenta y las coordenadas, para que la app mida distancias y arme la institucional sin red. */
+  cuenta_id: string | null
+  lat: number | null
+  lng: number | null
 }
 
 export interface MedicoContexto {
@@ -1561,6 +1746,8 @@ export interface ContextoResponse {
   agenda_hoy: CitaItem[]
   /** 0850: la persona de campo (papel y líneas con "como qué"). */
   persona: PersonaContexto
+  /** 0940: la lista cerrada de motivos de la visita no efectiva (la app la guarda para trabajar sin señal). */
+  motivos_no_efectiva: MotivoNoEfectiva[]
 }
 
 /** Una visita de la ejecutiva en GET /api/me/visitas (nunca el documento del médico). */
@@ -1597,6 +1784,18 @@ export interface VisitaItem {
   agenda_id: string | null
   /** Agendada (decisión 6 de F4.1): vinculada a una cita creada ANTES del día de la visita (Bogotá). */
   agendada: boolean
+  /** 0940: marcas del servidor (nunca bloquean). Un servidor anterior no las manda: la app las trata como []. */
+  marcas: MarcaVisita[]
+  /** 0940: (distancia − precisión) ≤ radio; null sin distancia. */
+  en_sitio: boolean | null
+  /** 0940: precisión del GPS con que se reportó (metros); null sin GPS. */
+  gps_accuracy_m: number | null
+  /** 0940: médico no listado (médica sin medico_id); null si no. */
+  medico_no_listado: MedicoNoListado | null
+  /** 0940: motivo de lista de la no efectiva; null con texto libre o efectiva. */
+  motivo_codigo: string | null
+  /** 0940: la visita tiene foto en el bucket. */
+  foto: boolean
 }
 
 /** GET /api/me/visitas?fecha= */

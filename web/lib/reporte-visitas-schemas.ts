@@ -17,9 +17,13 @@ import {
   MAX_TRANSCRIPT,
   MAX_VISITAS_PROPUESTA,
   MAX_DIAS_CONSULTA_AGENDA,
+  MAX_ESPECIALIDAD_MEDICO_NO_LISTADO,
   MAX_MOTIVO_CANCELACION_CITA,
+  MAX_NOMBRE_MEDICO_NO_LISTADO,
   MAX_NOTA_CITA,
   MENSAJE_HORA_OBLIGATORIA,
+  MENSAJE_MEDICO_DOS_VECES,
+  MENSAJE_MEDICO_NO_LISTADO_SIN_NOMBRE,
   VALORES_MODALIDAD,
   VALORES_MODO_ENTRADA,
   esInstanteIso,
@@ -30,6 +34,7 @@ import {
   type CitaCerrar,
   type CitaCreate,
   type CitaOtraFecha,
+  type MedicoNoListado,
   type PropuestaCruda,
   type VisitaCreate,
   type VisitaCreateBase,
@@ -219,27 +224,54 @@ const camposVisita = {
   lineas: lineasSchema,
   // 0840: la cita de la agenda que se cumple (opcional; sin ella la base vincula sola la del mismo médico o cuenta).
   agenda_id: idOpcional('Cita no válida'),
+  // 0940 (app sin señal): zona horaria y hora de la lectura del GPS del teléfono, motivo de lista y médico no listado.
+  tz: textoOpcional(64, 'Zona horaria no válida'),
+  gps_at: z
+    .string({ invalid_type_error: 'Hora del GPS no válida' })
+    .trim()
+    .nullish()
+    .transform(valor => (valor ? valor : null))
+    .refine(valor => valor === null || esInstanteIso(valor), { message: 'Hora del GPS no válida (instante ISO con zona)' }),
+  motivo_codigo: z
+    .string({ invalid_type_error: 'Motivo no válido' })
+    .trim()
+    .nullish()
+    .transform(valor => (valor ? valor.toLowerCase() : null))
+    .refine(valor => valor === null || /^[a-z][a-z0-9_]{1,39}$/.test(valor), { message: 'Motivo no válido' }),
+  medico_no_listado: z
+    .object(
+      {
+        nombre: z
+          .string({ required_error: MENSAJE_MEDICO_NO_LISTADO_SIN_NOMBRE, invalid_type_error: MENSAJE_MEDICO_NO_LISTADO_SIN_NOMBRE })
+          .transform(valor => valor.trim().replace(/\s+/g, ' '))
+          .pipe(z.string().min(1, MENSAJE_MEDICO_NO_LISTADO_SIN_NOMBRE).max(MAX_NOMBRE_MEDICO_NO_LISTADO, `El nombre no puede superar ${MAX_NOMBRE_MEDICO_NO_LISTADO} caracteres`)),
+        especialidad: textoOpcional(MAX_ESPECIALIDAD_MEDICO_NO_LISTADO, 'Especialidad no válida'),
+      },
+      { invalid_type_error: 'Médico no listado no válido' }
+    )
+    .nullish()
+    .transform(valor => valor ?? null),
 }
 
 type VisitaPlana = z.infer<z.ZodObject<typeof camposVisita>>
 
-/** Reglas de tipo y modalidad (lo que la base exige con visits_app_check), con el campo que falla. */
+/**
+ * Reglas de tipo y modalidad (lo que la base exige con visits_app_check), con el campo que falla. 0940: la médica va con
+ * el médico de OpMap O con el médico no listado (exactamente uno); la presencial puede ir SIN ubicación (queda marcada
+ * 'sin_ubicacion'), pero si trae una coordenada trae las dos.
+ */
 function revisarVisita(datos: VisitaPlana, ctx: z.RefinementCtx) {
   const falla = (campo: string, mensaje: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, path: [campo], message: mensaje })
   if (datos.tipo === 'medica') {
-    if (!datos.medico_id) falla('medico_id', 'Elige el médico')
+    if (!datos.medico_id && !datos.medico_no_listado) falla('medico_id', 'Elige el médico')
+    else if (datos.medico_id && datos.medico_no_listado) falla('medico_id', MENSAJE_MEDICO_DOS_VECES)
   } else {
     if (!datos.cuenta_id) falla('cuenta_id', 'Elige la cuenta')
     if (!datos.subtipo_id) falla('subtipo_id', 'Elige el subtipo de la visita institucional')
   }
-  if (datos.modalidad === 'presencial') {
-    if (datos.lat === null && datos.lng === null) falla('lat', 'La ubicación del teléfono es obligatoria en una visita presencial')
-    else revisarPunto(datos, ctx)
-  } else {
-    if (!datos.medio) falla('medio', 'Indica el medio: llamada o videollamada')
-    revisarPunto(datos, ctx)
-  }
-  if (!datos.efectiva && !datos.failure_reason) falla('failure_reason', MENSAJE_FAILURE)
+  if (datos.modalidad === 'telefonica' && !datos.medio) falla('medio', 'Indica el medio: llamada o videollamada')
+  revisarPunto(datos, ctx)
+  if (!datos.efectiva && !datos.failure_reason && !datos.motivo_codigo) falla('failure_reason', MENSAJE_FAILURE)
   if (datos.reported_at && datos.checked_in_at && Date.parse(datos.reported_at) < Date.parse(datos.checked_in_at)) {
     falla('reported_at', 'La hora del reporte no puede ser anterior a la de llegada')
   }
@@ -248,7 +280,7 @@ function revisarVisita(datos: VisitaPlana, ctx: z.RefinementCtx) {
 /**
  * Deja solo los campos que aplican al tipo y a la modalidad (lo demás en null). En una TELEFÓNICA la ubicación del
  * teléfono no se usa ni se guarda (privacidad: la ejecutiva puede estar en su casa; el punto del mapa sale de la sede,
- * de su municipio o de la zona): lat, lng y gps_accuracy_m quedan en null.
+ * de su municipio o de la zona): lat, lng, gps_accuracy_m y gps_at quedan en null.
  */
 function normalizarVisita(datos: VisitaPlana): VisitaCreate {
   const telefonica = datos.modalidad === 'telefonica'
@@ -270,22 +302,33 @@ function normalizarVisita(datos: VisitaPlana): VisitaCreate {
     input_mode: datos.input_mode,
     lineas: datos.lineas,
     agenda_id: datos.agenda_id,
+    tz: datos.tz,
+    gps_at: telefonica || datos.lat === null ? null : datos.gps_at,
+    motivo_codigo: datos.efectiva ? null : datos.motivo_codigo,
   }
   const tipo =
     datos.tipo === 'medica'
-      ? { tipo: 'medica' as const, medico_id: datos.medico_id as string, cuenta_id: null, subtipo_id: null, contacto_id: null }
+      ? {
+          tipo: 'medica' as const,
+          medico_id: datos.medico_id,
+          medico_no_listado: datos.medico_id ? null : (datos.medico_no_listado as MedicoNoListado | null),
+          cuenta_id: null,
+          subtipo_id: null,
+          contacto_id: null,
+        }
       : {
           tipo: 'institucional' as const,
           medico_id: null,
+          medico_no_listado: null,
           cuenta_id: datos.cuenta_id as string,
           subtipo_id: datos.subtipo_id as string,
           contacto_id: datos.contacto_id,
         }
   const modalidad =
     datos.modalidad === 'presencial'
-      ? { modalidad: 'presencial' as const, lat: datos.lat as number, lng: datos.lng as number, medio: null }
+      ? { modalidad: 'presencial' as const, lat: datos.lat, lng: datos.lng, medio: null }
       : { modalidad: 'telefonica' as const, medio: datos.medio as NonNullable<typeof datos.medio> }
-  return { ...base, ...tipo, ...modalidad }
+  return { ...base, ...tipo, ...modalidad } as VisitaCreate
 }
 
 /**

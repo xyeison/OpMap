@@ -88,6 +88,16 @@ import {
   MENSAJE_SEDE_SIN_UBICACION,
   MENSAJE_SIN_ZONA,
   MENSAJE_SOLO_HOY,
+  DIAS_MAX_ATRAS,
+  FOTO_MAX_BYTES,
+  MENSAJE_MEDICO_DOS_VECES,
+  MENSAJE_MEDICO_NO_LISTADO_SIN_NOMBRE,
+  MENSAJE_MOTIVO_NO_EFECTIVA_NO_VALIDO,
+  PRECISION_BAJA_M,
+  VALORES_MARCA_VISITA,
+  marcasDeVisita,
+  revisarFoto,
+  rutaFoto,
   MENSAJE_SUBTIPO_NO_VIGENTE,
   MENSAJE_TELEFONICA_NO_HABILITADA,
   MENSAJE_TOPE_MEDICO,
@@ -401,15 +411,18 @@ seccion('4. validarVisita')
   const dentro = validar(parsear(cuerpoMedica()))
   check('médica presencial a 120 m: ok, distance_m ≈ 120, dentro del territorio', dentro.ok && dentro.distance_m !== null && Math.abs(dentro.distance_m - 120) <= 1 && !dentro.out_of_territory, dentro)
 
+  // 0940 (dueño, 2026-10-30): la ubicación ya no rechaza, marca. Radio 500 en estas pruebas (la config por defecto de F2).
   const lejos = validar(parsear(cuerpoMedica(aMetrosAlNorte(SEDE_PUNTO, 800))))
-  const mensajeLejos = lejos.errores.find(e => e.campo === 'lat')?.mensaje ?? ''
   check(
-    'presencial a 800 m: rechazada con "Estás a N m de <sede>; el radio es R m"',
-    !lejos.ok && lejos.distance_m !== null && Math.abs(lejos.distance_m - 800) <= 1 && mensajeLejos === mensajeFueraDeRadio(lejos.distance_m, 'Clínica Norte', 500) && mensajeLejos.endsWith('m de Clínica Norte; el radio es 500 m'),
+    'presencial a 800 m: ACEPTADA con la marca lejos_de_ips y en_sitio false (antes: "Estás a N m de <sede>; el radio es R m")',
+    lejos.ok && lejos.distance_m !== null && Math.abs(lejos.distance_m - 800) <= 1 && lejos.marcas.join() === 'lejos_de_ips' && lejos.en_sitio === false,
     lejos
   )
-  check('a 800 m con radio propio de 1000 m: ok', validar(parsear(cuerpoMedica(aMetrosAlNorte(SEDE_PUNTO, 800))), { config: { radio_m: 1000 } }).ok)
-  check('justo en el radio (500 m) pasa; a 501 no', validar(parsear(cuerpoMedica(aMetrosAlNorte(SEDE_PUNTO, 500)))).ok && !validar(parsear(cuerpoMedica(aMetrosAlNorte(SEDE_PUNTO, 502)))).ok)
+  check('a 800 m con radio propio de 1000 m: en sitio, sin marcas', (() => { const r = validar(parsear(cuerpoMedica(aMetrosAlNorte(SEDE_PUNTO, 800))), { config: { radio_m: 1000 } }); return r.ok && r.en_sitio === true && r.marcas.length === 0 })())
+  check('en sitio descuenta la precisión del GPS (±12 m): a 505 m queda en sitio (505 − 12 ≤ 500); a 525 m, lejos', validar(parsear(cuerpoMedica(aMetrosAlNorte(SEDE_PUNTO, 505)))).en_sitio === true && validar(parsear(cuerpoMedica(aMetrosAlNorte(SEDE_PUNTO, 525)))).en_sitio === false)
+  check(`precisión de 150 m (> ${PRECISION_BAJA_M}): marca precision_baja, sigue en sitio`, (() => { const r = validar(parsear(cuerpoMedica({ gps_accuracy_m: 150 }))); return r.ok && r.marcas.join() === 'precision_baja' && r.en_sitio === true })())
+  const sinUbicacion = validar(parsear(cuerpoMedica({ lat: undefined, lng: undefined })))
+  check('presencial SIN GPS: aceptada con la marca sin_ubicacion, distance_m null (antes rechazada)', sinUbicacion.ok && sinUbicacion.marcas.join() === 'sin_ubicacion' && sinUbicacion.distance_m === null && sinUbicacion.en_sitio === null, sinUbicacion)
 
   const sinGps = validar(parsear(cuerpoMedica({ sede_id: SEDE_SIN_GPS })), {
     contexto: {
@@ -417,7 +430,7 @@ seccion('4. validarVisita')
       medico: { id: MED1, nombre: 'Dr. Pérez', activo: true, sede_ids: [SEDE1, SEDE_SIN_GPS], es_visitante: true },
     },
   })
-  check('sede sin coordenadas: presencial rechazada con el mensaje de la decisión 6', !sinGps.ok && mensajes(sinGps).includes(MENSAJE_SEDE_SIN_UBICACION) && sinGps.distance_m === null)
+  check('sede sin coordenadas: presencial ACEPTADA con la marca ips_sin_coordenadas (0940; antes la decisión 6 la rechazaba)', sinGps.ok && sinGps.marcas.join() === 'ips_sin_coordenadas' && sinGps.distance_m === null, sinGps)
   const sinGpsTelefonica = validar(parsear(cuerpoMedica({ sede_id: SEDE_SIN_GPS, modalidad: 'telefonica', medio: 'llamada', lat: undefined, lng: undefined })), {
     contexto: {
       sede: { id: SEDE_SIN_GPS, nombre: 'Consultorio Pérez', cuenta_id: CUENTA1, lat: null, lng: null },
@@ -464,18 +477,23 @@ seccion('4. validarVisita')
   const lineasAjenas = validar(parsear(cuerpoMedica({ lineas: [L1, L_AJENA] })))
   check('líneas ajenas: rechazada', !lineasAjenas.ok && mensajes(lineasAjenas).includes(MENSAJE_LINEAS_AJENAS))
 
+  // 0940: otro día ya no se rechaza (la cola sin señal puede tardar); más de DIAS_MAX_ATRAS días o la hora del teléfono
+  // por delante del servidor (más de la tolerancia) marcan hora_inconsistente.
   const ayer = validar(parsear(cuerpoMedica({ checked_in_at: '2026-10-12T10:40:00-05:00', reported_at: '2026-10-12T10:42:00-05:00' })))
-  check('ayer: "Solo se reportan visitas del mismo día"', !ayer.ok && mensajes(ayer).includes(MENSAJE_SOLO_HOY) && MENSAJE_SOLO_HOY === 'Solo se reportan visitas del mismo día')
-  check('hoy a las 00:30 UTC del 14 (19:30 en Bogotá del 13) sí es hoy', validar(parsear(cuerpoMedica({ checked_in_at: '2026-10-14T00:30:00Z', reported_at: '2026-10-14T00:31:00Z' })), {}).errores.every(e => e.mensaje !== MENSAJE_SOLO_HOY))
-  // AHORA = 10:42 en Bogotá. visitas_registrar acepta hasta 5 minutos de adelanto (c_tolerancia) y rechaza más.
-  check('reloj del teléfono adelantado 4 minutos (10:46, hoy en Bogotá): pasa, como en la base', validar(parsear(cuerpoMedica({ checked_in_at: '2026-10-13T10:46:00-05:00', reported_at: '2026-10-13T10:47:00-05:00' }))).ok)
+  check('ayer: ACEPTADA sin hora_inconsistente (antes "Solo se reportan visitas del mismo día")', ayer.ok && ayer.marcas.length === 0, ayer)
+  const hace8 = validar(parsear(cuerpoMedica({ checked_in_at: '2026-10-05T10:40:00-05:00', reported_at: '2026-10-05T10:42:00-05:00' })))
+  check(`hace 8 días (> ${DIAS_MAX_ATRAS}): aceptada con la marca hora_inconsistente`, hace8.ok && hace8.marcas.join() === 'hora_inconsistente' && DIAS_MAX_ATRAS === 7, hace8)
+  check('hace 7 días justos: sin marca', validar(parsear(cuerpoMedica({ checked_in_at: '2026-10-06T10:40:00-05:00', reported_at: '2026-10-06T10:42:00-05:00' }))).marcas.length === 0)
+  check('hoy a las 00:30 UTC del 14 (19:30 en Bogotá del 13; AHORA son las 10:42): es "hoy" pero está 9 horas por delante del servidor → hora_inconsistente', validar(parsear(cuerpoMedica({ checked_in_at: '2026-10-14T00:30:00Z', reported_at: '2026-10-14T00:31:00Z' })), {}).marcas.join() === 'hora_inconsistente')
+  // AHORA = 10:42 en Bogotá. La base tolera 5 minutos de adelanto (c_tolerancia); más, marca.
+  check('reloj del teléfono adelantado 4 minutos (10:46): sin marca, como en la base', validar(parsear(cuerpoMedica({ checked_in_at: '2026-10-13T10:46:00-05:00', reported_at: '2026-10-13T10:47:00-05:00' }))).marcas.length === 0)
   const adelantado = validar(parsear(cuerpoMedica({ checked_in_at: '2026-10-13T11:30:00-05:00', reported_at: '2026-10-13T11:31:00-05:00' })))
   check(
-    'reloj del teléfono adelantado 48 minutos (hoy en Bogotá): "La hora de llegada está en el futuro", como la base',
-    !adelantado.ok && mensajes(adelantado).includes(MENSAJE_LLEGADA_FUTURA) && !mensajes(adelantado).includes(MENSAJE_SOLO_HOY) && TOLERANCIA_RELOJ_SEGUNDOS === 300,
+    'reloj del teléfono adelantado 48 minutos: ACEPTADA con hora_inconsistente (antes "La hora de llegada está en el futuro")',
+    adelantado.ok && adelantado.marcas.join() === 'hora_inconsistente' && TOLERANCIA_RELOJ_SEGUNDOS === 300,
     adelantado
   )
-  check('reloj del teléfono en mañana (Bogotá): "Solo se reportan visitas del mismo día"', mensajes(validar(parsear(cuerpoMedica({ checked_in_at: '2026-10-14T08:00:00-05:00', reported_at: '2026-10-14T08:01:00-05:00' })))).includes(MENSAJE_SOLO_HOY))
+  check('reloj del teléfono en mañana (Bogotá): aceptada con hora_inconsistente', validar(parsear(cuerpoMedica({ checked_in_at: '2026-10-14T08:00:00-05:00', reported_at: '2026-10-14T08:01:00-05:00' }))).marcas.includes('hora_inconsistente'))
   const reporteAntes = validar({ ...parsear(cuerpoMedica()), reported_at: '2026-10-13T10:30:00-05:00' } as VisitaCreate)
   check('reported_at antes de checked_in_at: rechazada', !reporteAntes.ok && mensajes(reporteAntes).includes(MENSAJE_REPORTE_ANTES_DE_LLEGADA))
 
@@ -503,8 +521,8 @@ seccion('4. validarVisita')
   check('ejecutiva inactiva: rechazada con el mensaje de F2', mensajes(validar(parsear(cuerpoMedica()), { contexto: { ejecutiva: { id: EJEC, activa: false, con_zona: true, lineas: [L1] } } })).includes(MENSAJE_SIN_EJECUTIVA))
   check('ejecutiva sin zona base: rechazada', mensajes(validar(parsear(cuerpoMedica()), { contexto: { ejecutiva: { id: EJEC, activa: true, con_zona: false, lineas: [L1] } } })).includes(MENSAJE_SIN_ZONA))
 
-  const varios = validar(parsear(cuerpoMedica({ ...aMetrosAlNorte(SEDE_PUNTO, 800), lineas: [L_AJENA] })))
-  check('devuelve TODOS los errores (lejos + líneas ajenas)', varios.errores.length === 2 && varios.errores.map(e => e.campo).sort().join(',') === 'lat,lineas', varios)
+  const varios = validar(parsear(cuerpoMedica({ ...aMetrosAlNorte(SEDE_PUNTO, 800), lineas: [L_AJENA], modalidad: 'telefonica', medio: 'llamada', lat: undefined, lng: undefined })))
+  check('devuelve TODOS los errores (telefónica no habilitada + líneas ajenas)', varios.errores.length === 2 && varios.errores.map(e => e.campo).sort().join(',') === 'lineas,modalidad', varios)
   check('validarVisita no muta los datos', (() => {
     const datos = parsear(cuerpoMedica())
     const copia = JSON.stringify(datos)
@@ -519,8 +537,8 @@ seccion('4. validarVisita')
   // Hallazgos del verificador (2026-10-14): reported_at en el futuro, fechas antes de la visita, cuenta y contacto inactivos.
   const reporteFuturo = validar({ ...parsear(cuerpoMedica()), reported_at: '2026-10-13T10:48:00-05:00' } as VisitaCreate)
   check(
-    'reported_at 6 minutos en el futuro (llegada bien): "La hora del reporte está en el futuro", como la base',
-    !reporteFuturo.ok && mensajes(reporteFuturo).includes(MENSAJE_REPORTE_FUTURO) && !mensajes(reporteFuturo).includes(MENSAJE_LLEGADA_FUTURA),
+    'reported_at 6 minutos en el futuro (llegada bien): aceptada con hora_inconsistente (0940; antes "La hora del reporte está en el futuro")',
+    reporteFuturo.ok && reporteFuturo.marcas.join() === 'hora_inconsistente',
     reporteFuturo
   )
   check('reported_at 4 minutos adelante: pasa (tolerancia de 5 minutos)', validar({ ...parsear(cuerpoMedica()), reported_at: '2026-10-13T10:46:00-05:00' } as VisitaCreate).ok)
@@ -547,6 +565,36 @@ seccion('4. validarVisita')
 // ---------------------------------------------------------------------------
 // 5. Hoy y Mis números
 // ---------------------------------------------------------------------------
+
+seccion('4b. marcasDeVisita (0940): el espejo puro de las marcas de visitas_registrar; motivo de lista; la foto')
+{
+  const base = { modalidad: 'presencial' as const, punto: aMetrosAlNorte(SEDE_PUNTO, 120), precision: 10, sede: { lat: SEDE_PUNTO.lat, lng: SEDE_PUNTO.lng }, radio_m: 300, checked_in_at: '2026-10-13T10:40:00-05:00', reported_at: '2026-10-13T10:41:00-05:00', ahora: AHORA, medico_no_listado: false }
+  const enSitio = marcasDeVisita(base)
+  check('a 120 m con ±10 m y radio 300: en_sitio, sin marcas', enSitio.marcas.length === 0 && enSitio.en_sitio === true && enSitio.distance_m !== null && Math.abs(enSitio.distance_m - 120) <= 1, enSitio)
+  check('a 800 m: lejos_de_ips', marcasDeVisita({ ...base, punto: aMetrosAlNorte(SEDE_PUNTO, 800) }).marcas.join() === 'lejos_de_ips')
+  check('a 320 m con ±30 m: en sitio (descuenta la precisión); con ±10 m, lejos', marcasDeVisita({ ...base, punto: aMetrosAlNorte(SEDE_PUNTO, 320), precision: 30 }).en_sitio === true && marcasDeVisita({ ...base, punto: aMetrosAlNorte(SEDE_PUNTO, 320), precision: 10 }).en_sitio === false)
+  check('sin GPS: sin_ubicacion, sin distancia', JSON.stringify(marcasDeVisita({ ...base, punto: null, precision: null })) === JSON.stringify({ marcas: ['sin_ubicacion'], distance_m: null, en_sitio: null }))
+  check('sede sin coordenadas: ips_sin_coordenadas', marcasDeVisita({ ...base, sede: { lat: null, lng: null } }).marcas.join() === 'ips_sin_coordenadas')
+  check('sin GPS y sede sin coordenadas: las dos marcas', marcasDeVisita({ ...base, punto: null, sede: { lat: null, lng: null } }).marcas.join() === 'sin_ubicacion,ips_sin_coordenadas')
+  check(`precisión de 150 m: precision_baja (umbral ${PRECISION_BAJA_M})`, marcasDeVisita({ ...base, precision: 150 }).marcas.join() === 'precision_baja' && marcasDeVisita({ ...base, precision: 100 }).marcas.length === 0)
+  check('hace 8 días: hora_inconsistente; hace 7, no', marcasDeVisita({ ...base, checked_in_at: '2026-10-05T10:40:00-05:00', reported_at: '2026-10-05T10:41:00-05:00' }).marcas.join() === 'hora_inconsistente' && marcasDeVisita({ ...base, checked_in_at: '2026-10-06T10:40:00-05:00', reported_at: '2026-10-06T10:41:00-05:00' }).marcas.length === 0)
+  check('hora del teléfono 10 min después del servidor (llegada o reporte): hora_inconsistente; 4 min, no', marcasDeVisita({ ...base, checked_in_at: '2026-10-13T10:52:00-05:00', reported_at: '2026-10-13T10:53:00-05:00' }).marcas.join() === 'hora_inconsistente' && marcasDeVisita({ ...base, reported_at: '2026-10-13T10:52:00-05:00' }).marcas.join() === 'hora_inconsistente' && marcasDeVisita({ ...base, checked_in_at: '2026-10-13T10:45:00-05:00', reported_at: '2026-10-13T10:46:00-05:00' }).marcas.length === 0)
+  check('médico no listado: medico_por_validar (antes de las de ubicación, como la base)', marcasDeVisita({ ...base, medico_no_listado: true, punto: null }).marcas.join() === 'medico_por_validar,sin_ubicacion')
+  check('telefónica: ninguna marca de ubicación', marcasDeVisita({ ...base, modalidad: 'telefonica', punto: null }).marcas.length === 0)
+  check('las 7 marcas de la lista', VALORES_MARCA_VISITA.join() === 'en_sitio,lejos_de_ips,sin_ubicacion,precision_baja,ips_sin_coordenadas,hora_inconsistente,medico_por_validar')
+
+  // validarVisita con el médico no listado y el motivo de lista
+  const noListado = validar({ ...parsear(cuerpoMedica()), medico_id: null, medico_no_listado: { nombre: 'Dr. Nuevo', especialidad: null } } as VisitaCreate, { contexto: { medico: null } })
+  check('validarVisita: médico no listado válido (no busca el médico) y marcado medico_por_validar', noListado.ok && noListado.marcas.join() === 'medico_por_validar' && !noListado.out_of_territory, noListado)
+  check('validarVisita: médico no listado sin nombre → error', !validar({ ...parsear(cuerpoMedica()), medico_id: null, medico_no_listado: { nombre: ' ', especialidad: null } } as VisitaCreate, { contexto: { medico: null } }).ok)
+  const motivoMalo = validar(parsear(cuerpoMedica({ efectiva: false, failure_reason: 'x', motivo_codigo: 'inventado' })), { contexto: { motivos: ['medico_no_estaba', 'otro'] } })
+  check('motivo que no está en la lista (cuando la lista se conoce): rechazado', !motivoMalo.ok && mensajes(motivoMalo).includes(MENSAJE_MOTIVO_NO_EFECTIVA_NO_VALIDO))
+  check('motivo de la lista: ok; sin lista conocida no se revisa (decide la base)', validar(parsear(cuerpoMedica({ efectiva: false, failure_reason: 'x', motivo_codigo: 'otro' })), { contexto: { motivos: ['otro'] } }).ok && validar(parsear(cuerpoMedica({ efectiva: false, failure_reason: 'x', motivo_codigo: 'inventado' }))).ok)
+
+  // La foto
+  check('revisarFoto: JPEG hasta 2 MB; PNG, vacía o grande no', revisarFoto({ type: 'image/jpeg', size: 1_500_000 }) === null && revisarFoto({ type: 'image/jpg;charset=x', size: 10 }) === null && revisarFoto({ type: 'image/png', size: 10 }) === 'La foto debe ser JPEG' && revisarFoto({ type: 'image/jpeg', size: FOTO_MAX_BYTES + 1 }) === 'La foto no puede superar 2 MB' && revisarFoto({ type: 'image/jpeg', size: 0 }) !== null && revisarFoto(null) !== null)
+  check('rutaFoto: por persona y visita, .jpg', rutaFoto('u1', 'c1') === 'u1/c1.jpg')
+}
 
 seccion('5. compromisosVencidos, resumenHoy y cumplimientoMes')
 {
@@ -730,11 +778,12 @@ const contextoRespuesta = (): ContextoResponse => ({
   persona: { user_id: 'abababab-0000-4000-8000-000000000001', nombre: 'Ana Pérez', rol: 'ejecutivo', executive_id: EJEC, lineas: [{ id: L1, nombre: 'Ortopedia', como: 'ejecutivo' }, { id: L2, nombre: 'Neurocirugía', como: 'ejecutivo' }] },
   hoy: { fecha: HOY, meta: { medica: 6, institucional: 1 }, hechas: { medicas: 0, institucionales: 0, telefonicas: 0, no_efectivas: 0 }, cuota_dia_ok: false },
   config: configBase(),
+  motivos_no_efectiva: [],
   sedes_cerca: [
     { id: SEDE1, nombre: 'Clínica Norte', cuenta_id: CUENTA1, cuenta_nombre: 'Clínica X', cuenta_clase: 'clinica', ciudad: 'Bogotá', lat: SEDE_PUNTO.lat, lng: SEDE_PUNTO.lng, distancia_m: 120, hospital_id: null, ubicacion_confirmada: true },
     { id: SEDE2, nombre: 'Clínica X sede sur', cuenta_id: CUENTA1, cuenta_nombre: 'Clínica X', cuenta_clase: 'clinica', ciudad: 'Bogotá', lat: 4.6, lng: -74.1, distancia_m: 800, hospital_id: null, ubicacion_confirmada: true },
   ],
-  mis_medicos: [{ id: MED1, nombre: 'Dr. Pérez', especialidades: ['ortopedia'], municipality_id: '11001', lineas: [L1], sedes: [{ id: SEDE1, nombre: 'Clínica Norte', cuenta_nombre: 'Clínica X', distancia_m: 120 }] }],
+  mis_medicos: [{ id: MED1, nombre: 'Dr. Pérez', especialidades: ['ortopedia'], municipality_id: '11001', lineas: [L1], sedes: [{ id: SEDE1, nombre: 'Clínica Norte', cuenta_nombre: 'Clínica X', distancia_m: 120, cuenta_id: null, lat: null, lng: null }] }],
   contactos: [{ id: CONT1, cuenta_id: CUENTA1, sede_id: SEDE1, nombre: 'Marta', cargo_texto: 'Jefe de compras', rol: 'compras' }],
   subtipos: [
     { id: SUB_COMPRAS, codigo: 'compras', nombre: 'Compras', roles_sugeridos: ['compras'] },
@@ -871,7 +920,15 @@ seccion('8. Esquemas zod (mensajes en español, límites)')
   check('institucional sin subtipo → mensaje en subtipo_id', !sinSubtipo.success && mensajeZod(sinSubtipo, 'subtipo_id') === 'Elige el subtipo de la visita institucional')
   check('institucional sin cuenta → "Elige la cuenta"', mensajeZod(visitaCreateSchema.safeParse(cuerpoInstitucional({ cuenta_id: undefined })), 'cuenta_id') === 'Elige la cuenta')
   const sinGps = visitaCreateSchema.safeParse(cuerpoMedica({ lat: undefined, lng: undefined }))
-  check('presencial sin lat/lng → mensaje en lat', !sinGps.success && mensajeZod(sinGps, 'lat') === 'La ubicación del teléfono es obligatoria en una visita presencial')
+  check('presencial sin lat/lng → el esquema la acepta con lat y lng null (0940: queda marcada sin_ubicacion)', sinGps.success && sinGps.data.lat === null && sinGps.data.lng === null && sinGps.data.gps_at === null)
+  const noListado = visitaCreateSchema.safeParse(cuerpoMedica({ medico_id: null, medico_no_listado: { nombre: '  Dr.  Nuevo  Pérez ', especialidad: 'columna' }, tz: 'America/Bogota', gps_at: '2026-10-13T10:40:00-05:00', efectiva: false, motivo_codigo: 'Medico_No_Estaba', failure_reason: null }))
+  check('médico no listado: nombre limpio, especialidad; tz, gps_at; motivo_codigo en minúsculas y sin texto (lo pone el servidor)', noListado.success && noListado.data.tipo === 'medica' && noListado.data.medico_id === null && noListado.data.medico_no_listado?.nombre === 'Dr. Nuevo Pérez' && noListado.data.medico_no_listado?.especialidad === 'columna' && noListado.data.tz === 'America/Bogota' && noListado.data.gps_at === '2026-10-13T10:40:00-05:00' && noListado.data.motivo_codigo === 'medico_no_estaba' && noListado.data.failure_reason === null, noListado.success ? noListado.data : noListado.error.issues)
+  check('médico no listado sin nombre → mensaje', mensajeZod(visitaCreateSchema.safeParse(cuerpoMedica({ medico_id: null, medico_no_listado: { nombre: '  ', especialidad: null } })), 'medico_no_listado.nombre') === MENSAJE_MEDICO_NO_LISTADO_SIN_NOMBRE)
+  check('médico de OpMap Y no listado a la vez → "no los dos"', mensajeZod(visitaCreateSchema.safeParse(cuerpoMedica({ medico_no_listado: { nombre: 'X', especialidad: null } })), 'medico_id') === MENSAJE_MEDICO_DOS_VECES)
+  check('médica sin médico ni no listado → "Elige el médico"', mensajeZod(visitaCreateSchema.safeParse(cuerpoMedica({ medico_id: null })), 'medico_id') === 'Elige el médico')
+  check('institucional nunca lleva médico no listado (queda null)', (() => { const r = visitaCreateSchema.safeParse(cuerpoInstitucional({ medico_no_listado: { nombre: 'X', especialidad: null } })); return r.success && r.data.medico_no_listado === null })())
+  check('motivo_codigo con caracteres raros → "Motivo no válido"; en una efectiva se descarta', mensajeZod(visitaCreateSchema.safeParse(cuerpoMedica({ motivo_codigo: 'no vale!' })), 'motivo_codigo') === 'Motivo no válido' && (() => { const r = visitaCreateSchema.safeParse(cuerpoMedica({ motivo_codigo: 'otro' })); return r.success && r.data.motivo_codigo === null })())
+  check('telefónica: gps_at queda null aunque venga (la ubicación no viaja)', (() => { const r = visitaCreateSchema.safeParse(cuerpoMedica({ modalidad: 'telefonica', medio: 'llamada', lat: undefined, lng: undefined, gps_at: '2026-10-13T10:40:00-05:00' })); return r.success && r.data.gps_at === null })())
   check('presencial con lat sin lng → "Manda latitud y longitud juntas" (en lng)', mensajeZod(visitaCreateSchema.safeParse(cuerpoMedica({ lng: undefined })), 'lng') === 'Manda latitud y longitud juntas')
   const sinMedio = visitaCreateSchema.safeParse(cuerpoMedica({ modalidad: 'telefonica', lat: undefined, lng: undefined }))
   check('telefónica sin medio → mensaje en medio', !sinMedio.success && mensajeZod(sinMedio, 'medio') === 'Indica el medio: llamada o videollamada')

@@ -141,6 +141,8 @@ export default function MapControls({
   // Filtros de contenido
   const [visitTypeFilter, setVisitTypeFilter] = useState('all')
   const [contactTypeFilter, setContactTypeFilter] = useState('all')
+  // 0940 (app sin señal): marca del servidor (en sitio, lejos de la IPS, sin ubicación…). Solo las visitas de la app las tienen.
+  const [marcaFilter, setMarcaFilter] = useState('all')
 
   // Las zonas de las visitas salen del filtro principal (Ejecutivos Comerciales o zonas): null = todas
   const noGroupSelected = visitKamIds !== null && visitKamIds.length === 0
@@ -171,14 +173,15 @@ export default function MapControls({
     // Agregar filtros de contenido
     params.visitType = visitTypeFilter === 'all' ? undefined : visitTypeFilter
     params.contactType = contactTypeFilter === 'all' ? undefined : contactTypeFilter
-    
+    params.marca = marcaFilter === 'all' ? undefined : marcaFilter
+
     // Zonas del filtro principal; sin filtro no se envía (todas las visitas)
     if (visitKamIdsKey !== null) {
       params.kamIds = visitKamIdsKey.split(',')
     }
 
     return params
-  }, [visitsEnabled, selectedMonths, selectedYear, visitTypeFilter, contactTypeFilter, visitKamIdsKey])
+  }, [visitsEnabled, selectedMonths, selectedYear, visitTypeFilter, contactTypeFilter, marcaFilter, visitKamIdsKey])
   
   // Hacer la query solo si hay parámetros válidos
   const { data: visitsData, isLoading, error } = useVisits(queryParams)
@@ -407,6 +410,29 @@ export default function MapControls({
               <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${visitsEnabled ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
             </span>
           </button>
+
+          {/* 0940 (app sin señal): filtro por marca del servidor. Solo las visitas de la app las tienen; las de VMO no. */}
+          {hasValidFilters ? (
+            <div className="mb-4">
+              <label htmlFor="filtro-marca-visitas" className="text-xs font-medium text-gray-700 mb-2 block">Marca de la visita (app de campo)</label>
+              <select
+                id="filtro-marca-visitas"
+                value={marcaFilter}
+                onChange={e => setMarcaFilter(e.target.value)}
+                className="w-full px-3 py-2 text-xs rounded-lg border border-gray-300 bg-white text-gray-700"
+              >
+                <option value="all">Todas</option>
+                <option value="en_sitio">En sitio</option>
+                <option value="lejos_de_ips">Lejos de la IPS</option>
+                <option value="sin_ubicacion">Sin ubicación</option>
+                <option value="precision_baja">Precisión baja</option>
+                <option value="ips_sin_coordenadas">IPS sin coordenadas</option>
+                <option value="hora_inconsistente">Hora inconsistente</option>
+                <option value="medico_por_validar">Médico por validar</option>
+                <option value="sin_marcas">Sin marcas</option>
+              </select>
+            </div>
+          ) : null}
 
           {/* Tipo de visualización - Solo si hay filtros válidos */}
           {hasValidFilters ? (
