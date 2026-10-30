@@ -10,7 +10,7 @@
 // Sin EXPO_PUBLIC_API_URL: en la web la app llama a la API de su mismo sitio (mobile/lib/api.ts ORIGEN_WEB).
 // Si algo falla, el build falla: nunca se publica OpMap sin la app (la página /campo daría 404).
 import { execFileSync } from 'node:child_process'
-import { existsSync, rmSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { generateSW } from 'workbox-build'
@@ -31,8 +31,13 @@ const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 const entorno = { ...process.env, CI: '1' }
 delete entorno.EXPO_PUBLIC_API_URL
 
-if (!existsSync(path.join(movil, 'node_modules', '.bin', 'expo'))) {
-  console.log('[campo] Instalando las dependencias de mobile/ (npm ci)…')
+// Vercel restaura mobile/node_modules de la caché del despliegue anterior: si el package.json trae una dependencia nueva
+// (idb, expo-image-picker…), expo no la encuentra. Se instala cuando falta expo O cuando falta cualquier dependencia.
+const paquete = JSON.parse(readFileSync(path.join(movil, 'package.json'), 'utf8'))
+const dependencias = Object.keys({ ...(paquete.dependencies ?? {}), ...(paquete.devDependencies ?? {}) })
+const faltan = dependencias.filter(nombre => !existsSync(path.join(movil, 'node_modules', nombre, 'package.json')))
+if (!existsSync(path.join(movil, 'node_modules', '.bin', 'expo')) || faltan.length > 0) {
+  console.log(`[campo] Instalando las dependencias de mobile/ (npm ci)…${faltan.length > 0 ? ` faltaban: ${faltan.join(', ')}` : ''}`)
   execFileSync(npm, ['ci', '--no-audit', '--no-fund'], { cwd: movil, stdio: 'inherit', env: entorno })
 }
 

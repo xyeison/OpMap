@@ -80,6 +80,12 @@ async function main() {
       (script.match(/process\.exit\(1\)/g) ?? []).length >= 2
   )
   check('public/campo no se versiona (web/.gitignore)', /^\/public\/campo\/$/m.test(leer('.gitignore')))
+  check(
+    'construir-campo instala mobile/ con npm ci si falta expo O cualquier dependencia del package.json (Vercel restaura node_modules viejos de la caché)',
+    /const faltan = dependencias\.filter\(nombre => !existsSync\(path\.join\(movil, 'node_modules', nombre, 'package\.json'\)\)\)/.test(script) &&
+      /if \(!existsSync\(path\.join\(movil, 'node_modules', '\.bin', 'expo'\)\) \|\| faltan\.length > 0\)/.test(script) &&
+      /\['ci', '--no-audit', '--no-fund'\], \{ cwd: movil/.test(script)
+  )
   check('construir-campo exige sw-cola.js y sw-registro.js en lo exportado y genera sw.js con Workbox (falla si no precarga nada)', /sw-cola\.js/.test(script) && /sw-registro\.js/.test(script) && /generateSW\(opcionesServiceWorker\(salida\)\)/.test(script) && /count === 0/.test(script))
 
   console.log('\n4. Sin señal: el service worker que genera el build (scripts/campo-sw.mjs)')
