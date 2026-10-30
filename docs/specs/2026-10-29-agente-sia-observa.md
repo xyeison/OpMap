@@ -587,11 +587,11 @@ con bloqueo de 30 min renovado tras cada ventana.
 - En `secop_contratos` el código de la entidad (`CD/26-1262`) va en **`referencia`**, no en `numero_contrato`
   (`CO1.PCCNTR.…`). Cada contrato aparece dos veces (`secop2` e `integrado`): el cruce prefiere `secop2`.
 - El CHECK `check_contracting_model` de `hospital_contracts` **no admite `subasta_inversa`** aunque el formulario la
-  ofrece (guardar con esa opción falla hoy). La migración 0920 lo amplía.
+  ofrece (guardar con esa opción falla hoy). La migración 0930 lo amplía.
 - `business_lines.code` = `perossal, reemplazo, columna, deportiva, trauma`; el clasificador de SECOP usa además
   `neurocirugia` y `otros_implantes`. `sia_contratos.linea` usa los valores del clasificador (mismo CHECK que SECOP).
 - `storage.buckets` solo tiene `geojson`. Supabase prohíbe `DELETE` directo en `storage.buckets`/`objects` (trigger
-  `protect_buckets_delete`): el rollback 9957 no borra el bucket; se borra desde el panel.
+  `protect_buckets_delete`): el rollback 9958 no borra el bucket; se borra desde el panel.
 
 ### Revisión (subagente `revisor`, 2026-10-30)
 

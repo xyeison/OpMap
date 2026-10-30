@@ -153,7 +153,7 @@ export default function ContractDetailPage() {
       {/* Hospital Info */}
       {contract.hospital && (
         <div className="bg-gray-50 border border-gray-200 rounded-xl p-6 mb-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-2">Hospital Asociado</h2>
+          <h2 className="text-lg font-semibold text-gray-900 mb-2">IPS asociada</h2>
           <Link 
             href={`/hospitals/${contract.hospital_id}`}
             className="text-gray-700 hover:text-gray-900 font-medium text-lg"

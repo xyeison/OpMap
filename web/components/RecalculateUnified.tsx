@@ -16,7 +16,7 @@ export default function RecalculateUnified() {
       '¿Estás seguro? Este proceso:\n\n' +
       '1. Analizará qué tiempos de viaje faltan según las reglas territoriales\n' +
       '2. Calculará SOLO las rutas necesarias con Google Maps\n' +
-      '3. Asignará hospitales según:\n' +
+      '3. Asignará las IPS según:\n' +
       '   • Territorios base de cada zona (automático)\n' +
       '   • Expansión territorial (Nivel 1 y 2)\n' +
       '   • Tiempos de viaje reales (máx. 4 horas)\n' +
@@ -167,19 +167,19 @@ export default function RecalculateUnified() {
               )}
               {details.totalHospitals !== undefined && (
                 <div className="flex justify-between">
-                  <span>Hospitales activos:</span>
+                  <span>IPS activas:</span>
                   <span>{details.totalHospitals}</span>
                 </div>
               )}
               {details.assignedHospitals !== undefined && (
                 <div className="flex justify-between">
-                  <span>Hospitales asignados:</span>
+                  <span>IPS asignadas:</span>
                   <span>{details.assignedHospitals}</span>
                 </div>
               )}
               {details.unassignedHospitals !== undefined && (
                 <div className="flex justify-between">
-                  <span>Hospitales sin asignar:</span>
+                  <span>IPS sin asignar:</span>
                   <span>{details.unassignedHospitals}</span>
                 </div>
               )}

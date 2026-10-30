@@ -186,7 +186,7 @@ export default function ForcedAssignmentModal({
           <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-xl">
             <p className="text-sm text-blue-800">
               <strong>⚠️ Importante:</strong> La asignación forzada sobrescribe el algoritmo OpMap. 
-              Todos los hospitales del {territory.type === 'locality' ? 'localidad' : 'municipio'} se asignarán a la zona seleccionada, 
+              Todas las IPS {territory.type === 'locality' ? 'de la localidad' : 'del municipio'} se asignarán a la zona seleccionada, 
               independientemente de la distancia.
             </p>
           </div>
@@ -210,7 +210,7 @@ export default function ForcedAssignmentModal({
                   </div>
                   {territory.hospitalCount !== undefined && (
                     <div className="flex justify-between">
-                      <span className="text-sm text-gray-600">Hospitales:</span>
+                      <span className="text-sm text-gray-600">IPS:</span>
                       <span className="text-sm font-medium text-gray-900">{territory.hospitalCount}</span>
                     </div>
                   )}

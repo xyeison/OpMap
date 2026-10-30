@@ -213,7 +213,7 @@ export default function ContractsPage() {
         <div className="mb-8 flex justify-between items-center">
           <div>
             <h1 className="text-4xl font-bold text-gray-900">Contratos</h1>
-            <p className="text-gray-600 mt-2">Gestión de contratos hospitalarios</p>
+            <p className="text-gray-600 mt-2">Gestión de contratos con las IPS</p>
           </div>
           <div className="flex flex-wrap gap-2">
           <button
@@ -299,7 +299,7 @@ export default function ContractsPage() {
               </label>
               <input
                 type="text"
-                placeholder="Hospital, contrato o Ejecutivo Comercial..."
+                placeholder="IPS, contrato o Ejecutivo Comercial..."
                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent transition-all bg-white"
                 value={filters.search}
                 onChange={(e) => setFilters({ ...filters, search: e.target.value })}
@@ -368,7 +368,7 @@ export default function ContractsPage() {
                 <thead>
                   <tr className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
                     <th className="px-6 py-5 text-left">
-                      <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Hospital</span>
+                      <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">IPS</span>
                     </th>
                     <th className="px-6 py-5 text-left">
                       <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Contrato</span>
@@ -563,7 +563,7 @@ export default function ContractsPage() {
                         <button
                           onClick={() => router.push(`/hospitals/${contract.hospital_id}`)}
                           className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-all group"
-                          title="Ver hospital"
+                          title="Ver IPS"
                         >
                           <svg className="w-4 h-4 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
@@ -665,7 +665,7 @@ export default function ContractsPage() {
                   onClick={() => router.push(`/hospitals/${contract.hospital_id}`)}
                   className="px-3 py-1 text-xs bg-gray-900 text-white rounded-lg hover:bg-black transition-colors"
                 >
-                  Ver Hospital
+                  Ver IPS
                 </button>
                 {can('contracts:delete') && (
                   <button

@@ -16,7 +16,7 @@ puede correr en una ruta de cron.
 
 ## Pasos del dueño (una vez)
 
-1. **Migración**: revisar y aprobar `database/migrations/2026-10-30_0920_sia_observa.sql` (aditiva; rollback 9957). Se aplica
+1. **Migración**: revisar y aprobar `database/migrations/2026-10-30_0930_sia_observa.sql` (aditiva; rollback 9958). Se aplica
    en la misma ventana que el despliegue. Después: `NOTIFY pgrst, 'reload schema';`.
 2. **En el Mac** (en Colombia), en `web/.env.local`, además de lo que ya hay (`NEXT_PUBLIC_SUPABASE_URL`,
    `SUPABASE_SERVICE_ROLE_KEY`):

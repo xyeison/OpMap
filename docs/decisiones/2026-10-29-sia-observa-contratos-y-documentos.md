@@ -21,6 +21,6 @@ al módulo de Contratos (`docs/specs/2026-10-29-agente-sia-observa.md`).
 - `check_contracting_model` admite `subasta_inversa` (el formulario ya la ofrecía).
 
 **Dónde vive en el código**: `web/lib/sia-observa/*`, `web/scripts/sia-*.ts`, `web/app/api/sia/**`,
-`web/components/contracts/*Sia*`, `/contracts/detectados`; migración `database/migrations/2026-10-30_0920_sia_observa.sql`
-(rollback 9957). Pruebas: `web/scripts/sia-observa-check.ts` y `web/scripts/sia-observa-api-check.ts`. Operación:
+`web/components/contracts/*Sia*`, `/contracts/detectados`; migración `database/migrations/2026-10-30_0930_sia_observa.sql`
+(rollback 9958). Pruebas: `web/scripts/sia-observa-check.ts` y `web/scripts/sia-observa-api-check.ts`. Operación:
 `docs/fases/fase9-sia-observa.md`.

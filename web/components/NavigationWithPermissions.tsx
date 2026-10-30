@@ -5,13 +5,15 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useUser } from '@/contexts/UserContext'
 import { usePermissions } from '@/hooks/usePermissions'
-import { getHomeRoute, getRoleTitle, type NavigationItem } from '@/lib/permissions'
+import { agruparMenu, getHomeRoute, getRoleTitle, opcionActiva, type NavigationItem } from '@/lib/permissions'
 import { useMapHeaderTitle } from '@/components/mapHeaderStore'
 
 export default function NavigationWithPermissions() {
   const { user, logout } = useUser()
   const { role, navigationMenu, loading } = usePermissions()
   const [isOpen, setIsOpen] = useState(false)
+  // ?tab= de la página abierta al abrir el menú: distingue ADRES de Compras públicas (las dos en /inteligencia)
+  const [busqueda, setBusqueda] = useState('')
   const menuRef = useRef<HTMLDivElement>(null)
   const pathname = usePathname()
   // En /map la cabecera es compacta en móvil (48 px) y muestra la línea: "OpMap · <línea>"
@@ -38,9 +40,12 @@ export default function NavigationWithPermissions() {
     setIsOpen(false)
   }, [pathname])
   
-  // Menú visible: el orden y los textos salen de getNavigationMenu (lib/permissions.ts), cada ítem con su permiso.
-  // Mapa primero y Configuración al final (dueño, 2026-10-14). El logo lleva a la página de inicio del rol.
+  // Menú visible: el orden, los grupos y los textos salen de getNavigationMenu (lib/permissions.ts), cada opción con su
+  // permiso (dueño, 2026-10-29: Terceros, Empleados, Inteligencia de Mercado y Configuración son títulos). El logo lleva
+  // a la página de inicio del rol.
   const menuItems: NavigationItem[] = navigationMenu
+  const secciones = agruparMenu(menuItems)
+  const activa = opcionActiva(menuItems, pathname, busqueda)
   const inicio = getHomeRoute(role) ?? '/'
 
   if (!user) return null
@@ -55,6 +60,7 @@ export default function NavigationWithPermissions() {
             <button
               onClick={(e) => {
                 e.stopPropagation()
+                if (!isOpen) setBusqueda(window.location.search)
                 setIsOpen(!isOpen)
               }}
               className={`hover:bg-gray-100 rounded-lg transition-colors relative z-[10000] ${isMap ? 'p-2.5 md:p-2' : 'p-2'}`}
@@ -152,30 +158,23 @@ export default function NavigationWithPermissions() {
             // Un <div> y no <nav>: globals.css fija todo <nav> (position: fixed) y la lista dejaba de desplazarse,
             // así que en pantallas bajas las últimas opciones (Configuración) quedaban cortadas.
             <div className="space-y-1" role="navigation" aria-label="Menú principal" data-menu-principal>
-              {menuItems.map((item) => {
-                // Municipios (/territories) vive dentro de Configuración: ahí se marca Configuración
-                const isActive =
-                  pathname === item.href || (item.href === '/configuracion' && !!pathname?.startsWith('/territories'))
-                const Icon = getIconForRoute(item.href)
-                
+              {secciones.map((seccion, indice) => {
+                const opciones = seccion.items.map(item => (
+                  <OpcionMenu key={item.href} item={item} activa={item.href === activa} onElegir={() => setIsOpen(false)} />
+                ))
+                if (!seccion.grupo) {
+                  // Opción suelta después de un grupo: separada para que no parezca parte de él
+                  const trasGrupo = indice > 0 && secciones[indice - 1].grupo !== null
+                  return <div key={seccion.items[0].href} className={trasGrupo ? 'pt-3' : ''}>{opciones}</div>
+                }
+                const tituloId = `menu-grupo-${indice}`
                 return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={`flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all ${
-                      isActive 
-                        ? 'bg-gray-900 text-white shadow-md' 
-                        : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900'
-                    }`}
-                  >
-                    <Icon className="w-5 h-5" />
-                    <span className="font-medium">{item.name}</span>
-                    {isActive && (
-                      <svg className="w-4 h-4 ml-auto" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
-                      </svg>
-                    )}
-                  </Link>
+                  <div key={seccion.grupo} role="group" aria-labelledby={tituloId} className={indice > 0 ? 'pt-3' : ''}>
+                    <div id={tituloId} className="px-4 pb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                      {seccion.grupo}
+                    </div>
+                    <div className="space-y-1">{opciones}</div>
+                  </div>
                 )
               })}
             </div>
@@ -214,7 +213,31 @@ export default function NavigationWithPermissions() {
   )
 }
 
-// Función helper para obtener iconos según la ruta
+// Opción del menú: icono y nombre; la activa en negro con flecha. Al elegirla se cierra el menú (también entre ADRES y
+// Compras públicas, que comparten la ruta y no cierran el menú al cambiar de página)
+function OpcionMenu({ item, activa, onElegir }: { item: NavigationItem; activa: boolean; onElegir: () => void }) {
+  const Icon = getIconForRoute(item.href)
+  return (
+    <Link
+      href={item.href}
+      onClick={onElegir}
+      aria-current={activa ? 'page' : undefined}
+      className={`flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all ${
+        activa ? 'bg-gray-900 text-white shadow-md' : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900'
+      }`}
+    >
+      <Icon className="w-5 h-5" />
+      <span className="font-medium">{item.name}</span>
+      {activa && (
+        <svg className="w-4 h-4 ml-auto" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+          <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+        </svg>
+      )}
+    </Link>
+  )
+}
+
+// Función helper para obtener iconos según la ruta (sin ?tab=)
 function getIconForRoute(href: string) {
   const icons: { [key: string]: React.FC<{ className?: string }> } = {
     '/map': MapIcon,
@@ -223,7 +246,10 @@ function getIconForRoute(href: string) {
     '/lines': LinesIcon,
     '/executives': ExecutivesIcon,
     '/inteligencia': IntelligenceIcon,
-    '/terceros': TercerosIcon, // Fase 6 F1: cuentas, sedes, médicos y contactos
+    '/terceros': TercerosIcon, // Cuentas clave (Fase 6 F1: cuentas, sedes y contactos)
+    '/medicos': TercerosIcon, // "Próximamente"
+    '/aseguradoras': CompanyIcon, // "Próximamente"
+    '/lideres': ExecutivesIcon, // "Próximamente"
     '/calendario': CalendarioIcon, // Fase 7 F2: festivos, días de empresa y de ciudad, días libres
     '/configuracion': ConfiguracionIcon, // Fase 7 F2: configuración de visitas
     '/contracts': DocumentIcon,
@@ -234,7 +260,7 @@ function getIconForRoute(href: string) {
     '/compliance': ComplianceIcon,
   }
   
-  return icons[href] || DefaultIcon
+  return icons[href.split('?')[0]] || DefaultIcon
 }
 
 // Iconos SVG como componentes

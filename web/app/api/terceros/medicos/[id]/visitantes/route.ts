@@ -1,6 +1,7 @@
 // POST /api/terceros/medicos/[id]/visitantes (visitantes:manage) — { executive_id, line_id, municipality_id? }.
 // Varios Ejecutivos Comerciales por médico, cada uno por una línea (incluso dos de la misma línea en ciudades
-// distintas). El líder de línea solo asigna en las líneas que lidera (403); el Ejecutivo Comercial debe llevar
+// distintas). Desde el 2026-10-29 visitantes:manage es solo del administrador y la dirección comercial (la líder es de
+// consulta); quien lo tenga sin ver todas las líneas solo asigna en las suyas (403). El Ejecutivo Comercial debe llevar
 // esa línea (executive_lines). Contrato: docs/fases/fase6-visitas-f1-terceros.md.
 import { NextRequest, NextResponse } from 'next/server'
 import { requirePermission } from '@/lib/require-role'

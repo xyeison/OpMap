@@ -1,5 +1,5 @@
 -- =====================================================================================
--- OpMap · feat/agente-sia-observa (contratos y documentos de SIA Observa) · 0920 — Tablas de SIA, enlaces y bucket
+-- OpMap · feat/agente-sia-observa (contratos y documentos de SIA Observa) · 0930 — Tablas de SIA, enlaces y bucket
 -- Proyecto: norvxqgohddgsdkggqzq · Generado: 2026-10-30 · NO APLICADA TODAVÍA (se aplica solo con OK del dueño y en la
 --   misma ventana que el despliegue del código).
 --
@@ -40,7 +40,7 @@
 -- Requiere: hospitals, hospital_contracts, secop_contratos, fuentes_estado (0710) y update_updated_at_column().
 -- Transaccional: todo o nada. Re-ejecutable: sí (IF NOT EXISTS / ON CONFLICT DO NOTHING / DROP CONSTRAINT IF EXISTS).
 -- Tras aplicar: NOTIFY pgrst, 'reload schema';
--- Rollback: 2026-10-30_9957_sia_observa_rollback.sql. Costo Google: 0. No recalcula nada. No carga datos (la carga es
+-- Rollback: 2026-10-30_9958_sia_observa_rollback.sql. Costo Google: 0. No recalcula nada. No carga datos (la carga es
 --   web/scripts/sia-entidades.ts y web/scripts/sia-load.ts, en el Mac del dueño).
 -- =====================================================================================
 
@@ -54,10 +54,10 @@ DO $$
 BEGIN
   IF to_regclass('public.hospitals') IS NULL OR to_regclass('public.hospital_contracts') IS NULL
      OR to_regclass('public.secop_contratos') IS NULL OR to_regclass('public.fuentes_estado') IS NULL THEN
-    RAISE EXCEPTION '0920 SIA: faltan hospitals, hospital_contracts, secop_contratos o fuentes_estado';
+    RAISE EXCEPTION '0930 SIA: faltan hospitals, hospital_contracts, secop_contratos o fuentes_estado';
   END IF;
   IF to_regprocedure('public.update_updated_at_column()') IS NULL THEN
-    RAISE EXCEPTION '0920 SIA: falta la función update_updated_at_column()';
+    RAISE EXCEPTION '0930 SIA: falta la función update_updated_at_column()';
   END IF;
 END;
 $$;
@@ -341,7 +341,7 @@ COMMENT ON COLUMN public.hospital_contracts.secop_contrato_id IS 'Contrato de SE
 COMMENT ON COLUMN public.hospital_contracts.lineas IS 'Líneas del clasificador de SECOP del contrato importado.';
 
 -- -------------------------------------------------------------------------------------
--- 12. Comprobaciones. Las pruebas que escriben van en sub-bloques que terminan con RAISE SQLSTATE 'P0920': PL/pgSQL
+-- 12. Comprobaciones. Las pruebas que escriben van en sub-bloques que terminan con RAISE SQLSTATE 'P0930': PL/pgSQL
 --     deshace todo lo del sub-bloque. Cualquier otra excepción aborta la migración.
 -- -------------------------------------------------------------------------------------
 
@@ -349,7 +349,7 @@ DO $$
 DECLARE
   t        text;
   n        bigint;
-  guid_p   constant uuid := '00000000-0000-4000-8000-000000000920';
+  guid_p   constant uuid := '00000000-0000-4000-8000-000000000930';
   nit_p    constant text := '999999920';
   sc_id    uuid;
 BEGIN
@@ -358,47 +358,47 @@ BEGIN
       SELECT 1 FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace
       WHERE ns.nspname = 'public' AND c.relname = t AND c.relkind = 'r' AND c.relrowsecurity
     ) THEN
-      RAISE EXCEPTION '0920 SIA: public.% no existe o no tiene RLS activado', t;
+      RAISE EXCEPTION '0930 SIA: public.% no existe o no tiene RLS activado', t;
     END IF;
     SELECT count(*) INTO n FROM pg_policies WHERE schemaname = 'public' AND tablename = t;
-    IF n > 0 THEN RAISE EXCEPTION '0920 SIA: % tiene % política(s); debe nacer sin políticas', t, n; END IF;
+    IF n > 0 THEN RAISE EXCEPTION '0930 SIA: % tiene % política(s); debe nacer sin políticas', t, n; END IF;
     IF has_table_privilege('anon', 'public.' || t, 'SELECT') OR has_table_privilege('authenticated', 'public.' || t, 'SELECT') THEN
-      RAISE EXCEPTION '0920 SIA: anon/authenticated pueden leer %', t;
+      RAISE EXCEPTION '0930 SIA: anon/authenticated pueden leer %', t;
     END IF;
     IF NOT has_table_privilege('service_role', 'public.' || t, 'INSERT') THEN
-      RAISE EXCEPTION '0920 SIA: service_role no puede escribir %', t;
+      RAISE EXCEPTION '0930 SIA: service_role no puede escribir %', t;
     END IF;
   END LOOP;
 
   -- Sin columnas de personas en sia_contratos
   SELECT count(*) INTO n FROM information_schema.columns
   WHERE table_schema = 'public' AND table_name = 'sia_contratos' AND column_name IN ('es_persona', 'proveedor_hash', 'documento_proveedor');
-  IF n > 0 THEN RAISE EXCEPTION '0920 SIA: sia_contratos no debe tener columnas de personas'; END IF;
+  IF n > 0 THEN RAISE EXCEPTION '0930 SIA: sia_contratos no debe tener columnas de personas'; END IF;
 
   IF NOT EXISTS (SELECT 1 FROM storage.buckets WHERE id = 'contratos-sia' AND public = false) THEN
-    RAISE EXCEPTION '0920 SIA: el bucket contratos-sia no existe o es público';
+    RAISE EXCEPTION '0930 SIA: el bucket contratos-sia no existe o es público';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM public.fuentes_estado WHERE fuente = 'sia_observa' AND programacion = '0 7 * * *' AND ejecutor = 'manual') THEN
-    RAISE EXCEPTION '0920 SIA: falta la fuente sia_observa (0 7 * * *, manual)';
+    RAISE EXCEPTION '0930 SIA: falta la fuente sia_observa (0 7 * * *, manual)';
   END IF;
   SELECT count(*) INTO n FROM information_schema.columns
   WHERE table_schema = 'public' AND table_name = 'hospital_contracts' AND column_name IN ('sia_contrato_id', 'secop_contrato_id', 'lineas');
-  IF n <> 3 THEN RAISE EXCEPTION '0920 SIA: faltan columnas en hospital_contracts (% de 3)', n; END IF;
+  IF n <> 3 THEN RAISE EXCEPTION '0930 SIA: faltan columnas en hospital_contracts (% de 3)', n; END IF;
   SELECT count(*) INTO n FROM information_schema.columns
   WHERE table_schema = 'public' AND table_name = 'hospitals' AND column_name IN ('sia_entidad_id', 'sia_mapeado_at');
-  IF n <> 2 THEN RAISE EXCEPTION '0920 SIA: faltan columnas en hospitals (% de 2)', n; END IF;
+  IF n <> 2 THEN RAISE EXCEPTION '0930 SIA: faltan columnas en hospitals (% de 2)', n; END IF;
 
   IF EXISTS (SELECT 1 FROM public.sia_entidades WHERE guid = guid_p) THEN
-    RAISE EXCEPTION '0920 SIA: la entidad de prueba ya existe; no se puede probar';
+    RAISE EXCEPTION '0930 SIA: la entidad de prueba ya existe; no se puede probar';
   END IF;
 
   -- acepta una empresa con línea, una enlazada no clasificada y sus documentos; los valores existentes de
   -- contracting_model siguen siendo válidos
   BEGIN
-    INSERT INTO public.sia_entidades (guid, nombre, nit, origen, validado_at) VALUES (guid_p, 'ENTIDAD DE PRUEBA 0920', nit_p, 'contratos', now());
+    INSERT INTO public.sia_entidades (guid, nombre, nit, origen, validado_at) VALUES (guid_p, 'ENTIDAD DE PRUEBA 0930', nit_p, 'contratos', now());
     INSERT INTO public.sia_contratos (sia_idc, entidad_guid, nit_entidad, codigo, codigo_norm, nit_contratista, linea, lineas, ficha_url)
-    VALUES (999000920, guid_p, nit_p, 'CD/26-0920', 'CD260920', '901386177', 'neurocirugia', ARRAY['neurocirugia'],
-            'https://siaobserva.auditoria.gov.co/guess/cto_ficha_resumen_guess.aspx?idc=999000920')
+    VALUES (999000930, guid_p, nit_p, 'CD/26-0930', 'CD260930', '901386177', 'neurocirugia', ARRAY['neurocirugia'],
+            'https://siaobserva.auditoria.gov.co/guess/cto_ficha_resumen_guess.aspx?idc=999000930')
     RETURNING id INTO sc_id;
     INSERT INTO public.sia_contratos (sia_idc, entidad_guid, nit_entidad, nit_contratista, linea, alcance, ficha_url)
     VALUES (999000921, guid_p, nit_p, '900078411', 'no_clasificado', 'enlazado',
@@ -406,7 +406,7 @@ BEGIN
     INSERT INTO public.contrato_documentos (sia_contrato_id, nombre_archivo, tipo, ianx, ianxa, fuente_url, estado, storage_path, sha256)
     VALUES (sc_id, '13_contrato_prueba.pdf', 'contrato', 1, 2,
             'https://siaobserva.auditoria.gov.co/handlers/filehandler_guess_anonimo.ashx?ianx=1&ianxa=2&eid=' || guid_p,
-            'descargado', nit_p || '/999000920/' || repeat('a', 64) || '.pdf', repeat('a', 64)),
+            'descargado', nit_p || '/999000930/' || repeat('a', 64) || '.pdf', repeat('a', 64)),
            (sc_id, 'acta_inicio.pdf', 'acta_inicio', 3, 4,
             'https://siaobserva.auditoria.gov.co/handlers/filehandler_guess_anonimo.ashx?ianx=3&ianxa=4&eid=' || guid_p,
             'anonimizacion_pendiente', NULL, NULL);
@@ -417,38 +417,38 @@ BEGIN
     UPDATE public.sia_contratos SET secop_contrato_id = '00000000-0000-4000-8000-000000000921', secop_cruce = 'codigo' WHERE id = sc_id;
     DELETE FROM public.secop_contratos WHERE id = '00000000-0000-4000-8000-000000000921';
     IF EXISTS (SELECT 1 FROM public.sia_contratos WHERE id = sc_id AND secop_contrato_id IS NOT NULL) THEN
-      RAISE EXCEPTION '0920 SIA: borrar la fila de SECOP no dejó el cruce en null';
+      RAISE EXCEPTION '0930 SIA: borrar la fila de SECOP no dejó el cruce en null';
     END IF;
     SELECT count(*) INTO n FROM public.hospital_contracts
     WHERE contracting_model IS NOT NULL AND contracting_model NOT IN ('contratacion_directa', 'licitacion', 'invitacion_privada', 'subasta_inversa');
-    IF n > 0 THEN RAISE EXCEPTION '0920 SIA: hay % contratos con un modelo fuera del CHECK nuevo', n; END IF;
-    RAISE SQLSTATE 'P0920';
+    IF n > 0 THEN RAISE EXCEPTION '0930 SIA: hay % contratos con un modelo fuera del CHECK nuevo', n; END IF;
+    RAISE SQLSTATE 'P0930';
   EXCEPTION
-    WHEN SQLSTATE 'P0920' THEN NULL;
+    WHEN SQLSTATE 'P0930' THEN NULL;
     WHEN check_violation OR unique_violation OR foreign_key_violation THEN
-      RAISE EXCEPTION '0920 SIA: los constraints rechazan una fila válida de prueba: %', SQLERRM;
+      RAISE EXCEPTION '0930 SIA: los constraints rechazan una fila válida de prueba: %', SQLERRM;
   END;
 
   -- rechaza: contratista persona natural (cédula), no_clasificado con alcance linea, descarte sin motivo, documento
   -- descargado sin copia, URL de documento de otro handler, idc repetido
   BEGIN
-    INSERT INTO public.sia_entidades (guid, nombre, nit) VALUES (guid_p, 'ENTIDAD DE PRUEBA 0920', nit_p);
+    INSERT INTO public.sia_entidades (guid, nombre, nit) VALUES (guid_p, 'ENTIDAD DE PRUEBA 0930', nit_p);
     BEGIN
       INSERT INTO public.sia_contratos (sia_idc, entidad_guid, nit_entidad, nit_contratista, linea, ficha_url)
       VALUES (999000930, guid_p, nit_p, '1052345678', 'trauma', 'https://siaobserva.auditoria.gov.co/guess/cto_ficha_resumen_guess.aspx?idc=999000930');
-      RAISE EXCEPTION '0920 SIA: aceptó un contratista persona natural';
+      RAISE EXCEPTION '0930 SIA: aceptó un contratista persona natural';
     EXCEPTION WHEN check_violation THEN NULL;
     END;
     BEGIN
       INSERT INTO public.sia_contratos (sia_idc, entidad_guid, nit_entidad, nit_contratista, linea, ficha_url)
       VALUES (999000931, guid_p, nit_p, '901386177', 'no_clasificado', 'https://siaobserva.auditoria.gov.co/guess/cto_ficha_resumen_guess.aspx?idc=999000931');
-      RAISE EXCEPTION '0920 SIA: aceptó no_clasificado con alcance linea';
+      RAISE EXCEPTION '0930 SIA: aceptó no_clasificado con alcance linea';
     EXCEPTION WHEN check_violation THEN NULL;
     END;
     BEGIN
       INSERT INTO public.sia_contratos (sia_idc, entidad_guid, nit_entidad, nit_contratista, linea, estado_revision, ficha_url)
       VALUES (999000932, guid_p, nit_p, '901386177', 'trauma', 'descartado', 'https://siaobserva.auditoria.gov.co/guess/cto_ficha_resumen_guess.aspx?idc=999000932');
-      RAISE EXCEPTION '0920 SIA: aceptó un descarte sin motivo';
+      RAISE EXCEPTION '0930 SIA: aceptó un descarte sin motivo';
     EXCEPTION WHEN check_violation THEN NULL;
     END;
     INSERT INTO public.sia_contratos (sia_idc, entidad_guid, nit_entidad, nit_contratista, linea, ficha_url)
@@ -457,31 +457,31 @@ BEGIN
     BEGIN
       INSERT INTO public.contrato_documentos (sia_contrato_id, nombre_archivo, tipo, ianx, ianxa, fuente_url, estado)
       VALUES (sc_id, 'x.pdf', 'contrato', 1, 2, 'https://siaobserva.auditoria.gov.co/handlers/filehandler_guess_anonimo.ashx?ianx=1&ianxa=2', 'descargado');
-      RAISE EXCEPTION '0920 SIA: aceptó un documento descargado sin copia en el bucket';
+      RAISE EXCEPTION '0930 SIA: aceptó un documento descargado sin copia en el bucket';
     EXCEPTION WHEN check_violation THEN NULL;
     END;
     BEGIN
       INSERT INTO public.contrato_documentos (sia_contrato_id, nombre_archivo, tipo, ianx, ianxa, fuente_url, estado)
       VALUES (sc_id, 'x.pdf', 'contrato', 1, 2, 'https://siaobserva.auditoria.gov.co/handlers/otro_handler.ashx?id=1', 'solo_enlace');
-      RAISE EXCEPTION '0920 SIA: aceptó un documento de otro handler';
+      RAISE EXCEPTION '0930 SIA: aceptó un documento de otro handler';
     EXCEPTION WHEN check_violation THEN NULL;
     END;
     BEGIN
       INSERT INTO public.sia_contratos (sia_idc, entidad_guid, nit_entidad, nit_contratista, linea, ficha_url)
       VALUES (999000933, guid_p, nit_p, '901386177', 'trauma', 'https://siaobserva.auditoria.gov.co/guess/cto_ficha_resumen_guess.aspx?idc=999000933');
-      RAISE EXCEPTION '0920 SIA: aceptó un idc repetido';
+      RAISE EXCEPTION '0930 SIA: aceptó un idc repetido';
     EXCEPTION WHEN unique_violation THEN NULL;
     END;
-    RAISE SQLSTATE 'P0920';
+    RAISE SQLSTATE 'P0930';
   EXCEPTION
-    WHEN SQLSTATE 'P0920' THEN NULL;
+    WHEN SQLSTATE 'P0930' THEN NULL;
   END;
 
   IF EXISTS (SELECT 1 FROM public.sia_entidades WHERE guid = guid_p) OR EXISTS (SELECT 1 FROM public.sia_contratos WHERE nit_entidad = nit_p) THEN
-    RAISE EXCEPTION '0920 SIA: quedaron filas de prueba';
+    RAISE EXCEPTION '0930 SIA: quedaron filas de prueba';
   END IF;
 
-  RAISE NOTICE '0920 SIA OK: sia_entidades, sia_contratos, contrato_documentos, contrato_extracciones y secop_descartes_bandeja (RLS, sin políticas, solo service_role), columnas en hospitals y hospital_contracts, subasta_inversa en check_contracting_model, bucket privado contratos-sia y fuente sia_observa. SIGUIENTE PASO: NOTIFY pgrst, ''reload schema''; luego web/scripts/sia-entidades.ts en el Mac del dueño.';
+  RAISE NOTICE '0930 SIA OK: sia_entidades, sia_contratos, contrato_documentos, contrato_extracciones y secop_descartes_bandeja (RLS, sin políticas, solo service_role), columnas en hospitals y hospital_contracts, subasta_inversa en check_contracting_model, bucket privado contratos-sia y fuente sia_observa. SIGUIENTE PASO: NOTIFY pgrst, ''reload schema''; luego web/scripts/sia-entidades.ts en el Mac del dueño.';
 END;
 $$;
 

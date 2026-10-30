@@ -89,7 +89,7 @@ El portal del REPS pide entrar, así que esta exportación la hace una persona:
 2. Abrir la consulta **Servicios** y filtrar por departamento o municipio, **sin** filtrar por grupo ni
    por servicio. Exportar a **Excel** o a texto separado por `;`.
 3. Repetir con la consulta **Capacidades instaladas** (camas, salas, ambulancias).
-4. En OpMap: Hospitales → **Importar del REPS** (solo `admin` y `data_manager`). Subir el archivo (máx.
+4. En OpMap: IPS → **Importar del REPS** (solo `admin` y `data_manager`). Subir el archivo (máx.
    **4 MB**; el Excel comprime más que el texto) → "Analizar (simulación)". Revisar las columnas
    detectadas y la simulación por sede ("Con cambios", "Sin cruce").
 5. "Aplicar" (pide confirmar con cifras). La simulación caduca a los 30 minutos y solo la puede aplicar
@@ -123,10 +123,14 @@ el siguiente `--apply`, o se vinculan a mano.
 | `GET /api/hospitals/[id]/reps-services` | `hospitals:view` | Servicios y capacidad para la ficha |
 | `GET /api/intelligence/giros` | `intelligence:view` (nuevo) | Ranking por IPS, municipio, zona o ejecutivo |
 | `GET /api/intelligence/giros/hospital/[id]` | `hospitals:view` | Tarjeta "Giros ADRES" de la ficha |
+| `GET /api/intelligence/giros/variacion` | `intelligence:view` | "IPS con cambios fuera de lo normal": últimos 3, 6 o 12 meses contra los anteriores o el año anterior, frente al mercado, con Welch / mes atípico, Benjamini–Hochberg y Mann–Kendall (spec `docs/specs/2026-10-29-giros-variaciones.md`) |
 
 `intelligence:view` lo tienen admin, commercial_director, line_leader, data_manager y viewer.
 
 - **Páginas**: `/hospitals/reps` ("Cruce REPS"), `/hospitals/import`, `/inteligencia`.
+- **Período en `/inteligencia`** (2026-10-29): selector con los últimos 3, 6 o 12 meses, todo lo cargado, cada año con
+  datos o "Personalizado" con mes y año en listas (`components/PeriodoGiros.tsx`, `lib/periodo-giros.ts`); ya no hay
+  `<input type="month">`.
 - **Ficha de IPS**: secciones "Sede REPS", "Servicios y capacidad (REPS)" y "Giros ADRES".
 - **Filtros**: en `/hospitals` y en el bloque **IPS** de "Filtros y visitas" del mapa, que solo oculta
   puntos (no cambia estilos; ver `docs/mapa-estetica.md`).

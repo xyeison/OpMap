@@ -45,7 +45,7 @@ export default function ContratosDetectadosPage() {
     fetch(`/api/sia/detectados?${q.toString()}`)
       .then(async res => {
         const data = await res.json().catch(() => ({}))
-        if (res.status === 503) setError('SIA Observa todavía no está instalado en OpMap (falta la migración 0920).')
+        if (res.status === 503) setError('SIA Observa todavía no está instalado en OpMap (falta la migración 0930).')
         else if (!res.ok) setError((data as { error?: string }).error ?? 'No se pudo cargar la bandeja')
         else setDatos(data)
       })

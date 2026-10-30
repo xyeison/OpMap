@@ -15,7 +15,7 @@ Importar **nunca** recalcula asignaciones ni llama a Google (las IPS no cambian 
    **Excel** o a texto separado por `;`. Consulta **Capacidades instaladas** (grupo camas / salas /
    ambulancias, concepto, cantidad) y exporta igual. Mejor por departamento o municipio, **sin**
    filtrar por grupo ni por servicio (si se filtra, aplicar con "Solo añadir").
-3. En OpMap: Hospitales → **Importar del REPS** (solo `admin` y `data_manager`) → subir el archivo
+3. En OpMap: IPS → **Importar del REPS** (solo `admin` y `data_manager`) → subir el archivo
    (máx. **4 MB**: Vercel corta el cuerpo en 4,5 MB; un Excel comprime mucho más que el texto) →
    "Analizar (simulación)". Revisar las columnas detectadas (se pueden cambiar a mano y volver a
    analizar) y la simulación por sede (filtros "Con cambios" y "Sin cruce").

@@ -170,7 +170,7 @@ export default function MunicipiosLista({ embebido = false }: { embebido?: boole
           </div>
           <h1 className="text-3xl font-bold text-gray-900">Municipios</h1>
           <p className="text-gray-600 mt-2">
-            Gestión de municipios y localidades con sus hospitales y asignaciones
+            Gestión de municipios y localidades con sus IPS y asignaciones
           </p>
         </div>
       )}
@@ -197,7 +197,7 @@ export default function MunicipiosLista({ embebido = false }: { embebido?: boole
           <div className="text-2xl font-bold text-green-600">
             {territories.reduce((sum, t) => sum + t.hospitalCount, 0).toLocaleString()}
           </div>
-          <div className="text-sm text-gray-600">Total Hospitales</div>
+          <div className="text-sm text-gray-600">Total de IPS</div>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
           <div className="text-2xl font-bold text-orange-600">
@@ -257,7 +257,7 @@ export default function MunicipiosLista({ embebido = false }: { embebido?: boole
             >
               <option value="name">Nombre</option>
               <option value="beds">Número de Camas</option>
-              <option value="hospitals">Número de Hospitales</option>
+              <option value="hospitals">Número de IPS</option>
             </select>
           </div>
 
@@ -309,7 +309,7 @@ export default function MunicipiosLista({ embebido = false }: { embebido?: boole
               {/* Estadísticas */}
               <div className="space-y-2 mb-3">
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Hospitales:</span>
+                  <span className="text-gray-600">IPS:</span>
                   <span className="font-semibold">{territory.hospitalCount}</span>
                 </div>
                 <div className="flex justify-between text-sm">

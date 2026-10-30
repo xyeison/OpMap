@@ -2,8 +2,10 @@
 // vacante desde la pantalla "Zonas" (spec docs/specs/2026-10-23-zonas-por-linea-para-lideres.md; decisión del dueño en
 // docs/decisiones/2026-10-23-zonas-por-linea-las-lideres-asignan.md: "a la comercial de Pereira le pongo mi línea").
 //
-// Quién: executives:lines (admin, dirección comercial y líder de línea) y además canEditCoverageLine: la líder solo
-// en la línea que lidera (403 "Solo puedes asignar la línea que lideras"); admin y dirección, cualquiera.
+// Quién: executives:lines, que desde el 2026-10-29 solo tienen el administrador y la dirección comercial (la líder de
+// negocio es de consulta: docs/decisiones/2026-10-29-solo-admin-y-direccion-asignan.md). canEditCoverageLine sigue
+// como segunda barrera para quien tenga el permiso sin ver todas las líneas (403 "Solo puedes asignar la línea que
+// lideras").
 // Reglas:
 //   - El Ejecutivo Comercial debe estar active o placeholder (una vacante cuenta como persona) y tener zona base; la
 //     línea debe existir y estar activa. Si no, 400 (404 si no existen).

@@ -4,7 +4,7 @@
  * se prueba con el Supabase falso de scripts/sia-observa-api-check.ts; las rutas ponen la sesión y el permiso.
  *
  * Permisos: ver (contratos de SIA de una IPS, documentos y su enlace firmado, diferencias) = contracts:view; importar,
- * descartar en la bandeja, pedir "Actualizar desde SIA" = contracts:edit. Si la migración 0920 no está aplicada, todo
+ * descartar en la bandeja, pedir "Actualizar desde SIA" = contracts:edit. Si la migración 0930 no está aplicada, todo
  * responde 503 con { disponible: false } y la UI no pinta nada.
  */
 import type { SupabaseAdminClient } from '@/lib/supabase-admin'
@@ -36,7 +36,7 @@ export interface Respuesta {
 export const ENLACE_SEGUNDOS = 600
 const ok = (body: unknown): Respuesta => ({ status: 200, body })
 const fallo = (status: number, error: string): Respuesta => ({ status, body: { error } })
-export const SIN_MIGRACION: Respuesta = { status: 503, body: { disponible: false, error: 'SIA Observa todavía no está instalado (migración 0920 sin aplicar)' } }
+export const SIN_MIGRACION: Respuesta = { status: 503, body: { disponible: false, error: 'SIA Observa todavía no está instalado (migración 0930 sin aplicar)' } }
 
 export class TablaFaltante extends Error {}
 

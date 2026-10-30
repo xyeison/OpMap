@@ -7,7 +7,7 @@
  *     y solo los descargados se abren con enlace firmado de 10 minutos.
  *   - Fase 3: los indicadores leídos por la IA se precargan; CD/25-1111 aparece con la diferencia de valor para revisar;
  *     la bandeja no muestra lo ya importado ni lo descartado, y descartar exige motivo.
- *   - Sin la migración 0920: 503 con disponible: false (la UI no pinta nada).
+ *   - Sin la migración 0930: 503 con disponible: false (la UI no pinta nada).
  * Uso (desde web/): npx tsx scripts/sia-observa-api-check.ts
  */
 import fs from 'fs'
@@ -194,7 +194,7 @@ async function main() {
   check('descartados (SIA y SECOP) salen de la bandeja', !despues.includes('CD/26-1103') && !despues.includes('CD/25-1658'), despues)
   check('el descarte de SECOP va a secop_descartes_bandeja (secop_contratos no cambia)', (tablas.get('secop_descartes_bandeja') as Fila[]).length === 1 && (tablas.get('secop_contratos') as Fila[]).length === 14)
 
-  console.log('\nSin la migración 0920')
+  console.log('\nSin la migración 0930')
   const sinTablas = fakeSupabase({ tablas: { hospitals: [{ id: HRO, name: 'HRO', nit: '891855029', municipality_name: 'Yopal' }] } })
   const r = await conMigracion(() => contratosDeHospital(sinTablas.db, HRO))
   eq('503 con disponible: false', [r.status, (r.body as { disponible: boolean }).disponible], [503, false])

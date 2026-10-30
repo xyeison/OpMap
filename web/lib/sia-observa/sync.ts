@@ -48,7 +48,7 @@ type Log = (mensaje: string) => void
 
 export class SiaTablasFaltantes extends Error {
   constructor(detalle: string) {
-    super(`Faltan las tablas de SIA (migración 2026-10-30_0920_sia_observa.sql sin aplicar): ${detalle}`)
+    super(`Faltan las tablas de SIA (migración 2026-10-30_0930_sia_observa.sql sin aplicar): ${detalle}`)
     this.name = 'SiaTablasFaltantes'
   }
 }

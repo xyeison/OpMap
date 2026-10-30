@@ -43,7 +43,7 @@ export const CONTRACT_EDITABLE_COLUMNS = [
   'requires_experiencia',
   'min_experiencia_years',
   'custom_requirements',
-  // SIA Observa (migración 0920): de dónde se importó el contrato y sus líneas. Se validan con sanearEnlacesContrato.
+  // SIA Observa (migración 0930): de dónde se importó el contrato y sus líneas. Se validan con sanearEnlacesContrato.
   'sia_contrato_id',
   'secop_contrato_id',
   'lineas',

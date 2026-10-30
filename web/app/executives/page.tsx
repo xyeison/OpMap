@@ -51,7 +51,6 @@ function ExecutivesContent() {
   const canVerDatos = puedeVerDatosDeZona(role)
   // Traspaso (spec 2026-10-12): pasar lo de una persona a otra, a una nueva o a una vacante (admin, director comercial)
   const canTransfer = can('executives:transfer')
-  const showActions = canEdit || canTransfer
 
   const [executives, setExecutives] = useState<Executive[]>([])
   const [lines, setLines] = useState<BusinessLine[]>([])
@@ -63,6 +62,8 @@ function ExecutivesContent() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('current')
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<Executive | null>(null)
+  // "Ver": la ficha de la persona sin poder cambiarla (quien no tiene executives:edit)
+  const [viendo, setViendo] = useState(false)
   const [deactivating, setDeactivating] = useState<Executive | null>(null)
   const [traspaso, setTraspaso] = useState<TraspasoAbierto | null>(null)
   const [contratando, setContratando] = useState<Executive | null>(null)
@@ -175,7 +176,14 @@ function ExecutivesContent() {
 
   const openEdit = (executive: Executive) => {
     setEditing(executive)
+    setViendo(false)
     avisar('')
+    setModalOpen(true)
+  }
+
+  const openView = (executive: Executive) => {
+    setEditing(executive)
+    setViendo(true)
     setModalOpen(true)
   }
 
@@ -230,64 +238,69 @@ function ExecutivesContent() {
     )
   }
 
+  // Acciones de cada persona como íconos (dueño, 2026-10-29): Ver (quien solo consulta), Editar, Contratar (vacantes),
+  // Traspasar y Dar de baja, cada una con su permiso. En la tabla, solo el ícono (con su nombre al pasar el cursor y para
+  // lectores de pantalla); en las tarjetas del celular, ícono y nombre.
   const renderActions = (executive: Executive, layout: 'table' | 'card') => {
-    const base =
-      layout === 'table'
-        ? 'px-3 py-1.5 text-sm rounded-lg font-medium disabled:opacity-40 disabled:cursor-not-allowed'
-        : 'flex-1 min-w-[7rem] px-3 py-2 text-sm rounded-lg font-medium border disabled:opacity-40 disabled:cursor-not-allowed'
-    const neutral =
-      layout === 'table' ? 'text-gray-700 hover:text-gray-900 hover:bg-gray-100' : 'text-gray-700 border-gray-300 bg-white hover:bg-gray-50'
     const active = executive.status !== 'inactive'
     const canDeactivate = active && (canTransferFrom(executive) || canEdit)
     return (
-      <div className={layout === 'table' ? 'flex flex-wrap items-center justify-center gap-1' : 'flex flex-wrap gap-2'}>
+      <div className={layout === 'table' ? 'flex items-center justify-center gap-0.5' : 'flex flex-wrap gap-2'}>
+        {!canEdit && (
+          <BotonAccion
+            layout={layout}
+            icono={ICONO_VER}
+            etiqueta="Ver"
+            titulo={linesError ? 'No se puede ver la ficha sin cargar las líneas' : `Ver la ficha de ${executive.full_name}`}
+            onClick={() => openView(executive)}
+            disabled={Boolean(linesError)}
+          />
+        )}
         {canEdit && (
-          <button
+          <BotonAccion
+            layout={layout}
+            icono={ICONO_EDITAR}
+            etiqueta="Editar"
+            titulo={linesError ? 'No se puede editar sin cargar las líneas' : `Editar a ${executive.full_name}`}
             onClick={() => openEdit(executive)}
             disabled={Boolean(linesError)}
-            className={`${base} ${neutral}`}
-            title={linesError ? 'No se puede editar sin cargar las líneas' : 'Editar ejecutiva'}
-          >
-            Editar
-          </button>
+          />
         )}
         {canEdit && executive.status === 'placeholder' && (
-          <button
+          <BotonAccion
+            layout={layout}
+            tono="verde"
+            icono={ICONO_CONTRATAR}
+            etiqueta="Contratar"
+            titulo={linesError ? 'No se puede contratar sin cargar las líneas' : 'Contratar: la vacante pasa a ser la persona contratada y conserva todo lo que tenía'}
             onClick={() => {
               avisar('')
               setContratando(executive)
             }}
             disabled={Boolean(linesError)}
-            className={`${base} ${
-              layout === 'table' ? 'text-green-700 hover:text-green-800 hover:bg-green-50' : 'text-green-700 border-green-300 bg-white hover:bg-green-50'
-            }`}
-            title="La vacante pasa a ser la persona contratada y conserva todo lo que tenía"
-          >
-            Contratar
-          </button>
+          />
         )}
         {canTransferFrom(executive) && (
-          <button
+          <BotonAccion
+            layout={layout}
+            tono="azul"
+            icono={ICONO_TRASPASAR}
+            etiqueta="Traspasar"
+            titulo={linesError ? 'No se puede traspasar sin cargar las líneas' : 'Traspasar: pasar sus líneas, zonas, ajustes y médicos a otra persona'}
             onClick={() => openTraspaso(executive, null)}
             disabled={Boolean(linesError)}
-            className={`${base} ${
-              layout === 'table' ? 'text-blue-700 hover:text-blue-800 hover:bg-blue-50' : 'text-blue-700 border-blue-300 bg-white hover:bg-blue-50'
-            }`}
-            title={linesError ? 'No se puede traspasar sin cargar las líneas' : 'Pasar sus líneas, zonas, ajustes y médicos a otra persona'}
-          >
-            Traspasar
-          </button>
+          />
         )}
         {canDeactivate && (
-          <button
+          <BotonAccion
+            layout={layout}
+            tono="rojo"
+            icono={ICONO_BAJA}
+            etiqueta="Dar de baja"
+            titulo={`Dar de baja a ${executive.full_name}`}
             onClick={() => startDeactivate(executive)}
             disabled={canTransferFrom(executive) && Boolean(linesError)}
-            className={`${base} ${
-              layout === 'table' ? 'text-red-600 hover:text-red-700 hover:bg-red-50' : 'text-red-600 border-red-200 bg-white hover:bg-red-50'
-            }`}
-          >
-            Dar de baja
-          </button>
+          />
         )}
       </div>
     )
@@ -419,9 +432,7 @@ function ExecutivesContent() {
                   <th className="px-6 py-4 text-center text-xs font-bold text-gray-700 uppercase tracking-wider">Estado</th>
                   <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Correo</th>
                   <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Empresa</th>
-                  {showActions && (
-                    <th className="px-6 py-4 text-center text-xs font-bold text-gray-700 uppercase tracking-wider">Acciones</th>
-                  )}
+                  <th className="px-6 py-4 text-center text-xs font-bold text-gray-700 uppercase tracking-wider">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -468,7 +479,7 @@ function ExecutivesContent() {
                         {executive.email || <span className="text-gray-400">Sin correo</span>}
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-700 whitespace-nowrap">{executive.company}</td>
-                      {showActions && <td className="px-4 py-4">{renderActions(executive, 'table')}</td>}
+                      <td className="px-4 py-4">{renderActions(executive, 'table')}</td>
                     </tr>
                   )
                 })}
@@ -514,7 +525,7 @@ function ExecutivesContent() {
                     {executive.email || 'Sin correo'} · {executive.company}
                   </div>
                   {executive.notes && <div className="mt-1 text-xs text-gray-500 break-words">{executive.notes}</div>}
-                  {showActions && <div className="mt-3 pt-3 border-t border-gray-100">{renderActions(executive, 'card')}</div>}
+                  <div className="mt-3 pt-3 border-t border-gray-100">{renderActions(executive, 'card')}</div>
                 </div>
               )
             })}
@@ -534,9 +545,11 @@ function ExecutivesContent() {
           executive={editing}
           zones={zones}
           lines={lines}
+          soloLectura={viendo}
           onClose={() => {
             setModalOpen(false)
             setEditing(null)
+            setViendo(false)
           }}
           onSaved={handleSaved}
           onTraspasar={
@@ -739,5 +752,61 @@ function DeactivateDialog({ executive, canTransfer, onCancel, onDone }: Deactiva
         </div>
       </div>
     </div>
+  )
+}
+
+// Íconos de las acciones (trazos de 24 × 24)
+const ICONO_VER = 'M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z'
+const ICONO_EDITAR = 'M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z'
+const ICONO_CONTRATAR = 'M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z'
+const ICONO_TRASPASAR = 'M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4'
+const ICONO_BAJA = 'M13 7a4 4 0 11-8 0 4 4 0 018 0zM9 14a6 6 0 00-6 6v1h12v-1a6 6 0 00-6-6zM21 12h-6'
+
+const TONOS: Record<'neutro' | 'verde' | 'azul' | 'rojo', { tabla: string; tarjeta: string }> = {
+  neutro: { tabla: 'text-gray-700 hover:text-gray-900 hover:bg-gray-100', tarjeta: 'text-gray-700 border-gray-300 bg-white hover:bg-gray-50' },
+  verde: { tabla: 'text-green-700 hover:text-green-800 hover:bg-green-50', tarjeta: 'text-green-700 border-green-300 bg-white hover:bg-green-50' },
+  azul: { tabla: 'text-blue-700 hover:text-blue-800 hover:bg-blue-50', tarjeta: 'text-blue-700 border-blue-300 bg-white hover:bg-blue-50' },
+  rojo: { tabla: 'text-red-600 hover:text-red-700 hover:bg-red-50', tarjeta: 'text-red-600 border-red-200 bg-white hover:bg-red-50' },
+}
+
+function BotonAccion({ layout, icono, etiqueta, titulo, onClick, disabled = false, tono = 'neutro' }: {
+  layout: 'table' | 'card'
+  icono: string
+  etiqueta: string
+  titulo?: string
+  onClick: () => void
+  disabled?: boolean
+  tono?: keyof typeof TONOS
+}) {
+  const dibujo = (
+    <svg className="h-5 w-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={icono} />
+    </svg>
+  )
+  if (layout === 'table') {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        title={titulo ?? etiqueta}
+        aria-label={etiqueta}
+        className={`inline-flex h-9 w-9 items-center justify-center rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 disabled:cursor-not-allowed disabled:opacity-40 ${TONOS[tono].tabla}`}
+      >
+        {dibujo}
+      </button>
+    )
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={titulo ?? etiqueta}
+      className={`inline-flex min-h-[44px] min-w-[7rem] flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 disabled:cursor-not-allowed disabled:opacity-40 ${TONOS[tono].tarjeta}`}
+    >
+      {dibujo}
+      {etiqueta}
+    </button>
   )
 }

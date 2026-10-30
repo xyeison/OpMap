@@ -4,8 +4,23 @@ import { useState, useEffect } from 'react'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
 import { useUser } from '@/contexts/UserContext'
-import type { Role } from '@/lib/permissions'
+import { getRoleTitle, type Role } from '@/lib/permissions'
 import ExecutiveAccountsPanel from '@/components/ExecutiveAccountsPanel'
+
+// Perfiles en el orden en que se eligen: los cuatro del negocio primero (dueño, 2026-10-29)
+const ROLES_EN_ORDEN: Role[] = ['admin', 'commercial_director', 'line_leader', 'sales_manager', 'contract_manager', 'data_manager', 'hr', 'viewer', 'user']
+
+const DESCRIPCION_PERFIL: Record<Role, string> = {
+  admin: 'Todo: usuarios, configuración, asignaciones y cargas de datos.',
+  commercial_director: 'Asigna Ejecutivos Comerciales a líneas y Zonas, ajusta la cobertura, traspasa y aprueba días libres.',
+  line_leader: 'Consulta su línea en Zonas, el mapa, Ejecutivos e Inteligencia, sin asignar. Si también es Ejecutiva Comercial, reporta visitas en la app.',
+  sales_manager: 'Consulta su Zona, el mapa y las IPS, y reporta sus visitas desde la app.',
+  contract_manager: 'Administra los contratos y su documentación.',
+  data_manager: 'Mantiene al día la información de IPS y Zonas e importa datos (REPS, ADRES).',
+  hr: 'Gestiona los días libres y el calendario del equipo.',
+  viewer: 'Solo lectura del mapa y de la información básica.',
+  user: 'Acceso limitado de consulta.',
+}
 
 interface User {
   id: string
@@ -178,17 +193,8 @@ export default function UsersPage() {
     }
   }
 
-  const roleLabels: Record<Role, string> = {
-    admin: 'Administrador',
-    sales_manager: 'Ventas',
-    contract_manager: 'Contratos',
-    data_manager: 'Datos',
-    viewer: 'Visualizador',
-    user: 'Usuario',
-    line_leader: 'Líder de línea',
-    commercial_director: 'Dirección comercial',
-    hr: 'Recursos humanos'
-  }
+  // Nombres de los perfiles: los mismos de todo OpMap (getRoleTitle)
+  const roleLabels = Object.fromEntries(ROLES_EN_ORDEN.map(role => [role, getRoleTitle(role)])) as Record<Role, string>
 
   const roleColors: Record<Role, string> = {
     admin: 'from-purple-600 to-purple-700',
@@ -432,15 +438,11 @@ export default function UsersPage() {
                           value={formData.role}
                           onChange={(e) => setFormData({ ...formData, role: e.target.value as User['role'] })}
                         >
-                          <option value="user">Usuario Básico</option>
-                          <option value="viewer">Visualizador</option>
-                          <option value="data_manager">Gestor de Datos</option>
-                          <option value="contract_manager">Gestor de Contratos</option>
-                          <option value="sales_manager">Gestor de Ventas</option>
-                          <option value="line_leader">Líder de línea</option>
-                          <option value="commercial_director">Dirección comercial</option>
-                          <option value="hr">Recursos humanos</option>
-                          <option value="admin">Administrador</option>
+                          {ROLES_EN_ORDEN.map(role => (
+                            <option key={role} value={role}>
+                              {getRoleTitle(role)}
+                            </option>
+                          ))}
                         </select>
                       </div>
                     </div>
@@ -685,15 +687,11 @@ export default function UsersPage() {
                               onChange={(e) => handleRoleChange(user.id, e.target.value as User['role'])}
                               className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent transition-all"
                             >
-                              <option value="user">Usuario Básico</option>
-                              <option value="viewer">Visualizador</option>
-                              <option value="data_manager">Gestor de Datos</option>
-                              <option value="contract_manager">Gestor de Contratos</option>
-                              <option value="sales_manager">Gestor de Ventas</option>
-                          <option value="line_leader">Líder de línea</option>
-                          <option value="commercial_director">Dirección comercial</option>
-                          <option value="hr">Recursos humanos</option>
-                              <option value="admin">Administrador</option>
+                              {ROLES_EN_ORDEN.map(role => (
+                                <option key={role} value={role}>
+                                  {getRoleTitle(role)}
+                                </option>
+                              ))}
                             </select>
                           )}
                         </td>
@@ -798,15 +796,11 @@ export default function UsersPage() {
                             onChange={(e) => handleRoleChange(user.id, e.target.value as User['role'])}
                             className="text-xs border border-gray-300 rounded-lg px-2 py-1"
                           >
-                            <option value="user">Usuario</option>
-                            <option value="viewer">Visualizador</option>
-                            <option value="data_manager">Datos</option>
-                            <option value="contract_manager">Contratos</option>
-                            <option value="sales_manager">Ventas</option>
-                            <option value="line_leader">Líder de línea</option>
-                            <option value="commercial_director">Dir. comercial</option>
-                            <option value="hr">Recursos humanos</option>
-                            <option value="admin">Admin</option>
+                            {ROLES_EN_ORDEN.map(role => (
+                              <option key={role} value={role}>
+                                {getRoleTitle(role)}
+                              </option>
+                            ))}
                           </select>
                         )}
                       </div>
@@ -879,76 +873,22 @@ export default function UsersPage() {
               <svg className="w-6 h-6 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
               </svg>
-              Información sobre Roles
+              Perfiles
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              <div className="bg-white rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 bg-gradient-to-br from-purple-600 to-purple-700 rounded-lg flex items-center justify-center">
-                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
-                    </svg>
+              {ROLES_EN_ORDEN.map(role => (
+                <div key={role} className="bg-white rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className={`w-10 h-10 bg-gradient-to-br ${roleColors[role]} rounded-lg flex items-center justify-center`}>
+                      <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                      </svg>
+                    </div>
+                    <h3 className="font-bold text-gray-900">{getRoleTitle(role)}</h3>
                   </div>
-                  <h3 className="font-bold text-gray-900">Administrador</h3>
+                  <p className="text-sm text-gray-600">{DESCRIPCION_PERFIL[role]}</p>
                 </div>
-                <p className="text-sm text-gray-600">Control total del sistema, gestión de usuarios y configuración global</p>
-              </div>
-              <div className="bg-white rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-blue-700 rounded-lg flex items-center justify-center">
-                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
-                    </svg>
-                  </div>
-                  <h3 className="font-bold text-gray-900">Gestor de Ventas</h3>
-                </div>
-                <p className="text-sm text-gray-600">Gestiona zonas, territorios, ve estadísticas y reportes de ventas</p>
-              </div>
-              <div className="bg-white rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 bg-gradient-to-br from-green-600 to-green-700 rounded-lg flex items-center justify-center">
-                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
-                    </svg>
-                  </div>
-                  <h3 className="font-bold text-gray-900">Gestor de Contratos</h3>
-                </div>
-                <p className="text-sm text-gray-600">Administra contratos, oportunidades y documentación comercial</p>
-              </div>
-              <div className="bg-white rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 bg-gradient-to-br from-yellow-600 to-yellow-700 rounded-lg flex items-center justify-center">
-                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"></path>
-                    </svg>
-                  </div>
-                  <h3 className="font-bold text-gray-900">Gestor de Datos</h3>
-                </div>
-                <p className="text-sm text-gray-600">Actualiza información de hospitales, zonas y mantiene datos actualizados</p>
-              </div>
-              <div className="bg-white rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 bg-gradient-to-br from-gray-500 to-gray-600 rounded-lg flex items-center justify-center">
-                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
-                    </svg>
-                  </div>
-                  <h3 className="font-bold text-gray-900">Visualizador</h3>
-                </div>
-                <p className="text-sm text-gray-600">Acceso de solo lectura al mapa e información básica del sistema</p>
-              </div>
-              <div className="bg-white rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 bg-gradient-to-br from-gray-400 to-gray-500 rounded-lg flex items-center justify-center">
-                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
-                    </svg>
-                  </div>
-                  <h3 className="font-bold text-gray-900">Usuario Básico</h3>
-                </div>
-                <p className="text-sm text-gray-600">Acceso limitado con permisos básicos de consulta</p>
-              </div>
+              ))}
             </div>
           </div>
 

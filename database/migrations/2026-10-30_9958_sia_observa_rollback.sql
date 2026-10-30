@@ -1,9 +1,9 @@
 -- =====================================================================================
--- OpMap · feat/agente-sia-observa · 9957 — Rollback de 0920 (SIA Observa)
+-- OpMap · feat/agente-sia-observa · 9958 — Rollback de 0930 (SIA Observa)
 -- Proyecto: norvxqgohddgsdkggqzq · Generado: 2026-10-30 · NO EJECUTADO TODAVÍA
 --
 -- ANTES DE EJECUTAR: parar el launchd de scripts/sia-load.ts en el Mac del dueño y desplegar el código sin las rutas
---   /api/sia/* (o dejarlas: responden 503 "falta la migración 0920" si las tablas no existen). Vaciar el bucket desde el
+--   /api/sia/* (o dejarlas: responden 503 "falta la migración 0930" si las tablas no existen). Vaciar el bucket desde el
 --   panel de Supabase (Storage → contratos-sia → seleccionar todo → borrar): Supabase no deja borrar un bucket con
 --   objetos. Supabase además prohíbe borrar en storage.buckets por SQL (trigger protect_buckets_delete, visto el 2026-10-30):
 --   este script NO borra el bucket; después de correrlo, borrar el bucket vacío desde el panel (Storage → contratos-sia →
@@ -18,7 +18,7 @@
 --   5. check_contracting_model vuelve a (contratacion_directa, licitacion, invitacion_privada) SOLO si ningún contrato
 --      quedó con subasta_inversa; si hay, aborta y dice cuántos (hay que cambiarlos a mano antes).
 --
--- PÉRDIDAS: datos públicos de SIA (se recuperan con sia-load.ts si se vuelve a aplicar 0920), las lecturas de la IA
+-- PÉRDIDAS: datos públicos de SIA (se recuperan con sia-load.ts si se vuelve a aplicar 0930), las lecturas de la IA
 --   (cuestan dinero volver a hacerlas) y las revisiones de la bandeja (descartes con su motivo).
 -- Re-ejecutable: sí (IF EXISTS). Tras aplicar: NOTIFY pgrst, 'reload schema';
 -- =====================================================================================
@@ -39,12 +39,12 @@ BEGIN
   SELECT count(*) INTO n_objetos FROM storage.objects WHERE bucket_id = 'contratos-sia';
   SELECT count(*) INTO n_subasta FROM public.hospital_contracts WHERE contracting_model = 'subasta_inversa';
   IF n_objetos > 0 THEN
-    RAISE EXCEPTION 'Rollback 0920: el bucket contratos-sia tiene % archivos; vaciarlo primero desde el panel de Supabase', n_objetos;
+    RAISE EXCEPTION 'Rollback 0930: el bucket contratos-sia tiene % archivos; vaciarlo primero desde el panel de Supabase', n_objetos;
   END IF;
   IF n_subasta > 0 THEN
-    RAISE EXCEPTION 'Rollback 0920: % contratos usan subasta_inversa; cambiarlos antes de restaurar el CHECK anterior', n_subasta;
+    RAISE EXCEPTION 'Rollback 0930: % contratos usan subasta_inversa; cambiarlos antes de restaurar el CHECK anterior', n_subasta;
   END IF;
-  RAISE NOTICE 'Rollback 0920: se borran % contratos de SIA, % documentos y % lecturas de la IA', n_contratos, n_docs, n_ia;
+  RAISE NOTICE 'Rollback 0930: se borran % contratos de SIA, % documentos y % lecturas de la IA', n_contratos, n_docs, n_ia;
 END;
 $$;
 
@@ -75,13 +75,13 @@ BEGIN
   IF to_regclass('public.sia_contratos') IS NOT NULL OR to_regclass('public.sia_entidades') IS NOT NULL
      OR to_regclass('public.contrato_documentos') IS NOT NULL OR to_regclass('public.contrato_extracciones') IS NOT NULL
      OR to_regclass('public.secop_descartes_bandeja') IS NOT NULL THEN
-    RAISE EXCEPTION 'Rollback 0920: siguen existiendo tablas de SIA';
+    RAISE EXCEPTION 'Rollback 0930: siguen existiendo tablas de SIA';
   END IF;
   IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name IN ('hospitals', 'hospital_contracts')
              AND column_name IN ('sia_entidad_id', 'sia_mapeado_at', 'sia_contrato_id', 'secop_contrato_id', 'lineas')) THEN
-    RAISE EXCEPTION 'Rollback 0920: siguen existiendo columnas de SIA';
+    RAISE EXCEPTION 'Rollback 0930: siguen existiendo columnas de SIA';
   END IF;
-  RAISE NOTICE 'Rollback 0920 OK. SIGUIENTE PASO: NOTIFY pgrst, ''reload schema'';';
+  RAISE NOTICE 'Rollback 0930 OK. SIGUIENTE PASO: NOTIFY pgrst, ''reload schema'';';
 END;
 $$;
 

@@ -47,7 +47,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       .single()
 
     if (updateError) {
-      return serverError('hospitals/[id]/deactivate (update)', updateError, 'Error al desactivar el hospital')
+      return serverError('hospitals/[id]/deactivate (update)', updateError, 'Error al desactivar la IPS')
     }
 
     // 2. Retirar su asignación (se guarda lo borrado para poder compensar)

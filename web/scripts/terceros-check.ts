@@ -605,7 +605,8 @@ console.log('13. Permisos de terceros por rol (contrato F1)')
 const matriz: [Role, Permission[], Permission[]][] = [
   ['admin', ['terceros:view', 'terceros:create', 'terceros:manage', 'visitantes:manage'], []],
   ['commercial_director', ['terceros:view', 'terceros:create', 'terceros:manage', 'visitantes:manage'], []],
-  ['line_leader', ['terceros:view', 'terceros:create', 'visitantes:manage'], ['terceros:manage']],
+  // Desde el 2026-10-29 la líder es de consulta: ya no asigna visitantes (terceros:create sigue, para la app de visita)
+  ['line_leader', ['terceros:view', 'terceros:create'], ['terceros:manage', 'visitantes:manage']],
   ['sales_manager', ['terceros:view', 'terceros:create'], ['terceros:manage', 'visitantes:manage']],
   ['data_manager', ['terceros:view', 'terceros:create', 'terceros:manage'], ['visitantes:manage']],
   ['viewer', ['terceros:view'], ['terceros:create', 'terceros:manage', 'visitantes:manage']],
@@ -615,10 +616,11 @@ const matriz: [Role, Permission[], Permission[]][] = [
 for (const [rol, tiene, noTiene] of matriz) {
   check(`${rol}: tiene ${tiene.join(', ') || '(ninguno)'}`, tiene.every(permiso => hasPermission(rol, permiso)))
   check(`${rol}: no tiene ${noTiene.join(', ') || '(ninguno)'}`, noTiene.every(permiso => !hasPermission(rol, permiso)))
-  const enMenu = getNavigationMenu(rol).some(item => item.href === '/terceros' && item.name === 'Terceros')
+  // Desde el 2026-10-29 /terceros sale en el menú como "Cuentas clave" (grupo Terceros)
+  const enMenu = getNavigationMenu(rol).some(item => item.href === '/terceros' && item.name === 'Cuentas clave' && item.grupo === 'Terceros')
   const enRutas = getAllowedRoutes(rol).includes('/terceros')
   const debe = tiene.includes('terceros:view')
-  check(`${rol}: menú "Terceros" y ruta /terceros ${debe ? 'sí' : 'no'}`, enMenu === debe && enRutas === debe)
+  check(`${rol}: menú "Cuentas clave" y ruta /terceros ${debe ? 'sí' : 'no'}`, enMenu === debe && enRutas === debe)
 }
 
 // ---------------------------------------------------------------------------------------------

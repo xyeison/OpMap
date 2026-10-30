@@ -1341,7 +1341,7 @@ export function buildSecopCsv(data: {
   }
   if (data.pares.length > 0) {
     lines.push('')
-    push(['Proveedor × hospital'])
+    push(['Proveedor × IPS'])
     push(['Proveedor', 'NIT proveedor', 'Vigilado', 'IPS', 'NIT IPS', 'Valor (COP)', 'Contratos', 'Último contrato'])
     for (const par of data.pares) {
       push([par.proveedor, par.proveedor_nit, par.vigilado, par.hospital, par.nit_entidad, par.valor, par.contratos, par.ultimaFecha])

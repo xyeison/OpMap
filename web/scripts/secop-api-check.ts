@@ -485,7 +485,7 @@ check('CSV con encabezado de hospital', csv.includes('IPS;NIT;Nombre en SECOP;Se
 check('CSV por defecto: 6 líneas ortopédicas, sin "Sin clasificar"', csv.includes('Otros implantes (COP)') && !csv.includes('Sin clasificar (COP)'))
 const csvTodas = buildSecopCsv({ group: 'zona', range: { desde: '2024-11', hasta: '2026-10' }, linea: 'todas', line: null, ambito: 'ips', rows: porZona.rows, pares: [] })
 check('CSV con linea=todas incluye "Sin clasificar"', csvTodas.includes('Sin clasificar (COP)') && csvTodas.startsWith('\ufeffFuente'))
-check('CSV con sección proveedor × hospital', csv.includes('Proveedor × hospital'))
+check('CSV con sección proveedor × IPS', csv.includes('Proveedor × IPS'))
 const csvProv = buildSecopCsv({ group: 'proveedor', range: { desde: '2024-11', hasta: '2026-10' }, linea: 'trauma', line: null, ambito: 'todas', rows: todas.rows, pares: [] })
 check('CSV de proveedor con vigilado y solo la línea filtrada', csvProv.includes('Proveedor;NIT;Vigilado') && csvProv.includes('Trauma y osteosíntesis (COP)') && !csvProv.includes('Columna (COP)'))
 

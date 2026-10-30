@@ -45,11 +45,11 @@ const SECCIONES: Record<SeccionConfiguracion, { etiqueta: string; descripcion: s
   },
   municipios: {
     etiqueta: 'Municipios',
-    descripcion: 'Municipios y localidades con sus hospitales, la Zona asignada y las asignaciones forzadas.',
+    descripcion: 'Municipios y localidades con sus IPS, la Zona asignada y las asignaciones forzadas.',
   },
   asignacion: {
     etiqueta: 'Asignación',
-    descripcion: 'Recalcular la asignación de hospitales a las Zonas y calcular las rutas que faltan.',
+    descripcion: 'Recalcular la asignación de las IPS a las Zonas y calcular las rutas que faltan.',
   },
 }
 

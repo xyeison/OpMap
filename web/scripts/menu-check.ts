@@ -1,12 +1,14 @@
 /**
- * Menú de la web (dueño, 2026-10-14): pruebas puras de getNavigationMenu, getHomeRoute, getAllowedRoutes y
+ * Menú de la web: pruebas puras de getNavigationMenu, agruparMenu, opcionActiva, getHomeRoute, getAllowedRoutes y
  * seccionesConfiguracion (lib/permissions.ts). SIN red ni Supabase; solo lee el disco para comprobar que cada
  * opción del menú tiene su página.
  *
- * Reglas: sin Dashboard (los indicadores se generarán después); el Mapa es el menú principal y va primero; luego
- * Hospitales, Terceros, Calendario, Zonas (/kams), Líneas, Ejecutivos Comerciales, Inteligencia, Contratos, Mi
- * Empresa, Cumplimiento, Proveedores, Usuarios y Visitas; Configuración al final. Municipios sale del menú y queda
- * dentro de Configuración (territories:view); Regiones (/zones) se quitó. "/" lleva a la primera opción del menú.
+ * Reglas (dueño, 2026-10-29, docs/specs/2026-10-29-menu-por-grupos.md; antes 2026-10-14): sin Dashboard; el Mapa va
+ * primero; luego los grupos Terceros (IPS, Cuentas clave, Médicos, Aseguradoras, Proveedores) y Empleados (Ejecutivos
+ * Comerciales, Líderes de negocio); Calendario, Zonas (/kams) y Líneas sueltas; el grupo Inteligencia de Mercado
+ * (ADRES, Compras públicas, Contratos, Cumplimiento) y el grupo Configuración (Mi Empresa, Usuarios, Visita VMO y
+ * Parámetros, al final). Médicos, Aseguradoras y Líderes de negocio abren "Próximamente". Municipios sigue dentro de
+ * Parámetros (territories:view); Regiones (/zones) se quitó. "/" lleva al Mapa; sin mapa, a Calendario.
  * Los permisos de cada rol NO cambian, salvo zones:view y zones:edit, que salieron el 2026-10-14 con las Regiones
  * (spec docs/specs/2026-10-14-quitar-regiones.md): sección 8.
  *
@@ -17,10 +19,12 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'fs'
 import path from 'path'
 import {
   PERMISOS_CONFIGURACION,
+  agruparMenu,
   getAllowedRoutes,
   getHomeRoute,
   getNavigationMenu,
   hasPermission,
+  opcionActiva,
   rolePermissions,
   seccionesConfiguracion,
   type Role,
@@ -51,32 +55,38 @@ const ORDEN = [
   '/map',
   '/hospitals',
   '/terceros',
+  '/medicos',
+  '/aseguradoras',
+  '/providers',
+  '/executives',
+  '/lideres',
   '/calendario',
   '/kams',
   '/lines',
-  '/executives',
   '/inteligencia',
+  '/inteligencia?tab=secop',
   '/contracts',
-  '/mi-empresa',
   '/compliance',
-  '/providers',
+  '/mi-empresa',
   '/users',
   '/visits',
   '/configuracion',
 ]
+const TERCEROS = ['/terceros', '/medicos', '/aseguradoras']
+const INTELIGENCIA = ['/inteligencia', '/inteligencia?tab=secop']
 
 // ---------------------------------------------------------------------------------------------
-console.log('1. Menú exacto por rol (orden del dueño, 2026-10-14)')
+console.log('1. Menú exacto por rol (orden del dueño, 2026-10-29)')
 const ESPERADO: Record<Role, string[]> = {
   admin: ORDEN,
-  sales_manager: ['/map', '/hospitals', '/terceros', '/calendario', '/kams', '/lines', '/executives', '/contracts', '/configuracion'],
-  line_leader: ['/map', '/hospitals', '/terceros', '/calendario', '/kams', '/lines', '/executives', '/inteligencia', '/contracts', '/configuracion'],
-  commercial_director: ['/map', '/hospitals', '/terceros', '/calendario', '/kams', '/lines', '/executives', '/inteligencia', '/contracts', '/providers', '/visits', '/configuracion'],
-  hr: ['/calendario', '/lines', '/executives'],
-  contract_manager: ['/map', '/hospitals', '/lines', '/executives', '/contracts', '/mi-empresa', '/compliance', '/providers'],
-  data_manager: ['/map', '/hospitals', '/terceros', '/kams', '/lines', '/executives', '/inteligencia', '/visits', '/configuracion'],
-  viewer: ['/map', '/hospitals', '/terceros', '/lines', '/executives', '/inteligencia'],
-  user: ['/map', '/hospitals', '/lines', '/executives'],
+  sales_manager: ['/map', '/hospitals', ...TERCEROS, '/executives', '/lideres', '/calendario', '/kams', '/lines', '/contracts', '/configuracion'],
+  line_leader: ['/map', '/hospitals', ...TERCEROS, '/executives', '/lideres', '/calendario', '/kams', '/lines', ...INTELIGENCIA, '/contracts', '/configuracion'],
+  commercial_director: ['/map', '/hospitals', ...TERCEROS, '/providers', '/executives', '/lideres', '/calendario', '/kams', '/lines', ...INTELIGENCIA, '/contracts', '/visits', '/configuracion'],
+  hr: ['/executives', '/lideres', '/calendario', '/lines'],
+  contract_manager: ['/map', '/hospitals', '/providers', '/executives', '/lideres', '/lines', '/contracts', '/compliance', '/mi-empresa'],
+  data_manager: ['/map', '/hospitals', ...TERCEROS, '/executives', '/lideres', '/kams', '/lines', ...INTELIGENCIA, '/visits', '/configuracion'],
+  viewer: ['/map', '/hospitals', ...TERCEROS, '/executives', '/lideres', '/lines', ...INTELIGENCIA],
+  user: ['/map', '/hospitals', '/executives', '/lideres', '/lines'],
 }
 for (const rol of ROLES) {
   eq(`${rol}: menú`, hrefs(rol), ESPERADO[rol])
@@ -93,7 +103,7 @@ for (const rol of ROLES) {
   check(`${rol}: respeta el orden canónico`, posiciones.every((p, i) => i === 0 || p > posiciones[i - 1]), menu)
   check(`${rol}: sin opciones repetidas`, new Set(menu).size === menu.length, menu)
   if (hasPermission(rol, 'map:view')) check(`${rol}: el Mapa va primero`, menu[0] === '/map', menu)
-  if (menu.includes('/configuracion')) check(`${rol}: Configuración va al final`, menu[menu.length - 1] === '/configuracion', menu)
+  if (menu.includes('/configuracion')) check(`${rol}: Parámetros (/configuracion) va al final`, menu[menu.length - 1] === '/configuracion', menu)
   check(
     `${rol}: sin Dashboard, Municipios ni Regiones en el menú`,
     !menu.some(href => ['/', '/dashboard', '/territories', '/zones'].includes(href)) &&
@@ -111,28 +121,66 @@ console.log('3. Textos visibles del menú')
 const nombres = new Map(getNavigationMenu('admin').map(item => [item.href, item.name]))
 eq('nombres del menú completo', Object.fromEntries(nombres), {
   '/map': 'Mapa',
-  '/hospitals': 'Hospitales',
-  '/terceros': 'Terceros',
+  '/hospitals': 'IPS',
+  '/terceros': 'Cuentas clave',
+  '/medicos': 'Médicos',
+  '/aseguradoras': 'Aseguradoras',
+  '/providers': 'Proveedores',
+  '/executives': 'Ejecutivos Comerciales',
+  '/lideres': 'Líderes de negocio',
   '/calendario': 'Calendario',
   '/kams': 'Zonas',
   '/lines': 'Líneas',
-  '/executives': 'Ejecutivos Comerciales',
-  '/inteligencia': 'Inteligencia',
+  '/inteligencia': 'ADRES',
+  '/inteligencia?tab=secop': 'Compras públicas',
   '/contracts': 'Contratos',
-  '/mi-empresa': 'Mi Empresa',
   '/compliance': 'Cumplimiento',
-  '/providers': 'Proveedores',
+  '/mi-empresa': 'Mi Empresa',
   '/users': 'Usuarios',
-  '/visits': 'Visitas',
-  '/configuracion': 'Configuración',
+  '/visits': 'Visita VMO',
+  '/configuracion': 'Parámetros',
 })
+check(
+  'ningún rol tiene en el menú "Hospitales" ni "Terceros" como opción',
+  ROLES.every(rol => getNavigationMenu(rol).every(item => !/hospital/i.test(item.name) && item.name !== 'Terceros'))
+)
+
+// Grupos: títulos (no son enlaces) en el orden del dueño; cada opción suelta es una sección sin título
+const grupos = (rol: Role) => agruparMenu(getNavigationMenu(rol)).map(seccion => seccion.grupo ?? seccion.items[0].name)
+eq('admin: secciones del menú', grupos('admin'), ['Mapa', 'Terceros', 'Empleados', 'Calendario', 'Zonas', 'Líneas', 'Inteligencia de Mercado', 'Configuración'])
+eq(
+  'admin: opciones de cada grupo',
+  Object.fromEntries(agruparMenu(getNavigationMenu('admin')).filter(seccion => seccion.grupo).map(seccion => [seccion.grupo, seccion.items.map(item => item.name)])),
+  {
+    Terceros: ['IPS', 'Cuentas clave', 'Médicos', 'Aseguradoras', 'Proveedores'],
+    Empleados: ['Ejecutivos Comerciales', 'Líderes de negocio'],
+    'Inteligencia de Mercado': ['ADRES', 'Compras públicas', 'Contratos', 'Cumplimiento'],
+    'Configuración': ['Mi Empresa', 'Usuarios', 'Visita VMO', 'Parámetros'],
+  }
+)
+eq('user: un grupo solo sale si tiene alguna opción', grupos('user'), ['Mapa', 'Terceros', 'Empleados', 'Líneas'])
+for (const rol of ROLES) {
+  const titulos = agruparMenu(getNavigationMenu(rol)).map(seccion => seccion.grupo).filter(Boolean)
+  check(`${rol}: cada grupo sale una sola vez y con opciones`, new Set(titulos).size === titulos.length && agruparMenu(getNavigationMenu(rol)).every(seccion => seccion.items.length > 0))
+}
+
+// Opción activa: ADRES y Compras públicas comparten /inteligencia y se distinguen por ?tab=
+const menuAdmin = getNavigationMenu('admin')
+eq('activa en /inteligencia: ADRES', opcionActiva(menuAdmin, '/inteligencia', ''), '/inteligencia')
+eq('activa en /inteligencia?tab=secop: Compras públicas', opcionActiva(menuAdmin, '/inteligencia', '?tab=secop'), '/inteligencia?tab=secop')
+eq('activa en /inteligencia?tab=fuentes (sin opción propia): ADRES', opcionActiva(menuAdmin, '/inteligencia', '?tab=fuentes'), '/inteligencia')
+eq('activa en /map?line=trauma: Mapa', opcionActiva(menuAdmin, '/map', '?line=trauma'), '/map')
+eq('activa en /territories/x (Municipios): Parámetros', opcionActiva(menuAdmin, '/territories/11001', ''), '/configuracion')
+eq('activa en una ruta fuera del menú: ninguna', opcionActiva(menuAdmin, '/hospitals/abc', ''), null)
+eq('viewer en /inteligencia?tab=secop: Compras públicas', opcionActiva(getNavigationMenu('viewer'), '/inteligencia', '?tab=secop'), '/inteligencia?tab=secop')
 
 // ---------------------------------------------------------------------------------------------
 console.log('4. Página de inicio ("/" y el logo)')
 for (const rol of ROLES) {
   const inicio = getHomeRoute(rol)
   if (hasPermission(rol, 'map:view')) eq(`${rol}: inicio en /map`, inicio, '/map')
-  check(`${rol}: el inicio es la primera opción del menú`, inicio === (hrefs(rol)[0] ?? null), { inicio, menu: hrefs(rol) })
+  const esperado = hrefs(rol).find(href => href === '/map') ?? hrefs(rol).find(href => href === '/calendario') ?? hrefs(rol)[0] ?? null
+  check(`${rol}: el inicio es el Mapa; sin mapa, Calendario; si no, la primera opción`, inicio === esperado, { inicio, menu: hrefs(rol) })
   check(`${rol}: el inicio es una ruta permitida`, inicio !== null && getAllowedRoutes(rol).includes(inicio), inicio)
 }
 eq('recursos humanos (sin mapa): inicio en /calendario', getHomeRoute('hr'), '/calendario')
@@ -149,8 +197,9 @@ for (const rol of ROLES) {
   )
   const config = PERMISOS_CONFIGURACION.some(permiso => hasPermission(rol, permiso))
   check(`${rol}: /configuracion ${config ? 'sí' : 'no'}`, rutas.includes('/configuracion') === config)
-  check(`${rol}: cada opción del menú es una ruta permitida o propia del rol`, hrefs(rol).every(href => rutas.includes(href) || ['/mi-empresa', '/compliance'].includes(href)), {
-    faltan: hrefs(rol).filter(href => !rutas.includes(href)),
+  const ruta = (href: string) => href.split('?')[0]
+  check(`${rol}: cada opción del menú es una ruta permitida o propia del rol`, hrefs(rol).every(href => rutas.includes(ruta(href)) || ['/mi-empresa', '/compliance'].includes(href)), {
+    faltan: hrefs(rol).filter(href => !rutas.includes(ruta(href))),
   })
 }
 
@@ -184,10 +233,29 @@ eq('PERMISOS_CONFIGURACION', PERMISOS_CONFIGURACION, ['visits:config', 'territor
 // ---------------------------------------------------------------------------------------------
 console.log('7. Páginas en disco')
 const APP = path.join(__dirname, '..', 'app')
-for (const href of ORDEN) {
-  check(`${href} tiene su página`, existsSync(path.join(APP, href.slice(1), 'page.tsx')))
+for (const ruta of Array.from(new Set(ORDEN.map(href => href.split('?')[0])))) {
+  check(`${ruta} tiene su página`, existsSync(path.join(APP, ruta.slice(1), 'page.tsx')))
 }
 check('/territories sigue existiendo', existsSync(path.join(APP, 'territories', 'page.tsx')))
+// Médicos y Aseguradoras: "Próximamente", sin datos (dueño, 2026-10-29)
+for (const ruta of ['medicos', 'aseguradoras']) {
+  // Sin los comentarios (la de Médicos nombra su API para decir que no cambia)
+  const pagina = readFileSync(path.join(APP, ruta, 'page.tsx'), 'utf8').split('\n').filter(linea => !linea.trim().startsWith('//')).join('\n')
+  check(`/${ruta} es "Próximamente" y no pide datos`, pagina.includes("@/components/Proximamente") && !/\/api\/|fetch\(|Medicos?Tab|MedicoForm/.test(pagina))
+}
+// Líderes de negocio: el seguimiento de las líderes con lideres:seguimiento (dueño, 2026-10-29); para los demás, "Próximamente"
+const paginaLideres = readFileSync(path.join(APP, 'lideres', 'page.tsx'), 'utf8')
+check(
+  '/lideres: seguimiento con lideres:seguimiento y "Próximamente" para los demás',
+  paginaLideres.includes('permission="lideres:seguimiento"') && paginaLideres.includes('@/components/Proximamente') && paginaLideres.includes('SeguimientoLideres')
+)
+check(
+  'lideres:seguimiento solo lo tienen admin y commercial_director',
+  JSON.stringify((['admin', 'commercial_director', 'line_leader', 'sales_manager', 'data_manager', 'viewer', 'hr', 'contract_manager', 'user'] as Role[]).filter(rol => hasPermission(rol, 'lideres:seguimiento'))) ===
+    JSON.stringify(['admin', 'commercial_director'])
+)
+const cuentasClave = readFileSync(path.join(APP, 'terceros', 'page.tsx'), 'utf8')
+check('Cuentas clave (/terceros) ya no muestra Médicos', !/import [^\n]*Medico/.test(cuentasClave) && cuentasClave.includes('Cuentas clave'))
 check('"/" sigue existiendo (lleva al inicio)', existsSync(path.join(APP, 'page.tsx')))
 check('la página /zones (Regiones) ya no existe', !existsSync(path.join(APP, 'zones', 'page.tsx')))
 check('/api/dashboard/stats ya no existe', !existsSync(path.join(APP, 'api', 'dashboard', 'stats', 'route.ts')))

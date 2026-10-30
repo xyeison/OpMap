@@ -4,8 +4,15 @@
 > (`scripts/menu-check.ts`, `scripts/visits-check.ts`, `scripts/terceros-check.ts`). Las secciones "Roles
 > Definidos" y la matriz de abajo son históricas; el menú vigente es el de "Menú de la web".
 
-## Menú de la web (dueño, 2026-10-14)
+## Menú de la web (dueño, 2026-10-14; por grupos desde el 2026-10-29)
 
+- **Por grupos** (dueño, 2026-10-29, `docs/specs/2026-10-29-menu-por-grupos.md`): Mapa; **Terceros** (título): IPS,
+  Cuentas clave (`/terceros`), Médicos, Aseguradoras y Proveedores; **Empleados**: Ejecutivos Comerciales y Líderes de
+  negocio; Calendario, Zonas (`/kams`) y Líneas; **Inteligencia de Mercado**: ADRES, Compras públicas
+  (`/inteligencia?tab=secop`), Contratos y Cumplimiento; **Configuración**: Mi Empresa, Usuarios, Visita VMO
+  (`/visits`) y Parámetros (`/configuracion`). Médicos, Aseguradoras y Líderes de negocio abren "Próximamente". El
+  inicio es el Mapa; sin mapa, Calendario. "Hospital" se dice "IPS" en toda la interfaz. Lo de abajo describe el menú
+  del 2026-10-14 (el orden quedó superado).
 - **Sin Dashboard**: los indicadores (cobertura, oportunidades, hospitales, totales) no tenían sentido por ahora y
   se generarán después. `"/"` ya no muestra tablero: lleva a la **página de inicio** del rol (`getHomeRoute`), que
   es la primera opción de su menú: `/map` para todo rol con `map:view`; `/calendario` para `hr`. El logo "OpMap"
@@ -157,10 +164,10 @@ Spec `docs/specs/2026-10-14-mapa-vista-de-zonas-para-todos.md`; pruebas en `scri
 
 | Permiso | Para qué | Roles |
 |---------|----------|-------|
-| `terceros:view` | Ver cuentas, sedes, médicos (sin documento) y contactos; menú "Terceros" (`/terceros`) | admin, commercial_director, line_leader, sales_manager, data_manager, viewer |
+| `terceros:view` | Ver cuentas, sedes, médicos (sin documento) y contactos; menú "Cuentas clave" (`/terceros`, grupo Terceros) y las páginas "Próximamente" de Médicos y Aseguradoras | admin, commercial_director, line_leader, sales_manager, data_manager, viewer |
 | `terceros:create` | Crear cuentas (con su sede principal), sedes, médicos (verificar documento) y contactos; vincular sedes a un médico | admin, commercial_director, line_leader, sales_manager, data_manager |
 | `terceros:manage` | Editar o desactivar, ver el documento del médico y la identificación de personas, confirmar ubicación de sedes, marcar cliente y modalidad (solo EPS), desvincular sedes de un médico | admin, commercial_director, data_manager |
-| `visitantes:manage` | Asignar y terminar visitantes de un médico | admin, commercial_director, line_leader (solo en las líneas donde `business_lines.leader_user_id` es su usuario; lo exige la API) |
+| `visitantes:manage` | Asignar y terminar visitantes de un médico | admin, commercial_director (desde el 2026-10-29 la líder de negocio es de consulta: `docs/decisiones/2026-10-29-solo-admin-y-direccion-asignan.md`) |
 
 El documento del médico nunca sale en listas; en el detalle, solo con `terceros:manage` (sin ese permiso ni
 siquiera se pide a la base). Buscar por un documento de persona (cédula del médico, CC/CE/PA de una cuenta) también
@@ -210,7 +217,7 @@ gerencia y cuenta como una persona (elegible como local y por alcance).
 
 | Permiso | Para qué | Roles |
 |---------|----------|-------|
-| `executives:lines` | Dar o quitar la propia línea a un Ejecutivo Comercial o vacante que vive en la Zona (`PUT`/`DELETE /api/executives/[id]/lineas/[lineId]`, que recalcula la cobertura sin Google); vista previa con `POST /api/coverage/simular` (nunca escribe; recorta el resultado a las líneas del usuario y, por cada línea que se quita, trae la cuenta de médicos que perderían visitante, sin nombres, que la pantalla exige confirmar antes de guardar) | admin, commercial_director, line_leader (solo en las líneas donde `business_lines.leader_user_id` es su usuario; lo limita la API con `canEditCoverageLine`, igual que `coverage:edit`) |
+| `executives:lines` | Dar o quitar la propia línea a un Ejecutivo Comercial o vacante que vive en la Zona (`PUT`/`DELETE /api/executives/[id]/lineas/[lineId]`, que recalcula la cobertura sin Google); vista previa con `POST /api/coverage/simular` (nunca escribe; recorta el resultado a las líneas del usuario y, por cada línea que se quita, trae la cuenta de médicos que perderían visitante, sin nombres, que la pantalla exige confirmar antes de guardar) | admin, commercial_director (desde el 2026-10-29 la líder de negocio no asigna: `docs/decisiones/2026-10-29-solo-admin-y-direccion-asignan.md`) |
 
 Qué no cambia: `executives:edit` sigue siendo la puerta para editar la ficha completa (todas las líneas, la zona base y
 el campo "Líneas permitidas"); `coverage:edit` para los ajustes manuales y el recálculo; y las cifras de `/kams`

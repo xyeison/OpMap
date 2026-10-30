@@ -974,9 +974,10 @@ for (const [rol, tiene, noTiene] of matriz) {
   // la sección Visitas sigue siendo solo de visits:config (scripts/menu-check.ts prueba las secciones).
   const config = PERMISOS_CONFIGURACION.some(permiso => hasPermission(rol, permiso))
   const calendario = PERMISOS_CALENDARIO.some(permiso => hasPermission(rol, permiso))
+  // Desde el 2026-10-29 /configuracion sale como "Parámetros" dentro del grupo Configuración
   check(
-    `${rol}: menú "Configuración" y ruta /configuracion ${config ? 'sí' : 'no'}`,
-    menu.some(item => item.href === '/configuracion' && item.name === 'Configuración') === config && rutas.includes('/configuracion') === config
+    `${rol}: menú "Parámetros" (Configuración) y ruta /configuracion ${config ? 'sí' : 'no'}`,
+    menu.some(item => item.href === '/configuracion' && item.name === 'Parámetros' && item.grupo === 'Configuración') === config && rutas.includes('/configuracion') === config
   )
   check(
     `${rol}: menú "Calendario" y ruta /calendario ${calendario ? 'sí' : 'no'}`,
@@ -985,6 +986,11 @@ for (const [rol, tiene, noTiene] of matriz) {
 }
 eq('PERMISOS_CALENDARIO', PERMISOS_CALENDARIO, ['calendar:manage', 'daysoff:approve', 'daysoff:view', 'visits:report'])
 eq('getRoleTitle(hr) = "Recursos humanos"', getRoleTitle('hr'), 'Recursos humanos')
+eq(
+  'los cuatro perfiles del negocio (dueño, 2026-10-29)',
+  (['admin', 'commercial_director', 'line_leader', 'sales_manager'] as Role[]).map(getRoleTitle),
+  ['Administrador', 'Director comercial', 'Líder de negocio', 'Ejecutivo comercial']
+)
 check('el rol hr se acepta al crear o editar usuarios', roleSchema.safeParse('hr').success)
 check('un rol inventado no', !roleSchema.safeParse('rrhh').success)
 check('ningún texto visible del menú dice "KAM"', (['admin', 'commercial_director', 'hr', 'line_leader', 'sales_manager'] as Role[]).every(rol => getNavigationMenu(rol).every(item => !/kam/i.test(item.name))))

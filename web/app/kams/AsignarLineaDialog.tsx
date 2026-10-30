@@ -428,7 +428,7 @@ export default function AsignarLineaDialog({
                           : `${numero(medicosQuePierden)} ${medicosQuePierden === 1 ? 'médico' : 'médicos'} de ${linea.name} ${medicosQuePierden === 1 ? 'tiene' : 'tienen'} a ${pierdeLaLinea.nombre} como visitante.`}
                       </p>
                       <p className="mt-1">
-                        Al quitarle la línea {medicosQuePierden === 1 ? 'queda' : 'quedan'} sin visitante hoy mismo y nada lo deshace: habría que reasignarlos desde Terceros.
+                        Al quitarle la línea {medicosQuePierden === 1 ? 'queda' : 'quedan'} sin visitante hoy mismo y nada lo deshace: la sección Médicos está en preparación y por ahora no hay dónde reasignarlos.
                       </p>
                       <label className="mt-3 flex items-start gap-2 cursor-pointer">
                         <input

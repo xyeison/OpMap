@@ -117,15 +117,15 @@ function CoveragePageContent() {
               {/* Estadísticas generales */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                 <div className="bg-white rounded-lg shadow p-4">
-                  <p className="text-gray-600 text-sm">Total Hospitales</p>
+                  <p className="text-gray-600 text-sm">Total de IPS</p>
                   <p className="text-2xl font-bold">{data.totalHospitals}</p>
                 </div>
                 <div className="bg-white rounded-lg shadow p-4">
-                  <p className="text-gray-600 text-sm">Hospitales Visitados</p>
+                  <p className="text-gray-600 text-sm">IPS visitadas</p>
                   <p className="text-2xl font-bold text-green-600">{data.visitedHospitals}</p>
                 </div>
                 <div className="bg-white rounded-lg shadow p-4">
-                  <p className="text-gray-600 text-sm">Hospitales NO Visitados</p>
+                  <p className="text-gray-600 text-sm">IPS NO visitadas</p>
                   <p className="text-2xl font-bold text-red-600">{data.unvisitedHospitals}</p>
                 </div>
                 <div className="bg-white rounded-lg shadow p-4">
@@ -137,12 +137,12 @@ function CoveragePageContent() {
               {/* Zonas no visitadas */}
               <div className="bg-white rounded-lg shadow">
                 <div className="px-6 py-4 border-b">
-                  <h2 className="text-xl font-semibold">Zonas con Hospitales No Visitados</h2>
+                  <h2 className="text-xl font-semibold">Zonas con IPS no visitadas</h2>
                 </div>
                 <div className="p-6">
                   {data.unvisitedZones.length === 0 ? (
                     <p className="text-gray-500 text-center py-8">
-                      ¡Excelente! Todos los hospitales han sido visitados en este período.
+                      ¡Excelente! Todas las IPS han sido visitadas en este período.
                     </p>
                   ) : (
                     <div className="space-y-4">
@@ -161,7 +161,7 @@ function CoveragePageContent() {
                           </div>
                           
                           <div className="mt-3">
-                            <p className="text-sm font-medium text-gray-700 mb-1">Hospitales:</p>
+                            <p className="text-sm font-medium text-gray-700 mb-1">IPS:</p>
                             <ul className="text-sm text-gray-600 space-y-1">
                               {zone.hospitals.map(hospital => (
                                 <li key={hospital.id} className="flex items-center gap-2">
@@ -192,7 +192,7 @@ function CoveragePageContent() {
               {/* Mensaje informativo */}
               <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
                 <p className="text-sm text-blue-800">
-                  <strong>Nota:</strong> Un hospital se considera &ldquo;visitado&rdquo; si existe al menos una visita 
+                  <strong>Nota:</strong> Una IPS se considera &ldquo;visitada&rdquo; si existe al menos una visita 
                   registrada en un radio de 5km durante el período seleccionado.
                 </p>
               </div>

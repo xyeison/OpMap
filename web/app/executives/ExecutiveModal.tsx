@@ -34,9 +34,14 @@ interface ExecutiveModalProps {
    * líneas para pasar sus médicos y zonas. Sin esto (sin permiso executives:transfer) solo se avisa.
    */
   onTraspasar?: (executive: Executive, lineasQuitadas: string[]) => void
+  /**
+   * "Ver" (dueño, 2026-10-29): la misma ficha con todos los campos bloqueados y solo "Cerrar", para quien consulta sin
+   * permiso de editar (líderes de negocio, Ejecutivos Comerciales, solo lectura).
+   */
+  soloLectura?: boolean
 }
 
-export default function ExecutiveModal({ executive, zones, lines, onClose, onSaved, onTraspasar }: ExecutiveModalProps) {
+export default function ExecutiveModal({ executive, zones, lines, onClose, onSaved, onTraspasar, soloLectura = false }: ExecutiveModalProps) {
   const isEdit = executive !== null
   const [fullName, setFullName] = useState(executive?.full_name ?? '')
   const [email, setEmail] = useState(executive?.email ?? '')
@@ -83,6 +88,10 @@ export default function ExecutiveModal({ executive, zones, lines, onClose, onSav
   const lineName = (lineId: string) => lines.find(line => line.id === lineId)?.name ?? 'una línea'
 
   const handleSubmit = async (e: React.FormEvent) => {
+    if (soloLectura) {
+      e.preventDefault()
+      return
+    }
     e.preventDefault()
     setError('')
 
@@ -164,7 +173,9 @@ export default function ExecutiveModal({ executive, zones, lines, onClose, onSav
     <div className={`fixed inset-0 bg-black bg-opacity-50 ${CAPA_MODAL} flex items-center justify-center p-4`}>
       <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
         <div className="sticky top-0 bg-gradient-to-r from-gray-800 to-gray-900 px-6 py-4 rounded-t-2xl flex justify-between items-center z-10">
-          <h2 className="text-xl font-bold text-white">{isEdit ? 'Editar ejecutiva' : 'Nueva ejecutiva'}</h2>
+          <h2 className="text-xl font-bold text-white">
+            {soloLectura ? executive?.full_name ?? 'Ejecutivo Comercial' : isEdit ? 'Editar ejecutiva' : 'Nueva ejecutiva'}
+          </h2>
           <button onClick={onClose} className="text-gray-300 hover:text-white" aria-label="Cerrar">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
@@ -174,6 +185,12 @@ export default function ExecutiveModal({ executive, zones, lines, onClose, onSav
 
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
           {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>}
+          {soloLectura && (
+            <p className="rounded-lg bg-gray-100 px-4 py-2 text-sm text-gray-700">Solo lectura: tu perfil puede ver esta ficha, no cambiarla.</p>
+          )}
+
+          {/* En "Ver", un fieldset deshabilitado bloquea todos los campos y botones de la ficha */}
+          <fieldset disabled={soloLectura} className="contents space-y-5">
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="md:col-span-2">
@@ -312,8 +329,8 @@ export default function ExecutiveModal({ executive, zones, lines, onClose, onSav
           <div>
             <span className="block text-sm font-medium text-gray-700 mb-1">Líneas permitidas (restricción de la dirección)</span>
             <p className="text-xs text-gray-500 mb-2">
-              Toca una línea para permitirla o quitarla (etiquetas). Sin ninguna marcada, puede tener cualquier línea y cualquier líder
-              puede darle la suya desde Zonas. Las líneas asignadas deben estar entre las permitidas.
+              Toca una línea para permitirla o quitarla (etiquetas). Sin ninguna marcada, puede tener cualquier línea; la dirección o el
+              administrador se la dan desde Zonas. Las líneas asignadas deben estar entre las permitidas.
             </p>
             {lines.length === 0 ? (
               <p className="text-sm text-gray-500">No hay líneas de negocio configuradas.</p>
@@ -408,6 +425,8 @@ export default function ExecutiveModal({ executive, zones, lines, onClose, onSav
             />
           </div>
 
+          </fieldset>
+
           <div className="flex justify-end gap-3 pt-4 border-t">
             <button
               type="button"
@@ -415,15 +434,17 @@ export default function ExecutiveModal({ executive, zones, lines, onClose, onSav
               disabled={saving}
               className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium"
             >
-              Cancelar
+              {soloLectura ? 'Cerrar' : 'Cancelar'}
             </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 font-medium disabled:opacity-50"
-            >
-              {saving ? 'Guardando...' : isEdit ? 'Guardar' : 'Crear'}
-            </button>
+            {!soloLectura && (
+              <button
+                type="submit"
+                disabled={saving}
+                className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 font-medium disabled:opacity-50"
+              >
+                {saving ? 'Guardando...' : isEdit ? 'Guardar' : 'Crear'}
+              </button>
+            )}
           </div>
         </form>
       </div>

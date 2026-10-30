@@ -274,7 +274,7 @@ export default function RouteCalculator() {
           </div>
           <p className="text-gray-800 font-medium">Analizando rutas faltantes...</p>
           <p className="text-sm text-gray-500 mt-2">
-            Verificando TODOS los hospitales activos según restricciones geográficas
+            Verificando TODAS las IPS activas según restricciones geográficas
           </p>
         </div>
       )}
@@ -290,7 +290,7 @@ export default function RouteCalculator() {
               Rutas Faltantes Detectadas
             </h3>
             <div className="text-sm text-amber-800 space-y-1">
-              <p>• Hospitales con rutas faltantes: {Object.keys(groupedRoutes).length}</p>
+              <p>• IPS con rutas faltantes: {Object.keys(groupedRoutes).length}</p>
               <p>• Total de rutas a calcular: {missingRoutes.length}</p>
               <p>• Rutas seleccionadas: {selectedRoutes.size}</p>
               <p>• Costo estimado: ${estimatedCost} USD</p>
@@ -423,7 +423,7 @@ export default function RouteCalculator() {
                   <p className="text-sm font-medium text-gray-900">Resumen de la operación:</p>
                   <ul className="mt-2 text-sm text-gray-700 space-y-1">
                     <li>• Rutas a calcular: {selectedRoutes.size}</li>
-                    <li>• Hospitales afectados: {
+                    <li>• IPS afectadas: {
                       [...new Set(Array.from(selectedRoutes).map(key => key.split('-')[0]))].length
                     }</li>
                     <li>• Costo estimado: ${estimatedCost} USD</li>

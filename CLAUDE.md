@@ -49,7 +49,9 @@ nada llama a Google.
 
 ## Reglas que no se deducen del código (IMPORTANTE)
 
-- **Terminología en la UI**: persona → "Ejecutivo Comercial", territorio → "Zona". Las Regiones (tabla `zones`)
+- **Terminología en la UI**: persona → "Ejecutivo Comercial", territorio → "Zona", hospital → "IPS" (dueño, 2026-10-29;
+  la ruta `/hospitals` y la tabla `hospitals` no cambian). El menú va por grupos (Terceros, Empleados, Inteligencia de
+  Mercado, Configuración: `docs/specs/2026-10-29-menu-por-grupos.md`). Las Regiones (tabla `zones`)
   se quitaron de la interfaz el 2026-10-14; la tabla queda sin uso. Nunca "KAM" en texto visible. En código siguen
   `kams`, `kam_id`, rutas `/kams`.
 - **Modelo**: cada fila de `kams` es una ZONA (ciudad base = `area_id`), no una persona. Personas =
@@ -88,7 +90,8 @@ nada llama a Google.
   médicos, ajustes de cobertura, nombre del territorio) pasa en un paso con "Traspasar" en `/executives` a otra
   persona, una persona nueva o una vacante; una vacante se convierte en la persona con "Contratar"
   (`docs/decisiones/2026-10-12-traspaso-de-ejecutivas.md`).
-- **Las líderes asignan su línea por Zona** (dueño, 2026-10-23, `docs/decisiones/2026-10-23-zonas-por-linea-las-lideres-asignan.md`): en `/kams` ("Zonas") cada líder da o quita SU línea a quien vive en la Zona, persona o vacante (una vacante ES una persona autorizada por la gerencia: compite por alcance igual); la dirección puede fijar "líneas permitidas" por persona (`executive_allowed_lines`, 0860 APLICADA el 2026-10-23; el 2026-10-24 el dueño quitó todas: hoy nadie está restringido y todas pueden tener todas las líneas; sin filas = sin restricción; la API rechaza líneas fuera); si otra persona de la misma Zona ya lleva la línea, Zonas avisa y ofrece pasarla de una a la otra en un paso; la celda sin nadie se llama "Sin cobertura" (nunca "Vacante") y en el mapa por línea va en gris con un tono por Zona (`grisDeZona`, autorizado el 2026-10-23); la 0870 BORRA `executive_lines` con respaldo (`executive_lines_respaldo_20261023`) y solo se aplica con autorización del dueño, seguida del recálculo.
+- **Solo el administrador y la dirección comercial asignan** (dueño, 2026-10-29, `docs/decisiones/2026-10-29-solo-admin-y-direccion-asignan.md`): dar o quitar líneas en Zonas, ajustes de cobertura, editar líneas, anexos y visitantes; la líder de negocio y el Ejecutivo Comercial son de consulta (conservan lo que usa la app de visita). Perfiles: Administrador, Director comercial (Laura Beltrán), Líder de negocio, Ejecutivo comercial. Lo que sigue de la regla del 2026-10-23 vale, salvo que la líder ya no asigna.
+- **Las líderes asignaban su línea por Zona** (dueño, 2026-10-23, `docs/decisiones/2026-10-23-zonas-por-linea-las-lideres-asignan.md`; desde el 2026-10-29 lo hacen la dirección o el administrador): en `/kams` ("Zonas") se da o quita una línea a quien vive en la Zona, persona o vacante (una vacante ES una persona autorizada por la gerencia: compite por alcance igual); la dirección puede fijar "líneas permitidas" por persona (`executive_allowed_lines`, 0860 APLICADA el 2026-10-23; el 2026-10-24 el dueño quitó todas: hoy nadie está restringido y todas pueden tener todas las líneas; sin filas = sin restricción; la API rechaza líneas fuera); si otra persona de la misma Zona ya lleva la línea, Zonas avisa y ofrece pasarla de una a la otra en un paso; la celda sin nadie se llama "Sin cobertura" (nunca "Vacante") y en el mapa por línea va en gris con un tono por Zona (`grisDeZona`, autorizado el 2026-10-23); la 0870 BORRA `executive_lines` con respaldo (`executive_lines_respaldo_20261023`) y solo se aplica con autorización del dueño, seguida del recálculo.
 - **Visitas de VMO = puente del mapa de calor** (dueño, 2026-10-29, `docs/decisiones/2026-10-29-visitas-vmo-mapa-de-calor.md`):
   en `/visits` se sube el Excel de VMO › Visitas; entran solo las hechas ("Visita realizada" y "Visita extra") con
   coordenadas, con fecha real y por persona (llaves `visits.vmo_id` y `executives.vmo_nombre`; si la persona no existe se
@@ -100,7 +103,12 @@ nada llama a Google.
   (`web/scripts/sia-load.ts` con launchd) y Vercel solo lee Supabase (`/api/sia/*`). Solo empresas con objeto de las líneas;
   de personas naturales nada. Como un ciudadano: una petición a la vez, 1,5 s, nunca el correo de anonimización. Nada entra a
   `hospital_contracts` sin aprobación humana (importar o "Aplicar" cada diferencia). La lectura con Claude
-  (`scripts/sia-extraer.ts`) cuesta dinero: `--dry-run` antes. Migración 0920 (rollback 9957) NO aplicada.
+  (`scripts/sia-extraer.ts`) cuesta dinero: `--dry-run` antes. Migración 0930 (rollback 9958; la 0920 es la de las líderes) NO aplicada.
+- **Seguimiento de las líderes con el Excel "Tracker Líderes"** (dueño, 2026-10-29, `docs/decisiones/2026-10-29-historico-tracker-lideres.md`;
+  reemplaza la A15 del 2026-10-15): en `/lideres` (permiso `lideres:seguimiento`: admin y dirección) la directora sube el
+  Excel; el navegador manda solo fecha, líder, ciudad, tipo, estado, cuántos contactos y si había observación (ningún
+  texto libre: ni nombres de médicos, ni observaciones, ni el tipo escrito a mano) y cada carga reemplaza el histórico
+  (`lideres_historico`, migración 0920 APLICADA el 2026-10-29; su DELETE lleva WHERE por pg-safeupdate de PostgREST). Cuando las líderes reporten en la app (PR #48 y sus fases), se deja de subir el Excel.
 - **Territorio y contratos**: el anexo de territorio (Anexo A IPS, Anexo B municipios) va al contrato de
   cada Ejecutivo Comercial; las versiones (`territory_snapshots`) son inmutables.
 - **SECOP I** se cuenta por el valor ADJUDICADO a cada contratista desde `f789-7hwg` (`fuente = 'secop1'`); el

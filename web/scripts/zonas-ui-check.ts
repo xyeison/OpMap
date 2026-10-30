@@ -155,7 +155,7 @@ console.log('\n6. textoEstado: el estado en lenguaje llano (dueño 2026-10-23: "
   eq(
     'conflicto → quiénes y qué hacer',
     textoEstado(celda({ estado: 'conflicto', nota: 'Ana y Beto' }), DEPORTIVA).detalle,
-    'Más de una persona de la Zona lleva Medicina deportiva: Ana y Beto. Resuélvelo con un ajuste manual.'
+    'Más de una persona de la Zona lleva Medicina deportiva: Ana y Beto. Se resuelve con un ajuste manual.'
   )
   eq('sin línea → "la línea" y "dentro del tope"', textoEstado(celda({ estado: 'sin_cobertura' })).detalle, 'Nadie que lleve la línea llega dentro del tope por carretera.')
   eq('el título no cambia: "Sin cobertura"', textoEstado(celda({ estado: 'sin_cobertura' }), DEPORTIVA).titulo, 'Sin cobertura')

@@ -39,7 +39,7 @@ export const FUENTES: readonly FuenteDefinicion[] = [
   { id: 'minsalud_cifras', nombre: 'MinSalud · Cifras de aseguramiento', programacion: '0 8 5 * *', ejecutor: 'vercel_cron' },
   { id: 'adres_identifica', nombre: 'ADRES · Identifica tu Giro', programacion: '0 7 3 * *', ejecutor: 'github_actions' },
   // SIA Observa (spec 2026-10-29): contratos y documentos de las IPS públicas. Corre en el Mac del dueño (web/scripts/sia-load.ts
-  // con launchd a las 02:00 de Bogotá). Misma fila que siembra la migración 0920.
+  // con launchd a las 02:00 de Bogotá). Misma fila que siembra la migración 0930.
   { id: 'sia_observa', nombre: 'SIA Observa · Contratos y documentos', programacion: '0 7 * * *', ejecutor: 'manual' },
 ] as const
 
