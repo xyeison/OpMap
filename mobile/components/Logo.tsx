@@ -5,9 +5,10 @@
  *
  * - variante "claro": logotipo blanco, para fondos oscuros (encabezado negro, modo oscuro).
  * - variante "oscuro": logotipo negro, para fondos claros.
- * Sin variante, se elige según el modo del teléfono (oscuro → "claro").
+ * Sin variante, se elige según el tema de la persona (oscuro → "claro"; lib/tema-preferencia.tsx).
  */
-import { Image, useColorScheme, type ImageStyle, type StyleProp } from 'react-native'
+import { Image, type ImageStyle, type StyleProp } from 'react-native'
+import { useEsquema } from '../lib/tema-preferencia'
 
 const LOGO_BLANCO = require('../assets/marca/vgmedical-logotipo-blanco.png')
 const LOGO_NEGRO = require('../assets/marca/vgmedical-logotipo-negro.png')
@@ -26,7 +27,7 @@ export interface PropsLogo {
 }
 
 export function Logo({ variante, ancho = 160, estilo, accessibilityLabel = 'VG Medical' }: PropsLogo) {
-  const esquema = useColorScheme()
+  const esquema = useEsquema()
   const elegida: VarianteLogo = variante ?? (esquema === 'dark' ? 'claro' : 'oscuro')
   return (
     <Image

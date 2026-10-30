@@ -1,7 +1,7 @@
 # Spec: médicos y contactos sin duplicados  (2026-10-30)
 
 **Estado**: pedido del dueño del 2026-10-30; a la forma propuesta dijo "Sí, hazlo todo". Implementado en la rama
-`feat/medicos-contactos`; la migración 0950 está escrita y sin aplicar (necesita la autorización del dueño). Las
+`feat/medicos-contactos`; la migración 0950 se APLICÓ el 2026-10-30 con la autorización del dueño. Las
 decisiones marcadas "(Claude)" las tomó Claude por encargo del dueño, y él las puede cambiar.
 
 ## Problema
@@ -76,7 +76,7 @@ Lo que había hoy:
 - Fusionar contactos o médicos que ya estén repetidos: hoy no hay.
 
 ## Impacto
-- **Migración `0950_medicos_contactos`** (rollback `9960`), solo con la autorización del dueño:
+- **Migración `0950_medicos_contactos`** (rollback `9960`), APLICADA el 2026-10-30 con la autorización del dueño:
   - tabla `medico_lineas`;
   - `medico_de_lineas` también mira esa tabla;
   - `contactos.telefono_digitos`, generada;

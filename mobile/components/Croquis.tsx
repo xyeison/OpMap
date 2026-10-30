@@ -10,7 +10,7 @@
  * mide 120 pt en pantallas de menos de 700 (altoCroquis); Reportar ya no lo agranda al elegir.
  */
 import { useState, type ReactNode } from 'react'
-import { Text, View, useColorScheme, useWindowDimensions } from 'react-native'
+import { Text, View, useWindowDimensions } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import {
   ALTO_ETIQUETA_CROQUIS,
@@ -28,6 +28,7 @@ import {
 } from '../lib/croquis'
 import { textoDistancia, type Punto } from '../lib/geo'
 import { MAPA_CLARO, MAPA_OSCURO } from '../lib/paleta'
+import { useEsquema } from '../lib/tema-preferencia'
 import { SOMBRA, TAMANO, useColores, useFuente, useMargenArribaPantalla } from '../lib/ui'
 
 interface Props {
@@ -57,7 +58,7 @@ const LOGO_ESTIMADO = { ancho: 106, alto: 40 }
 export function Croquis({ yo, sedes, foco, radioM, alto: altoPedido, etiquetaYo, arribaIzquierda }: Props) {
   const c = useColores()
   const fuente = useFuente()
-  const oscuro = useColorScheme() === 'dark'
+  const oscuro = useEsquema() === 'dark'
   const mapa = oscuro ? MAPA_OSCURO : MAPA_CLARO
   const { width: ancho, height: altoVentana } = useWindowDimensions()
   const insets = useSafeAreaInsets()

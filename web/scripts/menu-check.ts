@@ -29,6 +29,7 @@ import {
   seccionesConfiguracion,
   type Role,
 } from '../lib/permissions'
+import { alternarGrupo, gruposAbiertosAlEntrar, opcionDeLaPagina } from '../lib/menu-acordeon'
 
 let passed = 0
 let failed = 0
@@ -348,6 +349,71 @@ eq(
   []
 )
 eq('Zonas (/kams) sin "Por Regiones"', /Por Regiones/.test(readFileSync(path.join(APP, 'kams', 'page.tsx'), 'utf8')), false)
+
+// ---------------------------------------------------------------------------------------------
+console.log('9. El armazón con el diseño de la app: menú en acordeón y tema (dueño, 2026-10-30)')
+{
+  const seccionesAdmin = agruparMenu(getNavigationMenu('admin'))
+  eq('gruposAbiertosAlEntrar: en Médicos se abre Terceros', gruposAbiertosAlEntrar(seccionesAdmin, '/medicos'), ['Terceros'])
+  eq('gruposAbiertosAlEntrar: en Mapa (opción suelta) no se abre ninguno', gruposAbiertosAlEntrar(seccionesAdmin, '/map'), [])
+  eq('gruposAbiertosAlEntrar: sin opción abierta, ninguno', gruposAbiertosAlEntrar(seccionesAdmin, null), [])
+  eq('alternarGrupo abre el que estaba cerrado', alternarGrupo(['Empleados'], 'Terceros'), ['Empleados', 'Terceros'])
+  eq('alternarGrupo cierra el que estaba abierto y deja los demás', alternarGrupo(['Terceros', 'Empleados'], 'Terceros'), ['Empleados'])
+  // Revisión final: en las subpáginas (la ficha de una IPS, /contracts/detectados…) el grupo de su opción sigue abierto
+  eq('opcionDeLaPagina: en la ficha de una IPS (/hospitals/123), IPS', opcionDeLaPagina(menuAdmin, '/hospitals/123', ''), '/hospitals')
+  eq('opcionDeLaPagina: en /contracts/detectados, Contratos', opcionDeLaPagina(menuAdmin, '/contracts/detectados', ''), '/contracts')
+  eq('opcionDeLaPagina: en /visits/coverage, Visita VMO', opcionDeLaPagina(menuAdmin, '/visits/coverage', ''), '/visits')
+  eq('opcionDeLaPagina: la opción exacta manda (/inteligencia?tab=secop, Compras públicas)', opcionDeLaPagina(menuAdmin, '/inteligencia', '?tab=secop'), '/inteligencia?tab=secop')
+  eq('opcionDeLaPagina: solo por tramos de la ruta (/hospitalsx no es IPS)', opcionDeLaPagina(menuAdmin, '/hospitalsx', ''), null)
+  eq('opcionDeLaPagina: fuera del menú, ninguna', opcionDeLaPagina(menuAdmin, '/perfil', ''), null)
+  eq('gruposAbiertosAlEntrar: en la ficha de una IPS se abre Terceros', gruposAbiertosAlEntrar(seccionesAdmin, opcionDeLaPagina(menuAdmin, '/hospitals/123', '')), ['Terceros'])
+  eq('gruposAbiertosAlEntrar: en /contracts/detectados se abre Inteligencia de Mercado', gruposAbiertosAlEntrar(seccionesAdmin, opcionDeLaPagina(menuAdmin, '/contracts/detectados', '')), ['Inteligencia de Mercado'])
+  eq('gruposAbiertosAlEntrar: en /visits/coverage se abre Configuración', gruposAbiertosAlEntrar(seccionesAdmin, opcionDeLaPagina(menuAdmin, '/visits/coverage', '')), ['Configuración'])
+  const layoutWeb = readFileSync(path.join(__dirname, '..', 'app', 'layout.tsx'), 'utf8')
+  check(
+    'cada título de grupo es un botón con aria-expanded y aria-controls que lo abre o lo cierra (alternarGrupo)',
+    /<button[\s\S]{0,400}aria-expanded=\{abierto\}[\s\S]{0,120}aria-controls=\{listaId\}/.test(navegacion) && /alternarGrupo\(/.test(navegacion) && /hidden=\{!abierto\}/.test(navegacion)
+  )
+  check(
+    'al entrar, abierto el grupo de la página abierta, también en sus subpáginas (opcionDeLaPagina); su nombre, en la barra del celular',
+    /const pagina = opcionDeLaPagina\(menuItems, pathname, busqueda\)/.test(navegacion) &&
+      /gruposAbiertosAlEntrar\(secciones, pagina\)/.test(navegacion) && !/gruposAbiertosAlEntrar\(secciones, activa\)/.test(navegacion) &&
+      /menuItems\.find\(item => item\.href === pagina\)\?\.name/.test(navegacion)
+  )
+  check('las opciones sueltas (Agendamiento, Mapa, Calendario, Zonas, Líneas) van fuera de los grupos, siempre a la vista', /if \(!seccion\.grupo\)/.test(navegacion))
+  check(
+    'el menú es un div role="navigation" (nunca <nav>: globals.css fija todo <nav> y la lista no se desplazaría)',
+    /role="navigation"/.test(navegacion) && (sinComentarios(navegacion).match(/<nav\b/g) ?? []).length === 1
+  )
+  check(
+    'en el Mapa la barra conserva su alto (h-12 md:h-16) y el menú sigue de cajón; fuera, en escritorio, va fijo',
+    /isMap \? 'h-12 md:h-16/.test(navegacion) && /const fijo = !isMap/.test(navegacion) && /lg:translate-x-0/.test(navegacion)
+  )
+  check(
+    'con el menú fijo, el contenido se corre en escritorio ([data-contenido-principal] en el layout)',
+    /\[data-contenido-principal\]/.test(navegacion) && /<main data-contenido-principal/.test(layoutWeb)
+  )
+  check(
+    'el selector de tema: Claro, Oscuro y Automático, con elegir de useTema',
+    /const \{ preferencia, elegir \} = useTema\(\)/.test(navegacion) &&
+      /\[\['claro', 'Claro'\], \['oscuro', 'Oscuro'\], \['auto', 'Automático'\]\]/.test(navegacion) &&
+      /onClick=\{\(\) => elegir\(valor\)\}/.test(navegacion)
+  )
+  check('lo que se toca mide al menos 44 px (min-h-[44px])', (navegacion.match(/min-h-\[44px\]/g) ?? []).length >= 3)
+  check(
+    'el menú muestra todas las opciones del rol: las de getNavigationMenu (usePermissions), agrupadas y sin quitar ninguna',
+    /agruparMenu\(menuItems\)/.test(navegacion) && /seccion\.items\.map\(/.test(navegacion) && !/menuItems\.(filter|slice)\(/.test(navegacion)
+  )
+  check(
+    'la opción marcada sigue la pestaña (?tab=, ADRES y Compras públicas) con useSearchParams, en su propio Suspense',
+    /<Suspense fallback=\{null\}>\s*<PestanaActual/.test(navegacion) && /useSearchParams\(\)/.test(navegacion)
+  )
+  check('en escritorio el menú fijo queda debajo de las ventanas de las páginas (lg:z-40; ellas van en z-50 o más)', /lg:z-40/.test(navegacion))
+  check(
+    'el armazón usa los papeles de la app (bg-fondo, bg-superficie, bg-acento text-sobre-acento, text-texto-suave) y no los grises fijos de antes',
+    /bg-fondo/.test(navegacion) && /bg-superficie/.test(navegacion) && /bg-acento text-sobre-acento/.test(navegacion) && /text-texto-suave/.test(navegacion) && !/bg-gray-900|text-gray-700|bg-white/.test(navegacion)
+  )
+}
 
 // ---------------------------------------------------------------------------------------------
 console.log(`\n${passed} pruebas bien, ${failed} con falla`)

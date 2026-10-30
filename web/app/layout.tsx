@@ -1,10 +1,12 @@
 import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
+import { DM_Sans } from 'next/font/google'
 import './globals.css'
 import { Providers } from './providers'
 import NavigationWithPermissions from '@/components/NavigationWithPermissions'
+import { SCRIPT_TEMA_INICIAL, cssDeTemas } from '@/lib/tema'
 
-const inter = Inter({ subsets: ['latin'] })
+// La letra de la app de campo (dirección A, tipo Uber; etapa 1 del diseño, dueño 2026-10-30)
+const dmSans = DM_Sans({ subsets: ['latin'], weight: ['400', '500', '700'], display: 'swap' })
 
 export const metadata: Metadata = {
   title: 'OpMap - Sistema de Asignación Territorial',
@@ -17,11 +19,20 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="es">
-      <body className={inter.className}>
+    <html lang="es" suppressHydrationWarning>
+      <head>
+        {/* El tema de cada persona (Claro, Oscuro o Automático) antes de pintar: sin destello blanco en oscuro */}
+        <script dangerouslySetInnerHTML={{ __html: SCRIPT_TEMA_INICIAL }} />
+        <style dangerouslySetInnerHTML={{ __html: cssDeTemas() }} />
+      </head>
+      <body className={`${dmSans.className} bg-fondo text-texto`}>
         <Providers>
           <NavigationWithPermissions />
-          <main className="min-h-screen bg-gradient-to-br from-white via-gray-50 to-white">
+          {/* data-contenido-principal: con el menú fijo, en escritorio se corre a su derecha (NavigationWithPermissions).
+              data-tema="claro": las páginas que esta etapa no rehace siguen en claro aunque el tema sea oscuro (spec,
+              punto 5), con su texto oscuro aunque el del cuerpo sea claro; las rehechas llevan data-sigue-tema y
+              siguen el tema de la persona (lib/tema.ts) */}
+          <main data-contenido-principal data-tema="claro" className="min-h-screen bg-gradient-to-br from-white via-gray-50 to-white text-texto">
             {children}
           </main>
         </Providers>
