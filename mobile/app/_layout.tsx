@@ -6,6 +6,10 @@
  * DM Sans viene en el paquete (sin red). Mientras carga se muestra la portada negra con el logotipo, igual que la
  * pantalla de inicio; si falla o tarda más de ESPERA_FUENTES_MS, la app sigue con la fuente del sistema (nunca se
  * queda en blanco). Si cargó tarde, las pantallas pasan a DM Sans solas (<ProveedorFuentes> avisa del cambio).
+ *
+ * El tema (Claro, Oscuro o Automático) es el que eligió la persona en Ajustes, el mismo de OpMap en el navegador
+ * (<ProveedorTema>, lib/tema-preferencia.tsx). En el teléfono se lee al abrir: la portada sigue mientras tanto, con el
+ * mismo tope que la letra, para no mostrar un instante el otro tema.
  */
 import { DMSans_400Regular } from '@expo-google-fonts/dm-sans/400Regular'
 import { DMSans_500Medium } from '@expo-google-fonts/dm-sans/500Medium'
@@ -20,6 +24,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { Logo } from '../components/Logo'
 import { ProveedorCola } from '../lib/cola-contexto'
 import { ProveedorSesion } from '../lib/sesion'
+import { BarraDeEstado, ProveedorTema, useTemaApp } from '../lib/tema-preferencia'
 import { COLORES_CLAROS, FAMILIAS_DM_SANS, ProveedorFuentes, useColores } from '../lib/ui'
 
 /**
@@ -37,23 +42,33 @@ const FUENTES = {
 const ESPERA_FUENTES_MS = 2500
 
 export default function RaizLayout() {
+  return (
+    <ProveedorTema>
+      <Raiz />
+    </ProveedorTema>
+  )
+}
+
+function Raiz() {
   const c = useColores()
+  const { listo: temaListo } = useTemaApp()
   const [cargadas, error] = useFonts(FUENTES)
   const [agotado, setAgotado] = useState(false)
 
   useEffect(() => {
-    if (cargadas || error) return
+    if ((cargadas || error) && temaListo) return
     const espera = setTimeout(() => setAgotado(true), ESPERA_FUENTES_MS)
     return () => clearTimeout(espera)
-  }, [cargadas, error])
+  }, [cargadas, error, temaListo])
 
   const esperandoLetra = !cargadas && !error && !agotado
+  const esperando = esperandoLetra || (!temaListo && !agotado)
 
   // La sesión empieza a leerse ya (en paralelo con la letra); las pantallas montan cuando la letra está o se rindió.
   return (
     <SafeAreaProvider>
       <ProveedorSesion>
-        {esperandoLetra ? (
+        {esperando ? (
           <View style={{ flex: 1, backgroundColor: COLORES_CLAROS.encabezado, alignItems: 'center', justifyContent: 'center' }}>
             <StatusBar style="light" />
             <Logo variante="claro" ancho={200} />
@@ -61,7 +76,7 @@ export default function RaizLayout() {
         ) : (
           <ProveedorFuentes listas={cargadas && !error}>
             <ProveedorCola>
-              <StatusBar style="auto" />
+              <BarraDeEstado />
               <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: c.fondo } }} />
             </ProveedorCola>
           </ProveedorFuentes>

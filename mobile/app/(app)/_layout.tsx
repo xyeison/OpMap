@@ -21,7 +21,6 @@
  */
 import { Redirect, useRouter } from 'expo-router'
 import { Tabs } from 'expo-router/js-tabs'
-import { StatusBar } from 'expo-status-bar'
 import { useState, type ReactNode } from 'react'
 import { Pressable, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -30,6 +29,7 @@ import { Icono } from '../../lib/iconos'
 import { OCULTAS, PESTANAS, SIN_ENCABEZADO } from '../../lib/navegacion'
 import { avisoFuera, entraALasPestanas, estadoPersona } from '../../lib/persona'
 import { useSesion } from '../../lib/sesion'
+import { BarraDeEstado } from '../../lib/tema-preferencia'
 import { ALTO_TOQUE_MIN, Aviso, Boton, Cargando, LETRA, Pantalla, TAMANO, Texto, Titulo, useColores, useFuente } from '../../lib/ui'
 
 /** Alto de la caja del ícono de cada pestaña (y tamaño máximo del ícono): 24 pt, como el ícono de Material. */
@@ -113,7 +113,7 @@ function FueraDeLaApp({ titulo, texto }: { titulo: string; texto: string }) {
   const nombre = perfil?.usuario.full_name?.trim().split(/\s+/)[0] ?? ''
   return (
     <>
-      <StatusBar style="auto" />
+      <BarraDeEstado />
       <Pantalla>
         <Logo ancho={96} />
         <Titulo>{nombre ? `Hola, ${nombre}` : 'Hola'}</Titulo>
@@ -157,7 +157,7 @@ export default function AppLayout() {
   return (
     <>
       {/* Encabezado blanco (negro en modo oscuro): hora y batería del color que contrasta. */}
-      <StatusBar style="auto" />
+      <BarraDeEstado />
       <Tabs
         backBehavior="history"
         screenOptions={{

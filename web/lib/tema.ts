@@ -8,7 +8,7 @@
 export type PreferenciaTema = 'claro' | 'oscuro' | 'auto'
 export type Tema = 'claro' | 'oscuro'
 
-/** La clave en el navegador (la misma de mobile/lib/tema-preferencia.ts). */
+/** La clave en el navegador (la misma de mobile/lib/tema.ts, la app en /campo). */
 export const CLAVE_TEMA = 'opmap.tema.v1'
 
 /** Los papeles de color de la app (los nombres de `Colores` de mobile/lib/paleta.ts). */

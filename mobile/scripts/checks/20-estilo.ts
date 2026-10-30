@@ -151,7 +151,7 @@ export async function pruebas(t: Probador): Promise<void> {
   // -------------------------------------------------------------------------
   const layout = leer('app/(app)/_layout.tsx')
   t.check('encabezado blanco (c.fondo) con el título grande (LETRA.titulo; junto a "Volver", LETRA.tituloPaso), no la barra negra', /backgroundColor: c\.fondo, paddingTop: insets\.top/.test(layout) && /izquierda \? LETRA\.tituloPaso : LETRA\.titulo/.test(layout) && !/headerStyle:\s*\{\s*backgroundColor: c\.encabezado/.test(layout))
-  t.check('hora y batería del color que contrasta con el encabezado blanco (StatusBar "auto")', /<StatusBar style="auto" \/>/.test(layout))
+  t.check('hora y batería del color que contrasta con el encabezado (BarraDeEstado: el tema elegido, sección 22)', /<BarraDeEstado \/>/.test(layout) && !/<StatusBar style="auto"/.test(layout))
   t.check(
     'Hoy y Reportar sin encabezado (arriba va el croquis); el resto con él',
     SIN_ENCABEZADO.length === 2 && SIN_ENCABEZADO.includes('hoy') && SIN_ENCABEZADO.includes('reportar') && /headerShown: !SIN_ENCABEZADO\.includes\(p\.ruta\)/.test(layout) && PESTANAS.filter(p => !SIN_ENCABEZADO.includes(p.ruta)).length === 3
