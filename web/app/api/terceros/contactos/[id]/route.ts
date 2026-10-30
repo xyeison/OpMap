@@ -5,8 +5,8 @@ import { requirePermission } from '@/lib/require-role'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { jsonError, readJson, zodMessage } from '@/app/api/kams/_lib/kam-shared'
 import { contactoUpdateSchema } from '@/lib/terceros-schemas'
-import type { ContactoRow } from '@/lib/terceros'
-import { errorInterno, idDeRuta } from '../../_lib/terceros-server'
+import { MENSAJE_CONTACTO_REPETIDO, MENSAJE_CONTACTO_SIN_TELEFONO_NI_CORREO, type ContactoRow } from '@/lib/terceros'
+import { contactoRepetido, errorInterno, idDeRuta } from '../../_lib/terceros-server'
 
 type Params = { params: { id: string } }
 
@@ -24,12 +24,24 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
     const { data: actualData, error: actualError } = await supabaseAdmin
       .from('contactos')
-      .select('id, cuenta_id')
+      .select('id, cuenta_id, telefono, email')
       .eq('id', contactoId)
       .limit(1)
     if (actualError) throw actualError
-    const actual = actualData && actualData.length > 0 ? (actualData[0] as { id: string; cuenta_id: string }) : null
+    const actual =
+      actualData && actualData.length > 0 ? (actualData[0] as { id: string; cuenta_id: string; telefono: string | null; email: string | null }) : null
     if (!actual) return jsonError('Contacto no encontrado', 404)
+
+    // Sin duplicados (dueño, 2026-10-30): no puede quedar sin teléfono ni correo, ni con los de otro de la cuenta
+    if (input.telefono !== undefined || input.email !== undefined) {
+      const queda = {
+        telefono: input.telefono !== undefined ? input.telefono : actual.telefono,
+        email: input.email !== undefined ? input.email : actual.email,
+      }
+      if (!queda.telefono && !queda.email) return jsonError(MENSAJE_CONTACTO_SIN_TELEFONO_NI_CORREO, 400)
+      const repetido = await contactoRepetido(actual.cuenta_id, queda, actual.id)
+      if (repetido) return NextResponse.json({ error: MENSAJE_CONTACTO_REPETIDO, existente: repetido }, { status: 409 })
+    }
 
     if (input.sede_id) {
       const { data: sedeData, error: sedeError } = await supabaseAdmin

@@ -12,6 +12,7 @@ import { fetchAllRows, jsonError } from '@/app/api/kams/_lib/kam-shared'
 import { todayInBogota } from '@/app/api/executives/_lib/executive-shared'
 import {
   avisoVisitante,
+  mismoContacto,
   nitsEquivalentes,
   normalizarIdentificacion,
   numerosEquivalentesANit,
@@ -282,6 +283,23 @@ export async function sedePorRepsCode(
   const { data, error } = await consulta
   if (error) throw error
   return data && data.length > 0 ? (data[0] as { id: string; nombre: string; cuenta_id: string }) : null
+}
+
+/**
+ * El contacto de la cuenta que ya tiene ese teléfono (por dígitos) o ese correo (sin mayúsculas), o null (contactos sin
+ * duplicados, dueño 2026-10-30). Mira todos los de la cuenta (unos pocos) y compara con mismoContacto de lib/terceros.ts;
+ * `excluirId`: el contacto que se está corrigiendo.
+ */
+export async function contactoRepetido(
+  cuentaId: string,
+  datos: { telefono?: string | null; email?: string | null },
+  excluirId?: string
+): Promise<{ id: string; nombre: string } | null> {
+  const filas = await fetchAllRows<{ id: string; nombre: string; telefono: string | null; email: string | null }>((from, to) =>
+    supabaseAdmin.from('contactos').select('id, nombre, telefono, email').eq('cuenta_id', cuentaId).order('id').range(from, to)
+  )
+  const otro = filas.find(fila => fila.id !== excluirId && mismoContacto(datos, fila))
+  return otro ? { id: otro.id, nombre: otro.nombre } : null
 }
 
 export async function medicoPorDocumento(

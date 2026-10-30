@@ -1475,16 +1475,30 @@ async function main() {
     {
       const contacto = await leer(
         await crearContacto(
-          apiRequest('/api/terceros/contactos', { method: 'POST', userId: VENTAS_ID, body: { cuenta_id: CLINICA, sede_id: SEDE_CLINICA_1, nombre: 'Luz Mora', cargo_texto: 'Jefe de Compras' } })
+          apiRequest('/api/terceros/contactos', { method: 'POST', userId: VENTAS_ID, body: { cuenta_id: CLINICA, sede_id: SEDE_CLINICA_1, nombre: 'Luz Mora', cargo_texto: 'Jefe de Compras', telefono: '+57 300 123 4567' } })
         )
       )
       check('contacto sin rol: el cargo "Jefe de Compras" lo deja en compras', contacto.status === 201 && contacto.body.contacto.rol === 'compras', contacto)
       const sedeAjena = await leer(
         await crearContacto(
-          apiRequest('/api/terceros/contactos', { method: 'POST', userId: VENTAS_ID, body: { cuenta_id: CLINICA, sede_id: SEDE_OTRA, nombre: 'Pedro Paz', cargo_texto: 'Químico farmacéutico' } })
+          apiRequest('/api/terceros/contactos', { method: 'POST', userId: VENTAS_ID, body: { cuenta_id: CLINICA, sede_id: SEDE_OTRA, nombre: 'Pedro Paz', cargo_texto: 'Químico farmacéutico', email: 'pedro@clinica.co' } })
         )
       )
       check('contacto con sede de otra cuenta → 400', sedeAjena.status === 400 && tablas.contactos.length === 1, sedeAjena)
+      // Sin duplicados (dueño, 2026-10-30): en la misma cuenta, el mismo teléfono (por dígitos) o el mismo correo → el que ya está
+      const repetidoTel = await leer(await crearContacto(apiRequest('/api/terceros/contactos', { method: 'POST', userId: VENTAS_ID, body: { cuenta_id: CLINICA, nombre: 'Luz M.', telefono: '300-123-4567' } })))
+      check('contacto con el mismo teléfono en la misma cuenta → 409 con el que ya está; nada nuevo', repetidoTel.status === 409 && repetidoTel.body?.existente?.id === contacto.body.id && repetidoTel.body.existente.nombre === 'Luz Mora' && tablas.contactos.length === 1, repetidoTel.body)
+      const sinDatos = await leer(await crearContacto(apiRequest('/api/terceros/contactos', { method: 'POST', userId: VENTAS_ID, body: { cuenta_id: CLINICA, nombre: 'Sin Datos' } })))
+      check('contacto sin teléfono ni correo → 400', sinDatos.status === 400 && /teléfono o el correo del contacto/.test(sinDatos.body?.error ?? '') && tablas.contactos.length === 1, sinDatos.body)
+      const conCorreo = await leer(await crearContacto(apiRequest('/api/terceros/contactos', { method: 'POST', userId: VENTAS_ID, body: { cuenta_id: CLINICA, nombre: 'Rosa Gil', email: 'Rosa@Clinica.co' } })))
+      const correoRepetido = await leer(await crearContacto(apiRequest('/api/terceros/contactos', { method: 'POST', userId: VENTAS_ID, body: { cuenta_id: CLINICA, nombre: 'Rosa', email: 'rosa@clinica.CO' } })))
+      check('el mismo correo (sin importar mayúsculas) en la misma cuenta → 409 con el que ya está', conCorreo.status === 201 && correoRepetido.status === 409 && correoRepetido.body?.existente?.id === conCorreo.body.id, correoRepetido.body)
+      const otraCuenta = await leer(await crearContacto(apiRequest('/api/terceros/contactos', { method: 'POST', userId: VENTAS_ID, body: { cuenta_id: OTRA_CUENTA, nombre: 'Luz Mora', telefono: '3001234567' } })))
+      check('el mismo teléfono en OTRA cuenta → 201 (puede trabajar en dos clínicas)', otraCuenta.status === 201, otraCuenta.body)
+      const quitarTodo = await leer(await editarContacto(apiRequest(`/api/terceros/contactos/${conCorreo.body.id}`, { method: 'PATCH', body: { email: null } }), params(conCorreo.body.id)))
+      check('corregir un contacto y dejarlo sin teléfono ni correo → 400', quitarTodo.status === 400 && /teléfono o el correo del contacto/.test(quitarTodo.body?.error ?? ''), quitarTodo.body)
+      const robarTel = await leer(await editarContacto(apiRequest(`/api/terceros/contactos/${conCorreo.body.id}`, { method: 'PATCH', body: { telefono: '+57 3001234567' } }), params(conCorreo.body.id)))
+      check('corregir un contacto con el teléfono de otro de la misma cuenta → 409 con ese otro', robarTel.status === 409 && robarTel.body?.existente?.id === contacto.body.id, robarTel.body)
       const editarVentas = await leer(
         await editarContacto(apiRequest(`/api/terceros/contactos/${contacto.body.id}`, { method: 'PATCH', userId: VENTAS_ID, body: { rol: 'gerencia' } }), params(contacto.body.id))
       )
@@ -1495,8 +1509,8 @@ async function main() {
       check('cambiar el cargo no cambia el rol guardado', editarAdmin.status === 200 && editarAdmin.body.contacto.rol === 'compras' && editarAdmin.body.contacto.cargo_texto === 'Gerente', editarAdmin)
       const detalle = await leer(await verCuenta(apiRequest(`/api/terceros/cuentas/${CLINICA}`, { userId: VIEWER_ID }), params(CLINICA)))
       check(
-        'el detalle de la cuenta trae su contacto y la sede principal primero',
-        detalle.body.contactos.length === 1 && detalle.body.sedes[0].id === SEDE_CLINICA_2 && detalle.body.sedes[0].es_principal === true,
+        'el detalle de la cuenta trae sus 2 contactos y la sede principal primero',
+        detalle.body.contactos.length === 2 && detalle.body.sedes[0].id === SEDE_CLINICA_2 && detalle.body.sedes[0].es_principal === true,
         detalle.body
       )
 

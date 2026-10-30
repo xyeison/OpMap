@@ -81,6 +81,36 @@ export const TIPOS_DOC_MEDICO_NUEVO = [
 ] as const satisfies readonly Opcion[]
 export type TipoDocMedicoNuevo = (typeof TIPOS_DOC_MEDICO_NUEVO)[number]['valor']
 export const VALORES_TIPO_DOC_MEDICO_NUEVO = valoresDe<TipoDocMedicoNuevo>(TIPOS_DOC_MEDICO_NUEVO)
+// ---------------------------------------------------------------------------------------------
+// Contactos sin duplicados (dueño, 2026-10-30): teléfono y/o correo; en una cuenta no se repiten
+// ---------------------------------------------------------------------------------------------
+
+/** Un contacto sin teléfono ni correo no se puede crear ni dejar así al corregirlo. */
+export const MENSAJE_CONTACTO_SIN_TELEFONO_NI_CORREO = 'Escribe el teléfono o el correo del contacto'
+/** El 409 de un contacto que ya está en la cuenta (el mismo teléfono o el mismo correo); va con `existente`. */
+export const MENSAJE_CONTACTO_REPETIDO = 'Ese contacto ya está en la cuenta (el mismo teléfono o el mismo correo)'
+
+/**
+ * Los dígitos de un teléfono para compararlo (se guarda como se escribió): sin espacios, guiones ni paréntesis, y sin
+ * el +57 de Colombia ("+57 300 123 4567" y "300-123-4567" son el mismo). null si no tiene dígitos. Espejo de la columna
+ * generada contactos.telefono_digitos (migración 0940).
+ */
+export function digitosTelefono(telefono: string | null | undefined): string | null {
+  const digitos = (telefono ?? '').replace(/\D/g, '')
+  if (!digitos) return null
+  return digitos.length === 12 && digitos.startsWith('57') ? digitos.slice(2) : digitos
+}
+
+/** ¿Es el mismo contacto? El mismo teléfono (por dígitos) o el mismo correo (sin importar mayúsculas). */
+export function mismoContacto(
+  a: { telefono?: string | null; email?: string | null },
+  b: { telefono?: string | null; email?: string | null }
+): boolean {
+  const telefonoA = digitosTelefono(a.telefono)
+  const correoA = a.email?.trim().toLowerCase() || null
+  return (telefonoA !== null && telefonoA === digitosTelefono(b.telefono)) || (correoA !== null && correoA === (b.email?.trim().toLowerCase() || null))
+}
+
 /** El mensaje de un documento de médico que no es CC ni CE. */
 export const MENSAJE_DOC_MEDICO_CC_CE = 'El documento del médico es la cédula de ciudadanía (CC) o la cédula de extranjería (CE)'
 

@@ -12,6 +12,7 @@ import {
   VALORES_MODALIDAD_FACTURACION,
   VALORES_ROL_CONTACTO,
   VALORES_ROL_MEDICO_SEDE,
+  MENSAJE_CONTACTO_SIN_TELEFONO_NI_CORREO,
   MENSAJE_DOC_MEDICO_CC_CE,
   VALORES_TIPO_DOC_MEDICO_NUEVO,
   VALORES_TIPO_ID_CUENTA,
@@ -527,6 +528,8 @@ export const contactoCreateSchema = cuerpo({
     telefono: telefonoSchema,
     email: emailSchema,
   })
+  // Sin duplicados (dueño, 2026-10-30): teléfono y/o correo; la API ofrece el que ya está en la cuenta (409)
+  .refine(datos => Boolean(datos.telefono) || Boolean(datos.email), { message: MENSAJE_CONTACTO_SIN_TELEFONO_NI_CORREO, path: ['telefono'] })
   .transform(datos => ({ ...datos, rol: datos.rol ?? rolDesdeCargo(datos.cargo_texto) }))
 
 export type ContactoCreate = z.infer<typeof contactoCreateSchema>
