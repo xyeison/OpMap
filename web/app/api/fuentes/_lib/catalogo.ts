@@ -23,13 +23,16 @@ const COMO: Record<string, string> = {
   bdua: 'Vercel Cron → /api/cron/bdua (SoQL agregado en datos.gov.co)',
   minsalud_cifras: 'Vercel Cron → /api/cron/minsalud_cifras (ZIP del mes si ya está publicado)',
   adres_identifica: 'GitHub Actions (.github/workflows/datos.yml) → scripts/adres-identifica-giro.mjs',
+  sia_observa:
+    'Mac del dueño (launchd, 02:00 Bogotá) → web/scripts/sia-load.ts: SIA Observa corta las conexiones que no vienen de Colombia, así ' +
+    'que no puede correr en Vercel. Contratos de empresas con objeto de las líneas, fichas y documentos clave',
 }
 
 export const FUENTES_CATALOGO: readonly FuenteCatalogo[] = FUENTES.map(def => ({
   fuente: def.id,
   nombre: def.nombre,
   frecuencia: frecuencia(def),
-  tipo: def.ejecutor === 'github_actions' ? 'pesada' : 'ligera',
-  como: COMO[def.id] ?? (def.ejecutor === 'github_actions' ? 'GitHub Actions' : 'Vercel Cron'),
+  tipo: def.ejecutor === 'vercel_cron' ? 'ligera' : 'pesada',
+  como: COMO[def.id] ?? (def.ejecutor === 'github_actions' ? 'GitHub Actions' : def.ejecutor === 'manual' ? 'Script local' : 'Vercel Cron'),
   manual: esFuenteAutomatica(def.id),
 }))

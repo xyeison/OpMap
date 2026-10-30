@@ -1,0 +1,68 @@
+{
+ "_fixture": "SINTÉTICO (2026-10-30): salida de la herramienta registrar_contrato que se espera para CD/26-1262, armada con los datos que el dueño leyó en los PDF (spec, sección 4) y con su página. Incluye a propósito un supervisor con nombre y cédula INVENTADOS y un cotizante persona natural, que sanearExtraccion debe quitar. Reemplazar por una salida real de scripts/sia-extraer.ts --directo --idc 12910254.",
+ "datos": {
+  "contrato": {
+   "numero": "CD/26-1262",
+   "proceso": "Contratación directa 061/2026 (una sola oferta)",
+   "modalidad": "Contratación directa – régimen especial (Manual de contratación), una sola oferta",
+   "entidad": { "nombre": "HOSPITAL REGIONAL DE LA ORINOQUIA E.S.E", "nit": "891855029-1" },
+   "contratista": { "nombre": "FARMAORTOPEDICOS S.A.S", "nit": "901.386.177-1" },
+   "objeto": "Suministro de material de osteosíntesis especializado para neurocirugía, cirugía maxilofacial y cirugía plástica, equipos neuroquirúrgicos, columna y sustitutos óseos",
+   "valor": 510281732,
+   "incluye_impuestos": true,
+   "plazo_meses": 6,
+   "fecha_firma": "2026-06-25",
+   "fecha_inicio": "2026-07-02",
+   "fecha_fin": "2026-12-31",
+   "forma_pago": "Actas parciales con factura por paciente, sujeto a disponibilidad de caja y PAC",
+   "soportes_factura": ["Hoja de gastos de la instrumentadora", "Remisión", "Informe quirúrgico"],
+   "garantias": [
+    { "tipo": "Cumplimiento", "porcentaje": 20, "valor_smmlv": null, "vigencia": "Plazo del contrato y 4 meses más" },
+    { "tipo": "Calidad de los bienes", "porcentaje": 20, "valor_smmlv": null, "vigencia": "Plazo del contrato y 1 año más" },
+    { "tipo": "Responsabilidad civil extracontractual", "porcentaje": null, "valor_smmlv": 200, "vigencia": "Plazo del contrato" }
+   ],
+   "adiciones_max_pct": 50,
+   "supervision": "Subgerente científico, JUANA INVENTADA PÉREZ, C.C. 1.000.000.098"
+  },
+  "requisitos": {
+   "liquidez_min": 1,
+   "endeudamiento_max_pct": 50,
+   "cobertura_intereses_min": null,
+   "capital_trabajo_min_cop": null,
+   "capital_trabajo_regla": "Capital de trabajo mayor o igual a una vez el presupuesto oficial",
+   "experiencia": "Contratos ejecutados cuya suma sea igual o superior al 100% del presupuesto oficial",
+   "experiencia_anos_min": null,
+   "ciiu": ["4645"],
+   "seriedad_oferta_pct": 10,
+   "otros": []
+  },
+  "operacion": {
+   "instrumentacion": "Instrumentador quirúrgico profesional disponible para cada procedimiento",
+   "tiempos_respuesta": null,
+   "registro_invima": "Registro sanitario INVIMA vigente de cada dispositivo y autorización del importador"
+  },
+  "mercado": {
+   "cotizantes": [
+    { "nombre": "FARMAORTOPEDICOS S.A.S", "nit": "901386177" },
+    { "nombre": "TRAUMAQUIRURGICOS S.A.S", "nit": "901996983" },
+    { "nombre": "PERSONA NATURAL INVENTADA", "nit": "1000000097" }
+   ],
+   "ganador": "FARMAORTOPEDICOS S.A.S (menor valor)",
+   "base_presupuesto": "CD/25-1658 ejecutó $425.234.777 en 5 meses (≈ $85.046.955 al mes)",
+   "gasto_historico": "Gasto del segundo semestre de 2025: $909.377.145"
+  },
+  "items": [],
+  "lineas": ["neurocirugia", "columna", "perossal"],
+  "fuentes": [
+   { "campo": "requisitos.liquidez_min", "documento": "ep_1121_compressed_14.pdf", "pagina": 7 },
+   { "campo": "requisitos.endeudamiento_max_pct", "documento": "ep_1121_compressed_14.pdf", "pagina": 7 },
+   { "campo": "requisitos.capital_trabajo_regla", "documento": "ep_1121_compressed_14.pdf", "pagina": 7 },
+   { "campo": "requisitos.experiencia", "documento": "ep_1121_compressed_14.pdf", "pagina": 6 },
+   { "campo": "mercado.base_presupuesto", "documento": "ep_110_compressed_18.pdf", "pagina": 10 },
+   { "campo": "mercado.gasto_historico", "documento": "ep_110_compressed_18.pdf", "pagina": 3 },
+   { "campo": "contrato.valor", "documento": "13_contrato_1262_compressed.pdf", "pagina": 1 },
+   { "campo": "contrato.garantias", "documento": "13_contrato_1262_compressed.pdf", "pagina": 5 }
+  ],
+  "faltantes": ["items", "operacion.tiempos_respuesta", "requisitos.cobertura_intereses_min", "requisitos.experiencia_anos_min"]
+ }
+}

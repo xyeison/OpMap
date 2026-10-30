@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SIA Observa · launchd del Mac del dueño (docs/fases/fase9-sia-observa.md). Corre la carga a las 02:00 (hora del Mac,
+  Bogotá) y después la lectura con IA por lotes. Instalar:
+    1. Cambiar RUTA_AL_REPO por la carpeta del repositorio (p. ej. /Users/tu-usuario/OpMap) en las dos líneas.
+    2. cp scripts/launchd/co.vgmedical.opmap.sia.plist ~/Library/LaunchAgents/
+    3. launchctl load ~/Library/LaunchAgents/co.vgmedical.opmap.sia.plist
+  Registro: /tmp/opmap-sia.log. Si el Mac está dormido a esa hora, launchd la corre al despertar.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>co.vgmedical.opmap.sia</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <string>cd RUTA_AL_REPO/web &amp;&amp; npx tsx scripts/sia-load.ts &amp;&amp; npx tsx scripts/sia-extraer.ts --recoger &amp;&amp; npx tsx scripts/sia-extraer.ts --lote</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>2</integer>
+    <key>Minute</key>
+    <integer>7</integer>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>/tmp/opmap-sia.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/opmap-sia.log</string>
+</dict>
+</plist>

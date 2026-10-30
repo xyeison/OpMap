@@ -27,9 +27,16 @@
 **Consecuencias**:
 - **La regla la pone el servidor, no solo la app.**
   - `/api/auth/me` no da persona a quien solo es Ejecutivo Comercial, y dice por qué en `sin_persona`.
-  - `/api/me/*` le responde 403 con ese mensaje.
+  - Las rutas de la persona de campo en `/api/me/*` le responden 403 con ese mensaje.
   - A Paola le da solo su papel de líder.
   - Agendar u "otra fecha" "como Ejecutivo Comercial" da 403, y sin `como` la cita va como líder.
+  - **Cuota y días libres** (`/api/me/cuota` y `/api/me/dias-libres*`) dan 403 desde la app (token de portador). Desde
+    la web (cookie) siguen como antes: un Ejecutivo Comercial los ve en `/calendario`.
+  - **Una línea que una líder lidera y que también es de su Ejecutivo Comercial no cuenta como de líder**: la base haría
+    de Ejecutiva la visita con esa línea. El 2026-10-30 no pasa: Paola lidera Trauma y es Ejecutiva de Sustitutos óseos.
+  - **Lo que ya existía como Ejecutivo Comercial** (27 citas y 4 visitas anuladas de la app, del 13 al 15 de octubre) es
+    de un solo Ejecutivo Comercial, que ya no entra. Ninguna líder tiene filas de Ejecutiva. La única cita pendiente de
+    ese Ejecutivo Comercial queda pendiente hasta que alguien decida qué hacer con ella.
 - **Para devolver a los Ejecutivos Comerciales a la app**, el servidor tiene `APP_CAMPO_EJECUTIVOS=true`. Con él entran
   como antes. Lo usan las pruebas de F3 y F4, y servirá el día en que la app reemplace a VMO. En producción no está.
 - **La base no cambia**: la 0850 sigue conociendo los dos papeles. Lo de Ejecutivo Comercial en la app (cuota, días

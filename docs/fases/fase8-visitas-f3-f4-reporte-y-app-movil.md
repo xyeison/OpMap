@@ -797,8 +797,8 @@ Spec: `docs/specs/2026-10-15-usabilidad-y-agenda-con-hora.md` ("Revisión de la 
 
 Spec: `docs/specs/2026-10-15-actividades-de-campo.md` (fase F1a; las decisiones A1 a A17 del dueño mandan, ver
 `docs/decisiones/`). Migración `database/migrations/2026-10-15_0850_persona_de_campo_y_agenda.sql`, rollback
-`2026-10-15_9945_persona_de_campo_y_agenda_rollback.sql` (**ESCRITA, SIN APLICAR**; el ensayo con su bloque DO `P0850` lo
-hace el orquestador en una base de prueba). Tablas y funciones: `docs/base-de-datos.md` (sección "0850"). La app móvil
+`2026-10-15_9945_persona_de_campo_y_agenda_rollback.sql` (la 0850 **APLICADA el 2026-10-30** con autorización del dueño;
+sus pruebas del bloque DO `P0850` corren dentro de la misma transacción y se deshacen; el rollback queda escrito). Tablas y funciones: `docs/base-de-datos.md` (sección "0850"). La app móvil
 no cambia en F1a (F1b la rediseña); la API de hoy le sigue sirviendo igual.
 
 ### Quién es quién
@@ -825,7 +825,10 @@ usuario no tiene líneas para reportar"; 503 "…falta aplicar la migración 085
 - Quien solo es Ejecutivo Comercial recibe 403 "Las visitas de los Ejecutivos Comerciales se registran en VMO" en todas
   las rutas de la persona de campo.
 - Paola recibe la persona solo como líder: `rol: 'lider'`, solo sus líneas de líder, sin Ejecutivo Comercial, sin zona y
-  sin cuota.
+  sin cuota. Una línea que lidera y que también es de su Ejecutivo Comercial no cuenta como de líder (la base haría de
+  Ejecutiva esa visita).
+- `/api/me/cuota` y `/api/me/dias-libres*` (de un Ejecutivo Comercial) responden 403 con ese mensaje desde la app (token
+  de portador). Con la cookie de la web siguen como antes (`/calendario`).
 - `POST /api/me/agenda` y `…/otra-fecha` mandan `como: 'lider'` a la base; con `como: 'ejecutivo'` responden 403 con el
   mismo mensaje, en `errores: [{ campo: 'como' }]`.
 - Con `APP_CAMPO_EJECUTIVOS=true` en el servidor, todo vuelve a la tabla de abajo tal cual. Las pruebas de F3 y F4 lo

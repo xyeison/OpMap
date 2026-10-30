@@ -8,7 +8,7 @@
 // gracia, día hábil, transiciones de un día libre, cuota): ninguna regla de negocio se repite en las rutas. Las
 // escrituras de configuración pasan SIEMPRE por las funciones config_registrar y config_cerrar de la base.
 import { NextResponse } from 'next/server'
-import type { SessionUser } from '@/lib/auth-server'
+import { sesionDeLaApp, type SessionUser } from '@/lib/auth-server'
 import { hasPermission, type Permission } from '@/lib/permissions'
 import { requirePermission, requireUser, type AuthResult } from '@/lib/require-role'
 import { supabaseAdmin } from '@/lib/supabase-admin'
@@ -17,6 +17,7 @@ import type { CambioConfig } from '@/lib/visits-config-schemas'
 import { fetchAllRows, jsonError } from '@/app/api/kams/_lib/kam-shared'
 import {
   MENSAJE_DIRECCION_NO_REPORTA,
+  MENSAJE_EJECUTIVO_EN_VMO,
   MENSAJE_SIN_LINEAS,
   appSoloLideres,
   lineasDeLaApp,
@@ -391,7 +392,9 @@ export type EjecutivaResult =
 
 /**
  * Rutas /api/me/*: exige visits:report (401/403) y que el usuario esté enlazado con un Ejecutivo Comercial
- * (403 "Tu usuario no está enlazado con un Ejecutivo Comercial").
+ * (403 "Tu usuario no está enlazado con un Ejecutivo Comercial"). Con la app solo para líderes (dueño, 2026-10-30),
+ * desde la app (token de portador) → 403 MENSAJE_EJECUTIVO_EN_VMO: la cuota y los días libres de un Ejecutivo
+ * Comercial siguen en la web (/calendario, con la cookie), no en la app.
  */
 export async function requireEjecutiva(request: Request, contexto: string): Promise<EjecutivaResult> {
   const auth = await requirePermission(request, 'visits:report')
@@ -399,6 +402,7 @@ export async function requireEjecutiva(request: Request, contexto: string): Prom
   try {
     const persona = await personaDelUsuario(auth.user.id)
     if (!persona) return { ok: false, response: jsonError(MENSAJE_SIN_EJECUTIVA, 403) }
+    if (appSoloLideres(process.env) && sesionDeLaApp(request)) return { ok: false, response: jsonError(MENSAJE_EJECUTIVO_EN_VMO, 403) }
     return { ok: true, user: auth.user, persona }
   } catch (error) {
     return { ok: false, response: errorVisitas(contexto, error, 'Error al cargar tu Ejecutivo Comercial') }

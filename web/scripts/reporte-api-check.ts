@@ -3300,6 +3300,42 @@ async function main() {
           { cancelada: cancelada.body, otraComoEc: otraComoEc.body, otraSolo: otraSolo.body, args: rpcOtra?.args }
         )
 
+        // Cuota y días libres (requireEjecutiva): desde la app (portador) se cierran; desde la web (cookie) siguen, en /calendario
+        const cuotaAppAna = await pedir(verCuota, '/api/me/cuota', { portador: true, userId: VENTAS_ID })
+        const diasAppPaola = await pedir(misDiasLibres, '/api/me/dias-libres', { portador: true, userId: PAOLA_ID })
+        const cuotaWebAna = await pedir(verCuota, '/api/me/cuota', { userId: VENTAS_ID })
+        check(
+          `cuota y días libres desde la app (portador) → 403 "${MENSAJE_EJECUTIVO_EN_VMO}" (Ana y Paola); desde la web (cookie), Ana sigue viendo su cuota`,
+          cuotaAppAna.status === 403 && cuotaAppAna.body?.error === MENSAJE_EJECUTIVO_EN_VMO && diasAppPaola.status === 403 && diasAppPaola.body?.error === MENSAJE_EJECUTIVO_EN_VMO && cuotaWebAna.status === 200,
+          { cuotaApp: cuotaAppAna.body, diasApp: diasAppPaola.body, cuotaWeb: cuotaWebAna.status }
+        )
+
+        // Paola reporta bien como líder (otro médico de trauma: el de la sección 15 ya tiene visita hoy)
+        const M_TRA2 = 'f1f1f1f1-0000-4000-8000-000000000018'
+        tablas.medicos.push({ id: M_TRA2, nombre: 'Dr. Trauma Dos', especialidades: ['ortopedia'], municipality_id: '68001', tipo_documento: 'CC', numero_documento: '777018222', telefono: null, email: null, activo: true })
+        tablas.medico_sedes.push({ medico_id: M_TRA2, sede_id: S1, rol: 'atiende', principal: true })
+        tablas.medico_visitantes.push({ id: randomUUID(), medico_id: M_TRA2, executive_id: EJEC_B, line_id: L_TRA, desde: '2026-01-15', hasta: null })
+        const traumaSolo = await visitaDe(PAOLA_ID, cuerpoVisita({ medico_id: M_TRA2, lineas: [L_TRA] }))
+        const filaTraumaSolo = porId(traumaSolo.body?.visita?.id)
+        check(
+          'Paola: reportar trauma → 201 como líder: sin Ejecutivo Comercial ni zona, y el jsonb a la base con executive_id null',
+          traumaSolo.status === 201 && filaTraumaSolo?.executive_id === null && filaTraumaSolo?.kam_id === null && fake.rpcs.filter(r => r.nombre === 'visitas_registrar').at(-1)?.args.p.executive_id === null,
+          { body: traumaSolo.body, fila: filaTraumaSolo }
+        )
+
+        // Una línea que lidera y que también es de su Ejecutivo Comercial no cuenta como de líder (la base la haría de
+        // Ejecutiva): si es la única que lidera, queda fuera como Ejecutivo Comercial
+        const cruce = { executive_id: EJEC_P, line_id: L_TRA }
+        tablas.executive_lines.push(cruce)
+        const meCruce = await meDe(PAOLA_ID)
+        tablas.executive_lines.splice(tablas.executive_lines.indexOf(cruce), 1)
+        const meSinCruce = await meDe(PAOLA_ID)
+        check(
+          `Paola con trauma también en su Ejecutivo Comercial → persona null y sin_persona "${MENSAJE_EJECUTIVO_EN_VMO}"; sin el cruce, otra vez líder de trauma`,
+          meCruce.body?.persona === null && meCruce.body?.sin_persona === MENSAJE_EJECUTIVO_EN_VMO && meSinCruce.body?.persona?.rol === 'lider' && meSinCruce.body.persona.lineas.map((l: W.LineaPersona) => l.id).join() === L_TRA,
+          { cruce: meCruce.body, sinCruce: meSinCruce.body?.persona }
+        )
+
         const [meLuciaSolo, meAdminSolo, meDirectoraSolo] = await Promise.all([meDe(LIDER_ID), meDe(ADMIN_ID), meDe(DIRECTORA_ID)])
         check(
           `una líder sin Ejecutivo Comercial sigue igual; un administrador sin líneas → sin_persona "${MENSAJE_SIN_LINEAS}"; la dirección → sin_persona null (la app la reconoce por su rol)`,
