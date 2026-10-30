@@ -95,9 +95,9 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Esa sede del REPS ya está vinculada a otra IPS' }, { status: 409 })
       }
       if ((error as { code?: string }).code === '23505') {
-        return NextResponse.json({ error: 'Ya existe un hospital con ese código' }, { status: 409 })
+        return NextResponse.json({ error: 'Ya existe una IPS con ese código' }, { status: 409 })
       }
-      return serverError('hospitals POST', error, 'Error al crear el hospital')
+      return serverError('hospitals POST', error, 'Error al crear la IPS')
     }
 
     // Sin rutas ni recálculo aquí (pedido del dueño): una IPS activa queda pendiente hasta la acción masiva

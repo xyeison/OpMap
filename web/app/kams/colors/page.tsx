@@ -197,7 +197,7 @@ export default function KamColorsPage() {
                       className="w-6 h-6 rounded-full"
                       style={{ backgroundColor: editedColors[kam.id] }}
                     />
-                    <span className="text-xs">Marcador hospital</span>
+                    <span className="text-xs">Marcador de IPS</span>
                   </div>
                   <div className="flex items-center gap-2 mt-1">
                     <div 
@@ -215,7 +215,7 @@ export default function KamColorsPage() {
           <div className="mt-8 p-4 bg-gray-100 rounded-lg">
             <p className="text-sm text-gray-700">
               <strong>Nota:</strong> Los cambios en los colores se reflejarán inmediatamente en el mapa después de guardar.
-              Los colores afectan tanto a los territorios como a los marcadores de hospitales asignados a cada zona.
+              Los colores afectan tanto a los territorios como a los marcadores de las IPS asignadas a cada zona.
             </p>
           </div>
         </div>

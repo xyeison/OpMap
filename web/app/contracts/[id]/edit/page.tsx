@@ -270,7 +270,7 @@ export default function ContractEditPage() {
               {/* Hospital */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Hospital *
+                  IPS *
                 </label>
                 {preselectedHospitalId ? (
                   // Si viene desde un hospital, mostrar como campo de solo lectura
@@ -297,7 +297,7 @@ export default function ContractEditPage() {
                           }
                           
                           // Fallback - solo mostrar si realmente no hay datos
-                          return 'Hospital seleccionado';
+                          return 'IPS seleccionada';
                         })()}
                       </div>
                       <div className="absolute right-2 top-1/2 transform -translate-y-1/2">
@@ -310,7 +310,7 @@ export default function ContractEditPage() {
                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
-                      Hospital preseleccionado desde la página del hospital
+                      IPS preseleccionada desde la página de la IPS
                     </p>
                   </div>
                 ) : (
@@ -318,7 +318,7 @@ export default function ContractEditPage() {
                   <div className="relative hospital-search-container">
                     <input
                       type="text"
-                      placeholder="Buscar hospital por nombre..."
+                      placeholder="Buscar IPS por nombre..."
                       value={hospitalSearch || (contract.hospital_id ? hospitals.find(h => h.id === contract.hospital_id)?.name : '')}
                       onChange={(e) => {
                         setHospitalSearch(e.target.value);
@@ -344,7 +344,7 @@ export default function ContractEditPage() {
                           if (!hospitalSearch) {
                             return (
                               <div className="px-4 py-2 text-gray-500">
-                                Escribe para buscar un hospital...
+                                Escribe para buscar una IPS...
                               </div>
                             );
                           }
@@ -353,7 +353,7 @@ export default function ContractEditPage() {
                           if (hospitals.length === 0) {
                             return (
                               <div className="px-4 py-2 text-gray-500">
-                                Cargando hospitales...
+                                Cargando IPS...
                               </div>
                             );
                           }
@@ -368,7 +368,7 @@ export default function ContractEditPage() {
                           if (filtered.length === 0) {
                             return (
                               <div className="px-4 py-2 text-gray-500">
-                                No se encontraron hospitales con &ldquo;{hospitalSearch}&rdquo;
+                                No se encontraron IPS con &ldquo;{hospitalSearch}&rdquo;
                               </div>
                             );
                           }
@@ -396,7 +396,7 @@ export default function ContractEditPage() {
                     
                     {contract.hospital_id && (
                       <p className="text-xs text-green-600 mt-1">
-                        ✓ Hospital seleccionado: {hospitals.find(h => h.id === contract.hospital_id)?.municipality_name}
+                        ✓ IPS seleccionada: {hospitals.find(h => h.id === contract.hospital_id)?.municipality_name}
                       </p>
                     )}
                   </div>

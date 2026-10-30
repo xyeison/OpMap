@@ -100,7 +100,7 @@ export async function POST(request: Request) {
         {
           success: false,
           error:
-            'Se recalcularon las asignaciones, pero el hospital quedó sin Ejecutivo Comercial (no hay tiempos de viaje dentro del límite de ninguna zona elegible)',
+            'Se recalcularon las asignaciones, pero la IPS quedó sin Ejecutivo Comercial (no hay tiempos de viaje dentro del límite de ninguna zona elegible)',
           stats: {
             totalAssignments: result.totalAssignments,
             hospitalsRecalculated: 1,

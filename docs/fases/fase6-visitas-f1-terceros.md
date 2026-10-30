@@ -146,9 +146,12 @@ Archivos:
   `sedes/[id]`, `medicos`, `medicos/buscar`, `medicos/verificar`, `medicos/[id]`, `medicos/[id]/sedes`,
   `medicos/[id]/visitantes`, `medicos/[id]/visitantes/[visitanteId]`, `contactos`, `contactos/[id]` y `subtipos`
   (todas bajo `web/app/api/terceros/`).
-- Interfaz: `web/app/terceros/page.tsx` y `web/components/terceros/` (`comun`, `MunicipioSelector`, `CuentasTab`,
-  `CuentaDetalleModal`, `CuentaForm`, `SedeForm`, `ContactoForm`, `SedeBuscador`, `MedicosTab`, `MedicoForm`,
-  `MedicoDetalleModal`); menú "Terceros" con su ícono en `web/components/NavigationWithPermissions.tsx`.
+- Interfaz: `web/app/terceros/page.tsx` ("Cuentas clave" desde el 2026-10-29) y `web/components/terceros/` (`comun`,
+  `MunicipioSelector`, `CuentasTab`, `CuentaDetalleModal`, `CuentaForm`, `SedeForm`, `ContactoForm`). Desde el
+  2026-10-29 Médicos está en "Próximamente" (`/medicos`): se borraron `MedicosTab`, `MedicoForm`, `MedicoDetalleModal`
+  y `SedeBuscador` (siguen en git) y asignar visitantes queda sin pantalla hasta que vuelva Médicos; la API
+  `/api/terceros/medicos/**` y la app de visita no cambian. Menú en `web/lib/permissions.ts`
+  (`docs/specs/2026-10-29-menu-por-grupos.md`).
 - Pruebas (puras, sin red, dentro de `npm run test`): `web/scripts/terceros-check.ts` (`npm run terceros:check`) y
   `web/scripts/terceros-api-check.ts` (`npm run terceros-api:check`, Supabase falso en memoria).
 

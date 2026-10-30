@@ -620,7 +620,7 @@ export type TerritoryInfo =
 
 const bedsTone = (value: number) => (value < 1.5 ? 'low' : value < 2.5 ? 'mid' : 'ok')
 
-// `detalle`: giros ADRES y compras SECOP del territorio (entre "Estadísticas hospitalarias" y "Población"); null = sin sección
+// `detalle`: giros ADRES y compras SECOP del territorio (entre "Estadísticas de las IPS" y "Población"); null = sin sección
 export function TerritoryPopupCard({ info, detalle }: { info: TerritoryInfo; detalle: GirosComprasProps | null }) {
   if (info.kind === 'other') {
     return (
@@ -650,9 +650,9 @@ export function TerritoryPopupCard({ info, detalle }: { info: TerritoryInfo; det
       {info.deptName && <div className="opmap-popup__subtitle">{info.deptName}</div>}
 
       <div className="opmap-popup__section">
-        <div className="opmap-popup__section-title">Estadísticas hospitalarias</div>
+        <div className="opmap-popup__section-title">Estadísticas de las IPS</div>
         <dl className="opmap-popup__stats">
-          <PopupRow label="Hospitales">{formatInt(info.stats.hospitals)}</PopupRow>
+          <PopupRow label="IPS">{formatInt(info.stats.hospitals)}</PopupRow>
           <PopupRow label="Camas">{formatInt(info.stats.beds)}</PopupRow>
           <PopupRow label="Ambulancias">{formatInt(info.stats.ambulances)}</PopupRow>
           <PopupRow label="Cirugías">{formatInt(info.stats.surgeries)}</PopupRow>

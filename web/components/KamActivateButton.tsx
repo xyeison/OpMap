@@ -103,7 +103,7 @@ export default function KamActivateButton({ kam, onUpdate, className }: KamActiv
               <p className="text-sm text-green-800 font-medium mb-2">Al activar esta zona:</p>
               <ul className="list-disc list-inside ml-2 space-y-1 text-sm text-green-700">
                 <li>Se recalcularán TODAS las asignaciones del sistema</li>
-                <li>El algoritmo OpMap asignará hospitales según proximidad</li>
+                <li>El algoritmo OpMap asignará las IPS según proximidad</li>
                 <li>Respetará los territorios base de cada zona</li>
               </ul>
             </div>
@@ -160,13 +160,13 @@ export default function KamActivateButton({ kam, onUpdate, className }: KamActiv
                 </div>
                 <div className="text-center">
                   <p className="text-3xl font-bold text-green-600">{result.stats.kamAssignments}</p>
-                  <p className="text-sm text-gray-600">Hospitales para {zoneDisplayName(kam.name)}</p>
+                  <p className="text-sm text-gray-600">IPS para {zoneDisplayName(kam.name)}</p>
                 </div>
               </div>
               {result.stats.hospitalsInMunicipality !== undefined && (
                 <div className="mt-4 pt-4 border-t border-gray-200 text-center">
                   <p className="text-sm text-gray-600">
-                    <strong className="text-gray-900">{result.stats.hospitalsInMunicipality}</strong> hospitales en su municipio base
+                    <strong className="text-gray-900">{result.stats.hospitalsInMunicipality}</strong> IPS en su municipio base
                   </p>
                 </div>
               )}

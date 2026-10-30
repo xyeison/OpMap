@@ -122,7 +122,7 @@ export default function HospitalDetailPage() {
       const response = await fetch(`/api/hospitals/${hospitalId}`)
       
       if (!response.ok) {
-        throw new Error('Error al cargar datos del hospital')
+        throw new Error('Error al cargar los datos de la IPS')
       }
       
       const data = await response.json()
@@ -215,7 +215,7 @@ export default function HospitalDetailPage() {
 
       if (!response.ok) {
         const error = await response.json()
-        throw new Error(error.error || 'Error al cambiar el estado del hospital')
+        throw new Error(error.error || 'Error al cambiar el estado de la IPS')
       }
 
       const result = await response.json()
@@ -230,7 +230,7 @@ export default function HospitalDetailPage() {
         await loadHospitalData()
         setShowActivateModal(false)
         setActivateReason('')
-        alert(messageWithWarnings('Hospital activado.', result.warnings))
+        alert(messageWithWarnings('IPS activada.', result.warnings))
         return
       }
 
@@ -251,7 +251,7 @@ export default function HospitalDetailPage() {
       if (recalcResponse.status === 422) {
         // El estado del hospital ya cambió y el recálculo se ejecutó, pero el hospital quedó sin
         // KAM (u otra condición de negocio): mostrar el motivo que devuelve la API
-        let reason = 'El hospital quedó sin Ejecutivo Comercial asignado'
+        let reason = 'La IPS quedó sin Ejecutivo Comercial asignado'
         try {
           const body = await recalcResponse.json()
           if (typeof body?.error === 'string' && body.error) reason = body.error
@@ -265,7 +265,7 @@ export default function HospitalDetailPage() {
         setDeactivateReason('')
         setActivateReason('')
         setIsRecalculating(false)
-        alert(`Hospital ${hospital.active ? 'desactivado' : 'activado'}, pero: ${reason}`)
+        alert(`IPS ${hospital.active ? 'desactivada' : 'activada'}, pero: ${reason}`)
         return
       }
 
@@ -288,10 +288,10 @@ export default function HospitalDetailPage() {
       setActivateReason('')
       setIsRecalculating(false)
       
-      alert(`Hospital ${hospital.active ? 'desactivado' : 'activado'} exitosamente. Las asignaciones territoriales han sido actualizadas.`)
+      alert(`IPS ${hospital.active ? 'desactivada' : 'activada'} exitosamente. Las asignaciones territoriales han sido actualizadas.`)
     } catch (error: any) {
       console.error('Error toggling hospital status:', error)
-      alert(`Error al cambiar el estado del hospital: ${error.message || 'Error desconocido'}`)
+      alert(`Error al cambiar el estado de la IPS: ${error.message || 'Error desconocido'}`)
       setIsRecalculating(false)
     } finally {
       setIsSubmitting(false)
@@ -344,7 +344,7 @@ export default function HospitalDetailPage() {
     return (
       <ProtectedRoute>
         <div className="container mx-auto p-6">
-          <p>Hospital no encontrado</p>
+          <p>IPS no encontrada</p>
         </div>
       </ProtectedRoute>
     )
@@ -363,13 +363,13 @@ export default function HospitalDetailPage() {
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path>
               </svg>
-              Volver a hospitales
+              Volver a IPS
             </button>
             <h1 className="text-4xl font-bold text-gray-900">{hospital.name}</h1>
             <p className="text-gray-600 mt-2">Código NIT: {hospital.code}</p>
           </div>
           <div className="flex flex-wrap gap-3">
-            {/* Botón de Editar Hospital - Visible para todos los usuarios autenticados */}
+            {/* Botón de Editar IPS - Visible para todos los usuarios autenticados */}
             <button
               onClick={() => {
                 console.log('Botón Editar clickeado')
@@ -824,7 +824,7 @@ export default function HospitalDetailPage() {
                 </button>
               </div>
               <p className="text-xs text-gray-500 mt-2">
-                Ingrese la URL de la carpeta compartida en Google Drive o Zoho Docs donde se almacenan todos los contratos y documentos del hospital
+                Ingrese la URL de la carpeta compartida en Google Drive o Zoho Docs donde se almacenan todos los contratos y documentos de la IPS
               </p>
             </div>
           ) : (
@@ -915,11 +915,11 @@ export default function HospitalDetailPage() {
                         <div className="flex items-center gap-2 mb-1">
                           {entry.action === 'activated' ? (
                             <span className="px-2 py-1 bg-gray-900 text-white rounded-full text-xs font-medium">
-                              ✓ Hospital Activado
+                              ✓ IPS activada
                             </span>
                           ) : entry.action === 'deactivated' ? (
                             <span className="px-2 py-1 bg-gray-500 text-white rounded-full text-xs font-medium">
-                              ✗ Hospital Desactivado
+                              ✗ IPS desactivada
                             </span>
                           ) : isComment ? (
                             <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-medium">
@@ -994,7 +994,7 @@ export default function HospitalDetailPage() {
                     </svg>
                   </div>
                   <div>
-                    <h3 className="text-xl font-bold text-white">Desactivar Hospital</h3>
+                    <h3 className="text-xl font-bold text-white">Desactivar IPS</h3>
                     <p className="text-white/80 text-sm">Esta acción afectará las asignaciones</p>
                   </div>
                 </div>
@@ -1004,7 +1004,7 @@ export default function HospitalDetailPage() {
               <div className="p-6">
                 <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-4">
                   <p className="text-gray-700">
-                    Está a punto de desactivar el hospital:
+                    Está a punto de desactivar la IPS:
                   </p>
                   <p className="font-semibold text-gray-900 mt-1">{hospital.name}</p>
                 </div>
@@ -1080,7 +1080,7 @@ export default function HospitalDetailPage() {
                     </svg>
                   </div>
                   <div>
-                    <h3 className="text-xl font-bold text-white">Activar Hospital</h3>
+                    <h3 className="text-xl font-bold text-white">Activar IPS</h3>
                     <p className="text-white/80 text-sm">Esta acción afectará las asignaciones</p>
                   </div>
                 </div>
@@ -1090,7 +1090,7 @@ export default function HospitalDetailPage() {
               <div className="p-6">
                 <div className="bg-gray-50 border border-gray-300 rounded-xl p-4 mb-4">
                   <p className="text-gray-700">
-                    Está a punto de activar el hospital:
+                    Está a punto de activar la IPS:
                   </p>
                   <p className="font-semibold text-gray-900 mt-1">{hospital.name}</p>
                 </div>
@@ -1184,8 +1184,8 @@ export default function HospitalDetailPage() {
                       </svg>
                     </div>
                     <div>
-                      <h3 className="text-xl font-bold text-white">Editar Hospital</h3>
-                      <p className="text-white/80 text-sm">Actualizar información del hospital</p>
+                      <h3 className="text-xl font-bold text-white">Editar IPS</h3>
+                      <p className="text-white/80 text-sm">Actualizar información de la IPS</p>
                     </div>
                   </div>
                   <button
@@ -1209,7 +1209,7 @@ export default function HospitalDetailPage() {
                     
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Nombre del Hospital <span className="text-red-500">*</span>
+                        Nombre de la IPS <span className="text-red-500">*</span>
                       </label>
                       <input
                         type="text"
@@ -1235,7 +1235,7 @@ export default function HospitalDetailPage() {
                     
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Tipo de Hospital <span className="text-red-500">*</span>
+                        Tipo de IPS <span className="text-red-500">*</span>
                       </label>
                       <select
                         value={editForm.hospital_type || 'Publico'}
@@ -1422,7 +1422,7 @@ export default function HospitalDetailPage() {
                       onChange={(e) => setEditForm({...editForm, services: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       rows={3}
-                      placeholder="Lista de servicios que ofrece el hospital..."
+                      placeholder="Lista de servicios que ofrece la IPS..."
                     />
                   </div>
                 </div>
@@ -1452,7 +1452,7 @@ export default function HospitalDetailPage() {
                       if (!response.ok) {
                         const error = await response.json()
                         const issues = Array.isArray(error.issues) ? error.issues.map((issue: any) => issue.message).join('. ') : ''
-                        throw new Error(issues || error.error || 'Error al actualizar hospital')
+                        throw new Error(issues || error.error || 'Error al actualizar la IPS')
                       }
 
                       // Si cambió la ubicación, el servidor NO recalcula: la IPS queda pendiente (pending/warnings)
@@ -1464,12 +1464,12 @@ export default function HospitalDetailPage() {
                       setShowEditModal(false)
                       alert(
                         updated?.pending
-                          ? messageWithWarnings('Hospital actualizado.', updated.warnings)
-                          : 'Hospital actualizado exitosamente'
+                          ? messageWithWarnings('IPS actualizada.', updated.warnings)
+                          : 'IPS actualizada exitosamente'
                       )
                     } catch (error: any) {
                       console.error('Error updating hospital:', error)
-                      alert('Error al actualizar hospital: ' + error.message)
+                      alert('Error al actualizar la IPS: ' + error.message)
                     } finally {
                       setIsSavingEdit(false)
                     }
@@ -1514,7 +1514,7 @@ export default function HospitalDetailPage() {
                     </div>
                     <div>
                       <h3 className="text-xl font-bold text-white">Agregar Comentario</h3>
-                      <p className="text-white/80 text-sm">Registrar observación o nota sobre este hospital</p>
+                      <p className="text-white/80 text-sm">Registrar observación o nota sobre esta IPS</p>
                     </div>
                   </div>
                   <button
@@ -1543,7 +1543,7 @@ export default function HospitalDetailPage() {
                   <textarea
                     className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent transition-all resize-none"
                     rows={5}
-                    placeholder="Ej: Este hospital fue cerrado definitivamente hace 2 meses..."
+                    placeholder="Ej: Esta IPS cerró definitivamente hace 2 meses..."
                     value={commentForm.message}
                     onChange={(e) => setCommentForm({message: e.target.value})}
                     disabled={isSubmittingComment}

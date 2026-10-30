@@ -103,7 +103,7 @@ export default function HospitalRepsPanel({ hospitalId }: { hospitalId: string }
       {!error && !data && <p className="text-sm text-gray-500">Cargando…</p>}
       {data && (!data.available || !hasData) && (
         <p className="text-sm text-gray-500">
-          Sin datos del REPS todavía. Un administrador o gestor de datos puede cargarlos en Hospitales → &quot;Importar del REPS&quot;.
+          Sin datos del REPS todavía. Un administrador o gestor de datos puede cargarlos en IPS → &quot;Importar del REPS&quot;.
         </p>
       )}
 

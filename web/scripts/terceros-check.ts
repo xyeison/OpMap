@@ -615,10 +615,11 @@ const matriz: [Role, Permission[], Permission[]][] = [
 for (const [rol, tiene, noTiene] of matriz) {
   check(`${rol}: tiene ${tiene.join(', ') || '(ninguno)'}`, tiene.every(permiso => hasPermission(rol, permiso)))
   check(`${rol}: no tiene ${noTiene.join(', ') || '(ninguno)'}`, noTiene.every(permiso => !hasPermission(rol, permiso)))
-  const enMenu = getNavigationMenu(rol).some(item => item.href === '/terceros' && item.name === 'Terceros')
+  // Desde el 2026-10-29 /terceros sale en el menú como "Cuentas clave" (grupo Terceros)
+  const enMenu = getNavigationMenu(rol).some(item => item.href === '/terceros' && item.name === 'Cuentas clave' && item.grupo === 'Terceros')
   const enRutas = getAllowedRoutes(rol).includes('/terceros')
   const debe = tiene.includes('terceros:view')
-  check(`${rol}: menú "Terceros" y ruta /terceros ${debe ? 'sí' : 'no'}`, enMenu === debe && enRutas === debe)
+  check(`${rol}: menú "Cuentas clave" y ruta /terceros ${debe ? 'sí' : 'no'}`, enMenu === debe && enRutas === debe)
 }
 
 // ---------------------------------------------------------------------------------------------

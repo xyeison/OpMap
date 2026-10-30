@@ -107,7 +107,7 @@ export default function KamDeactivateButton({ kam, onUpdate, className }: KamDea
             <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 mb-6">
               <p className="text-sm text-orange-800">
                 <strong>⚠️ Importante:</strong> Se recalcularán TODAS las asignaciones del sistema.
-                Los hospitales de esta zona serán reasignados automáticamente según el algoritmo OpMap.
+                Las IPS de esta zona serán reasignadas automáticamente según el algoritmo OpMap.
               </p>
             </div>
 
@@ -163,7 +163,7 @@ export default function KamDeactivateButton({ kam, onUpdate, className }: KamDea
                 </div>
                 <div className="text-center">
                   <p className="text-3xl font-bold text-orange-600">{result.stats.hospitalsReassigned}</p>
-                  <p className="text-sm text-gray-600">Hospitales de {zoneDisplayName(kam.name)}</p>
+                  <p className="text-sm text-gray-600">IPS de {zoneDisplayName(kam.name)}</p>
                 </div>
               </div>
             </div>

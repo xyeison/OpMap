@@ -27,7 +27,7 @@ interface MyLine {
 }
 
 const GROUP_TABS: Array<{ value: SecopGroup; label: string }> = [
-  { value: 'hospital', label: 'Hospital' },
+  { value: 'hospital', label: 'IPS' },
   { value: 'proveedor', label: 'Proveedor' },
   { value: 'zona', label: 'Zona' },
   { value: 'ejecutivo', label: 'Ejecutivo Comercial' },
@@ -510,16 +510,16 @@ export default function IntelligenceSecop() {
             )}
           </div>
 
-          {/* Proveedor × hospital */}
+          {/* Proveedor × IPS */}
           {data && data.ambito === 'ips' && (
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-5 mb-6">
               <div className="flex flex-wrap items-end justify-between gap-3 mb-3">
                 <div>
-                  <h2 className="text-lg font-semibold text-gray-900">Proveedor × hospital</h2>
+                  <h2 className="text-lg font-semibold text-gray-900">Proveedor × IPS</h2>
                   <p className="text-xs text-gray-500">Quién le vende a quién (los {data.pares.length} pares de más valor en el rango).</p>
                 </div>
                 <label className="text-sm w-full sm:w-72">
-                  <span className="sr-only">Buscar proveedor o hospital</span>
+                  <span className="sr-only">Buscar proveedor o IPS</span>
                   <input
                     type="search"
                     value={paresFiltro}
@@ -527,7 +527,7 @@ export default function IntelligenceSecop() {
                       setParesFiltro(event.target.value)
                       setParesVisible(PAGE)
                     }}
-                    placeholder="Buscar proveedor, NIT u hospital"
+                    placeholder="Buscar proveedor, NIT o IPS"
                     className={inputCls}
                   />
                 </label>
@@ -566,7 +566,7 @@ export default function IntelligenceSecop() {
                       <thead>
                         <tr className="text-left text-xs text-gray-500 border-b border-gray-200">
                           <th className="py-2 pr-3 font-medium">Proveedor</th>
-                          <th className="py-2 pr-3 font-medium">Hospital</th>
+                          <th className="py-2 pr-3 font-medium">IPS</th>
                           <th className="py-2 pr-3 font-medium text-right">Valor</th>
                           <th className="py-2 pr-3 font-medium text-right">Contratos</th>
                           <th className="py-2 pr-3 font-medium text-right whitespace-nowrap">Último</th>

@@ -1547,7 +1547,7 @@ export default function MapComponent({
                   </tr>
                   {visit.hospital_name && (
                     <tr>
-                      <td><strong>Hospital:</strong></td>
+                      <td><strong>IPS:</strong></td>
                       <td>{visit.hospital_name}</td>
                     </tr>
                   )}

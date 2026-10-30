@@ -974,9 +974,10 @@ for (const [rol, tiene, noTiene] of matriz) {
   // la sección Visitas sigue siendo solo de visits:config (scripts/menu-check.ts prueba las secciones).
   const config = PERMISOS_CONFIGURACION.some(permiso => hasPermission(rol, permiso))
   const calendario = PERMISOS_CALENDARIO.some(permiso => hasPermission(rol, permiso))
+  // Desde el 2026-10-29 /configuracion sale como "Parámetros" dentro del grupo Configuración
   check(
-    `${rol}: menú "Configuración" y ruta /configuracion ${config ? 'sí' : 'no'}`,
-    menu.some(item => item.href === '/configuracion' && item.name === 'Configuración') === config && rutas.includes('/configuracion') === config
+    `${rol}: menú "Parámetros" (Configuración) y ruta /configuracion ${config ? 'sí' : 'no'}`,
+    menu.some(item => item.href === '/configuracion' && item.name === 'Parámetros' && item.grupo === 'Configuración') === config && rutas.includes('/configuracion') === config
   )
   check(
     `${rol}: menú "Calendario" y ruta /calendario ${calendario ? 'sí' : 'no'}`,

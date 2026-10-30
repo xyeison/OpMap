@@ -325,7 +325,8 @@ export function getAllowedRoutes(role: Role | undefined): string[] {
   if (permissions.includes('lines:view')) routes.push('/lines')            // Fase 1
   if (permissions.includes('executives:view')) routes.push('/executives')  // Fase 1
   if (permissions.includes('intelligence:view')) routes.push('/inteligencia') // Fase 3: giros ADRES
-  if (permissions.includes('terceros:view')) routes.push('/terceros')        // Fase 6 F1: cuentas y médicos
+  if (permissions.includes('terceros:view')) routes.push('/terceros', '/medicos', '/aseguradoras') // Cuentas clave y "Próximamente"
+  if (permissions.includes('executives:view')) routes.push('/lideres')      // Líderes de negocio ("Próximamente")
   if (PERMISOS_CONFIGURACION.some(permiso => permissions.includes(permiso))) routes.push('/configuracion') // visitas, municipios y asignación
   if (PERMISOS_CALENDARIO.some(permiso => permissions.includes(permiso))) routes.push('/calendario') // Fase 7 F2
 
@@ -335,93 +336,105 @@ export function getAllowedRoutes(role: Role | undefined): string[] {
 // Función para obtener el menú de navegación según el rol
 export interface NavigationItem {
   name: string
+  // Ruta de la página; puede llevar ?tab= (Compras públicas abre /inteligencia en su pestaña)
   href: string
   icon: string
+  // Título del grupo ("Terceros", "Empleados", "Inteligencia de Mercado", "Configuración"); sin grupo, opción suelta
+  grupo?: string
 }
 
-// Orden del menú (dueño, 2026-10-14): el Mapa es el menú principal y va primero; luego Hospitales, Terceros,
-// Calendario, Zonas, Líneas, Ejecutivos Comerciales, Inteligencia, Contratos y el resto; Configuración al final.
-// Sin Dashboard (los indicadores se generarán después), sin Municipios (está dentro de Configuración) y sin
-// Regiones (/zones, de una versión anterior; quitadas el 2026-10-14). Cada ítem sale solo con su permiso; texto
-// visible sin "KAM".
+// Menú por grupos (dueño, 2026-10-29, docs/specs/2026-10-29-menu-por-grupos.md): Mapa; Terceros (IPS, Cuentas clave,
+// Médicos, Aseguradoras y Proveedores); Empleados (Ejecutivos Comerciales y Líderes de negocio); Calendario, Zonas y
+// Líneas; Inteligencia de Mercado (ADRES, Compras públicas, Contratos y Cumplimiento); Configuración (Mi Empresa,
+// Usuarios, Visita VMO y Parámetros). Médicos, Aseguradoras y Líderes de negocio abren "Próximamente". Sin Dashboard,
+// sin Municipios (está en Parámetros) y sin Regiones. Cada opción sale solo con su permiso.
 export function getNavigationMenu(role: Role | undefined): NavigationItem[] {
   if (!role) return []
 
   const menu: NavigationItem[] = []
   const permissions = rolePermissions[role] || []
+  const tiene = (permiso: Permission) => permissions.includes(permiso)
+  const gestionaContratos = tiene('contracts:edit') || role === 'admin'
 
-  if (permissions.includes('map:view')) {
-    menu.push({ name: 'Mapa', href: '/map', icon: 'map' })
+  if (tiene('map:view')) menu.push({ name: 'Mapa', href: '/map', icon: 'map' })
+
+  // Terceros. Cuentas clave (/terceros) son hoy las cuentas de la app de visita (las IPS); el dueño explicará el resto
+  const TERCEROS = 'Terceros'
+  if (tiene('hospitals:view')) menu.push({ name: 'IPS', href: '/hospitals', icon: 'building', grupo: TERCEROS })
+  if (tiene('terceros:view')) {
+    menu.push({ name: 'Cuentas clave', href: '/terceros', icon: 'users', grupo: TERCEROS })
+    menu.push({ name: 'Médicos', href: '/medicos', icon: 'users', grupo: TERCEROS })
+    menu.push({ name: 'Aseguradoras', href: '/aseguradoras', icon: 'building', grupo: TERCEROS })
   }
+  if (tiene('providers:view')) menu.push({ name: 'Proveedores', href: '/providers', icon: 'providers', grupo: TERCEROS })
 
-  if (permissions.includes('hospitals:view')) {
-    menu.push({ name: 'Hospitales', href: '/hospitals', icon: 'building' })
-  }
-
-  // Fase 6 F1: terceros (cuentas con sus sedes, médicos y contactos)
-  if (permissions.includes('terceros:view')) {
-    menu.push({ name: 'Terceros', href: '/terceros', icon: 'users' })
+  const EMPLEADOS = 'Empleados'
+  if (tiene('executives:view')) {
+    menu.push({ name: 'Ejecutivos Comerciales', href: '/executives', icon: 'executives', grupo: EMPLEADOS })
+    menu.push({ name: 'Líderes de negocio', href: '/lideres', icon: 'executives', grupo: EMPLEADOS })
   }
 
   // Fase 7 F2: calendario (festivos, días de empresa y de ciudad) y días libres
-  if (PERMISOS_CALENDARIO.some(permiso => permissions.includes(permiso))) {
-    menu.push({ name: 'Calendario', href: '/calendario', icon: 'calendar' })
-  }
-
+  if (PERMISOS_CALENDARIO.some(permiso => tiene(permiso))) menu.push({ name: 'Calendario', href: '/calendario', icon: 'calendar' })
   // Cada fila de kams es una Zona (las rutas siguen siendo /kams)
-  if (permissions.includes('kams:view')) {
-    menu.push({ name: 'Zonas', href: '/kams', icon: 'users' })
-  }
+  if (tiene('kams:view')) menu.push({ name: 'Zonas', href: '/kams', icon: 'users' })
+  if (tiene('lines:view')) menu.push({ name: 'Líneas', href: '/lines', icon: 'lines' })
 
-  if (permissions.includes('lines:view')) {
-    menu.push({ name: 'Líneas', href: '/lines', icon: 'lines' })
+  // Fase 3 y 5: giros ADRES y compras públicas son pestañas de /inteligencia
+  const INTELIGENCIA = 'Inteligencia de Mercado'
+  if (tiene('intelligence:view')) {
+    menu.push({ name: 'ADRES', href: '/inteligencia', icon: 'intelligence', grupo: INTELIGENCIA })
+    menu.push({ name: 'Compras públicas', href: '/inteligencia?tab=secop', icon: 'intelligence', grupo: INTELIGENCIA })
   }
+  if (tiene('contracts:view')) menu.push({ name: 'Contratos', href: '/contracts', icon: 'document', grupo: INTELIGENCIA })
+  if (gestionaContratos) menu.push({ name: 'Cumplimiento', href: '/compliance', icon: 'clipboard', grupo: INTELIGENCIA })
 
-  if (permissions.includes('executives:view')) {
-    menu.push({ name: 'Ejecutivos Comerciales', href: '/executives', icon: 'executives' })
-  }
-
-  // Fase 3 y 5: giros ADRES y compras públicas
-  if (permissions.includes('intelligence:view')) {
-    menu.push({ name: 'Inteligencia', href: '/inteligencia', icon: 'intelligence' })
-  }
-
-  if (permissions.includes('contracts:view')) {
-    menu.push({ name: 'Contratos', href: '/contracts', icon: 'document' })
-  }
-
-  // Agregar Mi Empresa y Cumplimiento para roles que gestionan contratos
-  if (permissions.includes('contracts:edit') || role === 'admin') {
-    menu.push({ name: 'Mi Empresa', href: '/mi-empresa', icon: 'building' })
-    menu.push({ name: 'Cumplimiento', href: '/compliance', icon: 'clipboard' })
-  }
-
-  if (permissions.includes('providers:view')) {
-    menu.push({ name: 'Proveedores', href: '/providers', icon: 'providers' })
-  }
-
-  if (permissions.includes('users:manage')) {
-    menu.push({ name: 'Usuarios', href: '/users', icon: 'user-group' })
-  }
-
-  if (permissions.includes('visits:view')) {
-    menu.push({ name: 'Visitas', href: '/visits', icon: 'location' })
-  }
-
-  // Al final: configuración de visitas, Municipios y Asignación (cada sección con su permiso)
-  if (PERMISOS_CONFIGURACION.some(permiso => permissions.includes(permiso))) {
-    menu.push({ name: 'Configuración', href: '/configuracion', icon: 'settings' })
+  // Al final: Mi Empresa, Usuarios, Visita VMO (importar el Excel) y Parámetros (visitas, municipios y asignación)
+  const CONFIGURACION = 'Configuración'
+  if (gestionaContratos) menu.push({ name: 'Mi Empresa', href: '/mi-empresa', icon: 'building', grupo: CONFIGURACION })
+  if (tiene('users:manage')) menu.push({ name: 'Usuarios', href: '/users', icon: 'user-group', grupo: CONFIGURACION })
+  if (tiene('visits:view')) menu.push({ name: 'Visita VMO', href: '/visits', icon: 'location', grupo: CONFIGURACION })
+  if (PERMISOS_CONFIGURACION.some(permiso => tiene(permiso))) {
+    menu.push({ name: 'Parámetros', href: '/configuracion', icon: 'settings', grupo: CONFIGURACION })
   }
 
   return menu
 }
 
+/** Secciones del menú en su orden: cada grupo con sus opciones seguidas, y cada opción suelta como sección sin título. */
+export function agruparMenu(items: readonly NavigationItem[]): Array<{ grupo: string | null; items: NavigationItem[] }> {
+  const secciones: Array<{ grupo: string | null; items: NavigationItem[] }> = []
+  for (const item of items) {
+    const ultima = secciones[secciones.length - 1]
+    if (item.grupo && ultima?.grupo === item.grupo) ultima.items.push(item)
+    else secciones.push({ grupo: item.grupo ?? null, items: [item] })
+  }
+  return secciones
+}
+
 /**
- * Página de inicio del rol: "/" (y el logo de OpMap) llevan a la primera opción de su menú, que para quien tiene
- * map:view es /map; recursos humanos, sin mapa, va a /calendario. null si el rol no tiene ninguna opción.
+ * Opción del menú que corresponde a la página abierta (ruta y su ?tab=). Entre opciones de la misma ruta (ADRES y
+ * Compras públicas en /inteligencia) gana la de la pestaña abierta; si ninguna la nombra, la que no lleva pestaña.
+ * Municipios (/territories) vive en Parámetros (/configuracion).
+ */
+export function opcionActiva(items: readonly NavigationItem[], pathname: string | null, search: string): string | null {
+  const ruta = pathname?.startsWith('/territories') ? '/configuracion' : pathname
+  const deLaRuta = items.filter(item => item.href.split('?')[0] === ruta)
+  if (deLaRuta.length === 0) return null
+  const pestanaDe = (consulta: string) => new URLSearchParams(consulta).get('tab')
+  const pestana = pestanaDe(search)
+  const conPestana = deLaRuta.find(item => pestana !== null && pestanaDe(item.href.split('?')[1] ?? '') === pestana)
+  const sinPestana = deLaRuta.find(item => !item.href.includes('?'))
+  return (conPestana ?? sinPestana ?? deLaRuta[0]).href
+}
+
+/**
+ * Página de inicio del rol: "/" (y el logo de OpMap) llevan al Mapa si el rol lo tiene; si no, a Calendario (recursos
+ * humanos); si no, a la primera opción de su menú. null si el rol no tiene ninguna opción.
  */
 export function getHomeRoute(role: Role | undefined): string | null {
-  return getNavigationMenu(role)[0]?.href ?? null
+  const rutas = getNavigationMenu(role).map(item => item.href)
+  return rutas.find(ruta => ruta === '/map') ?? rutas.find(ruta => ruta === '/calendario') ?? rutas[0] ?? null
 }
 
 // Función para obtener el título del rol en español
