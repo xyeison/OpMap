@@ -25,6 +25,11 @@ export const MESES_TENDENCIA = 12
 export const PARTE_UN_MES = 0.75
 /** Significancia de las pruebas (valor p o q). */
 export const ALFA = 0.05
+/**
+ * Cambio mínimo frente al mercado para que una señal cuente: un cambio significativo pero menor que esto queda como
+ * "cambio pequeño" (la estadística dice que es real, pero no es noticia).
+ */
+export const CAMBIO_MINIMO_FRENTE_AL_MERCADO = 0.1
 /** Mínimo por defecto: 100 M al mes en promedio en alguna de las dos ventanas. */
 export const MINIMO_MENSUAL_DEFECTO = 100_000_000
 export const MINIMOS_MENSUALES: readonly number[] = [0, 100_000_000, 1_000_000_000] as const
@@ -322,6 +327,8 @@ export type SenalVariacion =
   | 'crece_menos'
   /** Frente al mercado sube, pero en pesos no: cae, menos que el resto (cuando el mercado cae). */
   | 'cae_menos'
+  /** Significativo pero menor que CAMBIO_MINIMO_FRENTE_AL_MERCADO. */
+  | 'cambio_pequeno'
   | 'sin_cambio'
 
 export type ConfianzaVariacion = 'alta' | 'media' | 'baja'
@@ -337,6 +344,7 @@ export const SENAL_TEXTO: Record<SenalVariacion, string> = {
   dejo_de_recibir: 'Dejó de recibir',
   crece_menos: 'Crece menos que el mercado',
   cae_menos: 'Cae menos que el mercado',
+  cambio_pequeno: 'Cambio pequeño',
   sin_cambio: 'Sin cambio claro',
 }
 
@@ -428,6 +436,7 @@ export interface ResultadoVariaciones {
     bajan: number
     nuevas: number
     dejan: number
+    /** Sin cambio claro o con un cambio pequeño frente al mercado. */
     sinCambio: number
     /** NIT del filtro por debajo del mínimo mensual (no se listan). */
     pequenas: number
@@ -622,6 +631,10 @@ export function analizarVariaciones(params: {
       fila.senal = 'sin_cambio'
       return
     }
+    if (fila.frenteAlMercado !== null && Math.abs(fila.frenteAlMercado) < CAMBIO_MINIMO_FRENTE_AL_MERCADO) {
+      fila.senal = 'cambio_pequeno'
+      return
+    }
     const sube = fila.reciente > factorMercado * fila.base
     const sostenido = fila.tendencia !== null && fila.tendencia.p < ALFA && (sube ? fila.tendencia.tau > 0 : fila.tendencia.tau < 0)
     if (fila.mesPico) fila.senal = sube ? 'sube_un_mes' : 'baja_un_mes'
@@ -644,7 +657,7 @@ export function analizarVariaciones(params: {
       bajan: contar(fila => senalBaja(fila.senal) && fila.senal !== 'dejo_de_recibir'),
       nuevas: contar(fila => fila.senal === 'giros_nuevos'),
       dejan: contar(fila => fila.senal === 'dejo_de_recibir'),
-      sinCambio: contar(fila => fila.senal === 'sin_cambio'),
+      sinCambio: contar(fila => fila.senal === 'sin_cambio' || fila.senal === 'cambio_pequeno'),
       pequenas,
       sinIps,
     },

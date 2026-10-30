@@ -396,7 +396,7 @@ export default function GirosVariaciones({
           ({data.ventanas.texto}). En este filtro: <strong className="tabular-nums">{data.resumen.suben}</strong> por encima del mercado,{' '}
           <strong className="tabular-nums">{data.resumen.bajan}</strong> por debajo
           {data.resumen.nuevas > 0 && `, ${data.resumen.nuevas} con giros nuevos`}
-          {data.resumen.dejan > 0 && `, ${data.resumen.dejan} sin giros recientes`} y {data.resumen.sinCambio} sin cambio claro.
+          {data.resumen.dejan > 0 && `, ${data.resumen.dejan} sin giros recientes`} y {data.resumen.sinCambio} sin cambio importante.
           {data.resumen.pequenas > 0 &&
             ` ${data.resumen.pequenas === 1 ? 'No se muestra 1 IPS' : `No se muestran ${data.resumen.pequenas} IPS`} con menos de ${minimoTexto} al mes.`}
         </p>

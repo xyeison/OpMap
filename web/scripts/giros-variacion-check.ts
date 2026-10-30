@@ -16,6 +16,8 @@ import {
   entidadesDelCambio,
   logGamma,
   mannKendall,
+  senalBaja,
+  senalSube,
   textoSenal,
   parseVariacionQuery,
   pendienteSen,
@@ -185,6 +187,7 @@ const NIT = {
   dosSedes: '900000008',
   sinIps: '900000009',
   rezagada: '900000010',
+  chico: '900000011',
 }
 const hospitals: IntelHospital[] = [
   hospital('sube', NIT.sube, '68001', 100),
@@ -197,20 +200,25 @@ const hospitals: IntelHospital[] = [
   hospital('dos-a', NIT.dosSedes, '68001', 30),
   hospital('dos-b', NIT.dosSedes, '54001', 10),
   hospital('rezagada', NIT.rezagada, '68001', 20),
+  hospital('chico', NIT.chico, '68001', 20),
 ]
-// El mercado: un NIT grande sin IPS en OpMap que crece 10 % (fija el crecimiento del país en ≈ 10 %)
+// El mercado: un NIT grande sin IPS en OpMap que crece 20 % (fija el crecimiento del país cerca de 20 %)
 const series = new Map<string, Record<string, number>>([
-  [NIT.sinIps, serie([100, 100, 100, 100, 100, 100, 110, 110, 110, 110, 110, 110])],
+  [NIT.sinIps, serie([100, 100, 100, 100, 100, 100, 120, 120, 120, 120, 120, 120])],
   [NIT.sube, serie([1.0, 1.05, 1.1, 1.15, 1.2, 1.25, 1.6, 1.7, 1.8, 1.9, 2.0, 2.1])],
   [NIT.pico, serie([1.0, 1.02, 0.98, 1.01, 0.99, 1.0, 1.0, 1.01, 0.99, 6.0, 1.0, 1.02])],
-  [NIT.mercado, serie([1.0, 1.02, 0.98, 1.01, 0.99, 1.0, 1.1, 1.12, 1.08, 1.11, 1.09, 1.1])],
+  [NIT.mercado, serie([1.0, 1.02, 0.98, 1.01, 0.99, 1.0, 1.2, 1.23, 1.17, 1.22, 1.18, 1.2])],
   [NIT.nueva, serie([0, 0, 0, 0, 0, 0, 0, 0.5, 0.6, 0.7, 0.5, 0.6])],
   [NIT.deja, serie([0.5, 0.6, 0.5, 0.4, 0.5, 0.6, 0, 0, 0, 0, 0, 0])],
   [NIT.pequena, serie([0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05])],
   [NIT.baja, serie([2.0, 1.95, 1.9, 1.85, 1.8, 1.75, 1.2, 1.15, 1.1, 1.05, 1.0, 0.95])],
   [NIT.dosSedes, serie([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0])],
   [NIT.rezagada, serie([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.03, 1.03, 1.03, 1.03, 1.03, 1.03])],
+  [NIT.chico, serie([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.25, 1.25, 1.25, 1.25, 1.25, 1.25])],
 ])
+// Crecimiento del país calculado aparte, sumando todas las series
+const sumaMeses = (desde: number, hasta: number) => Array.from(series.values()).reduce((acc, porMes) => acc + meses.slice(desde, hasta).reduce((s, mes) => s + (porMes[mes] || 0), 0), 0)
+const MERCADO = sumaMeses(6, 12) / sumaMeses(0, 6) - 1
 const entidadesBase = new Map<string, Record<string, number>>([
   [NIT.sube, { '800130907': 5 * M, '900156264': 1.75 * M }],
   [NIT.deja, { '900156264': 3.1 * M }],
@@ -235,11 +243,11 @@ const resultado = analizarVariaciones({
 })
 const fila = (nit: string) => resultado.filas.find(item => item.nit === nit)
 
-check('el mercado es todo el país (también el NIT sin IPS en OpMap): crece ≈ 11 % (716,55 / 645,16 mil M)', cerca(resultado.mercado.variacion, 716.55 / 645.16 - 1, 1e-9) && resultado.mercado.nits === 10, resultado.mercado)
+check('el mercado es todo el país (también el NIT sin IPS en OpMap): crece ≈ 20 %', cerca(resultado.mercado.variacion, MERCADO, 1e-9) && cerca(MERCADO, 0.2, 0.01) && resultado.mercado.nits === 11, { mercado: resultado.mercado, MERCADO })
 const sube = fila(NIT.sube)
 check(
-  'sube parejo: "sube sostenido" con confianza alta, variación +64 % (11,1 / 6,75), frente al mercado +48 %',
-  sube?.senal === 'sube_sostenido' && sube.confianza === 'alta' && cerca(sube.variacion, 11.1 / 6.75 - 1, 1e-9) && cerca(sube.frenteAlMercado, (11.1 / 6.75) / (716.55 / 645.16) - 1, 1e-9) && sube.prueba === 'nivel',
+  'sube parejo: "sube sostenido" con confianza alta, variación +64 % (11,1 / 6,75) y frente al mercado (1 + 64 %) / (1 + mercado) − 1',
+  sube?.senal === 'sube_sostenido' && sube.confianza === 'alta' && cerca(sube.variacion, 11.1 / 6.75 - 1, 1e-9) && cerca(sube.frenteAlMercado, (11.1 / 6.75) / (1 + MERCADO) - 1, 1e-9) && sube.prueba === 'nivel',
   sube
 )
 check('sube parejo: la tendencia de Mann–Kendall es significativa y la pendiente de Sen es positiva', !!sube?.tendencia && sube.tendencia.p < 0.05 && (sube.tendencia.pendientePct ?? 0) > 0, sube?.tendencia)
@@ -257,9 +265,15 @@ const baja = fila(NIT.baja)
 check('baja parejo: "baja sostenido"', baja?.senal === 'baja_sostenido' && baja.confianza !== 'baja', baja)
 const rezagada = fila(NIT.rezagada)
 check(
-  'crece 3 % cuando el mercado crece 11 %: "crece menos que el mercado", nunca "baja", y cuenta entre las de abajo',
+  'crece 3 % cuando el mercado crece 20 %: "crece menos que el mercado", nunca "baja", y cuenta entre las de abajo',
   rezagada?.senal === 'crece_menos' && rezagada.confianza === 'alta' && cerca(rezagada.variacion, 0.03, 1e-9) && (rezagada.frenteAlMercado ?? 0) < 0,
   rezagada
+)
+const chico = fila(NIT.chico)
+check(
+  'sube 25 % con el mercado en 20 %: significativo pero +4 % frente al mercado → "cambio pequeño", ni sube ni baja',
+  chico?.senal === 'cambio_pequeno' && chico.confianza === 'alta' && cerca(chico.frenteAlMercado, 1.25 / (1 + MERCADO) - 1, 1e-9) && !senalSube(chico.senal) && !senalBaja(chico.senal),
+  chico
 )
 eq('textoSenal con el mes del pago grande', textoSenal({ senal: 'sube_un_mes', mesPico: '2026-07' }), 'Pago grande en jul 2026')
 check('la pequeña (menos de 100 M al mes) no se lista y se cuenta', !fila(NIT.pequena) && resultado.resumen.pequenas === 1, resultado.resumen)
