@@ -13,6 +13,8 @@ export const SIN_CONEXION = 0
 export const MENSAJE_SIN_CONEXION = 'Sin conexión con el servidor. Revisa la señal e inténtalo de nuevo.'
 export const MENSAJE_TIEMPO_AGOTADO = 'El servidor tardó demasiado en responder. Inténtalo de nuevo.'
 export const MENSAJE_SESION_VENCIDA = 'Tu sesión venció. Vuelve a entrar.'
+/** En el navegador: en otra pestaña se salió o entró otra persona (en OpMap o en la app). */
+export const MENSAJE_SESION_OTRA_PESTANA = 'La sesión cambió en otra pestaña de este navegador. Vuelve a entrar.'
 
 export type TipoErrorApi = 'red' | 'tiempo' | 'sesion' | 'permiso' | 'no_disponible' | 'datos' | 'servidor' | 'otro'
 
