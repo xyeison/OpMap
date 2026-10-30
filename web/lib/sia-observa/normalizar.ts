@@ -124,7 +124,8 @@ export function codigoNorm(value: unknown): string | null {
 /** Partes de un campo con varios valores (consorcios): "<br>", ";", "|", saltos de línea o " / " con espacios. */
 export function separarLista(value: unknown): string[] {
   return String(value ?? '')
-    .split(/<br\s*\/?>|[;|\n\r]+|\s+\/\s+/i)
+    // En Get_CTOs_Base real cada contratista viene precedido de '">' (resto de un atributo HTML cortado): '"> FARMAORTOPEDICOS'
+    .split(/<br\s*\/?>|[;|\n\r]+|\s+\/\s+|"\s*>/i)
     .map(part => part.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim())
     .filter(Boolean)
 }
