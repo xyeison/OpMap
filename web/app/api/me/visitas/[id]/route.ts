@@ -1,8 +1,8 @@
-// PATCH /api/me/visitas/[id] (visits:report + Ejecutivo Comercial enlazado) — la ejecutiva corrige SU visita de la
-// app el MISMO día: conclusión, compromisos, próxima reunión, si fue efectiva (con su motivo), fecha de reintento y
+// PATCH /api/me/visitas/[id] (visits:report + persona de campo, F1a) — la persona corrige SU visita de la
+// app (por user_id) el MISMO día: conclusión, compromisos, próxima reunión, si fue efectiva (con su motivo), fecha de reintento y
 // líneas (decisión 10). No cambia tipo, médico, cuenta ni sede: para eso anula y vuelve a reportar. Todo pasa por la
-// RPC visitas_editar (al volver a efectiva revalida los topes): 23514 → 400 con el mensaje de la base; inexistente o
-// ajena (P0002) → 404. Responde { visita }.
+// RPC visitas_editar (al volver a efectiva revalida los topes; 0850: las líneas no pueden cambiar el papel de la
+// visita): 23514 → 400 con el mensaje de la base; inexistente o ajena (P0002) → 404. Responde { visita }.
 // Contrato: docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md (sección "API").
 // Tiempos (spec 2026-10-15): Server-Timing (auth, rpc, leer, total) y la línea [tiempos] sin contenido (_lib/tiempos.ts).
 import { NextRequest, NextResponse } from 'next/server'
@@ -10,7 +10,7 @@ import { jsonError, readJson, zodMessage } from '@/app/api/kams/_lib/kam-shared'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { visitaUpdateSchema } from '@/lib/reporte-visitas-schemas'
 import { hoyBogota } from '@/lib/visits-rules'
-import { ahora, idDeRuta, requireEjecutiva } from '../../../config-visitas/_lib/visitas-server'
+import { ahora, idDeRuta, requirePersonaDeCampo } from '../../../config-visitas/_lib/visitas-server'
 import { cargarVisitaItem, errorReporte, respuestaErrorVisita } from '../../_lib/reporte-server'
 import { medirRuta } from '../../_lib/tiempos'
 
@@ -18,7 +18,7 @@ export const dynamic = 'force-dynamic'
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
   return medirRuta('PATCH /api/me/visitas/:id', async t => {
-    const auth = await t.fase('auth', () => requireEjecutiva(request, 'PATCH /api/me/visitas/[id]'))
+    const auth = await t.fase('auth', () => requirePersonaDeCampo(request, 'PATCH /api/me/visitas/[id]'))
     if (!auth.ok) return auth.response
     const { user, persona } = auth
 
@@ -29,8 +29,9 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     if (!parsed.success) return jsonError(zodMessage(parsed.error), 400)
 
     try {
-      // jsonb de visitas_editar: solo las claves que cambian (allow-list del esquema) y la ejecutiva de la sesión.
-      const p: Record<string, unknown> = { ...parsed.data, executive_id: persona.id }
+      // jsonb de visitas_editar: solo las claves que cambian (allow-list del esquema). La visita es de la persona de
+      // p_user (0850: por user_id); la base ya no usa executive_id.
+      const p: Record<string, unknown> = { ...parsed.data }
       const { error } = await t.fase('rpc', () => supabaseAdmin.rpc('visitas_editar', { p_id: id, p, p_user: user.id }))
       if (error) {
         const traducido = respuestaErrorVisita(error, 'Los datos de la corrección no son válidos')

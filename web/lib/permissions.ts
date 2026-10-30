@@ -64,7 +64,7 @@ export type Permission =
   | 'calendar:manage'          // Fase 7 F2: días de empresa y de ciudad, cargar festivos, anular días del calendario
   | 'daysoff:approve'          // Fase 7 F2: ver todos los días libres, aprobar o rechazar en bloque, registrar o anular por otra persona
   | 'daysoff:view'             // Fase 7 F2: ver, sin aprobar, los días libres de las ejecutivas de SUS líneas (lo limita la API)
-  | 'visits:report'            // Fase 7 F2: lo propio de un Ejecutivo Comercial: sus días libres y su cuota (usuario enlazado a una ejecutiva)
+  | 'visits:report'            // Fase 7 F2 / F1a (0850): persona de campo (Ejecutivo Comercial o líder): agenda, reporta, sus días libres y su cuota
 
 // Definición de permisos por rol
 export const rolePermissions: Record<Role, Permission[]> = {
@@ -150,7 +150,7 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'terceros:view',
     'terceros:create',   // Solo para la app de visita (registrar lo que falte al reportar)
     'daysoff:view',      // Fase 7 F2: ve (sin aprobar) los días libres de las ejecutivas de SUS líneas
-    'visits:report'      // Fase 7 F2: sus días libres y su cuota (si también es ejecutiva)
+    'visits:report'      // F1a (0850): agenda y reporta como líder (y como Ejecutiva si también lo es); días libres y cuota solo con Ejecutivo Comercial
   ],
   // Director comercial: todo lo de ver + gestionar líneas, equipo y cobertura de todas las líneas; con el administrador,
   // el único que asigna Ejecutivos Comerciales a líneas y Zonas (dueño, 2026-10-29). Sin users:manage ni
@@ -183,8 +183,8 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'visitantes:manage',
     'visits:config',     // Fase 7 F2: configuración de visitas (metas, conteo, personas, general, subtipos)
     'calendar:manage',
-    'daysoff:approve',   // además su rol debe estar en aprobacion_dias_libres.aprueban (lo exige la API)
-    'visits:report'
+    'daysoff:approve'    // además su rol debe estar en aprobacion_dias_libres.aprueban (lo exige la API)
+    // Sin visits:report desde F1a (A1, decisión del dueño 2026-10-15): la dirección comercial no agenda ni reporta; vigila.
   ],
   // Fase 7 F2: recursos humanos. Calendario (festivos, días de empresa y de ciudad) y días libres de todos
   // (aprueba en bloque si su rol está en aprobacion_dias_libres.aprueban). Sin mapa ni dashboard.

@@ -314,6 +314,56 @@ lleva hora; lo exige `citaCreateSchema` en `POST /api/me/agenda` ("Elige la hora
 comentario de la columna (`COMMENT ON COLUMN visitas_agenda.hora`: "Hora de la cita (opcional; sin medias horas ni
 ruteros)") quedó desactualizado: corregirlo en la próxima migración que haya (p. ej. "Hora de la cita (HH:MM; obligatoria
 en las nuevas desde 2026-10-15, la exige la API; NULL solo en citas viejas)").
+La 0850 lo corrige.
+
+#### Actividades de campo · F1a persona de campo y agenda con resultado (migración 0850, ESCRITA, SIN APLICAR)
+Spec `docs/specs/2026-10-15-actividades-de-campo.md` (F1a; decisiones A1–A17 en `docs/decisiones/`); contrato de la API en
+`docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md` (sección "F4.2"). Archivo
+`database/migrations/2026-10-15_0850_persona_de_campo_y_agenda.sql`, rollback `2026-10-15_9945_persona_de_campo_y_agenda_rollback.sql`.
+Quien visita y agenda es el USUARIO (`users`); el Ejecutivo Comercial pasa a ser opcional: las líderes de línea agendan y
+reportan "como líder" (sin zona) y Paola (líder de una línea y Ejecutiva de otra) tiene una sola agenda. La dirección
+comercial (`commercial_director`) no agenda ni reporta (A1). Transaccional, idempotente, con huellas md5 de cada función.
+```sql
+visits (+0850):    user_id → users (relleno desde executives.user_id en las de la app; la 0850 se detiene si alguna queda sin él).
+                   visits_app_check reescrito: app ⇒ user_id; (executive_id IS NULL) = (kam_id IS NULL); out_of_territory solo con
+                   Ejecutivo Comercial. Una visita "como líder": executive_id y kam_id NULL, kam_name = users.full_name.
+                   Índices visits_user_date_idx (user_id, visit_date) y visits_user_next_step_idx (solo las de la app).
+visitas_agenda:    + user_id → users NOT NULL (relleno desde executives.user_id), motivo_codigo, no_realizada_at, no_realizada_motivo
+(+0850)            (≤ 300), eliminada_at, eliminada_por → users, viene_de → visitas_agenda ("otra fecha"); executive_id pasa a NULL
+                   (NULL = como líder). 24 columnas.
+                   estado pendiente | hecha | no_realizada | cancelada | eliminada; motivo_codigo cliente | prioridad | falta_tiempo |
+                   fuerza_mayor | otro | salida (salida solo la pone el sistema); visitas_agenda_estado_datos_check por estado (otro
+                   exige texto de 3 a 300); visitas_agenda_viene_de_check (no a sí misma).
+                   Índices únicos parciales por user_id (medico_uidx y cuenta_uidx sobre pendiente y hecha; viene_de_uidx sin las
+                   eliminadas: una sola "otra fecha"); visitas_agenda_user_fecha_idx. Disparador visitas_agenda_cancelar_con_motivo
+                   (una cancelación nueva exige motivo_codigo).
+funciones:         persona_lineas(user) (executive_lines del Ejecutivo Comercial ACTIVO ∪ líneas activas que lidera; vacío si inactivo
+(nuevas)           o commercial_director); persona_de_campo(user) → jsonb {user_id, nombre, rol, executive_id, kam_id, lineas_ec,
+                   lineas_lider}; ejecutivo_de_la_visita(user, lineas); medico_de_lineas(medico, lineas, fecha) (C9);
+                   visitas_config_persona(executive_id | NULL, fecha) (con Ejecutivo Comercial, la suya; sin él, la general con perfil
+                   médica e institucional y sin telefónica);
+                   agenda_choque(user, fecha, hora, excluir) (media hora: |Δ| < 1800 s, solo pendientes y hechas con hora);
+                   agenda_cerrar(p_id, p jsonb, p_user) ("no se hizo", desde su día); agenda_eliminar(p_id, p_user) (por error:
+                   pendiente de hoy en adelante); agenda_otra_fecha(p_id, p, p_user) (cita nueva con viene_de);
+                   agenda_cancelar_por_salida() (disparadores users_salida_cancela_agenda y executives_baja_cancela_agenda).
+funciones          agenda_crear(p, p_user) (hora obligatoria; sin tope hacia adelante; hoy a una hora pasada no; `como`
+(reescritas)       ejecutivo|lider; choque 23P01; viene_de); agenda_cancelar(p_id, p_motivo, p_user, p_motivo_codigo DEFAULT 'otro')
+                   (reemplaza la de 3 argumentos); visitas_registrar, visitas_editar y visitas_anular por usuario (bloqueo
+                   pg_advisory_xact_lock por usuario; el Ejecutivo Comercial de la visita lo decide ejecutivo_de_la_visita).
+                   Todas SECURITY INVOKER, search_path = public, pg_temp, solo service_role.
+```
+- **Salida (A16)**: `users.active` de true a false cancela sus citas pendientes de hoy en adelante con motivo `salida`
+  ("Salió de la empresa"). Un Ejecutivo Comercial que pasa a inactivo: si la persona se queda sin líneas, lo mismo; si
+  sigue como líder, solo se cancelan sus citas como Ejecutivo Comercial ("Dejó de ser Ejecutivo Comercial", motivo `otro`:
+  admiten otra fecha). La salida toma el candado por persona de `agenda_crear`, que lee la persona ya con el candado.
+- **Otra fecha cierra la cita**: si la cita que cumplió una visita ya tiene otra fecha, `visitas_anular` no anula esa
+  visita y `visitas_editar` no la pasa a efectiva ("La cita de esta visita ya tiene otra fecha: elimina primero esa otra
+  fecha").
+- **Mapa de asignación**: `/api/visits/filtered`, `/stats` y `/unvisited-zones` filtran `source <> 'app' OR executive_id IS
+  NOT NULL` (una visita como líder no tiene zona y no pinta el mapa).
+- **Rollback 9945**: se detiene (con cuentas) si hay citas `no_realizada`, `eliminada`, con `viene_de` o sin Ejecutivo
+  Comercial, o visitas de la app sin Ejecutivo Comercial; si no, deja las funciones con los cuerpos exactos de la 0840/0830
+  (huellas md5 comprobadas) y las tablas con 45 y 17 columnas.
 
 #### Zonas por línea · líneas permitidas y redistribución (migraciones 0860 y 0870, escritas 2026-10-23, SIN APLICAR)
 Spec `docs/specs/2026-10-23-zonas-por-linea-para-lideres.md`; decisión `docs/decisiones/2026-10-23-zonas-por-linea-las-lideres-asignan.md`.

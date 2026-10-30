@@ -956,7 +956,8 @@ console.log('13. Permisos y rol de recursos humanos (contrato F2)')
 const CINCO: Permission[] = ['visits:config', 'calendar:manage', 'daysoff:approve', 'daysoff:view', 'visits:report']
 const matriz: [Role, Permission[], Permission[]][] = [
   ['admin', CINCO, []],
-  ['commercial_director', ['visits:config', 'calendar:manage', 'daysoff:approve', 'visits:report'], ['daysoff:view']],
+  // F1a (A1, 2026-10-15): la dirección comercial no agenda ni reporta: sin visits:report.
+  ['commercial_director', ['visits:config', 'calendar:manage', 'daysoff:approve'], ['daysoff:view', 'visits:report']],
   ['hr', ['lines:view', 'executives:view', 'calendar:manage', 'daysoff:approve'], ['visits:config', 'daysoff:view', 'visits:report', 'map:view', 'dashboard:view', 'terceros:view', 'users:manage']],
   ['line_leader', ['daysoff:view', 'visits:report'], ['visits:config', 'calendar:manage', 'daysoff:approve']],
   ['sales_manager', ['visits:report'], ['visits:config', 'calendar:manage', 'daysoff:approve', 'daysoff:view']],

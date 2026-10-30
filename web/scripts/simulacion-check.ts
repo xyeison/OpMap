@@ -28,6 +28,7 @@ import {
   diasDeAgenda,
   documentoPrueba,
   esDocumentoPrueba,
+  filasDeCitas,
   hastaVisitante,
   nadaPendiente,
   nadaQueBorrar,
@@ -264,6 +265,12 @@ console.log('4. Agenda del plan')
   check('ordenadas por fecha y hora', PLAN.citas.every((c, i, l) => i === 0 || l[i - 1].fecha < c.fecha || (l[i - 1].fecha === c.fecha && (l[i - 1].hora ?? '99:99') <= (c.hora ?? '99:99'))))
   check('la plantilla solo usa médicos del plan', AGENDA_BASE.every(b => !('medico' in b) || MEDICOS_BASE.some(m => m.n === b.medico)))
 
+  // 0850 (F1a): quien agenda es el usuario; cada fila lleva user_id (NOT NULL) además del Ejecutivo Comercial.
+  const idsMedicos = new Map(PLAN.medicos.map((m, i) => [m.clave, `medico-${i}`]))
+  const filas = filasDeCitas(PLAN.citas, idsMedicos, 'admin-1', `${HOY}T15:00:00.000Z`)
+  check('las filas de las citas simuladas llevan user_id (el de Carmen) y su Ejecutivo Comercial', filas.length === PLAN.citas.length && filas.every(f => f.user_id === CARMEN.user_id && f.executive_id === CARMEN.executive_id), filas[0])
+  check('las de hoy conservan su created_at de ayer; las demás, el de al aplicar', filas.every((f, i) => f.created_at === (PLAN.citas[i].created_at ?? `${HOY}T15:00:00.000Z`)))
+
   const hoyLibre = planDe(HOY, [{ fecha: HOY, fraccion: 1, estado: 'aprobado' }])
   eq('con hoy libre no hay citas de hoy', hoyLibre.citas.filter(c => c.fecha === HOY).length, 0)
   eq('y quedan las de los otros días', hoyLibre.citas.length, AGENDA_BASE.filter(b => b.dia > 0).length)
@@ -396,6 +403,14 @@ console.log('7. --borrar')
   check('…y no se cancela (la visita real seguiría apuntando a una cita cancelada)', !b.citasCancelar.includes(citaInstitucional.id))
   check('cancela las citas simuladas (también la hecha por una visita de prueba) y la que Carmen agendó con un médico de prueba', b.citasCancelar.includes(citaHecha.id) && b.citasCancelar.includes('cita-propia') && b.citasCancelar.includes('cita-inst-prueba'))
   check('no cancela la cita real ni vuelve a cancelar la ya cancelada', !b.citasCancelar.includes('cita-real') && !b.citasCancelar.includes(yaCancelada.id))
+  // 0850: las que no se hicieron y las eliminadas ya están cerradas; pasarlas a cancelada violaría
+  // visitas_agenda_estado_datos_check (no_realizada_at / eliminada_at) y detendría todo --borrar.
+  const cerradas: CitaExistente[] = [
+    { ...citaPropiaConPrueba, id: 'cita-no-se-hizo', fecha: '2026-10-12', estado: 'no_realizada' },
+    { ...citaPropiaConPrueba, id: 'cita-eliminada', fecha: '2026-10-23', estado: 'eliminada' },
+  ]
+  const conCerradas = planBorrar({ ...base, citas: [...citas, ...cerradas] }, HOY)
+  check('no cancela una simulada que no se hizo ni una eliminada (solo pendientes y hechas, como agenda_cancelar)', !conCerradas.citasCancelar.includes('cita-no-se-hizo') && !conCerradas.citasCancelar.includes('cita-eliminada') && conCerradas.citasCancelar.length === b.citasCancelar.length, conCerradas.citasCancelar)
   eq('la cita agendada en la app que cumplió una visita que se anula vuelve a pendiente (como visitas_anular)', b.citasLiberar, ['cita-app'])
   check('…y no se cancela (no es simulada)', !b.citasCancelar.includes('cita-app'))
   check('una cita real pendiente o de una visita que no se anula no se toca', !b.citasLiberar.includes('cita-real'))

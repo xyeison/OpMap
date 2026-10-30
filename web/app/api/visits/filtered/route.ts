@@ -3,7 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { requireUser } from '@/lib/require-role'
 import { hasPermission } from '@/lib/permissions'
 import { fetchAllRows, isUuid, serverError } from '../../_lib/api-error'
-import { esColumnaInexistente } from '../_lib/visitas-mapa'
+import { FILTRO_MAPA_ASIGNACION, esColumnaInexistente } from '../_lib/visitas-mapa'
 
 // Visitas filtradas (heatmap del mapa y página de visitas). Requiere sesión.
 // Quien no tiene visits:view (Ejecutivos Comerciales, visor) no ve las visitas de la app: llevan el nombre y el GPS de
@@ -77,6 +77,8 @@ export async function GET(request: NextRequest) {
         let query = supabaseAdmin.from('visits').select(COLUMNAS_MAPA)
         if (con0830) query = query.is('deleted_at', null)
         if (propia) query = query.eq('source', 'vmo_import').eq('executive_id', propia)
+        // F1a (0850): las de la app sin Ejecutivo Comercial (como líder) no van al mapa de asignación.
+        if (con0830) query = query.or(FILTRO_MAPA_ASIGNACION)
         if (range.startDate) query = query.gte('visit_date', range.startDate).lt('visit_date', range.endDate)
         if (visitType && visitType !== 'all') query = query.eq('visit_type', visitType)
         if (contactType && contactType !== 'all') query = query.eq('contact_type', contactType)

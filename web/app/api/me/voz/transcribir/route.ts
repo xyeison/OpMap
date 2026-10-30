@@ -1,4 +1,4 @@
-// POST /api/me/voz/transcribir (visits:report + Ejecutivo Comercial enlazado) — multipart con el campo `audio`
+// POST /api/me/voz/transcribir (visits:report + persona de campo, F1a) — multipart con el campo `audio`
 // (m4a, mp4 o webm; hasta 25 MB y 3 minutos) y, opcional, `duracion_s`. Transcribe con OpenAI (gpt-4o-transcribe; si
 // el modelo no está disponible, whisper-1), en español y con el vocabulario de VG (sus líneas y los subtipos
 // vigentes). Responde { transcript, duracion_s, modelo }.
@@ -32,11 +32,11 @@ import {
   type TranscripcionResponse,
 } from '@/lib/reporte-visitas'
 import { hoyBogota } from '@/lib/visits-rules'
-import { ahora, requireEjecutiva } from '../../../config-visitas/_lib/visitas-server'
+import { ahora, requirePersonaDeCampo } from '../../../config-visitas/_lib/visitas-server'
 import {
   esErrorDeProveedor,
   limiteVoz,
-  lineasDeEjecutiva,
+  lineasDePersona,
   respuestaSinLlave,
   resumenErrorVoz,
   subtiposVigentes,
@@ -67,9 +67,9 @@ function nombreDelAudio(tipo: string, nombre: string): string {
  * Vocabulario de VG: sus líneas y los subtipos vigentes. Es una ayuda: si la base falla, se transcribe sin ella (nunca
  * lanza). Se pide antes de leer el audio para que la consulta corra mientras sube.
  */
-async function leerVocabulario(executiveId: string): Promise<string> {
+async function leerVocabulario(lineasIds: readonly string[]): Promise<string> {
   try {
-    const [lineas, subtipos] = await Promise.all([lineasDeEjecutiva(executiveId), subtiposVigentes(hoyBogota(ahora()))])
+    const [lineas, subtipos] = await Promise.all([lineasDePersona(lineasIds), subtiposVigentes(hoyBogota(ahora()))])
     return vocabularioVG(lineas, subtipos)
   } catch {
     console.error('POST /api/me/voz/transcribir: no se pudo leer el vocabulario (líneas y subtipos); se transcribe sin él')
@@ -79,7 +79,7 @@ async function leerVocabulario(executiveId: string): Promise<string> {
 
 export async function POST(request: NextRequest) {
   return medirRuta('POST /api/me/voz/transcribir', async t => {
-    const auth = await t.fase('auth', () => requireEjecutiva(request, 'POST /api/me/voz/transcribir'))
+    const auth = await t.fase('auth', () => requirePersonaDeCampo(request, 'POST /api/me/voz/transcribir'))
     if (!auth.ok) return auth.response
 
     // Sin llave no se lee el audio: 503 con el mensaje del contrato (el respaldo por toques sigue funcionando).
@@ -94,7 +94,7 @@ export async function POST(request: NextRequest) {
     }
 
     // El vocabulario corre en paralelo con la subida del audio (nunca lanza: ver leerVocabulario).
-    const vocabulario = leerVocabulario(auth.persona.id)
+    const vocabulario = leerVocabulario(auth.persona.lineas)
 
     let formulario: FormData
     try {
@@ -128,7 +128,7 @@ export async function POST(request: NextRequest) {
     t.dato('audio_s', duracion)
 
     // Límite por persona: solo cuentan las llamadas que de verdad van a OpenAI.
-    const limitado = limiteVoz('transcribir', auth.persona.id)
+    const limitado = limiteVoz('transcribir', auth.persona.userId)
     if (limitado) return limitado
 
     // Vocabulario de VG (ya pedido): lo que falte de esperarlo.

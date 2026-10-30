@@ -21,11 +21,16 @@
  *      indicador de Mis números y el dictado por campo (conclusión, compromisos y próxima reunión).
  *      Contrato: sección "F4.1" de docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md y la spec
  *      docs/specs/2026-10-14-agenda-dictado-y-marca.md.
+ *      Desde F1a (migración 0850, sección "F4.2" del contrato): la persona de campo (lib/persona-campo.ts) y el ciclo de
+ *      vida de la cita (lib/agenda-ciclo.ts, que se re-exporta aquí): sin tope hacia adelante, choque de media hora,
+ *      cerrar, cancelar con motivo, eliminar por error y otra fecha.
  *
  * Lo que valida la forma de los cuerpos (zod) está en lib/reporte-visitas-schemas.ts.
  */
 import type { Role } from './permissions'
 import { etiquetaDe, valoresDe, type Opcion } from './terceros'
+import { MENSAJE_CITA_OTRO_PAPEL, MENSAJE_MEDICO_AJENO, MENSAJE_SIN_ZONA, type ComoPersona, type RolPersona } from './persona-campo'
+import { MENSAJE_CITA_CERRADA, type EstadoCita, type EstadoVisible, type MotivoCierre, type MotivoElegible, type NumerosAgenda } from './agenda-ciclo'
 import {
   ESTADOS_DIA_LIBRE_LIBRES,
   MENSAJE_SIN_EJECUTIVA,
@@ -115,7 +120,8 @@ export const MENSAJE_SOLO_HOY = 'Solo se reportan visitas del mismo día'
 export const MENSAJE_SEDE_SIN_UBICACION = 'Esta sede no tiene ubicación: confírmala o crea la sede'
 export const MENSAJE_TELEFONICA_NO_HABILITADA = 'No tienes habilitada la visita telefónica'
 export const MENSAJE_TOPE_MEDICO = 'Ya reportaste una visita a este médico hoy'
-export const MENSAJE_SIN_ZONA = 'Tu Ejecutivo Comercial no tiene zona base'
+/** Ejecutivo Comercial sin zona base (definido en lib/persona-campo.ts, re-exportado aquí). */
+export { MENSAJE_SIN_ZONA }
 export const MENSAJE_REPORTE_ANTES_DE_LLEGADA = 'La hora del reporte no puede ser anterior a la de llegada'
 /** visitas_registrar rechaza una llegada más adelantada que esto respecto del reloj del servidor (c_tolerancia). */
 export const TOLERANCIA_RELOJ_SEGUNDOS = 300
@@ -337,6 +343,11 @@ export interface MedicoValidacion {
   sede_ids: readonly string[]
   /** La ejecutiva tiene un medico_visitantes vigente para él (cualquier línea). */
   es_visitante: boolean
+  /**
+   * 0850 (C9): el médico es de las líneas de la visita (medico_de_lineas). Solo se mira en una visita como líder (sin
+   * Ejecutivo Comercial): false → "Ese médico no es de tus líneas". Sin el dato: no se mira.
+   */
+  de_mis_lineas?: boolean
 }
 
 export interface SubtipoValidacion {
@@ -358,11 +369,20 @@ export interface ContactoValidacion {
  * médico (médica), el subtipo y el contacto (institucional). null = ese id no existe.
  */
 export interface ContextoValidacion {
+  /**
+   * La persona que reporta (0850: la persona de campo). `lineas`: TODAS las suyas (persona_lineas); `con_zona`: la zona
+   * de su Ejecutivo Comercial (no se mira en una visita como líder).
+   */
   ejecutiva: { id: string; activa: boolean; con_zona: boolean; lineas: readonly string[] }
   sede: SedeValidacion | null
   medico: MedicoValidacion | null
   subtipo: SubtipoValidacion | null
   contacto: ContactoValidacion | null
+  /**
+   * 0850: la visita es "como líder" (ninguna de sus líneas es de su Ejecutivo Comercial, o no lo tiene): sin zona, sin
+   * fuera de territorio y con el médico de sus líneas (C9). Sin el dato: como Ejecutivo Comercial (como hasta la 0840).
+   */
+  como_lider?: boolean
 }
 
 /** Configuración vigente de la persona (la misma de ContextoResponse.config). */
@@ -421,9 +441,10 @@ export function validarVisita(entrada: {
   let distance_m: number | null = null
   let out_of_territory = false
 
-  // 2. Ejecutiva activa con zona; mismo día; reporte no anterior a la llegada
+  // 2. Persona activa; con Ejecutivo Comercial, con zona (como líder no hay zona); mismo día; reporte no anterior a la
+  //    llegada
   if (!contexto.ejecutiva.activa) falla('executive_id', MENSAJE_SIN_EJECUTIVA)
-  else if (!contexto.ejecutiva.con_zona) falla('executive_id', MENSAJE_SIN_ZONA)
+  else if (!contexto.como_lider && !contexto.ejecutiva.con_zona) falla('executive_id', MENSAJE_SIN_ZONA)
 
   // Como la base (paso 2 de visitas_registrar): la fecha en Bogotá debe ser hoy y la llegada no puede ir más de
   // TOLERANCIA_RELOJ_SEGUNDOS por delante del reloj del servidor (un teléfono con el reloj adelantado unos segundos
@@ -457,7 +478,12 @@ export function validarVisita(entrada: {
     if (!medico || !medico.activo) falla('medico_id', MENSAJE_MEDICO_NO_EXISTE)
     else {
       if (sede && !medico.sede_ids.includes(sede.id)) falla('sede_id', MENSAJE_SEDE_NO_DEL_MEDICO)
-      out_of_territory = !medico.es_visitante
+      if (contexto.como_lider) {
+        // Como líder (0850, C9): solo médicos de sus líneas; nunca fuera de territorio.
+        if (medico.de_mis_lineas === false) falla('medico_id', MENSAJE_MEDICO_AJENO)
+      } else {
+        out_of_territory = !medico.es_visitante
+      }
     }
   } else {
     if (sede && sede.cuenta_id !== datos.cuenta_id) falla('cuenta_id', MENSAJE_SEDE_NO_DE_LA_CUENTA)
@@ -507,13 +533,16 @@ export function subtipoVigenteEn(subtipo: { vigente_desde: string; vigente_hasta
   return subtipo.vigente_desde <= fecha && (subtipo.vigente_hasta === null || fecha <= subtipo.vigente_hasta)
 }
 
-/** ¿La ejecutiva puede corregir o anular la visita? Solo las de la app, suyas, no anuladas y de hoy. */
+/**
+ * ¿La persona puede corregir o anular la visita? Solo las de la app, suyas (0850: por user_id, la persona que la
+ * reportó, con o sin Ejecutivo Comercial), no anuladas y de hoy.
+ */
 export function visitaEditable(
-  visita: { source: FuenteVisita; executive_id: string | null; visit_date: string; deleted_at: string | null },
-  executiveId: string,
+  visita: { source: FuenteVisita; user_id: string | null; visit_date: string; deleted_at: string | null },
+  userId: string,
   hoy: string
 ): boolean {
-  return visita.source === 'app' && visita.executive_id === executiveId && visita.deleted_at === null && visita.visit_date === hoy
+  return visita.source === 'app' && visita.user_id === userId && visita.deleted_at === null && visita.visit_date === hoy
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1488,8 +1517,34 @@ export interface VozDisponible {
   proponer: boolean
 }
 
+/** Una línea de la persona de campo y "como qué" la lleva (0850): como Ejecutivo Comercial o como líder. */
+export interface LineaPersona {
+  id: string
+  nombre: string
+  como: ComoPersona
+}
+
+/** La persona de campo en GET /api/auth/me (0850); null para la dirección comercial o un usuario sin líneas. */
+export interface PersonaMovil {
+  rol: RolPersona
+  lineas: LineaPersona[]
+}
+
+/** La persona de campo en el contexto (0850). */
+export interface PersonaContexto extends PersonaMovil {
+  user_id: string
+  /** users.full_name. */
+  nombre: string
+  /** Su Ejecutivo Comercial activo, o null (líder sin Ejecutivo Comercial). */
+  executive_id: string | null
+}
+
 /** GET /api/me/contexto?lat=&lng=&precision= (sin lat/lng: sedes_cerca vacío y mis_medicos sin distancias). */
 export interface ContextoResponse {
+  /**
+   * Quien reporta, en la forma de la 0840 (la app de hoy la lee). Desde la 0850, sin Ejecutivo Comercial (una líder):
+   * id = el del usuario, su nombre, sin zona ni municipio y sus líneas de líder. Las líneas son siempre TODAS las suyas.
+   */
   ejecutiva: EjecutivaContexto
   hoy: HoyContexto
   config: ConfigContexto
@@ -1504,6 +1559,8 @@ export interface ContextoResponse {
    * la más cercana primero; sin punto, por hora. Sin la 0840 aplicada: [] (el resto del contexto sigue igual).
    */
   agenda_hoy: CitaItem[]
+  /** 0850: la persona de campo (papel y líneas con "como qué"). */
+  persona: PersonaContexto
 }
 
 /** Una visita de la ejecutiva en GET /api/me/visitas (nunca el documento del médico). */
@@ -1564,7 +1621,8 @@ export interface TranscripcionResponse {
 /** GET /api/me/numeros?mes=AAAA-MM (F3: solo KPI 1 y días hábiles sin visitas). */
 export interface NumerosResponse {
   mes: string
-  cuota: CuotaResponse
+  /** null sin Ejecutivo Comercial (una líder: no tiene cuota de visitas, C4). */
+  cuota: CuotaResponse | null
   hechas: {
     medica: number
     institucional: number
@@ -1588,7 +1646,7 @@ export interface NumerosResponse {
 /** Pasa el resultado puro de cumplimientoMes (y el de cuentasAgenda) a la forma de NumerosResponse. */
 export function numerosDesdeCumplimiento(
   mes: string,
-  cuota: CuotaResponse,
+  cuota: CuotaResponse | null,
   resultado: ResultadoCumplimiento,
   agenda: NumerosAgenda | null = null
 ): NumerosResponse {
@@ -1641,6 +1699,8 @@ export interface LoginMovilResponse {
 export interface MeResponse {
   user: { id: string; email: string; full_name: string; role: Role; active: boolean }
   ejecutiva: EjecutivaMovil | null
+  /** 0850: la persona de campo, o null (la dirección comercial, A1, o un usuario sin líneas). */
+  persona: PersonaMovil | null
 }
 
 /** Respuesta de error de toda la API: { error } y, en la pre-validación de visitas, los errores por campo. */
@@ -1656,20 +1716,32 @@ export interface ErrorResponse {
 //    puro (para las pruebas, la API y lo que la app copia).
 // ---------------------------------------------------------------------------------------------
 
-/** Estado de una cita (visitas_agenda.estado). Una cita no se borra: se cancela. */
-export const ESTADOS_CITA = [
-  { valor: 'pendiente', etiqueta: 'Pendiente' },
-  { valor: 'hecha', etiqueta: 'Hecha' },
-  { valor: 'cancelada', etiqueta: 'Cancelada' },
-] as const satisfies readonly Opcion[]
-export type EstadoCita = (typeof ESTADOS_CITA)[number]['valor']
-export const VALORES_ESTADO_CITA = valoresDe<EstadoCita>(ESTADOS_CITA)
+/**
+ * Estados de la cita (5 desde la 0850: pendiente, hecha, no_realizada, cancelada y eliminada), motivos de cierre y las
+ * reglas del ciclo de vida: lib/agenda-ciclo.ts, re-exportado aquí para quien ya importaba de este archivo.
+ */
+export {
+  ESTADOS_CITA,
+  MOTIVOS_CIERRE,
+  VALORES_ESTADO_CITA,
+  VALORES_MOTIVO_ELEGIBLE,
+  agendaChoca,
+  citaCancelable,
+  citaCerrable,
+  citaEliminable,
+  cuentasAgenda,
+  estadoVisible,
+  mensajeChoque,
+  mensajeHoraCita,
+  origenParaOtraFecha,
+  revisarVisitaConOtraFecha,
+} from './agenda-ciclo'
+export type { CitaConSucesora, EstadoCita, EstadoVisible, MotivoCierre, MotivoElegible, NumerosAgenda } from './agenda-ciclo'
 
 /** Límites (mismos CHECK de la 0840). */
 export const MAX_NOTA_CITA = 300
 export const MAX_MOTIVO_CANCELACION_CITA = 300
-/** Decisión 3: se agenda de hoy a 30 días adelante, en hora de Bogotá. */
-export const DIAS_AGENDA_ADELANTE = 30
+// Sin tope para agendar hacia adelante desde la 0850 (A4): ya no hay DIAS_AGENDA_ADELANTE.
 /** GET /api/me/agenda sin fechas: de hoy a hoy + 7. */
 export const DIAS_AGENDA_POR_DEFECTO = 7
 /** GET /api/me/agenda: como mucho 31 días por consulta (desde y hasta incluidos). */
@@ -1677,7 +1749,6 @@ export const MAX_DIAS_CONSULTA_AGENDA = 31
 
 /** Mensajes de agenda_crear y agenda_cancelar (23514, salvo los repetidos: 23505 → 409; inexistente: P0002 → 404). */
 export const MENSAJE_CITA_PASADA = 'No se agenda en el pasado: elige hoy o una fecha posterior'
-export const MENSAJE_CITA_LEJANA = `Solo se agenda hasta ${DIAS_AGENDA_ADELANTE} días adelante`
 export const MENSAJE_CITA_DIA_LIBRE = 'Ese día lo tienes libre (día libre aprobado): no se agenda'
 export const MENSAJE_CITA_REPETIDA_MEDICO = 'Ya tienes una cita con ese médico ese día'
 export const MENSAJE_CITA_REPETIDA_CUENTA = 'Ya tienes una cita con esa cuenta y ese subtipo ese día'
@@ -1712,13 +1783,18 @@ export function horaCorta(valor: unknown): string | null {
 
 /** Cuerpo de POST /api/me/agenda (ya validado por citaCreateSchema): tipo discriminado como la visita. */
 export interface CitaCreateBase {
-  /** AAAA-MM-DD, de hoy a hoy + 30 (Bogotá); no en un día libre aprobado. */
+  /** AAAA-MM-DD, de hoy en adelante, sin tope (A4, 0850; Bogotá); no en un día libre aprobado. */
   fecha: string
-  /** HH:MM, obligatoria desde el 2026-10-15 (MENSAJE_HORA_OBLIGATORIA); la columna sigue aceptando NULL (citas viejas). */
+  /** HH:MM, obligatoria desde el 2026-10-15 (MENSAJE_HORA_OBLIGATORIA); de hoy, no una hora que ya pasó (C13). */
   hora: string
   sede_id: string
   /** Hasta 300 caracteres (opcional). */
   nota: string | null
+  /**
+   * 0850 (C12), solo para quien tiene los dos papeles: 'ejecutivo' (la cita lleva su Ejecutivo Comercial) o 'lider'
+   * (sin él). Sin el dato: como Ejecutivo Comercial si lo tiene; si no, como líder.
+   */
+  como?: ComoPersona | null
 }
 
 export type CitaCreateTipo =
@@ -1727,9 +1803,36 @@ export type CitaCreateTipo =
 
 export type CitaCreate = CitaCreateBase & CitaCreateTipo
 
-/** Cuerpo de POST /api/me/agenda/[id]/cancelar (el motivo es opcional, hasta 300 caracteres). */
+/**
+ * Cuerpo de POST /api/me/agenda/[id]/cancelar. Desde la 0850 el motivo es OBLIGATORIO (A8): un código de la lista
+ * (sin 'salida') y, con 'otro', el texto (3 a 300). Sin código y con texto = 'otro' (así la app de hoy, que solo manda
+ * el texto, sigue funcionando); sin nada → 400.
+ */
 export interface CitaCancelar {
   motivo: string | null
+  motivo_codigo?: MotivoElegible
+}
+
+/** Cuerpo de POST /api/me/agenda/[id]/cerrar ("no se hizo", 0850): código de la lista y, con 'otro', el texto. */
+export interface CitaCerrar {
+  motivo_codigo: MotivoElegible
+  motivo: string | null
+}
+
+/** Cuerpo de POST /api/me/agenda/[id]/otra-fecha (0850): la fecha y la hora nuevas; la sede y la nota pueden cambiar. */
+export interface CitaOtraFecha {
+  fecha: string
+  hora: string
+  /** null: la misma sede de la anterior. */
+  sede_id: string | null
+  /** Ausente: la nota de la anterior; null: sin nota. */
+  nota?: string | null
+  como?: ComoPersona | null
+}
+
+/** POST /api/me/agenda/[id]/eliminar → 200 (0850): la cita ya no sale en ninguna lectura. */
+export interface CitaEliminadaResponse {
+  cita_id: string
 }
 
 /** Sede de una cita, con lo que Reportar necesita para medir la distancia y el radio. */
@@ -1770,6 +1873,21 @@ export interface CitaItem {
   anticipada: boolean
   /** Ella la puede cancelar: pendiente y de hoy en adelante. */
   cancelable: boolean
+  // --- 0850 (aditivo: la app de hoy no los lee) ---
+  /** Motivo del cierre (no_realizada o cancelada), o null. */
+  motivo_codigo: MotivoCierre | null
+  /** Cuándo se marcó "no se hizo", o null. */
+  no_realizada_at: string | null
+  /** Texto del motivo de "no se hizo", o null. */
+  no_realizada_motivo: string | null
+  /** La cita de la que esta es "otra fecha", o null. */
+  viene_de: string | null
+  /** Su "otra fecha" (la sucesora no eliminada), o null. */
+  sucesora_id: string | null
+  /** Como Ejecutivo Comercial (con executive_id) o como líder (sin él). */
+  como: ComoPersona
+  /** Programada, atrasada (hoy, pasada su hora), sin cerrar (de un día anterior) o su estado cerrado (C6). */
+  estado_visible: EstadoVisible
 }
 
 /** GET /api/me/agenda?desde=&hasta= (sin fechas: hoy a hoy + 7; como mucho 31 días). */
@@ -1777,8 +1895,8 @@ export interface AgendaResponse {
   desde: string
   hasta: string
   hoy: string
-  /** Última fecha en la que se puede agendar hoy (hoy + 30). */
-  max_fecha: string
+  /** Desde la 0850 no hay tope hacia adelante (A4): null. (La app de hoy no la lee: su calendario tiene su propio tope.) */
+  max_fecha: null
   items: CitaItem[]
 }
 
@@ -1787,21 +1905,6 @@ export interface CitaResponse {
   cita: CitaItem
 }
 
-/** Indicador de la agenda en Mis números (decisión 8), por mes. Las razones van de 0 a 1 con 2 decimales. */
-export interface NumerosAgenda {
-  /** Visitas efectivas del mes (no anuladas). */
-  efectivas: number
-  /** De ellas, las agendadas (vinculadas a una cita creada antes del día de la visita). */
-  efectivas_agendadas: number
-  /** efectivas_agendadas ÷ efectivas; null si no hay efectivas. */
-  porcentaje_agendadas: number | null
-  /** Citas del mes de días ya pasados o de hoy, sin las canceladas. */
-  citas_hasta_hoy: number
-  /** De ellas, las hechas (con su visita, efectiva o no). */
-  citas_hechas: number
-  /** citas_hechas ÷ citas_hasta_hoy; null si no hay citas. */
-  cumplimiento: number | null
-}
 
 /** Cuerpo de POST /api/me/voz/campos: lo dictado para UNA visita y su tipo. */
 export interface CamposDictado {
@@ -1816,12 +1919,7 @@ export interface CamposDictadoResponse {
   next_step_date: string | null
 }
 
-// --- Ventana de fechas (decisión 3) ---------------------------------------------------------------------------
-
-/** Desde hoy hasta hoy + 30 (Bogotá). */
-export function ventanaAgenda(hoy: string): { desde: string; hasta: string } {
-  return { desde: hoy, hasta: sumarDias(hoy, DIAS_AGENDA_ADELANTE) }
-}
+// --- Ventana de fechas (decisión 3; 0850: sin tope hacia adelante, A4) ---------------------------------------
 
 /** Un día libre de la persona (dias_libres), con lo mínimo para la agenda. */
 export interface DiaLibreAgenda {
@@ -1840,20 +1938,15 @@ export function esDiaLibreCompleto(dias: readonly DiaLibreAgenda[], fecha: strin
 }
 
 /**
- * Espejo de la ventana de agenda_crear: el mensaje si en esa fecha no se agenda (pasado, más de 30 días o día libre
- * completo), o null. Los festivos sí se permiten: la persona sabe si trabaja.
+ * Espejo de la ventana de agenda_crear: el mensaje si en esa fecha no se agenda (pasado o día libre completo), o null.
+ * Sin tope hacia adelante (A4, 0850). Los festivos sí se permiten: la persona sabe si trabaja. La hora que ya pasó la
+ * mira mensajeHoraCita (lib/agenda-ciclo.ts).
  */
 export function mensajeFechaCita(fecha: string, hoy: string, dias: readonly DiaLibreAgenda[] = []): string | null {
   if (!esFechaIso(fecha)) return 'Fecha no válida: usa AAAA-MM-DD'
   if (fecha < hoy) return MENSAJE_CITA_PASADA
-  if (fecha > sumarDias(hoy, DIAS_AGENDA_ADELANTE)) return MENSAJE_CITA_LEJANA
   if (esDiaLibreCompleto(dias, fecha)) return MENSAJE_CITA_DIA_LIBRE
   return null
-}
-
-/** La persona puede cancelarla: pendiente y de hoy en adelante (espejo de agenda_cancelar). */
-export function citaCancelable(cita: { estado: EstadoCita; fecha: string }, hoy: string): boolean {
-  return cita.estado === 'pendiente' && cita.fecha >= hoy
 }
 
 // --- Vínculo con la visita (decisiones 6 y 7) ------------------------------------------------------------------
@@ -1873,7 +1966,10 @@ export function citaAnticipada(creadaAt: string, fechaVisita: string): boolean {
 /** Una cita con lo que el vínculo necesita (filas de visitas_agenda). */
 export interface CitaVinculo {
   id: string
-  executive_id: string
+  /** 0850: la persona dueña de la cita (el vínculo es por persona). */
+  user_id: string
+  /** 0850: como Ejecutivo Comercial (su id) o como líder (null). La visita la cumple solo con el mismo papel. */
+  executive_id: string | null
   fecha: string
   hora: string | null
   tipo: TipoVisita
@@ -1890,7 +1986,10 @@ export interface CitaVinculo {
 
 /** La visita que se va a registrar, con lo que el vínculo mira. */
 export interface VisitaParaVinculo {
-  executive_id: string
+  /** 0850: la persona que reporta. */
+  user_id: string
+  /** 0850: el Ejecutivo Comercial de la visita (ejecutivoDeLaVisita), o null (como líder). */
+  executive_id: string | null
   /** visit_date (Bogotá). */
   fecha: string
   tipo: TipoVisita
@@ -1909,15 +2008,16 @@ export function citaRelevable(cita: Pick<CitaVinculo, 'estado' | 'cumplida_por_n
 const compararHora = (a: string | null, b: string | null) => (a === b ? 0 : a === null ? 1 : b === null ? -1 : a < b ? -1 : 1)
 
 /**
- * Vínculo automático (decisión 7, espejo de visitas_registrar): la cita PENDIENTE de ella, de ese día y del mismo
- * tipo, con el mismo médico; en las institucionales con la misma cuenta, prefiriendo el mismo subtipo. Si la visita es
- * efectiva, también la cita que cumplió una no efectiva suya ese día (relevo: la efectiva planeada cuenta como
- * agendada). Entre varias: el mismo subtipo, la pendiente antes que el relevo, la de hora más temprana (sin hora al
- * final), luego la creada primero y luego por id (el mismo ORDER BY de la base).
+ * Vínculo automático (decisión 7, espejo de visitas_registrar): la cita PENDIENTE de ella (0850: de la persona y del
+ * mismo papel), de ese día y del mismo tipo, con el mismo médico; en las institucionales con la misma cuenta,
+ * prefiriendo el mismo subtipo. Si la visita es efectiva, también la cita que cumplió una no efectiva suya ese día
+ * (relevo: la efectiva planeada cuenta como agendada). Entre varias: el mismo subtipo, la pendiente antes que el relevo,
+ * la de hora más temprana (sin hora al final), luego la creada primero y luego por id (el mismo ORDER BY de la base).
  */
 export function citaParaVincular(citas: readonly CitaVinculo[], visita: VisitaParaVinculo): CitaVinculo | null {
   const candidatas = citas.filter(
     cita =>
+      cita.user_id === visita.user_id &&
       cita.executive_id === visita.executive_id &&
       cita.fecha === visita.fecha &&
       (cita.estado === 'pendiente' || citaRelevable(cita, visita)) &&
@@ -1938,19 +2038,21 @@ export function citaParaVincular(citas: readonly CitaVinculo[], visita: VisitaPa
 }
 
 /**
- * La cita que la visita trae en agenda_id, revisada como visitas_registrar (decisión 7): de ella (si no, "no existe o no
- * es tuya"), no cancelada, no hecha (salvo el relevo: la cumplió una no efectiva suya y esta es efectiva), del mismo
- * día, del mismo tipo y con el mismo médico o la misma cuenta (el subtipo puede cambiar: se planeó compras y se habló
- * con el químico). null = sirve.
+ * La cita que la visita trae en agenda_id, revisada como visitas_registrar (decisión 7; 0850): de la persona y no
+ * eliminada (si no, "no existe o no es tuya"), no cancelada, no cerrada ("no se hizo"), no hecha (salvo el relevo: la
+ * cumplió una no efectiva suya y esta es efectiva), del mismo día, del mismo tipo, con el mismo médico o la misma
+ * cuenta (el subtipo puede cambiar: se planeó compras y se habló con el químico) y del mismo papel (C12). null = sirve.
  */
 export function revisarCitaElegida(cita: CitaVinculo | null | undefined, visita: VisitaParaVinculo): string | null {
-  if (!cita || cita.executive_id !== visita.executive_id) return MENSAJE_CITA_AJENA
+  if (!cita || cita.user_id !== visita.user_id || cita.estado === 'eliminada') return MENSAJE_CITA_AJENA
   if (cita.estado === 'cancelada') return MENSAJE_CITA_CANCELADA
+  if (cita.estado === 'no_realizada') return MENSAJE_CITA_CERRADA
   if (cita.estado === 'hecha' && !citaRelevable(cita, visita)) return MENSAJE_CITA_YA_HECHA
   if (cita.fecha !== visita.fecha) return MENSAJE_CITA_OTRO_DIA
   if (cita.tipo !== visita.tipo) return MENSAJE_CITA_OTRO_TIPO
   if (visita.tipo === 'medica' && cita.medico_id !== visita.medico_id) return MENSAJE_CITA_OTRO_MEDICO
   if (visita.tipo === 'institucional' && cita.cuenta_id !== visita.cuenta_id) return MENSAJE_CITA_OTRA_CUENTA
+  if (cita.executive_id !== visita.executive_id) return MENSAJE_CITA_OTRO_PAPEL
   return null
 }
 
@@ -1978,7 +2080,10 @@ export function vinculoDeVisita(entrada: {
 /** Una visita del día con lo que mira visitas_anular para pasarle la cita de la anulada. */
 export interface VisitaParaRetomar {
   id: string
-  executive_id: string
+  /** 0850: la persona que la reportó. */
+  user_id: string
+  /** 0850: su Ejecutivo Comercial, o null (como líder). */
+  executive_id: string | null
   fecha: string
   tipo: TipoVisita
   medico_id: string | null
@@ -1991,13 +2096,14 @@ export interface VisitaParaRetomar {
 }
 
 /**
- * Espejo del final de visitas_anular: al anular la visita que cumplía `cita`, la cita pasa a otra visita suya no
- * anulada de ese día, del mismo tipo y con el mismo médico o cuenta, que no tenga cita (la efectiva primero, luego el
- * mismo subtipo, la llegada más temprana y por id; p. ej. la no efectiva de antes de un relevo). null = no hay: la cita
- * vuelve a pendiente.
+ * Espejo del final de visitas_anular: al anular la visita que cumplía `cita`, la cita pasa a otra visita suya (0850: de
+ * la persona y del mismo papel) no anulada de ese día, del mismo tipo y con el mismo médico o cuenta, que no tenga cita
+ * (la efectiva primero, luego el mismo subtipo, la llegada más temprana y por id; p. ej. la no efectiva de antes de un
+ * relevo). null = no hay: la cita vuelve a pendiente. Antes, visitas_anular rechaza si la cita ya tiene otra fecha
+ * (revisarVisitaConOtraFecha, lib/agenda-ciclo.ts).
  */
 export function visitaQueRetomaCita(
-  cita: Pick<CitaVinculo, 'executive_id' | 'fecha' | 'tipo' | 'medico_id' | 'cuenta_id' | 'subtipo_id'>,
+  cita: Pick<CitaVinculo, 'user_id' | 'executive_id' | 'fecha' | 'tipo' | 'medico_id' | 'cuenta_id' | 'subtipo_id'>,
   anuladaId: string,
   visitas: readonly VisitaParaRetomar[]
 ): VisitaParaRetomar | null {
@@ -2006,6 +2112,7 @@ export function visitaQueRetomaCita(
       v.id !== anuladaId &&
       !v.anulada &&
       v.agenda_id === null &&
+      v.user_id === cita.user_id &&
       v.executive_id === cita.executive_id &&
       v.fecha === cita.fecha &&
       v.tipo === cita.tipo &&
@@ -2021,31 +2128,7 @@ export function visitaQueRetomaCita(
   return ordenadas[0] ?? null
 }
 
-// --- Indicador de Mis números (decisión 8) ---------------------------------------------------------------------
-
-/**
- * Cuentas de la agenda del mes: porcentaje de efectivas agendadas (agendadas ÷ efectivas) y cumplimiento de la agenda
- * (citas hechas ÷ citas de días ya pasados o de hoy, sin las canceladas). `visitas`: las del mes sin anuladas; la no
- * efectiva cumple su cita pero no suma a las efectivas. `citas`: las del mes (todas: aquí se quitan las canceladas).
- */
-export function cuentasAgenda(entrada: {
-  visitas: readonly { efectiva: boolean; agendada: boolean }[]
-  citas: readonly { fecha: string; estado: EstadoCita }[]
-  hoy: string
-}): NumerosAgenda {
-  const efectivas = entrada.visitas.filter(visita => visita.efectiva)
-  const efectivas_agendadas = efectivas.filter(visita => visita.agendada).length
-  const hastaHoy = entrada.citas.filter(cita => cita.estado !== 'cancelada' && cita.fecha <= entrada.hoy)
-  const citas_hechas = hastaHoy.filter(cita => cita.estado === 'hecha').length
-  return {
-    efectivas: efectivas.length,
-    efectivas_agendadas,
-    porcentaje_agendadas: efectivas.length > 0 ? redondear2(efectivas_agendadas / efectivas.length) : null,
-    citas_hasta_hoy: hastaHoy.length,
-    citas_hechas,
-    cumplimiento: hastaHoy.length > 0 ? redondear2(citas_hechas / hastaHoy.length) : null,
-  }
-}
+// --- Indicador de Mis números (decisión 8): cuentasAgenda está en lib/agenda-ciclo.ts (re-exportada arriba) -----
 
 // --- Distancia y orden de las citas (Reportar: la más cercana primero) ------------------------------------------
 
