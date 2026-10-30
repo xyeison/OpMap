@@ -2,16 +2,18 @@
  * SIA Observa · ficha del contrato (GET /guess/cto_ficha_resumen_guess.aspx?idc=…) y respuestas del handler de
  * documentos. Lógica pura (cheerio, sin red ni base de datos). Pruebas: scripts/sia-observa-check.ts.
  *
- * Lo verificado por el dueño el 29-oct (spec, 3.4 y 3.5) y en lo que este parser se apoya:
- *   - Los documentos son enlaces <a href="/handlers/filehandler_guess_anonimo.ashx?ianx=…&ianxa=…&eid=<GUID>">
- *     con el texto "nombre.pdf --> 2026/07/09", y vienen repetidos: se deduplican por (ianx, ianxa).
- *   - Secciones con encabezado h3/h4: Información Básica, Contratistas, Supervisores - Interventores, Fechas
- *     Registradas ("Fecha de Publicación en el SECOP" con enlace "Ver Pub"), Documentos, Novedades, Traza.
+ * Ajustado a la ficha REAL de CD/26-1262 (scripts/__fixtures__/sia/ficha-12910254.html, prueba de humo del 2026-10-30):
+ *   - Secciones con encabezado h3: Información Básica, Contratistas, Supervisores - Interventores, Fechas Registradas,
+ *     Documentos de Legalidad Anexados, Novedades - …, Traza del contrato.
+ *   - Información Básica: tabla etiqueta → valor ("Nombre o Código:", "Fecha de Suscripción (aaaa/mm/dd):"…) y una sola
+ *     celda "Valor Inicial: $510.281.732,00 + Adiciones: 0 = Valor Vigente: $510.281.732,00".
+ *   - Fechas Registradas: tabla FECHA | DESCRIPCIÓN | FECHA REGISTRO ("Fecha de Publicación en el SECOP" + "Ver Publicación").
+ *   - Documentos: filas ETAPA | DESCRIPCIÓN | ARCHIVOS con enlaces <a href="/handlers/filehandler_guess_anonimo.ashx?ianx=…
+ *     &ianxa=…&eid=<GUID>"> y el texto "nombre.pdf --> 2026/07/09". Se deduplican por (ianx, ianxa) y, si el mismo archivo
+ *     se subió otra vez el mismo día, por nombre y fecha.
  *   - El handler responde 200 application/pdf, o 200 text/html con un aviso de bootbox (pide correo para anonimizar,
  *     o "se restringe su visualización" por la Ley 1581).
- * Lo que NO se pudo ver en HTML real desde aquí (SIA corta conexiones fuera de Colombia): el marcado exacto de los
- * pares etiqueta → valor. Por eso los datos básicos se leen de forma tolerante (celda de etiqueta y la siguiente con
- * texto) y el sync NO depende de ellos: los campos del contrato salen de Get_CTOs_Base. Privacidad: de Contratistas
+ * El sync NO depende de los datos básicos: los campos del contrato salen de Get_CTOs_Base. Privacidad: de Contratistas
  * solo quedan las empresas; Supervisores e interventores no se leen.
  */
 import * as cheerio from 'cheerio'
@@ -139,7 +141,7 @@ const HANDLER_PATH = '/handlers/filehandler_guess_anonimo.ashx'
 /** Etiquetas de Información Básica (texto normalizado → campo). La primera que case gana. */
 const ETIQUETAS: ReadonlyArray<[keyof FichaBasica, RegExp]> = [
   ['objeto', /^objeto( del contrato)?$/],
-  ['codigo', /^(codigo|numero)( del)?( contrato)?$/],
+  ['codigo', /^((nombre o )?codigo|numero)( del)?( contrato)?$/],
   ['valorInicial', /^valor inicial/],
   ['adiciones', /^(valor )?(de )?adiciones$/],
   ['valorVigente', /^valor (vigente|total|actual)/],
@@ -148,9 +150,9 @@ const ETIQUETAS: ReadonlyArray<[keyof FichaBasica, RegExp]> = [
   ['tipoContrato', /^(tipo de contrato|tipologia|clase de contrato)/],
   ['fechaFirma', /^fecha (de )?(firma|suscripcion)/],
   ['fechaInicio', /^fecha (de )?(inicio|acta de inicio)/],
-  ['fechaFin', /^fecha (de )?(terminacion|termino|fin|finalizacion)/],
+  ['fechaFin', /^fecha (de )?(terminacion|termino|fin|finalizacion)(?! ampliada)/],
   ['plazo', /^plazo/],
-  ['estado', /^estado( del contrato)?$/],
+  ['estado', /^estado( actual)?( del contrato)?$/],
 ]
 
 const NOVEDADES = ['adiciones', 'adicion prorroga', 'prorroga', 'cesion', 'otrosi', 'suspension', 'reinicio', 'terminacion', 'liquidacion'] as const
@@ -202,6 +204,14 @@ export function parseFicha(html: string): FichaSia {
   for (let i = 0; i < celdas.length; i++) {
     const celda = celdas[i]
     if (!enBasica(celda.seccion)) continue
+    // Ficha real: una sola celda "Valor Inicial: $510.281.732,00 + Adiciones: 0 = Valor Vigente: $510.281.732,00"
+    const compuesto = /valor inicial:\s*([^+=]*?)\s*\+\s*adiciones:\s*([^=]*?)\s*=\s*valor vigente:\s*(.+)$/i.exec(celda.text)
+    if (compuesto) {
+      basica.valorInicial ??= siaDinero(compuesto[1])
+      basica.adiciones ??= siaDinero(compuesto[2])
+      basica.valorVigente ??= siaDinero(compuesto[3])
+      continue
+    }
     const label = etiquetaNormal(celda.text)
     // "Etiqueta: valor" en la misma celda
     const enLinea = /^([^:]{3,60}):\s*(.+)$/.exec(celda.text)
@@ -239,10 +249,20 @@ export function parseFicha(html: string): FichaSia {
     contratistas.push({ nit, nombre: siaTexto(cells[1], 300), tipo: siaTexto(tipo, 80), fechaVinculacion: siaFecha(cells[3] ?? '') })
   })
 
-  // Fechas registradas: publicación en SECOP (y su enlace "Ver Pub") y cargue en SIA
+  // Fechas registradas. Ficha real: tabla FECHA | DESCRIPCIÓN | FECHA REGISTRO; la publicación en SECOP es la FECHA de su
+  // fila y el cargue en SIA, la primera FECHA REGISTRO.
   let fechaPublicacionSecop: string | null = null
   let fechaCargueSia: string | null = null
-  for (let i = 0; i < celdas.length; i++) {
+  $('tr').each((_, tr) => {
+    if (seccionDe($, tr) !== 'fechas registradas') return
+    const cells = $(tr).children('td').map((__, td) => textoDe($, td)).get()
+    if (cells.length < 3) return
+    const [fecha, descripcion, registro] = [siaFecha(cells[0]), normalizeText(cells[1]), siaFecha(cells[2])]
+    if (!fechaPublicacionSecop && /publicacion en (el )?secop/.test(descripcion)) fechaPublicacionSecop = fecha
+    if (registro && (!fechaCargueSia || registro < fechaCargueSia)) fechaCargueSia = registro
+  })
+  // Otros formatos: "Etiqueta: fecha"
+  for (let i = 0; i < celdas.length && !(fechaPublicacionSecop && fechaCargueSia); i++) {
     const label = etiquetaNormal(celdas[i].text)
     const valorSiguiente = () => {
       for (const c of celdas.slice(i, i + 4)) {
@@ -265,9 +285,11 @@ export function parseFicha(html: string): FichaSia {
     }
   })
 
-  // Documentos: enlaces del handler, deduplicados por (ianx, ianxa)
+  // Documentos: enlaces del handler, deduplicados por (ianx, ianxa). Un archivo subido otra vez con el mismo nombre y la
+  // misma fecha (pasa con las pólizas) es el mismo documento: queda una vez, con el enlace de la subida más reciente.
   const documentos: FichaDocumento[] = []
   const vistos = new Set<string>()
+  const porNombre = new Map<string, number>()
   $('a').each((_, a) => {
     const href = String($(a).attr('href') ?? '')
     let url: URL
@@ -286,15 +308,26 @@ export function parseFicha(html: string): FichaSia {
     const texto = $(a).text().replace(/\s+/g, ' ').trim()
     const [nombreCrudo, fechaCruda] = texto.split(/\s*-->\s*/)
     const nombre = (nombreCrudo || `documento_${ianx}_${ianxa}`).trim()
-    documentos.push({
+    // Si el nombre del archivo no dice qué es, la descripción de su fila ("CONTRATO O SU EQUIVALENTE", "PÓLIZAS (AGR)"…)
+    const porArchivo = tipoDocumento(nombre)
+    const descripcion = $(a).closest('tr').children('td').eq(1).text()
+    const doc: FichaDocumento = {
       nombre,
-      tipo: tipoDocumento(nombre),
+      tipo: porArchivo === 'otro' && descripcion ? tipoDocumento(descripcion) : porArchivo,
       fechaCargue: siaFecha(fechaCruda ?? ''),
       ianx,
       ianxa,
       eid: (url.searchParams.get('eid') ?? '').toLowerCase() || null,
       url: url.toString(),
-    })
+    }
+    const claveNombre = `${nombre.toLowerCase()}|${doc.fechaCargue ?? ''}`
+    const previo = porNombre.get(claveNombre)
+    if (previo === undefined) {
+      porNombre.set(claveNombre, documentos.length)
+      documentos.push(doc)
+    } else if (ianx > documentos[previo].ianx || (ianx === documentos[previo].ianx && ianxa > documentos[previo].ianxa)) {
+      documentos[previo] = doc
+    }
   })
 
   // Novedades: tablas bajo cada subtítulo de "Novedades" (Adiciones, Prórroga, …, Liquidación)
