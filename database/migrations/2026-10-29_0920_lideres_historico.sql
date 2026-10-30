@@ -1,6 +1,6 @@
 -- =====================================================================================
 -- OpMap · feat/lideres-seguimiento · 0920 · Histórico del Excel "Tracker Líderes"
--- Proyecto: norvxqgohddgsdkggqzq · Generado: 2026-10-29 · ESTADO: NO APLICADA
+-- Proyecto: norvxqgohddgsdkggqzq · Generado: 2026-10-29 · ESTADO: APLICADA el 2026-10-29 (autorización del dueño: "Si procede")
 --
 -- Decisión del dueño: docs/decisiones/2026-10-29-historico-tracker-lideres.md ("Sí, podemos dejar también la data que
 --   está en el Excel en la solución que propongas en la app"). Reemplaza la A15 del 2026-10-15 (no importar el

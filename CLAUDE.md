@@ -102,7 +102,7 @@ nada llama a Google.
   reemplaza la A15 del 2026-10-15): en `/lideres` (permiso `lideres:seguimiento`: admin y dirección) la directora sube el
   Excel; el navegador manda solo fecha, líder, ciudad, tipo, estado, cuántos contactos y si había observación (ningún
   texto libre: ni nombres de médicos, ni observaciones, ni el tipo escrito a mano) y cada carga reemplaza el histórico
-  (`lideres_historico`, migración 0920 sin aplicar; su DELETE lleva WHERE por pg-safeupdate de PostgREST). Cuando las líderes reporten en la app (PR #48 y sus fases), se deja de subir el Excel.
+  (`lideres_historico`, migración 0920 APLICADA el 2026-10-29; su DELETE lleva WHERE por pg-safeupdate de PostgREST). Cuando las líderes reporten en la app (PR #48 y sus fases), se deja de subir el Excel.
 - **Territorio y contratos**: el anexo de territorio (Anexo A IPS, Anexo B municipios) va al contrato de
   cada Ejecutivo Comercial; las versiones (`territory_snapshots`) son inmutables.
 - **SECOP I** se cuenta por el valor ADJUDICADO a cada contratista desde `f789-7hwg` (`fuente = 'secop1'`); el
