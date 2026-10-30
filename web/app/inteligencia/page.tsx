@@ -12,8 +12,10 @@ import GirosMonthlyChart, { SEGMENTS_REGIMEN, SEGMENTS_TIPO } from '@/components
 import IntelligencePoblacion from '@/components/IntelligencePoblacion'
 import IntelligenceSecop from '@/components/IntelligenceSecop'
 import FuentesDatosPanel from '@/components/FuentesDatosPanel'
+import GirosVariaciones from '@/components/GirosVariaciones'
+import PeriodoGiros from '@/components/PeriodoGiros'
 import { usePermissions } from '@/hooks/usePermissions'
-import { formatCop, formatCopCompact, formatFechaGiro, formatPct, monthLabel, GIROS_COLORS } from '@/lib/giros-format'
+import { csvCell, formatCop, formatCopCompact, formatFechaGiro, formatPct, monthLabel, GIROS_COLORS } from '@/lib/giros-format'
 
 type Group = 'ips' | 'municipio' | 'zona' | 'ejecutivo'
 type Fuente = 'reporte29' | 'identifica'
@@ -139,15 +141,6 @@ const entidadLabel = (fuente: Fuente) => (fuente === 'identifica' ? 'entidad ord
 const ultimaLabel = (row: { ultima_fecha: string | null }, fuente: Fuente) => formatFechaGiro(row.ultima_fecha, fuente === 'reporte29')
 const principal = (row: GirosRow) => (row.eps_top[0] ? `${row.eps_top[0].nombre} (${formatPct(row.eps_top[0].pct)})` : null)
 
-// CSV para Excel en español: UTF-8 con BOM, separador ";", CRLF; evita fórmulas (inyección CSV).
-function csvCell(value: string | number | null | undefined): string {
-  if (value === null || value === undefined) return ''
-  if (typeof value === 'number') return Number.isFinite(value) ? String(Math.round(value)) : ''
-  let text = String(value)
-  if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`
-  if (/[";\r\n]/.test(text) || text !== text.trim()) text = `"${text.replace(/"/g, '""')}"`
-  return text
-}
 
 function buildCsv(data: GirosResponse): string {
   const lines: string[] = []
@@ -299,6 +292,9 @@ function InteligenciaContent() {
   const [line, setLine] = useState('')
   const [departamento, setDepartamento] = useState('')
   const [municipio, setMunicipio] = useState('')
+  // Período: una opción del selector (u3, u6, u12, todo, un año o personalizado) y el rango explícito que pide a la
+  // API; vacío = el rango por defecto de la API (12 meses hasta el último mes con giros), que es "Últimos 12 meses".
+  const [periodo, setPeriodo] = useState('u12')
   const [desde, setDesde] = useState('')
   const [hasta, setHasta] = useState('')
   const [regimen, setRegimen] = useState<Regimen>('todos')
@@ -363,6 +359,7 @@ function InteligenciaContent() {
   const resetFilters = () => {
     setDepartamento('')
     setMunicipio('')
+    setPeriodo('u12')
     setDesde('')
     setHasta('')
     setRegimen('todos')
@@ -450,7 +447,17 @@ function InteligenciaContent() {
           </label>
           <label className="text-sm">
             <span className="block text-xs font-medium text-gray-600 mb-1">Fuente</span>
-            <select value={fuente} onChange={event => setFuente(event.target.value as FuenteParam)} className="w-full rounded-lg border border-gray-300 px-3 py-2 bg-white">
+            <select
+              value={fuente}
+              onChange={event => {
+                // Cada fuente tiene sus meses: el período vuelve a los últimos 12 de la fuente nueva
+                setFuente(event.target.value as FuenteParam)
+                setPeriodo('u12')
+                setDesde('')
+                setHasta('')
+              }}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 bg-white"
+            >
               {FUENTE_OPTIONS.map(option => (
                 <option key={option.value} value={option.value}>
                   {option.label}
@@ -458,28 +465,17 @@ function InteligenciaContent() {
               ))}
             </select>
           </label>
-          <label className="text-sm">
-            <span className="block text-xs font-medium text-gray-600 mb-1">Desde (mes)</span>
-            <input
-              type="month"
-              value={desde || data?.range?.desde || ''}
-              min={data?.available?.min}
-              max={hasta || data?.range?.hasta || data?.available?.max}
-              onChange={event => setDesde(event.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2"
-            />
-          </label>
-          <label className="text-sm">
-            <span className="block text-xs font-medium text-gray-600 mb-1">Hasta (mes)</span>
-            <input
-              type="month"
-              value={hasta || data?.range?.hasta || ''}
-              min={desde || data?.range?.desde || data?.available?.min}
-              max={data?.available?.max}
-              onChange={event => setHasta(event.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2"
-            />
-          </label>
+          <PeriodoGiros
+            disponible={data?.available ?? null}
+            periodo={periodo}
+            desde={desde || data?.range?.desde || null}
+            hasta={hasta || data?.range?.hasta || null}
+            onCambiar={cambio => {
+              setPeriodo(cambio.periodo)
+              setDesde(cambio.desde)
+              setHasta(cambio.hasta)
+            }}
+          />
           <div className="flex gap-2">
             <button type="button" onClick={resetFilters} className="flex-1 px-3 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50">
               Restablecer
@@ -600,6 +596,16 @@ function InteligenciaContent() {
               )}
             </div>
           </div>
+
+          <GirosVariaciones
+            line={line}
+            departamento={departamento}
+            municipio={municipio}
+            regimen={regimen}
+            fuente={fuente}
+            hasta={hasta || null}
+            disponible={data.available}
+          />
 
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 mb-6">
             <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
