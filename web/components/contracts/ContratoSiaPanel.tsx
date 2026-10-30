@@ -44,9 +44,17 @@ interface Respuesta {
   refresco_pendiente?: boolean
 }
 
+const MODELOS: Record<string, string> = {
+  contratacion_directa: 'Contratación Directa',
+  licitacion: 'Licitación',
+  invitacion_privada: 'Invitación Privada',
+  subasta_inversa: 'Subasta Inversa',
+}
+
 function mostrar(campo: string, valor: unknown): string {
   if (valor === null || valor === undefined || valor === '') return '—'
   if (campo === 'contract_value') return pesos(Number(valor))
+  if (campo === 'contracting_model') return MODELOS[String(valor)] ?? String(valor)
   if (campo === 'max_endeudamiento') return `${Math.round(Number(valor) * 1000) / 10} %`
   if (campo === 'min_capital_trabajo') return `${valor} millones`
   if (typeof valor === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(valor)) return fechaCorta(valor)
