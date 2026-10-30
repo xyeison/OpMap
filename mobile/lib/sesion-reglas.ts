@@ -19,7 +19,7 @@ export const TIEMPO_ME_MS = 5_000
  */
 export const TIEMPO_ME_FONDO_MS = 20_000
 
-export type ArranqueSesion = 'entrar_y_confirmar' | 'confirmar_antes' | 'sin_sesion'
+export type ArranqueSesion = 'entrar_y_confirmar' | 'entrar_vencida' | 'confirmar_antes' | 'sin_sesion'
 
 /** Lo mínimo del perfil guardado que mira la regla. */
 export interface PerfilParaArranque {
@@ -27,20 +27,26 @@ export interface PerfilParaArranque {
 }
 
 /**
- * - Sin token vigente (no hay, o venció) → 'sin_sesion'.
- * - Con token y perfil guardado del mismo usuario → 'entrar_y_confirmar' (se pinta con lo guardado y se confirma en
- *   segundo plano).
- * - Con token y sin perfil (o de otro usuario que el del token) → 'confirmar_antes' (como antes).
+ * - Sin token → 'sin_sesion'.
+ * - Token VENCIDO con el perfil guardado del mismo usuario → 'entrar_vencida' (app sin señal, dueño 2026-10-30): se
+ *   entra con lo guardado para poder reportar a la cola; la confirmación en segundo plano, si hay señal, recibe 401 y
+ *   vuelve al ingreso conservando el perfil y la cola. Vencido y sin perfil → 'sin_sesion'.
+ * - Con token vigente y perfil guardado del mismo usuario → 'entrar_y_confirmar' (se pinta con lo guardado y se
+ *   confirma en segundo plano).
+ * - Con token vigente y sin perfil (o de otro usuario que el del token) → 'confirmar_antes' (como antes).
  */
 export function arranqueDeSesion(o: {
   perfilGuardado: PerfilParaArranque | null | undefined
   tokenVigente: boolean
   /** uid de la carga del token (lib/token.ts); si viene y no es el del perfil, el perfil no sirve. */
   uidDelToken?: string | null
+  /** El token existe pero ya venció (tokenVencido). */
+  tokenVencido?: boolean
 }): ArranqueSesion {
-  if (!o.tokenVigente) return 'sin_sesion'
   const id = o.perfilGuardado?.usuario?.id
-  if (typeof id !== 'string' || !id) return 'confirmar_antes'
-  if (o.uidDelToken && o.uidDelToken !== id) return 'confirmar_antes'
+  const perfilSirve = typeof id === 'string' && !!id && (!o.uidDelToken || o.uidDelToken === id)
+  if (o.tokenVencido && !o.tokenVigente) return perfilSirve ? 'entrar_vencida' : 'sin_sesion'
+  if (!o.tokenVigente) return 'sin_sesion'
+  if (!perfilSirve) return 'confirmar_antes'
   return 'entrar_y_confirmar'
 }

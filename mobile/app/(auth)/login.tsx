@@ -66,7 +66,11 @@ export default function Login() {
             Entra con el correo y la contraseña de OpMap.
           </Texto>
 
-          {aviso ? <Aviso tono="alerta">{aviso}</Aviso> : null}
+          {aviso ? (
+            <Aviso tono="alerta">
+              {`${aviso} Lo que tengas guardado sin subir en este teléfono no se pierde: se sube al entrar con tu usuario.`}
+            </Aviso>
+          ) : null}
 
           <Campo
             etiqueta="Correo"
@@ -105,6 +109,9 @@ export default function Login() {
           <Texto suave peque centro>
             Servidor: {nombreServidor(URL_API)}
             {esServidorDesarrollo(URL_API) ? ' (desarrollo)' : ''}
+          </Texto>
+          <Texto suave peque centro>
+            Cada visita que reportes guarda tu ubicación, la hora y la precisión del GPS solo al confirmar, nunca en segundo plano. No uses el modo incógnito: perderías lo guardado sin señal.
           </Texto>
         </ScrollView>
       </KeyboardAvoidingView>

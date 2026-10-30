@@ -19,6 +19,7 @@ import { View } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { Logo } from '../components/Logo'
 import { ProveedorCola } from '../lib/cola-contexto'
+import { pedirAlmacenamientoPersistente } from '../lib/pwa'
 import { ProveedorSesion } from '../lib/sesion'
 import { COLORES_CLAROS, FAMILIAS_DM_SANS, ProveedorFuentes, useColores } from '../lib/ui'
 
@@ -46,6 +47,11 @@ export default function RaizLayout() {
     const espera = setTimeout(() => setAgotado(true), ESPERA_FUENTES_MS)
     return () => clearTimeout(espera)
   }, [cargadas, error])
+
+  // App sin señal (2026-10-30): en el navegador, pedir que lo guardado (IndexedDB) no se borre por falta de espacio.
+  useEffect(() => {
+    void pedirAlmacenamientoPersistente()
+  }, [])
 
   const esperandoLetra = !cargadas && !error && !agotado
 

@@ -170,7 +170,7 @@ export async function pruebas(t: Probador): Promise<void> {
   t.check(`PESTANAS: cada título tiene ${MAX_LETRAS_PESTANA} letras o menos (cabe entero a 11 pt)`, MAX_LETRAS_PESTANA === 8 && largos.length === 0 && letras('Números') === 7, largos)
   t.check('PESTANAS: Agenda abre "Mi agenda" y Números "Mis números"', PESTANAS.find(p => p.ruta === 'agenda')?.encabezado === 'Mi agenda' && PESTANAS.find(p => p.ruta === 'numeros')?.encabezado === 'Mis números')
   const rutasOcultas = OCULTAS.map(o => o.ruta)
-  t.check('OCULTAS (href: null): dias-libres, agenda/nueva, visita/[id], medico/nuevo y sede/nueva', igualesEnOrden([...rutasOcultas].sort(), ['agenda/nueva', 'dias-libres', 'medico/nuevo', 'sede/nueva', 'visita/[id]']), rutasOcultas)
+  t.check('OCULTAS (href: null): dias-libres, agenda/nueva, visita/[id], medico/nuevo, sede/nueva e instalar (0940)', igualesEnOrden([...rutasOcultas].sort(), ['agenda/nueva', 'dias-libres', 'instalar', 'medico/nuevo', 'sede/nueva', 'visita/[id]']), rutasOcultas)
   t.check('Días libres dejó la barra: oculta, con el encabezado "Mis días libres"', !rutasPestanas.includes('dias-libres' as never) && OCULTAS.find(o => o.ruta === 'dias-libres')?.encabezado === 'Mis días libres')
   const rutas = rutasDelGrupo()
   const nombradas = [...rutasPestanas, ...rutasOcultas]

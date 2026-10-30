@@ -7,7 +7,7 @@
  *   2. Hablar (graba hasta 3 minutos con el nivel visible; el audio se borra al llegar la transcripción o al
  *      cancelar) → transcribiendo → tarjetas propuestas editables; o Por toques con los mismos campos. Cada tarjeta se
  *      confirma con un toque: nada se guarda sin confirmar. "Corregir hablando" vuelve a dictar sobre lo dicho.
- *   3. Resultado: lo que se guardó y lo que quedó en el teléfono (sin señal se envía solo antes de medianoche).
+ *   3. Resultado: lo que se guardó y lo que quedó en el teléfono (sin señal se sube solo al volver la señal; 0940).
  * Datos: POST /api/me/contexto (el punto en el cuerpo, no en la URL), GET /api/me/visitas?fecha=hoy (topes), POST
  * /api/me/voz/transcribir y /proponer, POST /api/me/visitas por la cola (lib/cola-contexto.tsx). La distancia que vale
  * la calcula el servidor.
@@ -81,6 +81,7 @@ import { Icono } from '../../lib/iconos'
 import { nuevoClientId } from '../../lib/id'
 import {
   AVISO_EN_COLA,
+  AVISO_HABEAS_DATA,
   aplicarCitaAPropuestas,
   borradorDesdeCita,
   borradorDesdeCuerpo,
@@ -834,7 +835,8 @@ export default function Reportar() {
         const reportado = Date.parse(llegadaVisita) > ahora.getTime() ? llegadaVisita : isoBogota(ahora)
         const cuerpo = cuerpoDesdeBorrador(borrador, { punto: puntoVisita, checked_in_at: llegadaVisita, reported_at: reportado, transcript })
         const resumen = resumenBorrador(borrador, catalogoVisita)
-        const { elemento } = await cola.encolarYEnviar(cuerpo, resumen)
+        // 0940: la foto (si la hay) se guarda con la visita y sube aparte, después de ella.
+        const { elemento } = await cola.encolarYEnviar(cuerpo, resumen, borrador.foto ?? null)
         if (elemento.estado === 'no_enviada') {
           // El servidor no la aceptó (nada quedó guardado allá): sale de la cola y la tarjeta sigue aquí para
           // corregirla. Si fue por la cita (ya tiene su visita, la cancelaron…), la tarjeta sigue sin ella: queda como
@@ -1084,14 +1086,21 @@ export default function Reportar() {
 
       {sinSenalDesde ? (
         <Aviso tono="alerta" titulo="Sin señal">
-          {`Usas las sedes, médicos y citas guardados a las ${horaBogota(sinSenalDesde)}. Lo que confirmes queda en el teléfono con el punto y la hora de aquí y se envía solo al volver la señal, antes de medianoche (la distancia la revisa el servidor).`}
+          {`Usas las sedes, médicos y citas guardados a las ${horaBogota(sinSenalDesde)}. Lo que confirmes queda en el teléfono con el punto y la hora de aquí y se sube solo al volver la señal (la distancia y las marcas las pone el servidor).`}
         </Aviso>
       ) : null}
 
       {errorUbicacion ? (
         <Aviso tono="alerta" accion={<Boton titulo="Volver a intentar" variante="secundario" cargando={reubicando} alPresionar={() => void reubicar()} />}>
-          {`${errorUbicacion} Sin ubicación solo puedes reportar telefónica (si la tienes habilitada).`}
+          {`${errorUbicacion} Puedes reportar igual: la visita queda marcada "sin ubicación".`}
         </Aviso>
+      ) : null}
+
+      {/* Habeas data (dueño, 2026-10-30): la ubicación se toma solo al confirmar, nunca en segundo plano. */}
+      {fase === 'lista' ? (
+        <Texto suave peque>
+          {AVISO_HABEAS_DATA}
+        </Texto>
       ) : null}
 
       {fase === 'lista' && eligio ? (

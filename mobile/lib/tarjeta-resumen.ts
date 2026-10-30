@@ -18,7 +18,7 @@ import { esFechaIso, fechaLarga } from './fechas'
 import { textoDistancia, type Punto } from './geo'
 import type { PedidoAgendar } from './agenda'
 import { cuentasDelCatalogo, distanciaASede, nombreSede, validarBorrador, type Borrador, type Catalogo, type EntradaValidacion, type Rechazo } from './propuesta'
-import { ETIQUETA_MEDIO, type ErrorVisita } from './tipos'
+import { ETIQUETA_MARCA, ETIQUETA_MEDIO, type ErrorVisita, type MarcaVisita } from './tipos'
 
 /** Por debajo de esto la IA no está segura: la tarjeta abre completa. */
 export const CONFIANZA_MINIMA_RESUMEN = 0.6
@@ -39,6 +39,22 @@ export interface DecisionTarjeta {
 export const MOTIVO_CONFIANZA_BAJA = 'La IA no está segura de esta visita: revisa con quién, la sede y el resultado.'
 export const MOTIVO_DISTANCIA_DESCONOCIDA = 'No se sabe a qué distancia estás de la sede: la calcula el servidor al confirmar.'
 
+/** 0940: una marca de ubicación en la tarjeta de voz se revisa antes de confirmar (la visita se guarda igual). */
+export function motivoDeMarca(marca: MarcaVisita, distancia_m: number | null): Atencion | null {
+  const texto = ETIQUETA_MARCA[marca]
+  switch (marca) {
+    case 'lejos_de_ips':
+      return { campo: 'lat', motivo: `${texto}${distancia_m !== null ? ` (a ${textoDistancia(distancia_m)})` : ''}: la visita se guarda igual, con esa marca.` }
+    case 'sin_ubicacion':
+    case 'precision_baja':
+      return { campo: 'lat', motivo: `${texto}: la visita se guarda igual, con esa marca.` }
+    case 'ips_sin_coordenadas':
+      return { campo: 'sede_id', motivo: `${texto}: la visita se guarda igual, con esa marca.` }
+    default:
+      return null
+  }
+}
+
 /** ¿Resumen o completa? (y qué revisar). Usa la MISMA validación que Confirmar (validarBorrador). */
 export function modoTarjeta(borrador: Borrador, catalogo: Catalogo, entrada: EntradaValidacion): DecisionTarjeta {
   if (borrador.origen !== 'voz') return { modo: 'completa', atencion: [] }
@@ -49,8 +65,14 @@ export function modoTarjeta(borrador: Borrador, catalogo: Catalogo, entrada: Ent
   }
   const revision = validarBorrador(borrador, catalogo, entrada)
   for (const error of revision.errores) atencion.push({ campo: error.campo, motivo: error.mensaje })
-  // Presencial: solo "dentro del radio" si la distancia se sabe (la que no se sabe la decide el servidor).
-  if (revision.ok && borrador.modalidad === 'presencial') {
+  // 0940: la ubicación ya no bloquea, pero lo que va a quedar marcado (lejos, sin ubicación, precisión baja, IPS sin
+  // coordenadas) se revisa en la tarjeta completa antes de confirmar.
+  for (const marca of revision.marcas) {
+    const motivo = motivoDeMarca(marca, revision.distancia_m)
+    if (motivo) atencion.push(motivo)
+  }
+  // Presencial: solo "en sitio" si la distancia se sabe (la que no se sabe la decide el servidor).
+  if (revision.ok && borrador.modalidad === 'presencial' && revision.marcas.length === 0) {
     const distancia = distanciaASede(borrador, catalogo, entrada.punto)
     if (distancia.distancia_m === null) atencion.push({ campo: 'sede_id', motivo: MOTIVO_DISTANCIA_DESCONOCIDA })
   }
@@ -71,7 +93,7 @@ export interface FilaResumen {
 export function textoConQuien(borrador: Borrador, catalogo: Catalogo): string {
   if (borrador.tipo === 'medica') {
     const medico = borrador.medico_id ? catalogo.medicos.find(m => m.id === borrador.medico_id) : undefined
-    return medico?.nombre ?? borrador.medico_nombre_dicho ?? 'Sin médico'
+    return medico?.nombre ?? (borrador.medico_no_listado?.nombre ? `${borrador.medico_no_listado.nombre} (no listado)` : null) ?? borrador.medico_nombre_dicho ?? 'Sin médico'
   }
   if (borrador.tipo === 'institucional') {
     const cuenta = cuentasDelCatalogo(catalogo).find(c => c.id === borrador.cuenta_id)
@@ -83,17 +105,19 @@ export function textoConQuien(borrador: Borrador, catalogo: Catalogo): string {
 }
 
 /** "Clínica Norte · Presencial a 35 m (dentro del radio)", "… · Telefónica (llamada)". */
-export function textoSedeYModalidad(borrador: Borrador, catalogo: Catalogo, punto: Punto | null): string {
+export function textoSedeYModalidad(borrador: Borrador, catalogo: Catalogo, punto: (Punto & { precision?: number | null }) | null): string {
   const sede = borrador.sede_id ? nombreSede(borrador.sede_id, catalogo) : 'Sin sede'
   if (borrador.modalidad === 'telefonica') return `${sede} · Telefónica${borrador.medio ? ` (${ETIQUETA_MEDIO[borrador.medio].toLowerCase()})` : ''}`
   const distancia = borrador.sede_id ? distanciaASede(borrador, catalogo, punto) : { conocida: false, distancia_m: null }
+  if (!punto) return `${sede} · Presencial (sin ubicación: queda marcada)`
   if (distancia.distancia_m === null) return `${sede} · Presencial (la distancia la calcula el servidor)`
-  const dentro = distancia.distancia_m <= catalogo.config.radio_m
-  return `${sede} · Presencial a ${textoDistancia(distancia.distancia_m)} (${dentro ? 'dentro del radio' : 'fuera del radio'})`
+  // 0940: "en sitio" descuenta la precisión del GPS, como el servidor.
+  const dentro = Math.max(distancia.distancia_m - (punto.precision ?? 0), 0) <= catalogo.config.radio_m
+  return `${sede} · Presencial a ${textoDistancia(distancia.distancia_m)} (${dentro ? 'en sitio' : 'lejos de la IPS: queda marcada'})`
 }
 
 /** Las filas del resumen, en orden. Las vacías no salen, salvo la conclusión. */
-export function filasResumen(borrador: Borrador, catalogo: Catalogo, opciones: { punto: Punto | null; ahora?: Date }): FilaResumen[] {
+export function filasResumen(borrador: Borrador, catalogo: Catalogo, opciones: { punto: (Punto & { precision?: number | null }) | null; ahora?: Date }): FilaResumen[] {
   const filas: FilaResumen[] = [
     { campo: 'con_quien', etiqueta: 'Con quién', valor: textoConQuien(borrador, catalogo) },
     { campo: 'sede', etiqueta: 'Sede', valor: textoSedeYModalidad(borrador, catalogo, opciones.punto) },

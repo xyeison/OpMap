@@ -238,6 +238,29 @@ export function crearVisita(cuerpo: VisitaCreate, timeoutMs?: number): Promise<V
   return peticion<VisitaCreateResponse>('/api/me/visitas', { metodo: 'POST', cuerpo, timeoutMs })
 }
 
+/**
+ * Sube la foto de una visita YA enviada (0940, app sin señal): multipart { client_id, foto } a POST /api/me/visitas/foto.
+ * Idempotente por client_id (la segunda vez reemplaza). `datos`: el Blob (navegador) o la URI del JPEG (teléfono; la
+ * parte lee el archivo al enviar, como el audio: lib/subida-audio.ts).
+ */
+export async function subirFoto(clientId: string, datos: Blob | string, timeoutMs: number = TIEMPO_TRANSCRIBIR_MS): Promise<{ repetida: boolean }> {
+  const formulario = new FormData()
+  formulario.append('client_id', clientId)
+  if (typeof datos === 'string') {
+    const archivo = new File(datos)
+    formulario.append('foto', { name: 'foto.jpg', type: 'image/jpeg', bytes: () => archivo.bytes() } as unknown as Blob)
+  } else {
+    formulario.append('foto', datos, 'foto.jpg')
+  }
+  const respuesta = await peticion<{ repetida?: boolean }>('/api/me/visitas/foto', { metodo: 'POST', formulario, timeoutMs })
+  return { repetida: respuesta.repetida === true }
+}
+
+/** Enlace firmado (10 minutos) para ver la foto de una visita propia. 404 si no tiene. */
+export function urlFoto(clientId: string): Promise<{ url: string; expira_en: number }> {
+  return peticion<{ url: string; expira_en: number }>('/api/me/visitas/foto', { query: { client_id: clientId } })
+}
+
 /** Corrige una visita de hoy. Lo hecho hoy puede cambiar (efectiva o no): el contexto en memoria deja de servir. */
 export async function editarVisita(id: string, cambios: VisitaUpdate): Promise<{ visita: VisitaItem }> {
   const respuesta = await peticion<{ visita: VisitaItem }>(`/api/me/visitas/${encodeURIComponent(id)}`, { metodo: 'PATCH', cuerpo: cambios })

@@ -23,16 +23,18 @@ export default function Ajustes() {
   const router = useRouter()
   const c = useColores()
   const { perfil, salir, sinConfirmar } = useSesion()
-  const { resumen } = useCola()
+  const { resumen, resumenFotos, enLinea } = useCola()
   const [saliendo, setSaliendo] = useState(false)
   const version = Constants.expoConfig?.version ?? '—'
   const papeles = papelesDePersona(perfil?.persona, perfil?.ejecutiva?.zona)
   const conDiasLibres = muestraDiasLibres({ persona: perfil?.persona, ejecutiva: perfil?.ejecutiva })
 
   async function cerrarSesion() {
+    // App sin señal (2026-10-30): cerrar sesión NUNCA borra los pendientes; se avisa y se suben al volver a entrar.
+    const pendientes = resumen.pendientes + resumenFotos.pendientes
     const advertencia =
-      resumen.pendientes > 0
-        ? `Tienes ${plural(resumen.pendientes, 'visita', 'visitas')} sin enviar en este teléfono. Se envían cuando vuelvas a entrar hoy con tu usuario.`
+      pendientes > 0
+        ? `Tienes ${plural(resumen.pendientes, 'visita', 'visitas')}${resumenFotos.pendientes > 0 ? ` y ${plural(resumenFotos.pendientes, 'foto', 'fotos')}` : ''} sin subir en este teléfono. No se borran: se suben cuando vuelvas a entrar con tu usuario.`
         : 'Tendrás que volver a escribir tu correo y contraseña.'
     if (!(await confirmar('Cerrar sesión', advertencia, 'Cerrar sesión', true))) return
     setSaliendo(true)
@@ -84,11 +86,28 @@ export default function Ajustes() {
         </Tarjeta>
       ) : null}
 
+      {Platform.OS === 'web' ? (
+        <Tarjeta alPresionar={() => router.push('/instalar')} etiquetaAccesible="Agregar a la pantalla de inicio: pasos para Android e iPhone">
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: ALTO_TOQUE_MIN }}>
+            <Icono nombre="agregar" tamano={26} />
+            <View style={{ flex: 1, gap: 2 }}>
+              <Subtitulo>Agregar a la pantalla de inicio</Subtitulo>
+              <Texto suave peque>
+                Para abrirla sin señal desde su ícono. Pasos para Android y para iPhone.
+              </Texto>
+            </View>
+            <Icono nombre="adelante" tamano={22} color={c.textoSuave} />
+          </View>
+        </Tarjeta>
+      ) : null}
+
       <Tarjeta>
         <Subtitulo>App</Subtitulo>
         <Fila etiqueta="Servidor" valor={nombreServidor(URL_API)} />
         <Fila etiqueta="Versión" valor={`${version}${Platform.OS === 'web' ? ' (navegador)' : ''}`} />
-        <Fila etiqueta="Sin enviar" valor={String(resumen.pendientes)} />
+        <Fila etiqueta="Conexión" valor={enLinea ? 'En línea' : 'Sin conexión'} />
+        <Fila etiqueta="Visitas por subir" valor={String(resumen.pendientes)} />
+        <Fila etiqueta="Fotos por subir" valor={String(resumenFotos.pendientes)} />
         {esServidorDesarrollo(URL_API) ? <Aviso tono="alerta">Conectada a un servidor de desarrollo.</Aviso> : null}
         <Texto suave peque>
           El audio de los dictados no se guarda: se transcribe en el servidor y se borra del teléfono al recibir el texto.

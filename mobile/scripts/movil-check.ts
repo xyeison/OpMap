@@ -23,11 +23,7 @@
  */
 import {
   ColaVisitas,
-  MENSAJE_OTRO_DIA,
-  MENSAJE_PASO_MEDIANOCHE,
-  MENSAJE_POR_CONFIRMAR,
   agregar,
-  aplicarMedianoche,
   deserializar,
   esReintentable,
   podar,
@@ -192,6 +188,7 @@ import { pruebas as pruebasTiempos } from './checks/18-tiempos'
 import { pruebas as pruebasPantallas } from './checks/19-pantallas'
 import { pruebas as pruebasEstilo } from './checks/20-estilo'
 import { pruebas as pruebasPersona } from './checks/21-persona'
+import { pruebas as pruebasSinSenal } from './checks/22-sin-senal'
 
 // Este archivo corre en Node (tsx), pero el programa de tipos es el de la app (sin @types/node, que chocaría con los
 // tipos de React Native): fs y path con lo mínimo que se usa aquí.
@@ -302,16 +299,20 @@ function visita(extra: Partial<VisitaCreate> = {}): VisitaCreate {
     input_mode: 'toques',
     lineas: [L1],
     agenda_id: null,
+    // 0940 (app sin señal)
+    medico_no_listado: null,
+    tz: 'America/Bogota',
+    gps_at: '2026-10-13T10:30:00-05:00',
+    motivo_codigo: null,
   }
   return { ...base, ...extra } as VisitaCreate
 }
 
 /**
- * Servidor falso: guarda por client_id (como visitas_registrar) y puede fallar a voluntad. Con `reloj`, aplica además
- * la regla del mismo día DESPUÉS de buscar el client_id (como la base): una visita que ya estaba vuelve `repetida`
- * aunque sea de ayer; una nueva de ayer → 400 "Solo se reportan visitas del mismo día".
+ * Servidor falso: guarda por client_id (como visitas_registrar) y puede fallar a voluntad. Desde la 0940 el servidor
+ * acepta visitas de otro día (las marca): aquí tampoco se rechazan.
  */
-function servidorFalso(reloj?: () => Date) {
+function servidorFalso() {
   const filas = new Map<string, string>()
   let fallo: ApiError | Error | null = null
   let llamadas = 0
@@ -323,7 +324,6 @@ function servidorFalso(reloj?: () => Date) {
     if (fallo) throw fallo
     const existente = filas.get(cuerpo.client_id)
     if (existente) return { visita_id: existente, repetida: true }
-    if (reloj && fechaBogota(cuerpo.checked_in_at) !== hoyBogota(reloj())) throw errorDeRespuesta(400, { error: MENSAJE_OTRO_DIA })
     const id = `visita-${filas.size + 1}`
     filas.set(cuerpo.client_id, id)
     return { visita_id: id, repetida: false }
@@ -451,7 +451,7 @@ async function main() {
   }
 
   // -------------------------------------------------------------------------
-  seccion('3. Cola sin señal: idempotencia, reintento y medianoche')
+  seccion('3. Cola sin señal: idempotencia y reintento (lo de otro día, la espera creciente y la migración: 22-sin-senal)')
   {
     const v1 = visita()
     const primera = agregar([], { cuerpo: v1, resumen: 'Médica · Dr. Pérez' }, AHORA)
@@ -459,7 +459,7 @@ async function main() {
     const segunda = agregar(primera.cola, { cuerpo: { ...v1, conclusion: 'otra' } as VisitaCreate, resumen: 'otra' }, AHORA)
     check('mismo client_id dos veces → una sola en la cola', !segunda.nueva && segunda.cola.length === 1 && segunda.elemento.resumen === 'Médica · Dr. Pérez')
     const ayer = visita({ checked_in_at: '2026-10-12T18:00:00-05:00', reported_at: '2026-10-12T18:10:00-05:00' })
-    check('una visita de ayer no se encola', (await lanza(() => agregar([], { cuerpo: ayer, resumen: 'x' }, AHORA))) === MENSAJE_OTRO_DIA)
+    check('una visita de ayer SÍ se encola (0940: el servidor la acepta y la marca si hace falta)', agregar([], { cuerpo: ayer, resumen: 'x' }, AHORA).elemento.fecha === '2026-10-12')
     check('22:30 del 13 (03:30 UTC del 14) cuenta como el 13', agregar([], { cuerpo: visita({ checked_in_at: '2026-10-13T22:30:00-05:00', reported_at: '2026-10-13T22:31:00-05:00' }), resumen: 'x' }, new Date('2026-10-14T03:35:00Z')).elemento.fecha === HOY)
 
     // Envío correcto
@@ -468,49 +468,41 @@ async function main() {
     let cola = agregar(agregar([], { cuerpo: v1, resumen: 'uno' }, AHORA).cola, { cuerpo: v2, resumen: 'dos' }, new Date(AHORA.getTime() + 1000)).cola
     let resultado = await procesar(cola, servidor.enviar, () => AHORA)
     check('procesar envía las dos en orden', resultado.enviadas.join(',') === `${v1.client_id},${v2.client_id}` && servidor.filas.size === 2)
-    check('quedan enviadas con su visita_id', resultado.cola.every(e => e.estado === 'enviada' && !!e.visita_id) && resultado.detenida === null)
+    check('quedan enviadas con su visita_id y enviada_at', resultado.cola.every(e => e.estado === 'enviada' && e.visita_id && e.enviada_at) && resumen(resultado.cola, AHORA).enviadas_hoy === 2)
     resultado = await procesar(resultado.cola, servidor.enviar, () => AHORA)
-    check('procesar otra vez no reenvía las enviadas', resultado.enviadas.length === 0 && servidor.llamadas === 2)
+    check('volver a procesar no reenvía lo enviado', resultado.enviadas.length === 0 && servidor.llamadas === 2)
 
-    // Reintento: el servidor ya la tenía (respuesta perdida) → repetida, nunca duplica
-    const reenviada = await procesar(agregar([], { cuerpo: v1, resumen: 'uno' }, AHORA).cola, servidor.enviar, () => AHORA)
-    check('reintento del mismo client_id → repetida y el servidor sigue con 2 filas', reenviada.cola[0].repetida && reenviada.cola[0].visita_id === 'visita-1' && servidor.filas.size === 2)
+    // Reintento: el servidor responde "repetida" si ya la tenía
+    const reintento = await procesar(agregar([], { cuerpo: v1, resumen: 'uno otra vez' }, AHORA).cola, servidor.enviar, () => AHORA)
+    check('reenviar el mismo client_id: el servidor responde repetida y queda enviada (sin duplicar)', reintento.cola[0].estado === 'enviada' && reintento.cola[0].repetida && servidor.filas.size === 2)
 
-    // Sin señal: sigue pendiente y se detiene
-    const sinRed = servidorFalso()
-    sinRed.fallar(new TypeError('Network request failed'))
+    // Qué se reintenta
+    check('reintentables: sin red, tiempo, 5xx, 404/502/503 y 429', esReintentable(new ApiError(0, 'x')) && esReintentable(new ApiError(0, 'x', { tipo: 'tiempo' })) && esReintentable(new ApiError(500, 'x')) && esReintentable(new ApiError(404, 'x')) && esReintentable(new ApiError(503, 'x')) && esReintentable(new ApiError(429, 'x')))
+    check('no reintentables: 400, 403, 409, 422', !esReintentable(new ApiError(400, 'x')) && !esReintentable(new ApiError(403, 'x')) && !esReintentable(new ApiError(409, 'x')) && !esReintentable(new ApiError(422, 'x')))
+
+    // Sin red: se detiene y sigue pendiente (con la espera creciente)
+    const caido = servidorFalso()
+    caido.fallar(new TypeError('Network request failed'))
     const v3 = visita()
-    const v4 = visita()
-    cola = agregar(agregar([], { cuerpo: v3, resumen: 'tres' }, AHORA).cola, { cuerpo: v4, resumen: 'cuatro' }, new Date(AHORA.getTime() + 1000)).cola
-    resultado = await procesar(cola, sinRed.enviar, () => AHORA)
-    check('sin señal: se detiene en la primera (no intenta la segunda)', resultado.detenida === 'red' && sinRed.llamadas === 1)
-    check('sin señal: las dos siguen pendientes, la primera con 1 intento y el aviso', resultado.cola.every(e => e.estado === 'pendiente') && resultado.cola[0].intentos === 1 && resultado.cola[0].error === MENSAJE_SIN_CONEXION)
-    // Vuelve la señal
-    sinRed.fallar(null)
-    resultado = await procesar(resultado.cola, sinRed.enviar, () => new Date(AHORA.getTime() + 60_000))
-    check('al volver la señal salen las dos', resultado.enviadas.length === 2 && resultado.cola.every(e => e.estado === 'enviada'))
+    cola = agregar(agregar([], { cuerpo: v3, resumen: 'tres' }, AHORA).cola, { cuerpo: visita(), resumen: 'cuatro' }, new Date(AHORA.getTime() + 1000)).cola
+    resultado = await procesar(cola, caido.enviar, () => AHORA)
+    check('sin red: se detiene en la primera, las dos siguen pendientes y solo una se intentó', resultado.detenida === 'red' && resultado.cola.every(e => e.estado === 'pendiente') && resultado.cola[0].intentos === 1 && resultado.cola[1].intentos === 0 && caido.llamadas === 1)
+    check('la que falló tiene el error y su próxima hora de intento; "Subir ahora" la vuelve a intentar', resultado.cola[0].error !== null && resultado.cola[0].proximo_intento_at !== null && porEnviar(resultado.cola, AHORA, { forzar: true }).length === 2)
+    caido.fallar(null)
+    resultado = await procesar(resultado.cola, caido.enviar, () => AHORA, { forzar: true })
+    check('vuelve la red (forzado): salen las dos', resultado.enviadas.length === 2 && caido.filas.size === 2)
 
-    // Servidor caído o sin la ruta (503/404) → se reintenta; datos rechazados (400) → no enviada y sigue con las demás
-    check('503 y 404 se reintentan; 400 y 403 no', esReintentable(new ApiError(503, 'x')) && esReintentable(new ApiError(404, 'x')) && !esReintentable(new ApiError(400, 'x')) && !esReintentable(new ApiError(403, 'x')))
-    const rechazo = servidorFalso()
+    // Rechazo de datos: no enviada con el mensaje, y sigue con la siguiente
+    const rechaza = servidorFalso()
     const v5 = visita()
     const v6 = visita()
     cola = agregar(agregar([], { cuerpo: v5, resumen: 'cinco' }, AHORA).cola, { cuerpo: v6, resumen: 'seis' }, new Date(AHORA.getTime() + 1000)).cola
-    let primeraVez = true
-    resultado = await procesar(
-      cola,
-      async cuerpo => {
-        if (primeraVez) {
-          primeraVez = false
-          throw errorDeRespuesta(400, { error: 'Estás a 800 m de Clínica Norte; el radio es 500 m' })
-        }
-        return rechazo.enviar(cuerpo)
-      },
-      () => AHORA
-    )
-    const cinco = resultado.cola.find(e => e.client_id === v5.client_id)
-    check('400: no enviada con el mensaje del servidor', cinco?.estado === 'no_enviada' && cinco.error === 'Estás a 800 m de Clínica Norte; el radio es 500 m', cinco)
-    check('400: sigue con la siguiente', resultado.cola.find(e => e.client_id === v6.client_id)?.estado === 'enviada' && resultado.no_enviadas.length === 1)
+    resultado = await procesar(cola, async cuerpo => {
+      if (cuerpo.client_id === v5.client_id) throw errorDeRespuesta(400, { error: 'Tu perfil no incluye visitas médicas' })
+      return rechaza.enviar(cuerpo)
+    }, () => AHORA)
+    check('400 en la primera: no enviada con el mensaje del servidor, y la segunda se envía igual', resultado.cola[0].estado === 'no_enviada' && resultado.cola[0].error === 'Tu perfil no incluye visitas médicas' && resultado.cola[1].estado === 'enviada' && resultado.no_enviadas.length === 1)
+    check('resumen: 1 enviada hoy, 1 no enviada, 0 pendientes', resumen(resultado.cola, AHORA).enviadas_hoy === 1 && resumen(resultado.cola, AHORA).no_enviadas === 1 && resumen(resultado.cola, AHORA).pendientes === 0)
 
     // 401: se detiene y no toca nada
     const vencida = await procesar(agregar([], { cuerpo: visita(), resumen: 'siete' }, AHORA).cola, async () => {
@@ -518,83 +510,18 @@ async function main() {
     }, () => AHORA)
     check('401: se detiene por sesión y la visita sigue pendiente', vencida.detenida === 'sesion' && vencida.cola[0].estado === 'pendiente')
 
-    // Medianoche
-    const tarde = visita({ checked_in_at: '2026-10-13T21:00:00-05:00', reported_at: '2026-10-13T21:05:00-05:00' })
-    cola = agregar([], { cuerpo: tarde, resumen: 'tarde' }, new Date('2026-10-14T02:10:00Z')).cola
-    const antes = new Date('2026-10-14T04:59:00Z') // 23:59 del 13 en Bogotá
-    check('23:59 del mismo día todavía se puede enviar', porEnviar(cola, antes).length === 1 && aplicarMedianoche(cola, antes)[0].estado === 'pendiente')
-    const despues = new Date('2026-10-14T05:00:00Z') // 00:00 del 14 en Bogotá
-    check('pasada la medianoche: "por confirmar" (nunca se descarta sin preguntar)', aplicarMedianoche(cola, despues)[0].estado === 'por_confirmar' && aplicarMedianoche(cola, despues)[0].error === MENSAJE_POR_CONFIRMAR)
-    const servidorMedianoche = servidorFalso(() => despues)
-    resultado = await procesar(cola, servidorMedianoche.enviar, () => despues)
-    check(
-      'pasada la medianoche, la que NO llegó: se pregunta una vez, el servidor la rechaza (otro día) y queda no enviada con el aviso',
-      resultado.cola[0].estado === 'no_enviada' && resultado.cola[0].error === MENSAJE_PASO_MEDIANOCHE && servidorMedianoche.llamadas === 1 && servidorMedianoche.filas.size === 0,
-      resultado.cola[0]
-    )
-    check('resumen cuenta la no enviada', resumen(resultado.cola, despues).no_enviadas === 1 && resumen(resultado.cola, despues).pendientes === 0)
-    // El escenario del verificador: a las 23:58 el envío llega a la base pero la respuesta se pierde (sin señal); a las
-    // 00:05 vuelve la señal. La visita SÍ quedó guardada: el servidor responde repetida y queda enviada (sin aviso falso).
-    const v2358 = visita({ checked_in_at: '2026-10-13T23:55:00-05:00', reported_at: '2026-10-13T23:58:00-05:00' })
-    let relojPerdida = new Date('2026-10-14T04:58:00Z')
-    const servidorPerdida = servidorFalso(() => relojPerdida)
-    let respuestaPerdida = true
-    const enviarConPerdida = async (cuerpo: VisitaCreate) => {
-      const r = await servidorPerdida.enviar(cuerpo)
-      if (respuestaPerdida) {
-        respuestaPerdida = false
-        throw new TypeError('Network request failed') // la base la guardó; la respuesta no llegó
-      }
-      return r
-    }
-    let colaPerdida = agregar([], { cuerpo: v2358, resumen: 'la de las 23:58' }, relojPerdida).cola
-    resultado = await procesar(colaPerdida, enviarConPerdida, () => relojPerdida)
-    check('23:58: la base la guardó pero la respuesta se perdió → sigue pendiente en el teléfono', resultado.cola[0].estado === 'pendiente' && servidorPerdida.filas.size === 1)
-    relojPerdida = new Date('2026-10-14T05:05:00Z') // 00:05 del 14
-    colaPerdida = aplicarMedianoche(resultado.cola, relojPerdida)
-    check('00:05 sin señal todavía: por confirmar, con el aviso de que se revisará', colaPerdida[0].estado === 'por_confirmar' && resumen(colaPerdida, relojPerdida).pendientes === 1)
-    const sinSenalAun = servidorFalso(() => relojPerdida)
-    sinSenalAun.fallar(new TypeError('Network request failed'))
-    const sigue = await procesar(colaPerdida, sinSenalAun.enviar, () => relojPerdida)
-    check('sin señal: sigue por confirmar (no se marca perdida)', sigue.cola[0].estado === 'por_confirmar' && sigue.detenida === 'red')
-    resultado = await procesar(sigue.cola, enviarConPerdida, () => relojPerdida)
-    check(
-      'vuelve la señal a las 00:05: el servidor responde repetida (busca el client_id antes de la regla del día) → enviada, sin "avísale a tu líder"',
-      resultado.cola[0].estado === 'enviada' && resultado.cola[0].repetida && resultado.cola[0].visita_id === 'visita-1' && resultado.cola[0].error === null && servidorPerdida.filas.size === 1,
-      resultado.cola[0]
-    )
-    // Envío que cruza la medianoche: la segunda pasa a "por confirmar", se pregunta y el servidor la rechaza
-    const c1 = visita({ checked_in_at: '2026-10-13T23:50:00-05:00', reported_at: '2026-10-13T23:51:00-05:00' })
-    const c2 = visita({ checked_in_at: '2026-10-13T23:55:00-05:00', reported_at: '2026-10-13T23:56:00-05:00' })
-    const casiMedianoche = new Date('2026-10-14T04:58:00Z')
-    cola = agregar(agregar([], { cuerpo: c1, resumen: 'c1' }, casiMedianoche).cola, { cuerpo: c2, resumen: 'c2' }, new Date(casiMedianoche.getTime() + 1000)).cola
-    let reloj = casiMedianoche
-    const cruce = servidorFalso(() => reloj)
-    resultado = await procesar(
-      cola,
-      async cuerpo => {
-        const respuesta = await cruce.enviar(cuerpo)
-        reloj = new Date('2026-10-14T05:00:30Z') // el primer envío termina pasada la medianoche
-        return respuesta
-      },
-      () => reloj
-    )
-    check(
-      'envío que cruza la medianoche: la primera salió; la segunda se pregunta (no estaba) y queda no enviada con el aviso',
-      resultado.cola[0].estado === 'enviada' && resultado.cola[1].estado === 'no_enviada' && resultado.cola[1].error === MENSAJE_PASO_MEDIANOCHE && cruce.llamadas === 2 && cruce.filas.size === 1,
-      { cola: resultado.cola.map(e => [e.estado, e.error]), llamadas: cruce.llamadas }
-    )
-
     // Podar
-    const vieja: ElementoCola = { ...resultado.cola[0], fecha: '2026-10-12', estado: 'enviada' }
-    const muyVieja: ElementoCola = { ...resultado.cola[1], client_id: 'x-muy-vieja', fecha: '2026-10-01', estado: 'no_enviada' }
-    const reciente: ElementoCola = { ...resultado.cola[1], client_id: 'x-reciente', fecha: '2026-10-12', estado: 'no_enviada' }
-    const podada = podar([vieja, muyVieja, reciente], AHORA)
-    check('podar: fuera enviadas de días anteriores y no enviadas de más de 7 días', podada.length === 1 && podada[0].client_id === 'x-reciente', podada.map(e => e.client_id))
+    const vieja: ElementoCola = { ...resultado.cola[1], fecha: '2026-10-12', enviada_at: '2026-10-12T20:00:00.000Z', estado: 'enviada' }
+    const muyVieja: ElementoCola = { ...resultado.cola[0], client_id: 'x-muy-vieja', fecha: '2026-10-01', estado: 'no_enviada', ultimo_intento_at: '2026-10-01T20:00:00.000Z' }
+    const reciente: ElementoCola = { ...resultado.cola[0], client_id: 'x-reciente', fecha: '2026-10-12', estado: 'no_enviada', ultimo_intento_at: '2026-10-12T20:00:00.000Z' }
+    // Rechazada HOY aunque la visita sea de hace semanas (la cola la guardó sin señal): se queda, para que se vea el error.
+    const rechazadaHoy: ElementoCola = { ...resultado.cola[0], client_id: 'x-rechazada-hoy', fecha: '2026-10-01', estado: 'no_enviada', ultimo_intento_at: AHORA.toISOString() }
+    const podada = podar([vieja, muyVieja, reciente, rechazadaHoy], AHORA)
+    check('podar: fuera enviadas de días anteriores y no enviadas con más de 7 días desde el último intento (no desde la fecha de la visita)', podada.length === 2 && podada.map(e => e.client_id).join() === 'x-reciente,x-rechazada-hoy', podada.map(e => e.client_id))
 
     // Serializar
     check('serializar y deserializar conservan la cola', deserializar(serializar(resultado.cola)).length === resultado.cola.length)
-    check('deserializar ignora JSON dañado y otra versión', deserializar('{no json').length === 0 && deserializar('{"version":2,"items":[{}]}').length === 0 && deserializar(null).length === 0)
+    check('deserializar ignora JSON dañado y una versión futura', deserializar('{no json').length === 0 && deserializar('{"version":9,"items":[{}]}').length === 0 && deserializar(null).length === 0)
   }
 
   // -------------------------------------------------------------------------
@@ -722,11 +649,12 @@ async function main() {
         { id: S1, nombre: 'Clínica Norte', cuenta_id: C1, cuenta_nombre: 'Clínica Norte S.A.', cuenta_clase: 'clinica', ciudad: 'Bucaramanga', ...norte(120), distancia_m: 120, hospital_id: null, ubicacion_confirmada: true },
         { id: S2, nombre: 'Clínica Sur', cuenta_id: C2, cuenta_nombre: 'Clínica Sur', cuenta_clase: 'clinica', ciudad: 'Bucaramanga', ...norte(800), distancia_m: 800, hospital_id: null, ubicacion_confirmada: true },
       ],
-      mis_medicos: [{ id: M1, nombre: 'Dra. Ana Gómez', especialidades: ['ortopedia'], municipality_id: '68001', lineas: [L1], sedes: [{ id: S1, nombre: 'Clínica Norte', cuenta_nombre: 'Clínica Norte S.A.', distancia_m: 120 }, { id: S3, nombre: 'Consultorio Gómez', cuenta_nombre: 'Consultorio', distancia_m: null }] }],
+      mis_medicos: [{ id: M1, nombre: 'Dra. Ana Gómez', especialidades: ['ortopedia'], municipality_id: '68001', lineas: [L1], sedes: [{ id: S1, nombre: 'Clínica Norte', cuenta_nombre: 'Clínica Norte S.A.', distancia_m: 120, cuenta_id: null, lat: null, lng: null }, { id: S3, nombre: 'Consultorio Gómez', cuenta_nombre: 'Consultorio', distancia_m: null, cuenta_id: null, lat: null, lng: null }] }],
       contactos: [{ id: CONTACTO, cuenta_id: C1, sede_id: S1, nombre: 'Luis Pérez', cargo_texto: 'Jefe de compras', rol: 'compras' }],
       subtipos: [{ id: SUB_COMPRAS, codigo: 'compras', nombre: 'Compras', roles_sugeridos: ['compras'] }],
       compromisos_vencidos: [],
       voz: { transcribir: false, proponer: false },
+      motivos_no_efectiva: [],
       agenda_hoy: [],
       persona: { user_id: 'u1', nombre: 'Ana', executive_id: 'e1', rol: 'ejecutivo', lineas: [{ id: L1, nombre: 'Osteosíntesis', como: 'ejecutivo' }, { id: L2, nombre: 'Columna', como: 'ejecutivo' }] },
     }
@@ -746,9 +674,9 @@ async function main() {
     check('médica presencial a 120 m: lista para enviar, sin fuera de territorio', ok.ok && ok.distancia_m !== null && Math.abs(ok.distancia_m - 120) <= 1 && !ok.fuera_de_territorio, ok)
 
     const lejos = validarBorrador(conMedico, catalogo, entrada({ punto: norte(-700) }))
-    check('presencial a 820 m: el mismo mensaje del servidor', !lejos.ok && lejos.errores.some(e => e.mensaje === mensajeFueraDeRadio(lejos.distancia_m ?? -1, 'Clínica Norte', 500)), lejos.errores)
+    check('presencial a 820 m (0940): válida, marcada lejos_de_ips (la ubicación ya no bloquea)', lejos.ok && lejos.marcas.includes('lejos_de_ips') && lejos.en_sitio === false, lejos)
     const sinGps = validarBorrador(cambiarBorrador(conMedico, { sede_id: S3 }, catalogo), catalogo, entrada())
-    check('sede del médico sin coordenadas: presencial bloqueada con el mensaje de la decisión 6', !sinGps.ok && sinGps.errores.some(e => e.mensaje === MENSAJE_SEDE_SIN_UBICACION), sinGps.errores)
+    check('sede del médico sin coordenadas (0940): válida, marcada ips_sin_coordenadas', sinGps.ok && sinGps.marcas.includes('ips_sin_coordenadas'), sinGps)
     const telefonica = cambiarBorrador(conMedico, { modalidad: 'telefonica' }, catalogo)
     check('cambiar a telefónica: toma el medio por defecto (llamada)', telefonica.medio === 'llamada' && validarBorrador(telefonica, catalogo, entrada({ punto: null })).ok)
     const sinHabilitar = catalogoDesdeContexto({ ...contexto, config: { ...contexto.config, telefonica: { habilitada: false, tope_dia: 1, medios: ['llamada'] } } }, {}, TEL)
@@ -761,7 +689,7 @@ async function main() {
     check('tope por médico: segunda efectiva al mismo médico → el mensaje del servidor', !tope.ok && tope.errores.some(e => e.mensaje === MENSAJE_TOPE_MEDICO))
     check('tope por médico: la no efectiva no choca', validarBorrador(cambiarBorrador(conMedico, { efectiva: false, failure_reason: 'No estaba' }, catalogo), catalogo, entrada({ visitasHoy: [{ client_id: 'otra', medico_id: M1, modalidad: 'presencial', efectiva: true }] })).ok)
     check('no efectiva sin motivo: rechazada', !validarBorrador(cambiarBorrador(conMedico, { efectiva: false }, catalogo), catalogo, entrada()).ok)
-    check('ayer: "Solo se reportan visitas del mismo día"', validarBorrador(conMedico, catalogo, entrada({ checked_in_at: '2026-10-12T10:40:00.000-05:00' })).errores.some(e => e.mensaje === MENSAJE_SOLO_HOY))
+    check('ayer (0940): válida y sin hora_inconsistente (menos de 7 días)', (() => { const r = validarBorrador(conMedico, catalogo, entrada({ checked_in_at: '2026-10-12T10:40:00.000-05:00' })); return r.ok && !r.marcas.includes('hora_inconsistente') })())
     const soloInst = catalogoDesdeContexto({ ...contexto, config: { ...contexto.config, perfil: ['institucional'] } }, {}, TEL)
     check('perfil solo institucional: médica rechazada con el mensaje del servidor', validarBorrador(conMedico, soloInst, entrada()).errores.some(e => e.mensaje === mensajePerfil('medica')))
     check('líneas ajenas: rechazada', validarBorrador({ ...conMedico, lineas: [L1, 'ajena'] }, catalogo, entrada()).errores.some(e => e.mensaje === MENSAJE_LINEAS_AJENAS || e.campo === 'lineas'))
@@ -798,7 +726,7 @@ async function main() {
     check('rechazo del servidor por radio: se leen la distancia y el radio', radio.clase === 'radio' && radio.distancia_m === 801 && radio.radio_m === 500)
     check('rechazo por tope, perfil y sede sin ubicación', interpretarRechazo({ message: MENSAJE_TOPE_MEDICO }).clase === 'tope_medico' && interpretarRechazo({ message: mensajePerfil('institucional') }).clase === 'perfil' && interpretarRechazo({ message: MENSAJE_SEDE_SIN_UBICACION }).clase === 'sede_sin_ubicacion')
 
-    const visita: VisitaItem = { id: 'v1', client_id: 'c1', tipo: 'medica', subtipo: null, medico: { id: M1, nombre: 'Dra. Ana Gómez' }, cuenta: null, sede: { id: S1, nombre: 'Clínica Norte' }, contacto: null, modalidad: 'presencial', medio: null, efectiva: true, failure_reason: null, checked_in_at: llegada, distance_m: 120, conclusion: 'Bien', compromisos: null, next_step_date: null, lineas: [L1], input_mode: 'toques', out_of_territory: false, cuenta_para: 'medica', peso: 1, sede_por_confirmar: false, editable: true, agenda_id: null, agendada: false }
+    const visita: VisitaItem = { id: 'v1', client_id: 'c1', tipo: 'medica', subtipo: null, medico: { id: M1, nombre: 'Dra. Ana Gómez' }, cuenta: null, sede: { id: S1, nombre: 'Clínica Norte' }, contacto: null, modalidad: 'presencial', medio: null, efectiva: true, failure_reason: null, checked_in_at: llegada, distance_m: 120, conclusion: 'Bien', compromisos: null, next_step_date: null, lineas: [L1], input_mode: 'toques', out_of_territory: false, cuenta_para: 'medica', peso: 1, sede_por_confirmar: false, editable: true, agenda_id: null, agendada: false, marcas: ['en_sitio'], en_sitio: true, gps_accuracy_m: 12, medico_no_listado: null, motivo_codigo: null, foto: false }
     check('corregir: sin cambios → cuerpo vacío', Object.keys(cambiosDeVisita(visita, valoresDeVisita(visita))).length === 0)
     check('corregir: pasar a no efectiva manda el motivo; textos vacíos → null', JSON.stringify(cambiosDeVisita(visita, { ...valoresDeVisita(visita), efectiva: false, failure_reason: ' No estaba ', conclusion: '  ' })) === JSON.stringify({ efectiva: false, failure_reason: 'No estaba', conclusion: null }))
     check('corregir: líneas en cualquier orden no cuentan como cambio', Object.keys(cambiosDeVisita({ ...visita, lineas: [L2, L1] }, { ...valoresDeVisita(visita), lineas: [L1, L2] })).length === 0)
@@ -827,7 +755,7 @@ async function main() {
     check('médico recién creado en su consultorio: la presencial se puede confirmar (antes: "Esta sede no tiene ubicación")', enConsultorio.ok && enConsultorio.distancia_m === 0, enConsultorio.errores)
     const enLejana = validarBorrador({ ...tarjetaNuevo, sede_id: S_LEJOS }, conNuevo, entrada())
     check('sede del médico sin distancia conocida: no se bloquea con un motivo falso; decide el servidor', !enLejana.errores.some(e => e.mensaje === MENSAJE_SEDE_SIN_UBICACION) && !distanciaASede({ ...tarjetaNuevo, sede_id: S_LEJOS }, conNuevo, TEL).conocida)
-    check('la sede SIN coordenadas del contexto (con punto) sí sigue bloqueada (S3)', validarBorrador(cambiarBorrador(conMedico, { sede_id: S3 }, catalogo), catalogo, entrada()).errores.some(e => e.mensaje === MENSAJE_SEDE_SIN_UBICACION))
+    check('la sede SIN coordenadas del contexto (con punto) ya no bloquea: queda marcada (0940)', validarBorrador(cambiarBorrador(conMedico, { sede_id: S3 }, catalogo), catalogo, entrada()).marcas.includes('ips_sin_coordenadas'))
     const buscado = medicoDesdeBusqueda({ ...medicoCreado, sedes: [{ id: S1, nombre: 'Clínica Norte', rol: 'atiende' }, { id: S_LEJOS, nombre: 'Clínica lejana', rol: 'atiende' }] } as MedicoPublico, catalogo)
     check('médico del buscador: la sede cercana con su distancia; la que no está cerca, desconocida', buscado.sedes[0].distancia_m !== null && !buscado.sedes[0].coordenadas_desconocidas && buscado.sedes[1].coordenadas_desconocidas === true)
     // Médico del que no es visitante (contrato: suma a su meta, queda out_of_territory y la app ofrece pedir serlo).
@@ -895,17 +823,19 @@ async function main() {
     const S_MEDICO = 'aaaaaaaa-0000-4000-8000-000000000004'
     const conLejana: ContextoResponse = {
       ...contexto,
-      mis_medicos: [{ ...contexto.mis_medicos[0], sedes: [...contexto.mis_medicos[0].sedes, { id: S_MEDICO, nombre: 'Consultorio del Dr. X', cuenta_nombre: 'Consultorio', distancia_m: 1_200 }] }],
+      mis_medicos: [{ ...contexto.mis_medicos[0], sedes: [...contexto.mis_medicos[0].sedes, { id: S_MEDICO, nombre: 'Consultorio del Dr. X', cuenta_nombre: 'Consultorio', distancia_m: 1_200, cuenta_id: null, lat: null, lng: null }] }],
     }
     const viejo = catalogoDesdeContexto(conLejana, {}, norte(40))
     const desdeOtro = catalogoDesdeContexto(conLejana, {}, norte(40), { distanciasDeOtroPunto: true })
     const enLaDelMedico = cambiarBorrador(borradorVacio(desdeOtro, { nuevoId }), { medico_id: M1, sede_id: S_MEDICO, lineas: [L1] }, desdeOtro)
     check(
-      'contexto de otro punto: con la distancia vieja del servidor se bloquearía ("Estás a 1200 m…"); marcada, la sede del médico queda desconocida y no bloquea',
-      validarBorrador(enLaDelMedico, viejo, entrada({ punto: norte(40) })).errores.some(e => e.mensaje.startsWith('Estás a 1200 m')) &&
+      'contexto de otro punto: con la distancia vieja del servidor quedaría "Lejos de la IPS" (0940: ya no bloquea); marcada, la sede del médico queda desconocida y sin marca',
+      validarBorrador(enLaDelMedico, viejo, entrada({ punto: norte(40) })).ok &&
+        validarBorrador(enLaDelMedico, viejo, entrada({ punto: norte(40) })).marcas.join() === 'lejos_de_ips' &&
         validarBorrador(enLaDelMedico, desdeOtro, entrada({ punto: norte(40) })).ok &&
+        validarBorrador(enLaDelMedico, desdeOtro, entrada({ punto: norte(40) })).marcas.length === 0 &&
         !distanciaASede(enLaDelMedico, desdeOtro, norte(40)).conocida,
-      { viejo: validarBorrador(enLaDelMedico, viejo, entrada({ punto: norte(40) })).errores, nuevo: validarBorrador(enLaDelMedico, desdeOtro, entrada({ punto: norte(40) })).errores }
+      { viejo: validarBorrador(enLaDelMedico, viejo, entrada({ punto: norte(40) })), nuevo: validarBorrador(enLaDelMedico, desdeOtro, entrada({ punto: norte(40) })) }
     )
     check(
       'contexto de otro punto: las sedes con coordenadas se siguen midiendo desde el punto de ahora (Clínica Norte a 80 m)',
@@ -940,7 +870,7 @@ async function main() {
       persona: 'rol lineas',
       lineaPersona: 'id nombre como',
       personaContexto: 'user_id nombre executive_id rol lineas',
-      contexto: 'ejecutiva hoy config sedes_cerca mis_medicos contactos subtipos compromisos_vencidos voz agenda_hoy persona',
+      contexto: 'ejecutiva hoy config sedes_cerca mis_medicos contactos subtipos compromisos_vencidos voz agenda_hoy persona motivos_no_efectiva',
       contextoEjecutiva: 'id nombre zona municipio lineas',
       linea: 'id code name',
       hoy: 'fecha meta hechas cuota_dia_ok',
@@ -949,16 +879,16 @@ async function main() {
       telefonica: 'habilitada tope_dia medios',
       sedeCerca: 'id nombre cuenta_id cuenta_nombre cuenta_clase ciudad lat lng distancia_m hospital_id ubicacion_confirmada',
       medico: 'id nombre especialidades municipality_id lineas sedes',
-      sedeDeMedico: 'id nombre cuenta_nombre distancia_m',
+      sedeDeMedico: 'id nombre cuenta_nombre distancia_m cuenta_id lat lng',
       contacto: 'id cuenta_id sede_id nombre cargo_texto rol',
       subtipo: 'id codigo nombre roles_sugeridos',
       compromiso: 'visita_id fecha con next_step_date',
       voz: 'transcribir proponer',
       visitas: 'fecha items',
       visitaItem:
-        'id client_id tipo subtipo medico cuenta sede contacto modalidad medio efectiva failure_reason checked_in_at distance_m conclusion compromisos next_step_date lineas input_mode out_of_territory cuenta_para peso sede_por_confirmar editable agenda_id agendada',
+        'id client_id tipo subtipo medico cuenta sede contacto modalidad medio efectiva failure_reason checked_in_at distance_m conclusion compromisos next_step_date lineas input_mode out_of_territory cuenta_para peso sede_por_confirmar editable agenda_id agendada marcas en_sitio gps_accuracy_m medico_no_listado motivo_codigo foto',
       visitaCreate:
-        'client_id tipo subtipo_id medico_id cuenta_id sede_id contacto_id modalidad medio efectiva failure_reason retry_date checked_in_at reported_at lat lng gps_accuracy_m conclusion compromisos next_step_date transcript input_mode lineas agenda_id',
+        'client_id tipo subtipo_id medico_id cuenta_id sede_id contacto_id modalidad medio efectiva failure_reason retry_date checked_in_at reported_at lat lng gps_accuracy_m conclusion compromisos next_step_date transcript input_mode lineas agenda_id tz gps_at motivo_codigo medico_no_listado',
       visitaCreateResponse: 'visita repetida',
       transcripcion: 'transcript duracion_s modelo',
       propuesta: 'visitas aviso',
@@ -1052,7 +982,7 @@ async function main() {
       sedes_cerca: [
         { id: S_PORTO, nombre: 'Clínica Portoazul', cuenta_id: C_PORTO, cuenta_nombre: 'Clínica Portoazul S.A.', cuenta_clase: 'clinica', ciudad: 'Puerto Colombia', ...porto, distancia_m: 80, hospital_id: null, ubicacion_confirmada: true },
       ],
-      mis_medicos: [{ id: M_PROPIO, nombre: 'Dr. Andrés Polo (prueba)', especialidades: ['ortopedia'], municipality_id: '08573', lineas: [L1], sedes: [{ id: S_PORTO, nombre: 'Clínica Portoazul', cuenta_nombre: 'Clínica Portoazul S.A.', distancia_m: 80 }] }],
+      mis_medicos: [{ id: M_PROPIO, nombre: 'Dr. Andrés Polo (prueba)', especialidades: ['ortopedia'], municipality_id: '08573', lineas: [L1], sedes: [{ id: S_PORTO, nombre: 'Clínica Portoazul', cuenta_nombre: 'Clínica Portoazul S.A.', distancia_m: 80, cuenta_id: null, lat: null, lng: null }] }],
       contactos: [{ id: CONTACTO, cuenta_id: C_PORTO, sede_id: S_PORTO, nombre: 'Jefe de compras (prueba)', cargo_texto: '(prueba)', rol: 'compras' }],
       subtipos: [
         { id: SUB_COMPRAS, codigo: 'compras', nombre: 'Compras', roles_sugeridos: ['compras'] },
@@ -1060,6 +990,7 @@ async function main() {
       ],
       compromisos_vencidos: [],
       voz: { transcribir: true, proponer: true },
+      motivos_no_efectiva: [],
       agenda_hoy: [citaPorto, citaPortoTemprano, citaReina, citaHecha, citaSinGps, citaInst, cita('11111111-0000-4000-8000-0000000000a8', { estado: 'cancelada', sede: { ...SEDE_REINA, id: 'aaaaaaaa-0000-4000-8000-0000000000x9' } })],
       persona: { user_id: 'u-carmen', nombre: 'Carmen Barrios', executive_id: 'e-carmen', rol: 'ejecutivo', lineas: [{ id: L1, nombre: 'PerOssal', como: 'ejecutivo' }, { id: L2, nombre: 'Reemplazo articular', como: 'ejecutivo' }] },
     }
@@ -1103,7 +1034,7 @@ async function main() {
     check('borradorDesdeCita respeta el origen pedido', deCitaVoz.origen === 'voz')
     const deCitaAjena = borradorDesdeCita(citaReina, catalogo, { nuevoId })
     const lejosDeReina = validarBorrador(deCitaAjena, catalogo, { punto: TEL, checked_in_at: llegada, ahora })
-    check('cita con un médico que no es suyo, en una sede a 9 km: tarjeta armada, fuera de su territorio y bloqueada por el radio', deCitaAjena.medico_id === M_AJENO && deCitaAjena.sede_id === S_REINA && lejosDeReina.fuera_de_territorio && lejosDeReina.errores.some(e => e.campo === 'lat'), lejosDeReina.errores)
+    check('cita con un médico que no es suyo, en una sede a 9 km: tarjeta armada, fuera de su territorio y con la marca lejos_de_ips (0940: antes la bloqueaba el radio)', deCitaAjena.medico_id === M_AJENO && deCitaAjena.sede_id === S_REINA && lejosDeReina.fuera_de_territorio && !lejosDeReina.errores.some(e => e.campo === 'lat') && lejosDeReina.marcas.includes('lejos_de_ips') && lejosDeReina.en_sitio === false, lejosDeReina)
     const deInst = borradorDesdeCita(citaInst, catalogo, { nuevoId })
     check('cita institucional → cuenta, subtipo, sede y el único contacto de compras de la cuenta', deInst.tipo === 'institucional' && deInst.cuenta_id === C_PORTO && deInst.subtipo_id === SUB_COMPRAS && deInst.sede_id === S_PORTO && deInst.contacto_id === CONTACTO && deInst.agenda_id === citaInst.id, deInst)
     const cuerpoInst = cuerpoDesdeBorrador({ ...deInst, lineas: [L1] }, { punto: TEL, checked_in_at: llegada, reported_at: llegada, transcript: null })
@@ -1596,11 +1527,12 @@ async function main() {
       config: { radio_m: 500, telefonica: { habilitada: true, tope_dia: 2, medios: ['llamada'] }, tope_visitas_medico_dia: 1, perfil: ['medica', 'institucional'] },
       sedes_cerca: [],
       // Su consultorio sin coordenadas: la distancia la midió el servidor desde el punto con que se pidió el contexto.
-      mis_medicos: [{ id: M_14, nombre: 'Dr. Prueba', especialidades: [], municipality_id: '11001', lineas: [L_14], sedes: [{ id: S_CONSULTORIO, nombre: 'Consultorio', cuenta_nombre: null, distancia_m: 30 }] }],
+      mis_medicos: [{ id: M_14, nombre: 'Dr. Prueba', especialidades: [], municipality_id: '11001', lineas: [L_14], sedes: [{ id: S_CONSULTORIO, nombre: 'Consultorio', cuenta_nombre: null, distancia_m: 30, cuenta_id: null, lat: null, lng: null }] }],
       contactos: [],
       subtipos: [{ id: SUB_14, codigo: 'compras', nombre: 'Compras', roles_sugeridos: ['compras'] }],
       compromisos_vencidos: [],
       voz: { transcribir: false, proponer: false },
+      motivos_no_efectiva: [],
       agenda_hoy: [],
       persona: { user_id: 'u14', nombre: 'Ejecutivo de prueba', executive_id: 'e14', rol: 'ejecutivo', lineas: [{ id: L_14, nombre: 'Osteosíntesis', como: 'ejecutivo' }] },
       ...extra,
@@ -2007,6 +1939,7 @@ async function main() {
     await pruebasPantallas(probador)
     await pruebasEstilo(probador)
     await pruebasPersona(probador)
+    await pruebasSinSenal(probador)
   }
 
   console.log(`\n${total - fallas}/${total} pruebas pasaron`)

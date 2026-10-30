@@ -26,12 +26,16 @@ import type {
   ContextoResponse,
   ErrorVisita,
   LineaEjecutiva,
+  MarcaVisita,
+  MedicoNoListado,
   MedioTelefonica,
   Modalidad,
   MedicoPublico,
   ModoEntrada,
+  MotivoNoEfectiva,
   PropuestaResponse,
   SedeCreada,
+  SedeDeMedico,
   SubtipoContexto,
   TipoVisita,
   VisitaCreate,
@@ -39,7 +43,7 @@ import type {
   VisitaPropuesta,
   VisitaUpdate,
 } from './tipos'
-import { ETIQUETA_TIPO_VISITA, MAX_NOTA_CITA } from './tipos'
+import { DIAS_MAX_ATRAS, ETIQUETA_TIPO_VISITA, MAX_NOTA_CITA, PRECISION_BAJA_M } from './tipos'
 
 // ---------------------------------------------------------------------------------------------
 // Límites y mensajes (los mismos de web/lib/reporte-visitas.ts y de visitas_registrar)
@@ -61,6 +65,13 @@ export const MENSAJE_CONTACTO_OTRA_CUENTA = 'Ese contacto no es de la cuenta ele
 export const MENSAJE_LINEAS_AJENAS = 'Alguna de las líneas no es tuya'
 export const MENSAJE_SIN_UBICACION_PRESENCIAL = 'La ubicación del teléfono es obligatoria en una visita presencial'
 export const MENSAJE_FAILURE = `Indica el motivo de la visita no efectiva (hasta ${MAX_FAILURE_REASON} caracteres)`
+/** 0940: con la lista cerrada, el motivo se elige de ella (o "Otro" con texto). */
+export const MENSAJE_MOTIVO_LISTA = 'Elige el motivo de la visita no efectiva'
+export const MENSAJE_MEDICO_NO_LISTADO_SIN_NOMBRE = 'Escribe el nombre del médico no listado'
+/** Código del motivo "Otro" en motivos_no_efectiva (0940): admite texto libre. */
+export const MOTIVO_OTRO = 'otro'
+/** Aviso de habeas data que ve la persona al reportar (la ubicación se toma solo al confirmar, nunca en segundo plano). */
+export const AVISO_HABEAS_DATA = 'Cada reporte guarda tu ubicación, la hora y la precisión del GPS solo en el momento de confirmar. Nunca en segundo plano.'
 export const MENSAJE_PROXIMA_ANTES_DE_VISITA = 'La próxima reunión no puede ser anterior a la fecha de la visita'
 export const MENSAJE_LINEAS = `Elige al menos una línea (como máximo ${MAX_LINEAS_VISITA})`
 
@@ -77,7 +88,7 @@ export function mensajeTopeTelefonicas(tope: number): string {
 }
 
 /** Aviso que ve la persona cuando la visita queda en la cola sin señal. */
-export const AVISO_EN_COLA = 'Sin señal: quedó guardada en el teléfono y se enviará al volver la señal, antes de medianoche.'
+export const AVISO_EN_COLA = 'Sin señal: quedó guardada en el teléfono y se sube sola al volver la señal (también al abrir la app).'
 
 /**
  * Aviso de la tarjeta cuando ella NO es visitante del médico (contrato, reglas del dueño): la visita suma igual a su
@@ -122,6 +133,10 @@ export interface SedeDeMedicoOpcion {
   nombre: string
   cuenta_nombre: string | null
   distancia_m: number | null
+  /** 0940: la cuenta y las coordenadas si el servidor las mandó (para medir aquí y elegir la sede sin señal). */
+  cuenta_id?: string | null
+  lat?: number | null
+  lng?: number | null
   /**
    * No se sabe a qué distancia está (médico traído del buscador, recién creado o vinculado, o contexto guardado sin
    * señal): la app no la bloquea por "sin ubicación" y la distancia la decide el servidor al confirmar.
@@ -149,6 +164,8 @@ export interface Catalogo {
   medicos: MedicoOpcion[]
   contactos: ContactoContexto[]
   subtipos: SubtipoContexto[]
+  /** 0940: motivos de la no efectiva (lista cerrada). Vacío con un servidor o un contexto guardado anteriores: texto libre. */
+  motivos: MotivoNoEfectiva[]
 }
 
 export interface ExtrasCatalogo {
@@ -209,16 +226,40 @@ export function catalogoDesdeContexto(
       if (esPunto(sede.lat, sede.lng)) sede.distancia_m = haversineM(punto, { lat: sede.lat as number, lng: sede.lng as number })
     }
   }
+  // 0940: las sedes de los médicos traen coordenadas: con el punto, la distancia se mide AQUÍ (también sin señal, con el
+  // contexto guardado); sin coordenadas (servidor anterior) queda la regla de antes (desconocida: decide el servidor).
+  const medirDesdeAqui = (sede: SedeDeMedico): SedeDeMedicoOpcion | null => {
+    if (!punto || !esPunto(punto.lat, punto.lng) || !esPunto(sede.lat, sede.lng)) return null
+    return { ...sede, distancia_m: haversineM(punto, { lat: sede.lat as number, lng: sede.lng as number }), coordenadas_desconocidas: false }
+  }
   const medicos: MedicoOpcion[] = contexto.mis_medicos.map(medico => ({
     id: medico.id,
     nombre: medico.nombre,
     especialidades: medico.especialidades,
     lineas: medico.lineas,
     sedes: medico.sedes.map(sede =>
-      opciones.sinSenal || opciones.distanciasDeOtroPunto ? { ...sede, distancia_m: null, coordenadas_desconocidas: true } : { ...sede }
+      medirDesdeAqui(sede) ?? (opciones.sinSenal || opciones.distanciasDeOtroPunto ? { ...sede, distancia_m: null, coordenadas_desconocidas: true } : { ...sede })
     ),
     propio: true,
   }))
+  // 0940: las sedes de mis médicos también se pueden ELEGIR sin señal (institucional o "no agendada"), con sus coordenadas.
+  for (const medico of contexto.mis_medicos) {
+    for (const sede of medico.sedes) {
+      if (sedes.some(s => s.id === sede.id) || !esPunto(sede.lat, sede.lng)) continue
+      sedes.push({
+        id: sede.id,
+        nombre: sede.nombre,
+        cuenta_id: sede.cuenta_id ?? null,
+        cuenta_nombre: sede.cuenta_nombre,
+        cuenta_clase: null,
+        lat: sede.lat,
+        lng: sede.lng,
+        distancia_m: punto && esPunto(punto.lat, punto.lng) ? haversineM(punto, { lat: sede.lat as number, lng: sede.lng as number }) : null,
+        ubicacion_confirmada: null,
+        de_agenda: true,
+      })
+    }
+  }
   for (const cita of citas) {
     if (cita.estado === 'cancelada' || cita.tipo !== 'medica' || !cita.medico) continue
     // La sede de la cita ya está en `sedes` con sus coordenadas: distanciaASede la mide desde ahí.
@@ -248,6 +289,7 @@ export function catalogoDesdeContexto(
     medicos,
     contactos: contexto.contactos,
     subtipos: contexto.subtipos,
+    motivos: Array.isArray(contexto.motivos_no_efectiva) ? contexto.motivos_no_efectiva : [],
   }
 }
 
@@ -314,6 +356,26 @@ export interface Borrador {
    * sola la cita pendiente de hoy con el mismo médico o cuenta. Se suelta al cambiar el tipo, el médico o la cuenta.
    */
   agenda_id: string | null
+  /**
+   * 0940 (app sin señal): médico que no está en OpMap, escrito aquí (nombre y especialidad); va en vez de medico_id y la
+   * visita queda 'medico_por_validar'. Sin el dato (borradores guardados antes): null.
+   */
+  medico_no_listado?: MedicoNoListado | null
+  /** 0940: motivo de la lista cerrada de la no efectiva (código); null = texto libre en failure_reason. */
+  motivo_codigo?: string | null
+  /** 0940: la foto comprimida (1600 px, JPEG 70 %), lista para la cola de fotos; null sin foto. */
+  foto?: FotoBorrador | null
+}
+
+/** La foto de la tarjeta (lib/foto.ts la produce; aquí solo se describe para no depender de Expo). */
+export interface FotoBorrador {
+  /** URI local para la vista previa (archivo en el teléfono o blob: en el navegador). */
+  uri: string
+  ancho: number
+  alto: number
+  bytes: number
+  /** Solo en el navegador: el JPEG para IndexedDB. */
+  blob: Blob | null
 }
 
 export interface OpcionesBorrador {
@@ -433,10 +495,16 @@ export function cambiarBorrador(borrador: Borrador, cambios: Partial<Borrador>, 
   if (cambios.medico_id !== undefined && cambios.medico_id !== borrador.medico_id) {
     const medico = cambios.medico_id ? catalogo.medicos.find(m => m.id === cambios.medico_id) : undefined
     if (medico) {
-      siguiente = { ...siguiente, medico_nombre_dicho: null, sugerir_crear_medico: false }
+      // 0940: con un médico de OpMap elegido, el "médico no listado" sobra.
+      siguiente = { ...siguiente, medico_nombre_dicho: null, sugerir_crear_medico: false, medico_no_listado: null }
       if (siguiente.lineas.length === 0) siguiente = { ...siguiente, lineas: lineasPorDefecto(catalogo, medico) }
     }
   }
+  // 0940: escribir el médico no listado quita el de OpMap (son excluyentes); la sede se conserva (es la IPS).
+  if (cambios.medico_no_listado !== undefined && cambios.medico_no_listado) {
+    siguiente = { ...siguiente, medico_id: null, medico_nombre_dicho: null, sugerir_crear_medico: false }
+  }
+  if (cambios.efectiva === true) siguiente = { ...siguiente, motivo_codigo: null }
   if (cambios.cuenta_id !== undefined && cambios.cuenta_id !== borrador.cuenta_id && cambios.sede_id === undefined) {
     const sede = siguiente.sede_id ? catalogo.sedes.find(s => s.id === siguiente.sede_id) : undefined
     if (!sede || sede.cuenta_id !== cambios.cuenta_id) siguiente = { ...siguiente, sede_id: null }
@@ -468,7 +536,13 @@ function normalizar(borrador: Borrador, catalogo: Catalogo, opciones: { sedePref
     const medico = b.medico_id ? catalogo.medicos.find(m => m.id === b.medico_id) : undefined
     if (b.medico_id && !medico) b = { ...b, medico_id: null }
     b = { ...b, cuenta_id: null, subtipo_id: null, contacto_id: null, contacto_nombre_dicho: null }
-    if (medico) {
+    // 0940: el médico no listado solo vale sin médico de OpMap y con nombre.
+    if (b.medico_no_listado && (medico || !b.medico_no_listado.nombre.trim())) b = { ...b, medico_no_listado: null }
+    if (!medico && b.medico_no_listado) {
+      // Con el médico no listado la sede es cualquier IPS conocida (no hay "sedes del médico").
+      if (b.sede_id && !sedeConocida(b.sede_id, catalogo)) b = { ...b, sede_id: null }
+      if (!b.sede_id && opciones.sedePreferida && sedeConocida(opciones.sedePreferida, catalogo)) b = { ...b, sede_id: opciones.sedePreferida }
+    } else if (medico) {
       const sedesMedico = medico.sedes.map(s => s.id)
       if (b.sede_id && !sedesMedico.includes(b.sede_id)) b = { ...b, sede_id: null }
       if (!b.sede_id) {
@@ -477,11 +551,14 @@ function normalizar(borrador: Borrador, catalogo: Catalogo, opciones: { sedePref
         const dentro = cercana && cercana.distancia_m !== null && cercana.distancia_m <= catalogo.config.radio_m ? cercana.id : null
         b = { ...b, sede_id: preferida ?? dentro ?? (sedesMedico.length === 1 ? sedesMedico[0] : null) }
       }
-    } else if (b.sede_id && !catalogo.sedes.some(s => s.id === b.sede_id)) {
-      b = { ...b, sede_id: null }
+    } else {
+      if (b.sede_id && !catalogo.sedes.some(s => s.id === b.sede_id)) b = { ...b, sede_id: null }
+      // 0940: empezó por el sitio y todavía no hay médico: la IPS elegida se conserva (le sirve al médico no listado; al
+      // elegir un médico de OpMap se revisa contra sus sedes, como siempre).
+      if (!b.sede_id && opciones.sedePreferida && catalogo.sedes.some(s => s.id === opciones.sedePreferida)) b = { ...b, sede_id: opciones.sedePreferida }
     }
   } else if (b.tipo === 'institucional') {
-    b = { ...b, medico_id: null, medico_nombre_dicho: null, sugerir_crear_medico: false }
+    b = { ...b, medico_id: null, medico_nombre_dicho: null, sugerir_crear_medico: false, medico_no_listado: null }
     const sede = b.sede_id ? catalogo.sedes.find(s => s.id === b.sede_id) : undefined
     if (b.sede_id && !sede) b = { ...b, sede_id: null }
     if (sede && !b.cuenta_id) b = { ...b, cuenta_id: sede.cuenta_id }
@@ -501,6 +578,8 @@ function normalizar(borrador: Borrador, catalogo: Catalogo, opciones: { sedePref
   b = { ...b, lineas: Array.from(new Set(b.lineas.filter(id => suyas.has(id)))).slice(0, MAX_LINEAS_VISITA) }
   if (b.modalidad === 'telefonica' && b.medio && !catalogo.config.telefonica.medios.includes(b.medio)) b = { ...b, medio: medioPorDefecto(catalogo.config) }
   if (b.modalidad === 'presencial') b = { ...b, medio: null }
+  // 0940: un motivo que ya no está en la lista se descarta (queda el texto, si lo hay); efectiva no lleva motivo.
+  if (b.motivo_codigo && (b.efectiva || (catalogo.motivos.length > 0 && !catalogo.motivos.some(m => m.codigo === b.motivo_codigo)))) b = { ...b, motivo_codigo: null }
   return b
 }
 
@@ -570,8 +649,8 @@ export interface VisitaHoyTope {
 }
 
 export interface EntradaValidacion {
-  /** Ubicación del teléfono (null si no la dio). */
-  punto: Punto | null
+  /** Ubicación del teléfono (null si no la dio), con su precisión si se sabe (0940: para las marcas). */
+  punto: (Punto & { precision?: number | null }) | null
   /** Instante del sitio (el de la ubicación). */
   checked_in_at: string
   ahora: Date
@@ -586,6 +665,57 @@ export interface ResultadoBorrador {
   distancia_m: number | null
   /** Médico del que no es visitante: suma igual y queda marcada. */
   fuera_de_territorio: boolean
+  /** 0940: las marcas que el servidor dejará con lo que se sabe aquí (marcasPrevistas). Nunca bloquean. */
+  marcas: MarcaVisita[]
+  /** 0940: (distancia − precisión) ≤ radio; null sin distancia conocida. */
+  en_sitio: boolean | null
+}
+
+/**
+ * ESPEJO de marcasDeVisita de web/lib/reporte-visitas.ts con lo que la app sabe antes de confirmar: la distancia a la
+ * sede según el teléfono (si se conoce), la precisión del GPS, si hay GPS, si la sede tiene coordenadas, la fecha de la
+ * visita frente a hoy (más de DIAS_MAX_ATRAS días → hora inconsistente) y si va con médico no listado. La hora del
+ * teléfono frente al reloj del servidor la decide el servidor. Puro.
+ */
+export function marcasPrevistas(borrador: Borrador, catalogo: Catalogo, entrada: EntradaValidacion): { marcas: MarcaVisita[]; distancia_m: number | null; en_sitio: boolean | null } {
+  const marcas: MarcaVisita[] = []
+  try {
+    const fecha = fechaBogota(entrada.checked_in_at)
+    const limite = restarDias(hoyBogota(entrada.ahora), DIAS_MAX_ATRAS)
+    if (fecha < limite) marcas.push('hora_inconsistente')
+  } catch {
+    // hora ilegible: la revisa el servidor
+  }
+  if (borrador.tipo === 'medica' && !borrador.medico_id && borrador.medico_no_listado?.nombre.trim()) marcas.push('medico_por_validar')
+  let distancia_m: number | null = null
+  let en_sitio: boolean | null = null
+  if (borrador.modalidad === 'presencial') {
+    const conGps = !!entrada.punto && esPunto(entrada.punto.lat, entrada.punto.lng)
+    // La base redondea la precisión a metros enteros: aquí igual.
+    const precisionCruda = entrada.punto?.precision ?? null
+    const precision = precisionCruda === null || !Number.isFinite(precisionCruda) ? null : Math.round(precisionCruda)
+    if (!conGps) marcas.push('sin_ubicacion')
+    else if (precision !== null && precision !== undefined && precision > PRECISION_BAJA_M) marcas.push('precision_baja')
+    if (borrador.sede_id) {
+      if (sedeSinCoordenadas(borrador.sede_id, catalogo)) marcas.push('ips_sin_coordenadas')
+      else if (conGps) {
+        // Sin GPS no hay distancia (la del catálogo se midió desde otro punto): el servidor tampoco la calcula.
+        const distancia = distanciaASede(borrador, catalogo, entrada.punto)
+        if (distancia.distancia_m !== null) {
+          distancia_m = distancia.distancia_m
+          en_sitio = Math.max(distancia_m - (precision ?? 0), 0) <= catalogo.config.radio_m
+          if (!en_sitio) marcas.push('lejos_de_ips')
+        }
+      }
+    }
+  }
+  return { marcas, distancia_m, en_sitio }
+}
+
+/** AAAA-MM-DD menos n días (fechas de calendario). */
+function restarDias(fecha: string, n: number): string {
+  const [a, m, d] = fecha.split('-').map(Number)
+  return new Date(Date.UTC(a, m - 1, d - n)).toISOString().slice(0, 10)
 }
 
 /** Distancia del punto a la sede del borrador: con las coordenadas si están; si no, la que dio el contexto. */
@@ -607,6 +737,22 @@ export function distanciaASede(borrador: Borrador, catalogo: Catalogo, punto: Pu
   return { conocida: false, distancia_m: null }
 }
 
+/** 0940: ¿se SABE que la sede no tiene coordenadas? (distinto de "no se sabe": traída sin señal, la decide el servidor). */
+export function sedeSinCoordenadas(sedeId: string, catalogo: Catalogo): boolean {
+  const sede = catalogo.sedes.find(s => s.id === sedeId)
+  if (sede) return !esPunto(sede.lat, sede.lng) && !sede.coordenadas_desconocidas
+  for (const medico of catalogo.medicos) {
+    const deMedico = medico.sedes.find(s => s.id === sedeId)
+    if (deMedico) return deMedico.distancia_m === null && !deMedico.coordenadas_desconocidas && !esPunto(deMedico.lat ?? null, deMedico.lng ?? null)
+  }
+  return false
+}
+
+/** ¿La sede existe en el catálogo (cercanas, de la agenda o de algún médico)? Para el médico no listado: cualquier IPS conocida. */
+function sedeConocida(sedeId: string, catalogo: Catalogo): boolean {
+  return catalogo.sedes.some(s => s.id === sedeId) || catalogo.medicos.some(m => m.sedes.some(s => s.id === sedeId))
+}
+
 export function nombreSede(sedeId: string | null, catalogo: Catalogo): string {
   if (!sedeId) return 'la sede'
   const sede = catalogo.sedes.find(s => s.id === sedeId)
@@ -618,18 +764,22 @@ export function nombreSede(sedeId: string | null, catalogo: Catalogo): string {
   return 'la sede'
 }
 
-/** Revisa la tarjeta como lo hará el servidor (todos los errores a la vez, con el campo que falla). */
+/**
+ * Revisa la tarjeta como lo hará el servidor (todos los errores a la vez, con el campo que falla). 0940 (dueño,
+ * 2026-10-30): la fecha, el radio, la falta de GPS y la sede sin coordenadas YA NO bloquean: son marcas
+ * (marcasPrevistas); la médica vale con el médico de OpMap o con el médico no listado (nombre); el motivo de la no
+ * efectiva vale de la lista (motivo_codigo) o escrito.
+ */
 export function validarBorrador(borrador: Borrador, catalogo: Catalogo, entrada: EntradaValidacion): ResultadoBorrador {
   const errores: ErrorVisita[] = []
   const falla = (campo: string, mensaje: string) => errores.push({ campo, mensaje })
   const config = catalogo.config
   const visitasHoy = (entrada.visitasHoy ?? []).filter(v => !v.client_id || v.client_id !== borrador.client_id)
-  let distancia_m: number | null = null
   let fuera_de_territorio = false
 
-  // Mismo día
+  // Hora de llegada legible (la fecha ya no se rechaza: otro día se marca)
   try {
-    if (fechaBogota(entrada.checked_in_at) !== hoyBogota(entrada.ahora)) falla('checked_in_at', MENSAJE_SOLO_HOY)
+    fechaBogota(entrada.checked_in_at)
   } catch {
     falla('checked_in_at', 'La hora de llegada no es válida')
   }
@@ -641,8 +791,13 @@ export function validarBorrador(borrador: Borrador, catalogo: Catalogo, entrada:
   // Médica o institucional
   if (borrador.tipo === 'medica') {
     const medico = borrador.medico_id ? catalogo.medicos.find(m => m.id === borrador.medico_id) : undefined
-    if (!medico) falla('medico_id', borrador.medico_nombre_dicho ? `"${borrador.medico_nombre_dicho}" no está en OpMap: elígelo o créalo completo` : 'Elige el médico')
-    else {
+    const noListado = !medico && !!borrador.medico_no_listado
+    if (noListado) {
+      if (!borrador.medico_no_listado?.nombre.trim()) falla('medico_no_listado', MENSAJE_MEDICO_NO_LISTADO_SIN_NOMBRE)
+      if (!borrador.sede_id) falla('sede_id', 'Elige la IPS donde lo viste')
+    } else if (!medico) {
+      falla('medico_id', borrador.medico_nombre_dicho ? `"${borrador.medico_nombre_dicho}" no está en OpMap: elígelo, créalo completo o escríbelo como médico no listado` : 'Elige el médico')
+    } else {
       fuera_de_territorio = !medico.propio
       if (!borrador.sede_id) falla('sede_id', 'Elige la sede donde lo viste')
       else if (!medico.sedes.some(s => s.id === borrador.sede_id)) falla('sede_id', MENSAJE_SEDE_NO_DEL_MEDICO)
@@ -661,18 +816,8 @@ export function validarBorrador(borrador: Borrador, catalogo: Catalogo, entrada:
     }
   }
 
-  // Modalidad
-  if (borrador.modalidad === 'presencial') {
-    if (!entrada.punto || !esPunto(entrada.punto.lat, entrada.punto.lng)) falla('lat', MENSAJE_SIN_UBICACION_PRESENCIAL)
-    else if (borrador.sede_id) {
-      const distancia = distanciaASede(borrador, catalogo, entrada.punto)
-      if (distancia.conocida && distancia.distancia_m === null) falla('sede_id', MENSAJE_SEDE_SIN_UBICACION)
-      else if (distancia.distancia_m !== null) {
-        distancia_m = distancia.distancia_m
-        if (distancia_m > config.radio_m) falla('lat', mensajeFueraDeRadio(distancia_m, nombreSede(borrador.sede_id, catalogo), config.radio_m))
-      }
-    }
-  } else {
+  // Modalidad. Presencial (0940): sin GPS, lejos o con la sede sin coordenadas se guarda igual (marcas).
+  if (borrador.modalidad === 'telefonica') {
     if (!config.telefonica.habilitada) falla('modalidad', MENSAJE_TELEFONICA_NO_HABILITADA)
     else {
       if (!borrador.medio) falla('medio', 'Indica el medio: llamada o videollamada')
@@ -681,16 +826,25 @@ export function validarBorrador(borrador: Borrador, catalogo: Catalogo, entrada:
       if (telefonicas >= config.telefonica.tope_dia) falla('modalidad', mensajeTopeTelefonicas(config.telefonica.tope_dia))
     }
   }
+  const previstas = marcasPrevistas(borrador, catalogo, entrada)
 
-  // Tope por médico (solo efectivas)
+  // Tope por médico (solo efectivas, con médico de OpMap)
   if (borrador.tipo === 'medica' && borrador.efectiva && borrador.medico_id) {
     const alMedico = visitasHoy.filter(v => v.efectiva && v.medico_id === borrador.medico_id).length
     if (alMedico >= config.tope_visitas_medico_dia) falla('medico_id', MENSAJE_TOPE_MEDICO)
   }
 
-  // Efectiva o no
+  // Efectiva o no. 0940: con la lista cerrada se elige el motivo (y "Otro" lleva texto); sin lista, texto libre.
   const motivo = borrador.failure_reason.trim()
-  if (!borrador.efectiva && (!motivo || motivo.length > MAX_FAILURE_REASON)) falla('failure_reason', MENSAJE_FAILURE)
+  if (!borrador.efectiva) {
+    const conLista = catalogo.motivos.length > 0
+    const codigo = borrador.motivo_codigo ?? null
+    if (conLista) {
+      if (!codigo || !catalogo.motivos.some(m => m.codigo === codigo)) falla('failure_reason', MENSAJE_MOTIVO_LISTA)
+      else if (codigo === MOTIVO_OTRO && !motivo) falla('failure_reason', MENSAJE_FAILURE)
+    } else if (!motivo) falla('failure_reason', MENSAJE_FAILURE)
+    if (motivo.length > MAX_FAILURE_REASON) falla('failure_reason', MENSAJE_FAILURE)
+  }
 
   // Textos y fecha
   if (borrador.conclusion.trim().length > MAX_CONCLUSION) falla('conclusion', `La conclusión no puede superar ${MAX_CONCLUSION} caracteres`)
@@ -703,7 +857,7 @@ export function validarBorrador(borrador: Borrador, catalogo: Catalogo, entrada:
   if (borrador.lineas.length === 0 || borrador.lineas.length > MAX_LINEAS_VISITA) falla('lineas', MENSAJE_LINEAS)
   else if (borrador.lineas.some(id => !catalogo.lineas.some(l => l.id === id))) falla('lineas', MENSAJE_LINEAS_AJENAS)
 
-  return { ok: errores.length === 0, errores, distancia_m, fuera_de_territorio }
+  return { ok: errores.length === 0, errores, distancia_m: previstas.distancia_m, fuera_de_territorio, marcas: previstas.marcas, en_sitio: previstas.en_sitio }
 }
 
 /** ¿La próxima reunión (AAAA-MM-DD) cae antes de la fecha de la visita en Bogotá? (el servidor la rechaza) */
@@ -730,6 +884,10 @@ export interface DatosEnvio {
   reported_at: string
   /** Solo por voz: la transcripción (hasta 8.000 caracteres). */
   transcript: string | null
+  /** 0940: hora de la lectura del GPS (ISO con zona); por defecto, la de llegada si hay punto. */
+  gps_at?: string | null
+  /** 0940: zona horaria del teléfono; por defecto, la del sistema (zonaHorariaDelTelefono). */
+  tz?: string | null
 }
 
 const textoONulo = (texto: string, max: number) => {
@@ -737,7 +895,21 @@ const textoONulo = (texto: string, max: number) => {
   return limpio ? limpio.slice(0, max) : null
 }
 
-/** Arma el cuerpo de la visita. Lanza si la tarjeta está incompleta (validarla antes con validarBorrador). */
+/** Zona horaria IANA del teléfono ("America/Bogota"); si el sistema no la da, Bogotá (la app es de Colombia). */
+export function zonaHorariaDelTelefono(): string {
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
+    return tz && tz.length <= 64 ? tz : 'America/Bogota'
+  } catch {
+    return 'America/Bogota'
+  }
+}
+
+/**
+ * Arma el cuerpo de la visita. Lanza si la tarjeta está incompleta (validarla antes con validarBorrador). 0940: la
+ * presencial puede ir sin ubicación (el servidor la marca 'sin_ubicacion'); lleva tz, gps_at, motivo_codigo y el médico
+ * no listado.
+ */
 export function cuerpoDesdeBorrador(borrador: Borrador, datos: DatosEnvio): VisitaCreate {
   if (!borrador.tipo || !borrador.sede_id) throw new Error('La visita está incompleta')
   const punto = datos.punto && esPunto(datos.punto.lat, datos.punto.lng) ? datos.punto : null
@@ -762,18 +934,23 @@ export function cuerpoDesdeBorrador(borrador: Borrador, datos: DatosEnvio): Visi
     input_mode: borrador.origen,
     lineas: [...borrador.lineas],
     agenda_id: borrador.agenda_id ?? null,
+    tz: datos.tz ?? zonaHorariaDelTelefono(),
+    gps_at: ubicacion ? (datos.gps_at ?? datos.checked_in_at) : null,
+    motivo_codigo: borrador.efectiva ? null : (borrador.motivo_codigo ?? null),
   }
-  let tipo: { tipo: 'medica'; medico_id: string; cuenta_id: null; subtipo_id: null; contacto_id: null } | { tipo: 'institucional'; medico_id: null; cuenta_id: string; subtipo_id: string; contacto_id: string | null }
+  let tipo:
+    | { tipo: 'medica'; medico_id: string | null; medico_no_listado: MedicoNoListado | null; cuenta_id: null; subtipo_id: null; contacto_id: null }
+    | { tipo: 'institucional'; medico_id: null; medico_no_listado: null; cuenta_id: string; subtipo_id: string; contacto_id: string | null }
   if (borrador.tipo === 'medica') {
-    if (!borrador.medico_id) throw new Error('Elige el médico')
-    tipo = { tipo: 'medica', medico_id: borrador.medico_id, cuenta_id: null, subtipo_id: null, contacto_id: null }
+    const noListado = borrador.medico_no_listado?.nombre.trim() ? { nombre: borrador.medico_no_listado.nombre.trim().slice(0, 200), especialidad: borrador.medico_no_listado.especialidad?.trim() || null } : null
+    if (!borrador.medico_id && !noListado) throw new Error('Elige el médico')
+    tipo = { tipo: 'medica', medico_id: borrador.medico_id, medico_no_listado: borrador.medico_id ? null : noListado, cuenta_id: null, subtipo_id: null, contacto_id: null }
   } else {
     if (!borrador.cuenta_id || !borrador.subtipo_id) throw new Error('Elige la cuenta y el subtipo')
-    tipo = { tipo: 'institucional', medico_id: null, cuenta_id: borrador.cuenta_id, subtipo_id: borrador.subtipo_id, contacto_id: borrador.contacto_id }
+    tipo = { tipo: 'institucional', medico_id: null, medico_no_listado: null, cuenta_id: borrador.cuenta_id, subtipo_id: borrador.subtipo_id, contacto_id: borrador.contacto_id }
   }
   if (borrador.modalidad === 'presencial') {
-    if (!punto) throw new Error(MENSAJE_SIN_UBICACION_PRESENCIAL)
-    return { ...base, ...tipo, modalidad: 'presencial', lat: punto.lat, lng: punto.lng, medio: null }
+    return { ...base, ...tipo, modalidad: 'presencial', lat: punto ? punto.lat : null, lng: punto ? punto.lng : null, medio: null }
   }
   if (!borrador.medio) throw new Error('Indica el medio: llamada o videollamada')
   return { ...base, ...tipo, modalidad: 'telefonica', medio: borrador.medio }
@@ -784,7 +961,7 @@ export function resumenBorrador(borrador: Borrador, catalogo: Catalogo): string 
   const partes: string[] = [borrador.tipo ? ETIQUETA_TIPO_VISITA[borrador.tipo] : 'Visita']
   if (borrador.tipo === 'medica') {
     const medico = borrador.medico_id ? catalogo.medicos.find(m => m.id === borrador.medico_id) : undefined
-    partes.push(medico?.nombre ?? borrador.medico_nombre_dicho ?? 'Médico')
+    partes.push(medico?.nombre ?? (borrador.medico_no_listado?.nombre ? `${borrador.medico_no_listado.nombre} (no listado)` : null) ?? borrador.medico_nombre_dicho ?? 'Médico')
   } else if (borrador.tipo === 'institucional') {
     const cuenta = cuentasDelCatalogo(catalogo).find(c => c.id === borrador.cuenta_id)
     const subtipo = catalogo.subtipos.find(s => s.id === borrador.subtipo_id)
@@ -993,6 +1170,10 @@ export function borradorDesdeCuerpo(cuerpo: VisitaCreate, catalogo: Catalogo, op
     transcript: cuerpo.transcript,
     // Un cuerpo guardado en la cola antes de la agenda no trae agenda_id.
     agenda_id: opciones.motivo && esRechazoDeCita(opciones.motivo) ? null : (cuerpo.agenda_id ?? null),
+    // 0940 (un cuerpo guardado antes no los trae)
+    medico_no_listado: cuerpo.tipo === 'medica' ? (cuerpo.medico_no_listado ?? null) : null,
+    motivo_codigo: cuerpo.motivo_codigo ?? null,
+    foto: null,
   }
   return normalizar(borrador, catalogo)
 }

@@ -344,8 +344,8 @@ export async function pruebas(t: Probador): Promise<void> {
     )
     t.check(
       'Hoy: "Actividades de hoy" (F1b; antes "Visitas de hoy") dice que carga (no "Todavía no has reportado") mientras no llegan',
-      hoy.indexOf('!visitas ? (\n          <Vacio texto="Cargando tus actividades de hoy…" />') > -1 &&
-        hoy.indexOf('<Vacio texto="Cargando tus actividades de hoy…" />') < hoy.indexOf('<Vacio texto="Todavía no has reportado actividades hoy." />')
+      hoy.indexOf("!visitas && enElTelefono.length === 0 ? (\n          <Vacio texto={cola.enLinea ? 'Cargando tus actividades de hoy…' : 'Sin conexión: aquí verás las que guardes en el teléfono.'} />") > -1 &&
+        hoy.indexOf("'Cargando tus actividades de hoy…'") < hoy.indexOf('<Vacio texto="Todavía no has reportado actividades hoy." />')
     )
   }
 

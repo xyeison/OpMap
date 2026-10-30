@@ -1,10 +1,12 @@
 /**
  * Una visita por confirmar (propuesta por la voz o por toques), editable con una mano: tipo, médico y su sede, o
  * cuenta, sede, subtipo y contacto; presencial o telefónica (con la distancia a la sede y el radio vigente); si fue
- * efectiva, conclusión, compromisos, próxima reunión y líneas. "Confirmar" la manda (o la guarda sin señal); nada se
- * guarda sin ese toque. Reglas visibles del contrato fase 8: presencial bloqueada fuera del radio con las salidas
- * (telefónica si está habilitada y con cupo, o crear la sede aquí), telefónica solo si está habilitada, médico que no
- * está en OpMap → "Crear médico completo" (documento digitado). Nunca muestra documentos.
+ * efectiva, conclusión, compromisos, próxima reunión, foto opcional y líneas. "Confirmar" la manda (o la guarda sin
+ * señal); nada se guarda sin ese toque. Telefónica solo si está habilitada; médico que no está en OpMap → "Crear médico
+ * completo" (documento digitado) o, desde la app sin señal (0940, dueño 2026-10-30), "Médico no listado" (nombre y
+ * especialidad, queda por validar). La ubicación YA NO bloquea: fuera del radio, sin GPS o con la sede sin coordenadas
+ * la visita se guarda igual y la tarjeta dice qué marca quedará (en sitio, lejos de la IPS, sin ubicación…), con las
+ * salidas de siempre (telefónica si está habilitada y con cupo, o crear la sede aquí). Nunca muestra documentos.
  *
  * Spec 2026-10-15 (paquete 2, decisión 8; lib/tarjeta-resumen.ts):
  *   - La tarjeta de voz que ya está bien sale en RESUMEN (con quién, sede y radio, resultado, líneas, conclusión en 3
@@ -30,7 +32,7 @@ import { mensajeDeError } from '../../lib/errores'
 import { textoDistancia, type Punto } from '../../lib/geo'
 import { ordenarMedicos } from '../../lib/orden-medicos'
 import {
-  MENSAJE_SEDE_SIN_UBICACION,
+  MAX_FAILURE_REASON,
   avisoVisitante,
   contactosParaBorrador,
   cuentasDelCatalogo,
@@ -55,9 +57,9 @@ import {
 } from '../../lib/propuesta'
 import { sinCortes, textoHoraCita } from '../../lib/reglas'
 import { filasResumen, modoTarjeta, textoPieConfirmar, type CampoResumen, type FilaResumen } from '../../lib/tarjeta-resumen'
-import { etiquetaClaseCuenta, etiquetaEspecialidad } from '../../lib/terceros'
-import { ETIQUETA_ACTIVIDAD, ETIQUETA_MEDIO, type CitaItem, type CuentaListItem, type MedicoPublico, type TipoVisita } from '../../lib/tipos'
-import { ALTO_TOQUE_MIN, Aviso, Boton, Chip, Grupo, Insignia, Separador, Texto, useColores, useFuente } from '../../lib/ui'
+import { ESPECIALIDADES, etiquetaClaseCuenta, etiquetaEspecialidad } from '../../lib/terceros'
+import { ETIQUETA_ACTIVIDAD, ETIQUETA_MARCA, ETIQUETA_MEDIO, type CitaItem, type CuentaListItem, type MedicoPublico, type TipoVisita } from '../../lib/tipos'
+import { ALTO_TOQUE_MIN, Aviso, Boton, Campo, Chip, Grupo, Insignia, Separador, Texto, useColores, useFuente } from '../../lib/ui'
 import { Buscador } from './Buscador'
 import { CamposVisita, type CampoVisita } from './CamposVisita'
 import { Selector } from './Selector'
@@ -77,7 +79,8 @@ interface Props {
   total: number
   borrador: Borrador
   catalogo: Catalogo
-  punto: Punto | null
+  /** Ubicación del teléfono con su precisión (0940: para las marcas previstas). */
+  punto: (Punto & { precision?: number | null }) | null
   checkedInAt: string
   visitasHoy: readonly VisitaHoyTope[]
   estado: EstadoTarjeta
@@ -158,14 +161,19 @@ export function TarjetaBorrador(props: Props) {
   const [editando, setEditando] = useState<CampoResumen | null>(null)
   const error = (...campos: string[]) => (estado.intentado ? errorDe(resultado.errores, ...campos) : null)
   const medico = borrador.medico_id ? catalogo.medicos.find(m => m.id === borrador.medico_id) : undefined
+  const noListado = borrador.tipo === 'medica' && !medico && !!borrador.medico_no_listado
   const tiposPerfil = (['medica', 'institucional'] as TipoVisita[]).filter(tipo => config.perfil.includes(tipo))
   const distancia = borrador.modalidad === 'presencial' && punto ? distanciaASede(borrador, catalogo, punto) : null
-  const fueraDelRadio = distancia?.distancia_m !== null && distancia?.distancia_m !== undefined && distancia.distancia_m > config.radio_m
-  const sedeSinUbicacion = !!distancia && distancia.conocida && distancia.distancia_m === null
+  // 0940: ya no se bloquea por la ubicación; se muestra lo que el servidor va a marcar (en sitio, lejos, sin ubicación…).
+  const enSitio = resultado.en_sitio
+  const lejos = resultado.marcas.includes('lejos_de_ips')
+  const sedeSinUbicacion = resultado.marcas.includes('ips_sin_coordenadas')
   const ofreceTelefonica = puedeOfrecerTelefonica(catalogo, props.visitasHoy, borrador.client_id)
   const rechazo = estado.rechazo
   const sedeTexto = nombreSede(borrador.sede_id, catalogo)
   const [errorCuenta, setErrorCuenta] = useState<string | null>(null)
+  /** 0940: "Médico no listado" abierto (escribiendo nombre y especialidad). */
+  const [escribiendoNoListado, setEscribiendoNoListado] = useState(noListado)
 
   const agregarCuenta = async (item: CuentaListItem): Promise<boolean> => {
     setErrorCuenta(null)
@@ -226,16 +234,68 @@ export function TarjetaBorrador(props: Props) {
       grupo: grupo.titulo,
     }))
   )
+  /** 0940: el médico no listado (nombre y especialidad), con la IPS de cualquier sede del catálogo. */
+  const bloqueNoListado = (
+    <View style={{ gap: 10 }}>
+      <Aviso tono="info" titulo="Médico no listado">
+        <Texto peque>Queda en la visita con su nombre y especialidad, marcada "médico por validar", para crearlo o cruzarlo después en OpMap.</Texto>
+      </Aviso>
+      <Campo
+        etiqueta="Nombre del médico"
+        valor={borrador.medico_no_listado?.nombre ?? ''}
+        alCambiar={texto => props.alCambiar({ medico_no_listado: { nombre: texto, especialidad: borrador.medico_no_listado?.especialidad ?? null } })}
+        placeholder="Nombre y apellido"
+        maxLength={200}
+        autoCapitalize="words"
+        error={error('medico_no_listado')}
+      />
+      <View style={{ gap: 6 }}>
+        <Texto negrita>Especialidad</Texto>
+        <Grupo>
+          {ESPECIALIDADES.map(opcion => (
+            <Chip
+              key={opcion.valor}
+              texto={opcion.etiqueta}
+              activo={borrador.medico_no_listado?.especialidad === opcion.valor}
+              alPresionar={() => props.alCambiar({ medico_no_listado: { nombre: borrador.medico_no_listado?.nombre ?? '', especialidad: opcion.valor } })}
+            />
+          ))}
+        </Grupo>
+      </View>
+      <Boton
+        titulo="Mejor elegir uno de la lista"
+        variante="texto"
+        alPresionar={() => {
+          setEscribiendoNoListado(false)
+          props.alCambiar({ medico_no_listado: null })
+        }}
+      />
+    </View>
+  )
+
   const selectorMedico = (abrir: boolean) => (
     <View style={{ gap: 12 }}>
-      {borrador.medico_nombre_dicho && !borrador.medico_id ? (
+      {borrador.medico_nombre_dicho && !borrador.medico_id && !noListado ? (
         <Aviso tono="alerta" titulo={`"${borrador.medico_nombre_dicho}" no está entre tus médicos`}>
           <View style={{ gap: 8 }}>
-            <Texto peque>Búscalo en OpMap escribiendo su nombre en la lista, o créalo completo (con su documento, que se digita).</Texto>
-            <Boton titulo="Crear médico completo" variante="secundario" alPresionar={props.alCrearMedico} />
+            <Texto peque>Búscalo en OpMap escribiendo su nombre en la lista, créalo completo (con su documento, que se digita) o escríbelo como médico no listado.</Texto>
+            <Grupo>
+              <Boton titulo="Crear médico completo" variante="secundario" alPresionar={props.alCrearMedico} />
+              <Boton
+                titulo="Médico no listado"
+                variante="secundario"
+                alPresionar={() => {
+                  setEscribiendoNoListado(true)
+                  props.alCambiar({ medico_no_listado: { nombre: borrador.medico_nombre_dicho ?? '', especialidad: null } })
+                }}
+              />
+            </Grupo>
           </View>
         </Aviso>
       ) : null}
+      {escribiendoNoListado || noListado ? (
+        bloqueNoListado
+      ) : (
       <Selector
         etiqueta="Médico"
         valor={borrador.medico_id}
@@ -264,14 +324,43 @@ export function TarjetaBorrador(props: Props) {
             />
           ),
         }}
-        extra={<Boton titulo="¿No está en OpMap? Crear médico completo" variante="texto" alPresionar={props.alCrearMedico} />}
+        extra={
+          <Grupo>
+            <Boton titulo="¿No está en OpMap? Crear médico completo" variante="texto" alPresionar={props.alCrearMedico} />
+            <Boton
+              titulo="Médico no listado (sin señal)"
+              variante="texto"
+              alPresionar={() => {
+                setEscribiendoNoListado(true)
+                props.alCambiar({ medico_no_listado: { nombre: '', especialidad: null } })
+              }}
+            />
+          </Grupo>
+        }
       />
+      )}
       {avisoVisitante(medico) ? (
         <Texto peque suave>
           {avisoVisitante(medico)}
         </Texto>
       ) : null}
     </View>
+  )
+
+  /** 0940: con el médico no listado, la IPS es cualquier sede del catálogo (las cercanas y las de mis médicos). */
+  const selectorSedeNoListado = (
+    <Selector
+      etiqueta="IPS donde lo viste"
+      valor={borrador.sede_id}
+      placeholder="Elige la IPS"
+      opciones={[...catalogo.sedes]
+        .sort((a, b) => (a.distancia_m ?? Infinity) - (b.distancia_m ?? Infinity))
+        .map(s => ({ id: s.id, titulo: s.nombre, detalle: s.cuenta_nombre && s.cuenta_nombre !== s.nombre ? s.cuenta_nombre : null, lateral: s.distancia_m !== null ? sinCortes(textoDistancia(s.distancia_m)) : null }))}
+      alElegir={id => props.alCambiar({ sede_id: id })}
+      error={error('sede_id')}
+      vacio="No hay sedes guardadas en el teléfono: toma la ubicación con señal una vez o crea la sede aquí."
+      extra={<Boton titulo="Crear sede aquí" variante="texto" alPresionar={props.alCrearSede} />}
+    />
   )
 
   const selectorSedeMedico = medico ? (
@@ -410,32 +499,50 @@ export function TarjetaBorrador(props: Props) {
         </Texto>
       ) : null}
 
+      {/* 0940 (dueño, 2026-10-30): la ubicación no bloquea; se avisa qué marca quedará. */}
       {borrador.modalidad === 'presencial' && !punto ? (
-        <Aviso tono="alerta">La visita presencial necesita la ubicación del teléfono. Actualízala arriba o repórtala como telefónica.</Aviso>
-      ) : null}
-      {borrador.modalidad === 'presencial' && sedeSinUbicacion ? (
-        <Aviso tono="alerta" titulo={MENSAJE_SEDE_SIN_UBICACION}>
-          {salidas}
+        <Aviso tono="alerta" titulo="Sin ubicación del teléfono">
+          <View style={{ gap: 8 }}>
+            <Texto peque>La visita se guarda igual, marcada "sin ubicación". Si puedes, toca "Actualizar" arriba para tomarla.</Texto>
+            {ofreceTelefonica ? salidas : null}
+          </View>
         </Aviso>
       ) : null}
-      {borrador.modalidad === 'presencial' && fueraDelRadio && distancia?.distancia_m !== null && distancia?.distancia_m !== undefined && !rechazo ? (
+      {borrador.modalidad === 'presencial' && punto && sedeSinUbicacion ? (
+        <Aviso tono="info" titulo="Esta sede no tiene coordenadas en OpMap">
+          <View style={{ gap: 8 }}>
+            <Texto peque>La visita se guarda igual, marcada "IPS sin coordenadas". Si estás en una sede nueva, puedes crearla con el GPS de aquí.</Texto>
+            {salidas}
+          </View>
+        </Aviso>
+      ) : null}
+      {borrador.modalidad === 'presencial' && punto && lejos && distancia?.distancia_m !== null && distancia?.distancia_m !== undefined && !rechazo ? (
         <Aviso tono="alerta" titulo="Estás lejos de la sede">
           <View style={{ gap: 8 }}>
             <Texto>
-              Estás a {sinCortes(textoDistancia(distancia.distancia_m))} de {sedeTexto} (el radio es {sinCortes(textoDistancia(config.radio_m))}). La
-              presencial solo se reporta en el sitio.
+              Estás a {sinCortes(textoDistancia(distancia.distancia_m))} de {sedeTexto} (el radio es {sinCortes(textoDistancia(config.radio_m))}
+              {punto.precision != null ? `, tu GPS ±${Math.round(punto.precision)} m` : ''}). Se guarda igual, marcada "lejos de la IPS"; si estás en otra sede, elígela o créala aquí.
             </Texto>
             {salidas}
           </View>
         </Aviso>
       ) : null}
-      {borrador.modalidad === 'presencial' && !fueraDelRadio && distancia?.distancia_m !== null && distancia?.distancia_m !== undefined ? (
-        <Insignia texto={`A ${sinCortes(textoDistancia(distancia.distancia_m))}: dentro del radio`} tono="exito" />
+      {borrador.modalidad === 'presencial' && enSitio === true && distancia?.distancia_m !== null && distancia?.distancia_m !== undefined ? (
+        <Insignia texto={`A ${sinCortes(textoDistancia(distancia.distancia_m))}: en sitio`} tono="exito" />
       ) : null}
-      {borrador.modalidad === 'presencial' && distancia && !distancia.conocida && borrador.sede_id ? (
+      {borrador.modalidad === 'presencial' && punto && distancia && !distancia.conocida && borrador.sede_id ? (
         <Texto peque suave>
           La distancia a esta sede la calcula el servidor al confirmar.
         </Texto>
+      ) : null}
+      {resultado.marcas.filter(m => m === 'precision_baja' || m === 'hora_inconsistente' || m === 'medico_por_validar').length > 0 ? (
+        <Grupo>
+          {resultado.marcas
+            .filter(m => m === 'precision_baja' || m === 'hora_inconsistente' || m === 'medico_por_validar')
+            .map(m => (
+              <Insignia key={m} texto={`Quedará marcada: ${ETIQUETA_MARCA[m].toLowerCase()}`} tono="info" />
+            ))}
+        </Grupo>
       ) : null}
     </View>
   )
@@ -449,12 +556,16 @@ export function TarjetaBorrador(props: Props) {
         compromisos: borrador.compromisos,
         next_step_date: borrador.next_step_date,
         lineas: borrador.lineas,
+        motivo_codigo: borrador.motivo_codigo ?? null,
       }}
       lineas={catalogo.lineas}
-      alCambiar={props.alCambiar}
+      alCambiar={cambios => props.alCambiar(cambios.failure_reason !== undefined ? { ...cambios, failure_reason: cambios.failure_reason.slice(0, MAX_FAILURE_REASON) } : cambios)}
       errorDe={campo => error(campo)}
       dictado={{ tipo: borrador.tipo, disponible: !!props.dictadoDisponible }}
       solo={solo}
+      motivos={catalogo.motivos}
+      foto={borrador.foto ?? null}
+      alCambiarFoto={foto => props.alCambiar({ foto })}
     />
   )
 
@@ -474,7 +585,7 @@ export function TarjetaBorrador(props: Props) {
       case 'sede':
         return (
           <View style={{ gap: 12 }}>
-            {borrador.tipo === 'medica' ? selectorSedeMedico : selectorSedeCuenta}
+            {borrador.tipo === 'medica' ? (noListado ? selectorSedeNoListado : selectorSedeMedico) : selectorSedeCuenta}
             {bloqueModalidad}
           </View>
         )
@@ -590,8 +701,8 @@ export function TarjetaBorrador(props: Props) {
 
           {borrador.tipo === 'medica' ? (
             <View style={{ gap: 12 }}>
-              {selectorMedico(!borrador.medico_id && !borrador.medico_nombre_dicho)}
-              {medico ? selectorSedeMedico : null}
+              {selectorMedico(!borrador.medico_id && !borrador.medico_nombre_dicho && !noListado)}
+              {medico ? selectorSedeMedico : noListado || escribiendoNoListado ? selectorSedeNoListado : null}
             </View>
           ) : null}
 

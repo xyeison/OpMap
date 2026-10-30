@@ -286,16 +286,21 @@ export async function pruebas(t: Probador): Promise<void> {
     t.check(
       'sesion.ts al abrir: usa arranqueDeSesion; con entrar_y_confirmar entra con lo guardado y confirma sin esperar (void confirmar)',
       /arranqueDeSesion\(\{ perfilGuardado: guardado, tokenVigente: token !== null/.test(abrir) &&
-        /if \(arranque === 'entrar_y_confirmar' && guardado\) \{[\s\S]*?setPerfil\(guardado\)[\s\S]*?setEstado\('con_sesion'\)[\s\S]*?void confirmar\(token, guardado, TIEMPO_ME_FONDO_MS\)/.test(abrir),
+        /if \(\(arranque === 'entrar_y_confirmar' \|\| arranque === 'entrar_vencida'\) && guardado\) \{[\s\S]*?setPerfil\(guardado\)[\s\S]*?setVencida\(arranque === 'entrar_vencida'\)[\s\S]*?setEstado\('con_sesion'\)[\s\S]*?void confirmar\(token, guardado, TIEMPO_ME_FONDO_MS\)/.test(abrir),
       abrir.slice(0, 600)
     )
-    t.check('nunca se entra sin token: sin_sesion o sin token → sin sesión; el vencido se olvida con aviso', /if \(arranque === 'sin_sesion' \|\| !token\) \{\s*setEstado\('sin_sesion'\)/.test(abrir) && /if \(token && tokenVencido\(token\)\) \{\s*await olvidar\(MENSAJE_SESION_VENCIDA\)/.test(abrir))
+    t.check(
+      'nunca se entra sin token: sin_sesion o sin token → sin sesión; el vencido se olvida con aviso conservando perfil y contexto (0940: sin señal entra como entrar_vencida)',
+      /const yaVencido = token !== null && tokenVencido\(token\)/.test(abrir) &&
+        /tokenVigente: token !== null && !yaVencido, uidDelToken: leerCargaToken\(token\)\?\.uid, tokenVencido: yaVencido/.test(abrir) &&
+        /if \(arranque === 'sin_sesion' \|\| !token\) \{\s*if \(yaVencido\) await olvidar\(MENSAJE_SESION_VENCIDA, \{ conservar: true \}\)\s*else setEstado\('sin_sesion'\)/.test(abrir)
+    )
     const confirmar = sesion.slice(sesion.indexOf('const confirmar = useCallback('), sesion.indexOf('// Al abrir la app.'))
     t.check(
       'la confirmación espera /api/auth/me con el tiempo que le pasan; un 401 cierra la sesión; una respuesta tardía de otra sesión no la revive',
       /async \(token: string, guardado: Perfil \| null, tiempoMs: number\)/.test(confirmar) &&
         /api\.me\(token, tiempoMs\)/.test(confirmar) &&
-        /if \(error\.status === 401\) \{\s*await olvidar\(MENSAJE_SESION_VENCIDA\)/.test(confirmar) &&
+        /if \(error\.status === 401\) \{\s*await olvidar\(MENSAJE_SESION_VENCIDA, \{ conservar: true \}\)/.test(confirmar) &&
         (confirmar.match(/generacion\.current !== desde/g) ?? []).length >= 2,
       confirmar.slice(0, 400)
     )
@@ -306,8 +311,9 @@ export async function pruebas(t: Probador): Promise<void> {
         (sesion.match(/confirmar\([^)]*TIEMPO_ME_MS\)/g) ?? []).length === 1 &&
         /await confirmar\(token, perfil, TIEMPO_ME_FONDO_MS\)/.test(sesion.slice(sesion.indexOf('const refrescar = useCallback(')))
     )
-    t.check('un 401 en cualquier petición sigue cerrando la sesión (alVencerSesion → olvidar)', /api\.alVencerSesion\(\(\) => void olvidar\(MENSAJE_SESION_VENCIDA\)\)/.test(sesion))
-    t.check('salir y entrar cambian la generación (una confirmación vieja no revive la sesión)', /const olvidar = useCallback\(async \(motivo: string \| null\) => \{\s*generacion\.current\+\+/.test(sesion) && /const respuesta = await api\.login\(email, password\)\s*generacion\.current\+\+/.test(sesion))
+    t.check('un 401 en cualquier petición sigue cerrando la sesión (alVencerSesion → olvidar), conservando perfil, contexto y cola (0940)', /api\.alVencerSesion\(\(\) => void olvidar\(MENSAJE_SESION_VENCIDA, \{ conservar: true \}\)\)/.test(sesion))
+    t.check('salir y entrar cambian la generación (una confirmación vieja no revive la sesión)', /const olvidar = useCallback\(async \(motivo: string \| null, opciones: \{ conservar\?: boolean \} = \{\}\) => \{\s*generacion\.current\+\+/.test(sesion) && /const respuesta = await api\.login\(email, password\)\s*generacion\.current\+\+/.test(sesion))
+    t.check('solo "Cerrar sesión" borra el perfil y el contexto guardados; el 401 los conserva', /if \(!opciones\.conservar\) \{\s*await borrarClave\(CLAVE_PERFIL\)\s*await olvidarContextoGuardado\(\)/.test(sesion) && /const salir = useCallback\(async \(\) => \{[\s\S]*?olvidar\(null\)/.test(sesion))
   }
 
   // -------------------------------------------------------------------------------------------

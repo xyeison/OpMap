@@ -95,15 +95,16 @@ export async function pruebas(t: Probador): Promise<void> {
     ],
     mis_medicos: [
       // Zapata atiende en la Norte; Arias a 820 m (cerca de aquí); Betancur y Gómez sin distancia conocida cerca.
-      { id: M_ZAPATA, nombre: 'Dr. Zapata (prueba)', especialidades: ['ortopedia'], municipality_id: '68001', lineas: [L1], sedes: [{ id: S_NORTE, nombre: 'Clínica Norte', cuenta_nombre: 'Clínica Norte S.A.', distancia_m: 35 }] },
-      { id: M_ARIAS, nombre: 'Dra. Arias (prueba)', especialidades: ['ortopedia'], municipality_id: '68001', lineas: [L1], sedes: [{ id: S_SUR, nombre: 'Clínica Sur', cuenta_nombre: 'Clínica Sur', distancia_m: 820 }] },
-      { id: M_GOMEZ, nombre: 'Dra. Gómez (prueba)', especialidades: ['ortopedia'], municipality_id: '68001', lineas: [L1], sedes: [{ id: S_NORTE, nombre: 'Clínica Norte', cuenta_nombre: 'Clínica Norte S.A.', distancia_m: 35 }, { id: S_CONS, nombre: 'Consultorio Gómez', cuenta_nombre: 'Consultorio', distancia_m: null }] },
-      { id: M_BETANCUR, nombre: 'Dr. Betancur (prueba)', especialidades: [], municipality_id: '68001', lineas: [], sedes: [{ id: S_CONS, nombre: 'Consultorio Gómez', cuenta_nombre: 'Consultorio', distancia_m: 4200 }] },
+      { id: M_ZAPATA, nombre: 'Dr. Zapata (prueba)', especialidades: ['ortopedia'], municipality_id: '68001', lineas: [L1], sedes: [{ id: S_NORTE, nombre: 'Clínica Norte', cuenta_nombre: 'Clínica Norte S.A.', distancia_m: 35, cuenta_id: null, lat: null, lng: null }] },
+      { id: M_ARIAS, nombre: 'Dra. Arias (prueba)', especialidades: ['ortopedia'], municipality_id: '68001', lineas: [L1], sedes: [{ id: S_SUR, nombre: 'Clínica Sur', cuenta_nombre: 'Clínica Sur', distancia_m: 820, cuenta_id: null, lat: null, lng: null }] },
+      { id: M_GOMEZ, nombre: 'Dra. Gómez (prueba)', especialidades: ['ortopedia'], municipality_id: '68001', lineas: [L1], sedes: [{ id: S_NORTE, nombre: 'Clínica Norte', cuenta_nombre: 'Clínica Norte S.A.', distancia_m: 35, cuenta_id: null, lat: null, lng: null }, { id: S_CONS, nombre: 'Consultorio Gómez', cuenta_nombre: 'Consultorio', distancia_m: null, cuenta_id: null, lat: null, lng: null }] },
+      { id: M_BETANCUR, nombre: 'Dr. Betancur (prueba)', especialidades: [], municipality_id: '68001', lineas: [], sedes: [{ id: S_CONS, nombre: 'Consultorio Gómez', cuenta_nombre: 'Consultorio', distancia_m: 4200, cuenta_id: null, lat: null, lng: null }] },
     ],
     contactos: [],
     subtipos: [],
     compromisos_vencidos: [],
     voz: { transcribir: true, proponer: true },
+    motivos_no_efectiva: [],
     agenda_hoy: [],
     persona: { user_id: 'u-16', nombre: 'Ejecutivo de prueba', executive_id: 'e-16', rol: 'ejecutivo', lineas: [] },
   }
@@ -151,8 +152,8 @@ export async function pruebas(t: Probador): Promise<void> {
   )
   const lejos = modoTarjeta(buena, catalogo, entrada({ punto: norte(-700) }))
   check(
-    'modoTarjeta: fuera del radio → completa y atencion nombra el campo de la distancia ("lat", con el mensaje del radio)',
-    lejos.modo === 'completa' && lejos.atencion.some(a => a.campo === 'lat' && /el radio es 500 m/.test(a.motivo)),
+    'modoTarjeta: lejos de la IPS → completa y atencion nombra el campo de la distancia ("lat", con la marca "Lejos de la IPS"; 0940: ya no bloquea)',
+    lejos.modo === 'completa' && lejos.atencion.some(a => a.campo === 'lat' && /Lejos de la IPS/.test(a.motivo) && /se guarda igual/.test(a.motivo)),
     lejos
   )
   const sinMedico = deVoz({ medico_id: null, medico_nombre_dicho: 'Dr. Ramírez', sugerir_crear_medico: true })
@@ -187,7 +188,7 @@ export async function pruebas(t: Probador): Promise<void> {
   )
   const valor = (campo: string) => filas.find(f => f.campo === campo)?.valor
   check('filasResumen: con quién es el médico', valor('con_quien') === 'Dra. Gómez (prueba)', valor('con_quien'))
-  check('filasResumen: "Clínica Norte · Presencial a 35 m (dentro del radio)"', valor('sede') === 'Clínica Norte · Presencial a 35 m (dentro del radio)', valor('sede'))
+  check('filasResumen: "Clínica Norte · Presencial a 35 m (en sitio)" (0940)', valor('sede') === 'Clínica Norte · Presencial a 35 m (en sitio)', valor('sede'))
   check('filasResumen: resultado, líneas y compromisos en palabras', valor('resultado') === 'Efectiva' && valor('lineas') === 'Osteosíntesis, Columna' && valor('compromisos') === 'Enviar la ficha técnica', filas)
   check('filasResumen: la conclusión va en 3 líneas como mucho', filas.find(f => f.campo === 'conclusion')?.lineas === 3)
   check('filasResumen: próxima reunión en palabras ("jueves 22 de octubre")', valor('proxima') === 'jueves 22 de octubre', valor('proxima'))
@@ -305,8 +306,8 @@ export async function pruebas(t: Probador): Promise<void> {
   const todos = grupos.flatMap(g => g.medicos.map(m => m.id))
   check('ordenarMedicos: las cantidades no cambian y no hay repetidos', todos.length === catalogo.medicos.length && new Set(todos).size === todos.length, todos)
   const cercanos: MedicoOpcion[] = [
-    { id: 'm-a', nombre: 'Andrade', especialidades: [], lineas: [], propio: true, sedes: [{ id: 'x1', nombre: 'X1', cuenta_nombre: null, distancia_m: 900 }] },
-    { id: 'm-b', nombre: 'Borja', especialidades: [], lineas: [], propio: true, sedes: [{ id: 'x2', nombre: 'X2', cuenta_nombre: null, distancia_m: 120 }, { id: 'x3', nombre: 'X3', cuenta_nombre: null, distancia_m: 5000 }] },
+    { id: 'm-a', nombre: 'Andrade', especialidades: [], lineas: [], propio: true, sedes: [{ id: 'x1', nombre: 'X1', cuenta_nombre: null, distancia_m: 900, cuenta_id: null, lat: null, lng: null }] },
+    { id: 'm-b', nombre: 'Borja', especialidades: [], lineas: [], propio: true, sedes: [{ id: 'x2', nombre: 'X2', cuenta_nombre: null, distancia_m: 120, cuenta_id: null, lat: null, lng: null }, { id: 'x3', nombre: 'X3', cuenta_nombre: null, distancia_m: 5000, cuenta_id: null, lat: null, lng: null }] },
     { id: 'm-c', nombre: 'Cano', especialidades: [], lineas: [], propio: true, sedes: [{ id: 'x4', nombre: 'X4', cuenta_nombre: null, distancia_m: CERCA_DE_AQUI_M + 1 }] },
   ]
   const porCercania = ordenarMedicos(cercanos, null, TEL)

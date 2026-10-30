@@ -28,6 +28,37 @@ export type ModoEntrada = 'voz' | 'toques'
 export type EstadoDiaLibre = 'registrado' | 'por_aprobar' | 'aprobado' | 'rechazado' | 'anulado'
 export type OrigenMeta = 'ejecutiva' | 'zona' | 'general' | null
 
+/**
+ * Marcas del servidor (0940, app sin señal; copia de web/lib/reporte-visitas.ts MARCAS_VISITA). Nunca bloquean: la
+ * visita se guarda siempre y la dirección las ve en el tablero y el mapa de calor.
+ */
+export type MarcaVisita = 'en_sitio' | 'lejos_de_ips' | 'sin_ubicacion' | 'precision_baja' | 'ips_sin_coordenadas' | 'hora_inconsistente' | 'medico_por_validar'
+export const ETIQUETA_MARCA: Record<MarcaVisita, string> = {
+  en_sitio: 'En sitio',
+  lejos_de_ips: 'Lejos de la IPS',
+  sin_ubicacion: 'Sin ubicación',
+  precision_baja: 'Precisión baja',
+  ips_sin_coordenadas: 'IPS sin coordenadas',
+  hora_inconsistente: 'Hora inconsistente',
+  medico_por_validar: 'Médico por validar',
+}
+/** Precisión del GPS (metros) desde la que la visita queda 'precision_baja' (PRECISION_BAJA_M de la web). */
+export const PRECISION_BAJA_M = 100
+/** Una visita con más de estos días queda 'hora_inconsistente' (DIAS_MAX_ATRAS de la web). */
+export const DIAS_MAX_ATRAS = 7
+
+/** Médico que no está en OpMap, escrito en la visita (0940): nombre y especialidad; queda por validar. */
+export interface MedicoNoListado {
+  nombre: string
+  especialidad: string | null
+}
+
+/** Un motivo de la lista cerrada de la visita no efectiva (0940). */
+export interface MotivoNoEfectiva {
+  codigo: string
+  nombre: string
+}
+
 export const ETIQUETA_TIPO_VISITA: Record<TipoVisita, string> = { medica: 'Médica', institucional: 'Institucional' }
 /**
  * La visita como actividad de campo (F1b, spec 2026-10-15-actividades-de-campo, tabla de tipos): las opciones de
@@ -196,6 +227,10 @@ export interface SedeDeMedico {
   cuenta_nombre: string | null
   /** Metros desde el punto pedido; null si no se mandó lat/lng o la sede no tiene coordenadas. */
   distancia_m: number | null
+  /** 0940: la cuenta y las coordenadas (un servidor anterior no las manda: la app las trata como null). */
+  cuenta_id: string | null
+  lat: number | null
+  lng: number | null
 }
 
 export interface MedicoContexto {
@@ -261,6 +296,11 @@ export interface ContextoResponse {
    * trae: quien la lea no se fía del tipo (lib/persona.ts).
    */
   persona: PersonaContexto
+  /**
+   * 0940: la lista cerrada de motivos de la visita no efectiva. La app la guarda con el contexto para trabajar sin
+   * señal. Un servidor anterior (o un contexto guardado antes) no la trae: la app sigue con el texto libre.
+   */
+  motivos_no_efectiva: MotivoNoEfectiva[]
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -301,6 +341,18 @@ export interface VisitaItem {
   agenda_id: string | null
   /** Agendada: vinculada a una cita creada ANTES del día de la visita (Bogotá). */
   agendada: boolean
+  /** 0940: marcas del servidor (nunca bloquean). Un servidor anterior no las manda: la app las trata como []. */
+  marcas: MarcaVisita[]
+  /** 0940: (distancia − precisión) ≤ radio; null sin distancia. */
+  en_sitio: boolean | null
+  /** 0940: precisión del GPS con que se reportó (metros); null sin GPS. */
+  gps_accuracy_m: number | null
+  /** 0940: médico no listado (médica sin medico_id); null si no. */
+  medico_no_listado: MedicoNoListado | null
+  /** 0940: motivo de lista de la no efectiva; null con texto libre o efectiva. */
+  motivo_codigo: string | null
+  /** 0940: la visita tiene foto en el servidor. */
+  foto: boolean
 }
 
 /** GET /api/me/visitas?fecha= */
@@ -334,14 +386,22 @@ export interface VisitaCreateBase {
    * cuenta, cancelada o ya hecha → 400 con el mensaje.
    */
   agenda_id: string | null
+  /** 0940: zona horaria del teléfono (IANA, p. ej. America/Bogota). */
+  tz: string | null
+  /** 0940: hora de la lectura del GPS con que va lat/lng (ISO con zona); null sin GPS. */
+  gps_at: string | null
+  /** 0940: motivo de la lista cerrada de la no efectiva (motivos_no_efectiva.codigo); null con texto libre o efectiva. */
+  motivo_codigo: string | null
 }
 
+/** Médica: con el médico de OpMap o, desde la 0940, con el médico no listado (exactamente uno). */
 export type VisitaCreateTipo =
-  | { tipo: 'medica'; medico_id: string; cuenta_id: null; subtipo_id: null; contacto_id: null }
-  | { tipo: 'institucional'; medico_id: null; cuenta_id: string; subtipo_id: string; contacto_id: string | null }
+  | { tipo: 'medica'; medico_id: string | null; medico_no_listado: MedicoNoListado | null; cuenta_id: null; subtipo_id: null; contacto_id: null }
+  | { tipo: 'institucional'; medico_id: null; medico_no_listado: null; cuenta_id: string; subtipo_id: string; contacto_id: string | null }
 
+/** Presencial: desde la 0940 puede ir SIN ubicación (lat y lng null → marca 'sin_ubicacion'). */
 export type VisitaCreateModalidad =
-  | { modalidad: 'presencial'; lat: number; lng: number; medio: null }
+  | { modalidad: 'presencial'; lat: number | null; lng: number | null; medio: null }
   | { modalidad: 'telefonica'; medio: MedioTelefonica }
 
 /** Cuerpo de POST /api/me/visitas: tipo y modalidad discriminados. */

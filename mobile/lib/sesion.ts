@@ -56,6 +56,12 @@ export interface ValorSesion {
   perfil: Perfil | null
   /** Se abrió sin señal con el perfil guardado (no se pudo confirmar con el servidor). */
   sinConfirmar: boolean
+  /**
+   * El token ya venció pero la app abrió sin señal con el perfil guardado (app sin señal, dueño 2026-10-30: "si la
+   * sesión vence sin internet, que pueda seguir reportando"): se puede reportar a la cola; al volver la señal el servidor
+   * responde 401, la app pide entrar de nuevo y la cola (que es por usuario y no se borra) sigue.
+   */
+  vencida: boolean
   /** Por qué se cerró la sesión sola (token vencido o revocado). */
   aviso: string | null
   entrar: (email: string, password: string) => Promise<void>
@@ -70,20 +76,29 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
   const [estado, setEstado] = useState<EstadoSesion>('cargando')
   const [perfil, setPerfil] = useState<Perfil | null>(null)
   const [sinConfirmar, setSinConfirmar] = useState(false)
+  const [vencida, setVencida] = useState(false)
   const [aviso, setAviso] = useState<string | null>(null)
   const montado = useRef(true)
   /** Cambia al entrar y al olvidar: una confirmación que llega tarde (en segundo plano) no revive otra sesión. */
   const generacion = useRef(0)
 
-  const olvidar = useCallback(async (motivo: string | null) => {
+  /**
+   * Olvida el token. Con `conservar` (la sesión venció o la revocaron: un 401) el perfil y el contexto guardados se
+   * QUEDAN: al volver a entrar la misma persona sigue reportando sin señal con lo que tenía, y la cola (por usuario,
+   * en el almacén) nunca se toca. Solo "Cerrar sesión" (salir) borra el perfil y el contexto.
+   */
+  const olvidar = useCallback(async (motivo: string | null, opciones: { conservar?: boolean } = {}) => {
     generacion.current++
     olvidarContextoEnMemoria()
     await borrarToken()
-    await borrarClave(CLAVE_PERFIL)
-    await olvidarContextoGuardado()
+    if (!opciones.conservar) {
+      await borrarClave(CLAVE_PERFIL)
+      await olvidarContextoGuardado()
+    }
     if (!montado.current) return
     setPerfil(null)
     setSinConfirmar(false)
+    setVencida(false)
     setAviso(motivo)
     setEstado('sin_sesion')
   }, [])
@@ -109,12 +124,13 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
         if (!vigente()) return
         setPerfil(nuevo)
         setSinConfirmar(false)
+        setVencida(false)
         setEstado('con_sesion')
       } catch (lanzado) {
         const error = aApiError(lanzado)
         if (generacion.current !== desde) return
         if (error.status === 401) {
-          await olvidar(MENSAJE_SESION_VENCIDA)
+          await olvidar(MENSAJE_SESION_VENCIDA, { conservar: true })
           return
         }
         // Sin señal o servidor caído: se sigue con lo guardado (o con lo que dice el token).
@@ -137,21 +153,22 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
     montado.current = true
     ;(async () => {
       const token = await leerToken()
-      if (token && tokenVencido(token)) {
-        await olvidar(MENSAJE_SESION_VENCIDA)
-        return
-      }
       const guardado = token ? await leerJson<Perfil>(CLAVE_PERFIL) : null
-      const arranque = arranqueDeSesion({ perfilGuardado: guardado, tokenVigente: token !== null, uidDelToken: leerCargaToken(token)?.uid })
+      const yaVencido = token !== null && tokenVencido(token)
+      // Token vencido: con señal el servidor responderá 401 y se vuelve al ingreso (conservando el perfil); SIN señal se
+      // entra con el perfil guardado para seguir reportando a la cola (arranqueDeSesion con vencido: 'entrar_vencida').
+      const arranque = arranqueDeSesion({ perfilGuardado: guardado, tokenVigente: token !== null && !yaVencido, uidDelToken: leerCargaToken(token)?.uid, tokenVencido: yaVencido })
       if (!montado.current) return
       if (arranque === 'sin_sesion' || !token) {
-        setEstado('sin_sesion')
+        if (yaVencido) await olvidar(MENSAJE_SESION_VENCIDA, { conservar: true })
+        else setEstado('sin_sesion')
         return
       }
-      if (arranque === 'entrar_y_confirmar' && guardado) {
+      if ((arranque === 'entrar_y_confirmar' || arranque === 'entrar_vencida') && guardado) {
         // Entra ya con lo guardado y confirma en segundo plano: un 401 cierra la sesión; sin señal queda "sin confirmar".
         setPerfil(guardado)
-        setSinConfirmar(false)
+        setSinConfirmar(arranque === 'entrar_vencida')
+        setVencida(arranque === 'entrar_vencida')
         setEstado('con_sesion')
         void confirmar(token, guardado, TIEMPO_ME_FONDO_MS)
         return
@@ -164,8 +181,8 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
     }
   }, [confirmar, olvidar])
 
-  // 401 en cualquier petición → olvidar el token.
-  useEffect(() => api.alVencerSesion(() => void olvidar(MENSAJE_SESION_VENCIDA)), [olvidar])
+  // 401 en cualquier petición → olvidar el token (el perfil, el contexto y la cola se quedan para volver a entrar).
+  useEffect(() => api.alVencerSesion(() => void olvidar(MENSAJE_SESION_VENCIDA, { conservar: true })), [olvidar])
 
   /**
    * Justo después de entrar (F1b): el login no trae la persona de campo, así que se pide GET /api/auth/me en segundo
@@ -190,7 +207,7 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
         setPerfil(nuevo)
       } catch (lanzado) {
         if (generacion.current !== desde) return
-        if (aApiError(lanzado).status === 401) await olvidar(MENSAJE_SESION_VENCIDA)
+        if (aApiError(lanzado).status === 401) await olvidar(MENSAJE_SESION_VENCIDA, { conservar: true })
       }
     },
     [olvidar]
@@ -205,6 +222,7 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
     await guardarJson(CLAVE_PERFIL, nuevo).catch(() => undefined)
     setPerfil(nuevo)
     setSinConfirmar(false)
+    setVencida(false)
     setAviso(null)
     setEstado('con_sesion')
     void completarPersona(respuesta.token, nuevo)
@@ -226,8 +244,8 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
   }, [confirmar, olvidar, perfil])
 
   const valor = useMemo<ValorSesion>(
-    () => ({ estado, perfil, sinConfirmar, aviso, entrar, salir, refrescar }),
-    [estado, perfil, sinConfirmar, aviso, entrar, salir, refrescar]
+    () => ({ estado, perfil, sinConfirmar, vencida, aviso, entrar, salir, refrescar }),
+    [estado, perfil, sinConfirmar, vencida, aviso, entrar, salir, refrescar]
   )
   return createElement(ContextoSesion.Provider, { value: valor }, children)
 }
