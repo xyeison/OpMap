@@ -19,7 +19,9 @@
  * ve "Tu usuario no tiene líneas para reportar". "Reportar actividad" y "Actividades de hoy" (la app habla de
  * actividades). "¿Qué pasó con esto?" (components/agenda/QuePasoConEsto) junta lo atrasado de hoy y lo sin cerrar de
  * los 31 días anteriores (GET /api/me/agenda hacia atrás, en la misma carga) con Reportar, "No se hizo" y Cancelar; lo
- * que está ahí no se repite en "Tu agenda de hoy", y la cita "de ahora" sigue en "Siguiente".
+ * que está ahí no se repite en "Tu agenda de hoy", y la cita "de ahora" sigue en "Siguiente". Con un servidor sin F1a
+ * (/api/auth/me sin la clave `persona`: conCicloDeVida) no hay "¿Qué pasó con esto?" ni se piden los días anteriores:
+ * Hoy queda como antes de F1b.
  */
 import { useFocusEffect, useRouter } from 'expo-router'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -39,7 +41,7 @@ import { textoDistancia, textoPrecision } from '../../lib/geo'
 import { vibrarExito } from '../../lib/haptica'
 import { Icono } from '../../lib/iconos'
 import { citaAtrasada, citaDeAhora, debeRecargarHoy, porCerrar, textoSiguienteCita, textoUbicacionTomada } from '../../lib/pantallas'
-import { AYUDA_SIN_LINEAS, MENSAJE_SIN_LINEAS, estadoPersona, tieneCuota } from '../../lib/persona'
+import { AYUDA_SIN_LINEAS, MENSAJE_SIN_LINEAS, conCicloDeVida, estadoPersona, tieneCuota } from '../../lib/persona'
 import { avance, conQuien, conQuienCita, detalleModalidad, fraccionBarra, numeroTexto, plural, sinCortes } from '../../lib/reglas'
 import { fijarCitaParaReportar, fijarReintento } from '../../lib/retorno'
 import { useSesion } from '../../lib/sesion'
@@ -54,9 +56,12 @@ const RELOJ_MS = 30_000
 export default function Hoy() {
   const router = useRouter()
   const { perfil, sinConfirmar, refrescar: refrescarSesion } = useSesion()
-  // Para confirmar la sesión con el servidor cuando la app abrió sin señal (sin rehacer `cargar` en cada cambio).
-  const sesion = useRef({ sinConfirmar, refrescarSesion, usuarioId: perfil?.usuario.id ?? null })
-  sesion.current = { sinConfirmar, refrescarSesion, usuarioId: perfil?.usuario.id ?? null }
+  /** ¿El servidor tiene el ciclo de vida de la cita (F1a)? Sin saberlo, sí (decide el servidor). */
+  const ciclo = conCicloDeVida(perfil?.servidor)
+  // Para confirmar la sesión con el servidor cuando la app abrió sin señal (sin rehacer `cargar` en cada cambio); y si
+  // se piden los días anteriores (ciclo).
+  const sesion = useRef({ sinConfirmar, refrescarSesion, usuarioId: perfil?.usuario.id ?? null, ciclo })
+  sesion.current = { sinConfirmar, refrescarSesion, usuarioId: perfil?.usuario.id ?? null, ciclo }
   const cola = useCola()
   const { reintentar } = cola
   const c = useColores()
@@ -111,10 +116,13 @@ export default function Hoy() {
         error => setErrorVisitas(aApiError(error))
       )
       // Lo sin cerrar de días anteriores (como mucho 31 días hacia atrás, una consulta). Si falla, queda lo que había.
-      const pedidoAnteriores = api.agenda(sumarDias(hoy, -MAX_DIAS_CONSULTA_AGENDA), sumarDias(hoy, -1)).then(
-        datos => setAnteriores(datos.items),
-        () => undefined
-      )
+      // Un servidor sin F1a no los cierra: no se piden.
+      const pedidoAnteriores = sesion.current.ciclo
+        ? api.agenda(sumarDias(hoy, -MAX_DIAS_CONSULTA_AGENDA), sumarDias(hoy, -1)).then(
+            datos => setAnteriores(datos.items),
+            () => undefined
+          )
+        : Promise.resolve()
       // Hoy solo muestra (meta, agenda y distancias): le basta la primera ubicación (la última conocida reciente o una
       // lectura rápida) y no espera la de alta precisión, que sigue mientras la app está abierta y deja fresca la
       // última conocida con que Reportar muestra su lista enseguida (lib/ubicacion-pasos.ts).
@@ -255,8 +263,9 @@ export default function Hoy() {
   // Croquis: tu punto, las sedes cercanas y el radio de la sede de la cita "de ahora" (o la más cercana).
   const citasDeHoy = (contexto?.agenda_hoy ?? []).filter(enPie)
   const deAhoraCroquis = contexto ? citaDeAhora(citasDeHoy, ahora) : null
-  // "¿Qué pasó con esto?": lo atrasado de hoy (sin la cita "de ahora") y lo sin cerrar de días anteriores.
-  const sinResultado = porCerrar([...citasDeHoy, ...anteriores.filter(c => c.fecha < hoy)], ahora, deAhoraCroquis?.id ?? null)
+  // "¿Qué pasó con esto?": lo atrasado de hoy (sin la cita "de ahora") y lo sin cerrar de días anteriores. Sin F1a en el
+  // servidor, nada (todo queda en "Tu agenda de hoy", como antes).
+  const sinResultado = ciclo ? porCerrar([...citasDeHoy, ...anteriores.filter(c => c.fecha < hoy)], ahora, deAhoraCroquis?.id ?? null) : []
   const aparte = new Set(sinResultado.map(c => c.id))
   const sedesCroquis = [...(contexto?.sedes_cerca ?? []), ...(deAhoraCroquis ? [deAhoraCroquis.sede] : [])]
   const punto = ubicacion?.ubicacion ?? null
@@ -315,15 +324,17 @@ export default function Hoy() {
         </Texto>
       ) : null}
 
-      <QuePasoConEsto
-        citas={sinResultado}
-        hoy={hoy}
-        ahora={ahora}
-        alReportar={reportarCita}
-        alNoSeHizo={(cita, motivo) => cerrarCita(cita, 'cerrar', motivo)}
-        alCancelar={(cita, motivo) => cerrarCita(cita, 'cancelar', motivo)}
-        alOtraFecha={otraFecha}
-      />
+      {ciclo ? (
+        <QuePasoConEsto
+          citas={sinResultado}
+          hoy={hoy}
+          ahora={ahora}
+          alReportar={reportarCita}
+          alNoSeHizo={(cita, motivo) => cerrarCita(cita, 'cerrar', motivo)}
+          alCancelar={(cita, motivo) => cerrarCita(cita, 'cancelar', motivo)}
+          alOtraFecha={otraFecha}
+        />
+      ) : null}
 
       {contexto ? (
         <AgendaDeHoy

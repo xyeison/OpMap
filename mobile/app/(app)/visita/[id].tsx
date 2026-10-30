@@ -9,6 +9,9 @@
  * si no hay, de GET /api/me/contexto. Los textos largos (conclusión, compromisos, motivo) van con la etiqueta arriba y a
  * todo el ancho. Con la próxima reunión de hoy en adelante (sin tope desde la 0850), "Agendar la próxima reunión" abre
  * Agendar con la fecha y con quién (en memoria: fijarPedidoAgendar).
+ *
+ * F1b: "Cuenta para" (a qué meta suma) solo con cuota (tieneCuota de lib/persona.ts): una líder sin Ejecutivo Comercial
+ * no tiene metas (C4), aunque el servidor diga a qué tipo sumaría.
  */
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
@@ -21,9 +24,11 @@ import { aApiError, mensajeDeError, type ApiError } from '../../../lib/errores'
 import { SoloEnFoco } from '../../../lib/montaje'
 import { esFechaIso, fechaCorta, fechaLarga, horaBogota, hoyBogota } from '../../../lib/fechas'
 import { textoDistancia } from '../../../lib/geo'
+import { tieneCuota } from '../../../lib/persona'
 import { MAX_FAILURE_REASON, MENSAJE_PROXIMA_ANTES_DE_VISITA, cambiosDeVisita, proximaAntesDeLaVisita, valoresDeVisita } from '../../../lib/propuesta'
 import { conQuien, detalleModalidad, numeroTexto } from '../../../lib/reglas'
-import { ETIQUETA_TIPO_VISITA, type LineaEjecutiva, type VisitaItem } from '../../../lib/tipos'
+import { useSesion } from '../../../lib/sesion'
+import { ETIQUETA_TIPO_VISITA, type LineaEjecutiva, type PersonaMovil, type VisitaItem } from '../../../lib/tipos'
 import { Aviso, Boton, Campo, Cargando, Fila, Grupo, Insignia, Pantalla, Separador, Subtitulo, Tarjeta, Texto, Titulo, confirmar } from '../../../lib/ui'
 
 const ETIQUETA_CUENTA_PARA: Record<NonNullable<VisitaItem['cuenta_para']>, string> = {
@@ -49,8 +54,11 @@ export default function PantallaVisita() {
 
 function Visita({ id, fecha }: { id: string; fecha: string }) {
   const router = useRouter()
+  const { perfil } = useSesion()
   const [visita, setVisita] = useState<VisitaItem | null>(null)
   const [lineas, setLineas] = useState<LineaEjecutiva[]>([])
+  /** La persona del contexto (un servidor sin la 0850 no la manda: undefined); si no, la de la sesión. */
+  const [personaContexto, setPersonaContexto] = useState<PersonaMovil | null | undefined>(undefined)
   // Micrófono junto a Conclusión (F4.1): solo si el servidor tiene la voz configurada (contexto.voz).
   const [vozDisponible, setVozDisponible] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
@@ -72,6 +80,7 @@ function Visita({ id, fecha }: { id: string; fecha: string }) {
       setVisita(encontrada)
       setValores(encontrada ? valoresDeVisita(encontrada) : null)
       if (contexto) setLineas(contexto.ejecutiva.lineas)
+      if (contexto) setPersonaContexto(contexto.persona)
       setVozDisponible(Boolean(contexto && contexto.voz.transcribir && contexto.voz.proponer))
       setError(null)
     } catch (lanzado) {
@@ -84,6 +93,9 @@ function Visita({ id, fecha }: { id: string; fecha: string }) {
   useEffect(() => {
     void cargar()
   }, [cargar])
+
+  /** ¿Tiene cuota? (C4: solo con Ejecutivo Comercial.) Sin la persona, según su Ejecutivo Comercial enlazado. */
+  const conCuota = tieneCuota({ persona: personaContexto ?? perfil?.persona, ejecutiva: perfil?.ejecutiva })
 
   if (cargando && !visita) return <Cargando texto="Cargando la visita…" />
   if (error && !visita) {
@@ -184,13 +196,16 @@ function Visita({ id, fecha }: { id: string; fecha: string }) {
         <Fila etiqueta="Modalidad" valor={detalleModalidad(visita, textoDistancia)} />
         {visita.contacto ? <Fila etiqueta="Contacto" valor={visita.contacto.nombre} /> : null}
         <Fila etiqueta="Resultado" valor={visita.efectiva ? 'Efectiva' : 'No efectiva'} fuerte />
-        <Apilado etiqueta="Cuenta para">
-          {visita.sede_por_confirmar
-            ? 'Suma cuando el equipo de datos confirme la sede'
-            : visita.cuenta_para
-              ? `${ETIQUETA_CUENTA_PARA[visita.cuenta_para]}${visita.peso !== 1 ? ` (×${numeroTexto(visita.peso)})` : ''}`
-              : 'No suma'}
-        </Apilado>
+        {/* Sin cuota (una líder sin Ejecutivo Comercial, C4) no hay meta a la que sumar. */}
+        {conCuota ? (
+          <Apilado etiqueta="Cuenta para">
+            {visita.sede_por_confirmar
+              ? 'Suma cuando el equipo de datos confirme la sede'
+              : visita.cuenta_para
+                ? `${ETIQUETA_CUENTA_PARA[visita.cuenta_para]}${visita.peso !== 1 ? ` (×${numeroTexto(visita.peso)})` : ''}`
+                : 'No suma'}
+          </Apilado>
+        ) : null}
         <Grupo>
           {visita.out_of_territory ? <Insignia texto="Fuera de tu territorio" tono="info" /> : null}
           {visita.sede_por_confirmar ? <Insignia texto="Sede por confirmar" tono="alerta" /> : null}

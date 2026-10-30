@@ -29,12 +29,17 @@
  * F1b (actividades de campo):
  *   - El choque de media hora es un ERROR (lo bloquea el servidor con 409): errorChoque lo dice con su mismo texto ("A
  *     las 09:30 ya tienes cita con …: elige otra hora"); ya no "Puedes agendar igual".
- *   - Quien tiene los dos papeles (Paola) elige "Como Ejecutiva Comercial" o "Como líder" (C12): como líder solo ve sus
+ *   - Quien tiene los dos papeles (Paola) elige "Como Ejecutivo Comercial" o "Como líder" (C12): como líder solo ve sus
  *     médicos de líder, los dos tipos (configuración general) y el día libre no apaga días (es del Ejecutivo Comercial).
  *     Los demás no ven esa opción. Sin Ejecutivo Comercial no se piden los días libres.
+ *   - Como líder (Paola al elegirlo, o una líder sin Ejecutivo Comercial) la lista y el buscador solo ofrecen médicos de
+ *     sus líneas de líder (medicoDelPapel; los del buscador por las líneas de sus visitantes, lineasDeBusqueda): al pasar
+ *     a líder se quitan los demás, también los traídos del buscador, y el elegido si no es de ellas. Un resultado sin
+ *     sus visitantes (un servidor que no los manda) se ofrece y, si no es de sus líneas, lo rechaza el servidor.
  *   - "Agendar otra fecha" (A7): con el pedido de una cita cerrada, el tipo y el "con quién" quedan fijos (los copia el
  *     servidor), se eligen la fecha, la hora, la sede y la nota (trae la de la anterior) y se manda a
- *     POST /api/me/agenda/[id]/otra-fecha.
+ *     POST /api/me/agenda/[id]/otra-fecha, como líder si ya solo es líder (cuerpoOtraFecha con la persona).
+ *   - El pie (textosPieAgendar): lo que falta va como "Falta algo: …"; la cita repetida y el choque, con su propio texto.
  */
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -60,6 +65,7 @@ import {
   rutaMiAgenda,
   siguienteFranjaLibre,
   textoBotonAgendar,
+  textosPieAgendar,
   tomarPedidoAgendar,
   validarCitaConHora,
   ventanaInicialAgendar,
@@ -74,7 +80,17 @@ import { aApiError, mensajeDeError, type ApiError } from '../../../lib/errores'
 import { esFechaIso, hoyBogota } from '../../../lib/fechas'
 import { vibrarAviso, vibrarExito } from '../../../lib/haptica'
 import { SoloEnFoco } from '../../../lib/montaje'
-import { ETIQUETA_COMO, comoPorDefecto, eligeComo, medicosDelPapel, muestraDiasLibres, perfilDelPapel } from '../../../lib/persona'
+import {
+  ETIQUETA_COMO,
+  comoPorDefecto,
+  eligeComo,
+  lineasDeBusqueda,
+  medicoDelPapel,
+  medicosDelPapel,
+  muestraDiasLibres,
+  papelDeAgenda,
+  perfilDelPapel,
+} from '../../../lib/persona'
 import { cambiarFormularioCita, errorDe, formularioCitaVacio, horaDeCita, sedesDeCuentaBuscada, type FormularioCita } from '../../../lib/propuesta'
 import { conQuienCita } from '../../../lib/reglas'
 import { useSesion } from '../../../lib/sesion'
@@ -100,6 +116,8 @@ interface MedicoCita {
   detalle: string | null
   sedes: { id: string; nombre: string; cuenta_nombre: string | null }[]
   propio: boolean
+  /** Sus líneas (C9: de cuáles es); null si no se saben (un resultado del buscador sin sus visitantes). */
+  lineas: string[] | null
 }
 
 interface CuentaCita {
@@ -137,13 +155,14 @@ export default function PantallaNuevaCita() {
   )
 }
 
-function medicoDeBusqueda(item: MedicoPublico): MedicoCita {
+function medicoDeBusqueda(item: MedicoPublico, hoy: string): MedicoCita {
   return {
     id: item.id,
     nombre: item.nombre,
     detalle: [item.especialidades.map(etiquetaEspecialidad).join(', '), item.ciudad].filter(Boolean).join(' · ') || null,
     sedes: item.sedes.map(s => ({ id: s.id, nombre: s.nombre, cuenta_nombre: s.cuenta_nombre ?? null })),
     propio: false,
+    lineas: lineasDeBusqueda(item, hoy),
   }
 }
 
@@ -292,16 +311,27 @@ function NuevaCita({ fechaPedida, horaPedida, pedido }: { fechaPedida?: string; 
 
   const como: ComoPersona | null = formulario.como
   const perfil: TipoVisita[] = perfilDelPapel(contexto?.config.perfil ?? [], persona, como)
-  const medicos = useMemo<MedicoCita[]>(() => {
-    const propios: MedicoCita[] = medicosDelPapel(contexto?.mis_medicos ?? [], persona, como).map(m => ({
+  /** Agenda como líder (Paola al elegirlo, o una líder sin Ejecutivo Comercial): solo médicos de sus líneas de líder. */
+  const comoLider = !!persona && papelDeAgenda(persona, como) === 'lider'
+  /** Lo que se ofrece con un papel: sus médicos de ese papel (C9) y, de los traídos del buscador, los de ese papel. */
+  const ofrecidos = (papel: ComoPersona | null): MedicoCita[] => {
+    const propios: MedicoCita[] = medicosDelPapel(contexto?.mis_medicos ?? [], persona, papel).map(m => ({
       id: m.id,
       nombre: m.nombre,
       detalle: m.especialidades.map(etiquetaEspecialidad).join(', ') || null,
       sedes: m.sedes.map(s => ({ id: s.id, nombre: s.nombre, cuenta_nombre: s.cuenta_nombre })),
       propio: true,
+      lineas: m.lineas,
     }))
-    return [...propios, ...buscados.filter(b => !propios.some(p => p.id === b.id))]
-  }, [contexto, buscados, persona, como])
+    return [...propios, ...buscados.filter(b => !propios.some(p => p.id === b.id) && medicoDelPapel(b.lineas, persona, papel))]
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const medicos = useMemo<MedicoCita[]>(() => ofrecidos(como), [contexto, buscados, persona, como])
+  /** Los de sus médicos que se ofrecen con este papel (un resultado del buscador que ya es suyo se ofrece igual). */
+  const idsPropios = useMemo(() => new Set(medicos.filter(m => m.propio).map(m => m.id)), [medicos])
+  /** Los resultados del buscador que se ofrecen con este papel. */
+  const delPapel = (items: readonly MedicoPublico[]): MedicoPublico[] =>
+    items.filter(item => idsPropios.has(item.id) || medicoDelPapel(lineasDeBusqueda(item, hoy), persona, como))
   const medico = formulario.medico_id ? (medicos.find(m => m.id === formulario.medico_id) ?? null) : null
   const sedesOpciones = formulario.tipo === 'medica' ? (medico?.sedes ?? []) : (cuenta?.sedes ?? [])
 
@@ -344,13 +374,16 @@ function NuevaCita({ fechaPedida, horaPedida, pedido }: { fechaPedida?: string; 
     cambiar({ hora })
   }
 
-  /** "Como Ejecutiva Comercial" o "Como líder": lo que deja de cuadrar (un médico que no es de sus líneas de líder, un tipo fuera del perfil) se quita. */
+  /**
+   * "Como Ejecutivo Comercial" o "Como líder": lo que deja de cuadrar se quita: un tipo fuera del perfil o el médico
+   * elegido si no se ofrece con ese papel (como líder, uno que no es de sus líneas de líder, también si vino del
+   * buscador: la lista ya no lo muestra).
+   */
   const elegirComo = (nuevo: ComoPersona) => {
     const cambios: Partial<FormularioCita> = { como: nuevo }
     if (!origen) {
       const tipos = perfilDelPapel(contexto?.config.perfil ?? [], persona, nuevo)
-      const propios = medicosDelPapel(contexto?.mis_medicos ?? [], persona, nuevo)
-      const sigue = !formulario.medico_id || propios.some(m => m.id === formulario.medico_id) || buscados.some(b => b.id === formulario.medico_id)
+      const sigue = !formulario.medico_id || ofrecidos(nuevo).some(m => m.id === formulario.medico_id)
       if (formulario.tipo && !tipos.includes(formulario.tipo)) cambios.tipo = tipos[0] ?? null
       else if (!sigue) {
         cambios.medico_id = null
@@ -367,8 +400,10 @@ function NuevaCita({ fechaPedida, horaPedida, pedido }: { fechaPedida?: string; 
   }
 
   const agregarMedico = (item: MedicoPublico, sedePreferida?: string | null) => {
-    const nuevo = medicoDeBusqueda(item)
+    const nuevo = medicoDeBusqueda(item, hoy)
     setBuscados(prev => [...prev.filter(b => b.id !== nuevo.id), nuevo])
+    // Como líder, uno que no es de sus líneas no se elige (no está en la lista y el servidor lo rechazaría).
+    if (!idsPropios.has(nuevo.id) && !medicoDelPapel(nuevo.lineas, persona, como)) return
     const sede = sedePreferida && nuevo.sedes.some(s => s.id === sedePreferida) ? sedePreferida : nuevo.sedes.length === 1 ? nuevo.sedes[0].id : null
     cambiar({ medico_id: nuevo.id, sede_id: sede })
   }
@@ -429,7 +464,7 @@ function NuevaCita({ fechaPedida, horaPedida, pedido }: { fechaPedida?: string; 
     }
     setGuardando(true)
     try {
-      const { cita } = origen ? await api.otraFechaCita(origen.id, cuerpoOtraFecha(formulario, origen)) : await api.agendar(cuerpoCitaConHora(formulario))
+      const { cita } = origen ? await api.otraFechaCita(origen.id, cuerpoOtraFecha(formulario, origen, persona)) : await api.agendar(cuerpoCitaConHora(formulario))
       invalidarContexto('cita')
       vibrarExito()
       fijarCitaResaltada(cita)
@@ -454,28 +489,17 @@ function NuevaCita({ fechaPedida, horaPedida, pedido }: { fechaPedida?: string; 
     )
   }
 
-  const faltan = intentado ? erroresLocales.map(e => e.mensaje) : []
-  // El pie dice, en este orden: el rechazo del servidor, lo que falta (después de tocar), la cita repetida o el choque de
-  // hora (ya, porque la base los rechazaría). Así se ve sin desplazar.
+  // El pie dice, en este orden: el rechazo del servidor, lo que falta (después de tocar) y, con su propio texto (ya,
+  // porque la base los rechazaría; "Falta algo" no los repite), la cita repetida o el choque de hora. Así se ve sin
+  // desplazar.
+  const textosPie = textosPieAgendar({ errorServidor: errorServidor?.mensaje ?? null, intentado, errores: erroresLocales, repetida, choque })
   const pie = (
     <View style={{ gap: 6 }}>
-      {errorServidor ? (
-        <Texto peque color={c.peligro}>
-          {`No se agendó: ${errorServidor.mensaje}`}
+      {textosPie.map(texto => (
+        <Texto key={texto} peque color={c.peligro}>
+          {texto}
         </Texto>
-      ) : faltan.length > 0 ? (
-        <Texto peque color={c.peligro}>
-          {`Falta algo: ${faltan.slice(0, 3).join(' · ')}${faltan.length > 3 ? '…' : ''}`}
-        </Texto>
-      ) : repetida ? (
-        <Texto peque color={c.peligro}>
-          {repetida.mensaje}
-        </Texto>
-      ) : choque ? (
-        <Texto peque color={c.peligro}>
-          {choque.mensaje}
-        </Texto>
-      ) : null}
+      ))}
       <Boton titulo={textoBotonAgendar(formulario.fecha, formulario.hora)} cargando={guardando} alPresionar={() => void guardar()} />
     </View>
   )
@@ -605,14 +629,16 @@ function NuevaCita({ fechaPedida, horaPedida, pedido }: { fechaPedida?: string; 
               buscarFuera={{
                 donde: 'OpMap',
                 resultados: (consulta, cerrar) => (
+                  // Como líder, solo los de sus líneas de líder (delPapel); al cambiar de papel se busca de nuevo (key).
                   <Buscador<MedicoPublico>
+                    key={comoLider ? 'lider' : 'ejecutivo'}
                     etiqueta="Médicos en OpMap"
                     consulta={consulta}
-                    buscar={async q => (await api.buscarMedicos(q)).items}
+                    buscar={async q => delPapel((await api.buscarMedicos(q)).items)}
                     clave={item => item.id}
                     titulo={item => item.nombre}
                     detalle={item => [item.especialidades.map(etiquetaEspecialidad).join(', '), item.ciudad].filter(Boolean).join(' · ') || null}
-                    sinResultados="No encontré a nadie con ese nombre en OpMap."
+                    sinResultados={comoLider ? 'No encontré a nadie de tus líneas de líder con ese nombre en OpMap.' : 'No encontré a nadie con ese nombre en OpMap.'}
                     alElegir={item => {
                       agregarMedico(item)
                       cerrar()

@@ -10,7 +10,8 @@
  *
  * F1b (actividades de campo): el perfil guarda la persona de campo de GET /api/auth/me (papel y líneas con "como qué";
  * lib/persona.ts). El login no la trae: al entrar se pide /api/auth/me en segundo plano (completarPersona); sin señal se
- * sabrá al confirmar la próxima vez, y mientras tanto la app sigue como antes (el servidor decide).
+ * sabrá al confirmar la próxima vez, y mientras tanto la app sigue como antes (el servidor decide). Con la respuesta se
+ * guarda también si el servidor tiene F1a (`servidor`: /api/auth/me sin la clave `persona` = 'sin_f1a').
  */
 import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import * as api from './api'
@@ -18,7 +19,7 @@ import { borrarClave, borrarToken, guardarJson, guardarToken, leerJson, leerToke
 import { olvidarContextoGuardado } from './contexto-guardado'
 import { olvidarContextoEnMemoria } from './contexto-memoria'
 import { MENSAJE_SESION_VENCIDA, aApiError } from './errores'
-import { personaDeMe } from './persona'
+import { personaDeMe, servidorDeMe, type ServidorDeCampo } from './persona'
 import { TIEMPO_ME_FONDO_MS, TIEMPO_ME_MS, arranqueDeSesion } from './sesion-reglas'
 import { leerCargaToken, tokenVencido } from './token'
 import type { EjecutivaMovil, PersonaMovil, UsuarioMovil } from './tipos'
@@ -33,6 +34,12 @@ export interface Perfil {
    * comercial). Sin el dato (undefined): aún no se sabe (recién entró, o un perfil guardado antes de F1b).
    */
   persona?: PersonaMovil | null
+  /**
+   * Qué servidor respondió la última vez GET /api/auth/me (servidorDeMe): 'sin_f1a' si no manda la persona (sin la
+   * 0850: la app no ofrece "No se hizo", Eliminar, "Agendar otra fecha" ni "¿Qué pasó con esto?"). Sin el dato: no se
+   * sabe y la app sigue como está.
+   */
+  servidor?: ServidorDeCampo
   expira_at: string | null
 }
 
@@ -88,6 +95,7 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
           usuario: { id: respuesta.user.id, full_name: respuesta.user.full_name, role: respuesta.user.role, email: respuesta.user.email },
           ejecutiva: respuesta.ejecutiva,
           persona: personaDeMe(respuesta, guardado?.persona),
+          servidor: servidorDeMe(respuesta),
           expira_at: guardado?.expira_at ?? expiraDelToken(token),
         }
         await guardarJson(CLAVE_PERFIL, nuevo).catch(() => undefined)
@@ -163,7 +171,7 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
       try {
         const respuesta = await api.me(token, TIEMPO_ME_FONDO_MS)
         if (!montado.current || generacion.current !== desde) return
-        const nuevo: Perfil = { ...base, ejecutiva: respuesta.ejecutiva, persona: personaDeMe(respuesta, base.persona) }
+        const nuevo: Perfil = { ...base, ejecutiva: respuesta.ejecutiva, persona: personaDeMe(respuesta, base.persona), servidor: servidorDeMe(respuesta) }
         await guardarJson(CLAVE_PERFIL, nuevo).catch(() => undefined)
         if (!montado.current || generacion.current !== desde) return
         setPerfil(nuevo)

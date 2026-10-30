@@ -9,6 +9,11 @@
  *   - Hoy ("¿Qué pasó con esto?", sin "no está enlazado", "Actividades de hoy"), Números sin cuota, Días libres oculto,
  *     Ajustes, Agendar ("¿Qué vas a hacer?", "Como", otra fecha), la sesión y lib/api.ts, leyendo sus archivos.
  *   - Ningún archivo de mobile/app dice "Reportar visita", "Visitas de hoy", "Tipo de visita" ni "Reprogramar".
+ *   - Correcciones de la revisión de F1b (2026-10-30): un servidor sin F1a (/api/auth/me sin `persona`) no ofrece el
+ *     ciclo de vida y cancela con solo `{ motivo }`; otra fecha va con el papel de hoy; "Cuenta para" solo con cuota;
+ *     como líder solo médicos de sus líneas (también del buscador); "Como Ejecutivo Comercial"; los cuerpos de la app
+ *     son EXACTAMENTE los que la web prueba (CUERPO_*_APP); el rótulo de la cuota de Paola; "¿Qué pasó con esto?" sin
+ *     botones dentro de un botón; el choque en el pie con su propio texto.
  *
  * Corren en Node, sin React Native ni red. Este solo, desde mobile/:
  *   npx tsx scripts/checks/correr.ts 21-persona
@@ -38,6 +43,7 @@ import {
   citaCancelable,
   citaCerrable,
   citaEliminable,
+  cuerpoCancelar,
   cuerpoMotivo,
   estadoVisible,
   mensajeChoque,
@@ -51,7 +57,7 @@ import {
   textoOtraFechaDe,
   textoVieneDe,
 } from '../../lib/agenda-ciclo'
-import { errorChoque } from '../../lib/agenda'
+import { cuerpoCitaConHora, cuerpoOtraFecha, errorChoque, textosPieAgendar, validarCitaConHora } from '../../lib/agenda'
 import { tieneClaves } from '../../lib/claves-api'
 import { MAX_POR_CERRAR_VISIBLES, porCerrar } from '../../lib/pantallas'
 import {
@@ -59,17 +65,24 @@ import {
   MENSAJE_DIRECCION_EN_LA_WEB,
   MENSAJE_SIN_LINEAS,
   comoPorDefecto,
+  conCicloDeVida,
   eligeComo,
   entraALasPestanas,
   estadoPersona,
+  lineasDeBusqueda,
+  medicoDelPapel,
   medicosDelPapel,
   muestraDiasLibres,
+  papelDeAgenda,
   papelesDePersona,
   perfilDelPapel,
   personaDeMe,
+  rotuloCuota,
+  servidorDeMe,
   tieneCuota,
 } from '../../lib/persona'
 import { PESTANAS } from '../../lib/navegacion'
+import { formularioCitaVacio } from '../../lib/propuesta'
 import { ETIQUETA_ESTADO_CITA, type CitaItem, type EstadoCita, type PersonaMovil } from '../../lib/tipos'
 import type { Probador } from './probador'
 
@@ -212,9 +225,31 @@ export async function pruebas(t: Probador): Promise<void> {
         muestraDiasLibres({ persona: undefined, ejecutiva: { id: 'e1', full_name: 'Carmen', zona: 'Barranquilla' } }) &&
         !muestraDiasLibres({ persona: undefined, ejecutiva: null })
     )
-    check('"Como Ejecutiva Comercial" / "Como líder" solo para quien tiene los dos papeles (C12)', eligeComo(PAOLA) && !eligeComo(LUCIA) && !eligeComo(CARMEN) && !eligeComo(null))
+    check('"Como Ejecutivo Comercial" / "Como líder" solo para quien tiene los dos papeles (C12)', eligeComo(PAOLA) && !eligeComo(LUCIA) && !eligeComo(CARMEN) && !eligeComo(null))
     check('"como qué" por defecto (C12): como Ejecutivo Comercial si lo tiene; la líder, como líder', comoPorDefecto(PAOLA) === 'ejecutivo' && comoPorDefecto(CARMEN) === 'ejecutivo' && comoPorDefecto(LUCIA) === 'lider')
-    check("las etiquetas de \"como qué\": 'Como Ejecutiva Comercial' y 'Como líder'", ETIQUETA_COMO.ejecutivo === 'Como Ejecutiva Comercial' && ETIQUETA_COMO.lider === 'Como líder')
+    check(
+      "las etiquetas de \"como qué\": 'Como Ejecutivo Comercial' y 'Como líder' (\"Ejecutivo Comercial\" siempre así: regla del dueño del 2026-10-29)",
+      ETIQUETA_COMO.ejecutivo === 'Como Ejecutivo Comercial' && ETIQUETA_COMO.lider === 'Como líder' && !Object.values(ETIQUETA_COMO).some(texto => texto.includes('Ejecutiva'))
+    )
+    check(
+      'papelDeAgenda: el elegido; si no elige, el suyo (la líder sin Ejecutivo Comercial, como líder); sin la persona, como Ejecutivo Comercial',
+      papelDeAgenda(PAOLA, 'lider') === 'lider' && papelDeAgenda(PAOLA, null) === 'ejecutivo' && papelDeAgenda(LUCIA, null) === 'lider' && papelDeAgenda(CARMEN, undefined) === 'ejecutivo' && papelDeAgenda(null, null) === 'ejecutivo'
+    )
+    check(
+      'servidorDeMe: /api/auth/me con la clave persona (también null) → con_f1a; sin ella → sin_f1a. conCicloDeVida: solo sin_f1a lo apaga; sin saber, queda como está',
+      servidorDeMe({ persona: LUCIA }) === 'con_f1a' &&
+        servidorDeMe({ persona: null }) === 'con_f1a' &&
+        servidorDeMe({}) === 'sin_f1a' &&
+        conCicloDeVida('con_f1a') &&
+        !conCicloDeVida('sin_f1a') &&
+        conCicloDeVida(undefined) &&
+        conCicloDeVida(null)
+    )
+    check(
+      'rotuloCuota (Números de Paola): "Como Ejecutivo Comercial · Sustitutos óseos"; con un solo papel o sin la persona, null',
+      rotuloCuota(PAOLA) === 'Como Ejecutivo Comercial · Sustitutos óseos' && rotuloCuota(CARMEN) === null && rotuloCuota(LUCIA) === null && rotuloCuota(undefined) === null,
+      rotuloCuota(PAOLA)
+    )
     check(
       'Ajustes: "Líder · Trauma" y "Ejecutivo Comercial · Sustitutos óseos · Bucaramanga" (Paola, los dos)',
       papelesDePersona(PAOLA, 'Bucaramanga').join(' | ') === 'Líder · Trauma | Ejecutivo Comercial · Sustitutos óseos · Bucaramanga',
@@ -227,17 +262,33 @@ export async function pruebas(t: Probador): Promise<void> {
         papelesDePersona(CARMEN, null).join() === 'Ejecutivo Comercial · PerOssal y Reemplazo articular' &&
         papelesDePersona(undefined, 'X').length === 0
     )
-    const medicos = [
+    const medicos: { id: string; lineas: string[] | null }[] = [
       { id: 'm-tra', lineas: [L_TRA] },
       { id: 'm-sus', lineas: [L_SUS] },
       { id: 'm-dos', lineas: [L_SUS, L_TRA] },
+      { id: 'm-dep', lineas: [L_DEP] },
+      { id: 'm-sin', lineas: null },
     ]
+    const ids = (lista: readonly { id: string }[]) => lista.map(m => m.id).join()
     check(
-      'medicosDelPapel (C9): Paola como líder, solo los de Trauma; como Ejecutiva, todos; a los demás no se les filtra',
-      medicosDelPapel(medicos, PAOLA, 'lider').map(m => m.id).join() === 'm-tra,m-dos' &&
-        medicosDelPapel(medicos, PAOLA, 'ejecutivo').length === 3 &&
-        medicosDelPapel(medicos, LUCIA, 'lider').length === 3 &&
-        medicosDelPapel(medicos, CARMEN, null).length === 3
+      'medicosDelPapel (C9): como líder solo los de sus líneas de líder —Paola al elegirlo (Trauma) y la líder sin Ejecutivo Comercial sin elegir nada (deportiva)—; sin saber sus líneas (null), se ofrece; como Ejecutivo Comercial o sin la persona, todos',
+      ids(medicosDelPapel(medicos, PAOLA, 'lider')) === 'm-tra,m-dos,m-sin' &&
+        ids(medicosDelPapel(medicos, PAOLA, 'ejecutivo')) === 'm-tra,m-sus,m-dos,m-dep,m-sin' &&
+        ids(medicosDelPapel(medicos, LUCIA, null)) === 'm-dep,m-sin' &&
+        ids(medicosDelPapel(medicos, CARMEN, null)) === 'm-tra,m-sus,m-dos,m-dep,m-sin' &&
+        ids(medicosDelPapel(medicos, undefined, 'lider')) === 'm-tra,m-sus,m-dos,m-dep,m-sin',
+      { paolaLider: ids(medicosDelPapel(medicos, PAOLA, 'lider')), lucia: ids(medicosDelPapel(medicos, LUCIA, null)) }
+    )
+    check(
+      'lineasDeBusqueda (lo que trae el buscador): las líneas de sus visitantes vigentes, sin los terminados ni repetidas; sin los visitantes, o con uno vigente sin su línea, null (no se sabe)',
+      JSON.stringify(lineasDeBusqueda({ visitantes: [{ line_id: L_TRA, hasta: null }, { line_id: L_TRA }, { line_id: L_SUS, hasta: '2026-10-01' }, { line_id: L_DEP, hasta: '2026-10-20' }] }, HOY)) === JSON.stringify([L_TRA, L_DEP]) &&
+        lineasDeBusqueda({}, HOY) === null &&
+        lineasDeBusqueda({ visitantes: [{ hasta: null }] }, HOY) === null &&
+        JSON.stringify(lineasDeBusqueda({ visitantes: [] }, HOY)) === '[]'
+    )
+    check(
+      'medicoDelPapel con lo del buscador: la líder no ve a uno de otra línea ni a uno sin visitantes vigentes; sí a uno de su línea y a uno sin el dato (null: lo rechazaría el servidor); como Ejecutivo Comercial, sí',
+      !medicoDelPapel([L_SUS], LUCIA, null) && !medicoDelPapel([], LUCIA, null) && medicoDelPapel([L_DEP], LUCIA, null) && medicoDelPapel(null, LUCIA, null) && medicoDelPapel([L_SUS], PAOLA, 'ejecutivo') && !medicoDelPapel([L_SUS], PAOLA, 'lider')
     )
     check(
       'perfilDelPapel: como líder rige la configuración general (médica e institucional); si no, el perfil del contexto',
@@ -385,6 +436,28 @@ export async function pruebas(t: Probador): Promise<void> {
       { plantilla, error }
     )
     check('sin choque, null (09:00 y 10:00 están a media hora justa de la de las 09:30)', errorChoque({ fecha: HOY, hora: '09:00' }, citas) === null && errorChoque({ fecha: HOY, hora: '10:00' }, citas) === null)
+
+    // El pie de Agendar (captura del 2026-10-30: tras tocar Agendar salía "Falta algo: A las 08:30 ya tienes cita con…").
+    const deManana = [cita({ fecha: MANANA, hora: '08:30', medico: { id: 'm-x', nombre: 'Dra. X' } })]
+    const formulario = { ...formularioCitaVacio(MANANA, ['medica']), hora: '08:45', medico_id: 'm-otro', sede_id: 'sede-1' }
+    const choque = errorChoque(formulario, deManana)
+    const errores = validarCitaConHora(formulario, HOY, ['medica'], { citas: deManana, ahora: A_LAS_10_42 })
+    const pieTras = textosPieAgendar({ errorServidor: null, intentado: true, errores, repetida: null, choque })
+    check(
+      'el pie de Agendar, tras tocar: el choque con su propio texto ("A las 08:30 ya tienes cita con Dra. X: elige otra hora"), sin "Falta algo:" ni repetido',
+      choque !== null && errores.length === 1 && JSON.stringify(pieTras) === JSON.stringify([mensajeChoque('08:30', 'Dra. X')]) && !pieTras.some(texto => texto.startsWith('Falta algo')),
+      { errores, pieTras }
+    )
+    const faltaMedico = { campo: 'medico_id', mensaje: 'Elige el médico' }
+    const repetida = { campo: 'medico_id', mensaje: 'Ya tienes una cita con ese médico ese día (a las 08:30): elige otro día o cancela esa cita en Mi agenda' }
+    check(
+      'el pie: lo que falta como "Falta algo: …" y el choque aparte; antes de tocar, ya el choque; la repetida tapa el choque; el rechazo del servidor va solo',
+      JSON.stringify(textosPieAgendar({ errorServidor: null, intentado: true, errores: [faltaMedico, choque as { campo: string; mensaje: string }], repetida: null, choque })) === JSON.stringify(['Falta algo: Elige el médico', mensajeChoque('08:30', 'Dra. X')]) &&
+        JSON.stringify(textosPieAgendar({ errorServidor: null, intentado: false, errores: [faltaMedico], repetida: null, choque })) === JSON.stringify([mensajeChoque('08:30', 'Dra. X')]) &&
+        JSON.stringify(textosPieAgendar({ errorServidor: null, intentado: true, errores: [repetida], repetida, choque })) === JSON.stringify([repetida.mensaje]) &&
+        JSON.stringify(textosPieAgendar({ errorServidor: 'Esa hora ya pasó', intentado: true, errores: [faltaMedico], repetida: null, choque })) === JSON.stringify(['No se agendó: Esa hora ya pasó']) &&
+        textosPieAgendar({ errorServidor: null, intentado: false, errores: [faltaMedico], repetida: null, choque: null }).length === 0
+    )
   }
 
   // -------------------------------------------------------------------------
@@ -410,6 +483,50 @@ export async function pruebas(t: Probador): Promise<void> {
         acciones({ estado: 'cancelada', fecha: MANANA, motivo_codigo: 'salida' }) === '-----'
     )
     check('el cuerpo del motivo: el código y el texto limpio (o null), hasta 300; con las claves del contrato', JSON.stringify(cuerpoMotivo('otro', '  Se fue   a cirugía ')) === JSON.stringify({ motivo_codigo: 'otro', motivo: 'Se fue a cirugía' }) && cuerpoMotivo('cliente', '').motivo === null && (cuerpoMotivo('otro', 'x'.repeat(400)).motivo ?? '').length === 300 && tieneClaves(cuerpoMotivo('cliente', null), 'citaCerrar') && tieneClaves(cuerpoMotivo('cliente', null), 'citaCancelar'))
+    check(
+      'cuerpoCancelar: con F1a, el de cuerpoMotivo; con un servidor sin F1a, solo { motivo } con lo escrito o, sin escribir, la etiqueta del motivo elegido (sin motivo_codigo)',
+      JSON.stringify(cuerpoCancelar('otro', ' Se cerró   la vía ', true)) === JSON.stringify({ motivo_codigo: 'otro', motivo: 'Se cerró la vía' }) &&
+        JSON.stringify(cuerpoCancelar('otro', ' Se cerró   la vía ', false)) === JSON.stringify({ motivo: 'Se cerró la vía' }) &&
+        JSON.stringify(cuerpoCancelar('fuerza_mayor', '', false)) === JSON.stringify({ motivo: 'Salud, clima o vía' }) &&
+        !('motivo_codigo' in cuerpoCancelar('cliente', null, false))
+    )
+    // Los cuerpos TAL CUAL los manda la app: web/scripts/reporte-api-check.ts los pasa por el esquema del servidor y los
+    // manda con POST (sección 15). Aquí se arman con las funciones de la app y se exige ese mismo texto en la web.
+    const webApi = leer('web/scripts/reporte-api-check.ts')
+    const literal = (cuerpo: object) =>
+      `{ ${Object.entries(cuerpo).map(([clave, valor]) => `${clave}: ${valor === null ? 'null' : typeof valor === 'string' ? `'${valor}'` : String(valor)}`).join(', ')} }`
+    const origen = cita({ id: 'origen', fecha: AYER, estado: 'no_realizada', motivo_codigo: 'cliente' })
+    const formOtra = { ...formularioCitaVacio('2026-10-26', ['medica']), hora: '9:00', medico_id: 'm-1', sede_id: origen.sede.id, nota: '   ' }
+    const cuerpos: Record<string, object> = {
+      CUERPO_CITA_APP: cuerpoCitaConHora({ ...formularioCitaVacio('2026-10-23', ['medica']), hora: '10:00', medico_id: 'f1f1f1f1-0000-4000-8000-000000000001', sede_id: 'dddddddd-0000-4000-8000-000000000001' }),
+      CUERPO_MOTIVO_APP: cuerpoMotivo('cliente', null),
+      CUERPO_CANCELAR_SIN_F1A: cuerpoCancelar('cliente', null, false),
+      CUERPO_OTRA_FECHA_APP: cuerpoOtraFecha(formOtra, origen),
+    }
+    const sinFijar = Object.entries(cuerpos).filter(([nombre, cuerpo]) => !webApi.includes(`const ${nombre} = ${literal(cuerpo)}\n`))
+    check(
+      'los cuerpos que manda la app (cuerpoCitaConHora, cuerpoMotivo, cuerpoCancelar sin F1a, cuerpoOtraFecha sin persona) son EXACTAMENTE los CUERPO_*_APP que la web pasa por su esquema y manda con POST',
+      sinFijar.length === 0,
+      sinFijar.map(([nombre, cuerpo]) => `${nombre} = ${literal(cuerpo)}`)
+    )
+    check(
+      'exactos: el motivo { motivo_codigo: \'cliente\', motivo: null } (cancelar y "no se hizo") y otra fecha { fecha, hora, sede_id: null, nota: null, como: null }',
+      literal(cuerpos.CUERPO_MOTIVO_APP) === "{ motivo_codigo: 'cliente', motivo: null }" &&
+        literal(cuerpos.CUERPO_OTRA_FECHA_APP) === "{ fecha: '2026-10-26', hora: '09:00', sede_id: null, nota: null, como: null }",
+      [literal(cuerpos.CUERPO_MOTIVO_APP), literal(cuerpos.CUERPO_OTRA_FECHA_APP)]
+    )
+    // La cita cancelada con "Dejó de ser Ejecutivo Comercial" (0850: motivo 'otro', quien sigue como líder) admite otra
+    // fecha; sin "como", el servidor tomaría el papel de la anterior (Ejecutivo Comercial) y la rechazaría.
+    const dejoDeSer = cita({ estado: 'cancelada', fecha: MANANA, motivo_codigo: 'otro', como: 'ejecutivo' })
+    check(
+      'otra fecha con el papel de hoy: la cancelada por "Dejó de ser Ejecutivo Comercial" la admite y, sin elegir papel, va "como" su papel (la que ya solo es líder, lider); el elegido manda; sin la persona, null',
+      accionesDeCita(dejoDeSer, HOY).otraFecha &&
+        cuerpoOtraFecha(formOtra, dejoDeSer, LUCIA).como === 'lider' &&
+        cuerpoOtraFecha(formOtra, dejoDeSer, CARMEN).como === 'ejecutivo' &&
+        cuerpoOtraFecha({ ...formOtra, como: 'lider' }, dejoDeSer, PAOLA).como === 'lider' &&
+        cuerpoOtraFecha(formOtra, dejoDeSer, null).como === null &&
+        cuerpoOtraFecha(formOtra, dejoDeSer).como === null
+    )
     check(
       '"Viene de la cita del 12 oct · No se hizo" (la hecha: "No efectiva"); sin la fecha, "Viene de otra cita"; sin viene_de, nada',
       textoVieneDe(cita({ viene_de: 'x', viene_de_fecha: '2026-10-12', viene_de_estado: 'no_realizada' })) === 'Viene de la cita del 12 oct · No se hizo' &&
@@ -477,6 +594,14 @@ export async function pruebas(t: Probador): Promise<void> {
         /aparte=\{aparte\}/.test(hoy) &&
         /const enLista = ordenadas\.filter\(c => !aparte\.has\(c\.id\)\)/.test(hoy)
     )
+    check(
+      'Hoy con un servidor sin F1a (conCicloDeVida del perfil): ni "¿Qué pasó con esto?" ni la consulta de los días anteriores, y nada queda aparte',
+      /const ciclo = conCicloDeVida\(perfil\?\.servidor\)/.test(hoy) &&
+        /const pedidoAnteriores = sesion\.current\.ciclo\s*\? api\.agenda\(/.test(hoy) &&
+        /: Promise\.resolve\(\)/.test(entre(hoy, 'const pedidoAnteriores = ', 'pedirUbicacionEnDosPasos')) &&
+        /const sinResultado = ciclo \? porCerrar\(/.test(hoy) &&
+        /\{ciclo \? \(\s*<QuePasoConEsto\s/.test(hoy)
+    )
     const quePaso = leer('mobile/components/agenda/QuePasoConEsto.tsx')
     check(
       '"¿Qué pasó con esto?": Reportar solo lo de hoy, "No se hizo" con motivo y Cancelar solo de hoy en adelante (accionesDeCita); y "Agendar otra fecha" al cerrar',
@@ -486,6 +611,12 @@ export async function pruebas(t: Probador): Promise<void> {
         /\{acciones\.cancelar \? <Boton titulo="Cancelar"/.test(quePaso) &&
         /<FormularioMotivo/.test(quePaso) &&
         /titulo="Agendar otra fecha"/.test(quePaso)
+    )
+    const filaQuePaso = quePaso.slice(quePaso.indexOf('<FilaCita'), quePaso.indexOf('</FilaCita>'))
+    check(
+      '"¿Qué pasó con esto?": la fila NO se toca (sin alPresionar: un botón dentro de otro botón no lo lee VoiceOver); Reportar es su botón',
+      filaQuePaso.length > 0 && !/<FilaCita\b[^>]*\balPresionar=/.test(filaQuePaso) && !/alPresionar=\{acciones\.reportar/.test(quePaso) && /<Boton titulo="Reportar"[^>]*alPresionar=\{\(\) => alReportar\(cita\)\}/.test(filaQuePaso),
+      filaQuePaso.slice(0, 300)
     )
     const formulario = leer('mobile/components/agenda/FormularioMotivo.tsx')
     check('el motivo: los de la lista (MOTIVOS_ELEGIBLES, sin "salida") y revisarMotivo antes de enviar', /MOTIVOS_ELEGIBLES\.map/.test(formulario) && /revisarMotivo\(codigo, texto, uso\)/.test(formulario) && !/'salida'/.test(formulario))
@@ -508,6 +639,20 @@ export async function pruebas(t: Probador): Promise<void> {
         !/function SinCuota[\s\S]*?TarjetaTipo[\s\S]*?\n\}/.test(entre(numeros, 'function SinCuota(', '\nfunction Contenido(')) &&
         /etiqueta="No se hicieron" valor=\{numeroTexto\(agenda\.citas_no_realizadas\)\}/.test(numeros)
     )
+    check(
+      'Números de Paola: la cuota con su rótulo "Como Ejecutivo Comercial · <sus líneas>" (rotuloCuota de la persona de la sesión), una vez, antes de las tarjetas de la cuota',
+      /const rotulo = rotuloCuota\(perfil\?\.persona\)/.test(numeros) &&
+        /\{rotulo \? <Seccion titulo=\{rotulo\} \/> : null\}/.test(numeros) &&
+        (numeros.match(/<Seccion titulo=\{rotulo\}/g) ?? []).length === 1 &&
+        numeros.indexOf('<Seccion titulo={rotulo}') < numeros.indexOf('titulo="Visitas médicas"')
+    )
+    const visita = leer('mobile/app/(app)/visita/[id].tsx')
+    check(
+      'Detalle de la visita: "Cuenta para" (Suma a la meta…) solo con cuota (tieneCuota): una líder sin Ejecutivo Comercial no lo ve',
+      /const conCuota = tieneCuota\(\{ persona: personaContexto \?\? perfil\?\.persona, ejecutiva: perfil\?\.ejecutiva \}\)/.test(visita) &&
+        /\{conCuota \? \(\s*<Apilado etiqueta="Cuenta para">/.test(visita) &&
+        (visita.match(/etiqueta="Cuenta para"/g) ?? []).length === 1
+    )
     const agenda = leer('mobile/app/(app)/agenda.tsx')
     const ajustes = leer('mobile/app/(app)/ajustes.tsx')
     check(
@@ -521,14 +666,21 @@ export async function pruebas(t: Probador): Promise<void> {
     check('Ajustes: su papel con papelesDePersona (con la zona de su Ejecutivo Comercial)', /papelesDePersona\(perfil\?\.persona, perfil\?\.ejecutiva\?\.zona\)/.test(ajustes) && /Reportas como/.test(ajustes))
     check(
       'Mi agenda: el detalle con Reportar, "No se hizo", Cancelar, Eliminar y "Agendar otra fecha" (cerrarCita, eliminarCita y el pedido de otra fecha); sin el aviso de los 30 días',
-      /alNoSeHizo=\{motivo => noSeHizo\(citaAbierta, motivo\)\}/.test(agenda) &&
-        /alEliminar=\{\(\) => eliminar\(citaAbierta\)\}/.test(agenda) &&
-        /alOtraFecha=\{\(\) => otraFecha\(citaAbierta\)\}/.test(agenda) &&
+      /alNoSeHizo=\{ciclo \? motivo => noSeHizo\(citaAbierta, motivo\) : undefined\}/.test(agenda) &&
+        /alEliminar=\{ciclo \? \(\) => eliminar\(citaAbierta\) : undefined\}/.test(agenda) &&
+        /alOtraFecha=\{ciclo \? \(\) => otraFecha\(citaAbierta\) : undefined\}/.test(agenda) &&
         /alReportar=\{\(\) => reportar\(citaAbierta\)\}/.test(agenda) &&
         /api\.cerrarCita\(cita\.id, motivo\)/.test(agenda) &&
         /api\.eliminarCita\(cita\.id\)/.test(agenda) &&
         /fijarPedidoAgendar\(pedidoOtraFecha\(cita\)\)/.test(agenda) &&
         !sinComentarios(agenda).includes('30 días')
+    )
+    check(
+      'Mi agenda con un servidor sin F1a (conCicloDeVida): sin "No se hizo", Eliminar ni "Agendar otra fecha" (sus rutas no existen), cancelar sin el código y sin preguntar si la visita fue efectiva',
+      /const ciclo = conCicloDeVida\(perfil\?\.servidor\)/.test(agenda) &&
+        /api\.cancelarCita\(cita\.id, motivo, ciclo\)/.test(agenda) &&
+        /const visitaId = ciclo && citaAbierta\?\.estado === 'hecha'/.test(agenda) &&
+        /alCancelar=\{motivo => cancelar\(citaAbierta, motivo\)\}/.test(agenda)
     )
 
     const nueva = leer('mobile/app/(app)/agenda/nueva.tsx')
@@ -538,12 +690,31 @@ export async function pruebas(t: Probador): Promise<void> {
       nueva.includes('<Subtitulo>¿Qué vas a hacer?</Subtitulo>') && /texto=\{ETIQUETA_ACTIVIDAD\[tipo\]\}/.test(nueva)
     )
     check(
-      'Agendar: "Como Ejecutiva Comercial" / "Como líder" solo con eligeComo(persona) (rol lider_y_ejecutivo)',
+      'Agendar: "Como Ejecutivo Comercial" / "Como líder" solo con eligeComo(persona) (rol lider_y_ejecutivo)',
       /\{eligeComo\(persona\) \? \(\s*<Grupo>\s*\{\(\['ejecutivo', 'lider'\] as ComoPersona\[\]\)\.map\(papel => \(\s*<Chip key=\{papel\} texto=\{ETIQUETA_COMO\[papel\]\}/.test(nueva)
     )
     check(
       'Agendar: otra fecha va a POST …/otra-fecha con cuerpoOtraFecha; lo demás, a POST /api/me/agenda',
-      /origen \? await api\.otraFechaCita\(origen\.id, cuerpoOtraFecha\(formulario, origen\)\) : await api\.agendar\(cuerpoCitaConHora\(formulario\)\)/.test(nueva)
+      /origen \? await api\.otraFechaCita\(origen\.id, cuerpoOtraFecha\(formulario, origen, persona\)\) : await api\.agendar\(cuerpoCitaConHora\(formulario\)\)/.test(nueva)
+    )
+    const buscadorMedicos = entre(nueva, '<Buscador<MedicoPublico>', '/>')
+    check(
+      'Agendar como líder: la lista con medicosDelPapel y lo del buscador por papel; los resultados del buscador filtrados (delPapel) y buscados de nuevo al cambiar de papel (key)',
+      /medicosDelPapel\(contexto\?\.mis_medicos \?\? \[\], persona, papel\)/.test(nueva) &&
+        /buscados\.filter\(b => !propios\.some\(p => p\.id === b\.id\) && medicoDelPapel\(b\.lineas, persona, papel\)\)/.test(nueva) &&
+        /lineas: lineasDeBusqueda\(item, hoy\)/.test(nueva) &&
+        /buscar=\{async q => delPapel\(\(await api\.buscarMedicos\(q\)\)\.items\)\}/.test(buscadorMedicos) &&
+        /key=\{comoLider \? 'lider' : 'ejecutivo'\}/.test(buscadorMedicos) &&
+        /const comoLider = !!persona && papelDeAgenda\(persona, como\) === 'lider'/.test(nueva),
+      buscadorMedicos.slice(0, 300)
+    )
+    const elegirComoTs = entre(nueva, 'const elegirComo = ', 'const elegirMedico = ')
+    const agregarMedicoTs = entre(nueva, 'const agregarMedico = ', 'const ponerCuenta = ')
+    check(
+      'Agendar: al pasar a líder se quita el médico elegido si no se ofrece con ese papel (también uno del buscador); uno del buscador que no es del papel no se elige',
+      /const sigue = !formulario\.medico_id \|\| ofrecidos\(nuevo\)\.some\(m => m\.id === formulario\.medico_id\)/.test(elegirComoTs) &&
+        !/buscados\.some/.test(elegirComoTs) &&
+        /if \(!idsPropios\.has\(nuevo\.id\) && !medicoDelPapel\(nuevo\.lineas, persona, como\)\) return/.test(agregarMedicoTs)
     )
     check('Agendar: sin "Mover" ni "Reprogramar"', !/Mover|Reprogramar/.test(nuevaVisible))
 
@@ -551,6 +722,12 @@ export async function pruebas(t: Probador): Promise<void> {
     check(
       'la sesión guarda la persona de /api/auth/me (personaDeMe) al confirmar y, después de entrar, la pide en segundo plano (completarPersona)',
       /persona: personaDeMe\(respuesta, guardado\?\.persona\)/.test(sesion) && /void completarPersona\(respuesta\.token, nuevo\)/.test(sesion) && /api\.me\(token, TIEMPO_ME_FONDO_MS\)/.test(entre(sesion, 'const completarPersona = useCallback(', 'const entrar = useCallback('))
+    )
+    check(
+      'la sesión guarda qué servidor respondió /api/auth/me (servidorDeMe) al confirmar y al completar la persona; al entrar, sin saberlo (queda como está)',
+      /servidor: servidorDeMe\(respuesta\)/.test(entre(sesion, 'const confirmar = useCallback(', 'catch (lanzado)')) &&
+        /servidor: servidorDeMe\(respuesta\)/.test(entre(sesion, 'const completarPersona = useCallback(', 'catch (lanzado)')) &&
+        !/servidor/.test(entre(sesion, 'const entrar = useCallback(', 'void completarPersona('))
     )
 
     const api = leer('mobile/lib/api.ts')
@@ -560,7 +737,9 @@ export async function pruebas(t: Probador): Promise<void> {
       /\/api\/me\/agenda\/\$\{encodeURIComponent\(id\)\}\/cerrar`/.test(funcion('cerrarCita')) &&
         /\/api\/me\/agenda\/\$\{encodeURIComponent\(id\)\}\/eliminar`/.test(funcion('eliminarCita')) &&
         /\/api\/me\/agenda\/\$\{encodeURIComponent\(id\)\}\/otra-fecha`/.test(funcion('otraFechaCita')) &&
-        /cuerpo: cuerpoMotivo\(motivo\.motivo_codigo, motivo\.motivo\)/.test(funcion('cancelarCita')) &&
+        /cuerpo: cuerpoCancelar\(motivo\.motivo_codigo, motivo\.motivo, conCicloDeVida\)/.test(funcion('cancelarCita')) &&
+        /export async function cancelarCita\(id: string, motivo: MotivoDeCierre, conCicloDeVida = true\)/.test(api) &&
+        /cuerpo: cuerpoMotivo\(motivo\.motivo_codigo, motivo\.motivo\)/.test(funcion('cerrarCita')) &&
         ['cancelarCita', 'cerrarCita', 'eliminarCita', 'otraFechaCita'].every(nombre => funcion(nombre).indexOf("invalidarContexto('cita')") > funcion(nombre).indexOf('await peticion'))
     )
   }

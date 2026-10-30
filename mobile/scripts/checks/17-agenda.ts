@@ -495,8 +495,8 @@ export async function pruebas(t: Probador): Promise<void> {
     const apiTs = leer('mobile/lib/api.ts')
     const cancelarApi = apiTs.slice(apiTs.indexOf('export async function cancelarCita('), apiTs.indexOf('export async function cerrarCita('))
     check(
-      "Mi agenda: cancelar manda el motivo y lib/api.ts invalida el contexto ('cita') después del 2xx",
-      /api\.cancelarCita\(cita\.id, motivo\)/.test(cancelar) && cancelarApi.indexOf("invalidarContexto('cita')") > cancelarApi.indexOf('await peticion')
+      "Mi agenda: cancelar manda el motivo (con o sin el código, según el servidor: ciclo) y lib/api.ts invalida el contexto ('cita') después del 2xx",
+      /api\.cancelarCita\(cita\.id, motivo, ciclo\)/.test(cancelar) && cancelarApi.indexOf("invalidarContexto('cita')") > cancelarApi.indexOf('await peticion')
     )
     check('Mi agenda: tocar una franja libre abre Agendar a esa hora', /alTocarFranja=\{hora => router\.push\(rutaAgendar\(\{ fecha: dia, hora \}\)\)\}/.test(agenda))
     const calendario = leer('mobile/components/agenda/CalendarioMes.tsx')
@@ -596,10 +596,13 @@ export async function pruebas(t: Probador): Promise<void> {
       'Agendar: sin fecha en la URL abre desde mañana (fechaInicialAgendar) en el formulario y en primeraFranjaLibre',
       /formularioCitaVacio\(fechaDeUrl \?\? fechaInicialAgendar\(hoy\), \[\]\)/.test(nueva) && /primeraFranjaLibre\(fechaInicialAgendar\(hoy\), ventana\.hasta, citasVentana, marcasVentana\)/.test(nueva)
     )
-    const pie = nueva.slice(nueva.indexOf('const pie = ('), nueva.indexOf('return (', nueva.indexOf('const pie = (')))
+    const pie = nueva.slice(nueva.indexOf('const textosPie = '), nueva.indexOf('return (', nueva.indexOf('const pie = (')))
     check(
-      'Agendar: el pie dice la cita repetida y el choque de hora (0850: los dos en rojo, los rechaza el servidor)',
-      /\) : repetida \? \(\s*<Texto peque color=\{c\.peligro\}>\s*\{repetida\.mensaje\}/.test(pie) && /\) : choque \? \(\s*<Texto peque color=\{c\.peligro\}>\s*\{choque\.mensaje\}/.test(pie) && !/\{choque \? <Aviso/.test(nueva)
+      'Agendar: el pie dice la cita repetida y el choque de hora en rojo (0850: los rechaza el servidor), con textosPieAgendar',
+      /const textosPie = textosPieAgendar\(\{ errorServidor: errorServidor\?\.mensaje \?\? null, intentado, errores: erroresLocales, repetida, choque \}\)/.test(pie) &&
+        /\{textosPie\.map\(texto => \(\s*<Texto key=\{texto\} peque color=\{c\.peligro\}>/.test(pie) &&
+        !/Falta algo/.test(sinComentarios(nueva)) &&
+        !/\{choque \? <Aviso/.test(nueva)
     )
     const elegirFechaTs = nueva.slice(nueva.indexOf('const elegirFecha = '), nueva.indexOf('const elegirHora = '))
     check('Agendar: al cambiar a hoy, una hora que ya pasó se cambia por la siguiente libre', /const yaPaso = typeof hora === 'string' && franjaPasada\(fecha, hora\)/.test(elegirFechaTs) && /if \(horaAuto \|\| yaPaso\)/.test(elegirFechaTs))

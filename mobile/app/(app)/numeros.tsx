@@ -10,7 +10,8 @@
  *
  * F1b (actividades de campo, C4): sin Ejecutivo Comercial (una líder) no hay cuota: el servidor manda `cuota: null` y
  * se ve lo hecho del mes y la agenda, sin metas ni días hábiles (SinCuota). La agenda cuenta también las citas que no se
- * hicieron (0850).
+ * hicieron (0850). Quien tiene los dos papeles (Paola) ve la cuota con su rótulo, "Como Ejecutivo Comercial · Sustitutos
+ * óseos" (rotuloCuota): lo que hace como líder no suma.
  */
 import { useFocusEffect } from 'expo-router'
 import { useCallback, useRef, useState } from 'react'
@@ -19,9 +20,11 @@ import * as api from '../../lib/api'
 import { aApiError, esNoDisponible, type ApiError } from '../../lib/errores'
 import { hoyBogota, mesDe, nombreMes, sumarMeses } from '../../lib/fechas'
 import { diasPorDelante, faltanVisitas } from '../../lib/pantallas'
+import { rotuloCuota } from '../../lib/persona'
 import { fraccionBarra, muestraCuota, numeroTexto, porcentaje, textoOrigenMeta } from '../../lib/reglas'
+import { useSesion } from '../../lib/sesion'
 import type { CuotaResponse, CuotaTipo, NumerosAgenda, NumerosResponse } from '../../lib/tipos'
-import { Aviso, Barra, Boton, BotonIcono, Cargando, Fila, Pantalla, Separador, Subtitulo, Tarjeta, Texto } from '../../lib/ui'
+import { Aviso, Barra, Boton, BotonIcono, Cargando, Fila, Pantalla, Seccion, Separador, Subtitulo, Tarjeta, Texto } from '../../lib/ui'
 
 interface Datos {
   /** Mes de estas cifras (AAAA-MM). */
@@ -34,6 +37,9 @@ interface Datos {
 }
 
 export default function Numeros() {
+  const { perfil } = useSesion()
+  /** Paola (los dos papeles): "Como Ejecutivo Comercial · <sus líneas>" sobre la cuota; los demás, nada. */
+  const rotulo = rotuloCuota(perfil?.persona)
   const mesActual = mesDe(hoyBogota())
   const [mes, setMes] = useState(mesActual)
   const [datos, setDatos] = useState<Datos | null>(null)
@@ -136,7 +142,7 @@ export default function Numeros() {
           importantForAccessibility={otroMes ? 'no-hide-descendants' : 'auto'}
         >
           {datos.cuota ? (
-            <Contenido datos={{ ...datos, cuota: datos.cuota }} enCurso={datos.mes === mesActual} />
+            <Contenido datos={{ ...datos, cuota: datos.cuota }} enCurso={datos.mes === mesActual} rotulo={rotulo} />
           ) : datos.numeros ? (
             <SinCuota numeros={datos.numeros} />
           ) : null}
@@ -167,7 +173,7 @@ function SinCuota({ numeros }: { numeros: NumerosResponse }) {
   )
 }
 
-function Contenido({ datos, enCurso }: { datos: Datos & { cuota: CuotaResponse }; enCurso: boolean }) {
+function Contenido({ datos, enCurso, rotulo }: { datos: Datos & { cuota: CuotaResponse }; enCurso: boolean; rotulo: string | null }) {
   const { cuota, numeros, soloCuota } = datos
   // Cuánto falta, solo en el mes en curso y con lo hecho (sin /api/me/numeros no se sabe).
   const falta = (tipo: 'medica' | 'institucional') =>
@@ -177,6 +183,7 @@ function Contenido({ datos, enCurso }: { datos: Datos & { cuota: CuotaResponse }
       {soloCuota ? (
         <Aviso tono="info">El cumplimiento aparece cuando el servidor tenga activo el reporte de visitas. Por ahora ves tu cuota del mes.</Aviso>
       ) : null}
+      {rotulo ? <Seccion titulo={rotulo} /> : null}
 
       {muestraCuota(cuota.medica) ? (
         <TarjetaTipo

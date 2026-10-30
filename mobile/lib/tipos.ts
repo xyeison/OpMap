@@ -782,6 +782,15 @@ export interface MedicoSedeResumen {
   reps_code?: string | null
 }
 
+/**
+ * Quién visita al médico, en lo que la app usa (VisitanteResumen de web/lib/terceros.ts trae más; en las listas, solo
+ * los vigentes): la línea, para que Agendar "como líder" ofrezca solo los médicos de sus líneas (C9).
+ */
+export interface VisitanteMedicoResumen {
+  line_id?: string
+  hasta?: string | null
+}
+
 /** Médico sin documento (detalle de POST /api/terceros/medicos e ítems de las búsquedas). */
 export interface MedicoPublico {
   id: string
@@ -790,6 +799,8 @@ export interface MedicoPublico {
   municipality_id: string
   ciudad?: string | null
   sedes: MedicoSedeResumen[]
+  /** Sus visitantes (las búsquedas: los vigentes). Un servidor que no los mande: no se sabe de qué líneas es. */
+  visitantes?: VisitanteMedicoResumen[]
   activo?: boolean
 }
 

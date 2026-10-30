@@ -35,9 +35,10 @@ import { agendaChoca, mensajeChoque } from './agenda-ciclo'
 import { esFechaIso, hoyBogota, horaBogota, sumarDias } from './fechas'
 import { rangoDeMes, type MarcaDia } from './calendario'
 import { cuerpoCita, horaDeCita, validarCita, type FormularioCita } from './propuesta'
+import { comoPorDefecto } from './persona'
 import { conQuienCita } from './reglas'
 import { MAX_DIAS_CONSULTA_AGENDA, MAX_NOTA_CITA } from './tipos'
-import type { CitaCreate, CitaItem, CitaOtraFecha, DiaLibreItem, ErrorVisita, TipoVisita } from './tipos'
+import type { CitaCreate, CitaItem, CitaOtraFecha, DiaLibreItem, ErrorVisita, PersonaMovil, TipoVisita } from './tipos'
 
 // ---------------------------------------------------------------------------------------------
 // Pedido para Agendar (en memoria, como lib/retorno.ts)
@@ -377,14 +378,43 @@ export function cuerpoCitaConHora(formulario: FormularioCita): CitaCreate & { ho
  * Cuerpo de POST /api/me/agenda/[id]/otra-fecha (A7): la fecha y la hora nuevas, la sede (null si es la misma de la
  * anterior), la nota (la que quedó en el formulario: Agendar la trae puesta con la de la anterior) y "como qué". El
  * tipo, el médico o la cuenta y el subtipo los copia el servidor. Lanza sin hora o con una fecha que no vale.
+ *
+ * "Como qué": el elegido (Paola); si no elige y se sabe quién es, su papel de hoy (comoPorDefecto). Sin `como` el
+ * servidor toma el papel de la cita anterior, y una cita cancelada con "Dejó de ser Ejecutivo Comercial" (0850: quien
+ * sigue como líder) se rechazaría ("como Ejecutivo Comercial" ya no puede): así va como líder. Sin la persona, null
+ * (decide el servidor).
  */
-export function cuerpoOtraFecha(formulario: FormularioCita, origen: Pick<CitaItem, 'sede'>): CitaOtraFecha {
+export function cuerpoOtraFecha(
+  formulario: FormularioCita,
+  origen: Pick<CitaItem, 'sede'>,
+  persona?: Pick<PersonaMovil, 'rol'> | null
+): CitaOtraFecha {
   const hora = horaDeCita(formulario.hora)
   if (typeof hora !== 'string') throw new Error(MENSAJE_HORA_OBLIGATORIA)
   if (!esFechaIso(formulario.fecha)) throw new Error('Fecha no válida: usa AAAA-MM-DD')
   const nota = formulario.nota.trim() ? formulario.nota.trim().slice(0, MAX_NOTA_CITA) : null
   const sede = formulario.sede_id && formulario.sede_id !== origen.sede.id ? formulario.sede_id : null
-  return { fecha: formulario.fecha, hora, sede_id: sede, nota, como: formulario.como ?? null }
+  return { fecha: formulario.fecha, hora, sede_id: sede, nota, como: formulario.como ?? (persona ? comoPorDefecto(persona) : null) }
+}
+
+/**
+ * Lo que dice el pie de Agendar, renglón por renglón: el rechazo del servidor ("No se agendó: …", y nada más); si no,
+ * lo que falta después de tocar Agendar ("Falta algo: …", hasta 3) y aparte, con su propio texto y sin esperar al toque
+ * (la base los rechazaría), la cita repetida o, si no la hay, el choque de media hora. Lo que falta no los repite.
+ */
+export function textosPieAgendar(o: {
+  errorServidor: string | null
+  intentado: boolean
+  errores: readonly ErrorVisita[]
+  repetida: ErrorVisita | null
+  choque: ErrorVisita | null
+}): string[] {
+  if (o.errorServidor) return [`No se agendó: ${o.errorServidor}`]
+  const aparte = new Set([o.repetida?.mensaje, o.choque?.mensaje].filter((mensaje): mensaje is string => !!mensaje))
+  const faltan = o.intentado ? o.errores.map(e => e.mensaje).filter(mensaje => !aparte.has(mensaje)) : []
+  const textos = faltan.length > 0 ? [`Falta algo: ${faltan.slice(0, 3).join(' · ')}${faltan.length > 3 ? '…' : ''}`] : []
+  const propio = o.repetida ?? o.choque
+  return propio ? [...textos, propio.mensaje] : textos
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -13,7 +13,9 @@
  * motivo obligatorio), "Agendar otra fecha" (cerrada y sin otra fecha) y "Eliminar: lo agendé por error"—, nada de
  * "Mover". Al cerrar o cancelar, el detalle sigue abierto con su estado y "Agendar otra fecha". Sin tope hacia adelante
  * (A4). Días libres solo con Ejecutivo Comercial (una líder no ve la entrada ni se piden). La hecha consulta su visita
- * (GET /api/me/visitas?fecha=) al abrirse: solo la no efectiva admite otra fecha.
+ * (GET /api/me/visitas?fecha=) al abrirse: solo la no efectiva admite otra fecha. Con un servidor sin F1a
+ * (/api/auth/me sin la clave `persona`: conCicloDeVida) el detalle no ofrece "No se hizo", Eliminar ni "Agendar otra
+ * fecha" (esas rutas no existen ahí) y cancelar manda solo `{ motivo }` (lo escrito o la etiqueta del motivo).
  *
  * Revisión 2026-10-15: el error es POR MES (el de un mes que falla no lo borra otro que llega bien: si no, quedaba
  * "Cargando tu agenda…" sin "Reintentar"); "Cancelaste la cita…" sale junto al día (no arriba, fuera de la vista);
@@ -32,7 +34,7 @@ import { lunesDe, mesDe, mesesDeRango, rangoDeMes } from '../../lib/calendario'
 import { aApiError, esNoDisponible, mensajeDeError, type ApiError } from '../../lib/errores'
 import { esFechaIso, hoyBogota, sumarDias } from '../../lib/fechas'
 import { vibrarExito } from '../../lib/haptica'
-import { eligeComo, muestraDiasLibres } from '../../lib/persona'
+import { conCicloDeVida, eligeComo, muestraDiasLibres } from '../../lib/persona'
 import { conQuienCita, textoTotalAgenda, tituloDiaAgenda } from '../../lib/reglas'
 import { fijarCitaParaReportar } from '../../lib/retorno'
 import { useSesion } from '../../lib/sesion'
@@ -56,6 +58,8 @@ export default function Agenda() {
   const router = useRouter()
   const c = useColores()
   const { perfil } = useSesion()
+  /** ¿El servidor tiene el ciclo de vida de la cita (F1a)? Sin saberlo, sí (decide el servidor). */
+  const ciclo = conCicloDeVida(perfil?.servidor)
   /** Días libres solo con Ejecutivo Comercial (hasta F3): sin él, ni la entrada ni la consulta (respondería 403). */
   const conDiasLibres = muestraDiasLibres({ persona: perfil?.persona, ejecutiva: perfil?.ejecutiva })
   const conDiasLibresRef = useRef(conDiasLibres)
@@ -180,7 +184,7 @@ export default function Agenda() {
 
   // La hecha: ¿su visita fue efectiva? (se pregunta una vez al abrirla, solo si podría pedir otra fecha).
   useEffect(() => {
-    const visitaId = citaAbierta?.estado === 'hecha' && !citaAbierta.sucesora_id ? citaAbierta.visita_id : null
+    const visitaId = ciclo && citaAbierta?.estado === 'hecha' && !citaAbierta.sucesora_id ? citaAbierta.visita_id : null
     if (!citaAbierta || !visitaId || visitaId in efectivas) return
     let vigente = true
     api.visitas(citaAbierta.fecha).then(
@@ -194,7 +198,7 @@ export default function Agenda() {
     return () => {
       vigente = false
     }
-  }, [citaAbierta, efectivas])
+  }, [citaAbierta, efectivas, ciclo])
 
   const elegirDia = (fecha: string) => {
     setDia(fecha)
@@ -217,7 +221,7 @@ export default function Agenda() {
   // detalle sigue abierto con su estado nuevo (y "Agendar otra fecha").
   const cancelar = async (cita: CitaItem, motivo: api.MotivoDeCierre): Promise<string | null> => {
     try {
-      const { cita: cancelada } = await api.cancelarCita(cita.id, motivo)
+      const { cita: cancelada } = await api.cancelarCita(cita.id, motivo, ciclo)
       vibrarExito()
       ponerCita(cita, cancelada)
       setMensaje({ tono: 'info', texto: mensajeTrasCerrar('cancelar', cita) })
@@ -350,11 +354,11 @@ export default function Agenda() {
                 ahora={ahora}
                 alReportar={() => reportar(citaAbierta)}
                 alVerVisita={citaAbierta.visita_id ? () => router.push(`/visita/${citaAbierta.visita_id}?fecha=${citaAbierta.fecha}`) : undefined}
-                alNoSeHizo={motivo => noSeHizo(citaAbierta, motivo)}
+                alNoSeHizo={ciclo ? motivo => noSeHizo(citaAbierta, motivo) : undefined}
                 preguntaCancelar={`¿Cancelas la cita con ${conQuienCita(citaAbierta)}? Queda en tu agenda como cancelada.`}
                 alCancelar={motivo => cancelar(citaAbierta, motivo)}
-                alEliminar={() => eliminar(citaAbierta)}
-                alOtraFecha={() => otraFecha(citaAbierta)}
+                alEliminar={ciclo ? () => eliminar(citaAbierta) : undefined}
+                alOtraFecha={ciclo ? () => otraFecha(citaAbierta) : undefined}
                 visitaEfectiva={citaAbierta.visita_id ? (efectivas[citaAbierta.visita_id] ?? null) : null}
                 conComo={eligeComo(perfil?.persona)}
                 alOcultar={() => setAbierta(null)}

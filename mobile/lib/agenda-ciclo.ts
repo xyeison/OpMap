@@ -1,8 +1,9 @@
 /**
  * Ciclo de vida de lo programado en la app (F1b de actividades de campo): ESPEJO de web/lib/agenda-ciclo.ts (estados,
  * motivos de cierre, transiciones y mensajes de las funciones de la 0850) más lo que solo la app necesita: qué acciones
- * ofrece cada cita, el cuerpo del motivo y los textos del detalle. PURO (sin React Native): lo prueba
- * scripts/checks/21-persona.ts, que lee los dos archivos y compara los estados, los motivos y los mensajes.
+ * ofrece cada cita, el cuerpo del motivo (y el de cancelar con un servidor sin F1a) y los textos del detalle. PURO (sin
+ * React Native): lo prueba scripts/checks/21-persona.ts, que lee los dos archivos y compara los estados, los motivos y
+ * los mensajes.
  * Spec: docs/specs/2026-10-15-actividades-de-campo.md ("Ciclo de vida de lo programado", A7, A8, C6, C7, C8, C10).
  *
  * Lo programado no se mueve de fecha (A7): se cierra con su resultado —hecha (reportando la visita), no se hizo (con
@@ -253,6 +254,21 @@ export function accionesDeCita(
 export function cuerpoMotivo(codigo: MotivoElegible, texto: string | null | undefined): { motivo_codigo: MotivoElegible; motivo: string | null } {
   const limpio = (texto ?? '').trim().replace(/\s+/g, ' ')
   return { motivo_codigo: codigo, motivo: limpio ? limpio.slice(0, MAX_MOTIVO_CIERRE) : null }
+}
+
+/**
+ * El cuerpo de cancelar. Con el ciclo de vida en el servidor (F1a), el de cuerpoMotivo. Con un servidor sin F1a
+ * (conCicloDeVida de lib/persona.ts: su cancelar solo lee `{ motivo }`, opcional y hasta 300), lo escrito o, si no
+ * escribió, la etiqueta del motivo elegido ("El médico o el cliente no pudo"), sin `motivo_codigo`: así el motivo no se
+ * pierde.
+ */
+export function cuerpoCancelar(
+  codigo: MotivoElegible,
+  texto: string | null | undefined,
+  conCicloDeVida: boolean
+): { motivo_codigo: MotivoElegible; motivo: string | null } | { motivo: string } {
+  const cuerpo = cuerpoMotivo(codigo, texto)
+  return conCicloDeVida ? cuerpo : { motivo: cuerpo.motivo ?? etiquetaMotivoCierre(codigo) }
 }
 
 /**

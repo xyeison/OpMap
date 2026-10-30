@@ -25,7 +25,7 @@ import {
   type ValorQuery,
 } from './http'
 import { parteAudio } from './subida-audio'
-import { cuerpoMotivo } from './agenda-ciclo'
+import { cuerpoCancelar, cuerpoMotivo } from './agenda-ciclo'
 import type {
   AgendaResponse,
   CamposDictadoResponse,
@@ -325,11 +325,15 @@ export interface MotivoDeCierre {
   motivo?: string | null
 }
 
-/** Cancela una cita propia pendiente de hoy en adelante, con motivo OBLIGATORIO (A8). 400 cerrada o de ayer; 404 ajena. */
-export async function cancelarCita(id: string, motivo: MotivoDeCierre): Promise<CitaResponse> {
+/**
+ * Cancela una cita propia pendiente de hoy en adelante, con motivo OBLIGATORIO (A8). 400 cerrada o de ayer; 404 ajena.
+ * `conCicloDeVida` false (el servidor no tiene F1a: conCicloDeVida de lib/persona.ts): solo `{ motivo }`, con lo escrito
+ * o la etiqueta del motivo elegido (cuerpoCancelar).
+ */
+export async function cancelarCita(id: string, motivo: MotivoDeCierre, conCicloDeVida = true): Promise<CitaResponse> {
   const respuesta = await peticion<CitaResponse>(`/api/me/agenda/${encodeURIComponent(id)}/cancelar`, {
     metodo: 'POST',
-    cuerpo: cuerpoMotivo(motivo.motivo_codigo, motivo.motivo),
+    cuerpo: cuerpoCancelar(motivo.motivo_codigo, motivo.motivo, conCicloDeVida),
   })
   invalidarContexto('cita')
   return respuesta

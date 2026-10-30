@@ -151,10 +151,10 @@ import {
   type CitaConSucesora,
   type CitaParaChoque,
 } from '../lib/agenda-ciclo'
-import type { camposDictadoSchema, citaCancelarSchema, citaCerrarSchema, citaCreateSchema, citaOtraFechaSchema, visitaCreateSchema } from '../lib/reporte-visitas-schemas'
+import { camposDictadoSchema, citaCancelarSchema, citaCerrarSchema, citaCreateSchema, citaOtraFechaSchema, visitaCreateSchema } from '../lib/reporte-visitas-schemas'
 import type * as M from '../../mobile/lib/tipos'
 import type { cuerpoCitaConHora, cuerpoOtraFecha } from '../../mobile/lib/agenda'
-import type { cuerpoMotivo } from '../../mobile/lib/agenda-ciclo'
+import type { cuerpoCancelar, cuerpoMotivo } from '../../mobile/lib/agenda-ciclo'
 import { CLAVES_API, clavesDe, tieneClaves, type FormaApi } from '../../mobile/lib/claves-api'
 import {
   MAX_MENSAJE_API_ANALIZAR,
@@ -255,29 +255,26 @@ export type TiposDeLaApp = [
   Afirmar<Asignable<W.CamposDictadoResponse, M.CamposDictadoResponse>>,
   Afirmar<Asignable<M.CamposDictadoResponse, W.CamposDictadoResponse>>,
   // Cuerpos de la agenda: la hora obligatoria (2026-10-15) y "como" (0850) en los dos; lo que arma la app cabe en el
-  // servidor (cuerpoCitaConHora, cuerpoOtraFecha y el motivo de cancelar y "no se hizo", cuerpoMotivo).
+  // servidor (cuerpoCitaConHora, cuerpoOtraFecha y el motivo de cancelar y "no se hizo", cuerpoMotivo y cuerpoCancelar).
+  // Contra los ESQUEMAS no se compara el tipo: su entrada es `unknown` (z.ZodType<…, …, unknown>) y cualquier cosa cabría;
+  // eso lo prueban los safeParse de la sección 15 con los cuerpos tal cual (CUERPOS_APP).
   Afirmar<Asignable<ReturnType<typeof cuerpoCitaConHora>, W.CitaCreate>>,
   Afirmar<Asignable<M.CitaCreate, W.CitaCreate>>,
   Afirmar<Asignable<W.CitaCreate, M.CitaCreate>>,
-  Afirmar<Asignable<M.CitaCreate, z.input<typeof citaCreateSchema>>>,
   Afirmar<Asignable<M.CitaCancelar, W.CitaCancelar>>,
   Afirmar<Asignable<W.CitaCancelar, M.CitaCancelar>>,
   Afirmar<Asignable<ReturnType<typeof cuerpoMotivo>, W.CitaCancelar>>,
-  Afirmar<Asignable<M.CitaCancelar, z.input<typeof citaCancelarSchema>>>,
+  Afirmar<Asignable<ReturnType<typeof cuerpoCancelar>, W.CitaCancelar>>,
   Afirmar<Asignable<M.CitaCerrar, W.CitaCerrar>>,
   Afirmar<Asignable<W.CitaCerrar, M.CitaCerrar>>,
   Afirmar<Asignable<ReturnType<typeof cuerpoMotivo>, W.CitaCerrar>>,
-  Afirmar<Asignable<M.CitaCerrar, z.input<typeof citaCerrarSchema>>>,
   Afirmar<Asignable<M.CitaOtraFecha, W.CitaOtraFecha>>,
   Afirmar<Asignable<W.CitaOtraFecha, M.CitaOtraFecha>>,
   Afirmar<Asignable<ReturnType<typeof cuerpoOtraFecha>, W.CitaOtraFecha>>,
-  Afirmar<Asignable<M.CitaOtraFecha, z.input<typeof citaOtraFechaSchema>>>,
   Afirmar<Asignable<M.CamposDictado, W.CamposDictado>>,
-  Afirmar<Asignable<M.CamposDictado, z.input<typeof camposDictadoSchema>>>,
   // Cuerpos: lo que manda la app cabe en lo que valida el servidor.
   Afirmar<Asignable<M.VisitaCreate, W.VisitaCreate>>,
   Afirmar<Asignable<W.VisitaCreate, M.VisitaCreate>>,
-  Afirmar<Asignable<M.VisitaCreate, z.input<typeof visitaCreateSchema>>>,
   Afirmar<Asignable<M.VisitaUpdate, W.VisitaUpdate>>,
   Afirmar<Asignable<W.VisitaUpdate, M.VisitaUpdate>>,
   // Terceros de F1 que usa Reportar.
@@ -290,6 +287,18 @@ export type TiposDeLaApp = [
   Afirmar<Asignable<M.MedicoSedeCreate, z.input<typeof medicoSedeCreateSchema>>>,
   Afirmar<Asignable<M.SedeCreateGps, z.input<typeof sedeCreateSchema>>>,
 ]
+
+/**
+ * Los cuerpos TAL CUAL los manda la app de F1b. mobile/scripts/checks/21-persona.ts (sección 21e) arma cada uno con la
+ * función de la app y exige que este archivo tenga EXACTAMENTE ese texto: cuerpoCitaConHora (M1 en S1, sin nota ni
+ * "como"), cuerpoMotivo('cliente', null) para cancelar y "no se hizo", cuerpoCancelar sin F1a (la etiqueta del motivo,
+ * sin código) y cuerpoOtraFecha (la misma sede, sin nota y sin persona: "como" null). La sección 15 los pasa por el
+ * esquema (safeParse) y los manda con POST.
+ */
+const CUERPO_CITA_APP = { fecha: '2026-10-23', hora: '10:00', sede_id: 'dddddddd-0000-4000-8000-000000000001', nota: null, como: null, tipo: 'medica', medico_id: 'f1f1f1f1-0000-4000-8000-000000000001', cuenta_id: null, subtipo_id: null }
+const CUERPO_MOTIVO_APP = { motivo_codigo: 'cliente', motivo: null }
+const CUERPO_CANCELAR_SIN_F1A = { motivo: 'El médico o el cliente no pudo' }
+const CUERPO_OTRA_FECHA_APP = { fecha: '2026-10-26', hora: '09:00', sede_id: null, nota: null, como: null }
 
 for (const key of ['GOOGLE_MAPS_API_KEY', 'NEXT_PUBLIC_GOOGLE_MAPS_API_KEY', 'SUPABASE_SERVICE_ROLE_KEY', 'NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_URL', 'SESSION_SECRET', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY']) {
   delete process.env[key]
@@ -2950,6 +2959,28 @@ async function main() {
 
     print('\n15. F1a (0850): la persona de campo (líder y Paola), el choque de media hora y el ciclo de vida de la cita')
     {
+      // Los cuerpos tal cual los manda la app (CUERPO_*_APP, fijados por la sección 21e de la app) pasan el esquema.
+      const pasan = {
+        agendar: citaCreateSchema.safeParse(CUERPO_CITA_APP).success,
+        cancelar: citaCancelarSchema.safeParse(CUERPO_MOTIVO_APP).success,
+        cerrar: citaCerrarSchema.safeParse(CUERPO_MOTIVO_APP).success,
+        cancelarSinF1a: citaCancelarSchema.safeParse(CUERPO_CANCELAR_SIN_F1A).success,
+        otraFecha: citaOtraFechaSchema.safeParse(CUERPO_OTRA_FECHA_APP).success,
+        otraFechaComoLider: citaOtraFechaSchema.safeParse({ ...CUERPO_OTRA_FECHA_APP, como: 'lider' }).success,
+      }
+      check(
+        'el esquema acepta los cuerpos de la app: agendar (cuerpoCitaConHora), cancelar y "no se hizo" (cuerpoMotivo), cancelar sin F1a (solo el texto) y otra fecha (sede, nota y "como" null, o "como" lider)',
+        Object.values(pasan).every(Boolean),
+        pasan
+      )
+      check(
+        'el esquema acepta el dictado por campo ({ transcript, tipo }, el de api.vozCampos) y la visita (cuerpoVisita, la forma de la app); y no cualquier cosa',
+        camposDictadoSchema.safeParse({ transcript: 'Le interesó el tornillo; volver el martes', tipo: 'medica' }).success &&
+          visitaCreateSchema.safeParse(cuerpoVisita()).success &&
+          !citaCerrarSchema.safeParse({ motivo: null }).success &&
+          !citaOtraFechaSchema.safeParse({ ...CUERPO_OTRA_FECHA_APP, hora: null }).success &&
+          !citaCreateSchema.safeParse({ ...CUERPO_CITA_APP, como: 'jefe' }).success
+      )
       const MANANA = '2026-10-14'
       const L_DEP = 'aaaaaaaa-0000-4000-8000-000000000015' // deportiva: la lidera Lucía (sin Ejecutivo Comercial)
       const L_TRA = 'aaaaaaaa-0000-4000-8000-000000000016' // trauma: la lidera Paola
@@ -3057,6 +3088,24 @@ async function main() {
       check('cancelar con solo el texto (como la app de hoy) → 200 con motivo_codigo otro', soloTexto.status === 200 && soloTexto.body.cita.estado === 'cancelada' && soloTexto.body.cita.motivo_codigo === 'otro' && filaCita(paraCancelar.id)?.cancelada_motivo === 'El médico viaja' && ok('cita', soloTexto.body.cita), soloTexto.body)
       const rpcCancelar = fake.rpcs.filter(r => r.nombre === 'agenda_cancelar').at(-1)
       check('el RPC de cancelar va con p_motivo_codigo', rpcCancelar?.args.p_motivo_codigo === 'otro' && rpcCancelar?.args.p_motivo === 'El médico viaja', rpcCancelar?.args)
+      // Los cuerpos tal cual los manda la app de F1b: agendar, cancelar con un motivo de la lista sin escribir nada y
+      // pedir otra fecha con la misma sede, sin nota y sin "como" (el servidor toma el papel de la anterior).
+      const agendadaApp = await agendaDe(VENTAS_ID, CUERPO_CITA_APP)
+      check('agendar con el cuerpo de la app (cuerpoCitaConHora: nota, "como", cuenta y subtipo null) → 201', agendadaApp.status === 201 && agendadaApp.body.cita.fecha === CUERPO_CITA_APP.fecha && agendadaApp.body.cita.hora === CUERPO_CITA_APP.hora && agendadaApp.body.cita.como === 'ejecutivo', agendadaApp.body)
+      const deLaApp = agendadaApp.body.cita as W.CitaItem
+      const canceladaApp = await pedir(cancelarCita, `/api/me/agenda/${deLaApp.id}/cancelar`, { method: 'POST', body: CUERPO_MOTIVO_APP, id: deLaApp.id, portador: true })
+      const rpcCancelarApp = fake.rpcs.filter(r => r.nombre === 'agenda_cancelar').at(-1)
+      check(
+        'cancelar con el cuerpo de la app ({ motivo_codigo: "cliente", motivo: null }) → 200 cancelada con ese motivo; el RPC, con el código y sin texto',
+        canceladaApp.status === 200 && canceladaApp.body.cita.estado === 'cancelada' && canceladaApp.body.cita.motivo_codigo === 'cliente' && rpcCancelarApp?.args.p_motivo_codigo === 'cliente' && rpcCancelarApp?.args.p_motivo === null,
+        { cuerpo: canceladaApp.body, rpc: rpcCancelarApp?.args }
+      )
+      const otraApp = await pedir(otraFechaCita, `/api/me/agenda/${deLaApp.id}/otra-fecha`, { method: 'POST', body: CUERPO_OTRA_FECHA_APP, id: deLaApp.id, portador: true })
+      check(
+        'otra fecha con el cuerpo de la app ({ fecha, hora, sede_id: null, nota: null, como: null }) → 201: la misma sede, sin nota, como Ejecutivo Comercial (el papel de la anterior) y viene de la cancelada',
+        otraApp.status === 201 && otraApp.body.cita.viene_de === deLaApp.id && otraApp.body.cita.viene_de_estado === 'cancelada' && otraApp.body.cita.viene_de_fecha === CUERPO_CITA_APP.fecha && otraApp.body.cita.fecha === CUERPO_OTRA_FECHA_APP.fecha && otraApp.body.cita.sede.id === S1 && otraApp.body.cita.nota === null && otraApp.body.cita.como === 'ejecutivo' && ok('cita', otraApp.body.cita),
+        otraApp.body
+      )
 
       // Cerrar ("no se hizo"): la de ayer sí; la de mañana no; la ajena 404
       const ayerNoHecha = citaDirecta({ fecha: AYER, medico_id: M_DEP, hora: '15:00:00', created_at: '2026-10-08T15:00:00.000Z' })
@@ -3072,6 +3121,14 @@ async function main() {
       check('cerrar sin motivo o con "salida" → 400 (del esquema)', sinCodigo.status === 400 && sinCodigo.body?.error === MENSAJE_MOTIVO_NO_VALIDO && salida.status === 400, { sinCodigo: sinCodigo.body, salida: salida.body })
       const dosVecesCerrada = await cerrar(ayerNoHecha, { motivo_codigo: 'cliente' })
       check(`cerrar dos veces → 400 "${MENSAJE_CITA_CERRADA}"`, dosVecesCerrada.status === 400 && dosVecesCerrada.body?.error === MENSAJE_CITA_CERRADA, dosVecesCerrada.body)
+      // Con el cuerpo tal cual lo manda la app de F1b ("No se hizo" con un motivo de la lista y sin escribir nada).
+      const ayerApp = citaDirecta({ fecha: AYER, medico_id: M_SUS, hora: '16:00:00', created_at: '2026-10-08T15:00:00.000Z' })
+      const cerradaApp = await cerrar(ayerApp, CUERPO_MOTIVO_APP)
+      check(
+        'cerrar con el cuerpo de la app ({ motivo_codigo: "cliente", motivo: null }) → 200 "no se hizo" con ese motivo y sin texto',
+        cerradaApp.status === 200 && cerradaApp.body.cita.estado === 'no_realizada' && cerradaApp.body.cita.motivo_codigo === 'cliente' && cerradaApp.body.cita.no_realizada_motivo === null && filaCita(ayerApp)?.no_realizada_motivo === null,
+        cerradaApp.body
+      )
 
       // Otra fecha: de la que no se hizo sí (con viene_de); de una pendiente no; dos veces 409
       const otra = await pedir(otraFechaCita, `/api/me/agenda/${ayerNoHecha}/otra-fecha`, { method: 'POST', body: { fecha: '2026-10-19', hora: '09:00' }, id: ayerNoHecha, portador: true })
@@ -3116,7 +3173,11 @@ async function main() {
       const visitaNe = noEfectivaSus.body?.visita as W.VisitaItem
       check('una no efectiva cumple la cita de hoy con ese médico (hecha)', noEfectivaSus.status === 201 && visitaNe.agenda_id === porVenir && filaCita(porVenir)?.estado === 'hecha', noEfectivaSus.body)
       const otraDeHecha = await pedir(otraFechaCita, `/api/me/agenda/${porVenir}/otra-fecha`, { method: 'POST', body: { fecha: '2026-10-22', hora: '09:00' }, id: porVenir, portador: true })
-      check('otra fecha de la hecha no efectiva → 201', otraDeHecha.status === 201 && otraDeHecha.body.cita.viene_de === porVenir, otraDeHecha.body)
+      check(
+        'otra fecha de la hecha no efectiva → 201, y dice de qué viene: viene_de_estado "hecha" (la app: "No efectiva") y viene_de_fecha hoy',
+        otraDeHecha.status === 201 && otraDeHecha.body.cita.viene_de === porVenir && otraDeHecha.body.cita.viene_de_estado === 'hecha' && otraDeHecha.body.cita.viene_de_fecha === HOY,
+        otraDeHecha.body
+      )
       const anularConOtra = await pedir(anularVisita, `/api/me/visitas/${visitaNe.id}/anular`, { method: 'POST', body: { motivo: 'Me equivoqué de médico' }, id: visitaNe.id, portador: true })
       const efectivaConOtra = await pedir(corregirVisita, `/api/me/visitas/${visitaNe.id}`, { method: 'PATCH', body: { efectiva: true }, id: visitaNe.id, portador: true })
       check(`anular la visita o pasarla a efectiva → 400 "${MENSAJE_VISITA_CON_OTRA_FECHA}"; la cita sigue hecha con ella`, anularConOtra.status === 400 && anularConOtra.body?.error === MENSAJE_VISITA_CON_OTRA_FECHA && efectivaConOtra.status === 400 && efectivaConOtra.body?.error === MENSAJE_VISITA_CON_OTRA_FECHA && filaCita(porVenir)?.estado === 'hecha' && filaCita(porVenir)?.visita_id === visitaNe.id && !porId(visitaNe.id)?.deleted_at, { anular: anularConOtra.body, efectiva: efectivaConOtra.body })

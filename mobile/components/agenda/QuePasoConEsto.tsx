@@ -2,11 +2,13 @@
  * "¿Qué pasó con esto?" en Hoy (F1b de actividades de campo; C6 y A7 de la spec): lo programado que no se cerró solo
  * —lo atrasado de hoy y lo sin cerrar de días anteriores (porCerrar de lib/pantallas.ts, sin la cita "de ahora", que
  * sigue en "Siguiente")— con lo que se puede hacer según su día (accionesDeCita de lib/agenda-ciclo.ts):
- *   - Reportar: solo lo de hoy (una visita se reporta el mismo día); también al tocar la fila, como las citas de Hoy;
+ *   - Reportar: solo lo de hoy (una visita se reporta el mismo día), con su botón: la fila NO se toca (un botón dentro
+ *     de otro botón no lo lee VoiceOver ni TalkBack);
  *   - "No se hizo", con su motivo (desde su día, sin tope hacia atrás);
  *   - Cancelar, con su motivo: solo de hoy en adelante (lo de días anteriores se cierra con "No se hizo").
  * Al cerrar o cancelar queda "Anotado…" con "Agendar otra fecha" (A7: otra fecha es una cita nueva enlazada). Se ven
- * MAX_POR_CERRAR_VISIBLES y "Ver todas (n)". Nunca documentos.
+ * MAX_POR_CERRAR_VISIBLES y "Ver todas (n)". Con un servidor sin F1a (conCicloDeVida de lib/persona.ts) Hoy no la
+ * muestra. Nunca documentos.
  */
 import { useState, type JSX } from 'react'
 import { View } from 'react-native'
@@ -94,7 +96,6 @@ export function QuePasoConEsto({ citas, hoy, ahora, alReportar, alNoSeHizo, alCa
               dia={textoDia(cita.fecha, hoy)}
               atrasada={citaAtrasada(cita, ahora)}
               sinCerrar={cita.fecha < hoy}
-              alPresionar={acciones.reportar && !aqui ? () => alReportar(cita) : undefined}
             >
               {aqui ? (
                 <View style={{ marginTop: 8 }}>

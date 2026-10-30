@@ -56,7 +56,7 @@ interface Props {
   alOtraFecha?: () => void
   /** Si está hecha: ¿su visita fue efectiva? null o sin el dato: no se sabe (y no se ofrece otra fecha). */
   visitaEfectiva?: boolean | null
-  /** Mostrar "Como líder" / "Como Ejecutiva Comercial" (solo a quien tiene los dos papeles). */
+  /** Mostrar "Como líder" / "Como Ejecutivo Comercial" (solo a quien tiene los dos papeles). */
   conComo?: boolean
   /** Oculta el detalle. */
   alOcultar: () => void
