@@ -2,7 +2,8 @@
 
 // Contacto de una cuenta: crear (POST /api/terceros/contactos, terceros:create) o editar
 // (PATCH /api/terceros/contactos/[id], terceros:manage). El rol se sugiere por el cargo (rolDesdeCargo) y se
-// puede cambiar; si quien escribe elige otro rol, el cargo ya no lo cambia.
+// puede cambiar; si quien escribe elige otro rol, el cargo ya no lo cambia. Sin duplicados (dueño, 2026-10-30): teléfono
+// y/o correo, y si en la cuenta ya hay uno con ese teléfono o correo, el servidor responde 409 con él y se nombra.
 import { useState } from 'react'
 import { ROLES_CONTACTO, rolDesdeCargo, type ContactoRow, type RolContacto, type SedeRow } from '@/lib/terceros'
 import { contactoCreateSchema, contactoUpdateSchema } from '@/lib/terceros-schemas'
@@ -16,8 +17,10 @@ import {
   mensajeError,
   mensajeExcepcion,
   pedirJson,
+  existenteDe,
   primerErrorZod,
   textoONada,
+  type Respuesta,
 } from './comun'
 
 type ContactoFormProps = {
@@ -28,6 +31,12 @@ type ContactoFormProps = {
   onGuardado: (mensaje: string) => void
   /** Contacto a editar (terceros:manage); sin él, se crea uno nuevo. */
   contacto?: ContactoRow
+}
+
+/** El 409 de un contacto repetido nombra el que ya está en la cuenta; lo demás, como siempre. */
+function mensajeContacto(respuesta: Respuesta, porDefecto: string): string {
+  const existente = respuesta.status === 409 ? existenteDe(respuesta.data) : null
+  return existente ? `${mensajeError(respuesta, porDefecto)}: ${existente.nombre}` : mensajeError(respuesta, porDefecto)
 }
 
 export default function ContactoForm({ cuentaId, cuentaNombre, sedes, onCerrar, onGuardado, contacto }: ContactoFormProps) {
@@ -74,7 +83,7 @@ export default function ContactoForm({ cuentaId, cuentaNombre, sedes, onCerrar, 
       setGuardando(true)
       try {
         const respuesta = await pedirJson('/api/terceros/contactos', { method: 'POST', json: cuerpo })
-        if (!respuesta.ok) throw new Error(mensajeError(respuesta, 'No se pudo crear el contacto'))
+        if (!respuesta.ok) throw new Error(mensajeContacto(respuesta, 'No se pudo crear el contacto'))
         onGuardado(`Se creó el contacto ${validado.data.nombre}.`)
       } catch (err) {
         setError(mensajeExcepcion(err, 'No se pudo crear el contacto'))
@@ -104,7 +113,7 @@ export default function ContactoForm({ cuentaId, cuentaNombre, sedes, onCerrar, 
     setGuardando(true)
     try {
       const respuesta = await pedirJson(`/api/terceros/contactos/${contacto.id}`, { method: 'PATCH', json: cambios })
-      if (!respuesta.ok) throw new Error(mensajeError(respuesta, 'No se pudo guardar el contacto'))
+      if (!respuesta.ok) throw new Error(mensajeContacto(respuesta, 'No se pudo guardar el contacto'))
       onGuardado(`Se guardaron los cambios de ${nombreLimpio || contacto.nombre}.`)
     } catch (err) {
       setError(mensajeExcepcion(err, 'No se pudo guardar el contacto'))
@@ -203,6 +212,7 @@ export default function ContactoForm({ cuentaId, cuentaNombre, sedes, onCerrar, 
                 disabled={guardando}
               />
             </div>
+            <p className="sm:col-span-2 -mt-2 text-xs text-gray-500">Teléfono o correo: al menos uno de los dos.</p>
             {editando && (
               <label className="flex items-center gap-2 text-sm text-gray-700">
                 <input type="checkbox" checked={activo} onChange={e => setActivo(e.target.checked)} disabled={guardando} />

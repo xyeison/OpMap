@@ -48,6 +48,7 @@ export const OCULTAS: readonly PantallaOculta[] = [
   { ruta: 'visita/[id]', encabezado: 'Visita' },
   { ruta: 'medico/nuevo', encabezado: 'Nuevo médico' },
   { ruta: 'sede/nueva', encabezado: 'Nueva sede' },
+  { ruta: 'contacto/nuevo', encabezado: 'Nuevo contacto' },
 ]
 
 /**

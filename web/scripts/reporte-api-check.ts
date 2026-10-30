@@ -111,6 +111,7 @@ import {
   mensajeFueraDeRadio,
   mensajePerfil,
   mensajeTopeTelefonicas,
+  MENSAJE_CONTACTO_OBLIGATORIO,
 } from '../lib/reporte-visitas'
 import type * as W from '../lib/reporte-visitas'
 import {
@@ -127,6 +128,7 @@ import {
   personaDeCampo as personaDeCampoPura,
   type LineaCampo,
   type PersonaCampoPura,
+  type LineaPropiaMedico,
   type VisitanteMedico,
 } from '../lib/persona-campo'
 import {
@@ -509,6 +511,8 @@ function fakeSupabase(tablas: Tablas) {
     sin0840: false,
     /** La base sin la 0850: sin las columnas user_id, motivo_codigo, no_realizada_*, eliminada_*, viene_de ni las funciones nuevas. */
     sin0850: false,
+    /** La base sin la 0950: medico_lineas no existe (PGRST205). */
+    sin0950: false,
     rechazoForzado: null as string | null,
     /** Error crudo de PostgREST que devuelve la próxima RPC visitas_* (para probar qué sale en los logs). */
     errorRpc: null as Fila | null,
@@ -561,7 +565,8 @@ function fakeSupabase(tablas: Tablas) {
     return mapa
   }
   const medicoEsDeLineas = (medicoId: string, lineas: readonly string[], fecha: string) =>
-    medicoDeLineasPura(medicoId, lineas, store('medico_visitantes') as VisitanteMedico[], lineasEjecutivasActivas(), fecha)
+    // Sin la 0950, medico_de_lineas no mira medico_lineas (no existe)
+    medicoDeLineasPura(medicoId, lineas, store('medico_visitantes') as VisitanteMedico[], lineasEjecutivasActivas(), fecha, estado.sin0950 ? [] : (store('medico_lineas') as LineaPropiaMedico[]))
 
   /** Visitas efectivas de la PERSONA (0850: por user_id) ese día, no anuladas, para los topes. */
   const deHoy = (user: string, fecha: string, extra: (v: Fila) => boolean, excluir?: string) =>
@@ -1067,6 +1072,8 @@ function fakeSupabase(tablas: Tablas) {
       }
     }
 
+    if (estado.sin0950 && table === 'medico_lineas') return pgError('PGRST205', "Could not find the table 'public.medico_lineas' in the schema cache", 404)
+
     if (estado.sin0840) {
       if (table === 'rpc/agenda_crear' || table === 'rpc/agenda_cancelar') return pgError('PGRST202', `Could not find the function public.${table.slice(4)} in the schema cache`, 404)
       if (table === 'visitas_agenda') return pgError('PGRST205', "Could not find the table 'public.visitas_agenda' in the schema cache", 404)
@@ -1099,6 +1106,14 @@ function fakeSupabase(tablas: Tablas) {
         agenda_otra_fecha: agendaOtraFecha,
         // Importador de VMO: ninguna IPS a menos de 5 km en estas pruebas.
         find_nearest_hospital: () => json(null),
+        // Médico completo (0800, mínimo para estas pruebas): el médico y sus sedes juntos; devuelve su id.
+        terceros_crear_medico: a => {
+          const p = a.p_medico as Fila
+          const id = randomUUID()
+          store('medicos').push({ id, tipo_documento: p.tipo_documento, numero_documento: p.numero_documento, nombre: p.nombre, especialidades: p.especialidades, municipality_id: p.municipality_id, telefono: p.telefono ?? null, email: p.email ?? null, activo: true, created_by: a.p_user })
+          for (const sede of a.p_sedes as Fila[]) store('medico_sedes').push({ medico_id: id, sede_id: sede.sede_id, rol: sede.rol, principal: Boolean(sede.principal) })
+          return json(id)
+        },
       }
       const funcion = funciones[nombre]
       if (!funcion) throw new Error(`Supabase falso: función no soportada ${nombre}`)
@@ -1206,6 +1221,7 @@ const AYER_ID = '14141414-0000-4000-8000-000000000002'
 const ANULADA_ID = '14141414-0000-4000-8000-000000000003'
 const DOCUMENTO_M1 = '79123456'
 const TELEFONO_K1 = '3001234567'
+const K2 = '13131313-0000-4000-8000-000000000002' // contacto de la Clínica Sur (C2)
 
 const TEL = { lat: 7.119349, lng: -73.122741 } // el teléfono de Ana (Bucaramanga)
 const alNorte = (metros: number) => ({ lat: Math.round((TEL.lat + metros / 111_195.08) * 1e6) / 1e6, lng: TEL.lng })
@@ -1373,7 +1389,12 @@ function datosIniciales(): Tablas {
       { medico_id: M2, sede_id: S1, rol: 'atiende', principal: true },
     ],
     medico_visitantes: [{ id: randomUUID(), medico_id: M1, executive_id: EJEC_A, line_id: L1, desde: '2026-01-15', hasta: null }],
-    contactos: [{ id: K1, cuenta_id: C1, sede_id: S1, nombre: 'Luis Pérez', cargo_texto: 'Jefe de compras', rol: 'compras', telefono: TELEFONO_K1, email: 'luis@clinica.test', activo: true }],
+    // 0950: el médico que crea una líder es de sus líneas (vacía al empezar)
+    medico_lineas: [],
+    contactos: [
+      { id: K1, cuenta_id: C1, sede_id: S1, nombre: 'Luis Pérez', cargo_texto: 'Jefe de compras', rol: 'compras', telefono: TELEFONO_K1, email: 'luis@clinica.test', activo: true },
+      { id: K2, cuenta_id: C2, sede_id: S2, nombre: 'Rosa Díaz', cargo_texto: 'Química farmacéutica', rol: 'quimico_farmaceutico', telefono: '6076543210', email: null, activo: true },
+    ],
     reps_sedes: [
       { codigo_habilitacion: '680010000001', municipio_sede: '68001', nit: '900123456' },
       // Código público de OTRO prestador de Bucaramanga (no es de la Clínica Norte, C1).
@@ -1655,8 +1676,12 @@ async function main() {
       check('sede cercana con su cuenta, IPS (hospital_id) y ubicación confirmada', c.sedes_cerca[0].cuenta_nombre === 'Clínica Norte S.A.' && c.sedes_cerca[0].hospital_id === H1 && c.sedes_cerca[0].ubicacion_confirmada === true)
       const m1 = c.mis_medicos.find(m => m.id === M1)
       check('mis médicos: solo de los que es visitante (M1, no M2), con sus sedes y distancias', c.mis_medicos.length === 1 && !!m1 && m1.sedes[0].id === S1 && m1.sedes[0].distancia_m !== null && m1.sedes.find(s => s.id === S3)?.distancia_m === null && m1.lineas.join() === L1, c.mis_medicos)
-      check('contactos de las cuentas cercanas, sin teléfono ni correo', c.contactos.length === 1 && c.contactos[0].id === K1 && !('telefono' in c.contactos[0]) && !('email' in c.contactos[0]))
-      check('nunca documentos ni teléfonos en la respuesta', !r.texto.includes(DOCUMENTO_M1) && !r.texto.includes(TELEFONO_K1) && !r.texto.includes('3109998877') && !r.texto.includes('TRANSCRIPCION-INTERNA'))
+      check(
+        'contactos de las cuentas cercanas (Clínica Norte y Clínica Sur), sin teléfono ni correo',
+        c.contactos.map(k => k.id).sort().join() === [K1, K2].sort().join() && c.contactos.every(k => !('telefono' in k) && !('email' in k)),
+        c.contactos
+      )
+      check('nunca documentos ni teléfonos en la respuesta', !r.texto.includes(DOCUMENTO_M1) && !r.texto.includes(TELEFONO_K1) && !r.texto.includes('6076543210') && !r.texto.includes('3109998877') && !r.texto.includes('TRANSCRIPCION-INTERNA'))
       check('meta del día: 6 médicas y 1 institucional (martes hábil), nada hecho aún', c.hoy.fecha === HOY && c.hoy.meta.medica === 6 && c.hoy.meta.institucional === 1 && c.hoy.hechas.medicas === 0 && !c.hoy.cuota_dia_ok, c.hoy)
       check('configuración por defecto: radio 500, telefónica no habilitada, tope 1 por médico, perfil completo', c.config.radio_m === 500 && !c.config.telefonica.habilitada && c.config.tope_visitas_medico_dia === 1 && c.config.perfil.join() === 'medica,institucional', c.config)
       check('compromiso vencido: la institucional del 1 de octubre con próxima reunión el 10', c.compromisos_vencidos.length === 1 && c.compromisos_vencidos[0].con === 'Clínica Sur' && c.compromisos_vencidos[0].next_step_date === '2026-10-10', c.compromisos_vencidos)
@@ -1701,10 +1726,20 @@ async function main() {
       cuentaSur.activo = false
       await rechazo(
         'institucional en una cuenta desactivada (sus sedes siguen activas): 400',
-        cuerpoVisita({ tipo: 'institucional', medico_id: null, cuenta_id: C2, sede_id: S2, subtipo_id: SUBTIPO_ID.compras, ...alNorte(800) }),
+        cuerpoVisita({ tipo: 'institucional', medico_id: null, cuenta_id: C2, sede_id: S2, subtipo_id: SUBTIPO_ID.compras, contacto_id: K2, ...alNorte(800) }),
         MENSAJE_CUENTA_INACTIVA
       )
       cuentaSur.activo = true
+      const sinContacto = await pedir(reportarVisita, '/api/me/visitas', {
+        method: 'POST',
+        body: cuerpoVisita({ tipo: 'institucional', medico_id: null, cuenta_id: C1, subtipo_id: SUBTIPO_ID.compras }),
+        portador: true,
+      })
+      check(
+        'institucional sin contacto_id: 400 en contacto_id (dueño, 2026-10-30: siempre con quién fue)',
+        sinContacto.status === 400 && sinContacto.body.errores?.some((e: { campo: string; mensaje: string }) => e.campo === 'contacto_id' && e.mensaje === MENSAJE_CONTACTO_OBLIGATORIO),
+        sinContacto.body
+      )
       const contactoLuis = tablas.contactos.find(c => c.id === K1) as Fila
       contactoLuis.activo = false
       await rechazo(
@@ -1731,7 +1766,7 @@ async function main() {
       check('el mismo client_id otra vez: 201 repetida: true y una sola fila', repetida.status === 201 && repetida.body.repetida === true && repetida.body.visita.id === fila?.id && visitasApp().filter(v => v.client_id === cuerpo.client_id).length === 1, repetida.body)
       const reintentoTarde = await pedir(reportarVisita, '/api/me/visitas', { method: 'POST', body: { ...cuerpo, sede_id: S3 }, portador: true })
       check('reintento con el mismo client_id aunque ya no pasaría las reglas: devuelve la que estaba (no 400)', reintentoTarde.status === 201 && reintentoTarde.body.repetida === true)
-      const ajeno = await pedir(reportarVisita, '/api/me/visitas', { method: 'POST', body: { ...cuerpo, medico_id: null, tipo: 'institucional', cuenta_id: C1, subtipo_id: SUBTIPO_ID.compras }, portador: true, userId: OTRA_ID })
+      const ajeno = await pedir(reportarVisita, '/api/me/visitas', { method: 'POST', body: { ...cuerpo, medico_id: null, tipo: 'institucional', cuenta_id: C1, subtipo_id: SUBTIPO_ID.compras, contacto_id: K1 }, portador: true, userId: OTRA_ID })
       check('el mismo client_id desde otra ejecutiva: 409', ajeno.status === 409, ajeno)
 
       await rechazo('tope por médico: segunda efectiva a la Dra. Gómez hoy → 400', cuerpoVisita(), MENSAJE_TOPE_MEDICO)
@@ -1749,10 +1784,22 @@ async function main() {
       const filaInst = porId(inst.body?.visita?.id)
       check('institucional con subtipo y contacto: 201, copia subtipo_codigo y suma a la institucional', inst.status === 201 && filaInst?.subtipo_codigo === 'compras' && inst.body.visita.cuenta_para === 'institucional' && inst.body.visita.contacto?.nombre === 'Luis Pérez' && inst.body.visita.subtipo?.codigo === 'compras', inst.body)
 
+      // Revisión 2026-10-30: una institucional sin contacto guardada antes de la regla, cuya respuesta se perdió, vuelve
+      // como repetida al reenviarla la cola sin señal (el contacto lo exige validarVisita, después de la idempotencia)
+      const filaVieja = filaVisitaApp({ visit_date: '2026-09-20', tipo: 'institucional', medico_id: null, cuenta_id: C1, sede_id: S1, subtipo_id: SUBTIPO_ID.compras, subtipo_codigo: 'compras', contacto_id: null })
+      tablas.visits.push(filaVieja)
+      const reenvio = await pedir(reportarVisita, '/api/me/visitas', {
+        method: 'POST',
+        body: cuerpoVisita({ client_id: filaVieja.client_id, tipo: 'institucional', medico_id: null, cuenta_id: C1, subtipo_id: SUBTIPO_ID.compras }),
+        portador: true,
+      })
+      tablas.visits.splice(tablas.visits.indexOf(filaVieja), 1)
+      check('una institucional sin contacto de antes de la regla, reenviada por la cola sin señal → 201 repetida (no 400)', reenvio.status === 201 && reenvio.body.repetida === true && reenvio.body.visita?.id === filaVieja.id, reenvio.body)
+
       // Berta: solo institucional, telefónica con tope 1.
       // Berta llama desde su casa (a 5 km): el GPS del teléfono NUNCA queda en la visita ni en el mapa de calor.
       const CASA = alNorte(5000)
-      const tel = (extra: Fila = {}) => cuerpoVisita({ tipo: 'institucional', medico_id: null, cuenta_id: C2, sede_id: S2, subtipo_id: SUBTIPO_ID.compras, modalidad: 'telefonica', medio: 'llamada', lat: CASA.lat, lng: CASA.lng, gps_accuracy_m: 9, ...extra })
+      const tel = (extra: Fila = {}) => cuerpoVisita({ tipo: 'institucional', medico_id: null, cuenta_id: C2, sede_id: S2, subtipo_id: SUBTIPO_ID.compras, contacto_id: K2, modalidad: 'telefonica', medio: 'llamada', lat: CASA.lat, lng: CASA.lng, gps_accuracy_m: 9, ...extra })
       const telefonica = await pedir(reportarVisita, '/api/me/visitas', { method: 'POST', body: tel(), portador: true, userId: OTRA_ID })
       const filaTel = porId(telefonica.body?.visita?.id)
       check('telefónica habilitada (Berta): 201, contact_type "Visita virtual", el punto de la sede y sin la precisión del GPS', telefonica.status === 201 && filaTel?.contact_type === 'Visita virtual' && filaTel?.lat === alNorte(800).lat && filaTel?.distance_m === null && filaTel?.gps_accuracy_m === null, telefonica.body)
@@ -1766,7 +1813,7 @@ async function main() {
       await rechazo('telefónica con un medio que no está vigente: 400 "Medio no válido: llamada"', tel({ medio: 'videollamada' }), 'Medio no válido: llamada', OTRA_ID)
       const rpcTel = fake.rpcs.filter(x => x.nombre === 'visitas_registrar').at(-1)
       check('el jsonb de una telefónica no lleva la ubicación ni la precisión del teléfono', rpcTel?.args.p.modalidad === 'telefonica' && rpcTel?.args.p.lat === null && rpcTel?.args.p.lng === null && rpcTel?.args.p.gps_accuracy_m === null, rpcTel?.args.p)
-      const sinCoordenadas = await pedir(reportarVisita, '/api/me/visitas', { method: 'POST', body: tel({ cuenta_id: C1, sede_id: S3 }), portador: true, userId: OTRA_ID })
+      const sinCoordenadas = await pedir(reportarVisita, '/api/me/visitas', { method: 'POST', body: tel({ cuenta_id: C1, sede_id: S3, contacto_id: K1 }), portador: true, userId: OTRA_ID })
       const filaS3 = porId(sinCoordenadas.body?.visita?.id)
       check(
         'telefónica a una sede sin coordenadas, llamando desde la casa: el punto del mapa es el municipio de la sede, nunca el teléfono',
@@ -2399,7 +2446,7 @@ async function main() {
       const presencial = await pedir(reportarVisita, '/api/me/visitas', {
         method: 'POST',
         portador: true,
-        body: cuerpoVisita({ tipo: 'institucional', medico_id: null, cuenta_id: C1, sede_id: sinReps.body.sede.id, subtipo_id: SUBTIPO_ID.compras, lat: TEL.lat, lng: TEL.lng }),
+        body: cuerpoVisita({ tipo: 'institucional', medico_id: null, cuenta_id: C1, sede_id: sinReps.body.sede.id, subtipo_id: SUBTIPO_ID.compras, contacto_id: K1, lat: TEL.lat, lng: TEL.lng }),
       })
       check('la sede recién creada sirve para reportar presencial ahí mismo', presencial.status === 201 && presencial.body.visita.distance_m === 0, presencial.body)
       check(
@@ -2805,7 +2852,7 @@ async function main() {
         const r = await pedir(reportarVisita, '/api/me/visitas', { method: 'POST', body: cuerpo, portador: true })
         check(nombre, r.status === 400 && r.body?.error === mensaje && visitasApp().length === antes, r.body)
       }
-      await rechazoVinculo('agenda_id de otra persona: 400 (23514) y nada guardado', cuerpoVisita({ tipo: 'institucional', medico_id: null, cuenta_id: C2, sede_id: S2, subtipo_id: SUBTIPO_ID.compras, ...alNorte(800), agenda_id: CITA_B }), MENSAJE_CITA_AJENA)
+      await rechazoVinculo('agenda_id de otra persona: 400 (23514) y nada guardado', cuerpoVisita({ tipo: 'institucional', medico_id: null, cuenta_id: C2, sede_id: S2, subtipo_id: SUBTIPO_ID.compras, contacto_id: K2, ...alNorte(800), agenda_id: CITA_B }), MENSAJE_CITA_AJENA)
       await rechazoVinculo('agenda_id que no existe: 400', cuerpoVisita({ medico_id: M5, agenda_id: randomUUID() }), MENSAJE_CITA_AJENA)
       await rechazoVinculo('agenda_id de otro día: 400', cuerpoVisita({ medico_id: M5, agenda_id: CITA_M5_MANANA }), MENSAJE_CITA_OTRO_DIA)
       await rechazoVinculo('agenda_id con otro médico: 400', cuerpoVisita({ medico_id: M5, agenda_id: citaM4.id }), MENSAJE_CITA_OTRO_MEDICO)
@@ -3335,6 +3382,36 @@ async function main() {
           meCruce.body?.persona === null && meCruce.body?.sin_persona === MENSAJE_EJECUTIVO_EN_VMO && meSinCruce.body?.persona?.rol === 'lider' && meSinCruce.body.persona.lineas.map((l: W.LineaPersona) => l.id).join() === L_TRA,
           { cruce: meCruce.body, sinCruce: meSinCruce.body?.persona }
         )
+
+        // 0950 (dueño, 2026-10-30): el médico que crea una líder es de sus líneas desde ya: lo agenda enseguida
+        const nuevoDeLucia = await pedir(crearMedico, '/api/terceros/medicos', { method: 'POST', portador: true, userId: LIDER_ID, body: { tipo_documento: 'CC', numero_documento: '1098765432', nombre: 'Dra. Nueva Deportiva', especialidades: ['ortopedia'], municipality_id: '68001', sedes: [{ sede_id: S1, rol: 'atiende' }] } })
+        const idNuevo = nuevoDeLucia.body?.id as string
+        check(
+          'la líder crea un médico (sin visitante) → queda de sus líneas de líder (medico_lineas, desde hoy, a su nombre)',
+          nuevoDeLucia.status === 201 && tablas.medico_lineas.some(f => f.medico_id === idNuevo && f.line_id === L_DEP && f.user_id === LIDER_ID && f.desde === HOY) && !tablas.medico_visitantes.some(v => v.medico_id === idNuevo),
+          { status: nuevoDeLucia.status, lineas: tablas.medico_lineas, body: nuevoDeLucia.body }
+        )
+        const ctxLuciaNuevo = await pedir(verContexto, '/api/me/contexto', { portador: true, userId: LIDER_ID })
+        check('mis médicos de la líder ya lo traen (con su línea)', ctxLuciaNuevo.status === 200 && (ctxLuciaNuevo.body.mis_medicos as W.MedicoContexto[]).some(m => m.id === idNuevo && m.lineas.includes(L_DEP)), ctxLuciaNuevo.body?.mis_medicos?.map((m: W.MedicoContexto) => m.id))
+        const citaNuevo = await agendaDe(LIDER_ID, { fecha: '2026-10-16', hora: '11:00', tipo: 'medica', medico_id: idNuevo, sede_id: S1 })
+        check('la líder agenda enseguida al médico que creó (C9) → 201 como líder', citaNuevo.status === 201 && citaNuevo.body.cita.como === 'lider', citaNuevo.body)
+        const nuevoDeAdmin = await pedir(crearMedico, '/api/terceros/medicos', { method: 'POST', userId: ADMIN_ID, body: { tipo_documento: 'CE', numero_documento: 'E77001', nombre: 'Dr. Del Admin', especialidades: ['columna'], municipality_id: '68001', sedes: [{ sede_id: S1, rol: 'atiende' }] } })
+        check('quien no lidera líneas (administrador) crea un médico sin medico_lineas', nuevoDeAdmin.status === 201 && !tablas.medico_lineas.some(f => f.medico_id === nuevoDeAdmin.body.id), nuevoDeAdmin.body)
+
+        // Revisión 2026-10-30: sin la 0950 (medico_lineas no existe) la app de las líderes sigue funcionando: nada da 500
+        fake.estado.sin0950 = true
+        try {
+          const ctxSin0950 = await pedir(verContexto, '/api/me/contexto', { portador: true, userId: LIDER_ID })
+          const medicoSin0950 = await pedir(crearMedico, '/api/terceros/medicos', { method: 'POST', portador: true, userId: LIDER_ID, body: { tipo_documento: 'CC', numero_documento: '1098765433', nombre: 'Dra. Sin Tabla', especialidades: ['ortopedia'], municipality_id: '68001', sedes: [{ sede_id: S1, rol: 'atiende' }] } })
+          const citaSin0950 = await agendaDe(LIDER_ID, { fecha: '2026-10-17', hora: '11:00', tipo: 'medica', medico_id: idNuevo, sede_id: S1 })
+          check(
+            'sin la 0950: el contexto de la líder da 200, crear un médico da 201 (sin sus líneas) y agendar uno sin visitante da 400 de la regla (no 500)',
+            ctxSin0950.status === 200 && medicoSin0950.status === 201 && citaSin0950.status === 400 && citaSin0950.body?.error === MENSAJE_MEDICO_AJENO,
+            { contexto: ctxSin0950.status, medico: medicoSin0950.status, cita: citaSin0950.status, error: citaSin0950.body?.error }
+          )
+        } finally {
+          fake.estado.sin0950 = false
+        }
 
         const [meLuciaSolo, meAdminSolo, meDirectoraSolo] = await Promise.all([meDe(LIDER_ID), meDe(ADMIN_ID), meDe(DIRECTORA_ID)])
         check(

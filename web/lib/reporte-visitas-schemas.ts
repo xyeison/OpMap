@@ -233,6 +233,8 @@ function revisarVisita(datos: VisitaPlana, ctx: z.RefinementCtx) {
   } else {
     if (!datos.cuenta_id) falla('cuenta_id', 'Elige la cuenta')
     if (!datos.subtipo_id) falla('subtipo_id', 'Elige el subtipo de la visita institucional')
+    // El contacto obligatorio (dueño, 2026-10-30) lo exige validarVisita, después de la idempotencia por client_id: una
+    // institucional sin contacto guardada antes de la regla, reenviada por la cola sin señal, vuelve como repetida.
   }
   if (datos.modalidad === 'presencial') {
     if (datos.lat === null && datos.lng === null) falla('lat', 'La ubicación del teléfono es obligatoria en una visita presencial')
@@ -291,8 +293,8 @@ function normalizarVisita(datos: VisitaPlana): VisitaCreate {
 }
 
 /**
- * POST /api/me/visitas. Tipo discriminado (médica: medico_id; institucional: cuenta_id y subtipo_id, contacto
- * opcional), modalidad discriminada (presencial: lat y lng; telefónica: medio), lineas 1..10 sin repetir, textos
+ * POST /api/me/visitas. Tipo discriminado (médica: medico_id; institucional: cuenta_id y subtipo_id; el contacto, que
+ * desde el 2026-10-30 es obligatorio, lo exige validarVisita), modalidad discriminada (presencial: lat y lng; telefónica: medio), lineas 1..10 sin repetir, textos
  * con tope, instantes ISO con zona. Que el médico, la sede, el subtipo y el contacto existan y crucen, el radio,
  * los topes y el perfil los revisa validarVisita (y la base).
  */

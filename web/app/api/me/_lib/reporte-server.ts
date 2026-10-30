@@ -24,7 +24,7 @@ import OpenAI from 'openai'
 import Anthropic from '@anthropic-ai/sdk'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { fetchAllRows, jsonError } from '@/app/api/kams/_lib/kam-shared'
-import { leerPorIds, mensajeRegla, nombresMunicipios, type ErrorBase } from '@/app/api/terceros/_lib/terceros-server'
+import { leerMedicoLineas, leerPorIds, mensajeRegla, nombresMunicipios, type ErrorBase } from '@/app/api/terceros/_lib/terceros-server'
 import {
   calcularCuotaDetallada,
   errorVisitas,
@@ -32,7 +32,7 @@ import {
   type CuotaDetallada,
   type PersonaCampo,
 } from '@/app/api/config-visitas/_lib/visitas-server'
-import { ejecutivoDeLaVisita, lineasDelMedico, visitaSumaALaCuota, visitanteVigenteEn, type ComoPersona, type VisitanteMedico } from '@/lib/persona-campo'
+import { ejecutivoDeLaVisita, lineasDelMedico, visitaSumaALaCuota, visitanteVigenteEn, type ComoPersona, type LineaPropiaMedico, type VisitanteMedico } from '@/lib/persona-campo'
 import { estadoVisible, mensajeChoque } from '@/lib/agenda-ciclo'
 import {
   HERRAMIENTA_CAMPOS,
@@ -703,8 +703,18 @@ async function lineasDeEjecutivasActivas(executiveIds: Iterable<string>): Promis
 }
 
 /**
+ * Las filas de medico_lineas (0950: el médico que creó la líder es de sus líneas) de esos médicos o de esas líneas.
+ * Antes de la 0950 (la tabla no existe), ninguna.
+ */
+async function lineasPropias(campo: 'medico_id' | 'line_id', ids: readonly string[]): Promise<LineaPropiaMedico[]> {
+  if (ids.length === 0) return []
+  return leerMedicoLineas(campo, ids)
+}
+
+/**
  * C9 (0850): los médicos de las líneas L en una fecha, con las líneas de L por las que lo son: los que tienen un
- * visitante vigente en una línea de L y los cuyo visitante vigente es un Ejecutivo Comercial activo con alguna de L.
+ * visitante vigente en una línea de L, los cuyo visitante vigente es un Ejecutivo Comercial activo con alguna de L y
+ * (0950) los que creó la líder de una de L.
  */
 export async function medicosDeLineas(lineas: readonly string[], fecha: string): Promise<Map<string, Set<string>>> {
   const resultado = new Map<string, Set<string>>()
@@ -722,8 +732,9 @@ export async function medicosDeLineas(lineas: readonly string[], fecha: string):
     ),
   ])
   const visitantes = [...porLinea, ...porEjecutiva]
-  for (const medicoId of new Set(visitantes.map(v => v.medico_id))) {
-    const de = Array.from(lineasDelMedico(medicoId, visitantes, ecs, fecha)).filter(linea => lineas.includes(linea))
+  const propias = await lineasPropias('line_id', lineas)
+  for (const medicoId of new Set([...visitantes.map(v => v.medico_id), ...propias.map(p => p.medico_id)])) {
+    const de = Array.from(lineasDelMedico(medicoId, visitantes, ecs, fecha, propias)).filter(linea => lineas.includes(linea))
     if (de.length > 0) resultado.set(medicoId, new Set(de))
   }
   return resultado
@@ -996,8 +1007,11 @@ async function medicoParaValidar(medicoId: string, executiveId: string | null, h
   const medico = (medicoData.data ?? [])[0] as { id: string; nombre: string; activo: boolean } | undefined
   let deMisLineas: boolean | undefined
   if (lineasLider) {
-    const ecs = await lineasDeEjecutivasActivas(visitantes.filter(v => visitanteVigente(v, hoy)).map(v => v.executive_id))
-    const delMedico = lineasDelMedico(medicoId, visitantes, ecs, hoy)
+    const [ecs, propias] = await Promise.all([
+      lineasDeEjecutivasActivas(visitantes.filter(v => visitanteVigente(v, hoy)).map(v => v.executive_id)),
+      lineasPropias('medico_id', [medicoId]),
+    ])
+    const delMedico = lineasDelMedico(medicoId, visitantes, ecs, hoy, propias)
     deMisLineas = lineasLider.some(linea => delMedico.has(linea))
   }
   return {

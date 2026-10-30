@@ -1,13 +1,14 @@
 // POST /api/terceros/contactos (terceros:create) — persona de una cuenta, con su sede opcional (de la misma cuenta).
-// Sin rol, se toma el que sugiere el cargo (rolDesdeCargo, en contactoCreateSchema). Contrato:
-// docs/fases/fase6-visitas-f1-terceros.md.
+// Sin rol, se toma el que sugiere el cargo (rolDesdeCargo, en contactoCreateSchema). Sin duplicados (dueño, 2026-10-30):
+// teléfono y/o correo obligatorio, y el mismo teléfono (por dígitos) o correo de otro contacto ACTIVO de la cuenta → 409
+// { existente }. Contrato: docs/fases/fase6-visitas-f1-terceros.md.
 import { NextRequest, NextResponse } from 'next/server'
 import { requirePermission } from '@/lib/require-role'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { jsonError, readJson, zodMessage } from '@/app/api/kams/_lib/kam-shared'
 import { contactoCreateSchema } from '@/lib/terceros-schemas'
-import type { ContactoRow } from '@/lib/terceros'
-import { errorInterno } from '../_lib/terceros-server'
+import { MENSAJE_CONTACTO_REPETIDO, type ContactoRow } from '@/lib/terceros'
+import { contactoRepetido, errorInterno } from '../_lib/terceros-server'
 
 export async function POST(request: NextRequest) {
   const auth = await requirePermission(request, 'terceros:create')
@@ -38,6 +39,10 @@ export async function POST(request: NextRequest) {
       if (!sede || sede.cuenta_id !== input.cuenta_id) return jsonError('La sede elegida no es de esa cuenta', 400)
     }
 
+    // Sin duplicados (dueño, 2026-10-30): el mismo teléfono (por dígitos) o el mismo correo en la cuenta → el que ya está
+    const repetido = await contactoRepetido(input.cuenta_id, input)
+    if (repetido) return NextResponse.json({ error: MENSAJE_CONTACTO_REPETIDO, existente: repetido }, { status: 409 })
+
     const { data, error } = await supabaseAdmin
       .from('contactos')
       .insert({
@@ -54,6 +59,11 @@ export async function POST(request: NextRequest) {
     if (error) {
       if (error.code === '23514') return jsonError('La sede elegida no es de esa cuenta o faltan datos del contacto', 400)
       if (error.code === '23503') return jsonError('La cuenta o la sede elegidas no existen', 400)
+      if (error.code === '23505') {
+        // Otro lo creó a la vez (índices únicos de la 0950): el que quedó, si ya se ve
+        const existente = await contactoRepetido(input.cuenta_id, input)
+        return NextResponse.json(existente ? { error: MENSAJE_CONTACTO_REPETIDO, existente } : { error: MENSAJE_CONTACTO_REPETIDO }, { status: 409 })
+      }
       throw error
     }
     const contacto = (data || [])[0] as ContactoRow | undefined
