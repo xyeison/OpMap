@@ -107,14 +107,23 @@ export function variableCss(papel: PapelColor): string {
   return `--color-${papel.replace(/[A-Z]/g, letra => `-${letra.toLowerCase()}`)}`
 }
 
-function bloqueCss(selector: string, papeles: Papeles): string {
+function bloqueCss(selector: string, papeles: Papeles, extra?: string): string {
   const lineas = (Object.keys(papeles) as PapelColor[]).map(papel => `  ${variableCss(papel)}: ${papeles[papel]};`)
+  if (extra) lineas.push(`  ${extra}`)
   return `${selector} {\n${lineas.join('\n')}\n}`
 }
 
-/** Las variables de los dos temas: el claro también en :root (sin data-tema, como antes de que corra el script). */
+/**
+ * Las variables de los dos temas: el claro también en :root (sin data-tema, como antes de que corra el script). <main>
+ * va en claro (las páginas que no se han rehecho siguen así hasta su etapa); una página rehecha lleva data-sigue-tema y
+ * toma el tema de <html>, con los controles del navegador (campos, autocompletar) también en oscuro.
+ */
 export function cssDeTemas(): string {
-  return `${bloqueCss(':root, [data-tema="claro"]', PAPELES_CLAROS)}\n${bloqueCss('[data-tema="oscuro"]', PAPELES_OSCUROS)}`
+  return [
+    bloqueCss(':root, [data-tema="claro"]', PAPELES_CLAROS),
+    bloqueCss('[data-tema="oscuro"]', PAPELES_OSCUROS),
+    bloqueCss('[data-tema="oscuro"] [data-sigue-tema]', PAPELES_OSCUROS, 'color-scheme: dark;'),
+  ].join('\n')
 }
 
 /**

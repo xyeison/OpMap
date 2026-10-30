@@ -137,5 +137,46 @@ check(
     /dataset\.tema = /.test(useTema) && /\(prefers-color-scheme: dark\)/.test(useTema) && /addEventListener\('storage'/.test(useTema)
 )
 
+console.log('\n7. Las páginas rehechas siguen el tema; el ingreso, con el diseño de la app (Tarea 4)')
+const propioOscuro = bloque('[data-tema="oscuro"] [data-sigue-tema] {')
+check(
+  'una página rehecha (data-sigue-tema) sigue el tema aunque <main> vaya en claro: en oscuro recibe los 23 papeles oscuros y los controles del navegador en oscuro (color-scheme)',
+  css.includes('[data-tema="oscuro"] [data-sigue-tema] {') &&
+    (propioOscuro.match(/--color-/g) ?? []).length === 23 &&
+    propioOscuro.includes('--color-fondo: #000000;') &&
+    propioOscuro.includes('color-scheme: dark;'),
+  propioOscuro
+)
+check('el bloque oscuro de <html> no lleva color-scheme: las páginas no rehechas conservan sus controles claros', !bloque('[data-tema="oscuro"] {').includes('color-scheme'))
+const sinComentarios = (texto: string) => texto.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\{\/\*[\s\S]*?\*\/\}/g, '').replace(/^\s*\/\/.*$/gm, '')
+const ingreso = sinComentarios(leer('app/login/page.tsx'))
+check('el ingreso sigue el tema de la persona: su raíz lleva data-sigue-tema con bg-fondo y text-texto', /<div data-sigue-tema className="[^"]*\bbg-fondo\b[^"]*\btext-texto\b[^"]*"/.test(ingreso))
+/** Las clases de un elemento: className="…", o className={nombre} con `const nombre = '…'` en el mismo archivo. */
+function clasesDe(elemento: string, archivo: string): string[] {
+  const literal = elemento.match(/className="([^"]*)"/)?.[1]
+  const nombre = elemento.match(/className=\{(\w+)\}/)?.[1]
+  const texto = literal ?? (nombre ? archivo.match(new RegExp(`const ${nombre} =\\s*'([^']*)'`))?.[1] : undefined) ?? ''
+  return texto.split(/\s+/).filter(Boolean)
+}
+const boton = clasesDe(ingreso.slice(ingreso.indexOf('<button'), ingreso.indexOf('</button>')), ingreso)
+check('el botón es el de la app: bg-acento text-sobre-acento, 52 px de alto y radio 10', ['bg-acento', 'text-sobre-acento', 'min-h-[52px]', 'rounded-[10px]'].every(clase => boton.includes(clase)), boton)
+const campos = Array.from(ingreso.matchAll(/<input\b[\s\S]*?\/>/g)).map(m => clasesDe(m[0], ingreso))
+check(
+  'los dos campos son los de la app: borde border-borde-control (negro de 2 con el foco), fondo bg-superficie, 52 px y radio 10',
+  campos.length === 2 && campos.every(clases => ['border-borde-control', 'focus:border-acento', 'focus:border-2', 'bg-superficie', 'text-texto', 'min-h-[52px]', 'rounded-[10px]'].every(clase => clases.includes(clase))),
+  campos
+)
+check('las etiquetas se ven sobre cada campo (como en la app) y no se repiten como texto de ejemplo', !/sr-only/.test(ingreso) && !/placeholder="(Correo electrónico|Contraseña)"/.test(ingreso))
+check('el error va como el aviso de la app (bg-fondo-peligro text-peligro) y se anuncia (role="alert")', /role="alert"[^>]*className="[^"]*\bbg-fondo-peligro\b[^"]*\btext-peligro\b/.test(ingreso))
+check(
+  'sin colores de Tailwind en el ingreso (ni azul ni grises): solo los papeles',
+  !/\b(?:bg|text|border|ring|placeholder|from|via|to|outline)-(?:white|black|(?:gray|blue|red|slate|zinc|neutral|indigo)-\d{2,3})\b/.test(ingreso),
+  ingreso.match(/\b(?:bg|text|border|ring|placeholder|from|via|to|outline)-(?:white|black|(?:gray|blue|red|slate|zinc|neutral|indigo)-\d{2,3})\b/g)
+)
+check(
+  'la lógica del ingreso no cambia: login(email, password) de useUser, el destino seguro (?next=) y el mismo mensaje de error',
+  /const success = await login\(email, password\)/.test(ingreso) && /function safeNextPath\(/.test(ingreso) && /router\.push\(nextPath\)/.test(ingreso) && ingreso.includes("setError('Email o contraseña incorrectos')")
+)
+
 console.log(`\n${passed} pruebas bien, ${failed} con falla`)
 if (failed > 0) process.exit(1)

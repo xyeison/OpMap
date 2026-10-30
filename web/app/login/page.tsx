@@ -60,74 +60,69 @@ function LoginForm() {
     setLoading(false)
   }
 
+  // El diseño de la app de campo (etapa 1 del diseño, dueño 2026-10-30): etiqueta sobre cada campo, campos y botón de
+  // 52 px con radio 10, botón negro (blanco en oscuro). data-sigue-tema: en el tema de la persona aunque <main> vaya en
+  // claro (lib/tema.ts).
+  const campo =
+    'block w-full min-h-[52px] rounded-[10px] border border-borde-control bg-superficie px-3.5 text-base text-texto placeholder:text-texto-suave focus:outline-none focus:border-2 focus:border-acento focus:px-[13px]'
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="max-w-md w-full space-y-8">
-        <div>
-          <h1 className="text-center text-3xl font-bold text-gray-900">
-            OpMap
-          </h1>
-          <h2 className="mt-6 text-center text-xl text-gray-600">
-            Inicia sesión en tu cuenta
-          </h2>
+    <div data-sigue-tema className="min-h-screen flex items-center justify-center bg-fondo text-texto px-5 py-10">
+      <div className="w-full max-w-sm space-y-6">
+        <div className="text-center">
+          <h1 className="text-[30px] leading-9 font-bold tracking-[-0.6px]">OpMap</h1>
+          <h2 className="mt-2 text-base text-texto-suave">Inicia sesión en tu cuenta</h2>
         </div>
-        
-        <form className="mt-8 space-y-6" onSubmit={handleLogin}>
+
+        <form className="space-y-5" onSubmit={handleLogin}>
           {error && (
-            <div className="bg-red-50 border border-red-400 text-red-700 px-4 py-3 rounded">
+            <div role="alert" className="rounded-xl bg-fondo-peligro text-peligro px-3.5 py-3 text-[15px] leading-[21px]">
               {error}
             </div>
           )}
-          
-          <div className="rounded-md shadow-sm -space-y-px">
-            <div>
-              <label htmlFor="email" className="sr-only">
-                Correo electrónico
-              </label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                autoComplete="email"
-                required
-                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
-                placeholder="Correo electrónico"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </div>
-            <div>
-              <label htmlFor="password" className="sr-only">
-                Contraseña
-              </label>
-              <input
-                id="password"
-                name="password"
-                type="password"
-                autoComplete="current-password"
-                required
-                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
-                placeholder="Contraseña"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </div>
+
+          <div className="space-y-1.5">
+            <label htmlFor="email" className="block text-[15px] leading-5 font-bold">
+              Correo electrónico
+            </label>
+            <input
+              id="email"
+              name="email"
+              type="email"
+              autoComplete="email"
+              required
+              className={campo}
+              placeholder="nombre@empresa.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label htmlFor="password" className="block text-[15px] leading-5 font-bold">
+              Contraseña
+            </label>
+            <input
+              id="password"
+              name="password"
+              type="password"
+              autoComplete="current-password"
+              required
+              className={campo}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
           </div>
 
-          <div>
-            <button
-              type="submit"
-              disabled={loading}
-              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
-            >
-              {loading ? 'Iniciando sesión...' : 'Iniciar sesión'}
-            </button>
-          </div>
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full min-h-[52px] rounded-[10px] bg-acento text-sobre-acento px-[18px] text-[17px] leading-[22px] font-bold hover:opacity-90 active:opacity-80 disabled:opacity-[0.45] focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-acento"
+          >
+            {loading ? 'Iniciando sesión...' : 'Iniciar sesión'}
+          </button>
         </form>
-        
-        <div className="text-center text-sm text-gray-600">
-          <p>¿Necesitas ayuda? Contacta al administrador</p>
-        </div>
+
+        <p className="text-center text-sm text-texto-suave">¿Necesitas ayuda? Contacta al administrador</p>
       </div>
     </div>
   )
