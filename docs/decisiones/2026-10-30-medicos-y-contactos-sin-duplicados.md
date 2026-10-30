@@ -40,7 +40,7 @@
   producción que se deshizo (la 0950 y su rollback en una sola transacción) devolvió las cifras esperadas.
 
 **Consecuencias**:
-- **Migración 0950** (rollback 9960), que se aplica solo con autorización del dueño:
+- **Migración 0950** (rollback 9960), APLICADA el 2026-10-30 con autorización del dueño:
   - tabla `medico_lineas`;
   - `medico_de_lineas`, con la misma firma, también la mira;
   - `contactos.telefono_digitos` e índices únicos por cuenta del teléfono y del correo;

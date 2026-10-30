@@ -45,4 +45,4 @@ Spec: `docs/specs/2026-10-30-medicos-y-contactos-sin-duplicados.md`. En cada pas
    - `ContactoForm` de la web: teléfono o correo y el 409.
 8. **Docs y cierre**
    - La decisión, `CLAUDE.md` (una línea), fase6 (contrato de terceros) y fase8 (institucional con contacto).
-   - `npm run check` en las dos, capturas, `revisor` y PR. La 0950 se aplica solo con la autorización del dueño.
+   - `npm run check` en las dos, capturas, `revisor` y PR. La 0950 se aplicó el 2026-10-30 con la autorización del dueño.
