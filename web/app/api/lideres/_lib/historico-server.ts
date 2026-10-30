@@ -1,7 +1,9 @@
 // Histórico del Excel "Tracker Líderes" en el servidor (decisión 2026-10-29-historico-tracker-lideres): reconoce a
 // cada líder (su usuario) y cada ciudad (código DANE), da la vista previa y, al confirmar, reemplaza el histórico con
-// lideres_historico_reemplazar (0920). El navegador ya mandó solo los campos de FilaTracker: aquí no llega ningún
-// nombre de médico ni observación (validarCarga rechaza campos de más). Pruebas: scripts/lideres-historico-check.ts.
+// lideres_historico_reemplazar (0920). Desde el 2026-10-30 (dueño) la carga es única y la hace
+// scripts/lideres-historico-cargar.ts (ya no la página: la ruta /api/lideres/historico solo tiene GET). El script ya
+// mandó solo los campos de FilaTracker: aquí no llega ningún nombre de médico ni observación (validarCarga rechaza
+// campos de más). Pruebas: scripts/lideres-historico-check.ts.
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { fetchAllRows } from '../../_lib/api-error'
@@ -21,7 +23,7 @@ export interface VistaPreviaTracker {
   filas: number
   /**
    * Cada líder del Excel con su usuario de OpMap (null: no se reconoce y no se puede guardar) y un aviso si el usuario
-   * no es líder de negocio o está inactivo (para que la directora lo vea antes de guardar).
+   * no es líder de negocio o está inactivo (para verlo en la vista previa del script, antes de guardar).
    */
   lideres: Array<{ lider_texto: string; filas: number; user_id: string | null; nombre: string | null; aviso: string | null }>
   /** Ciudades sin código DANE (se guardan con su texto). */
@@ -51,7 +53,7 @@ export interface FilaHistorico {
 }
 
 export interface HistoricoRespuesta {
-  /** false: la migración 0920 aún no está aplicada (la vista previa sí funciona). */
+  /** false: la migración 0920 aún no está aplicada (la vista previa del script sí funciona). */
   disponible: boolean
   carga: { archivo: string; corte: string; filas: number; importado_at: string; importado_por: string | null } | null
   filas: FilaHistorico[]
@@ -78,7 +80,12 @@ async function leerMunicipios(): Promise<MunicipioRef[]> {
   return data
 }
 
-/** POST /api/lideres/historico: vista previa (confirmar = false) o reemplazo del histórico (confirmar = true). */
+/**
+ * La carga del Excel (scripts/lideres-historico-cargar.ts): vista previa (confirmar = false) o reemplazo del histórico
+ * (confirmar = true) a nombre de userId. Responde como respondía el POST de /api/lideres/historico hasta el 2026-10-30:
+ * 200 con { vistaPrevia } o { guardado, vistaPrevia }; 400 (carga inválida o líderes que no están en OpMap); 503 (falta
+ * la 0920); 500.
+ */
 export async function procesarCargaTracker(cuerpo: unknown, userId: string): Promise<Response> {
   const validada = validarCarga(cuerpo)
   if (!validada.ok) return NextResponse.json({ error: validada.error }, { status: 400 })
@@ -145,7 +152,7 @@ export async function procesarCargaTracker(cuerpo: unknown, userId: string): Pro
     if (esTablaInexistente(error)) {
       return NextResponse.json({ error: 'Falta aplicar la migración 0920 (histórico de las líderes): la vista previa funciona, guardar todavía no.', vistaPrevia }, { status: 503 })
     }
-    console.error('[api] lideres/historico POST:', error)
+    console.error('[lideres] historico reemplazar:', error)
     return NextResponse.json({ error: 'No se pudo guardar el histórico', vistaPrevia }, { status: 500 })
   }
   return NextResponse.json({ guardado: data, vistaPrevia })

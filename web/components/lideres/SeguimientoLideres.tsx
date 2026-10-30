@@ -1,14 +1,13 @@
 'use client'
 
 // Seguimiento de las líderes en /lideres (dueño, 2026-10-29, docs/decisiones/2026-10-29-historico-tracker-lideres.md).
-// La directora sube el Excel "Tracker Líderes" tal como lo lleva: el navegador lee la hoja REGISTRO y manda solo fecha,
-// líder, ciudad, tipo, estado, cuántos contactos y si tenía observación (los nombres de médicos y las observaciones no
-// salen de su equipo). Vista previa antes de guardar; guardar reemplaza el histórico (el Excel manda). Abajo, las vistas
-// del seguimiento: dónde está cada una, cumplimiento, ritmo, tipos, ciudades y calidad del registro.
+// Muestra el histórico del Excel "Tracker Líderes" guardado en OpMap (GET /api/lideres/historico) hasta su fecha de
+// corte: dónde está cada una, cumplimiento, ritmo, tipos, ciudades y calidad del registro. Desde el 2026-10-30 (dueño)
+// el Excel ya no se sube desde aquí: el histórico se carga una sola vez con scripts/lideres-historico-cargar.ts, y lo
+// nuevo las líderes lo planean y lo reportan en la app.
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import * as XLSX from 'xlsx'
-import type { HistoricoRespuesta, VistaPreviaTracker } from '@/app/api/lideres/_lib/historico-server'
-import { ESTADO_TEXTO, HOJA_TRACKER, leerTracker, normalizarTexto, TIPO_TEXTO, type EstadoHistorico, type FilaTracker } from '@/lib/lideres-historico'
+import type { HistoricoRespuesta } from '@/app/api/lideres/_lib/historico-server'
+import { ESTADO_TEXTO, TIPO_TEXTO, type EstadoHistorico } from '@/lib/lideres-historico'
 import {
   agendaTresSemanas,
   calidadRegistro,
@@ -29,20 +28,6 @@ const MESES_LARGOS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'ju
 const DIAS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb']
 const entero = (n: number) => n.toLocaleString('es-CO')
 const fechaCorta = (iso: string | null) => (iso ? `${Number(iso.slice(8, 10))} ${MESES[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}` : '—')
-
-interface ArchivoLocal {
-  nombre: string
-  huella: string
-  corte: string
-  filas: FilaTracker[]
-  sinLider: number
-  estadosNoReconocidos: number
-}
-
-async function sha256(buffer: ArrayBuffer): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', buffer)
-  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('')
-}
 
 function Tarjeta({ titulo, nota, children, className = '' }: { titulo: string; nota?: string; children: React.ReactNode; className?: string }) {
   return (
@@ -89,10 +74,6 @@ export default function SeguimientoLideres() {
   const [historico, setHistorico] = useState<HistoricoRespuesta | null>(null)
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [mensaje, setMensaje] = useState<string | null>(null)
-  const [local, setLocal] = useState<ArchivoLocal | null>(null)
-  const [vista, setVista] = useState<VistaPreviaTracker | null>(null)
-  const [enviando, setEnviando] = useState(false)
   const [periodo, setPeriodo] = useState<PeriodoSeguimiento>('mes')
   const [lider, setLider] = useState('Todas')
 
@@ -114,115 +95,27 @@ export default function SeguimientoLideres() {
     void cargar()
   }, [cargar])
 
-  const leerArchivo = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const archivo = event.target.files?.[0]
-    event.target.value = ''
-    if (!archivo) return
-    setError(null)
-    setMensaje(null)
-    setVista(null)
-    setEnviando(true)
-    try {
-      const buffer = await archivo.arrayBuffer()
-      const libro = XLSX.read(buffer, { type: 'array' })
-      const hoja = libro.Sheets[HOJA_TRACKER] ?? (libro.SheetNames.length === 1 ? libro.Sheets[libro.SheetNames[0]] : undefined)
-      if (!hoja) throw new Error('El archivo no tiene la hoja REGISTRO del Tracker de líderes.')
-      // range: 0 → desde la fila 1 de la hoja, aunque el rango guardado empiece más abajo (los números de fila cuadran)
-      const filas = XLSX.utils.sheet_to_json<unknown[]>(hoja, { header: 1, raw: true, defval: '', blankrows: true, range: 0 })
-      const corte = hoyBogota()
-      const lectura = leerTracker(filas, corte)
-      if (!lectura.ok) throw new Error(lectura.error)
-      const nuevo: ArchivoLocal = {
-        nombre: archivo.name,
-        huella: await sha256(buffer),
-        corte,
-        filas: lectura.lectura.filas,
-        sinLider: lectura.lectura.sinLider,
-        estadosNoReconocidos: lectura.lectura.estadosNoReconocidos,
-      }
-      setLocal(null)
-      const respuesta = await fetch('/api/lideres/historico', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ archivo: nuevo.nombre, huella: nuevo.huella, corte: nuevo.corte, filas: nuevo.filas, confirmar: false }),
-      })
-      const cuerpo = await respuesta.json().catch(() => null)
-      if (!respuesta.ok) throw new Error(cuerpo?.error ?? `Error ${respuesta.status}`)
-      // El archivo se muestra solo con su vista previa (si falla, no queda un tablero sin "Descartar")
-      setVista(cuerpo.vistaPrevia as VistaPreviaTracker)
-      setLocal(nuevo)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo leer el archivo')
-    } finally {
-      setEnviando(false)
-    }
-  }
-
-  const guardar = async () => {
-    if (!local) return
-    setEnviando(true)
-    setError(null)
-    try {
-      const respuesta = await fetch('/api/lideres/historico', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ archivo: local.nombre, huella: local.huella, corte: local.corte, filas: local.filas, confirmar: true }),
-      })
-      const cuerpo = await respuesta.json().catch(() => null)
-      if (!respuesta.ok) throw new Error(cuerpo?.error ?? `Error ${respuesta.status}`)
-      setMensaje(`Se guardaron ${entero(cuerpo.guardado?.filas ?? local.filas.length)} actividades de "${local.nombre}". El histórico anterior se reemplazó.`)
-      setLocal(null)
-      setVista(null)
-      await cargar()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo guardar')
-    } finally {
-      setEnviando(false)
-    }
-  }
-
-  // Lo que se muestra: la vista previa del archivo (si hay uno sin guardar) o el histórico guardado
-  const nombrePorTexto = useMemo(() => new Map((vista?.lideres ?? []).map(item => [item.lider_texto, item.nombre ?? item.lider_texto])), [vista])
-  const ciudadPorTexto = useMemo(() => new Map((vista?.ciudades ?? []).map(item => [item.ciudad_texto, item])), [vista])
-  const actividades: ActividadSeguimiento[] = useMemo(() => {
-    if (local) {
-      const primeraGrafia = new Map<string, string>()
-      for (const fila of local.filas) {
-        const clave = normalizarTexto(fila.ciudad_texto)
-        if (clave && !primeraGrafia.has(clave)) primeraGrafia.set(clave, fila.ciudad_texto)
-      }
-      return local.filas.map(fila => ({
+  // Lo que se muestra: el histórico guardado (la carga única del Excel)
+  const actividades: ActividadSeguimiento[] = useMemo(
+    () =>
+      (historico?.filas ?? []).map(fila => ({
         fecha: fila.fecha,
-        lider: nombrePorTexto.get(fila.lider_texto) ?? fila.lider_texto,
-        ciudad: ciudadPorTexto.get(fila.ciudad_texto)?.nombre ?? primeraGrafia.get(normalizarTexto(fila.ciudad_texto)) ?? 'Sin ciudad',
-        municipio_id: ciudadPorTexto.get(fila.ciudad_texto)?.municipio_id ?? null,
+        lider: fila.lider,
+        ciudad: fila.ciudad,
+        municipio_id: fila.municipio_id,
         tipo: fila.tipo,
         tipo_a_mano: fila.tipo_a_mano,
         estado: fila.estado,
         contactos: fila.contactos,
         con_observacion: fila.con_observacion,
-      }))
-    }
-    return (historico?.filas ?? []).map(fila => ({
-      fecha: fila.fecha,
-      lider: fila.lider,
-      ciudad: fila.ciudad,
-      municipio_id: fila.municipio_id,
-      tipo: fila.tipo,
-      tipo_a_mano: fila.tipo_a_mano,
-      estado: fila.estado,
-      contactos: fila.contactos,
-      con_observacion: fila.con_observacion,
-    }))
-  }, [local, nombrePorTexto, ciudadPorTexto, historico])
+      })),
+    [historico]
+  )
 
-  const corte = local?.corte ?? historico?.carga?.corte ?? hoyBogota()
+  const carga = historico?.carga ?? null
+  const corte = carga?.corte ?? hoyBogota()
   const nombresLideres = useMemo(() => Array.from(new Set(actividades.map(actividad => actividad.lider))).sort((a, b) => a.localeCompare(b, 'es')), [actividades])
   const colorDe = (nombre: string) => COLORES_LIDER[Math.max(0, nombresLideres.indexOf(nombre)) % COLORES_LIDER.length]
-  // Si la líder elegida ya no está en los datos (otro Excel o "Descartar"), vuelve a todas
-  useEffect(() => {
-    if (lider !== 'Todas' && !nombresLideres.includes(lider)) setLider('Todas')
-  }, [lider, nombresLideres])
   const elegidas = useMemo(() => (lider === 'Todas' ? actividades : actividades.filter(actividad => actividad.lider === lider)), [actividades, lider])
   const resumen = useMemo(() => resumenPorLider(actividades, periodo, corte), [actividades, periodo, corte])
   const fila = lider === 'Todas' ? resumen.total : resumen.lideres.find(item => item.lider === lider) ?? resumen.total
@@ -230,7 +123,8 @@ export default function SeguimientoLideres() {
   const porMes = useMemo(() => realizadasPorMes(elegidas, corte), [elegidas, corte])
   const tipos = useMemo(() => realizadasPorTipo(elegidas, periodo, corte), [elegidas, periodo, corte])
   const ciudades = useMemo(() => realizadasPorCiudad(elegidas, periodo, corte), [elegidas, periodo, corte])
-  const calidad = useMemo(() => calidadRegistro(actividades, !local || vista !== null), [actividades, local, vista])
+  // El histórico guardado trae el código DANE de cada ciudad reconocida
+  const calidad = useMemo(() => calidadRegistro(actividades, true), [actividades])
   const maximoMes = Math.max(1, ...porMes.map(mes => mes.total))
   const periodoTexto = periodo === 'mes' ? `En ${MESES_LARGOS[Number(corte.slice(5, 7)) - 1]}` : periodo === 'tres' ? 'En los últimos 3 meses' : 'En todo el registro'
   const hayDatos = actividades.length > 0
@@ -239,92 +133,27 @@ export default function SeguimientoLideres() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl sm:text-4xl font-bold text-gray-900">Líderes de negocio</h1>
-        <p className="text-gray-600 mt-2 max-w-3xl">
-          Seguimiento de lo que hacen las líderes: dónde están, qué hicieron y qué planearon. Hoy sale del Excel &ldquo;Tracker Líderes&rdquo; de la
-          dirección comercial; cuando las líderes reporten en la app, se sumará lo de la app.
-        </p>
-      </div>
-
-      {/* Carga del Excel */}
-      <Tarjeta
-        titulo="Excel de la dirección"
-        nota="Los nombres de médicos y contactos y el texto de las observaciones se quedan en tu equipo: OpMap guarda cuántos contactos hubo y si había observación."
-      >
-        <div className="flex flex-wrap items-center gap-3">
-          <p className="text-sm text-gray-700 flex-1 min-w-[14rem]">
-            {cargando
-              ? 'Cargando…'
-              : historico?.carga
-                ? `Última carga: "${historico.carga.archivo}", ${entero(historico.carga.filas)} actividades, con corte al ${fechaCorta(historico.carga.corte)}${historico.carga.importado_por ? `, por ${historico.carga.importado_por}` : ''}.`
-                : 'Todavía no se ha cargado el Excel.'}
-          </p>
-          <label className={`px-4 py-2 rounded-lg text-sm font-medium cursor-pointer ${enviando ? 'bg-gray-300 text-gray-600' : 'bg-gray-900 text-white hover:bg-black'}`}>
-            {enviando ? 'Procesando…' : 'Subir el Excel'}
-            <input type="file" accept=".xlsx,.xls" onChange={leerArchivo} className="hidden" disabled={enviando} />
-          </label>
-        </div>
-        {historico && !historico.disponible && (
-          <p className="mt-3 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2">
-            Para guardar falta aplicar en la base la migración 0920 (con autorización del dueño). Mientras tanto puedes subir el Excel y ver la vista previa.
-          </p>
-        )}
-        {error && <p className="mt-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">{error}</p>}
-        {mensaje && <p className="mt-3 text-sm text-green-800 bg-green-50 border border-green-200 rounded-lg p-3">{mensaje}</p>}
-
-        {local && vista && (
-          <div className="mt-4 border-t border-gray-100 pt-4 space-y-3">
-            <p className="text-sm text-gray-800">
-              <strong>Vista previa de &ldquo;{local.nombre}&rdquo;</strong>: {entero(vista.filas)} actividades ({entero(vista.porEstado.realizada)} realizadas,{' '}
-              {entero(vista.porEstado.cancelada)} canceladas, {entero(vista.porEstado.sin_cerrar)} sin cerrar y {entero(vista.porEstado.planificada)} planificadas)
-              {local.sinLider > 0 ? `; ${entero(local.sinLider)} filas sin líder no se guardan` : ''}
-              {local.estadosNoReconocidos > 0
-                ? `; ${entero(local.estadosNoReconocidos)} con un estado que no es "Exitosa" ni "Cancelada" cuentan como sin cerrar (o planificadas, si son de hoy en adelante)`
-                : ''}
-              {vista.fechasIlegibles > 0 ? `; ${entero(vista.fechasIlegibles)} con la fecha ilegible (se guardan sin fecha, con los dígitos que tengan)` : ''}. Abajo ves el
-              seguimiento con este archivo.
-            </p>
-            <ul className="text-sm text-gray-700 grid sm:grid-cols-2 gap-x-6 gap-y-1">
-              {vista.lideres.map(item => (
-                <li key={item.lider_texto} className="flex items-baseline gap-2 min-w-0">
-                  <span className="truncate">&ldquo;{item.lider_texto}&rdquo;</span>
-                  <span className="text-gray-400">→</span>
-                  {item.nombre ? <span className="truncate text-gray-900">{item.nombre}</span> : <span className="text-red-700 font-medium">no está en OpMap</span>}
-                  <span className="text-xs text-gray-500 tabular-nums whitespace-nowrap">({entero(item.filas)})</span>
-                  {item.aviso && <span className="text-xs text-amber-700 whitespace-nowrap">{item.aviso}</span>}
-                </li>
-              ))}
-            </ul>
-            {vista.ciudadesSinCodigo.length > 0 && (
-              <p className="text-xs text-gray-600">
-                Ciudades que no son un municipio de Colombia (se guardan con su texto):{' '}
-                {vista.ciudadesSinCodigo.map(item => `${item.ciudad_texto || '(vacía)'} (${item.filas})`).join(', ')}.
-              </p>
+        {(cargando || historico) && (
+          <p className="text-gray-600 mt-2 max-w-3xl">
+            {cargando ? (
+              'Cargando…'
+            ) : carga ? (
+              <>
+                Seguimiento de lo que hacen las líderes: dónde están, qué hicieron y qué planearon, con el histórico del Excel &ldquo;Tracker
+                Líderes&rdquo;. Lo nuevo, las líderes lo planean y lo reportan en la app.
+              </>
+            ) : (
+              'Todavía no está cargado el histórico del Excel.'
             )}
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={guardar}
-                disabled={enviando || vista.lideres.some(item => !item.user_id) || !historico?.disponible}
-                className="px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-black disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                Guardar en OpMap (reemplaza lo anterior)
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setLocal(null)
-                  setVista(null)
-                }}
-                className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50"
-              >
-                Descartar
-              </button>
-            </div>
-          </div>
+          </p>
         )}
-      </Tarjeta>
-
-      {!cargando && !hayDatos && !local && <p className="text-sm text-gray-500 text-center py-6">Sube el Excel para ver el seguimiento.</p>}
+        {historico && !historico.disponible && (
+          <p className="mt-3 max-w-3xl text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2">
+            Falta aplicar en la base la migración 0920 (con autorización del dueño): sin ella no hay dónde guardar el histórico del Excel.
+          </p>
+        )}
+        {error && <p className="mt-3 max-w-3xl text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">{error}</p>}
+      </div>
 
       {hayDatos && (
         <>
@@ -351,7 +180,7 @@ export default function SeguimientoLideres() {
                 </option>
               ))}
             </select>
-            <span className="text-xs text-gray-500">{local ? `Vista previa, corte ${fechaCorta(corte)}` : `Corte ${fechaCorta(corte)}`}</span>
+            <span className="text-xs text-gray-500">{`Corte ${fechaCorta(corte)}`}</span>
           </div>
 
           <p className="text-base text-gray-700 max-w-3xl">

@@ -1,16 +1,17 @@
 import { NextRequest } from 'next/server'
 import { requirePermission } from '@/lib/require-role'
-import { readJsonBody, serverError } from '../../_lib/api-error'
-import { leerHistoricoTracker, procesarCargaTracker } from '../_lib/historico-server'
+import { serverError } from '../../_lib/api-error'
+import { leerHistoricoTracker } from '../_lib/historico-server'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 export const maxDuration = 60
 
 // Histórico del Excel "Tracker Líderes" (dueño, 2026-10-29, docs/decisiones/2026-10-29-historico-tracker-lideres.md).
-// GET: la última carga y sus filas. POST: la página /lideres manda lo que leyó del Excel (sin nombres de médicos ni
-// observaciones); { confirmar: false } da la vista previa y { confirmar: true } reemplaza el histórico.
-// Permiso lideres:seguimiento (admin y dirección comercial).
+// GET: la última carga y sus filas, para /lideres. Permiso lideres:seguimiento (admin y dirección comercial).
+// Sin POST desde el 2026-10-30 (dueño): el Excel ya no se sube desde la página; el histórico se carga una sola vez con
+// scripts/lideres-historico-cargar.ts (procesarCargaTracker de ../_lib/historico-server.ts) y lo nuevo las líderes lo
+// planean y lo reportan en la app.
 export async function GET(request: NextRequest) {
   const auth = await requirePermission(request, 'lideres:seguimiento')
   if (!auth.ok) return auth.response
@@ -18,15 +19,5 @@ export async function GET(request: NextRequest) {
     return await leerHistoricoTracker()
   } catch (error) {
     return serverError('lideres/historico GET', error, 'Error al leer el histórico de las líderes')
-  }
-}
-
-export async function POST(request: NextRequest) {
-  const auth = await requirePermission(request, 'lideres:seguimiento')
-  if (!auth.ok) return auth.response
-  try {
-    return await procesarCargaTracker(await readJsonBody(request), auth.user.id)
-  } catch (error) {
-    return serverError('lideres/historico POST', error, 'Error al procesar el Excel de las líderes')
   }
 }
