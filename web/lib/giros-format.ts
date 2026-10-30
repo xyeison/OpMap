@@ -51,3 +51,30 @@ function monthLabelFrom(ym: string): string {
   const [y, m] = ym.split('-').map(Number)
   return m >= 1 && m <= 12 ? `${MESES_CORTOS[m - 1]}-${y}` : ym
 }
+
+/**
+ * Celda de CSV para Excel en español (separador ";"): números enteros sin formato, texto entre comillas si hace falta,
+ * y un apóstrofo delante de lo que empiece por = + - @ (evita fórmulas: inyección CSV).
+ */
+export function csvCell(value: string | number | null | undefined): string {
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'number') return Number.isFinite(value) ? String(Math.round(value)) : ''
+  let text = String(value)
+  if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`
+  if (/[";\r\n]/.test(text) || text !== text.trim()) text = `"${text.replace(/"/g, '""')}"`
+  return text
+}
+
+/**
+ * Nombre corto de una entidad ordenadora para tablas angostas: "NUEVA EMPRESA PROMOTORA DE SALUD SA - NUEVA EPS SA" →
+ * "NUEVA EPS"; "COOSALUD ENTIDAD PROMOTORA DE SALUD SA" → "COOSALUD EPS"; "EMSSANAR SAS" → "EMSSANAR". El nombre
+ * completo va en el title.
+ */
+export function nombreCortoEntidad(nombre: string): string {
+  let texto = nombre.trim()
+  const partes = texto.split(' - ').map(parte => parte.trim()).filter(Boolean)
+  if (partes.length > 1 && /\bEPS\b/i.test(partes[partes.length - 1])) texto = partes[partes.length - 1]
+  texto = texto.replace(/\b(ENTIDAD|EMPRESA) PROMOTORA DE SALUD\b/gi, 'EPS')
+  for (let i = 0; i < 2; i++) texto = texto.replace(/[\s,]+(S\.?\s?A\.?\s?S\.?|S\.?\s?A\.?|LTDA\.?)$/i, '')
+  return texto.trim() || nombre
+}
