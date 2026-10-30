@@ -28,7 +28,10 @@ export default function RootLayout({
       <body className={`${dmSans.className} bg-fondo text-texto`}>
         <Providers>
           <NavigationWithPermissions />
-          <main className="min-h-screen bg-gradient-to-br from-white via-gray-50 to-white">
+          {/* data-contenido-principal: con el menú fijo, en escritorio se corre a su derecha (NavigationWithPermissions).
+              data-tema="claro": las páginas que esta etapa no rehace siguen en claro aunque el tema sea oscuro (spec,
+              punto 5), con su texto oscuro aunque el del cuerpo sea claro */}
+          <main data-contenido-principal data-tema="claro" className="min-h-screen bg-gradient-to-br from-white via-gray-50 to-white text-texto">
             {children}
           </main>
         </Providers>

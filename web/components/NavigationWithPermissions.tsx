@@ -1,27 +1,40 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
 import { useUser } from '@/contexts/UserContext'
 import { usePermissions } from '@/hooks/usePermissions'
+import { useTema } from '@/hooks/useTema'
 import { esAppDeCampo } from '@/lib/app-campo'
+import { alternarGrupo, gruposAbiertosAlEntrar } from '@/lib/menu-acordeon'
 import { agruparMenu, getHomeRoute, getRoleTitle, opcionActiva, type NavigationItem } from '@/lib/permissions'
+import type { PreferenciaTema } from '@/lib/tema'
 import { useMapHeaderTitle } from '@/components/mapHeaderStore'
 
+// El armazón de OpMap con el diseño de la app de campo (etapa 1, dueño 2026-10-30; spec
+// docs/specs/2026-10-30-diseno-web-etapa-1.md): la barra de arriba y el menú con los colores de la app (lib/tema.ts) y el
+// tema de cada persona. El menú va en acordeón: cada grupo se abre y se cierra con su título; las opciones sueltas van
+// siempre a la vista. En el celular y en el Mapa el menú es un cajón; fuera del Mapa, en escritorio, va fijo a la
+// izquierda y el contenido se corre. En el Mapa la barra conserva su alto (48 px en el celular): el mapa no cambia.
 export default function NavigationWithPermissions() {
   const { user, logout } = useUser()
   const { role, navigationMenu, loading } = usePermissions()
+  const { preferencia, elegir } = useTema()
   const [isOpen, setIsOpen] = useState(false)
-  // ?tab= de la página abierta al abrir el menú: distingue ADRES de Compras públicas (las dos en /inteligencia)
+  // ?tab= de la página abierta: distingue ADRES de Compras públicas (las dos en /inteligencia)
   const [busqueda, setBusqueda] = useState('')
+  // Grupos abiertos; null = como al entrar (abierto el de la página abierta)
+  const [abiertos, setAbiertos] = useState<string[] | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const pathname = usePathname()
   // En /map la cabecera es compacta en móvil (48 px) y muestra la línea: "OpMap · <línea>"
   const isMap = pathname === '/map'
   const mapTitle = useMapHeaderTitle()
   const topOffset = isMap ? 'top-12 md:top-16' : 'top-16'
-  
+  // Fuera del Mapa, en escritorio (lg), el menú va fijo; en el Mapa sigue de cajón para no taparlo
+  const fijo = !isMap
+
   // Cerrar menú al hacer clic fuera
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -40,7 +53,7 @@ export default function NavigationWithPermissions() {
   useEffect(() => {
     setIsOpen(false)
   }, [pathname])
-  
+
   // Menú visible: el orden, los grupos y los textos salen de getNavigationMenu (lib/permissions.ts), cada opción con su
   // permiso (dueño, 2026-10-29: Terceros, Empleados, Inteligencia de Mercado y Configuración son títulos). El logo lleva
   // a la página de inicio del rol.
@@ -48,164 +61,177 @@ export default function NavigationWithPermissions() {
   const secciones = agruparMenu(menuItems)
   const activa = opcionActiva(menuItems, pathname, busqueda)
   const inicio = getHomeRoute(role) ?? '/'
+  const visibles = abiertos ?? gruposAbiertosAlEntrar(secciones, activa)
+  // Al llegar a una página de un grupo cerrado (por un enlace de la página), su grupo se abre; los demás quedan igual
+  const grupoDeLaPagina = gruposAbiertosAlEntrar(secciones, activa)[0] ?? null
+  useEffect(() => {
+    if (!grupoDeLaPagina) return
+    setAbiertos(antes => (antes === null || antes.includes(grupoDeLaPagina) ? antes : [...antes, grupoDeLaPagina]))
+  }, [grupoDeLaPagina])
+  // El nombre de la página en la barra del celular (en escritorio lo dice el menú fijo); en el Mapa, la línea
+  const titulo = isMap ? mapTitle : menuItems.find(item => item.href === activa)?.name
 
   if (!user) return null
-  
+
   return (
     <>
-      {/* Barra de navegación fija */}
-      <nav className="fixed top-0 left-0 right-0 bg-white border-b border-gray-200 z-[9999]">
-        <div className={`container mx-auto flex justify-between items-center ${isMap ? 'h-12 md:h-16 px-2 md:px-4' : 'h-16 px-4'}`}>
-          {/* Logo y título */}
+      <Suspense fallback={null}>
+        <PestanaActual alCambiar={setBusqueda} />
+      </Suspense>
+      {/* Con el menú fijo, el contenido (el <main> del layout) se corre a su derecha en escritorio */}
+      {fijo && <style>{'@media (min-width: 1024px) { [data-contenido-principal] { padding-left: 18rem; } }'}</style>}
+
+      {/* Barra de arriba, fija: blanca (negra en oscuro) */}
+      <nav className="fixed top-0 left-0 right-0 bg-fondo text-texto border-b border-borde z-[9999]">
+        <div className={`flex justify-between items-center ${isMap ? 'h-12 md:h-16 px-2 md:px-4' : 'h-16 px-4'}`}>
           <div className={`flex items-center min-w-0 ${isMap ? 'gap-1 md:gap-3' : 'gap-3'}`}>
             <button
+              type="button"
               onClick={(e) => {
                 e.stopPropagation()
-                if (!isOpen) setBusqueda(window.location.search)
                 setIsOpen(!isOpen)
               }}
-              className={`hover:bg-gray-100 rounded-lg transition-colors relative z-[10000] ${isMap ? 'p-2.5 md:p-2' : 'p-2'}`}
+              className={`relative z-[10000] inline-flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-lg bg-relleno text-texto transition-colors hover:bg-borde-fuerte ${fijo ? 'lg:hidden' : ''}`}
               aria-label={isOpen ? 'Cerrar menú' : 'Abrir menú'}
               aria-expanded={isOpen}
             >
-              <svg 
-                className="w-6 h-6 text-gray-700" 
-                fill="none" 
-                stroke="currentColor" 
-                viewBox="0 0 24 24"
-              >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 {isOpen ? (
-                  <path 
-                    strokeLinecap="round" 
-                    strokeLinejoin="round" 
-                    strokeWidth={2} 
-                    d="M6 18L18 6M6 6l12 12" 
-                  />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 ) : (
-                  <path 
-                    strokeLinecap="round" 
-                    strokeLinejoin="round" 
-                    strokeWidth={2} 
-                    d="M4 6h16M4 12h16M4 18h16" 
-                  />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
                 )}
               </svg>
             </button>
-            <Link
-              href={inicio}
-              className={`font-bold text-gray-900 hover:text-gray-700 transition-colors ${isMap ? 'text-lg md:text-2xl flex-shrink-0' : 'text-2xl'}`}
-            >
+            <Link href={inicio} className={`font-bold text-texto ${isMap ? 'text-lg md:text-2xl flex-shrink-0' : 'text-2xl'}`}>
               OpMap
             </Link>
-            {isMap && mapTitle && (
-              <span className="md:hidden min-w-0 truncate text-sm font-medium text-gray-600">
-                <span aria-hidden="true">·</span> {mapTitle}
+            {titulo && (
+              <span className={`min-w-0 truncate text-sm font-medium text-texto-suave ${isMap ? 'md:hidden' : 'lg:hidden'}`}>
+                <span aria-hidden="true">·</span> {titulo}
               </span>
             )}
           </div>
 
-          {/* Información del usuario */}
-          <div className="flex items-center gap-3">
-            <div className="text-right hidden sm:block">
-              <div className="text-sm font-medium text-gray-900">{user.full_name}</div>
-              <div className="text-xs text-gray-500">{role && getRoleTitle(role)}</div>
-            </div>
-            <button
-              onClick={logout}
-              aria-label="Cerrar sesión"
-              className={`bg-gray-900 text-white hover:bg-black rounded-lg text-sm font-medium transition-all hover:shadow-md ${isMap ? 'inline-flex items-center justify-center h-11 w-11 sm:h-auto sm:w-auto sm:px-4 sm:py-2' : 'px-4 py-2'}`}
-            >
-              <span className="hidden sm:inline">Cerrar sesión</span>
-              <svg className="w-5 h-5 sm:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-              </svg>
-            </button>
+          {/* Quién es (la inicial); en escritorio, con el menú fijo, lo dice el pie del menú */}
+          <div
+            className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-acento text-sm font-bold text-sobre-acento ${fijo ? 'lg:hidden' : ''}`}
+            title={user.full_name}
+            aria-hidden="true"
+          >
+            {user.full_name?.charAt(0).toUpperCase()}
           </div>
         </div>
       </nav>
 
-      {/* Menú lateral deslizante */}
-      <div 
+      {/* El menú: cajón en el celular y en el Mapa; fijo a la izquierda en escritorio fuera del Mapa. lg:z-40: debajo de
+          las ventanas de las páginas (z-50 o más), que en escritorio no deben quedar tapadas por él */}
+      <div
         ref={menuRef}
-        className={`fixed ${topOffset} left-0 bottom-0 bg-white border-r border-gray-100 w-72 transform transition-transform duration-300 ease-in-out z-[9998] shadow-xl overflow-hidden ${
-          isOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
-        style={{ 
-          // En /map el alto lo dan top y bottom (la cabecera cambia de alto entre móvil y escritorio)
-          ...(isMap ? {} : { height: 'calc(100vh - 4rem)' }),
-          visibility: isOpen ? 'visible' : 'hidden',
-          pointerEvents: isOpen ? 'auto' : 'none'
-        }}
+        className={`fixed ${topOffset} left-0 bottom-0 w-72 bg-superficie text-texto border-r border-borde transform transition-transform duration-300 ease-in-out z-[9998] ${
+          isOpen ? 'translate-x-0 visible pointer-events-auto shadow-xl' : '-translate-x-full invisible pointer-events-none'
+        } ${fijo ? 'lg:z-40 lg:translate-x-0 lg:visible lg:pointer-events-auto lg:shadow-none' : ''}`}
       >
         <div className="flex flex-col h-full">
-          <div className="px-4 py-6 flex-1 min-h-0 overflow-y-auto">
-            {/* Header del menú */}
-            <div className="mb-6 pb-4 border-b border-gray-100">
-              <h3 className="text-base font-semibold text-gray-900 mb-1">Navegación</h3>
-              <p className="text-xs text-gray-500">
-                {loading ? 'Cargando menú...' : `${menuItems.length} opciones disponibles`}
-              </p>
-            </div>
-
-          {/* Enlaces del menú */}
-          {loading ? (
-            <div className="flex items-center justify-center py-8">
-              <svg className="animate-spin h-8 w-8 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-            </div>
-          ) : (
-            // Un <div> y no <nav>: globals.css fija todo <nav> (position: fixed) y la lista dejaba de desplazarse,
-            // así que en pantallas bajas las últimas opciones (Configuración) quedaban cortadas.
-            <div className="space-y-1" role="navigation" aria-label="Menú principal" data-menu-principal>
-              {secciones.map((seccion, indice) => {
-                const opciones = seccion.items.map(item => (
-                  <OpcionMenu key={item.href} item={item} activa={item.href === activa} onElegir={() => setIsOpen(false)} />
-                ))
-                if (!seccion.grupo) {
-                  // Opción suelta después de un grupo: separada para que no parezca parte de él
-                  const trasGrupo = indice > 0 && secciones[indice - 1].grupo !== null
-                  return <div key={seccion.items[0].href} className={trasGrupo ? 'pt-3' : ''}>{opciones}</div>
-                }
-                const tituloId = `menu-grupo-${indice}`
-                return (
-                  <div key={seccion.grupo} role="group" aria-labelledby={tituloId} className={indice > 0 ? 'pt-3' : ''}>
-                    <div id={tituloId} className="px-4 pb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                      {seccion.grupo}
+          <div className="flex-1 min-h-0 overflow-y-auto px-3 py-4">
+            {loading ? (
+              <div className="flex items-center justify-center py-8 text-texto-inactivo">
+                <svg className="animate-spin h-8 w-8" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-label="Cargando menú">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+              </div>
+            ) : (
+              // Un <div> y no <nav>: globals.css fija todo <nav> (position: fixed) y la lista dejaba de desplazarse,
+              // así que en pantallas bajas las últimas opciones (Configuración) quedaban cortadas.
+              <div className="space-y-1" role="navigation" aria-label="Menú principal" data-menu-principal>
+                {secciones.map((seccion, indice) => {
+                  const opciones = seccion.items.map(item => (
+                    <OpcionMenu key={item.href} item={item} activa={item.href === activa} onElegir={() => setIsOpen(false)} />
+                  ))
+                  if (!seccion.grupo) {
+                    // Opción suelta después de un grupo: separada para que no parezca parte de él
+                    const trasGrupo = indice > 0 && secciones[indice - 1].grupo !== null
+                    return <div key={seccion.items[0].href} className={`space-y-1 ${trasGrupo ? 'pt-2' : ''}`}>{opciones}</div>
+                  }
+                  // Grupo en acordeón: su título lo abre y lo cierra
+                  const grupo = seccion.grupo
+                  const abierto = visibles.includes(grupo)
+                  const tituloId = `menu-grupo-${indice}`
+                  const listaId = `menu-grupo-${indice}-opciones`
+                  return (
+                    <div key={grupo} className="pt-2">
+                      <button
+                        type="button"
+                        id={tituloId}
+                        onClick={() => setAbiertos(alternarGrupo(visibles, grupo))}
+                        aria-expanded={abierto}
+                        aria-controls={listaId}
+                        className="flex w-full min-h-[44px] items-center justify-between rounded-lg px-3 text-xs font-bold uppercase tracking-wide text-texto-suave transition-colors hover:bg-superficie-suave"
+                      >
+                        <span>{grupo}</span>
+                        <svg className={`h-4 w-4 transition-transform ${abierto ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </button>
+                      <div id={listaId} role="group" aria-labelledby={tituloId} hidden={!abierto} className="space-y-1">
+                        {opciones}
+                      </div>
                     </div>
-                    <div className="space-y-1">{opciones}</div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
+                  )
+                })}
+              </div>
+            )}
           </div>
 
-          {/* Información del usuario en móvil - Fuera del scroll */}
-          <div className="border-t border-gray-100 p-6 mt-auto sm:hidden bg-gray-50">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gray-900 rounded-full flex items-center justify-center shadow-md">
-                <span className="text-white font-semibold text-sm">
-                  {user.full_name?.charAt(0).toUpperCase()}
-                </span>
+          {/* Al pie: el tema de cada persona (Claro, Oscuro o Automático), quién es y salir */}
+          <div className="border-t border-borde px-3 py-4 space-y-3">
+            <div>
+              <div id="menu-tema" className="px-1 pb-1.5 text-xs font-medium text-texto-suave">
+                Tema
               </div>
-              <div className="flex-1">
-                <div className="text-sm font-semibold text-gray-900">{user.full_name}</div>
-                <div className="text-xs text-gray-500">{role && getRoleTitle(role)}</div>
+              <div role="group" aria-labelledby="menu-tema" className="grid grid-cols-3 gap-1 rounded-xl bg-relleno p-1">
+                {([['claro', 'Claro'], ['oscuro', 'Oscuro'], ['auto', 'Automático']] as Array<[PreferenciaTema, string]>).map(([valor, texto]) => (
+                  <button
+                    key={valor}
+                    type="button"
+                    aria-pressed={preferencia === valor}
+                    onClick={() => elegir(valor)}
+                    className={`min-h-[44px] rounded-lg px-1 text-sm font-medium transition-colors ${
+                      preferencia === valor ? 'bg-acento text-sobre-acento' : 'text-texto hover:bg-superficie-suave'
+                    }`}
+                  >
+                    {texto}
+                  </button>
+                ))}
               </div>
             </div>
+            <div className="flex items-center gap-3 px-1">
+              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-acento text-sm font-bold text-sobre-acento" aria-hidden="true">
+                {user.full_name?.charAt(0).toUpperCase()}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-bold text-texto">{user.full_name}</div>
+                <div className="truncate text-xs text-texto-suave">{role && getRoleTitle(role)}</div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={logout}
+              className="flex w-full min-h-[44px] items-center justify-center gap-2 rounded-lg bg-relleno text-sm font-medium text-texto transition-colors hover:bg-borde-fuerte"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              </svg>
+              Cerrar sesión
+            </button>
           </div>
         </div>
       </div>
 
-      {/* Overlay oscuro cuando el menú está abierto */}
+      {/* Fondo oscuro con el cajón abierto (con el menú fijo en escritorio no hace falta) */}
       {isOpen && (
-        <div 
-          className={`fixed inset-0 ${topOffset} bg-black bg-opacity-50 z-[9997]`}
-          onClick={() => setIsOpen(false)}
-          style={{ pointerEvents: 'auto' }}
-        />
+        <div className={`fixed inset-0 ${topOffset} bg-black/50 z-[9997] ${fijo ? 'lg:hidden' : ''}`} onClick={() => setIsOpen(false)} />
       )}
 
       {/* Espaciador para el contenido */}
@@ -214,22 +240,29 @@ export default function NavigationWithPermissions() {
   )
 }
 
-// Opción del menú: icono y nombre; la activa en negro con flecha. Al elegirla se cierra el menú (también entre ADRES y
-// Compras públicas, que comparten la ruta y no cierran el menú al cambiar de página)
+// La pestaña de la página abierta (?tab=) para marcar su opción: ADRES y Compras públicas comparten /inteligencia y la
+// página cambia de pestaña con history.replaceState, que Next 14.2 refleja en useSearchParams. En su propio Suspense:
+// sin él, useSearchParams sacaría de la generación estática a todas las páginas.
+function PestanaActual({ alCambiar }: { alCambiar: (busqueda: string) => void }) {
+  const busqueda = useSearchParams()?.toString() ?? ''
+  useEffect(() => {
+    alCambiar(busqueda)
+  }, [busqueda, alCambiar])
+  return null
+}
+
+// Opción del menú: icono y nombre; la de la página abierta en negro (blanco en oscuro), como lo elegido en la app. Al
+// elegirla se cierra el cajón (también entre ADRES y Compras públicas, que comparten la ruta y no cierran el menú al
+// cambiar de página)
 function OpcionMenu({ item, activa, onElegir }: { item: NavigationItem; activa: boolean; onElegir: () => void }) {
   const Icon = getIconForRoute(item.href)
-  const clase = `flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all ${
-    activa ? 'bg-gray-900 text-white shadow-md' : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900'
+  const clase = `flex min-h-[44px] items-center gap-3 rounded-lg px-3 transition-colors ${
+    activa ? 'bg-acento text-sobre-acento' : 'text-texto hover:bg-superficie-suave'
   }`
   const contenido = (
     <>
-      <Icon className="w-5 h-5" />
+      <Icon className="w-5 h-5 flex-shrink-0" />
       <span className="font-medium">{item.name}</span>
-      {activa && (
-        <svg className="w-4 h-4 ml-auto" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
-          <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
-        </svg>
-      )}
     </>
   )
   // La app de campo (Agendamiento, /campo) no es una página de Next: se abre como página completa
