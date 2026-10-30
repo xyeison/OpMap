@@ -16,7 +16,11 @@ crearlos y consultarlos. No incluye visitas, metas, configuración, calendario n
   lo tiene).
 - **Médicos completos desde el inicio o no se crean**: tipo y número de identificación, nombre, al menos una
   especialidad, municipio y al menos una sede donde atiende. Un médico sin sede no puede quedar guardado.
-  Un segundo médico con el mismo documento se rechaza y se muestra el existente.
+  Un segundo médico con el mismo documento se rechaza y se muestra el existente. Desde el 2026-10-30 el documento es
+  solo cédula de ciudadanía (CC) o de extranjería (CE), al crear y al corregir; el médico que crea una líder queda de
+  sus líneas de líder (`medico_lineas`, 0940). `docs/decisiones/2026-10-30-medicos-y-contactos-sin-duplicados.md`.
+- **Contactos sin duplicados** (2026-10-30): nombre y teléfono y/o correo; en la misma cuenta no se repite el
+  teléfono (por sus dígitos) ni el correo: `POST`/`PATCH /api/terceros/contactos` responden 409 con `existente`.
 - **Visitantes, no responsable**: varias ejecutivas por médico, cada una por una línea, incluso dos de la
   misma línea en ciudades distintas.
 - **Nada se trae de VMO** y no hay carga masiva: los terceros se crean a mano. La única carga automática es la
@@ -112,7 +116,7 @@ Menú: "Terceros" → `/terceros` para `terceros:view`.
 | `POST /api/terceros/contactos` · `PATCH /api/terceros/contactos/[id]` | terceros:create · terceros:manage | `rol` por defecto `rolDesdeCargo(cargo_texto)` |
 | `GET /api/terceros/subtipos` | terceros:view | subtipos vigentes |
 
-## Interfaz (`/terceros`)
+## Interfaz (`/terceros` y, desde el 2026-10-30, `/medicos`)
 
 - Pestañas **Cuentas** y **Médicos**, buscador, filtros (clase, cliente, ciudad), en escritorio y celular.
 - Cuenta: lista; detalle con sedes (principal marcada, IPS de OpMap con enlace a su ficha, consultorios) y

@@ -1,7 +1,8 @@
 # Spec: médicos y contactos sin duplicados  (2026-10-30)
 
-**Estado**: pedido del dueño del 2026-10-30, en brainstorming. A la forma propuesta dijo "Sí, hazlo todo". Las decisiones
-marcadas "(Claude)" las tomó Claude por encargo del dueño y él las puede cambiar.
+**Estado**: pedido del dueño del 2026-10-30; a la forma propuesta dijo "Sí, hazlo todo". Implementado en la rama
+`feat/medicos-contactos`; la migración 0940 está escrita y sin aplicar (necesita la autorización del dueño). Las
+decisiones marcadas "(Claude)" las tomó Claude por encargo del dueño, y él las puede cambiar.
 
 ## Problema
 El dueño, el 2026-10-30:

@@ -229,6 +229,14 @@ business_lines, PRIMARY KEY)`, RLS sin políticas, solo service_role.
   `Access-Control-Allow-Origin` (el origen pedido, si está en la lista), `-Headers: authorization, content-type`,
   `-Methods: GET, POST, PATCH, DELETE, OPTIONS`, `OPTIONS` → 204. Pruebas: en producción ninguna cabecera CORS.
 
+- **Médicos y contactos sin duplicados** (dueño, 2026-10-30, `docs/decisiones/2026-10-30-medicos-y-contactos-sin-duplicados.md`):
+  - la visita institucional exige `contacto_id` (`visitaCreateSchema` → 400 en `contacto_id`; la app,
+    `validarBorrador`);
+  - la tarjeta institucional ofrece "Nuevo contacto" (`contacto/nuevo`: nombre y teléfono y/o correo; el 409 ofrece
+    el que ya está);
+  - Agendar ofrece "Crear médico" (el mismo Nuevo médico, solo CC o CE) y lo elige al volver. El de una líder ya es
+    de sus líneas (`medico_lineas`, 0940).
+
 ## API (todas con `requirePermission('visits:report')` salvo auth; `getSupabaseAdmin`; errores `{ error }`; 503 si falta la migración)
 
 | Ruta | Respuesta |

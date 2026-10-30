@@ -123,6 +123,13 @@ nada llama a Google.
   misma app de `mobile/` se publica en `/campo` de OpMap. `npm run build` la arma con `scripts/construir-campo.mjs` en
   `public/campo` (no se versiona). Llama a la API de su mismo origen. `/campo` es pública como página (`esAppDeCampo`
   del middleware). Sin tiendas: cada push a master la publica.
+- **Médicos y contactos sin duplicados** (dueño, 2026-10-30, `docs/decisiones/2026-10-30-medicos-y-contactos-sin-duplicados.md`):
+  - el médico se crea y se corrige solo con CC o CE, en `/medicos`, Reportar y Agendar (una sola tabla web+app);
+  - el que crea una líder queda de sus líneas de líder (`medico_lineas`);
+  - el contacto lleva teléfono y/o correo y no se repite en la cuenta (409 con `existente`);
+  - la visita institucional exige contacto.
+
+  Migración 0940 (rollback 9959): solo con autorización del dueño; borra con respaldo los médicos de prueba "otro".
 - **Territorio y contratos**: el anexo de territorio (Anexo A IPS, Anexo B municipios) va al contrato de
   cada Ejecutivo Comercial; las versiones (`territory_snapshots`) son inmutables.
 - **SECOP I** se cuenta por el valor ADJUDICADO a cada contratista desde `f789-7hwg` (`fuente = 'secop1'`); el
