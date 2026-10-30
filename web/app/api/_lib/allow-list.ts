@@ -43,7 +43,29 @@ export const CONTRACT_EDITABLE_COLUMNS = [
   'requires_experiencia',
   'min_experiencia_years',
   'custom_requirements',
+  // SIA Observa (migración 0930): de dónde se importó el contrato y sus líneas. Se validan con sanearEnlacesContrato.
+  'sia_contrato_id',
+  'secop_contrato_id',
+  'lineas',
 ] as const
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const LINEAS_CLASIFICADOR = new Set(['trauma', 'reemplazo', 'columna', 'deportiva', 'neurocirugia', 'otros_implantes'])
+
+/**
+ * Enlaces a SIA y SECOP y líneas del contrato: un id que no es UUID queda en null y las líneas solo con los valores del
+ * clasificador de SECOP (si no queda ninguna, null). Solo toca las claves que vienen en el cuerpo.
+ */
+export function sanearEnlacesContrato(data: Record<string, unknown>): Record<string, unknown> {
+  for (const key of ['sia_contrato_id', 'secop_contrato_id']) {
+    if (key in data) data[key] = typeof data[key] === 'string' && UUID.test(data[key] as string) ? data[key] : null
+  }
+  if ('lineas' in data) {
+    const lineas = Array.isArray(data.lineas) ? Array.from(new Set(data.lineas.filter((l): l is string => typeof l === 'string' && LINEAS_CLASIFICADOR.has(l)))) : []
+    data.lineas = lineas.length > 0 ? lineas : null
+  }
+  return data
+}
 
 /**
  * Copia solo las claves permitidas (y definidas) de `body`.

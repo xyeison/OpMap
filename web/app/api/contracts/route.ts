@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { requirePermission } from '@/lib/require-role'
 import { badJson, isUuid, readJsonBody, serverError } from '../_lib/api-error'
-import { CONTRACT_EDITABLE_COLUMNS, pickAllowed } from '../_lib/allow-list'
+import { CONTRACT_EDITABLE_COLUMNS, pickAllowed, sanearEnlacesContrato } from '../_lib/allow-list'
+import { marcarImportado } from '../sia/_lib/sia-server'
 
 export async function GET(request: NextRequest) {
   // admin, contract_manager y sales_manager (contracts:view)
@@ -76,7 +77,7 @@ export async function POST(request: NextRequest) {
     if (!body || typeof body !== 'object') return badJson()
 
     // Allow-list de columnas reales de hospital_contracts
-    const contractData = pickAllowed(body as Record<string, unknown>, CONTRACT_EDITABLE_COLUMNS)
+    const contractData = sanearEnlacesContrato(pickAllowed(body as Record<string, unknown>, CONTRACT_EDITABLE_COLUMNS))
     contractData.proveedor_id = isUuid(contractData.proveedor_id) ? contractData.proveedor_id : null
 
     if (!isUuid(contractData.hospital_id)) {
@@ -90,6 +91,15 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (error) return serverError('contracts POST', error, 'Error al crear el contrato')
+
+    // Importado desde SIA ("Importar desde SIA / SECOP"): el contrato de SIA queda enlazado y sale de la bandeja
+    if (isUuid(contractData.sia_contrato_id)) {
+      try {
+        await marcarImportado(supabaseAdmin, contractData.sia_contrato_id, data.id, auth.user.id)
+      } catch (linkError) {
+        console.error('[api] contracts POST (enlace SIA):', linkError)
+      }
+    }
 
     return NextResponse.json(data)
   } catch (error) {

@@ -11,7 +11,7 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "tsx scripts/ips-routes-check.ts && tsx scripts/reps-check.ts && tsx scripts/reps-import-check.ts && tsx scripts/adres-check.ts && tsx scripts/giros-variacion-check.ts && tsx scripts/poblacion-api-check.ts && tsx scripts/poblacion-check.ts && tsx scripts/bogota-check.ts && tsx scripts/municipios-check.ts && tsx scripts/corredores-config-check.ts && tsx scripts/secop-api-check.ts && tsx scripts/secop-check.ts && tsx scripts/secop-procesos-check.ts && tsx scripts/secop-procesos-sync-check.ts && tsx scripts/secop-procesos-api-check.ts && tsx scripts/terceros-check.ts && tsx scripts/terceros-api-check.ts && tsx scripts/visits-check.ts && tsx scripts/visits-api-check.ts && tsx scripts/traspaso-check.ts && tsx scripts/traspaso-api-check.ts && tsx scripts/zona-estadisticas-check.ts && tsx scripts/zona-estadisticas-api-check.ts && tsx scripts/reporte-check.ts && tsx scripts/reporte-api-check.ts && tsx scripts/persona-campo-check.ts && tsx scripts/agenda-ciclo-check.ts && tsx scripts/menu-check.ts && tsx scripts/simulacion-check.ts && tsx scripts/mapa-zonas-api-check.ts && tsx scripts/tiempos-check.ts && tsx scripts/cobertura-simulacion-check.ts && tsx scripts/mapa-estilo-check.ts && tsx scripts/zonas-api-check.ts && tsx scripts/lineas-api-check.ts && tsx scripts/lineas-permitidas-api-check.ts && tsx scripts/zonas-ui-check.ts && tsx scripts/mapa-detalle-check.ts && tsx scripts/mapa-detalle-api-check.ts && tsx scripts/mapa-buscar-check.ts && tsx scripts/mapa-filtros-check.ts && tsx scripts/geo-detalle-check.ts && tsx scripts/vmo-visitas-check.ts && tsx scripts/lideres-historico-check.ts",
+    "test": "tsx scripts/ips-routes-check.ts && tsx scripts/reps-check.ts && tsx scripts/reps-import-check.ts && tsx scripts/adres-check.ts && tsx scripts/giros-variacion-check.ts && tsx scripts/poblacion-api-check.ts && tsx scripts/poblacion-check.ts && tsx scripts/bogota-check.ts && tsx scripts/municipios-check.ts && tsx scripts/corredores-config-check.ts && tsx scripts/secop-api-check.ts && tsx scripts/secop-check.ts && tsx scripts/secop-procesos-check.ts && tsx scripts/secop-procesos-sync-check.ts && tsx scripts/secop-procesos-api-check.ts && tsx scripts/terceros-check.ts && tsx scripts/terceros-api-check.ts && tsx scripts/visits-check.ts && tsx scripts/visits-api-check.ts && tsx scripts/traspaso-check.ts && tsx scripts/traspaso-api-check.ts && tsx scripts/zona-estadisticas-check.ts && tsx scripts/zona-estadisticas-api-check.ts && tsx scripts/reporte-check.ts && tsx scripts/reporte-api-check.ts && tsx scripts/menu-check.ts && tsx scripts/simulacion-check.ts && tsx scripts/mapa-zonas-api-check.ts && tsx scripts/tiempos-check.ts && tsx scripts/cobertura-simulacion-check.ts && tsx scripts/mapa-estilo-check.ts && tsx scripts/zonas-api-check.ts && tsx scripts/lineas-api-check.ts && tsx scripts/lineas-permitidas-api-check.ts && tsx scripts/zonas-ui-check.ts && tsx scripts/mapa-detalle-check.ts && tsx scripts/mapa-detalle-api-check.ts && tsx scripts/mapa-buscar-check.ts && tsx scripts/mapa-filtros-check.ts && tsx scripts/geo-detalle-check.ts && tsx scripts/vmo-visitas-check.ts && tsx scripts/lideres-historico-check.ts && tsx scripts/sia-observa-check.ts && tsx scripts/sia-observa-api-check.ts && tsx scripts/persona-campo-check.ts && tsx scripts/agenda-ciclo-check.ts",
     "check": "npm run typecheck && npm run lint && npm run test",
     "fase1:simulate": "tsx scripts/fase1-simulate.ts",
     "fase2:check": "tsx scripts/fase2-check.ts",
@@ -42,7 +42,11 @@
     "reporte-api:check": "tsx scripts/reporte-api-check.ts",
     "menu:check": "tsx scripts/menu-check.ts",
     "zona-estadisticas:check": "tsx scripts/zona-estadisticas-check.ts && tsx scripts/zona-estadisticas-api-check.ts",
-    "simulacion:carmen": "tsx scripts/simulacion-carmen.ts"
+    "simulacion:carmen": "tsx scripts/simulacion-carmen.ts",
+    "sia:check": "tsx scripts/sia-observa-check.ts",
+    "sia:smoke": "tsx scripts/sia-smoke.ts",
+    "sia:load": "tsx scripts/sia-load.ts",
+    "sia:extraer": "tsx scripts/sia-extraer.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",
@@ -50,6 +54,7 @@
     "@tanstack/react-query": "^5.0.0",
     "autoprefixer": "^10.0.1",
     "bcryptjs": "^3.0.2",
+    "cheerio": "^1.2.0",
     "date-fns": "^4.1.0",
     "dotenv": "^17.2.1",
     "leaflet": "^1.9.4",

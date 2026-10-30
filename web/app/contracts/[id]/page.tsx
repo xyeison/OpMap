@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { useUser } from '@/contexts/UserContext'
 import Link from 'next/link'
 import ProtectedRoute from '@/components/ProtectedRoute'
+import ContratoSiaPanel from '@/components/contracts/ContratoSiaPanel'
 
 interface Contract {
   id: string
@@ -272,6 +273,9 @@ export default function ContractDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* SIA Observa (2026-10-29): documentos, diferencias para aprobar y "Actualizar desde SIA" */}
+      <ContratoSiaPanel contractId={contractId} onAplicado={loadContract} />
     </div>
     </ProtectedRoute>
   )

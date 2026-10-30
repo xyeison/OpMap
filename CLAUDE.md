@@ -46,6 +46,9 @@ nada llama a Google.
 6. Decisiones del dueño que cambian reglas de negocio: anotar en `docs/decisiones/` (plantilla ahí).
 7. Antes de `/entregar` un cambio mediano o grande: subagente `revisor` (`.claude/agents/revisor.md`) sobre
    el diff y la spec; corregir solo lo que afecte corrección o reglas.
+8. Método de trabajo: skills de Superpowers copiadas en `.claude/skills/` (brainstorming, writing-plans,
+   test-driven-development, systematic-debugging, verification-before-completion, requesting-code-review…;
+   `docs/superpowers.md`). Este archivo manda sobre ellas: PR con `/entregar`, no merge local.
 
 ## Reglas que no se deducen del código (IMPORTANTE)
 
@@ -98,6 +101,12 @@ nada llama a Google.
   crea, activa si visitó en 60 días; la Zona de la visita sigue a la de la persona); nada del médico sale del navegador;
   reimportar no duplica. Sin `visits:view` cada quien ve solo sus visitas de VMO. Sin IPS por visita. Migración 0910
   (rollback 9956).
+- **SIA Observa** (dueño, 2026-10-29, `docs/decisiones/2026-10-29-sia-observa-contratos-y-documentos.md`, operación en
+  `docs/fases/fase9-sia-observa.md`): SIA corta conexiones fuera de Colombia, así que la descarga corre en el Mac del dueño
+  (`web/scripts/sia-load.ts` con launchd) y Vercel solo lee Supabase (`/api/sia/*`). Solo empresas con objeto de las líneas;
+  de personas naturales nada. Como un ciudadano: una petición a la vez, 1,5 s, nunca el correo de anonimización. Nada entra a
+  `hospital_contracts` sin aprobación humana (importar o "Aplicar" cada diferencia). La lectura con Claude
+  (`scripts/sia-extraer.ts`) cuesta dinero: `--dry-run` antes. Migración 0930 (rollback 9958; la 0920 es la de las líderes) APLICADA el 2026-10-30.
 - **Histórico del Excel "Tracker Líderes"** (dueño, 2026-10-29, `docs/decisiones/2026-10-29-historico-tracker-lideres.md`;
   reemplaza la A15 del 2026-10-15): `/lideres` (permiso `lideres:seguimiento`: admin y dirección) muestra el histórico.
   Desde el 2026-10-30 el Excel NO se sube allí: se carga una sola vez con `scripts/lideres-historico-cargar.ts`, que manda
@@ -141,6 +150,7 @@ nada llama a Google.
   `docs/ips-pendientes.md` – cola de pendientes y acción masiva.
 - `docs/fases/fase4-poblacion.md` – población: afiliados BDUA, cifras mensuales de MinSalud y proyecciones
   DANE (estructura real de las fuentes, tablas 0640, alias de municipio, scripts de carga y cifras).
+- `docs/fases/fase9-sia-observa.md` – SIA Observa: carga local, documentos, lectura con IA, importar y bandeja `/contracts/detectados`.
 - `docs/fases/fase5-secop.md` – compras públicas (SECOP): reglas de suma (sin clasificar, fuera de escala,
   SECOP I por valor adjudicado y estimados del Integrado, `compra_publica`), privacidad de médicos (sin
   cédula), API `/api/secop/*` y `/api/fuentes/*`, ficha, /inteligencia ("Compras públicas", "Fuentes de
@@ -157,6 +167,7 @@ nada llama a Google.
 - `docs/arquitectura-y-scripts.md` – scripts Python, estructura de carpetas, archivos clave.
 - `docs/historico-resultados.md` – cifras de 2025 y colores originales (histórico, no vigente).
 - `docs/FLUJO_DE_TRABAJO_IA.md` – cómo trabajamos con Claude Code en este repo y por qué.
+- `docs/superpowers.md` – skills de Superpowers (obra) instaladas en el repo: versión, hook de inicio, precedencia y cómo actualizar.
 - `web/docs/ROLES_AND_PERMISSIONS.md` – roles y permisos.
 
 ## Al compactar el contexto

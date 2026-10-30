@@ -38,3 +38,5 @@ next-env.d.ts
 
 # development scripts
 scripts-dev/
+# Caché local de SIA Observa (respuestas del portal, scripts/sia-*.ts)
+/.sia-cache
