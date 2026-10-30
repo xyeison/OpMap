@@ -461,7 +461,25 @@ export async function pruebas(t: Probador): Promise<void> {
     // Revisión 2026-10-15: un solo buscador de médicos (había dos: el filtro del selector y "Buscar otro médico en OpMap").
     check(
       'Agendar: un solo buscador de médicos: el del Selector, que ofrece "Buscar en OpMap" (buscarFuera) con lo escrito',
-      selectorMedico.includes('buscarFuera={{') && /donde: 'OpMap'/.test(selectorMedico) && /consulta=\{consulta\}/.test(selectorMedico) && !sinComentarios(nueva).includes('Buscar otro médico en OpMap') && !selectorMedico.includes('extra=')
+      selectorMedico.includes('buscarFuera={{') && /donde: 'OpMap'/.test(selectorMedico) && /consulta=\{consulta\}/.test(selectorMedico) && !sinComentarios(nueva).includes('Buscar otro médico en OpMap') && !/extra=\{\s*<Buscador/.test(selectorMedico)
+    )
+    // Dueño, 2026-10-30: "debería dejarme crearlo si no lo encuentra"
+    check(
+      'Agendar: "¿No está en OpMap? Crear médico" (extra del Selector) abre Nuevo médico con CLAVE_RETORNO_AGENDAR',
+      /extra=\{<Boton titulo="¿No está en OpMap\? Crear médico" variante="texto" alPresionar=\{crearMedico\} \/>\}/.test(selectorMedico) &&
+        /fijarPedido\(\{ clave: CLAVE_RETORNO_AGENDAR, [^)]*\}\)\s*router\.push\('\/medico\/nuevo'\)/.test(nueva)
+    )
+    check(
+      'Agendar: al volver de Nuevo médico trae el contexto de nuevo (el de una líder ya es de sus líneas) y elige al médico; si no es de sus líneas, lo dice',
+      /escucharRetorno\(retorno => \{\s*if \(retorno\.tipo === 'medico' && retorno\.clave === CLAVE_RETORNO_AGENDAR\) void alVolverDeCrear\.current\(retorno\.medico\.id\)/.test(nueva) &&
+        /invalidarContexto\('terceros'\)\s*const ctx = await api\.contexto\(null\)/.test(nueva) &&
+        /medicosDelPapel\(ctx\.mis_medicos, persona, como\)\.find\(m => m\.id === id\)/.test(nueva) &&
+        /aún no es de tus líneas de líder/.test(nueva)
+    )
+    const nuevoMedico = leer('mobile/app/(app)/medico/nuevo.tsx')
+    check(
+      'Nuevo médico: sin pantalla anterior vuelve a Agendar si lo pidió Agendar; sin GPS el consultorio queda sin ubicación (y lo dice)',
+      /router\.replace\(clave === CLAVE_RETORNO_AGENDAR \? '\/agenda\/nueva' : '\/reportar'\)/.test(nuevoMedico) && /sin ubicación \(no estás en el sitio\)/.test(nuevoMedico)
     )
     const calendarioAgendar = bloqueJsx(nueva, 'CalendarioMes', 'alCambiar={elegirFecha}')
     check(

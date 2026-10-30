@@ -93,6 +93,7 @@ import {
 } from '../../../lib/persona'
 import { cambiarFormularioCita, errorDe, formularioCitaVacio, horaDeCita, sedesDeCuentaBuscada, type FormularioCita } from '../../../lib/propuesta'
 import { conQuienCita } from '../../../lib/reglas'
+import { CLAVE_RETORNO_AGENDAR, escucharRetorno, fijarPedido } from '../../../lib/retorno'
 import { useSesion } from '../../../lib/sesion'
 import { etiquetaClaseCuenta, etiquetaEspecialidad } from '../../../lib/terceros'
 import {
@@ -408,6 +409,50 @@ function NuevaCita({ fechaPedida, horaPedida, pedido }: { fechaPedida?: string; 
     cambiar({ medico_id: nuevo.id, sede_id: sede })
   }
 
+  /**
+   * "¿No está en OpMap? Crear médico" (dueño, 2026-10-30): el mismo Nuevo médico de Reportar, completo y con CC o CE. Al
+   * volver (escucharRetorno, abajo) se elige.
+   */
+  const crearMedico = () => {
+    fijarPedido({ clave: CLAVE_RETORNO_AGENDAR, municipio: contexto?.ejecutiva?.municipio ?? null, sedes: [] })
+    router.push('/medico/nuevo')
+  }
+
+  /**
+   * El médico recién creado (o el que ya estaba con ese documento): se trae el contexto de nuevo, porque el que crea una
+   * líder ya es de sus líneas (0940) y llega en sus médicos; si no llega, se busca como uno de OpMap (agregarMedico no
+   * elige, como líder, al que no es de sus líneas: entonces se dice).
+   */
+  const ponerMedicoCreado = async (id: string) => {
+    setAvisoPedido(null)
+    try {
+      invalidarContexto('terceros')
+      const ctx = await api.contexto(null)
+      setContexto(ctx)
+      const propio = medicosDelPapel(ctx.mis_medicos, persona, como).find(m => m.id === id)
+      if (propio) {
+        cambiar({ medico_id: propio.id, sede_id: propio.sedes.length === 1 ? propio.sedes[0].id : null })
+        return
+      }
+      const { medico: publico } = await api.medico(id)
+      agregarMedico(publico)
+      if (comoLider && !medicoDelPapel(lineasDeBusqueda(publico, hoy), persona, como)) {
+        setAvisoPedido(`${publico.nombre} quedó en OpMap, pero aún no es de tus líneas de líder: no se puede agendar todavía.`)
+      }
+    } catch {
+      setAvisoPedido('El médico quedó en OpMap: búscalo arriba por su nombre.')
+    }
+  }
+  const alVolverDeCrear = useRef(ponerMedicoCreado)
+  alVolverDeCrear.current = ponerMedicoCreado
+  useEffect(
+    () =>
+      escucharRetorno(retorno => {
+        if (retorno.tipo === 'medico' && retorno.clave === CLAVE_RETORNO_AGENDAR) void alVolverDeCrear.current(retorno.medico.id)
+      }),
+    []
+  )
+
   const ponerCuenta = async (item: { id: string; nombre: string; clase: string | null }, sedePreferida?: string | null): Promise<boolean> => {
     setErrorCuenta(null)
     try {
@@ -624,8 +669,9 @@ function NuevaCita({ fechaPedida, horaPedida, pedido }: { fechaPedida?: string; 
               opciones={medicos.map(m => ({ id: m.id, titulo: m.nombre, detalle: m.detalle, lateral: conCita.get(m.id) ?? (m.propio ? null : 'Buscado') }))}
               alElegir={elegirMedico}
               error={error('medico_id')}
-              vacio="Aún no tienes médicos asignados: escribe su nombre arriba para buscarlo en OpMap."
+              vacio="Aún no tienes médicos asignados: escribe su nombre arriba para buscarlo en OpMap, o créalo."
               tituloElegido={medico?.nombre ?? null}
+              extra={<Boton titulo="¿No está en OpMap? Crear médico" variante="texto" alPresionar={crearMedico} />}
               buscarFuera={{
                 donde: 'OpMap',
                 resultados: (consulta, cerrar) => (

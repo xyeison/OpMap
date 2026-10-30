@@ -903,6 +903,22 @@ export interface CuentaCreateResponse {
 }
 
 /** GET /api/terceros/cuentas/[id] (lo que usa la app: sus sedes). */
+/** POST /api/terceros/contactos (terceros:create): nombre y teléfono y/o correo (dueño, 2026-10-30). */
+export interface ContactoCreate {
+  cuenta_id: string
+  sede_id: string | null
+  nombre: string
+  cargo_texto: string | null
+  telefono: string | null
+  email: string | null
+}
+
+/** 201 de POST /api/terceros/contactos (la app solo usa lo que ya muestra). 409: { error, existente: { id, nombre } }. */
+export interface ContactoCreateResponse {
+  id: string
+  contacto: { id: string; cuenta_id: string; sede_id: string | null; nombre: string; cargo_texto: string | null; rol: string }
+}
+
 export interface CuentaDetalleResponse {
   cuenta: { id: string; nombre: string; clase: ClaseCuenta; activo: boolean }
   sedes: SedeCreada[]

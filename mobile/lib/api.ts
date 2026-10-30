@@ -50,6 +50,8 @@ import type {
   VisitaItem,
   VisitasResponse,
   VisitaUpdate,
+  ContactoCreate,
+  ContactoCreateResponse,
 } from './tipos'
 import type {
   CuentaCreate,
@@ -425,6 +427,16 @@ export function medico(id: string): Promise<{ medico: MedicoPublico }> {
 /** Vincula una sede más a un médico (el médico atiende también ahí). */
 export async function vincularSedeMedico(medicoId: string, sede: MedicoSedeCreate): Promise<{ medico: MedicoPublico }> {
   const respuesta = await peticion<{ medico: MedicoPublico }>(`/api/terceros/medicos/${encodeURIComponent(medicoId)}/sedes`, { metodo: 'POST', cuerpo: sede })
+  invalidarContexto('terceros')
+  return respuesta
+}
+
+/**
+ * Nuevo contacto de una cuenta (la visita institucional siempre lleva contacto, dueño 2026-10-30): con teléfono y/o
+ * correo. 409 con `existente` ({ id, nombre }) si en la cuenta ya hay uno con ese teléfono o correo.
+ */
+export async function crearContacto(datos: ContactoCreate): Promise<ContactoCreateResponse> {
+  const respuesta = await peticion<ContactoCreateResponse>('/api/terceros/contactos', { metodo: 'POST', cuerpo: datos })
   invalidarContexto('terceros')
   return respuesta
 }

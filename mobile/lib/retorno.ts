@@ -1,17 +1,25 @@
 /**
- * Regreso de las pantallas de creación a Reportar: "Crear médico completo" (medico/nuevo) y "Crear sede aquí"
- * (sede/nueva) avisan aquí lo que se creó (o eligió) y vuelven atrás; Reportar escucha y lo pone en la tarjeta que
+ * Regreso de las pantallas de creación a Reportar: "Crear médico completo" (medico/nuevo), "Crear sede aquí"
+ * (sede/nueva) y "Nuevo contacto" (contacto/nuevo) avisan aquí lo que se creó (o eligió) y vuelven atrás; Reportar escucha y lo pone en la tarjeta que
  * lo pidió (por su clave). Vive en memoria mientras la app está abierta: no guarda nada (y nunca documentos).
  */
 import type { Punto } from './geo'
 import type { MedicoOpcion, SedeOpcion } from './propuesta'
-import type { VisitaCreate } from './tipos'
+import type { ContactoContexto, VisitaCreate } from './tipos'
 
 export type Retorno =
   | { tipo: 'medico'; clave: string | null; medico: MedicoOpcion }
   | { tipo: 'sede'; clave: string | null; sede: SedeOpcion }
+  // Nuevo contacto (2026-10-30): el creado, o el que ya estaba en la cuenta con ese teléfono o correo
+  | { tipo: 'contacto'; clave: string | null; contacto: ContactoContexto }
 
 type Oyente = (retorno: Retorno) => void
+
+/**
+ * La clave con que Agendar pide "Crear médico" (dueño, 2026-10-30: "debería dejarme crearlo si no lo encuentra"): el
+ * mismo Nuevo médico de Reportar avisa con ella y Agendar lo elige. Reportar no tiene tarjeta con esa clave.
+ */
+export const CLAVE_RETORNO_AGENDAR = 'agendar'
 
 const oyentes = new Set<Oyente>()
 /** Lo último que llegó sin nadie escuchando (Reportar se volvió a montar): se entrega al suscribirse. */
@@ -51,8 +59,11 @@ export function escucharRetorno(oyente: Oyente): () => void {
 export interface PedidoCreacion {
   /** Tarjeta de Reportar que pidió crear (null: elegir la sede del paso 1). */
   clave: string | null
-  /** Nombre que se dijo y no cruzó (Nuevo médico). Nunca un documento. */
+  /** Nombre que se dijo y no cruzó (Nuevo médico, Nuevo contacto). Nunca un documento. */
   nombre?: string | null
+  /** Nuevo contacto: la cuenta de la tarjeta (y su sede, si ya se eligió). */
+  cuenta?: { id: string; nombre: string } | null
+  sede_id?: string | null
   /** Municipio por defecto (DANE de 5 dígitos): el de la zona de la persona. */
   municipio?: string | null
   /** Sedes cercanas del contexto (para elegir dónde atiende el médico, o la cuenta de la sede nueva). */

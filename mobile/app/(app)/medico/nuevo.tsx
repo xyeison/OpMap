@@ -3,8 +3,9 @@
  * propone la IA), nombre, ciudad, especialidad y al menos una sede donde atiende. Primero se verifica el documento
  * (POST /api/terceros/medicos/verificar): si ya existe se muestra el existente y se usa ese; si hay nombres
  * parecidos se ofrecen. Las sedes salen de las cercanas, del buscador de sedes o de "Crear consultorio" (una cuenta
- * consultorio con el GPS del sitio). Al crear, vuelve a Reportar con el médico puesto en la tarjeta que lo pidió.
- * El documento solo viaja en el cuerpo de las peticiones y nunca se muestra en listas.
+ * consultorio con el GPS del sitio). Al crear, vuelve a la pantalla que lo pidió: Reportar, con el médico puesto en la
+ * tarjeta, o Agendar (CLAVE_RETORNO_AGENDAR, 2026-10-30), que lo elige. Desde Agendar no se está en el sitio: el
+ * consultorio queda sin ubicación. El documento solo viaja en el cuerpo de las peticiones y nunca se muestra en listas.
  *
  * Spec 2026-10-15: cada error va junto a su campo (erroresNuevoMedico) y "Verificar" / "Crear médico" quedan fijos al
  * pie (Pantalla.pie), con el error del servidor encima: a la vista aunque el formulario sea largo o el teclado esté.
@@ -21,7 +22,7 @@ import { erroresNuevoMedico } from '../../../lib/pantallas'
 import { medicoParaReportar, sedeConsultorio } from '../../../lib/propuesta'
 import { sinCortes } from '../../../lib/reglas'
 import { SoloEnFoco } from '../../../lib/montaje'
-import { avisarRetorno, leerPedido } from '../../../lib/retorno'
+import { CLAVE_RETORNO_AGENDAR, avisarRetorno, leerPedido } from '../../../lib/retorno'
 import {
   ESPECIALIDADES,
   ROLES_MEDICO_SEDE,
@@ -89,7 +90,7 @@ function NuevoMedico() {
     avisarRetorno({ tipo: 'medico', clave, medico: medicoParaReportar(medico, conocidas) })
     setNumero('')
     if (router.canGoBack()) router.back()
-    else router.replace('/reportar')
+    else router.replace(clave === CLAVE_RETORNO_AGENDAR ? '/agenda/nueva' : '/reportar')
   }
 
   const usarExistente = async (id: string) => {
@@ -354,7 +355,13 @@ function NuevoMedico() {
             textoElegir="Atiende aquí"
             alElegir={item => agregarSede({ sede_id: item.id, nombre: item.nombre, cuenta_nombre: item.cuenta_nombre, distancia_m: null })}
           />
-          <Boton titulo="Crear consultorio" detalle="Cuenta consultorio del médico con el GPS de aquí" variante="secundario" cargando={ocupado} alPresionar={() => void crearConsultorio()} />
+          <Boton
+            titulo="Crear consultorio"
+            detalle={pedido?.punto || pedido?.puntoFinal ? 'Cuenta consultorio del médico con el GPS de aquí' : 'Cuenta consultorio del médico, sin ubicación (no estás en el sitio)'}
+            variante="secundario"
+            cargando={ocupado}
+            alPresionar={() => void crearConsultorio()}
+          />
         </Tarjeta>
       ) : null}
 

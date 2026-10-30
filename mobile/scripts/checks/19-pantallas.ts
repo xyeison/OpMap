@@ -23,7 +23,15 @@ import {
   textoSiguienteCita,
   textoUbicacionTomada,
 } from '../../lib/pantallas'
-import { TIPOS_DOC_MEDICO_NUEVO } from '../../lib/terceros'
+import {
+  MENSAJE_CONTACTO_REPETIDO,
+  MENSAJE_CONTACTO_SIN_TELEFONO_NI_CORREO,
+  MENSAJE_CORREO_CONTACTO,
+  MENSAJE_TELEFONO_CONTACTO,
+  TIPOS_DOC_MEDICO_NUEVO,
+  cuerpoNuevoContacto,
+  erroresNuevoContacto,
+} from '../../lib/terceros'
 import type { CitaItem, EstadoCita } from '../../lib/tipos'
 import type { Probador } from './probador'
 
@@ -505,5 +513,43 @@ export async function pruebas(t: Probador): Promise<void> {
         /error=\{intentado \? falta\.contrasena : null\}/.test(contrasena) &&
         /setIntentado\(true\)\s*if \(!listo\) return/.test(login)
     )
+  }
+
+  // -------------------------------------------------------------------------------------------
+  t.seccion('19m. Nuevo contacto: teléfono y/o correo y sin repetir en la cuenta (dueño, 2026-10-30)')
+  {
+    const completo = { nombre: 'Luis Pérez', telefono: '300 123 4567', email: '' }
+    t.check('nombre y teléfono, o nombre y correo: sin errores', Object.keys(erroresNuevoContacto(completo)).length === 0 && Object.keys(erroresNuevoContacto({ nombre: 'Luis', telefono: '', email: 'luis@clinica.co' })).length === 0)
+    t.check(
+      'sin teléfono ni correo: el error va en el teléfono con el texto de la web',
+      erroresNuevoContacto({ nombre: 'Luis', telefono: ' ', email: '' }).telefono === MENSAJE_CONTACTO_SIN_TELEFONO_NI_CORREO
+    )
+    t.check('teléfono con menos de 7 dígitos, o correo mal escrito: su error', erroresNuevoContacto({ ...completo, telefono: '30 12 34' }).telefono === MENSAJE_TELEFONO_CONTACTO && erroresNuevoContacto({ ...completo, email: 'luis@clinica' }).email === MENSAJE_CORREO_CONTACTO)
+    t.check('nombre vacío o de una letra: su error', !!erroresNuevoContacto({ ...completo, nombre: '  ' }).nombre && !!erroresNuevoContacto({ ...completo, nombre: 'L.' }).nombre)
+    const cuerpo = cuerpoNuevoContacto({ cuenta_id: 'c1', sede_id: null, nombre: '  Luis   Pérez ', cargo: ' ', telefono: ' 300  123 4567 ', email: ' Luis@Clinica.CO ' })
+    t.check(
+      'el cuerpo: textos limpios, correo en minúsculas y lo vacío en null',
+      JSON.stringify(cuerpo) === JSON.stringify({ cuenta_id: 'c1', sede_id: null, nombre: 'Luis Pérez', cargo_texto: null, telefono: '300 123 4567', email: 'luis@clinica.co' }),
+      cuerpo
+    )
+    const webTerceros = leer('../web/lib/terceros.ts')
+    const webEsquemas = leer('../web/lib/terceros-schemas.ts')
+    t.check(
+      'los mensajes son los de la web, letra por letra (lib/terceros.ts y terceros-schemas.ts)',
+      webTerceros.includes(`'${MENSAJE_CONTACTO_SIN_TELEFONO_NI_CORREO}'`) && webTerceros.includes(`'${MENSAJE_CONTACTO_REPETIDO}'`) && webEsquemas.includes(`'${MENSAJE_TELEFONO_CONTACTO}'`) && webEsquemas.includes(`'${MENSAJE_CORREO_CONTACTO}'`)
+    )
+    const pantalla = leer('app/(app)/contacto/nuevo.tsx')
+    t.check(
+      'contacto/nuevo: crea con api.crearContacto(cuerpoNuevoContacto(...)) con la cuenta y la sede del pedido, y vuelve con avisarRetorno tipo contacto',
+      /api\.crearContacto\(cuerpoNuevoContacto\(\{ \.\.\.datos, cargo, cuenta_id: cuenta\.id, sede_id: pedido\?\.sede_id \?\? null \}\)\)/.test(pantalla) &&
+        /avisarRetorno\(\{ tipo: 'contacto', clave: pedido\?\.clave \?\? null, contacto \}\)/.test(pantalla)
+    )
+    t.check(
+      'contacto/nuevo: un 409 ofrece el que ya está en la cuenta ("Usar este contacto") en vez de crear otro',
+      /lanzado\.status === 409/.test(pantalla) && /existente\?: \{ id: string; nombre: string \}/.test(pantalla) && /Usar este contacto/.test(pantalla)
+    )
+    t.check('contacto/nuevo: sin la cuenta del pedido no crea (lo dice)', /if \(!cuenta\) return setError\(/.test(pantalla))
+    const api = leer('lib/api.ts')
+    t.check('api.crearContacto: POST /api/terceros/contactos e invalida el contexto', /export async function crearContacto\(datos: ContactoCreate\)[\s\S]{0,200}peticion<ContactoCreateResponse>\('\/api\/terceros\/contactos', \{ metodo: 'POST', cuerpo: datos \}\)\s*invalidarContexto\('terceros'\)/.test(api))
   }
 }

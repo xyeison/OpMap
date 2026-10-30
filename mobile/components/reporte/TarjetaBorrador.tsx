@@ -85,6 +85,8 @@ interface Props {
   alConfirmar: () => void
   alDescartar: () => void
   alCrearMedico: () => void
+  /** "Nuevo contacto" de la cuenta de la tarjeta (institucional, 2026-10-30). */
+  alCrearContacto: () => void
   alCrearSede: () => void
   /** Médico traído del buscador (no está entre los suyos). */
   alAgregarMedico: (medico: MedicoOpcion) => void
@@ -366,12 +368,12 @@ export function TarjetaBorrador(props: Props) {
     />
   )
 
+  // Dueño, 2026-10-30: la institucional siempre dice con quién fue; si no está, se crea con su teléfono o correo.
   const selectorContacto = borrador.cuenta_id ? (
     <Selector
-      etiqueta="Contacto (opcional)"
+      etiqueta="Contacto"
       valor={borrador.contacto_id}
-      placeholder={borrador.contacto_nombre_dicho ? `Dijiste "${borrador.contacto_nombre_dicho}"` : 'Sin contacto'}
-      textoNinguno="Sin contacto"
+      placeholder={borrador.contacto_nombre_dicho ? `Dijiste "${borrador.contacto_nombre_dicho}"` : 'Elige el contacto'}
       opciones={contactosParaBorrador(borrador, catalogo).map(contacto => ({
         id: contacto.id,
         titulo: contacto.nombre,
@@ -379,7 +381,8 @@ export function TarjetaBorrador(props: Props) {
       }))}
       alElegir={id => props.alCambiar({ contacto_id: id })}
       error={error('contacto_id')}
-      vacio="Esta cuenta no tiene contactos en OpMap."
+      vacio="Esta cuenta aún no tiene contactos en OpMap: créalo con su teléfono o correo."
+      extra={<Boton titulo="¿No está? Nuevo contacto" variante="texto" alPresionar={props.alCrearContacto} />}
     />
   ) : null
 
