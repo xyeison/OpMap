@@ -105,13 +105,13 @@ export function pareceCorreo(texto: string): boolean {
 export function tituloRol(role: string | null | undefined): string {
   const titulos: Record<string, string> = {
     admin: 'Administrador',
-    sales_manager: 'Ventas',
+    sales_manager: 'Ejecutivo comercial',
     contract_manager: 'Contratos',
     data_manager: 'Datos',
     viewer: 'Visualizador',
     user: 'Usuario',
-    line_leader: 'Líder de línea',
-    commercial_director: 'Dirección comercial',
+    line_leader: 'Líder de negocio',
+    commercial_director: 'Director comercial',
     hr: 'Recursos humanos',
   }
   return (role && titulos[role]) || 'Usuario'

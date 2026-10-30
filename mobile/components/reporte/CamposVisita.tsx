@@ -174,7 +174,7 @@ export function CamposVisita({ valores, lineas, alCambiar, errorDe, dictado, sol
           <Texto negrita>Líneas</Texto>
           {lineas.length === 0 ? (
             <Texto suave peque>
-              No tienes líneas asignadas: pide a tu líder que las revise.
+              No tienes líneas asignadas: pide a la dirección comercial que las revise.
             </Texto>
           ) : (
             <Grupo>

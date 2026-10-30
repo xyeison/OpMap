@@ -19,7 +19,7 @@
 // La línea sale de findAccessibleLine (403 si no la ve); sin ?line= se toma la primera de resolveUserLines; si el usuario
 // no tiene líneas, linea: null y enLinea: null. Quien no ve todas las líneas (map:all-lines) nunca recibe códigos,
 // nombres ni ids de líneas que no ve: las líneas de cada residente y sus líneas permitidas se recortan a las suyas
-// (como /api/map/data). Los residentes sí salen todos: la líder necesita ver quién vive en la Zona para darle su línea.
+// (como /api/map/data). Los residentes sí salen todos: hay que ver quién vive en la Zona para darle una línea.
 // Nada de esta ruta calcula rutas ni consulta Google.
 //
 // Las cifras salen de `cargarDatosZonas` (app/api/kams/_lib/zonas-server.ts), el mismo cargador que usa
@@ -195,8 +195,8 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Acciones: dar/quitar la línea (executives:lines) y ajustes (coverage:edit) solo en una línea que puede editar
-    // (canEditCoverageLine: la líder, la suya); la administración de Zonas con kams:edit.
+    // Acciones: dar/quitar la línea (executives:lines) y ajustes (coverage:edit): desde el 2026-10-29 solo el
+    // administrador y la dirección comercial (la líder ve, no asigna); la administración de Zonas con kams:edit.
     const editable = linea ? await canEditCoverageLine(user, linea.id) : false
     const body = armarRespuesta({ me, linea, inputs, calculada, kamsDetalle, permitidas, cargados, cobertura: { calculadaEn, desactualizada, recalculada }, avisos })
     body.acceso = {

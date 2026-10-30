@@ -530,9 +530,13 @@ async function main() {
 
   print('\nPUT /api/executives/[id]/lineas/[lineId] · permisos')
   {
+    // Desde el 2026-10-29 solo el administrador y la dirección comercial asignan (la líder es de consulta, también en
+    // la línea que lidera): docs/decisiones/2026-10-29-solo-admin-y-direccion-asignan.md
+    const propia = await dar(LIDER_A, BETO, LA)
+    eq('la líder en la línea que lidera: 403 (ya no asigna)', [propia.status, propia.body?.error], [403, 'Acceso denegado'])
     const ajena = await dar(LIDER_A, BETO, LB)
-    eq('la líder en una línea que no lidera: 403', [ajena.status, ajena.body?.error], [403, 'Solo puedes asignar la línea que lideras'])
-    for (const [quien, uid] of [['viewer', VISOR], ['user', USUARIO], ['hr', RRHH], ['sales_manager', VENDEDOR]] as const) {
+    eq('la líder en otra línea: 403', [ajena.status, ajena.body?.error], [403, 'Acceso denegado'])
+    for (const [quien, uid] of [['line_leader', LIDER_B], ['viewer', VISOR], ['user', USUARIO], ['hr', RRHH], ['sales_manager', VENDEDOR]] as const) {
       const r = await dar(uid, BETO, LA)
       check(`${quien}: 403 (sin executives:lines)`, r.status === 403 && r.requests.every(request => request.table === 'users'), { status: r.status, tablas: r.requests.map(request => request.table) })
     }
@@ -541,33 +545,33 @@ async function main() {
     eq('nada escrito todavía', fake.writes().length, 0)
   }
 
-  print('\nPUT · darle Sustitutos óseos a Beto (vive en Neiva)')
+  print('\nPUT · la dirección le da Sustitutos óseos a Beto (vive en Neiva)')
   {
-    const r = await dar(LIDER_A, BETO, LA)
+    const r = await dar(DIRECTORA, BETO, LA)
     const body = r.body as LineaEjecutivoResponse
     check('200', r.status === 200, r.body)
     eq('respuesta: ejecutivo con sus líneas por código, 0 médicos, cobertura recalculada', body, { ejecutivo: { id: BETO, nombre: 'Beto Pérez', status: 'active', lineas: ['sustitutos'] }, medicosTerminados: 0, cobertura: { recalculada: true } })
     eq('escribe la fila y recalcula la cobertura (upsert + limpieza), nada más', escrituras(r.requests), ['POST executive_lines', 'POST coverage', 'DELETE coverage'])
     eq('la cobertura guardada ya refleja el cambio: Neiva en conflicto; Garzón de Beto por alcance', [celdaGuardada(LA, NEI)?.kind, celdaGuardada(LA, GAR)?.kind, celdaGuardada(LA, GAR)?.executive_id, fake.tablas.coverage.length], ['conflict', 'reach', BETO, 6])
 
-    const otraVez = await dar(LIDER_A, BETO, LA)
+    const otraVez = await dar(DIRECTORA, BETO, LA)
     eq('repetir es idempotente: 200, una sola fila, sin volver a insertar', [otraVez.status, filasLinea(BETO, LA), escrituras(otraVez.requests).includes('POST executive_lines')], [200, 1, false])
   }
 
   print('\nPUT · validaciones')
   {
-    const inactivo = await dar(LIDER_A, LUIS, LA)
+    const inactivo = await dar(DIRECTORA, LUIS, LA)
     eq('ejecutivo inactivo: 400', [inactivo.status, inactivo.body?.error], [400, 'El Ejecutivo Comercial está inactivo: ya no está'])
-    const sinZona = await dar(LIDER_A, CARLA, LA)
+    const sinZona = await dar(DIRECTORA, CARLA, LA)
     eq('sin zona base: 400', [sinZona.status, sinZona.body?.error], [400, 'El Ejecutivo Comercial no tiene zona base'])
-    const nadie = await dar(LIDER_A, E_NADIE, LA)
+    const nadie = await dar(DIRECTORA, E_NADIE, LA)
     check('ejecutivo que no existe: 404', nadie.status === 404, nadie.body)
     const lineaInactiva = await dar(ADMIN, BETO, LX)
     eq('línea inactiva: 400', [lineaInactiva.status, lineaInactiva.body?.error], [400, 'La línea está inactiva'])
     const lineaNadie = await dar(ADMIN, BETO, L_NADIE)
     check('línea que no existe: 404', lineaNadie.status === 404, lineaNadie.body)
     const lineaInactivaLider = await dar(LIDER_A, BETO, LX)
-    check('la líder en la línea inactiva (no la lidera): 403', lineaInactivaLider.status === 403, lineaInactivaLider.body)
+    check('la líder en la línea inactiva: 403', lineaInactivaLider.status === 403, lineaInactivaLider.body)
     const idMalo = await dar(ADMIN, 'beto', LA)
     const lineaMala = await dar(ADMIN, BETO, 'sustitutos')
     eq('ids que no son UUID: 400', [idMalo.status, lineaMala.status], [400, 400])
@@ -576,7 +580,7 @@ async function main() {
 
   print('\nPUT · líneas permitidas por la dirección')
   {
-    const r = await dar(LIDER_A, ANA, LA)
+    const r = await dar(DIRECTORA, ANA, LA)
     eq('Ana está limitada a Reemplazo articular: 409 con el mensaje y lineasPermitidas por código', [r.status, r.body?.error, r.body?.lineasPermitidas], [
       409, 'La dirección limitó a Ana Ruiz a: Reemplazo articular', ['reemplazo'],
     ])
@@ -589,9 +593,11 @@ async function main() {
 
   print('\nDELETE /api/executives/[id]/lineas/[lineId] · quitarle Sustitutos óseos a Sofía')
   {
+    const lider = await quitar(LIDER_A, SOFIA, LA)
+    check('la líder, aunque sea su línea: 403 (ya no quita líneas)', lider.status === 403, lider.body)
     const ajena = await quitar(LIDER_B, SOFIA, LA)
     check('la líder de otra línea: 403', ajena.status === 403, ajena.body)
-    const r = await quitar(LIDER_A, SOFIA, LA)
+    const r = await quitar(DIRECTORA, SOFIA, LA)
     const body = r.body as LineaEjecutivoResponse
     check('200', r.status === 200, r.body)
     eq('dos médicos pierden visitante (dos filas del mismo médico cuentan una; la cerrada no cuenta); Sofía queda sin líneas', body, { ejecutivo: { id: SOFIA, nombre: 'Sofía Gómez', status: 'active', lineas: [] }, medicosTerminados: 2, cobertura: { recalculada: true } })
@@ -600,7 +606,7 @@ async function main() {
       ['mv-1', 'cerrado'], ['mv-2', 'cerrado'], ['mv-3', 'cerrado'], ['mv-4', 'cerrado'], ['mv-5', null],
     ])
     eq('la cobertura guardada: Pitalito pasa a Beto por alcance (empate a 150 con la vacante, orden alfabético)', [celdaGuardada(LA, PIT)?.kind, celdaGuardada(LA, PIT)?.executive_id], ['reach', BETO])
-    const otraVez = await quitar(LIDER_A, SOFIA, LA)
+    const otraVez = await quitar(DIRECTORA, SOFIA, LA)
     eq('repetir: 200 y 0 médicos (ya no llevaba la línea)', [otraVez.status, (otraVez.body as LineaEjecutivoResponse).medicosTerminados], [200, 0])
     const inactivo = await quitar(ADMIN, LUIS, LA)
     check('quitarle a un inactivo: 400', inactivo.status === 400, inactivo.body)
@@ -620,7 +626,7 @@ async function main() {
   print('\nPermisos y Google')
   {
     const conPermiso = (Object.keys(rolePermissions) as Role[]).filter(role => rolePermissions[role].includes('executives:lines')).sort()
-    eq('executives:lines lo tienen exactamente admin, commercial_director y line_leader', conPermiso, ['admin', 'commercial_director', 'line_leader'])
+    eq('executives:lines lo tienen exactamente admin y commercial_director (desde el 2026-10-29)', conPermiso, ['admin', 'commercial_director'])
     const rutas = [
       'app/api/kams/zonas/route.ts',
       'app/api/kams/[id]/estadisticas/route.ts',

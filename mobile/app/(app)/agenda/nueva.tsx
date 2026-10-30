@@ -420,7 +420,7 @@ function NuevaCita({ fechaPedida, horaPedida, pedido }: { fechaPedida?: string; 
         <Subtitulo>¿Con quién?</Subtitulo>
         {avisoPedido ? <Aviso tono="alerta">{avisoPedido}</Aviso> : null}
         {perfil.length === 0 ? (
-          <Aviso tono="alerta">Tu perfil no incluye visitas médicas ni institucionales. Pide a tu líder que lo revise.</Aviso>
+          <Aviso tono="alerta">Tu perfil no incluye visitas médicas ni institucionales. Pide a la dirección comercial que lo revise.</Aviso>
         ) : perfil.length > 1 ? (
           <Grupo>
             {(['medica', 'institucional'] as TipoVisita[])

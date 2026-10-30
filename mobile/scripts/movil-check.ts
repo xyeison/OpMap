@@ -682,7 +682,7 @@ async function main() {
     check('detalleModalidad', detalleModalidad({ modalidad: 'presencial', medio: null, distance_m: 120 }, textoDistancia) === 'Presencial · 120\u00a0m' && detalleModalidad({ modalidad: 'telefonica', medio: 'videollamada', distance_m: null }, textoDistancia) === 'Telefónica · Videollamada')
     check('plural', plural(1, 'visita') === '1 visita' && plural(3, 'visita') === '3 visitas' && plural(2, 'no efectiva', 'no efectivas') === '2 no efectivas')
     check('pareceCorreo', pareceCorreo(' ana@vg.co ') && !pareceCorreo('ana@') && !pareceCorreo('ana vg.co'))
-    check('tituloRol como la web', tituloRol('sales_manager') === 'Ventas' && tituloRol('commercial_director') === 'Dirección comercial' && tituloRol(null) === 'Usuario')
+    check('tituloRol como la web', tituloRol('sales_manager') === 'Ejecutivo comercial' && tituloRol('line_leader') === 'Líder de negocio' && tituloRol('commercial_director') === 'Director comercial' && tituloRol(null) === 'Usuario')
   }
 
 
@@ -822,8 +822,8 @@ async function main() {
     const ajeno = validarBorrador(tarjetaAjeno, conAjeno, entrada())
     check('médico del que no es su visitante: la tarjeta se confirma igual (suma) y queda fuera de su territorio', ajeno.ok && ajeno.fuera_de_territorio, ajeno)
     check(
-      'y la tarjeta le dice cómo pedir ser su visitante (a su líder); con su propio médico o sin médico, ningún aviso',
-      avisoVisitante(buscado) === AVISO_NO_VISITANTE && AVISO_NO_VISITANTE.includes('suma igual') && AVISO_NO_VISITANTE.includes('Pide a tu líder que te asigne como su visitante') &&
+      'y la tarjeta le dice cómo pedir ser su visitante (a la dirección comercial); con su propio médico o sin médico, ningún aviso',
+      avisoVisitante(buscado) === AVISO_NO_VISITANTE && AVISO_NO_VISITANTE.includes('suma igual') && AVISO_NO_VISITANTE.includes('Pide a la dirección comercial que te asigne como su visitante') &&
         avisoVisitante(catalogo.medicos.find(m => m.id === M1)) === null && avisoVisitante(null) === null
     )
 

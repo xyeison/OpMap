@@ -635,8 +635,8 @@ console.log('11. Usuario y excepciones (decisiones 8 y 9)')
   const bajaPedida = input({ destino: { tipo: 'vacante' }, dar_de_baja: true, desactivar_usuario: true })
   for (const [rol, titulo] of [
     ['admin', 'Administrador'],
-    ['line_leader', 'Líder de línea'],
-    ['commercial_director', 'Dirección comercial'],
+    ['line_leader', 'Líder de negocio'],
+    ['commercial_director', 'Director comercial'],
   ]) {
     const conRol = planear(datos(bajaPedida, { usuarios: [{ id: U_A, role: rol, active: true }] }))
     check(

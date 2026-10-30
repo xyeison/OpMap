@@ -1016,7 +1016,7 @@ export function planearTraspaso(datos: DatosTraspaso): VistaPreviaTraspaso {
             nivel: 'atencion',
             mensaje: `En ${destino.base_kam_name} ya ${otros.length === 1 ? 'vive' : 'viven'} ${unirNombres(
               otros.map(otra => otra.full_name)
-            )} con ${nombreDeLinea}: con ${nombreDestino} la zona queda en conflicto y el líder de la línea debe repartir`,
+            )} con ${nombreDeLinea}: con ${nombreDestino} la zona queda en conflicto y la dirección comercial debe repartirla`,
             line_id: lineId,
             kam_id: zonaDestino,
           })

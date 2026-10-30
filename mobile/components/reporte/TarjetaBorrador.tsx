@@ -199,7 +199,7 @@ export function TarjetaBorrador(props: Props) {
     <View style={{ gap: 6 }}>
       <Texto negrita>Tipo de visita</Texto>
       {tiposPerfil.length === 0 ? (
-        <Aviso tono="alerta">Tu perfil no incluye visitas médicas ni institucionales. Pide a tu líder que lo revise.</Aviso>
+        <Aviso tono="alerta">Tu perfil no incluye visitas médicas ni institucionales. Pide a la dirección comercial que lo revise.</Aviso>
       ) : (
         <Grupo>
           {tiposPerfil.map(tipo => (

@@ -254,7 +254,7 @@ export default function Hoy() {
 
       {sinEjecutiva ? (
         <Aviso tono="peligro" titulo="Tu usuario no está enlazado con un Ejecutivo Comercial">
-          Pide a tu líder o a quien administra OpMap que enlace tu usuario para poder reportar visitas.
+          Pide a quien administra OpMap que enlace tu usuario para poder reportar visitas.
         </Aviso>
       ) : null}
       {sinConfirmar ? (

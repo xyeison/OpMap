@@ -80,11 +80,11 @@ export const AVISO_EN_COLA = 'Sin señal: quedó guardada en el teléfono y se e
 /**
  * Aviso de la tarjeta cuando ella NO es visitante del médico (contrato, reglas del dueño): la visita suma igual a su
  * meta, queda marcada out_of_territory y la app le ofrece "pedir ser su visitante". En F3 queda la marca y la
- * asignación la hace quien tiene visitantes:manage (su líder de línea o dirección), así que el aviso le dice a quién
- * pedirlo; dejar la solicitud registrada en OpMap (botón y lista para el líder) es de F5.
+ * asignación la hace quien tiene visitantes:manage (el administrador o la dirección comercial, dueño 2026-10-29), así
+ * que el aviso le dice a quién pedirlo; dejar la solicitud registrada en OpMap (botón y lista) es de F5.
  */
 export const AVISO_NO_VISITANTE =
-  'No eres su visitante: la visita suma igual y queda marcada "fuera de tu territorio". Pide a tu líder que te asigne como su visitante.'
+  'No eres su visitante: la visita suma igual y queda marcada "fuera de tu territorio". Pide a la dirección comercial que te asigne como su visitante.'
 
 /** El aviso de arriba si ella no es visitante de ese médico; null si lo es o si aún no eligió médico. */
 export function avisoVisitante(medico: Pick<MedicoOpcion, 'propio'> | null | undefined): string | null {

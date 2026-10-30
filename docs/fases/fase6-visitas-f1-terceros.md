@@ -66,7 +66,7 @@ REFERENCES users(id) ON DELETE SET NULL` donde aplique.
 | `terceros:view` | Ver cuentas, sedes, médicos (sin documento), contactos | admin, commercial_director, line_leader, sales_manager, data_manager, viewer |
 | `terceros:create` | Crear cuentas, sedes, médicos y contactos | admin, commercial_director, line_leader, sales_manager, data_manager |
 | `terceros:manage` | Editar o desactivar cualquiera, ver documentos, confirmar sedes, marcar cliente y modalidad | admin, commercial_director, data_manager |
-| `visitantes:manage` | Asignar y terminar visitantes de un médico | admin, commercial_director, line_leader (solo líneas donde `business_lines.leader_user_id` = ella) |
+| `visitantes:manage` | Asignar y terminar visitantes de un médico | admin, commercial_director (la líder de negocio, de consulta desde el 2026-10-29) |
 
 Menú: "Terceros" → `/terceros` para `terceros:view`.
 
@@ -107,7 +107,7 @@ Menú: "Terceros" → `/terceros` para `terceros:view`.
 | `GET /api/terceros/medicos/[id]` | terceros:view | detalle (documento solo con terceros:manage) |
 | `PATCH /api/terceros/medicos/[id]` | terceros:manage | edita datos (no permite quitar el documento) |
 | `POST /api/terceros/medicos/[id]/sedes` · `DELETE /api/terceros/medicos/[id]/sedes?sede_id=` | terceros:create · terceros:manage | vincula / desvincula; no deja al médico sin sede (400) |
-| `POST /api/terceros/medicos/[id]/visitantes` | visitantes:manage | `{ executive_id, line_id, municipality_id? }`; line_leader solo sus líneas (403); la ejecutiva debe llevar esa línea (`executive_lines`) |
+| `POST /api/terceros/medicos/[id]/visitantes` | visitantes:manage | `{ executive_id, line_id, municipality_id? }`; la líder de negocio recibe 403 (de consulta desde el 2026-10-29); la ejecutiva debe llevar esa línea (`executive_lines`) |
 | `PATCH /api/terceros/medicos/[id]/visitantes/[visitanteId]` | visitantes:manage | `{ hasta }` termina la asignación (nunca se borra) |
 | `POST /api/terceros/contactos` · `PATCH /api/terceros/contactos/[id]` | terceros:create · terceros:manage | `rol` por defecto `rolDesdeCargo(cargo_texto)` |
 | `GET /api/terceros/subtipos` | terceros:view | subtipos vigentes |
