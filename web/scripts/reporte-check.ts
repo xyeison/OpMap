@@ -132,6 +132,7 @@ import {
   type PropuestaCruda,
   type VisitaCreate,
   type VisitaDeHoy,
+  MENSAJE_CONTACTO_OBLIGATORIO,
 } from '../lib/reporte-visitas'
 import { MENSAJE_CANCELAR_SIN_MOTIVO, MENSAJE_CITA_CERRADA } from '../lib/agenda-ciclo'
 import { MENSAJE_CITA_OTRO_PAPEL } from '../lib/persona-campo'
@@ -488,7 +489,13 @@ seccion('4. validarVisita')
   check('institucional sin subtipo_id: lo frena el esquema', !visitaCreateSchema.safeParse(cuerpoInstitucional({ subtipo_id: undefined })).success)
   const contactoAjeno = validar(parsear(cuerpoInstitucional()), { contexto: { contacto: { id: CONT1, cuenta_id: CUENTA2 } } })
   check('contacto de otra cuenta: rechazada', !contactoAjeno.ok && mensajes(contactoAjeno).includes(MENSAJE_CONTACTO_OTRA_CUENTA))
-  check('institucional sin contacto: ok', validar(parsear(cuerpoInstitucional({ contacto_id: null })), { contexto: { contacto: null } }).ok)
+  const sinContacto = visitaCreateSchema.safeParse(cuerpoInstitucional({ contacto_id: null }))
+  check(
+    'institucional sin contacto: lo frena el esquema en contacto_id (dueño, 2026-10-30)',
+    !sinContacto.success && sinContacto.error.issues.some(issue => issue.path.join('.') === 'contacto_id' && issue.message === MENSAJE_CONTACTO_OBLIGATORIO),
+    sinContacto.success ? null : sinContacto.error.issues
+  )
+  check('la médica no pide contacto', visitaCreateSchema.safeParse(cuerpoMedica({ contacto_id: null })).success)
   const sedeAjena = validar(parsear(cuerpoInstitucional({ cuenta_id: CUENTA2 })))
   check('sede que no es de la cuenta: rechazada', !sedeAjena.ok && mensajes(sedeAjena).includes(MENSAJE_SEDE_NO_DE_LA_CUENTA))
 

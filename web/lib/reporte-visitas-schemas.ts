@@ -34,6 +34,7 @@ import {
   type VisitaCreate,
   type VisitaCreateBase,
   type VisitaUpdate,
+  MENSAJE_CONTACTO_OBLIGATORIO,
 } from './reporte-visitas'
 import { VALORES_MEDIO_TELEFONICA, VALORES_TIPO_VISITA, diasEntre, esFechaIso, esMesIso } from './visits-rules'
 import { MENSAJE_COMO_NO_VALIDO, VALORES_COMO } from './persona-campo'
@@ -231,6 +232,8 @@ function revisarVisita(datos: VisitaPlana, ctx: z.RefinementCtx) {
   } else {
     if (!datos.cuenta_id) falla('cuenta_id', 'Elige la cuenta')
     if (!datos.subtipo_id) falla('subtipo_id', 'Elige el subtipo de la visita institucional')
+    // Dueño, 2026-10-30: con quién fue la visita (un contacto de la cuenta, con teléfono o correo)
+    if (!datos.contacto_id) falla('contacto_id', MENSAJE_CONTACTO_OBLIGATORIO)
   }
   if (datos.modalidad === 'presencial') {
     if (datos.lat === null && datos.lng === null) falla('lat', 'La ubicación del teléfono es obligatoria en una visita presencial')
@@ -289,8 +292,8 @@ function normalizarVisita(datos: VisitaPlana): VisitaCreate {
 }
 
 /**
- * POST /api/me/visitas. Tipo discriminado (médica: medico_id; institucional: cuenta_id y subtipo_id, contacto
- * opcional), modalidad discriminada (presencial: lat y lng; telefónica: medio), lineas 1..10 sin repetir, textos
+ * POST /api/me/visitas. Tipo discriminado (médica: medico_id; institucional: cuenta_id, subtipo_id y contacto_id, el
+ * contacto obligatorio desde el 2026-10-30), modalidad discriminada (presencial: lat y lng; telefónica: medio), lineas 1..10 sin repetir, textos
  * con tope, instantes ISO con zona. Que el médico, la sede, el subtipo y el contacto existan y crucen, el radio,
  * los topes y el perfil los revisa validarVisita (y la base).
  */

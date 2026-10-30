@@ -134,6 +134,8 @@ export const MENSAJE_SEDE_NO_EXISTE = 'Esa sede no existe'
 /** La sede existe y está activa, pero su cuenta está desactivada (médica e institucional). */
 export const MENSAJE_CUENTA_INACTIVA = 'La cuenta de esa sede está inactiva'
 export const MENSAJE_CONTACTO_INACTIVO = 'Ese contacto está inactivo'
+/** Dueño, 2026-10-30: la visita institucional siempre dice con quién fue (contacto con teléfono o correo). */
+export const MENSAJE_CONTACTO_OBLIGATORIO = 'Elige el contacto de la visita institucional'
 export const MENSAJE_MEDICO_NO_EXISTE = 'Ese médico no existe o está inactivo'
 export const MENSAJE_SEDE_NO_DEL_MEDICO = 'El médico no atiende en esa sede'
 export const MENSAJE_SEDE_NO_DE_LA_CUENTA = 'Esa sede no es de la cuenta elegida'

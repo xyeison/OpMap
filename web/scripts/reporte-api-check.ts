@@ -111,6 +111,7 @@ import {
   mensajeFueraDeRadio,
   mensajePerfil,
   mensajeTopeTelefonicas,
+  MENSAJE_CONTACTO_OBLIGATORIO,
 } from '../lib/reporte-visitas'
 import type * as W from '../lib/reporte-visitas'
 import {
@@ -1215,6 +1216,7 @@ const AYER_ID = '14141414-0000-4000-8000-000000000002'
 const ANULADA_ID = '14141414-0000-4000-8000-000000000003'
 const DOCUMENTO_M1 = '79123456'
 const TELEFONO_K1 = '3001234567'
+const K2 = '13131313-0000-4000-8000-000000000002' // contacto de la Clínica Sur (C2)
 
 const TEL = { lat: 7.119349, lng: -73.122741 } // el teléfono de Ana (Bucaramanga)
 const alNorte = (metros: number) => ({ lat: Math.round((TEL.lat + metros / 111_195.08) * 1e6) / 1e6, lng: TEL.lng })
@@ -1384,7 +1386,10 @@ function datosIniciales(): Tablas {
     medico_visitantes: [{ id: randomUUID(), medico_id: M1, executive_id: EJEC_A, line_id: L1, desde: '2026-01-15', hasta: null }],
     // 0940: el médico que crea una líder es de sus líneas (vacía al empezar)
     medico_lineas: [],
-    contactos: [{ id: K1, cuenta_id: C1, sede_id: S1, nombre: 'Luis Pérez', cargo_texto: 'Jefe de compras', rol: 'compras', telefono: TELEFONO_K1, email: 'luis@clinica.test', activo: true }],
+    contactos: [
+      { id: K1, cuenta_id: C1, sede_id: S1, nombre: 'Luis Pérez', cargo_texto: 'Jefe de compras', rol: 'compras', telefono: TELEFONO_K1, email: 'luis@clinica.test', activo: true },
+      { id: K2, cuenta_id: C2, sede_id: S2, nombre: 'Rosa Díaz', cargo_texto: 'Química farmacéutica', rol: 'quimico_farmaceutico', telefono: '6076543210', email: null, activo: true },
+    ],
     reps_sedes: [
       { codigo_habilitacion: '680010000001', municipio_sede: '68001', nit: '900123456' },
       // Código público de OTRO prestador de Bucaramanga (no es de la Clínica Norte, C1).
@@ -1666,8 +1671,12 @@ async function main() {
       check('sede cercana con su cuenta, IPS (hospital_id) y ubicación confirmada', c.sedes_cerca[0].cuenta_nombre === 'Clínica Norte S.A.' && c.sedes_cerca[0].hospital_id === H1 && c.sedes_cerca[0].ubicacion_confirmada === true)
       const m1 = c.mis_medicos.find(m => m.id === M1)
       check('mis médicos: solo de los que es visitante (M1, no M2), con sus sedes y distancias', c.mis_medicos.length === 1 && !!m1 && m1.sedes[0].id === S1 && m1.sedes[0].distancia_m !== null && m1.sedes.find(s => s.id === S3)?.distancia_m === null && m1.lineas.join() === L1, c.mis_medicos)
-      check('contactos de las cuentas cercanas, sin teléfono ni correo', c.contactos.length === 1 && c.contactos[0].id === K1 && !('telefono' in c.contactos[0]) && !('email' in c.contactos[0]))
-      check('nunca documentos ni teléfonos en la respuesta', !r.texto.includes(DOCUMENTO_M1) && !r.texto.includes(TELEFONO_K1) && !r.texto.includes('3109998877') && !r.texto.includes('TRANSCRIPCION-INTERNA'))
+      check(
+        'contactos de las cuentas cercanas (Clínica Norte y Clínica Sur), sin teléfono ni correo',
+        c.contactos.map(k => k.id).sort().join() === [K1, K2].sort().join() && c.contactos.every(k => !('telefono' in k) && !('email' in k)),
+        c.contactos
+      )
+      check('nunca documentos ni teléfonos en la respuesta', !r.texto.includes(DOCUMENTO_M1) && !r.texto.includes(TELEFONO_K1) && !r.texto.includes('6076543210') && !r.texto.includes('3109998877') && !r.texto.includes('TRANSCRIPCION-INTERNA'))
       check('meta del día: 6 médicas y 1 institucional (martes hábil), nada hecho aún', c.hoy.fecha === HOY && c.hoy.meta.medica === 6 && c.hoy.meta.institucional === 1 && c.hoy.hechas.medicas === 0 && !c.hoy.cuota_dia_ok, c.hoy)
       check('configuración por defecto: radio 500, telefónica no habilitada, tope 1 por médico, perfil completo', c.config.radio_m === 500 && !c.config.telefonica.habilitada && c.config.tope_visitas_medico_dia === 1 && c.config.perfil.join() === 'medica,institucional', c.config)
       check('compromiso vencido: la institucional del 1 de octubre con próxima reunión el 10', c.compromisos_vencidos.length === 1 && c.compromisos_vencidos[0].con === 'Clínica Sur' && c.compromisos_vencidos[0].next_step_date === '2026-10-10', c.compromisos_vencidos)
@@ -1712,10 +1721,20 @@ async function main() {
       cuentaSur.activo = false
       await rechazo(
         'institucional en una cuenta desactivada (sus sedes siguen activas): 400',
-        cuerpoVisita({ tipo: 'institucional', medico_id: null, cuenta_id: C2, sede_id: S2, subtipo_id: SUBTIPO_ID.compras, ...alNorte(800) }),
+        cuerpoVisita({ tipo: 'institucional', medico_id: null, cuenta_id: C2, sede_id: S2, subtipo_id: SUBTIPO_ID.compras, contacto_id: K2, ...alNorte(800) }),
         MENSAJE_CUENTA_INACTIVA
       )
       cuentaSur.activo = true
+      const sinContacto = await pedir(reportarVisita, '/api/me/visitas', {
+        method: 'POST',
+        body: cuerpoVisita({ tipo: 'institucional', medico_id: null, cuenta_id: C1, subtipo_id: SUBTIPO_ID.compras }),
+        portador: true,
+      })
+      check(
+        'institucional sin contacto_id: 400 en contacto_id (dueño, 2026-10-30: siempre con quién fue)',
+        sinContacto.status === 400 && sinContacto.body.errores?.some((e: { campo: string; mensaje: string }) => e.campo === 'contacto_id' && e.mensaje === MENSAJE_CONTACTO_OBLIGATORIO),
+        sinContacto.body
+      )
       const contactoLuis = tablas.contactos.find(c => c.id === K1) as Fila
       contactoLuis.activo = false
       await rechazo(
@@ -1742,7 +1761,7 @@ async function main() {
       check('el mismo client_id otra vez: 201 repetida: true y una sola fila', repetida.status === 201 && repetida.body.repetida === true && repetida.body.visita.id === fila?.id && visitasApp().filter(v => v.client_id === cuerpo.client_id).length === 1, repetida.body)
       const reintentoTarde = await pedir(reportarVisita, '/api/me/visitas', { method: 'POST', body: { ...cuerpo, sede_id: S3 }, portador: true })
       check('reintento con el mismo client_id aunque ya no pasaría las reglas: devuelve la que estaba (no 400)', reintentoTarde.status === 201 && reintentoTarde.body.repetida === true)
-      const ajeno = await pedir(reportarVisita, '/api/me/visitas', { method: 'POST', body: { ...cuerpo, medico_id: null, tipo: 'institucional', cuenta_id: C1, subtipo_id: SUBTIPO_ID.compras }, portador: true, userId: OTRA_ID })
+      const ajeno = await pedir(reportarVisita, '/api/me/visitas', { method: 'POST', body: { ...cuerpo, medico_id: null, tipo: 'institucional', cuenta_id: C1, subtipo_id: SUBTIPO_ID.compras, contacto_id: K1 }, portador: true, userId: OTRA_ID })
       check('el mismo client_id desde otra ejecutiva: 409', ajeno.status === 409, ajeno)
 
       await rechazo('tope por médico: segunda efectiva a la Dra. Gómez hoy → 400', cuerpoVisita(), MENSAJE_TOPE_MEDICO)
@@ -1763,7 +1782,7 @@ async function main() {
       // Berta: solo institucional, telefónica con tope 1.
       // Berta llama desde su casa (a 5 km): el GPS del teléfono NUNCA queda en la visita ni en el mapa de calor.
       const CASA = alNorte(5000)
-      const tel = (extra: Fila = {}) => cuerpoVisita({ tipo: 'institucional', medico_id: null, cuenta_id: C2, sede_id: S2, subtipo_id: SUBTIPO_ID.compras, modalidad: 'telefonica', medio: 'llamada', lat: CASA.lat, lng: CASA.lng, gps_accuracy_m: 9, ...extra })
+      const tel = (extra: Fila = {}) => cuerpoVisita({ tipo: 'institucional', medico_id: null, cuenta_id: C2, sede_id: S2, subtipo_id: SUBTIPO_ID.compras, contacto_id: K2, modalidad: 'telefonica', medio: 'llamada', lat: CASA.lat, lng: CASA.lng, gps_accuracy_m: 9, ...extra })
       const telefonica = await pedir(reportarVisita, '/api/me/visitas', { method: 'POST', body: tel(), portador: true, userId: OTRA_ID })
       const filaTel = porId(telefonica.body?.visita?.id)
       check('telefónica habilitada (Berta): 201, contact_type "Visita virtual", el punto de la sede y sin la precisión del GPS', telefonica.status === 201 && filaTel?.contact_type === 'Visita virtual' && filaTel?.lat === alNorte(800).lat && filaTel?.distance_m === null && filaTel?.gps_accuracy_m === null, telefonica.body)
@@ -1777,7 +1796,7 @@ async function main() {
       await rechazo('telefónica con un medio que no está vigente: 400 "Medio no válido: llamada"', tel({ medio: 'videollamada' }), 'Medio no válido: llamada', OTRA_ID)
       const rpcTel = fake.rpcs.filter(x => x.nombre === 'visitas_registrar').at(-1)
       check('el jsonb de una telefónica no lleva la ubicación ni la precisión del teléfono', rpcTel?.args.p.modalidad === 'telefonica' && rpcTel?.args.p.lat === null && rpcTel?.args.p.lng === null && rpcTel?.args.p.gps_accuracy_m === null, rpcTel?.args.p)
-      const sinCoordenadas = await pedir(reportarVisita, '/api/me/visitas', { method: 'POST', body: tel({ cuenta_id: C1, sede_id: S3 }), portador: true, userId: OTRA_ID })
+      const sinCoordenadas = await pedir(reportarVisita, '/api/me/visitas', { method: 'POST', body: tel({ cuenta_id: C1, sede_id: S3, contacto_id: K1 }), portador: true, userId: OTRA_ID })
       const filaS3 = porId(sinCoordenadas.body?.visita?.id)
       check(
         'telefónica a una sede sin coordenadas, llamando desde la casa: el punto del mapa es el municipio de la sede, nunca el teléfono',
@@ -2410,7 +2429,7 @@ async function main() {
       const presencial = await pedir(reportarVisita, '/api/me/visitas', {
         method: 'POST',
         portador: true,
-        body: cuerpoVisita({ tipo: 'institucional', medico_id: null, cuenta_id: C1, sede_id: sinReps.body.sede.id, subtipo_id: SUBTIPO_ID.compras, lat: TEL.lat, lng: TEL.lng }),
+        body: cuerpoVisita({ tipo: 'institucional', medico_id: null, cuenta_id: C1, sede_id: sinReps.body.sede.id, subtipo_id: SUBTIPO_ID.compras, contacto_id: K1, lat: TEL.lat, lng: TEL.lng }),
       })
       check('la sede recién creada sirve para reportar presencial ahí mismo', presencial.status === 201 && presencial.body.visita.distance_m === 0, presencial.body)
       check(
@@ -2816,7 +2835,7 @@ async function main() {
         const r = await pedir(reportarVisita, '/api/me/visitas', { method: 'POST', body: cuerpo, portador: true })
         check(nombre, r.status === 400 && r.body?.error === mensaje && visitasApp().length === antes, r.body)
       }
-      await rechazoVinculo('agenda_id de otra persona: 400 (23514) y nada guardado', cuerpoVisita({ tipo: 'institucional', medico_id: null, cuenta_id: C2, sede_id: S2, subtipo_id: SUBTIPO_ID.compras, ...alNorte(800), agenda_id: CITA_B }), MENSAJE_CITA_AJENA)
+      await rechazoVinculo('agenda_id de otra persona: 400 (23514) y nada guardado', cuerpoVisita({ tipo: 'institucional', medico_id: null, cuenta_id: C2, sede_id: S2, subtipo_id: SUBTIPO_ID.compras, contacto_id: K2, ...alNorte(800), agenda_id: CITA_B }), MENSAJE_CITA_AJENA)
       await rechazoVinculo('agenda_id que no existe: 400', cuerpoVisita({ medico_id: M5, agenda_id: randomUUID() }), MENSAJE_CITA_AJENA)
       await rechazoVinculo('agenda_id de otro día: 400', cuerpoVisita({ medico_id: M5, agenda_id: CITA_M5_MANANA }), MENSAJE_CITA_OTRO_DIA)
       await rechazoVinculo('agenda_id con otro médico: 400', cuerpoVisita({ medico_id: M5, agenda_id: citaM4.id }), MENSAJE_CITA_OTRO_MEDICO)
