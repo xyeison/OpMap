@@ -1,7 +1,7 @@
 -- =====================================================================================
 -- OpMap · feat/agente-sia-observa (contratos y documentos de SIA Observa) · 0930 — Tablas de SIA, enlaces y bucket
--- Proyecto: norvxqgohddgsdkggqzq · Generado: 2026-10-30 · NO APLICADA TODAVÍA (se aplica solo con OK del dueño y en la
---   misma ventana que el despliegue del código).
+-- Proyecto: norvxqgohddgsdkggqzq · Generado: 2026-10-30 · NO APLICADA TODAVÍA (autorizada por el dueño el 2026-10-30,
+--   "Aplicar y desplegar": se aplica en la misma ventana que el despliegue del PR #50).
 --
 -- Spec: docs/specs/2026-10-29-agente-sia-observa.md (sección 6 "Migración propuesta", ajustada a las convenciones del
 --   repo y a lo visto con SELECT el 2026-10-30; ver "Notas de implementación").
@@ -413,7 +413,8 @@ BEGIN
     INSERT INTO public.contrato_extracciones (sia_contrato_id, documento_ids, modelo, version_prompt, datos)
     SELECT sc_id, array_agg(id), 'modelo-prueba', 'v-prueba', '{}'::jsonb FROM public.contrato_documentos WHERE sia_contrato_id = sc_id;
     -- la reclasificación de SECOP puede borrar una fila cruzada: el DELETE no debe fallar
-    INSERT INTO public.secop_contratos (id) VALUES ('00000000-0000-4000-8000-000000000921');
+    INSERT INTO public.secop_contratos (id, fuente, origen, id_contrato, nit_entidad)
+    VALUES ('00000000-0000-4000-8000-000000000921', 'secop2', 'SECOPII', '__prueba_0930__', nit_p);
     UPDATE public.sia_contratos SET secop_contrato_id = '00000000-0000-4000-8000-000000000921', secop_cruce = 'codigo' WHERE id = sc_id;
     DELETE FROM public.secop_contratos WHERE id = '00000000-0000-4000-8000-000000000921';
     IF EXISTS (SELECT 1 FROM public.sia_contratos WHERE id = sc_id AND secop_contrato_id IS NOT NULL) THEN
