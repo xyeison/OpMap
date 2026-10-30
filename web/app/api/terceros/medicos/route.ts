@@ -14,6 +14,7 @@ import {
   cargarMedicoDetalle,
   errorInterno,
   esViolacionUnica,
+  medicoDeLasLineasDeSuLider,
   medicoPorDocumento,
   mensajeRegla,
   nombreMunicipio,
@@ -91,6 +92,14 @@ export async function POST(request: NextRequest) {
     }
     const id = typeof data === 'string' ? data : null
     if (!id) return jsonError('No se pudo crear el médico', 500)
+
+    // El de una líder queda de sus líneas de líder (0940): lo agenda y lo reporta enseguida. Si falla, el médico ya
+    // quedó: la dirección le asigna el visitante.
+    try {
+      await medicoDeLasLineasDeSuLider(id, user.id)
+    } catch (errorLineas) {
+      console.error('[terceros] no se pudieron guardar las líneas de la líder del médico nuevo:', errorLineas)
+    }
 
     const medico = await cargarMedicoDetalle(id, puedeAdministrar(user))
     return NextResponse.json({ id, medico }, { status: 201 })

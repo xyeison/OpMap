@@ -127,6 +127,7 @@ import {
   personaDeCampo as personaDeCampoPura,
   type LineaCampo,
   type PersonaCampoPura,
+  type LineaPropiaMedico,
   type VisitanteMedico,
 } from '../lib/persona-campo'
 import {
@@ -561,7 +562,7 @@ function fakeSupabase(tablas: Tablas) {
     return mapa
   }
   const medicoEsDeLineas = (medicoId: string, lineas: readonly string[], fecha: string) =>
-    medicoDeLineasPura(medicoId, lineas, store('medico_visitantes') as VisitanteMedico[], lineasEjecutivasActivas(), fecha)
+    medicoDeLineasPura(medicoId, lineas, store('medico_visitantes') as VisitanteMedico[], lineasEjecutivasActivas(), fecha, store('medico_lineas') as LineaPropiaMedico[])
 
   /** Visitas efectivas de la PERSONA (0850: por user_id) ese día, no anuladas, para los topes. */
   const deHoy = (user: string, fecha: string, extra: (v: Fila) => boolean, excluir?: string) =>
@@ -1099,6 +1100,14 @@ function fakeSupabase(tablas: Tablas) {
         agenda_otra_fecha: agendaOtraFecha,
         // Importador de VMO: ninguna IPS a menos de 5 km en estas pruebas.
         find_nearest_hospital: () => json(null),
+        // Médico completo (0800, mínimo para estas pruebas): el médico y sus sedes juntos; devuelve su id.
+        terceros_crear_medico: a => {
+          const p = a.p_medico as Fila
+          const id = randomUUID()
+          store('medicos').push({ id, tipo_documento: p.tipo_documento, numero_documento: p.numero_documento, nombre: p.nombre, especialidades: p.especialidades, municipality_id: p.municipality_id, telefono: p.telefono ?? null, email: p.email ?? null, activo: true, created_by: a.p_user })
+          for (const sede of a.p_sedes as Fila[]) store('medico_sedes').push({ medico_id: id, sede_id: sede.sede_id, rol: sede.rol, principal: Boolean(sede.principal) })
+          return json(id)
+        },
       }
       const funcion = funciones[nombre]
       if (!funcion) throw new Error(`Supabase falso: función no soportada ${nombre}`)
@@ -1373,6 +1382,8 @@ function datosIniciales(): Tablas {
       { medico_id: M2, sede_id: S1, rol: 'atiende', principal: true },
     ],
     medico_visitantes: [{ id: randomUUID(), medico_id: M1, executive_id: EJEC_A, line_id: L1, desde: '2026-01-15', hasta: null }],
+    // 0940: el médico que crea una líder es de sus líneas (vacía al empezar)
+    medico_lineas: [],
     contactos: [{ id: K1, cuenta_id: C1, sede_id: S1, nombre: 'Luis Pérez', cargo_texto: 'Jefe de compras', rol: 'compras', telefono: TELEFONO_K1, email: 'luis@clinica.test', activo: true }],
     reps_sedes: [
       { codigo_habilitacion: '680010000001', municipio_sede: '68001', nit: '900123456' },
@@ -3335,6 +3346,21 @@ async function main() {
           meCruce.body?.persona === null && meCruce.body?.sin_persona === MENSAJE_EJECUTIVO_EN_VMO && meSinCruce.body?.persona?.rol === 'lider' && meSinCruce.body.persona.lineas.map((l: W.LineaPersona) => l.id).join() === L_TRA,
           { cruce: meCruce.body, sinCruce: meSinCruce.body?.persona }
         )
+
+        // 0940 (dueño, 2026-10-30): el médico que crea una líder es de sus líneas desde ya: lo agenda enseguida
+        const nuevoDeLucia = await pedir(crearMedico, '/api/terceros/medicos', { method: 'POST', portador: true, userId: LIDER_ID, body: { tipo_documento: 'CC', numero_documento: '1098765432', nombre: 'Dra. Nueva Deportiva', especialidades: ['ortopedia'], municipality_id: '68001', sedes: [{ sede_id: S1, rol: 'atiende' }] } })
+        const idNuevo = nuevoDeLucia.body?.id as string
+        check(
+          'la líder crea un médico (sin visitante) → queda de sus líneas de líder (medico_lineas, desde hoy, a su nombre)',
+          nuevoDeLucia.status === 201 && tablas.medico_lineas.some(f => f.medico_id === idNuevo && f.line_id === L_DEP && f.user_id === LIDER_ID && f.desde === HOY) && !tablas.medico_visitantes.some(v => v.medico_id === idNuevo),
+          { status: nuevoDeLucia.status, lineas: tablas.medico_lineas, body: nuevoDeLucia.body }
+        )
+        const ctxLuciaNuevo = await pedir(verContexto, '/api/me/contexto', { portador: true, userId: LIDER_ID })
+        check('mis médicos de la líder ya lo traen (con su línea)', ctxLuciaNuevo.status === 200 && (ctxLuciaNuevo.body.mis_medicos as W.MedicoContexto[]).some(m => m.id === idNuevo && m.lineas.includes(L_DEP)), ctxLuciaNuevo.body?.mis_medicos?.map((m: W.MedicoContexto) => m.id))
+        const citaNuevo = await agendaDe(LIDER_ID, { fecha: '2026-10-16', hora: '11:00', tipo: 'medica', medico_id: idNuevo, sede_id: S1 })
+        check('la líder agenda enseguida al médico que creó (C9) → 201 como líder', citaNuevo.status === 201 && citaNuevo.body.cita.como === 'lider', citaNuevo.body)
+        const nuevoDeAdmin = await pedir(crearMedico, '/api/terceros/medicos', { method: 'POST', userId: ADMIN_ID, body: { tipo_documento: 'CE', numero_documento: 'E77001', nombre: 'Dr. Del Admin', especialidades: ['columna'], municipality_id: '68001', sedes: [{ sede_id: S1, rol: 'atiende' }] } })
+        check('quien no lidera líneas (administrador) crea un médico sin medico_lineas', nuevoDeAdmin.status === 201 && !tablas.medico_lineas.some(f => f.medico_id === nuevoDeAdmin.body.id), nuevoDeAdmin.body)
 
         const [meLuciaSolo, meAdminSolo, meDirectoraSolo] = await Promise.all([meDe(LIDER_ID), meDe(ADMIN_ID), meDe(DIRECTORA_ID)])
         check(
