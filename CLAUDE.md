@@ -139,7 +139,8 @@ nada llama a Google.
   DM Sans. Cada persona elige Claro, Oscuro o Automático (menú de OpMap y Ajustes de la app); se guarda en el navegador o
   el teléfono con la clave `opmap.tema.v1`, nunca en la base, y en el navegador vale para OpMap y `/campo`. El menú lleva
   todas las opciones del rol, en acordeón por grupo. Las páginas aún no rehechas siguen en claro (`<main data-tema="claro">`);
-  la rehecha lleva `data-sigue-tema`. El mapa no cambia.
+  la rehecha lleva `data-sigue-tema`. En el Mapa solo cambia la barra de arriba: su leyenda, filtros y buscador conservan
+  la letra de antes (Inter) hasta que el dueño autorice cambiarlos (`docs/mapa-estetica.md`).
 - **Territorio y contratos**: el anexo de territorio (Anexo A IPS, Anexo B municipios) va al contrato de
   cada Ejecutivo Comercial; las versiones (`territory_snapshots`) son inmutables.
 - **SECOP I** se cuenta por el valor ADJUDICADO a cada contratista desde `f789-7hwg` (`fuente = 'secop1'`); el

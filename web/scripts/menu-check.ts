@@ -29,7 +29,7 @@ import {
   seccionesConfiguracion,
   type Role,
 } from '../lib/permissions'
-import { alternarGrupo, gruposAbiertosAlEntrar } from '../lib/menu-acordeon'
+import { alternarGrupo, gruposAbiertosAlEntrar, opcionDeLaPagina } from '../lib/menu-acordeon'
 
 let passed = 0
 let failed = 0
@@ -359,12 +359,27 @@ console.log('9. El armazón con el diseño de la app: menú en acordeón y tema 
   eq('gruposAbiertosAlEntrar: sin opción abierta, ninguno', gruposAbiertosAlEntrar(seccionesAdmin, null), [])
   eq('alternarGrupo abre el que estaba cerrado', alternarGrupo(['Empleados'], 'Terceros'), ['Empleados', 'Terceros'])
   eq('alternarGrupo cierra el que estaba abierto y deja los demás', alternarGrupo(['Terceros', 'Empleados'], 'Terceros'), ['Empleados'])
+  // Revisión final: en las subpáginas (la ficha de una IPS, /contracts/detectados…) el grupo de su opción sigue abierto
+  eq('opcionDeLaPagina: en la ficha de una IPS (/hospitals/123), IPS', opcionDeLaPagina(menuAdmin, '/hospitals/123', ''), '/hospitals')
+  eq('opcionDeLaPagina: en /contracts/detectados, Contratos', opcionDeLaPagina(menuAdmin, '/contracts/detectados', ''), '/contracts')
+  eq('opcionDeLaPagina: en /visits/coverage, Visita VMO', opcionDeLaPagina(menuAdmin, '/visits/coverage', ''), '/visits')
+  eq('opcionDeLaPagina: la opción exacta manda (/inteligencia?tab=secop, Compras públicas)', opcionDeLaPagina(menuAdmin, '/inteligencia', '?tab=secop'), '/inteligencia?tab=secop')
+  eq('opcionDeLaPagina: solo por tramos de la ruta (/hospitalsx no es IPS)', opcionDeLaPagina(menuAdmin, '/hospitalsx', ''), null)
+  eq('opcionDeLaPagina: fuera del menú, ninguna', opcionDeLaPagina(menuAdmin, '/perfil', ''), null)
+  eq('gruposAbiertosAlEntrar: en la ficha de una IPS se abre Terceros', gruposAbiertosAlEntrar(seccionesAdmin, opcionDeLaPagina(menuAdmin, '/hospitals/123', '')), ['Terceros'])
+  eq('gruposAbiertosAlEntrar: en /contracts/detectados se abre Inteligencia de Mercado', gruposAbiertosAlEntrar(seccionesAdmin, opcionDeLaPagina(menuAdmin, '/contracts/detectados', '')), ['Inteligencia de Mercado'])
+  eq('gruposAbiertosAlEntrar: en /visits/coverage se abre Configuración', gruposAbiertosAlEntrar(seccionesAdmin, opcionDeLaPagina(menuAdmin, '/visits/coverage', '')), ['Configuración'])
   const layoutWeb = readFileSync(path.join(__dirname, '..', 'app', 'layout.tsx'), 'utf8')
   check(
     'cada título de grupo es un botón con aria-expanded y aria-controls que lo abre o lo cierra (alternarGrupo)',
     /<button[\s\S]{0,400}aria-expanded=\{abierto\}[\s\S]{0,120}aria-controls=\{listaId\}/.test(navegacion) && /alternarGrupo\(/.test(navegacion) && /hidden=\{!abierto\}/.test(navegacion)
   )
-  check('al entrar, abierto el grupo de la página abierta (gruposAbiertosAlEntrar)', /gruposAbiertosAlEntrar\(secciones, activa\)/.test(navegacion))
+  check(
+    'al entrar, abierto el grupo de la página abierta, también en sus subpáginas (opcionDeLaPagina); su nombre, en la barra del celular',
+    /const pagina = opcionDeLaPagina\(menuItems, pathname, busqueda\)/.test(navegacion) &&
+      /gruposAbiertosAlEntrar\(secciones, pagina\)/.test(navegacion) && !/gruposAbiertosAlEntrar\(secciones, activa\)/.test(navegacion) &&
+      /menuItems\.find\(item => item\.href === pagina\)\?\.name/.test(navegacion)
+  )
   check('las opciones sueltas (Agendamiento, Mapa, Calendario, Zonas, Líneas) van fuera de los grupos, siempre a la vista', /if \(!seccion\.grupo\)/.test(navegacion))
   check(
     'el menú es un div role="navigation" (nunca <nav>: globals.css fija todo <nav> y la lista no se desplazaría)',

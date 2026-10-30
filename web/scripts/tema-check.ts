@@ -151,6 +151,15 @@ check('el bloque oscuro de <html> no lleva color-scheme: las páginas no rehecha
 const sinComentarios = (texto: string) => texto.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\{\/\*[\s\S]*?\*\/\}/g, '').replace(/^\s*\/\/.*$/gm, '')
 const ingreso = sinComentarios(leer('app/login/page.tsx'))
 check('el ingreso sigue el tema de la persona: su raíz lleva data-sigue-tema con bg-fondo y text-texto', /<div data-sigue-tema className="[^"]*\bbg-fondo\b[^"]*\btext-texto\b[^"]*"/.test(ingreso))
+// Revisión final: lo de dentro del <Suspense> de useSearchParams no viene en el HTML del servidor (/login se
+// prerenderiza); con el fondo ahí, en oscuro se veía el <main> claro hasta que cargaba el JS
+const paginaIngreso = ingreso.slice(ingreso.indexOf('export default function LoginPage'), ingreso.indexOf('function LoginForm'))
+check(
+  'el fondo del ingreso viene en el HTML del servidor (sin destello blanco en oscuro): data-sigue-tema va en LoginPage, por fuera del <Suspense>',
+  /<div data-sigue-tema[^>]*>\s*<Suspense fallback=\{null\}>\s*<LoginForm \/>\s*<\/Suspense>\s*<\/div>/.test(paginaIngreso) &&
+    !ingreso.slice(ingreso.indexOf('function LoginForm')).includes('data-sigue-tema'),
+  paginaIngreso
+)
 /** Las clases de un elemento: className="…", o className={nombre} con `const nombre = '…'` en el mismo archivo. */
 function clasesDe(elemento: string, archivo: string): string[] {
   const literal = elemento.match(/className="([^"]*)"/)?.[1]
@@ -176,6 +185,15 @@ check(
 check(
   'la lógica del ingreso no cambia: login(email, password) de useUser, el destino seguro (?next=) y el mismo mensaje de error',
   /const success = await login\(email, password\)/.test(ingreso) && /function safeNextPath\(/.test(ingreso) && /router\.push\(nextPath\)/.test(ingreso) && ingreso.includes("setError('Email o contraseña incorrectos')")
+)
+
+console.log('\n8. El Mapa no cambia (revisión final)')
+const mapa = sinComentarios(leer('app/map/page.tsx'))
+check(
+  'el Mapa conserva la letra de antes (Inter, como el layout antes de esta etapa): su leyenda, filtros, buscador y hoja solo cambian si el dueño lo autoriza (spec)',
+  /import \{ Inter \} from 'next\/font\/google'/.test(mapa) &&
+    /const inter = Inter\(\{ subsets: \['latin'\] \}\)/.test(mapa) &&
+    /className=\{`[^`]*\bopmap-map-page\b[^`]*\$\{inter\.className\}[^`]*`\}/.test(mapa)
 )
 
 console.log(`\n${passed} pruebas bien, ${failed} con falla`)

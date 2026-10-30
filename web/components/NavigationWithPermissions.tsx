@@ -7,7 +7,7 @@ import { useUser } from '@/contexts/UserContext'
 import { usePermissions } from '@/hooks/usePermissions'
 import { useTema } from '@/hooks/useTema'
 import { esAppDeCampo } from '@/lib/app-campo'
-import { alternarGrupo, gruposAbiertosAlEntrar } from '@/lib/menu-acordeon'
+import { alternarGrupo, gruposAbiertosAlEntrar, opcionDeLaPagina } from '@/lib/menu-acordeon'
 import { agruparMenu, getHomeRoute, getRoleTitle, opcionActiva, type NavigationItem } from '@/lib/permissions'
 import type { PreferenciaTema } from '@/lib/tema'
 import { useMapHeaderTitle } from '@/components/mapHeaderStore'
@@ -60,16 +60,18 @@ export default function NavigationWithPermissions() {
   const menuItems: NavigationItem[] = navigationMenu
   const secciones = agruparMenu(menuItems)
   const activa = opcionActiva(menuItems, pathname, busqueda)
+  // La de la página también en sus subpáginas (la ficha de una IPS): abre su grupo y da el nombre de la barra
+  const pagina = opcionDeLaPagina(menuItems, pathname, busqueda)
   const inicio = getHomeRoute(role) ?? '/'
-  const visibles = abiertos ?? gruposAbiertosAlEntrar(secciones, activa)
+  const visibles = abiertos ?? gruposAbiertosAlEntrar(secciones, pagina)
   // Al llegar a una página de un grupo cerrado (por un enlace de la página), su grupo se abre; los demás quedan igual
-  const grupoDeLaPagina = gruposAbiertosAlEntrar(secciones, activa)[0] ?? null
+  const grupoDeLaPagina = gruposAbiertosAlEntrar(secciones, pagina)[0] ?? null
   useEffect(() => {
     if (!grupoDeLaPagina) return
     setAbiertos(antes => (antes === null || antes.includes(grupoDeLaPagina) ? antes : [...antes, grupoDeLaPagina]))
   }, [grupoDeLaPagina])
   // El nombre de la página en la barra del celular (en escritorio lo dice el menú fijo); en el Mapa, la línea
-  const titulo = isMap ? mapTitle : menuItems.find(item => item.href === activa)?.name
+  const titulo = isMap ? mapTitle : menuItems.find(item => item.href === pagina)?.name
 
   if (!user) return null
 
