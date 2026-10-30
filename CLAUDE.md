@@ -95,6 +95,12 @@ nada llama a Google.
   crea, activa si visitó en 60 días; la Zona de la visita sigue a la de la persona); nada del médico sale del navegador;
   reimportar no duplica. Sin `visits:view` cada quien ve solo sus visitas de VMO. Sin IPS por visita. Migración 0910
   (rollback 9956).
+- **SIA Observa** (dueño, 2026-10-29, `docs/decisiones/2026-10-29-sia-observa-contratos-y-documentos.md`, operación en
+  `docs/fases/fase9-sia-observa.md`): SIA corta conexiones fuera de Colombia, así que la descarga corre en el Mac del dueño
+  (`web/scripts/sia-load.ts` con launchd) y Vercel solo lee Supabase (`/api/sia/*`). Solo empresas con objeto de las líneas;
+  de personas naturales nada. Como un ciudadano: una petición a la vez, 1,5 s, nunca el correo de anonimización. Nada entra a
+  `hospital_contracts` sin aprobación humana (importar o "Aplicar" cada diferencia). La lectura con Claude
+  (`scripts/sia-extraer.ts`) cuesta dinero: `--dry-run` antes. Migración 0920 (rollback 9957) NO aplicada.
 - **Territorio y contratos**: el anexo de territorio (Anexo A IPS, Anexo B municipios) va al contrato de
   cada Ejecutivo Comercial; las versiones (`territory_snapshots`) son inmutables.
 - **SECOP I** se cuenta por el valor ADJUDICADO a cada contratista desde `f789-7hwg` (`fuente = 'secop1'`); el
@@ -126,6 +132,7 @@ nada llama a Google.
   `docs/ips-pendientes.md` – cola de pendientes y acción masiva.
 - `docs/fases/fase4-poblacion.md` – población: afiliados BDUA, cifras mensuales de MinSalud y proyecciones
   DANE (estructura real de las fuentes, tablas 0640, alias de municipio, scripts de carga y cifras).
+- `docs/fases/fase9-sia-observa.md` – SIA Observa: carga local, documentos, lectura con IA, importar y bandeja `/contracts/detectados`.
 - `docs/fases/fase5-secop.md` – compras públicas (SECOP): reglas de suma (sin clasificar, fuera de escala,
   SECOP I por valor adjudicado y estimados del Integrado, `compra_publica`), privacidad de médicos (sin
   cédula), API `/api/secop/*` y `/api/fuentes/*`, ficha, /inteligencia ("Compras públicas", "Fuentes de
