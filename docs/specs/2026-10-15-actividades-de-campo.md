@@ -1,8 +1,9 @@
 # Spec: actividades de campo — una sola app para Ejecutivos Comerciales y líderes, y "¿Dónde está mi gente?"  (2026-10-15)
 
 **Estado**: aprobada en su concepción por el dueño el 2026-10-15, con sus respuestas A1–A17
-(`docs/decisiones/2026-10-15-actividades-de-campo.md`). F1a está lista para implementar. No hay código ni migración
-escritos. Queda abierto lo de "Lo que sigue abierto".
+(`docs/decisiones/2026-10-15-actividades-de-campo.md`). F1a escrita (rama `feat/campo-f1a`, PR #48; la 0850 sin aplicar).
+F1b escrita en la rama `feat/campo-f1b` (sin migración): faltan las capturas y la prueba en el iPhone del dueño (ver
+"F1b"). Queda abierto lo de "Lo que sigue abierto".
 
 **Fuentes**:
 - Estudio del 2026-10-15, de solo lectura: modelo de datos, Excel de la directora, vista de la directora y tipos de
@@ -946,15 +947,77 @@ Sirve sola: las líderes y Paola usan la app; todos cierran, cancelan con motivo
 - Los textos visibles de la tabla.
 
 **Criterios de aceptación**
-- [ ] `mobile/scripts/checks/20-persona.ts`:
+- [x] `mobile/scripts/checks/21-persona.ts` (la 20 ya era `20-estilo.ts`), en `npm run check` de `mobile/` (sección 21,
+      60 pruebas):
   - Hoy no muestra el aviso a una líder; la directora ve el mensaje de la web.
   - Números oculta la cuota sin Ejecutivo Comercial, y Días libres también se oculta.
-  - `errorChoque` da el texto del servidor.
-  - El espejo de estados y motivos es igual al de `web/lib/agenda-ciclo.ts` (la prueba lee los dos archivos).
+  - `errorChoque` da el texto del servidor (lo compara con el `RAISE` de `agenda_crear` en la 0850).
+  - El espejo de estados y motivos es igual al de `web/lib/agenda-ciclo.ts` (la prueba lee los dos archivos y compara
+    también los mensajes, los límites y el código de las reglas del ciclo de vida).
   - Ningún archivo de `mobile/app` contiene "Reportar visita", "Visitas de hoy", "Tipo de visita" ni "Reprogramar".
 - [ ] Capturas a 390×844, con el estilo Uber: Hoy y Ajustes de una líder; Ajustes y Agendar de Paola ("Como"); el
-      detalle de una cita con "No se hizo", Cancelar, Eliminar y "Agendar otra fecha"; el error de choque.
+      detalle de una cita con "No se hizo", Cancelar, Eliminar y "Agendar otra fecha"; el error de choque. (Contra un
+      servidor falso: producción no tiene la 0850.)
 - [ ] Prueba en el iPhone del dueño con Expo Go.
+
+**Hecho (2026-10-29, rama `feat/campo-f1b`)**
+- Tipos y claves de la app iguales a los de la API de F1a (`mobile/lib/tipos.ts`, `mobile/lib/claves-api.ts`): la
+  persona en `/api/auth/me` y en el contexto, `EstadoCita` con los 5 estados, `CitaItem` con lo de la 0850, `cuota: null`,
+  `max_fecha: null`, `citas_no_realizadas`, los cuerpos de cancelar (con código), cerrar y otra fecha. Sin
+  `DIAS_AGENDA_ADELANTE` ni `ventanaCita`. `web/scripts/reporte-api-check.ts` compila los tipos de la app contra los de la
+  web en los dos sentidos y exige que cada respuesta traiga exactamente las claves de la app.
+- Espejo del ciclo de vida: `mobile/lib/agenda-ciclo.ts` (estados, motivos, transiciones, mensajes) más lo de la app:
+  `accionesDeCita`, `cuerpoMotivo` y los textos del detalle.
+- `mobile/lib/persona.ts`: quién entra, papel, cuota y días libres, "como qué" y el papel en Ajustes.
+- `mobile/lib/api.ts`: `cerrarCita`, `eliminarCita`, `otraFechaCita` y `cancelarCita` con código (invalidan el contexto).
+- Sesión: la persona de `/api/auth/me`; el login no la trae, así que se pide en segundo plano al entrar.
+- Pantallas: el layout (la dirección comercial ve el mensaje y "Cerrar sesión", sin pestañas), Hoy ("¿Qué pasó con
+  esto?", sin el aviso de "no enlazado" ni la meta para una líder), Mi agenda y su detalle (el ciclo de vida), Agendar
+  ("¿Qué vas a hacer?", sin tope, "Como" para Paola, el choque como error, otra fecha), Números (sin cuota), Ajustes (el
+  papel), Días libres solo con Ejecutivo Comercial y los textos de la tabla.
+- Una adición mínima a la API (aditiva y probada): `CitaItem.viene_de_fecha` y `viene_de_estado` (ver la decisión C-F1b-3).
+
+**Decisiones de implementación de F1b (Claude; el dueño puede cambiarlas)**
+1. **"¿Qué pasó con esto?" ya en F1b, para las citas** (la lista de F2b lo nombra para las actividades): lo atrasado de
+   hoy y lo sin cerrar de los 31 días anteriores (una consulta a `GET /api/me/agenda` hacia atrás). La cita "de ahora"
+   (de 30 min antes a 60 min después de su hora) sigue en "Siguiente" y no entra; lo que entra no se repite en "Tu agenda
+   de hoy" (cada cita una sola vez en Hoy), pero cuenta en "x de y hechas". Se ven 4 y "Ver todas (n)". "Reportar" solo
+   en lo de hoy (una visita se reporta el mismo día): lo de días anteriores se cierra con "No se hizo". Al cerrar o
+   cancelar queda "Anotado…" con "Agendar otra fecha".
+2. **La dirección comercial se reconoce por su rol** (`commercial_director`, que el login ya trae), no por `persona`: así
+   no depende de una consulta. Ve "La dirección comercial sigue a su equipo en la web (Equipo)" y "Cerrar sesión". Quien
+   el servidor confirma sin líneas sí entra a las pestañas (para poder salir o ver Ajustes) y Hoy le dice "Tu usuario no
+   tiene líneas para reportar"; sin el dato (recién entró, sin señal, un servidor sin la 0850) la app sigue como antes y
+   decide el servidor: nunca deja fuera a nadie por no saber. La persona del contexto, si llegó, manda sobre la del perfil.
+3. **(C-F1b-3) `viene_de_fecha` y `viene_de_estado` en `CitaItem`** (aditivo en `armarCitaItems`: una consulta más, solo
+   con citas que vienen de otra): sin eso el detalle no puede decir "Viene de la cita del 12 oct · No se hizo" cuando la
+   anterior es de otro mes (Mi agenda carga por mes). Si la anterior está hecha, el detalle dice "No efectiva" (solo una
+   visita no efectiva admite otra fecha). Un servidor sin el dato: "Viene de otra cita".
+4. **"Agendar otra fecha" de una cita hecha** se ofrece solo si su visita no fue efectiva: Mi agenda pregunta
+   `GET /api/me/visitas?fecha=` al abrir esa cita (la API de la cita no dice si su visita fue efectiva).
+5. **Agendar otra fecha** usa la misma pantalla de Agendar con el pedido en memoria (nunca ids en la URL): el tipo y el
+   "con quién" quedan fijos (los copia el servidor), se eligen la fecha, la hora, la sede y la nota (trae la de la
+   anterior); Paola puede cambiar "como qué" (por defecto, el de la anterior).
+6. **"Como líder" en Agendar** (C9, C12): ofrece solo los médicos de sus líneas de líder (los demás los rechazaría el
+   servidor), los dos tipos (configuración general) y no apaga los días libres (son del Ejecutivo Comercial hasta F3).
+   Cambiar de papel quita el médico o el tipo que dejan de cuadrar. Las etiquetas: "Como Ejecutiva Comercial" y "Como
+   líder" (las de la spec); en Ajustes, "Ejecutivo Comercial · …".
+7. **Sin tope en Agendar**: al abrir trae de hoy a hoy + 30 (una consulta de 31 días, como antes) y cada mes más adelante
+   al llegar a él (`rangoPorCargar`, sin repetir lo ya traído). Días libres sigue marcando los próximos 31 días.
+8. **El choque es un error** (`errorChoque`, espejo de `agenda_choque` con el texto del servidor): bloquea en la app,
+   como la cita repetida, y va en rojo en el pie. La franja ocupada sigue con su punto en "¿A qué hora?".
+9. **Mi agenda**: la cancelada y la que no se hizo van juntas en "Ver las que no se hicieron (n)", que se abre sola si la
+   cita abierta está ahí (al cerrarla, su detalle sigue a la vista con "Agendar otra fecha"). La pendiente de un día
+   anterior lleva "Sin cerrar"; la de hoy pasada su hora, "Atrasada". La pendiente se llama "Programada" (la etiqueta de
+   la web).
+10. **Hoy de una líder** no muestra "Meta de hoy" (no tiene cuota, C4); **Números** sin cuota muestra "Lo que hiciste"
+    (visitas a médicos, institucionales y no efectivas) y la agenda, con "No se hicieron".
+11. **Textos de la tabla**: "Reportar actividad", "Actividades de hoy", "¿Qué hiciste?" (en la tarjeta de Reportar, con
+    "Visita a médico" y "Visita institucional"), "No agendada", "Repórtalo por toques" (el detalle del botón de Hoy) y
+    "Cancelar" con motivo obligatorio. El prompt de la voz ("asistente de reporte de visitas") y los mensajes del servidor
+    que dicen "Reporta la visita por toques" no se tocaron: son de la API y de la voz (F5).
+12. **Sin la API de F1a** (un servidor anterior), "No se hizo", Eliminar y "Agendar otra fecha" reciben 404 sin `{ error }`
+    y la app dice "Esto todavía no está disponible en el servidor." (el mensaje que ya tenía para un 404).
 
 ### F2a — Actividades de campo: base de datos + API (0860) · L
 
@@ -999,7 +1062,7 @@ La app de F1b sigue igual.
 bandas en Mi agenda y "¿Qué pasó con esto?" en Hoy.
 
 **Criterios de aceptación**
-- [ ] `mobile/scripts/checks/21-actividades.ts`:
+- [ ] `mobile/scripts/checks/22-actividades.ts` (la 21 es la de F1b, `21-persona.ts`):
   - Cada tipo abre su formulario con los campos de la tabla.
   - Correría y congreso muestran "Todo el día" + "Hasta".
   - El espejo de la app da los mismos resultados que el servidor: la prueba compara `REGLAS_TIPO` de los dos.
@@ -1141,7 +1204,7 @@ Sirve sola: lo que dicta la persona se convierte también en cenas, juntas, cong
 - En `web/`: `npm run check`, que corre typecheck, lint y las pruebas sin red. Suman las nuevas `persona-campo-check`,
   `agenda-ciclo-check`, `actividades-check`, `equipo-check` y `equipo-api-check`, y las ajustadas `reporte-check`,
   `reporte-api-check`, `visits-check`, `visits-api-check`, `simulacion-check` y `menu-check`.
-- En `mobile/`: `npm run check`, con las secciones 20 y 21.
+- En `mobile/`: `npm run check`, con las secciones 21 (F1b, `21-persona.ts`) y 22 (F2b).
 - Migraciones: la 0850, la 0860 y la 0870 con su DO en verde, y sus rollbacks 9947, 9946 y 9945, en ese orden,
   ensayados en una base de prueba. En producción, solo con autorización del dueño.
 - Capturas:

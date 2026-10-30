@@ -838,11 +838,28 @@ usuario no tiene líneas para reportar"; 503 "…falta aplicar la migración 085
 
 - `CitaItem` suma (aditivo) `motivo_codigo`, `no_realizada_at`, `no_realizada_motivo`, `viene_de`, `sucesora_id`, `como`
   y `estado_visible` (`programada`, `atrasada`: hoy pasada su hora; `sin_cerrar`: de un día anterior; o su estado
-  cerrado). Nunca documentos ni teléfonos.
-- **Compatibilidad con la app de hoy**: las respuestas solo ganan claves (la prueba compila los tipos de
-  `mobile/lib/tipos.ts` contra los de la web y comprueba que cada respuesta trae todas las claves de
-  `mobile/lib/claves-api.ts`); cancelar con solo el texto sigue funcionando; la app no lee `max_fecha` (prueba estática) y
-  su calendario sigue llegando a hoy + 30. Una líder que abra la app de hoy ya no recibe 403: reporta y agenda.
+  cerrado) y, desde F1b, `viene_de_fecha` y `viene_de_estado` (la fecha y el estado de la cita de la que viene, o null:
+  el detalle de la app dice "Viene de la cita del 12 oct · No se hizo" aunque esa cita sea de otro mes). Nunca
+  documentos ni teléfonos.
+- **Compatibilidad con la app** (actualizada con F1b, 2026-10-29): la app de F1b (rama `feat/campo-f1b`) tipa TODO lo de
+  esta sección —la persona, los 5 estados, el ciclo de vida, `cuota: null`, `max_fecha: null`, `citas_no_realizadas`, los
+  cuerpos de cancelar con código, cerrar, otra fecha y `como`—: `web/scripts/reporte-api-check.ts` compila los tipos de
+  `mobile/lib/tipos.ts` contra los de la web en los dos sentidos (salvo `MeResponse` de la web a la app: el `Role` de la
+  app acepta cualquier texto) y exige que cada respuesta traiga EXACTAMENTE las claves de `mobile/lib/claves-api.ts`. La
+  app sigue sin leer `max_fecha` (prueba estática) y ya no tiene tope: Agendar trae 31 días al abrir y cada mes más
+  adelante al llegar a él. La app de antes de F1b sigue funcionando con esta API: las respuestas solo ganaron claves y
+  cancelar con solo el texto (= `otro`) se sigue aceptando. Lo que esa app vieja ve distinto: el choque y la hora pasada
+  como "No se agendó" con el mensaje del servidor, y una líder ya no recibe 403 (ve "no está enlazado" pero reporta y
+  agenda bien).
+- **La app de F1b** (`mobile/`, sin migración; detalle en la sección "F1b" de la spec): la sesión guarda la persona de
+  `/api/auth/me` (el login no la trae: se pide en segundo plano al entrar); la dirección comercial ve "La dirección
+  comercial sigue a su equipo en la web (Equipo)" sin pestañas; Hoy junta lo atrasado y lo sin cerrar en "¿Qué pasó con
+  esto?" (`GET /api/me/agenda` de los 31 días anteriores) con Reportar, "No se hizo" y Cancelar; el detalle de una cita
+  en Mi agenda tiene Reportar, "No se hizo", Cancelar, "Agendar otra fecha" y "Eliminar: lo agendé por error"; Agendar
+  empieza por "¿Qué vas a hacer?", no tiene tope, ofrece "Como Ejecutiva Comercial" / "Como líder" a quien tiene los dos
+  papeles y trata el choque como error (`errorChoque`, el texto del servidor); sin Ejecutivo Comercial no hay cuota en
+  Números ni Días libres. Espejo del ciclo de vida: `mobile/lib/agenda-ciclo.ts` (la sección 21 de `npm run check` de
+  `mobile/` lo compara con `web/lib/agenda-ciclo.ts`); reglas de la persona: `mobile/lib/persona.ts`.
 - **Mapa de asignación**: `GET /api/visits/filtered`, `/stats` y `/unvisited-zones` dejan fuera las visitas de la app sin
   Ejecutivo Comercial (`FILTRO_MAPA_ASIGNACION` en `web/app/api/visits/_lib/visitas-mapa.ts`); las de VMO siguen.
 
