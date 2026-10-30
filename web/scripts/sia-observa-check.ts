@@ -121,6 +121,16 @@ async function main() {
   const forzada = mapFilaSia(aseo, { ...ctx, idcEnlazados: new Set([idcDeFila(aseo) as number]) })
   check('empresa sin línea ya registrada en Contratos: entra como alcance enlazado', 'row' in forzada && forzada.row.alcance === 'enlazado' && forzada.row.linea === 'no_clasificado')
 
+  {
+    // Get_CTOs_Base REAL de junio de 2026 (sia-smoke.ts --guardar-fixtures): cada contratista viene como '"> NOMBRE'
+    const reales = parseCtosBase(leer('get-ctos-base-orinoquia-2026-06.json')).filas
+    const nombres = reales.map(f => leerContratistas(f.cto_nit_contratistas, f.cto_contratistas, f.cto_tipo_contratistas)[0]?.nombre ?? null)
+    check('Get_CTOs_Base real: 9 filas y ningún nombre con restos de HTML', reales.length === 9 && nombres.every(n => n !== null && !/["<>]/.test(n)), nombres)
+    const r1262 = reales.map(f => mapFilaSia(f, ctx)).find(r => 'row' in r && r.row.sia_idc === 12910254)
+    eq('Get_CTOs_Base real: CD/26-1262 entra con el contratista limpio, el valor y la línea', r1262 && 'row' in r1262 ? [r1262.row.codigo, r1262.row.contratista, r1262.row.tipo_contratista, r1262.row.valor_vigente, r1262.row.linea] : null, ['CD/26-1262', 'FARMAORTOPEDICOS', 'Contratista', 510281732, 'neurocirugia'])
+    eq('Get_CTOs_Base real: solo CD/26-1262 es de las líneas (los demás son servicios, dietas, sangre…)', reales.map(f => mapFilaSia(f, ctx)).filter(r => 'row' in r).length, 1)
+  }
+
   console.log('\n3. Cruce con SECOP (filas reales de secop_contratos)')
   const esperado: Record<string, string> = {
     'CD/26-1262': 'f62d8b5e-0274-4e03-b431-5c10c8864f05',
@@ -170,15 +180,21 @@ async function main() {
   eq('link de documentos previo: se conserva detrás de la ficha', conOtroLink?.propuesto, `${rowDe('CD/25-1111').ficha_url} ; https://drive.google.com/x`)
 
   console.log('\n5. Ficha y documentos')
+  // Ficha REAL (sia-smoke.ts --guardar-fixtures, 2026-10-30): las pólizas se subieron dos veces con el mismo nombre y fecha
   const ficha = parseFicha(leer('ficha-12910254.html'))
-  eq('10 documentos (los 20 enlaces deduplicados por ianx, ianxa)', ficha.documentos.length, 10)
-  eq('tipos de los 10 documentos de CD/26-1262', ficha.documentos.map(d => d.tipo), ['cdp', 'rp', 'estudio_previo', 'estudio_previo', 'estudio_previo', 'poliza', 'poliza', 'contrato', 'designacion_supervisor', 'acta_inicio'])
+  eq('ficha real: 10 documentos (12 enlaces distintos; las 2 pólizas repetidas quedan una vez, con la subida más reciente)', [ficha.documentos.length, ficha.documentos.filter(d => d.tipo === 'poliza').map(d => d.ianxa)], [10, [153389741, 153389892]])
+  eq('ficha real: tipos de los 10 documentos de CD/26-1262', ficha.documentos.map(d => d.tipo), ['cdp', 'rp', 'estudio_previo', 'estudio_previo', 'estudio_previo', 'poliza', 'poliza', 'acta_inicio', 'contrato', 'designacion_supervisor'])
   eq('los que se copian al bucket: 3 del estudio previo y el contrato', ficha.documentos.filter(d => TIPOS_CLAVE.includes(d.tipo)).map(d => d.nombre), ['ep_110_compressed_18.pdf', 'ep_1121_compressed_14.pdf', 'ep_2225_compressed.pdf', '13_contrato_1262_compressed.pdf'])
   check('URL absoluta del handler con eid de la entidad y fecha de cargue', ficha.documentos.every(d => d.url.startsWith('https://siaobserva.auditoria.gov.co/handlers/filehandler_guess_anonimo.ashx?ianx=') && d.eid === ORINOQUIA_GUID && d.fechaCargue === '2026-07-09'))
-  eq('publicación en SECOP 2026-06-23 con su enlace; cargue en SIA 2026-07-09', [ficha.fechaPublicacionSecop, ficha.urlSecop?.startsWith('https://community.secop.gov.co/'), ficha.fechaCargueSia], ['2026-06-23', true, '2026-07-09'])
-  eq('información básica de la ficha', [ficha.basica.codigo, ficha.basica.valorVigente, ficha.basica.modalidad, ficha.basica.procedimiento, ficha.basica.tipoContrato, ficha.basica.fechaInicio], ['CD/26-1262', 510281732, 'SIN OFERTAS', 'Manual de contratación', 'Suministro', '2026-07-02'])
-  eq('contratistas: solo la empresa', ficha.contratistas.map(c => c.nit), ['901386177'])
-  const guardable = JSON.stringify(fichaParaGuardar(ficha))
+  eq('ficha real: publicación en SECOP 2026-06-23 (columna FECHA) con su enlace; cargue en SIA 2026-07-09 (FECHA REGISTRO)', [ficha.fechaPublicacionSecop, ficha.urlSecop?.startsWith('https://community.secop.gov.co/'), ficha.fechaCargueSia], ['2026-06-23', true, '2026-07-09'])
+  eq('ficha real: información básica ("Nombre o Código" y la celda "Valor" con inicial, adiciones y vigente)', [ficha.basica.codigo, ficha.basica.valorInicial, ficha.basica.adiciones, ficha.basica.valorVigente, ficha.basica.modalidad, ficha.basica.procedimiento, ficha.basica.tipoContrato, ficha.basica.fechaFirma, ficha.basica.fechaInicio, ficha.basica.fechaFin, ficha.basica.estado], ['CD/26-1262', 510281732, 0, 510281732, 'SIN OFERTAS', 'Manual de contratacion', 'Suministro', '2026-06-25', '2026-07-02', '2026-12-31', 'RENDIDO'])
+  eq('contratistas: solo la empresa', ficha.contratistas.map(c => [c.nit, c.nombre]), [['901386177', 'FARMAORTOPEDICOS']])
+  eq('tipo por la descripción de la fila cuando el nombre del archivo no dice nada', parseFicha('<table><tr><td>Contractual</td><td>CONTRATO O SU EQUIVALENTE(AGR)</td><td><a href="/handlers/filehandler_guess_anonimo.ashx?ianx=7&ianxa=8&eid=x">scan_0001.pdf --> 2026/07/09</a></td></tr></table>').documentos.map(d => d.tipo), ['contrato'])
+  // Ficha SINTÉTICA con un supervisor, una persona natural y la traza inventados: nada de eso sale del parser
+  const sintetica = parseFicha(leer('ficha-sintetica-con-personas.html'))
+  eq('ficha sintética: 10 documentos (los 20 enlaces deduplicados por ianx, ianxa)', sintetica.documentos.length, 10)
+  eq('ficha sintética: contratistas solo la empresa', sintetica.contratistas.map(c => c.nit), ['901386177'])
+  const guardable = JSON.stringify(fichaParaGuardar(sintetica))
   check('lo que se guarda de la ficha no trae supervisores, traza ni cédulas', !guardable.includes('SUPERVISORA') && !guardable.includes('1000000099') && !guardable.includes('USUARIO INVENTADO'))
   eq('sin novedades ("No hay registros")', ficha.novedades, [])
   const conNovedad = parseFicha('<h3>Novedades</h3><h4>Adiciones</h4><table><tr><th>Fecha</th><th>Valor</th><th>Descripción</th></tr><tr><td>2025/11/10</td><td>$120,000,000.00</td><td>Adición No. 1 por mayor demanda</td></tr></table><h4>Liquidación</h4><table><tr><td>2026/01/15</td><td>Acta de liquidación bilateral</td></tr></table>')
