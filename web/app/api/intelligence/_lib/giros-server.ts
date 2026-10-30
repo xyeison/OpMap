@@ -117,6 +117,37 @@ export async function loadFetchLog(
   return { stats: { nitsConsultados: last.size, conDatos, sinRegistros, errores, ultimaConsulta: rows[0]?.fetched_at ?? null }, okNits }
 }
 
+/**
+ * Meses consultados a la ADRES de cada NIT en una fuente (adres_fetch_log, consultas ok o sin registros), como rangos
+ * 'YYYY-MM'. Para no tomar como "sin giro" un mes que no se consultó (una IPS creada después de la carga inicial, o una
+ * consulta que falló). null si la bitácora no existe todavía.
+ */
+export async function loadCoberturaGiros(fuente: GirosFuente, db: SupabaseAdminClient = supabaseAdmin): Promise<Map<string, Array<{ desde: string; hasta: string }>> | null> {
+  let rows: Array<{ nit: string; desde: string | null; hasta: string | null }>
+  try {
+    rows = await fetchAll<{ nit: string; desde: string | null; hasta: string | null }>('adres_fetch_log', (from, to) =>
+      db
+        .from('adres_fetch_log')
+        .select('nit, desde, hasta')
+        .eq('fuente', FETCH_FUENTE[fuente])
+        .in('estado', ['ok', 'sin_registros'])
+        .order('id')
+        .range(from, to)
+    )
+  } catch (error) {
+    if (isMissingRelationError((error as { dbError?: unknown })?.dbError ?? error)) return null
+    throw error
+  }
+  const cobertura = new Map<string, Array<{ desde: string; hasta: string }>>()
+  for (const row of rows) {
+    if (!row.desde || !row.hasta) continue
+    const lista = cobertura.get(row.nit) ?? []
+    lista.push({ desde: String(row.desde).slice(0, 7), hasta: String(row.hasta).slice(0, 7) })
+    cobertura.set(row.nit, lista)
+  }
+  return cobertura
+}
+
 /** Estado de la bitácora del Reporte 29 (compatibilidad con llamadores anteriores). */
 export async function loadFetchStats(db: SupabaseAdminClient = supabaseAdmin): Promise<GirosFetchStats> {
   return (await loadFetchLog('reporte29', db)).stats

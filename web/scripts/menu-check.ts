@@ -237,12 +237,23 @@ for (const ruta of Array.from(new Set(ORDEN.map(href => href.split('?')[0])))) {
   check(`${ruta} tiene su página`, existsSync(path.join(APP, ruta.slice(1), 'page.tsx')))
 }
 check('/territories sigue existiendo', existsSync(path.join(APP, 'territories', 'page.tsx')))
-// Médicos, Aseguradoras y Líderes de negocio: "Próximamente", sin datos (dueño, 2026-10-29)
-for (const ruta of ['medicos', 'aseguradoras', 'lideres']) {
+// Médicos y Aseguradoras: "Próximamente", sin datos (dueño, 2026-10-29)
+for (const ruta of ['medicos', 'aseguradoras']) {
   // Sin los comentarios (la de Médicos nombra su API para decir que no cambia)
   const pagina = readFileSync(path.join(APP, ruta, 'page.tsx'), 'utf8').split('\n').filter(linea => !linea.trim().startsWith('//')).join('\n')
   check(`/${ruta} es "Próximamente" y no pide datos`, pagina.includes("@/components/Proximamente") && !/\/api\/|fetch\(|Medicos?Tab|MedicoForm/.test(pagina))
 }
+// Líderes de negocio: el seguimiento de las líderes con lideres:seguimiento (dueño, 2026-10-29); para los demás, "Próximamente"
+const paginaLideres = readFileSync(path.join(APP, 'lideres', 'page.tsx'), 'utf8')
+check(
+  '/lideres: seguimiento con lideres:seguimiento y "Próximamente" para los demás',
+  paginaLideres.includes('permission="lideres:seguimiento"') && paginaLideres.includes('@/components/Proximamente') && paginaLideres.includes('SeguimientoLideres')
+)
+check(
+  'lideres:seguimiento solo lo tienen admin y commercial_director',
+  JSON.stringify((['admin', 'commercial_director', 'line_leader', 'sales_manager', 'data_manager', 'viewer', 'hr', 'contract_manager', 'user'] as Role[]).filter(rol => hasPermission(rol, 'lideres:seguimiento'))) ===
+    JSON.stringify(['admin', 'commercial_director'])
+)
 const cuentasClave = readFileSync(path.join(APP, 'terceros', 'page.tsx'), 'utf8')
 check('Cuentas clave (/terceros) ya no muestra Médicos', !/import [^\n]*Medico/.test(cuentasClave) && cuentasClave.includes('Cuentas clave'))
 check('"/" sigue existiendo (lleva al inicio)', existsSync(path.join(APP, 'page.tsx')))
