@@ -7,13 +7,20 @@
  *     los archivos de public/campo).
  *   - El build: `npm run build` arma la app con scripts/construir-campo.mjs antes de `next build`, sin EXPO_PUBLIC_API_URL
  *     (la app usa el origen de la página) y sin versionar public/campo.
+ *   - Sin señal (spec docs/specs/2026-10-30-campo-sin-senal-pwa.md): el build genera public/campo/sw.js con Workbox
+ *     (scripts/campo-sw.mjs): precarga la app, sirve /campo/index.html a cualquier ruta sin red, importa sw-cola.js
+ *     (Background Sync) y no activa la versión nueva solo (skipWaiting apagado). Aquí se genera un sw.js de verdad sobre
+ *     una exportación de mentira. Y lo que la app trae en mobile/public: manifest, registro del worker y cabeceras.
  *
  * Uso (desde web/): npx tsx scripts/campo-web-check.ts   (va dentro de npm run test)
  */
-import { readFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { NextRequest } from 'next/server'
+import { generateSW } from 'workbox-build'
 import { middleware } from '../middleware'
+import { opcionesServiceWorker } from './campo-sw.mjs'
 
 for (const key of ['SUPABASE_SERVICE_ROLE_KEY', 'NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_URL', 'SESSION_SECRET']) delete process.env[key]
 process.env.SESSION_SECRET = 'secreto-de-prueba-campo-web-check-0123456789abcdefghijklmnopqrstuvwxyz'
@@ -72,6 +79,48 @@ async function main() {
       (script.match(/process\.exit\(1\)/g) ?? []).length >= 2
   )
   check('public/campo no se versiona (web/.gitignore)', /^\/public\/campo\/$/m.test(leer('.gitignore')))
+  check('construir-campo exige sw-cola.js y sw-registro.js en lo exportado y genera sw.js con Workbox (falla si no precarga nada)', /sw-cola\.js/.test(script) && /sw-registro\.js/.test(script) && /generateSW\(opcionesServiceWorker\(salida\)\)/.test(script) && /count === 0/.test(script))
+
+  console.log('\n4. Sin señal: el service worker que genera el build (scripts/campo-sw.mjs)')
+  const movil = (archivo: string) => readFileSync(path.join(raiz, '..', 'mobile', archivo), 'utf8')
+  const exportado = mkdtempSync(path.join(os.tmpdir(), 'campo-sw-'))
+  try {
+    // Una exportación de mentira con lo que Expo deja: index.html, el JS con hash, el manifiesto, íconos y lo de mobile/public.
+    mkdirSync(path.join(exportado, '_expo', 'static', 'js', 'web'), { recursive: true })
+    writeFileSync(path.join(exportado, 'index.html'), movil('public/index.html'))
+    writeFileSync(path.join(exportado, '_expo', 'static', 'js', 'web', 'entry-abc123.js'), 'console.log("app")')
+    writeFileSync(path.join(exportado, 'manifest.json'), movil('public/manifest.json'))
+    writeFileSync(path.join(exportado, 'metadata.json'), '{}')
+    writeFileSync(path.join(exportado, 'icono-192.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]))
+    writeFileSync(path.join(exportado, 'sw-cola.js'), movil('public/sw-cola.js'))
+    writeFileSync(path.join(exportado, 'sw-registro.js'), movil('public/sw-registro.js'))
+    const opciones = opcionesServiceWorker(exportado)
+    const { count, warnings } = await generateSW(opciones)
+    const sw = readFileSync(path.join(exportado, 'sw.js'), 'utf8')
+    check('genera public/campo/sw.js con Workbox, sin avisos', sw.length > 1000 && warnings.length === 0, warnings)
+    check('precarga la app entera con el prefijo /campo/ (index.html, el JS, el manifiesto, los íconos y los scripts), no metadata.json ni el propio sw.js', count === 6 && /"\/campo\/index\.html"/.test(sw) && /\/campo\/_expo\/static\/js\/web\/entry-abc123\.js/.test(sw) && /"\/campo\/manifest\.json"/.test(sw) && /"\/campo\/icono-192\.png"/.test(sw) && !/metadata\.json/.test(sw) && !/"\/campo\/sw\.js"/.test(sw), { count })
+    // Minificado: la URL del fallback aparece dos veces (la precarga y la ruta de navegación) y la allowlist tal cual.
+    check('cualquier ruta de la app sin red recibe /campo/index.html (navigateFallback) y solo dentro de /campo', opciones.navigateFallback === '/campo/index.html' && (sw.match(/"\/campo\/index\.html"/g) ?? []).length === 2 && /allowlist:\[\/\^\\\/campo\(\\\/\|\$\)\/\]/.test(sw))
+    check('importa sw-cola.js (Background Sync de la cola) y no se activa solo: la app manda SKIP_WAITING cuando no hay subida en curso', /importScripts\("sw-cola\.js"\)/.test(sw) && opciones.skipWaiting === false && !/self\.skipWaiting\(\)/.test(sw.replace(/addEventListener\("message"[\s\S]*$/, '')) && opciones.clientsClaim === true)
+    check('el JS de Expo (con hash en el nombre) no lleva revisión aparte; los demás sí (cambian sin cambiar de nombre)', /url:"\/campo\/_expo\/static\/js\/web\/entry-abc123\.js",revision:null/.test(sw) && /url:"\/campo\/index\.html",revision:"[0-9a-f]+"/.test(sw))
+    check('workbox va dentro del sw.js (inlineWorkboxRuntime, sin pedir nada a un CDN) y limpia las cachés viejas al activarse', opciones.inlineWorkboxRuntime === true && opciones.cleanupOutdatedCaches === true && /self\.caches\.delete\(/.test(sw) && !/storage\.googleapis\.com\/workbox-cdn/.test(sw))
+  } finally {
+    rmSync(exportado, { recursive: true, force: true })
+  }
+
+  console.log('\n5. Lo que la app trae para instalarse y subir la cola (mobile/public)')
+  const indexHtml = movil('public/index.html')
+  const manifiesto = JSON.parse(movil('public/manifest.json')) as { name: string; start_url: string; scope: string; display: string; icons: { src: string; sizes: string }[] }
+  check('index.html: manifest, apple-touch-icon, capable y el registro del service worker (sw-registro.js)', /<link rel="manifest" href="\/campo\/manifest\.json" \/>/.test(indexHtml) && /apple-mobile-web-app-capable" content="yes"/.test(indexHtml) && /<script src="\/campo\/sw-registro\.js" defer><\/script>/.test(indexHtml))
+  check('manifest.json: VG Visitas, standalone, empieza y vive en /campo/, íconos 192 y 512', manifiesto.name === 'VG Visitas' && manifiesto.display === 'standalone' && manifiesto.start_url === '/campo/' && manifiesto.scope === '/campo/' && manifiesto.icons.map(i => i.sizes).join() === '192x192,512x512' && manifiesto.icons.every(i => i.src.startsWith('/campo/')), manifiesto)
+  const registro = movil('public/sw-registro.js')
+  check('sw-registro.js registra /campo/sw.js con alcance /campo/, avisa la versión nueva (updatefound → __campoSW) y busca actualizaciones al volver a la app', /register\('\/campo\/sw\.js', \{ scope: '\/campo\/' \}\)/.test(registro) && /updatefound/.test(registro) && /__campoSW/.test(registro) && /visibilitychange/.test(registro) && !/skipWaiting/.test(registro))
+  const swCola = movil('public/sw-cola.js')
+  check('sw-cola.js: atiende el sync "opmap-cola", lee la cola de IndexedDB y manda a /api/me/visitas; con 401 se detiene y nunca borra', /addEventListener\('sync'/.test(swCola) && /opmap-cola/.test(swCola) && /indexedDB/.test(swCola) && /\/api\/me\/visitas/.test(swCola) && /401/.test(swCola) && !/\.delete\(|clear\(/.test(swCola))
+  const cabeceras = (config as unknown as { headers?: () => Promise<{ source: string; headers: { key: string; value: string }[] }[]> }).headers
+  const todas = cabeceras ? await cabeceras() : []
+  const permisos = todas.flatMap(h => h.headers).find(h => h.key === 'Permissions-Policy')
+  check('Permissions-Policy deja la cámara, el micrófono y la ubicación al propio sitio (la foto y el GPS de la app en /campo)', permisos?.value === 'camera=(self), microphone=(self), geolocation=(self)', permisos)
 
   console.log(`\n${passed} pruebas bien, ${failed} con falla`)
   if (failed > 0) process.exit(1)

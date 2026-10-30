@@ -29,6 +29,9 @@
         flex: 1;
       }
     </style>
+    <!-- App sin señal (2026-10-30): registra el service worker (sw.js lo genera Workbox en el build; precarga la app y
+         sube la cola con Background Sync donde existe). Sin él la app funciona igual, solo que no abre sin señal. -->
+    <script src="/campo/sw-registro.js" defer></script>
   </head>
 
   <body>
