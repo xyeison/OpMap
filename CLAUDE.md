@@ -106,7 +106,8 @@ nada llama a Google.
   APLICADA el 2026-10-29; su DELETE lleva WHERE por pg-safeupdate de PostgREST).
 - **La app de campo es SOLO para las líderes** (dueño, 2026-10-30, `docs/decisiones/2026-10-30-app-de-campo-solo-lideres.md`):
   los Ejecutivos Comerciales siguen reportando en VMO. Quien solo es Ejecutivo Comercial no entra: `/api/auth/me` →
-  `sin_persona` y `/api/me/*` → 403. Paola entra solo como líder. La regla está en el servidor
+  `sin_persona` y `/api/me/*` → 403 (cuota y días libres, solo desde la app: en la web siguen). Paola entra solo como
+  líder. La regla está en el servidor
   (`appSoloLideres` de `lib/persona-campo.ts`); `APP_CAMPO_EJECUTIVOS=true` la apaga (las pruebas de F3 y F4; en
   producción no se pone).
 - **Territorio y contratos**: el anexo de territorio (Anexo A IPS, Anexo B municipios) va al contrato de
@@ -152,7 +153,7 @@ nada llama a Google.
   por `config_registrar`/`config_cerrar`), calendario y festivos, días libres con aprobación en bloque, rol `hr`,
   cuota del periodo; `/configuracion` y `/calendario` (migración 0810 aplicada 2026-10-12).
 - `docs/specs/2026-10-12-traspaso-ejecutivo-comercial.md` – traspaso de un Ejecutivo Comercial y "Contratar" (0820 aplicada 2026-10-12).
-- `docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md` – app de visita F3+F4: visitas de la app en `visits` + `visit_lines`, `visitas_registrar/editar/anular`, `/api/me/*` (contexto, visitas, voz, números), token de portador, app Expo en `mobile/` (migración 0830 aplicada 2026-10-14); F4.1 agenda (`visitas_agenda`, `/api/me/agenda*`, `/api/me/voz/campos`; 0840 aplicada 2026-10-14); desde 2026-10-15 la cita lleva hora obligatoria y la agenda es un calendario, y `/api/me/*` mide con `Server-Timing` y líneas `[tiempos]` (`docs/specs/2026-10-15-usabilidad-y-agenda-con-hora.md`); F4.2 (F1a de `docs/specs/2026-10-15-actividades-de-campo.md`): la persona de campo es el usuario (líderes y Ejecutivos Comerciales; la dirección comercial no agenda ni reporta) y la cita se cierra con su resultado (no se hizo, cancelar con motivo, eliminar por error, otra fecha), choque de media hora y sin tope (migración 0850 escrita, sin aplicar).
+- `docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md` – app de visita F3+F4: visitas de la app en `visits` + `visit_lines`, `visitas_registrar/editar/anular`, `/api/me/*` (contexto, visitas, voz, números), token de portador, app Expo en `mobile/` (migración 0830 aplicada 2026-10-14); F4.1 agenda (`visitas_agenda`, `/api/me/agenda*`, `/api/me/voz/campos`; 0840 aplicada 2026-10-14); desde 2026-10-15 la cita lleva hora obligatoria y la agenda es un calendario, y `/api/me/*` mide con `Server-Timing` y líneas `[tiempos]` (`docs/specs/2026-10-15-usabilidad-y-agenda-con-hora.md`); F4.2 (F1a de `docs/specs/2026-10-15-actividades-de-campo.md`): la persona de campo es el usuario (líderes y Ejecutivos Comerciales; la dirección comercial no agenda ni reporta) y la cita se cierra con su resultado (no se hizo, cancelar con motivo, eliminar por error, otra fecha), choque de media hora y sin tope (migración 0850 APLICADA el 2026-10-30). Desde el 2026-10-30 la app es solo para las líderes (ver la regla de arriba).
 - `docs/arquitectura-y-scripts.md` – scripts Python, estructura de carpetas, archivos clave.
 - `docs/historico-resultados.md` – cifras de 2025 y colores originales (histórico, no vigente).
 - `docs/FLUJO_DE_TRABAJO_IA.md` – cómo trabajamos con Claude Code en este repo y por qué.

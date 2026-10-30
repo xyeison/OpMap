@@ -131,14 +131,18 @@ export function appSoloLideres(env: Readonly<Record<string, string | undefined>>
  * entra solo como líder: sin su Ejecutivo Comercial, ni cuota, ni zona, ni "Como Ejecutivo Comercial". Sin ninguna
  * línea sigue como antes (rolDePersona da null). No toca persona_de_campo de la base: la API ya no le pide nada como
  * Ejecutivo Comercial (las citas van con como 'lider' y las visitas solo con líneas de líder).
+ *
+ * Una línea que lidera y que TAMBIÉN es de su Ejecutivo Comercial no cuenta como de líder: la base haría de Ejecutivo
+ * Comercial la visita con esa línea (ejecutivo_de_la_visita), y eso va por VMO. Hoy no pasa (revisado el 2026-10-30).
  */
 export function lineasDeLaApp(
   lineas: { ec: string[]; lider: string[]; todas: string[] },
   soloLideres: boolean
 ): { ok: true; ec: string[]; lider: string[]; todas: string[] } | { ok: false; error: string } {
   if (!soloLideres) return { ok: true, ...lineas }
-  if (lineas.lider.length === 0 && lineas.ec.length > 0) return { ok: false, error: MENSAJE_EJECUTIVO_EN_VMO }
-  return { ok: true, ec: [], lider: lineas.lider, todas: [...lineas.lider] }
+  const lider = lineas.lider.filter(linea => !lineas.ec.includes(linea))
+  if (lider.length === 0 && lineas.ec.length > 0) return { ok: false, error: MENSAJE_EJECUTIVO_EN_VMO }
+  return { ok: true, ec: [], lider, todas: [...lider] }
 }
 
 /**

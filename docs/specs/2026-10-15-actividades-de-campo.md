@@ -1,7 +1,7 @@
 # Spec: actividades de campo — una sola app para Ejecutivos Comerciales y líderes, y "¿Dónde está mi gente?"  (2026-10-15)
 
 **Estado**: aprobada en su concepción por el dueño el 2026-10-15, con sus respuestas A1–A17
-(`docs/decisiones/2026-10-15-actividades-de-campo.md`). F1a escrita (rama `feat/campo-f1a`, PR #48; la 0850 sin aplicar).
+(`docs/decisiones/2026-10-15-actividades-de-campo.md`). F1a escrita (rama `feat/campo-f1a`, PR #48; la 0850 APLICADA el 2026-10-30).
 F1b escrita en la rama `feat/campo-f1b` (sin migración), con las correcciones de la revisión del 2026-10-30. Falta la
 prueba en el iPhone del dueño, contra un servidor con la 0850 (ver "F1b"). Queda abierto lo de "Lo que sigue abierto".
 

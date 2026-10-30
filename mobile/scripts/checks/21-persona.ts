@@ -655,6 +655,15 @@ export async function pruebas(t: Probador): Promise<void> {
         /<Aviso tono="info" titulo=\{titulo\}>/.test(layout) &&
         /titulo="Cerrar sesión"/.test(layout)
     )
+    check(
+      'quien queda fuera puede "Volver a intentar" (refrescar: si ya le asignaron su línea, entra sin cerrar la app)',
+      /titulo="Volver a intentar"[\s\S]{0,200}void refrescar\(\)/.test(entre(layout, 'function FueraDeLaApp(', 'export default function AppLayout('))
+    )
+    const hoySolo = leer('mobile/app/(app)/hoy.tsx')
+    check(
+      'Hoy: con contexto, la zona es la del contexto (null para una líder, también Paola); solo sin él, la del perfil',
+      /const zona = contexto \? contexto\.ejecutiva\.zona : \(perfil\?\.ejecutiva\?\.zona \?\? null\)/.test(hoySolo)
+    )
     check('la barra de abajo no cambia: hoy, reportar, agenda, numeros y ajustes', PESTANAS.map(p => p.ruta).join() === 'hoy,reportar,agenda,numeros,ajustes')
 
     const numeros = leer('mobile/app/(app)/numeros.tsx')

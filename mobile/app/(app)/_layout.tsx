@@ -107,8 +107,9 @@ function Encabezado({ titulo, izquierda, derecha }: { titulo: string; izquierda:
  * con su porqué (app solo para líderes, dueño 2026-10-30). Solo el aviso, quién es y "Cerrar sesión".
  */
 function FueraDeLaApp({ titulo, texto }: { titulo: string; texto: string }) {
-  const { perfil, salir } = useSesion()
+  const { perfil, salir, refrescar } = useSesion()
   const [saliendo, setSaliendo] = useState(false)
+  const [revisando, setRevisando] = useState(false)
   const nombre = perfil?.usuario.full_name?.trim().split(/\s+/)[0] ?? ''
   return (
     <>
@@ -120,6 +121,16 @@ function FueraDeLaApp({ titulo, texto }: { titulo: string; texto: string }) {
           {texto}
         </Aviso>
         {perfil?.usuario.email ? <Texto suave peque>{`Entraste como ${perfil.usuario.email}.`}</Texto> : null}
+        {/* Si ya le asignaron su línea, entra sin cerrar la app (vuelve a preguntar a /api/auth/me). */}
+        <Boton
+          titulo="Volver a intentar"
+          variante="secundario"
+          cargando={revisando}
+          alPresionar={() => {
+            setRevisando(true)
+            void refrescar().finally(() => setRevisando(false))
+          }}
+        />
         <Boton
           titulo="Cerrar sesión"
           variante="peligro"

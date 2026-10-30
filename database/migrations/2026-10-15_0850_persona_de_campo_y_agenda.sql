@@ -1,6 +1,6 @@
 -- =====================================================================================
 -- OpMap · feat/actividades-de-campo (actividades de campo · F1a: persona de campo y agenda con resultado) · 0850
--- Proyecto: norvxqgohddgsdkggqzq · Generado: 2026-10-15 · Puesta al día: 2026-10-29 · ESTADO: NO APLICADA
+-- Proyecto: norvxqgohddgsdkggqzq · Generado: 2026-10-15 · Puesta al día: 2026-10-29 · ESTADO: APLICADA el 2026-10-30 (autorización del dueño: "Si procede", 2026-10-29, y "Si necesito probar", 2026-10-30)
 --
 -- Puesta al día del 2026-10-29: la 0910 (visitas de VMO por persona, aplicada ese día) añadió visits.vmo_id, así que
 --   visits tiene 46 columnas antes de esta migración (no 45) y vmo_id es conocida. Comprobado ese día con una consulta

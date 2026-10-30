@@ -209,6 +209,11 @@ check('quien solo es Ejecutivo Comercial → MENSAJE_EJECUTIVO_EN_VMO', igual(li
 check('Paola (los dos papeles) → solo sus líneas de líder, sin las de Ejecutivo Comercial', igual(lineasDeLaApp(dosPapeles, true), { ok: true, ec: [], lider: [TRAUMA], todas: [TRAUMA] }))
 check('una líder sigue igual; sin ninguna línea sigue sin líneas (rolDePersona da null: MENSAJE_SIN_LINEAS)', igual(lineasDeLaApp(soloLider, true), { ok: true, ...soloLider }) && igual(lineasDeLaApp(ninguna, true), { ok: true, ...ninguna }) && rolDePersona([], []) === null)
 check('con los Ejecutivos Comerciales adentro (soloLideres false), todo como antes', [soloEc, dosPapeles, soloLider, ninguna].every(lineas => igual(lineasDeLaApp(lineas, false), { ok: true, ...lineas })))
+// Una línea que lidera y que también es de su Ejecutivo Comercial: la base haría la visita de Ejecutiva (ejecutivo_de_la_visita)
+const cruceUnica = { ec: [ORTOPEDIA, TRAUMA].sort(), lider: [TRAUMA], todas: [ORTOPEDIA, TRAUMA].sort() }
+const cruceConOtra = { ec: [TRAUMA], lider: [DEPORTIVA, TRAUMA].sort(), todas: [DEPORTIVA, TRAUMA].sort() }
+check('una línea que lidera y que también es de su Ejecutivo Comercial no cuenta como de líder: si es la única → MENSAJE_EJECUTIVO_EN_VMO', igual(lineasDeLaApp(cruceUnica, true), { ok: false, error: MENSAJE_EJECUTIVO_EN_VMO }))
+check('...y si lidera otra, entra solo con esa', igual(lineasDeLaApp(cruceConOtra, true), { ok: true, ec: [], lider: [DEPORTIVA], todas: [DEPORTIVA] }))
 check(
   'comoDeLaApp: solo para líderes, sin "como" o como líder → lider; "como ejecutivo" → MENSAJE_EJECUTIVO_EN_VMO',
   igual(comoDeLaApp(null, true), { ok: true, como: 'lider' }) && igual(comoDeLaApp(undefined, true), { ok: true, como: 'lider' }) && igual(comoDeLaApp('lider', true), { ok: true, como: 'lider' }) && igual(comoDeLaApp('ejecutivo', true), { ok: false, error: MENSAJE_EJECUTIVO_EN_VMO })

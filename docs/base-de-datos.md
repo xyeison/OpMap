@@ -316,7 +316,7 @@ ruteros)") quedó desactualizado: corregirlo en la próxima migración que haya 
 en las nuevas desde 2026-10-15, la exige la API; NULL solo en citas viejas)").
 La 0850 lo corrige.
 
-#### Actividades de campo · F1a persona de campo y agenda con resultado (migración 0850, ESCRITA, SIN APLICAR)
+#### Actividades de campo · F1a persona de campo y agenda con resultado (migración 0850, APLICADA el 2026-10-30)
 Spec `docs/specs/2026-10-15-actividades-de-campo.md` (F1a; decisiones A1–A17 en `docs/decisiones/`); contrato de la API en
 `docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md` (sección "F4.2"). Archivo
 `database/migrations/2026-10-15_0850_persona_de_campo_y_agenda.sql`, rollback `2026-10-15_9945_persona_de_campo_y_agenda_rollback.sql`.
