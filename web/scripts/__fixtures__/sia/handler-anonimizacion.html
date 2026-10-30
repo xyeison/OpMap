@@ -1,0 +1,7 @@
+<!-- Fixture SINTÉTICO (2026-10-30): respuesta 200 text/html del handler cuando el documento pide un correo para anonimizar (spec 3.5). -->
+<html><head><script src="/Scripts/bootbox.min.js"></script></head><body>
+<script>
+bootbox.prompt("Por favor, introduce tu correo electrónico", function (result) {
+  if (result) { $.post('/handlers/solicitud.ashx', { correo: result }); bootbox.alert("El proceso de anonimización de su solicitud se ha iniciado; en menos de 24 horas recibirá un correo con el enlace de descarga del documento."); }
+});
+</script></body></html>
