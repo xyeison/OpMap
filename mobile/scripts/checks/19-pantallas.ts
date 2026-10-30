@@ -63,6 +63,7 @@ function cita(id: string, hora: string | null, estado: EstadoCita = 'pendiente',
     dentro_del_radio: null,
     anticipada: true,
     cancelable: estado === 'pendiente',
+    motivo_codigo: null, no_realizada_at: null, no_realizada_motivo: null, viene_de: null, viene_de_fecha: null, viene_de_estado: null, sucesora_id: null, como: 'ejecutivo', estado_visible: estado === 'pendiente' ? 'programada' : estado,
   }
 }
 
@@ -334,7 +335,7 @@ export async function pruebas(t: Probador): Promise<void> {
     t.check(
       'FilaCita: solo "›" a la derecha (sin "Reportar ›") y "Atrasada" en el mismo grupo que el estado',
       !filaCita.includes('Reportar ›') &&
-        /<Insignia texto=\{ETIQUETA_ESTADO_CITA\[cita\.estado\]\}[^\n]*\/>\s*\{atrasada \? <Insignia texto="Atrasada" tono="alerta" \/> : null\}\s*<\/Grupo>/.test(filaCita)
+        /<Insignia texto=\{ETIQUETA_ESTADO_CITA\[cita\.estado\]\}[^\n]*\/>\s*\{atrasada \? <Insignia texto="Atrasada" tono="alerta" \/> : null\}\s*\{sinCerrar \? <Insignia texto="Sin cerrar" tono="alerta" \/> : null\}\s*<\/Grupo>/.test(filaCita)
     )
     t.check(
       'Reportar (ListaCitas) y Mi agenda (LineaDelDia) también marcan "Atrasada" (citaAtrasada)',
@@ -342,9 +343,9 @@ export async function pruebas(t: Probador): Promise<void> {
         /citaAtrasada\(cita, reloj\) \? <Insignia texto="Atrasada" tono="alerta" \/>/.test(leer('components/agenda/LineaDelDia.tsx'))
     )
     t.check(
-      'Hoy: "Visitas de hoy" dice que carga (no "Todavía no has reportado") mientras no llegan',
-      hoy.indexOf('!visitas ? (\n          <Vacio texto="Cargando tus visitas de hoy…" />') > -1 &&
-        hoy.indexOf('<Vacio texto="Cargando tus visitas de hoy…" />') < hoy.indexOf('<Vacio texto="Todavía no has reportado visitas hoy." />')
+      'Hoy: "Actividades de hoy" (F1b; antes "Visitas de hoy") dice que carga (no "Todavía no has reportado") mientras no llegan',
+      hoy.indexOf('!visitas ? (\n          <Vacio texto="Cargando tus actividades de hoy…" />') > -1 &&
+        hoy.indexOf('<Vacio texto="Cargando tus actividades de hoy…" />') < hoy.indexOf('<Vacio texto="Todavía no has reportado actividades hoy." />')
     )
   }
 
@@ -360,8 +361,8 @@ export async function pruebas(t: Probador): Promise<void> {
 
     const dias = leer('app/(app)/dias-libres.tsx')
     t.check(
-      'Días libres: el calendario marca las citas (de hoy a hoy + 30) y el día elegido con citas pendientes avisa, con "Ver en Mi agenda"',
-      /api\.agenda\(hoyAhora, sumarDias\(hoyAhora, DIAS_AGENDA_ADELANTE\)\)/.test(dias) &&
+      'Días libres: el calendario marca las citas de los próximos 31 días (una consulta) y el día elegido con citas pendientes avisa, con "Ver en Mi agenda"',
+      /api\.agenda\(hoyAhora, sumarDias\(hoyAhora, MAX_DIAS_CONSULTA_AGENDA - 1\)\)/.test(dias) &&
         /marcasConCitas\(marcasDiasLibres\(datos\?\.items \?\? \[\]\), citas\)/.test(dias) &&
         /const conCitas = avisoCitasEnDiaLibre\(fecha, citas\)/.test(dias) &&
         /titulo="Ver en Mi agenda"[^\n]*alPresionar=\{\(\) => router\.push\(rutaMiAgenda\(fecha\)\)\}/.test(dias)

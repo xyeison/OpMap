@@ -18,7 +18,8 @@
  *   - Encima del botón del pie va qué se confirma ("Efectiva · PerOssal y Reemplazo articular · sin conclusión") o lo
  *     que falta / el rechazo (revisión 2026-10-15): la de toques nace válida y no se confirma a ciegas.
  *   - "Descartar" va aparte, en rojo, y Reportar pregunta antes de borrar la tarjeta.
- *   - Con una cita (agenda_id) no se muestra "Tipo de visita": el tipo es el de la cita.
+ *   - Con una cita (agenda_id) no se muestra "¿Qué hiciste?": el tipo es el de la cita. (F1b: antes "Tipo de visita"; las
+ *     opciones son "Visita a médico" y "Visita institucional", ETIQUETA_ACTIVIDAD.)
  *   - Los médicos van ordenados por la sede elegida y por cercanía (lib/orden-medicos.ts), con un solo buscador: el
  *     filtro de la lista ofrece "Buscar en OpMap" con el mismo texto.
  */
@@ -55,7 +56,7 @@ import {
 import { sinCortes, textoHoraCita } from '../../lib/reglas'
 import { filasResumen, modoTarjeta, textoPieConfirmar, type CampoResumen, type FilaResumen } from '../../lib/tarjeta-resumen'
 import { etiquetaClaseCuenta, etiquetaEspecialidad } from '../../lib/terceros'
-import { ETIQUETA_MEDIO, ETIQUETA_TIPO_VISITA, type CitaItem, type CuentaListItem, type MedicoPublico, type TipoVisita } from '../../lib/tipos'
+import { ETIQUETA_ACTIVIDAD, ETIQUETA_MEDIO, type CitaItem, type CuentaListItem, type MedicoPublico, type TipoVisita } from '../../lib/tipos'
 import { ALTO_TOQUE_MIN, Aviso, Boton, Chip, Grupo, Insignia, Separador, Texto, useColores, useFuente } from '../../lib/ui'
 import { Buscador } from './Buscador'
 import { CamposVisita, type CampoVisita } from './CamposVisita'
@@ -197,13 +198,13 @@ export function TarjetaBorrador(props: Props) {
 
   const bloqueTipo = (
     <View style={{ gap: 6 }}>
-      <Texto negrita>Tipo de visita</Texto>
+      <Texto negrita>¿Qué hiciste?</Texto>
       {tiposPerfil.length === 0 ? (
         <Aviso tono="alerta">Tu perfil no incluye visitas médicas ni institucionales. Pide a la dirección comercial que lo revise.</Aviso>
       ) : (
         <Grupo>
           {tiposPerfil.map(tipo => (
-            <Chip key={tipo} texto={ETIQUETA_TIPO_VISITA[tipo]} activo={borrador.tipo === tipo} alPresionar={() => props.alCambiar({ tipo })} />
+            <Chip key={tipo} texto={ETIQUETA_ACTIVIDAD[tipo]} activo={borrador.tipo === tipo} alPresionar={() => props.alCambiar({ tipo })} />
           ))}
         </Grupo>
       )}

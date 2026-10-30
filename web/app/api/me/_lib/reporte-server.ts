@@ -1151,8 +1151,9 @@ export async function leerCita(id: string): Promise<FilaCita | null> {
 /**
  * Filas de visitas_agenda → CitaItem: nombres del médico, la cuenta y el subtipo; la sede con su cuenta, coordenadas
  * y si está confirmada; la distancia al punto y si queda dentro del radio (solo con punto); anticipada y cancelable; y
- * (0850) el motivo, "no se hizo", viene_de, su sucesora, como qué y el estado visible (C6, con `ahora`). Orden: con
- * punto, la más cercana primero; sin punto, por fecha y hora. Nunca documentos ni teléfonos. Las eliminadas no salen.
+ * (0850) el motivo, "no se hizo", viene_de (con su fecha y su estado, F1b), su sucesora, como qué y el estado visible
+ * (C6, con `ahora`). Orden: con punto, la más cercana primero; sin punto, por fecha y hora. Nunca documentos ni
+ * teléfonos. Las eliminadas no salen.
  */
 export async function armarCitaItems(
   todas: readonly FilaCita[],
@@ -1161,7 +1162,7 @@ export async function armarCitaItems(
   const filas = todas.filter(fila => fila.estado !== 'eliminada')
   if (filas.length === 0) return []
   type SedeFilaCita = { id: string; nombre: string; cuenta_id: string | null; lat: number | string | null; lng: number | string | null; ubicacion_confirmada: boolean | null }
-  const [medicos, sedes, subtipos, sucesoras] = await Promise.all([
+  const [medicos, sedes, subtipos, sucesoras, origenes] = await Promise.all([
     nombresPorId('medicos', filas.map(fila => fila.medico_id)),
     leerPorIds<SedeFilaCita>(filas.map(fila => fila.sede_id), (trozo, from, to) =>
       supabaseAdmin.from('sedes').select('id, nombre, cuenta_id, lat, lng, ubicacion_confirmada').in('id', trozo).order('id').range(from, to)
@@ -1174,11 +1175,17 @@ export async function armarCitaItems(
     leerPorIds<{ id: string; viene_de: string; estado: EstadoCita }>(filas.map(fila => fila.id), (trozo, from, to) =>
       supabaseAdmin.from('visitas_agenda').select('id, viene_de, estado').in('viene_de', trozo).neq('estado', 'eliminada').order('id').range(from, to)
     ),
+    // F1b: la cita de la que viene cada una (fecha y estado; ya cerrada, así que nunca eliminada). Sin viene_de, nada.
+    leerPorIds<{ id: string; fecha: string; estado: EstadoCita }>(
+      filas.map(fila => fila.viene_de).filter((id): id is string => Boolean(id)),
+      (trozo, from, to) => supabaseAdmin.from('visitas_agenda').select('id, fecha, estado').in('id', trozo).order('id').range(from, to)
+    ),
   ])
   const sedePorId = new Map(sedes.map(sede => [sede.id, sede]))
   const cuentas = await nombresPorId('cuentas', [...filas.map(fila => fila.cuenta_id), ...sedes.map(sede => sede.cuenta_id)])
   const subtipoPorId = new Map(subtipos.map(subtipo => [subtipo.id, subtipo]))
   const sucesoraDe = new Map(sucesoras.map(fila => [fila.viene_de, fila.id]))
+  const origenPorId = new Map(origenes.filter(fila => fila.estado !== 'eliminada').map(fila => [fila.id, fila]))
   const punto = entrada.punto ?? null
   const radio = Number(entrada.radio_m ?? 0)
   const ahora = entrada.ahora ?? new Date()
@@ -1195,6 +1202,7 @@ export async function armarCitaItems(
       ubicacion_confirmada: sedeFila?.ubicacion_confirmada === true,
     }
     const subtipo = fila.subtipo_id ? subtipoPorId.get(fila.subtipo_id) : undefined
+    const origen = fila.viene_de ? origenPorId.get(fila.viene_de) : undefined
     const distancia = distanciaACita(sede, punto, radio)
     const hora = horaCorta(fila.hora)
     return {
@@ -1217,6 +1225,8 @@ export async function armarCitaItems(
       no_realizada_at: fila.no_realizada_at ?? null,
       no_realizada_motivo: fila.no_realizada_motivo ?? null,
       viene_de: fila.viene_de ?? null,
+      viene_de_fecha: origen?.fecha ?? null,
+      viene_de_estado: origen?.estado ?? null,
       sucesora_id: sucesoraDe.get(fila.id) ?? null,
       como: fila.executive_id ? 'ejecutivo' : 'lider',
       estado_visible: estadoVisible({ estado: fila.estado, fecha: fila.fecha, hora }, ahora),

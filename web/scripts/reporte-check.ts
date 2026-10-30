@@ -1265,6 +1265,8 @@ seccion('10d. Distancia y orden de las citas (Reportar: la más cercana primero)
     no_realizada_at: null,
     no_realizada_motivo: null,
     viene_de: null,
+    viene_de_fecha: null,
+    viene_de_estado: null,
     sucesora_id: null,
     como: 'ejecutivo',
     estado_visible: 'programada',
@@ -1347,7 +1349,7 @@ seccion('10f. Dictado por campo (decisión 9): reparto normalizado, prompt y con
     id, fecha: HOY, hora: '09:00', tipo: 'medica', medico: { id: MED_CITA, nombre: 'Dra. Ríos' }, cuenta: null, subtipo: null,
     sede: { id: SEDE_LEJOS, nombre: 'Clínica Sur', cuenta_id: CUENTA2, cuenta_nombre: 'Clínica Sur S.A.', lat: 4.6, lng: -74.1, ubicacion_confirmada: true },
     nota: 'Llevar muestras 3001234567', estado: 'pendiente', visita_id: null, distancia_m: 2400, dentro_del_radio: false, anticipada: true, cancelable: true,
-    motivo_codigo: null, no_realizada_at: null, no_realizada_motivo: null, viene_de: null, sucesora_id: null, como: 'ejecutivo', estado_visible: 'programada', ...extra,
+    motivo_codigo: null, no_realizada_at: null, no_realizada_motivo: null, viene_de: null, viene_de_fecha: null, viene_de_estado: null, sucesora_id: null, como: 'ejecutivo', estado_visible: 'programada', ...extra,
   })
   const agenda = [
     citaBase('cita-1', {}),

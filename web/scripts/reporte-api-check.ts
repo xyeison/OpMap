@@ -151,9 +151,10 @@ import {
   type CitaConSucesora,
   type CitaParaChoque,
 } from '../lib/agenda-ciclo'
-import type { camposDictadoSchema, citaCancelarSchema, citaCreateSchema, visitaCreateSchema } from '../lib/reporte-visitas-schemas'
+import type { camposDictadoSchema, citaCancelarSchema, citaCerrarSchema, citaCreateSchema, citaOtraFechaSchema, visitaCreateSchema } from '../lib/reporte-visitas-schemas'
 import type * as M from '../../mobile/lib/tipos'
-import type { cuerpoCitaConHora } from '../../mobile/lib/agenda'
+import type { cuerpoCitaConHora, cuerpoOtraFecha } from '../../mobile/lib/agenda'
+import type { cuerpoMotivo } from '../../mobile/lib/agenda-ciclo'
 import { CLAVES_API, clavesDe, tieneClaves, type FormaApi } from '../../mobile/lib/claves-api'
 import {
   MAX_MENSAJE_API_ANALIZAR,
@@ -207,26 +208,26 @@ type Asignable<A, B> = [A] extends [B] ? true : false
 type Afirmar<T extends true> = T
 type Iguales<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
 
-// F1a (0850): lo que la app de hoy (hasta F1b) recibe. Las respuestas solo GANAN claves (la app no las lee) y los
-// estados nuevos de la cita solo los producen rutas que la app de hoy no llama (no_realizada solo sale con
-// canceladas=true después de "cerrar"; eliminada nunca sale). Sin Ejecutivo Comercial (una líder, que no se invita hasta
-// F1b) Mis números trae cuota null; max_fecha es null (sin tope, A4): la app no la lee (lo comprueba la sección 15).
-type ClavesCitaF1a = 'motivo_codigo' | 'no_realizada_at' | 'no_realizada_motivo' | 'viene_de' | 'sucesora_id' | 'como' | 'estado_visible'
-type CitaVieja = Omit<W.CitaItem, ClavesCitaF1a | 'estado'> & { estado: M.EstadoCita }
-type ContextoViejo = Omit<W.ContextoResponse, 'persona' | 'agenda_hoy'> & { agenda_hoy: CitaVieja[] }
-type AgendaVieja = Omit<W.AgendaResponse, 'items' | 'max_fecha'> & { items: CitaVieja[] }
-type AgendaAppSinTope = Omit<M.AgendaResponse, 'max_fecha'>
-type NumerosAgendaViejo = Omit<W.NumerosAgenda, 'citas_no_realizadas'>
-type NumerosViejos = Omit<W.NumerosResponse, 'cuota' | 'agenda'> & { cuota: CuotaResponse; agenda: NumerosAgendaViejo | null }
-// Respuestas: lo que manda el servidor cabe en lo que espera la app (y las de F3, también al revés: son copias).
+// F1b (la app de la persona de campo y del ciclo de vida, sobre la API de F1a): la app tipa TODO lo que la API de la
+// 0850 manda (la persona, los 5 estados, el motivo, viene_de con su fecha y su estado, la sucesora, "como qué", el estado
+// visible, cuota null sin Ejecutivo Comercial, max_fecha null, las citas que no se hicieron) y los cuerpos nuevos
+// (cancelar con código, cerrar, otra fecha, "como"). Los tipos de las dos son copias: se asignan en los dos sentidos y
+// tienen las mismas claves.
+// Respuestas: lo que manda el servidor cabe en lo que espera la app, y al revés.
 export type TiposDeLaApp = [
-  // F1a: las claves nuevas son exactamente las de CLAVES_F1A (ni una de más ni de menos).
-  Afirmar<Iguales<Exclude<keyof W.CitaItem, keyof M.CitaItem>, ClavesCitaF1a>>,
-  Afirmar<Iguales<Exclude<keyof W.ContextoResponse, keyof M.ContextoResponse>, 'persona'>>,
-  Afirmar<Iguales<Exclude<keyof W.MeResponse, keyof M.MeResponse>, 'persona'>>,
-  Afirmar<Iguales<Exclude<keyof W.NumerosAgenda, keyof M.NumerosAgenda>, 'citas_no_realizadas'>>,
-  Afirmar<Asignable<ContextoViejo, M.ContextoResponse>>,
-  Afirmar<Asignable<M.ContextoResponse, ContextoViejo>>,
+  Afirmar<Iguales<keyof W.CitaItem, keyof M.CitaItem>>,
+  Afirmar<Iguales<keyof W.ContextoResponse, keyof M.ContextoResponse>>,
+  Afirmar<Iguales<keyof W.MeResponse, keyof M.MeResponse>>,
+  Afirmar<Iguales<keyof W.NumerosAgenda, keyof M.NumerosAgenda>>,
+  Afirmar<Iguales<keyof W.AgendaResponse, keyof M.AgendaResponse>>,
+  Afirmar<Asignable<W.ContextoResponse, M.ContextoResponse>>,
+  Afirmar<Asignable<M.ContextoResponse, W.ContextoResponse>>,
+  Afirmar<Asignable<W.PersonaMovil, M.PersonaMovil>>,
+  Afirmar<Asignable<M.PersonaMovil, W.PersonaMovil>>,
+  Afirmar<Asignable<W.PersonaContexto, M.PersonaContexto>>,
+  Afirmar<Asignable<M.PersonaContexto, W.PersonaContexto>>,
+  Afirmar<Asignable<W.LineaPersona, M.LineaPersona>>,
+  Afirmar<Asignable<M.LineaPersona, W.LineaPersona>>,
   Afirmar<Asignable<W.VisitaItem, M.VisitaItem>>,
   Afirmar<Asignable<M.VisitaItem, W.VisitaItem>>,
   Afirmar<Asignable<W.VisitasResponse, M.VisitasResponse>>,
@@ -235,30 +236,42 @@ export type TiposDeLaApp = [
   Afirmar<Asignable<M.TranscripcionResponse, W.TranscripcionResponse>>,
   Afirmar<Asignable<W.PropuestaResponse, M.PropuestaResponse>>,
   Afirmar<Asignable<M.PropuestaResponse, W.PropuestaResponse>>,
-  Afirmar<Asignable<NumerosViejos, M.NumerosResponse>>,
-  Afirmar<Asignable<M.NumerosResponse, NumerosViejos>>,
+  Afirmar<Asignable<W.NumerosResponse, M.NumerosResponse>>,
+  Afirmar<Asignable<M.NumerosResponse, W.NumerosResponse>>,
   Afirmar<Asignable<CuotaResponse, M.CuotaResponse>>,
   Afirmar<Asignable<W.LoginMovilResponse, M.LoginMovilResponse>>,
+  // (Al revés no: el Role de la app acepta cualquier texto, para no romperse con un rol nuevo.)
   Afirmar<Asignable<W.MeResponse, M.MeResponse>>,
   Afirmar<Asignable<W.ErrorResponse, M.ErrorResponse>>,
-  // F4.1 (0840): agenda, indicador y dictado por campo (F1a: con lo que la app de hoy ve de cada una).
-  Afirmar<Asignable<CitaVieja, M.CitaItem>>,
-  Afirmar<Asignable<M.CitaItem, CitaVieja>>,
-  Afirmar<Asignable<AgendaVieja, AgendaAppSinTope>>,
-  Afirmar<Asignable<AgendaAppSinTope, AgendaVieja>>,
-  Afirmar<Asignable<{ cita: CitaVieja }, M.CitaResponse>>,
+  // F4.1 (0840) y el ciclo de vida de la 0850: agenda, indicador, dictado por campo y las rutas nuevas.
+  Afirmar<Asignable<W.CitaItem, M.CitaItem>>,
+  Afirmar<Asignable<M.CitaItem, W.CitaItem>>,
+  Afirmar<Asignable<W.AgendaResponse, M.AgendaResponse>>,
+  Afirmar<Asignable<M.AgendaResponse, W.AgendaResponse>>,
+  Afirmar<Asignable<W.CitaResponse, M.CitaResponse>>,
+  Afirmar<Asignable<W.CitaEliminadaResponse, M.CitaEliminadaResponse>>,
   Afirmar<Asignable<W.NumerosAgenda, M.NumerosAgenda>>,
-  Afirmar<Asignable<M.NumerosAgenda, NumerosAgendaViejo>>,
+  Afirmar<Asignable<M.NumerosAgenda, W.NumerosAgenda>>,
   Afirmar<Asignable<W.CamposDictadoResponse, M.CamposDictadoResponse>>,
   Afirmar<Asignable<M.CamposDictadoResponse, W.CamposDictadoResponse>>,
-  // La hora es obligatoria desde el 2026-10-15 (W.CitaCreate.hora: string): lo que manda la app (cuerpoCitaConHora,
-  // siempre con hora) cabe en el servidor; mobile/lib/tipos.ts sigue con hora string | null hasta igualarlo.
+  // Cuerpos de la agenda: la hora obligatoria (2026-10-15) y "como" (0850) en los dos; lo que arma la app cabe en el
+  // servidor (cuerpoCitaConHora, cuerpoOtraFecha y el motivo de cancelar y "no se hizo", cuerpoMotivo).
   Afirmar<Asignable<ReturnType<typeof cuerpoCitaConHora>, W.CitaCreate>>,
-  Afirmar<Asignable<M.CitaCreate & { hora: string }, W.CitaCreate>>,
+  Afirmar<Asignable<M.CitaCreate, W.CitaCreate>>,
   Afirmar<Asignable<W.CitaCreate, M.CitaCreate>>,
   Afirmar<Asignable<M.CitaCreate, z.input<typeof citaCreateSchema>>>,
   Afirmar<Asignable<M.CitaCancelar, W.CitaCancelar>>,
+  Afirmar<Asignable<W.CitaCancelar, M.CitaCancelar>>,
+  Afirmar<Asignable<ReturnType<typeof cuerpoMotivo>, W.CitaCancelar>>,
   Afirmar<Asignable<M.CitaCancelar, z.input<typeof citaCancelarSchema>>>,
+  Afirmar<Asignable<M.CitaCerrar, W.CitaCerrar>>,
+  Afirmar<Asignable<W.CitaCerrar, M.CitaCerrar>>,
+  Afirmar<Asignable<ReturnType<typeof cuerpoMotivo>, W.CitaCerrar>>,
+  Afirmar<Asignable<M.CitaCerrar, z.input<typeof citaCerrarSchema>>>,
+  Afirmar<Asignable<M.CitaOtraFecha, W.CitaOtraFecha>>,
+  Afirmar<Asignable<W.CitaOtraFecha, M.CitaOtraFecha>>,
+  Afirmar<Asignable<ReturnType<typeof cuerpoOtraFecha>, W.CitaOtraFecha>>,
+  Afirmar<Asignable<M.CitaOtraFecha, z.input<typeof citaOtraFechaSchema>>>,
   Afirmar<Asignable<M.CamposDictado, W.CamposDictado>>,
   Afirmar<Asignable<M.CamposDictado, z.input<typeof camposDictadoSchema>>>,
   // Cuerpos: lo que manda la app cabe en lo que valida el servidor.
@@ -1470,24 +1483,12 @@ function cuerpoVisita(extra: Fila = {}): Fila {
 }
 
 /**
- * F1a (0850): las claves que la API AÑADE a cada forma de la app (aditivas: la app de hoy no las lee; las tipa F1b). Lo
- * demás, exactamente las de mobile/lib/claves-api.ts: ni falta una que la app lee ni sobra una que no esté aquí.
+ * Cada respuesta trae EXACTAMENTE las claves de mobile/lib/claves-api.ts: ni falta una que la app lee ni sobra una que
+ * no esté ahí. Desde F1b la app tipa también todo lo que añadió la 0850 (la persona, el ciclo de vida de la cita, las
+ * citas que no se hicieron): ya no hay claves "aditivas" que la app no conozca.
  */
-const CLAVES_F1A: Partial<Record<FormaApi, readonly string[]>> = {
-  me: ['persona'],
-  contexto: ['persona'],
-  cita: ['motivo_codigo', 'no_realizada_at', 'no_realizada_motivo', 'viene_de', 'sucesora_id', 'como', 'estado_visible'],
-  numerosAgenda: ['citas_no_realizadas'],
-}
-const ok = (forma: FormaApi, objeto: unknown) => {
-  const esperadas = [...CLAVES_API[forma], ...(CLAVES_F1A[forma] ?? [])].sort()
-  const reales = clavesDe(objeto)
-  return reales.length === esperadas.length && reales.every((clave, i) => clave === esperadas[i])
-}
+const ok = (forma: FormaApi, objeto: unknown) => tieneClaves(objeto, forma)
 const todosCon = (forma: FormaApi, lista: unknown) => Array.isArray(lista) && lista.every(item => ok(forma, item))
-/** Compatibilidad con la app de hoy: trae TODAS las claves que la app lee (puede traer más). */
-const conClavesDeLaApp = (forma: FormaApi, objeto: unknown) => CLAVES_API[forma].every(clave => clavesDe(objeto).includes(clave))
-void tieneClaves
 
 // ---------------------------------------------------------------------------
 // Proveedores de voz FALSOS
@@ -2683,7 +2684,7 @@ async function main() {
         c1
       )
       const rpcCita = fake.rpcs.filter(r => r.nombre === 'agenda_crear').at(-1)
-      check('el jsonb de agenda_crear: solo las claves del contrato (0850: + como), con el usuario de la sesión', clavesDe(rpcCita?.args.p).join() === [...CLAVES_API.citaCreate, 'como'].sort().join() && rpcCita?.args.p_user === VENTAS_ID && rpcCita?.args.p.cuenta_id === null && rpcCita?.args.p.como === null, rpcCita?.args)
+      check('el jsonb de agenda_crear: solo las claves del contrato (con como), con el usuario de la sesión', clavesDe(rpcCita?.args.p).join() === [...CLAVES_API.citaCreate].sort().join() && rpcCita?.args.p_user === VENTAS_ID && rpcCita?.args.p.cuenta_id === null && rpcCita?.args.p.como === null, rpcCita?.args)
       check('nunca el documento ni el teléfono del médico en la cita', !nueva.texto.includes('5550') && !nueva.texto.includes('3157778899'))
 
       tablas.dias_libres.push({ id: randomUUID(), executive_id: EJEC_A, fecha: '2026-10-20', fraccion: 1, motivo: 'vacaciones', nota: null, estado: 'aprobado', registrado_por: VENTAS_ID, registrado_at: '2026-10-01T15:00:00Z', fuera_de_plazo: false, justificacion: null, revisado_por: ADMIN_ID, revisado_at: '2026-10-02T15:00:00Z', motivo_revision: null, created_at: '2026-10-01T15:00:00Z', updated_at: '2026-10-02T15:00:00Z' })
@@ -3075,6 +3076,13 @@ async function main() {
       // Otra fecha: de la que no se hizo sí (con viene_de); de una pendiente no; dos veces 409
       const otra = await pedir(otraFechaCita, `/api/me/agenda/${ayerNoHecha}/otra-fecha`, { method: 'POST', body: { fecha: '2026-10-19', hora: '09:00' }, id: ayerNoHecha, portador: true })
       check('otra fecha de la que no se hizo → 201 con viene_de, el mismo médico y la misma sede', otra.status === 201 && otra.body.cita.viene_de === ayerNoHecha && otra.body.cita.medico?.id === M_DEP && otra.body.cita.sede.id === S1 && otra.body.cita.fecha === '2026-10-19' && ok('cita', otra.body.cita), otra.body)
+      // F1b (aditivo): la fecha y el estado de la anterior, para "Viene de la cita del 12 oct · No se hizo" aunque la app no
+      // la tenga cargada (otro mes). Sin viene_de, null.
+      check(
+        'la otra fecha dice de qué cita viene: viene_de_fecha (ayer) y viene_de_estado (no_realizada); una cita sin viene_de, null en los dos',
+        otra.body.cita.viene_de_fecha === AYER && otra.body.cita.viene_de_estado === 'no_realizada' && otra.body.cita.sucesora_id === null && media.body.cita.viene_de_fecha === null && media.body.cita.viene_de_estado === null,
+        { otra: otra.body.cita, media: media.body.cita }
+      )
       const dosVecesOtra = await pedir(otraFechaCita, `/api/me/agenda/${ayerNoHecha}/otra-fecha`, { method: 'POST', body: { fecha: '2026-10-21', hora: '09:00' }, id: ayerNoHecha, portador: true })
       check(`otra fecha dos veces → 409 "${MENSAJE_CITA_YA_TIENE_OTRA_FECHA}"`, dosVecesOtra.status === 409 && dosVecesOtra.body?.error === MENSAJE_CITA_YA_TIENE_OTRA_FECHA, dosVecesOtra.body)
       const dePendiente = await pedir(otraFechaCita, `/api/me/agenda/${media.body.cita.id}/otra-fecha`, { method: 'POST', body: { fecha: '2026-10-21', hora: '09:00' }, id: media.body.cita.id, portador: true })
@@ -3116,9 +3124,23 @@ async function main() {
       const anularSinOtra = await pedir(anularVisita, `/api/me/visitas/${visitaNe.id}/anular`, { method: 'POST', body: { motivo: 'Me equivoqué de médico' }, id: visitaNe.id, portador: true })
       check('eliminada la otra fecha, la visita se anula y la cita vuelve a pendiente', otraEliminada.status === 200 && anularSinOtra.status === 200 && filaCita(porVenir)?.estado === 'pendiente' && Boolean(porId(visitaNe.id)?.deleted_at), { eliminada: otraEliminada.body, anular: anularSinOtra.body })
 
-      // Compatibilidad con la app de hoy: cada respuesta trae TODAS las claves que la app lee
-      check('compatibilidad: contexto, cita, agenda, Mis números y me traen todas las claves de la app de hoy', conClavesDeLaApp('contexto', ctxPaola.body) && conClavesDeLaApp('cita', otra.body.cita) && conClavesDeLaApp('agenda', visibles.body) && conClavesDeLaApp('numeros', numerosLider.body) && conClavesDeLaApp('numerosAgenda', numerosLider.body.agenda) && conClavesDeLaApp('me', meLider.body))
-      // La app de hoy no lee max_fecha (desde la 0850 es null): solo la declaran sus tipos y su lista de claves.
+      // F1b: las respuestas de la persona de campo (Paola, la líder) traen exactamente las claves que la app lee (también la
+      // persona y las del ciclo de vida); la app de antes de F1b sigue sirviendo: sus claves están todas.
+      check(
+        'F1b: contexto, persona, cita, agenda, Mis números y me de la líder y de Paola traen exactamente las claves de la app',
+        ok('contexto', ctxPaola.body) &&
+          ok('personaContexto', ctxPaola.body.persona) &&
+          todosCon('lineaPersona', ctxPaola.body.persona.lineas) &&
+          ok('cita', otra.body.cita) &&
+          ok('agenda', visibles.body) &&
+          todosCon('cita', visibles.body.items) &&
+          ok('numeros', numerosLider.body) &&
+          ok('numerosAgenda', numerosLider.body.agenda) &&
+          ok('me', meLider.body) &&
+          ok('persona', meLider.body.persona) &&
+          ok('citaEliminada', eliminada.body)
+      )
+      // La app no lee max_fecha (desde la 0850 es null, sin tope: A4): solo la declaran sus tipos y su lista de claves.
       const raizMovil = new URL('../../mobile/', import.meta.url).pathname
       const leeMaxFecha: string[] = []
       const recorrerMovil = (dir: string) => {
@@ -3129,7 +3151,7 @@ async function main() {
         }
       }
       for (const carpeta of ['app', 'lib', 'components']) if (fs.existsSync(`${raizMovil}${carpeta}`)) recorrerMovil(`${raizMovil}${carpeta}`)
-      check('la app de hoy no lee max_fecha (solo lib/tipos.ts y lib/claves-api.ts la nombran)', leeMaxFecha.sort().join() === ['lib/claves-api.ts', 'lib/tipos.ts'].join(), leeMaxFecha)
+      check('la app no lee max_fecha (null desde la 0850: solo lib/tipos.ts y lib/claves-api.ts la nombran)', leeMaxFecha.sort().join() === ['lib/claves-api.ts', 'lib/tipos.ts'].join(), leeMaxFecha)
 
       // El mapa de asignación no muestra las visitas de la app sin Ejecutivo Comercial (como líder); las de VMO sí
       const LIDER_LEJOS = randomUUID()

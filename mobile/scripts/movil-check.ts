@@ -12,8 +12,10 @@
  * scripts/checks/ (cada uno se corre solo con `npx tsx scripts/checks/correr.ts NN-nombre`): 15 navegación y kit visual
  * (pestañas con ícono, contraste, teclado, pie fijo, háptica), 16 Reportar (tarjeta en resumen, pie "Confirmar visita i
  * de N", médicos por sede y cercanía, buscador al escribir, carga desde memoria, cita desde Hoy), 17 agenda con hora y
- * calendario, 18 tiempos y contexto en memoria (token, sesión, audio), 19 el resto de pantallas y 20 el estilo visual tipo
- * Uber (tokens y contrastes, croquis, encabezado blanco y barra).
+ * calendario, 18 tiempos y contexto en memoria (token, sesión, audio), 19 el resto de pantallas, 20 el estilo visual tipo
+ * Uber (tokens y contrastes, croquis, encabezado blanco y barra) y 21 la persona de campo y el ciclo de vida de la cita
+ * (F1b de docs/specs/2026-10-15-actividades-de-campo.md: el espejo de web/lib/agenda-ciclo.ts, "¿Qué pasó con esto?",
+ * la dirección comercial, cuota y días libres sin Ejecutivo Comercial, "Como", otra fecha y los textos).
  * Contrato: docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md (secciones "App móvil", "Pruebas" y "F4.1").
  *
  * Uso (desde mobile/): npx tsx scripts/movil-check.ts   (va dentro de npm run check)
@@ -98,7 +100,6 @@ import type { CitaItem, ContextoResponse, DiaLibreItem, MedicoPublico, Propuesta
 import { CLAVES_API, clavesDe, tieneClaves } from '../lib/claves-api'
 import { MAX_GRABACION_MS, debeParar, formatoDuracion, nivelDesdeMetering, restanteGrabacion, segundosDe } from '../lib/grabacion'
 import {
-  MENSAJE_CITA_LEJANA,
   MENSAJE_CITA_PASADA,
   MENSAJE_DICTADO_NO_DISPONIBLE,
   MENSAJE_HORA_CITA,
@@ -119,7 +120,6 @@ import {
   textoResultadoDictado,
   unirCamposDictados,
   validarCita,
-  ventanaCita,
   type FormularioCita,
   MENSAJE_LINEAS_AJENAS,
   MENSAJE_PROXIMA_ANTES_DE_VISITA,
@@ -191,6 +191,7 @@ import { pruebas as pruebasAgenda } from './checks/17-agenda'
 import { pruebas as pruebasTiempos } from './checks/18-tiempos'
 import { pruebas as pruebasPantallas } from './checks/19-pantallas'
 import { pruebas as pruebasEstilo } from './checks/20-estilo'
+import { pruebas as pruebasPersona } from './checks/21-persona'
 
 // Este archivo corre en Node (tsx), pero el programa de tipos es el de la app (sin @types/node, que chocaría con los
 // tipos de React Native): fs y path con lo mínimo que se usa aquí.
@@ -715,6 +716,7 @@ async function main() {
       compromisos_vencidos: [],
       voz: { transcribir: false, proponer: false },
       agenda_hoy: [],
+      persona: { user_id: 'u1', nombre: 'Ana', executive_id: 'e1', rol: 'ejecutivo', lineas: [{ id: L1, nombre: 'Osteosíntesis', como: 'ejecutivo' }, { id: L2, nombre: 'Columna', como: 'ejecutivo' }] },
     }
     let n = 0
     const nuevoId = () => `00000000-0000-4000-8000-${String(++n).padStart(12, '0')}`
@@ -921,8 +923,12 @@ async function main() {
       login: 'token expira_at usuario ejecutiva',
       usuario: 'id full_name role',
       ejecutivaMovil: 'id full_name zona',
-      me: 'user ejecutiva',
-      contexto: 'ejecutiva hoy config sedes_cerca mis_medicos contactos subtipos compromisos_vencidos voz agenda_hoy',
+      me: 'user ejecutiva persona',
+      // Persona de campo (0850; F1b de actividades de campo: la app la usa)
+      persona: 'rol lineas',
+      lineaPersona: 'id nombre como',
+      personaContexto: 'user_id nombre executive_id rol lineas',
+      contexto: 'ejecutiva hoy config sedes_cerca mis_medicos contactos subtipos compromisos_vencidos voz agenda_hoy persona',
       contextoEjecutiva: 'id nombre zona municipio lineas',
       linea: 'id code name',
       hoy: 'fecha meta hechas cuota_dia_ok',
@@ -947,13 +953,18 @@ async function main() {
       visitaPropuesta:
         'tipo subtipo_codigo subtipo_id medico_id medico_nombre_dicho sugerir_crear_medico cuenta_id sede_id contacto_id contacto_nombre_dicho lineas efectiva failure_reason conclusion compromisos next_step_date modalidad_sugerida confianza preguntas',
       numeros: 'mes cuota hechas cumplimiento dias_habiles_sin_visitas telefonicas no_efectivas fuera_de_territorio sede_por_confirmar agenda',
-      // F4.1 (0840): agenda y dictado por campo (contrato, sección "F4.1")
-      numerosAgenda: 'efectivas efectivas_agendadas porcentaje_agendadas citas_hasta_hoy citas_hechas cumplimiento',
-      cita: 'id fecha hora tipo medico cuenta subtipo sede nota estado visita_id distancia_m dentro_del_radio anticipada cancelable',
+      // F4.1 (0840): agenda y dictado por campo (contrato, sección "F4.1"); ciclo de vida de la cita (0850, "F4.2")
+      numerosAgenda: 'efectivas efectivas_agendadas porcentaje_agendadas citas_hasta_hoy citas_hechas citas_no_realizadas cumplimiento',
+      cita:
+        'id fecha hora tipo medico cuenta subtipo sede nota estado visita_id distancia_m dentro_del_radio anticipada cancelable motivo_codigo no_realizada_at no_realizada_motivo viene_de viene_de_fecha viene_de_estado sucesora_id como estado_visible',
       sedeCita: 'id nombre cuenta_id cuenta_nombre lat lng ubicacion_confirmada',
       agenda: 'desde hasta hoy max_fecha items',
       citaResponse: 'cita',
-      citaCreate: 'fecha hora tipo medico_id cuenta_id subtipo_id sede_id nota',
+      citaCreate: 'fecha hora tipo medico_id cuenta_id subtipo_id sede_id nota como',
+      citaCancelar: 'motivo motivo_codigo',
+      citaCerrar: 'motivo_codigo motivo',
+      citaOtraFecha: 'fecha hora sede_id nota como',
+      citaEliminada: 'cita_id',
       campos: 'conclusion compromisos next_step_date',
     }
     for (const forma of Object.keys(CLAVES_API) as (keyof typeof CLAVES_API)[]) {
@@ -1004,6 +1015,7 @@ async function main() {
       dentro_del_radio: null,
       anticipada: true,
       cancelable: true,
+      motivo_codigo: null, no_realizada_at: null, no_realizada_motivo: null, viene_de: null, viene_de_fecha: null, viene_de_estado: null, sucesora_id: null, como: 'ejecutivo', estado_visible: 'programada',
       ...extra,
     })
     const SEDE_REINA = { id: S_REINA, nombre: 'Clínica Reina Catalina', cuenta_id: C_REINA, cuenta_nombre: 'Clínica Reina Catalina', ...reina, ubicacion_confirmada: true }
@@ -1037,6 +1049,7 @@ async function main() {
       compromisos_vencidos: [],
       voz: { transcribir: true, proponer: true },
       agenda_hoy: [citaPorto, citaPortoTemprano, citaReina, citaHecha, citaSinGps, citaInst, cita('11111111-0000-4000-8000-0000000000a8', { estado: 'cancelada', sede: { ...SEDE_REINA, id: 'aaaaaaaa-0000-4000-8000-0000000000x9' } })],
+      persona: { user_id: 'u-carmen', nombre: 'Carmen Barrios', executive_id: 'e-carmen', rol: 'ejecutivo', lineas: [{ id: L1, nombre: 'PerOssal', como: 'ejecutivo' }, { id: L2, nombre: 'Reemplazo articular', como: 'ejecutivo' }] },
     }
     const catalogo = catalogoDesdeContexto(contexto, {}, TEL)
 
@@ -1153,19 +1166,20 @@ async function main() {
     // --- Agendar: ventana, forma y cuerpo de POST /api/me/agenda ---
     const vacio = formularioCitaVacio(HOY_A, ['medica', 'institucional'])
     check('formulario nuevo: hoy, sin hora, médica primero', vacio.fecha === HOY_A && vacio.hora === '' && vacio.tipo === 'medica' && formularioCitaVacio(HOY_A, ['institucional']).tipo === 'institucional' && formularioCitaVacio(HOY_A, []).tipo === null)
-    check('ventana: de hoy a hoy + 30', ventanaCita(HOY_A).desde === HOY_A && ventanaCita(HOY_A).hasta === '2026-11-13')
+    // 0850 (A4): sin tope hacia adelante (antes, de hoy a hoy + 30).
     const completa: FormularioCita = { ...vacio, medico_id: M_PROPIO, sede_id: S_PORTO, hora: '9:30', nota: '  Llevar muestras  ' }
     check('cita médica completa: sin errores', validarCita(completa, HOY_A, ['medica', 'institucional']).length === 0)
     const errores = (f: Partial<FormularioCita>) => validarCita({ ...completa, ...f }, HOY_A, ['medica', 'institucional'])
     check('ayer: el mismo mensaje del servidor', errores({ fecha: '2026-10-13' }).some(e => e.campo === 'fecha' && e.mensaje === MENSAJE_CITA_PASADA))
-    check('a 31 días: rechazada; a 30 días: sí', errores({ fecha: '2026-11-14' }).some(e => e.mensaje === MENSAJE_CITA_LEJANA) && errores({ fecha: '2026-11-13' }).length === 0)
+    check('sin tope hacia adelante (0850, A4): a 31 días y a 400 días, sin errores', errores({ fecha: '2026-11-14' }).length === 0 && errores({ fecha: '2027-11-18' }).length === 0)
     check('hora no válida: el mensaje del servidor; "9:30" vale como 09:30 y vacía es sin hora', errores({ hora: '25:00' }).some(e => e.campo === 'hora' && e.mensaje === MENSAJE_HORA_CITA) && horaDeCita('9:30') === '09:30' && horaDeCita('') === null && horaDeCita('07.45') === '07:45' && horaDeCita('10:60') === undefined)
     check('médica sin médico, sin sede: los dos errores a la vez', errores({ medico_id: null, sede_id: null }).map(e => e.campo).join() === 'medico_id,sede_id')
     check('institucional sin cuenta ni subtipo: los mensajes del servidor', validarCita({ ...completa, tipo: 'institucional', medico_id: null }, HOY_A).map(e => e.mensaje).join(' | ') === 'Elige la cuenta | Elige el subtipo de la visita institucional')
     check('tipo fuera del perfil: el mensaje del perfil', errores({}).length === 0 && validarCita(completa, HOY_A, ['institucional']).some(e => e.campo === 'tipo' && e.mensaje === mensajePerfil('medica')))
     check('nota de más de 300: rechazada', errores({ nota: 'x'.repeat(301) }).some(e => e.campo === 'nota'))
     const cuerpo = cuerpoCita(completa)
-    check('cuerpo médico de POST /api/me/agenda: las claves del contrato, hora normalizada, nota limpia, cuenta y subtipo null', tieneClaves(cuerpo, 'citaCreate') && cuerpo.hora === '09:30' && cuerpo.nota === 'Llevar muestras' && cuerpo.cuenta_id === null && cuerpo.subtipo_id === null && cuerpo.medico_id === M_PROPIO, cuerpo)
+    check('cuerpo médico de POST /api/me/agenda: las claves del contrato, hora normalizada, nota limpia, cuenta y subtipo null y sin "como" (null)', tieneClaves(cuerpo, 'citaCreate') && cuerpo.hora === '09:30' && cuerpo.nota === 'Llevar muestras' && cuerpo.cuenta_id === null && cuerpo.subtipo_id === null && cuerpo.medico_id === M_PROPIO && cuerpo.como === null, cuerpo)
+    check('cuerpo con "como qué" (C12): el que eligió quien tiene los dos papeles', cuerpoCita({ ...completa, como: 'lider' }).como === 'lider')
     const cuerpoI = cuerpoCita({ ...completa, tipo: 'institucional', medico_id: null, cuenta_id: C_PORTO, subtipo_id: SUB_COMPRAS, hora: '', nota: '' })
     check('cuerpo institucional: cuenta y subtipo, médico null, sin hora ni nota', tieneClaves(cuerpoI, 'citaCreate') && cuerpoI.tipo === 'institucional' && cuerpoI.medico_id === null && cuerpoI.cuenta_id === C_PORTO && cuerpoI.hora === null && cuerpoI.nota === null)
     check('cuerpoCita lanza si falta algo', (() => { try { cuerpoCita({ ...completa, sede_id: null }); return false } catch { return true } })())
@@ -1190,6 +1204,11 @@ async function main() {
     // --- Mi agenda: la cancelada se sigue viendo (no se borra) y no suma al total ---
     check('total de Mi agenda: cuenta pendientes y hechas', textoTotalAgenda([citaPorto, citaHecha]) === '2 citas' && textoTotalAgenda([citaPorto]) === '1 cita' && textoTotalAgenda([]) === '0 citas')
     check('total de Mi agenda: la cancelada se muestra aparte ("· 1 cancelada")', textoTotalAgenda([citaPorto, cita('x-c1', { estado: 'cancelada' })]) === '1 cita · 1 cancelada' && textoTotalAgenda([cita('x-c1', { estado: 'cancelada' }), cita('x-c2', { estado: 'cancelada' })]) === '0 citas · 2 canceladas')
+    check(
+      'total de Mi agenda (0850): la que no se hizo también aparte ("· 1 no se hizo", "· 2 no se hicieron")',
+      textoTotalAgenda([citaPorto, citaHecha, cita('x-n1', { estado: 'no_realizada' })]) === '2 citas · 1 no se hizo' &&
+        textoTotalAgenda([cita('x-c1', { estado: 'cancelada' }), cita('x-n1', { estado: 'no_realizada' }), cita('x-n2', { estado: 'no_realizada' })]) === '0 citas · 1 cancelada · 2 no se hicieron'
+    )
     const pantallaAgenda = readFileSync(path.resolve(__dirname, '../app/(app)/agenda.tsx'), 'utf8')
     check('Mi agenda pide las canceladas (la confirmación promete "Queda en tu agenda como cancelada")', /api\.agenda\([^)]*,\s*true\)/.test(pantallaAgenda) && pantallaAgenda.includes('Queda en tu agenda como cancelada'))
 
@@ -1552,6 +1571,7 @@ async function main() {
       compromisos_vencidos: [],
       voz: { transcribir: false, proponer: false },
       agenda_hoy: [],
+      persona: { user_id: 'u14', nombre: 'Ejecutivo de prueba', executive_id: 'e14', rol: 'ejecutivo', lineas: [{ id: L_14, nombre: 'Osteosíntesis', como: 'ejecutivo' }] },
       ...extra,
     })
     let n14 = 0
@@ -1714,6 +1734,7 @@ async function main() {
         dentro_del_radio: null,
         anticipada: true,
         cancelable: true,
+        motivo_codigo: null, no_realizada_at: null, no_realizada_motivo: null, viene_de: null, viene_de_fecha: null, viene_de_estado: null, sucesora_id: null, como: 'ejecutivo', estado_visible: 'programada',
       }
       const ctxAntes = contexto14({
         sedes_cerca: [sedeVieja(S_ELEGIDA, C_ELEGIDA), sedeVieja(S_TARJETA, C_TARJETA), sedeVieja(S_SUELTA, C_OTRA)],
@@ -1944,7 +1965,8 @@ async function main() {
   }
 
   // -------------------------------------------------------------------------
-  // Secciones 15 a 19 (spec 2026-10-15) y 20 (estilo tipo Uber): un archivo por paquete en scripts/checks/, con el mismo marco.
+  // Secciones 15 a 19 (spec 2026-10-15), 20 (estilo tipo Uber) y 21 (F1b, persona de campo): un archivo por paquete en
+  // scripts/checks/, con el mismo marco.
   {
     const probador: Probador = { check, seccion, lanza }
     await pruebasNavegacion(probador)
@@ -1953,6 +1975,7 @@ async function main() {
     await pruebasTiempos(probador)
     await pruebasPantallas(probador)
     await pruebasEstilo(probador)
+    await pruebasPersona(probador)
   }
 
   console.log(`\n${total - fallas}/${total} pruebas pasaron`)

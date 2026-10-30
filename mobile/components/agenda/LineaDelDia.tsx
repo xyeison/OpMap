@@ -2,7 +2,10 @@
  * El día de Mi agenda como línea de tiempo por medias horas (spec 2026-10-15): cada franja con su hora a la izquierda
  * y sus citas; la línea "Ahora" si el día es hoy; una franja libre que aún se puede agendar se toca y abre Agendar a
  * esa hora; tocar una cita abre su detalle ahí mismo (debajo de ella). Las citas viejas sin hora van al final, en "Sin
- * hora", y las canceladas en "Ver canceladas (n)". Cada cita ocupa una franja (DURACION_VISUAL_MIN: no hay duración).
+ * hora", y las cerradas sin visita (canceladas y, desde la 0850, las que no se hicieron) en "Ver las que no se hicieron
+ * (n)", que se abre sola si la cita abierta está ahí (la que se acaba de cerrar sigue a la vista con su "Agendar otra
+ * fecha"). Una pendiente de un día anterior lleva "Sin cerrar" (C6). Cada cita ocupa una franja (DURACION_VISUAL_MIN: no
+ * hay duración).
  * Revisión 2026-10-15: tres o más franjas libres seguidas van plegadas en una fila ("Libre de 07:00 a 09:00 · Ver horas";
  * al tocarla se despliegan para elegir la hora), cortadas en la línea "Ahora": un día con 2 citas ya no son 24 filas y
  * "Sin hora" y "Ver canceladas" quedan cerca. Reglas puras en lib/agenda.ts (ocupacionDelDia, plegarLibres, filaDeAhora,
@@ -21,9 +24,9 @@ import { ALTO_TOQUE_MIN, Insignia, TAMANO, useColores, useFuente } from '../../l
 interface Props {
   /** Día que se dibuja (AAAA-MM-DD). */
   fecha: string
-  /** Citas de ese día (todas: también las canceladas, que van aparte). */
+  /** Citas de ese día (todas: también las canceladas y las que no se hicieron, que van aparte). */
   citas: readonly CitaItem[]
-  /** Se puede agendar ese día (dentro de hoy..hoy + 30 y sin un día libre que lo impida). */
+  /** Se puede agendar ese día (de hoy en adelante, sin tope, y sin un día libre que lo impida). */
   agendable: boolean
   /** Tocar una franja libre que aún no pasa: abre Agendar a esa hora. */
   alTocarFranja: (hora: string) => void
@@ -40,17 +43,20 @@ interface Props {
 export function LineaDelDia({ fecha, citas, agendable, alTocarFranja, alTocarCita, abierta, detalle, resaltada, ahora }: Props): JSX.Element {
   const c = useColores()
   const fuente = useFuente()
-  const [verCanceladas, setVerCanceladas] = useState(false)
+  const [verCerradas, setVerCerradas] = useState(false)
   /** Tramos libres desplegados (clave: la franja con que empiezan); se vuelven a plegar al cambiar de día. */
   const [desplegados, setDesplegados] = useState<{ fecha: string; franjas: ReadonlySet<string> }>({ fecha, franjas: new Set() })
   const abiertos = desplegados.fecha === fecha ? desplegados.franjas : new Set<string>()
   const reloj = ahora ?? new Date()
   const { filas, sinHora } = ocupacionDelDia(citas)
-  const canceladas = citas.filter(cita => cita.estado === 'cancelada')
-  const esHoy = fecha === hoyBogota(reloj)
+  /** Cerradas sin visita: canceladas y las que no se hicieron (0850). No ocupan la línea del día. */
+  const cerradas = citas.filter(cita => cita.estado === 'cancelada' || cita.estado === 'no_realizada')
+  const cerradasAbiertas = verCerradas || cerradas.some(cita => cita.id === abierta)
+  const hoy = hoyBogota(reloj)
+  const esHoy = fecha === hoy
   const indiceAhora = esHoy ? filaDeAhora(filas.map(f => f.franja), horaBogota(reloj)) : -1
 
-  // Un día sin citas en el que no se agenda (pasado, más allá de hoy + 30 o día libre): sin la línea vacía.
+  // Un día sin citas en el que no se agenda (pasado o día libre): sin la línea vacía.
   if (citas.length === 0 && !agendable && !esHoy) {
     return <Text style={[{ color: c.textoSuave, fontSize: 16, paddingVertical: 8 }, fuente('regular')]}>Sin citas este día.</Text>
   }
@@ -85,7 +91,7 @@ export function LineaDelDia({ fecha, citas, agendable, alTocarFranja, alTocarCit
             borderColor: resaltada === cita.id || abiertaEsta ? c.acento : c.bordeFuerte,
             backgroundColor: cita.estado === 'pendiente' ? c.relleno : c.superficieSuave,
             justifyContent: 'center',
-            opacity: pressed ? 0.7 : cita.estado === 'cancelada' ? 0.75 : 1,
+            opacity: pressed ? 0.7 : cita.estado === 'cancelada' || cita.estado === 'no_realizada' ? 0.75 : 1,
             gap: 2,
           })}
         >
@@ -93,7 +99,11 @@ export function LineaDelDia({ fecha, citas, agendable, alTocarFranja, alTocarCit
             <Text numberOfLines={2} style={[{ color: cita.estado === 'pendiente' ? c.texto : c.textoSuave, fontSize: 15, lineHeight: 19, flex: 1 }, fuente('negrita')]}>
               {`${cita.hora ? `${cita.hora.slice(0, 5)} · ` : ''}${conQuienCita(cita)}`}
             </Text>
-            {cita.estado !== 'pendiente' ? <Insignia texto={ETIQUETA_ESTADO_CITA[cita.estado]} tono={cita.estado === 'hecha' ? 'exito' : 'neutro'} /> : citaAtrasada(cita, reloj) ? <Insignia texto="Atrasada" tono="alerta" /> : null}
+            {cita.estado !== 'pendiente' ? (
+              <Insignia texto={ETIQUETA_ESTADO_CITA[cita.estado]} tono={cita.estado === 'hecha' ? 'exito' : 'neutro'} />
+            ) : citaAtrasada(cita, reloj) ? <Insignia texto="Atrasada" tono="alerta" /> : cita.fecha < hoy ? (
+              <Insignia texto="Sin cerrar" tono="alerta" />
+            ) : null}
           </View>
           <Text numberOfLines={1} style={[{ color: c.textoSuave, fontSize: 13, lineHeight: 17 }, fuente('regular')]}>
             {cuenta ? `${cita.sede.nombre} · ${cuenta}` : cita.sede.nombre}
@@ -195,19 +205,24 @@ export function LineaDelDia({ fecha, citas, agendable, alTocarFranja, alTocarCit
         </View>
       ) : null}
 
-      {canceladas.length > 0 ? (
+      {cerradas.length > 0 ? (
         <View style={{ gap: 6, marginTop: 10 }}>
           <Pressable
             accessibilityRole="button"
-            accessibilityState={{ expanded: verCanceladas }}
-            onPress={() => setVerCanceladas(!verCanceladas)}
+            accessibilityState={{ expanded: cerradasAbiertas }}
+            onPress={() => {
+              // Ocultarlas con el detalle de una de ellas abierto también lo cierra (si no, seguiría a la vista).
+              const abiertaAqui = cerradas.find(cita => cita.id === abierta)
+              if (cerradasAbiertas && abiertaAqui) alTocarCita(abiertaAqui)
+              setVerCerradas(!cerradasAbiertas)
+            }}
             style={({ pressed }) => ({ minHeight: ALTO_TOQUE_MIN, justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}
           >
             <Text style={[{ color: c.texto, fontSize: 15 }, fuente('negrita')]}>
-              {verCanceladas ? `Ocultar canceladas (${canceladas.length})` : `Ver canceladas (${canceladas.length})`}
+              {cerradasAbiertas ? `Ocultar las que no se hicieron (${cerradas.length})` : `Ver las que no se hicieron (${cerradas.length})`}
             </Text>
           </Pressable>
-          {verCanceladas ? canceladas.map(bloque) : null}
+          {cerradasAbiertas ? cerradas.map(bloque) : null}
         </View>
       ) : null}
     </View>

@@ -7,6 +7,10 @@
  * Spec 2026-10-15: al cambiar de mes, las cifras del mes anterior se atenúan con "Cargando <mes>…" (nunca se mezclan:
  * la respuesta de un mes que ya no se ve se descarta), y en el mes en curso cada tipo dice cuánto falta ("Te faltan 62
  * visitas médicas: 7 por día en los 10 días hábiles que quedan", sin contar los días libres que vienen: diasPorDelante).
+ *
+ * F1b (actividades de campo, C4): sin Ejecutivo Comercial (una líder) no hay cuota: el servidor manda `cuota: null` y
+ * se ve lo hecho del mes y la agenda, sin metas ni días hábiles (SinCuota). La agenda cuenta también las citas que no se
+ * hicieron (0850).
  */
 import { useFocusEffect } from 'expo-router'
 import { useCallback, useRef, useState } from 'react'
@@ -23,7 +27,8 @@ interface Datos {
   /** Mes de estas cifras (AAAA-MM). */
   mes: string
   numeros: NumerosResponse | null
-  cuota: CuotaResponse
+  /** null sin Ejecutivo Comercial (una líder no tiene cuota de visitas). */
+  cuota: CuotaResponse | null
   /** /api/me/numeros no está disponible: solo la cuota. */
   soloCuota: boolean
 }
@@ -130,14 +135,39 @@ export default function Numeros() {
           accessibilityElementsHidden={otroMes}
           importantForAccessibility={otroMes ? 'no-hide-descendants' : 'auto'}
         >
-          <Contenido datos={datos} enCurso={datos.mes === mesActual} />
+          {datos.cuota ? (
+            <Contenido datos={{ ...datos, cuota: datos.cuota }} enCurso={datos.mes === mesActual} />
+          ) : datos.numeros ? (
+            <SinCuota numeros={datos.numeros} />
+          ) : null}
         </View>
       ) : null}
     </Pantalla>
   )
 }
 
-function Contenido({ datos, enCurso }: { datos: Datos; enCurso: boolean }) {
+/**
+ * Sin Ejecutivo Comercial (una líder, C4): sin cuota ni metas; lo hecho del mes y la agenda. (Las metas de las líderes,
+ * las correrías del mes, llegan en F3.)
+ */
+function SinCuota({ numeros }: { numeros: NumerosResponse }) {
+  return (
+    <>
+      <Tarjeta>
+        <Subtitulo estilo={{ fontSize: 17, lineHeight: 22, letterSpacing: 0 }}>Lo que hiciste</Subtitulo>
+        <Fila etiqueta="Visitas a médicos" valor={numeroTexto(numeros.hechas.medica)} fuerte />
+        <Fila etiqueta="Visitas institucionales" valor={numeroTexto(numeros.hechas.institucional)} fuerte />
+        <Fila etiqueta="No efectivas" valor={numeroTexto(numeros.no_efectivas)} />
+        <Texto suave peque>
+          No tienes cuota de visitas: las metas son del Ejecutivo Comercial.
+        </Texto>
+      </Tarjeta>
+      {numeros.agenda ? <TarjetaAgenda agenda={numeros.agenda} /> : null}
+    </>
+  )
+}
+
+function Contenido({ datos, enCurso }: { datos: Datos & { cuota: CuotaResponse }; enCurso: boolean }) {
   const { cuota, numeros, soloCuota } = datos
   // Cuánto falta, solo en el mes en curso y con lo hecho (sin /api/me/numeros no se sabe).
   const falta = (tipo: 'medica' | 'institucional') =>
@@ -238,6 +268,8 @@ function TarjetaAgenda({ agenda }: { agenda: NumerosAgenda }) {
             ? 'No tienes citas de días pasados ni de hoy este mes.'
             : `${numeroTexto(agenda.citas_hechas)} de ${numeroTexto(agenda.citas_hasta_hoy)} citas hasta hoy tienen su visita (sin las canceladas).`}
         </Texto>
+        {/* 0850: las que se cerraron con "No se hizo" (un servidor anterior no lo manda). */}
+        {typeof agenda.citas_no_realizadas === 'number' ? <Fila etiqueta="No se hicieron" valor={numeroTexto(agenda.citas_no_realizadas)} /> : null}
       </View>
     </Tarjeta>
   )

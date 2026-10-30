@@ -7,8 +7,8 @@
  *
  * Spec 2026-10-15: las líneas y la voz salen del contexto en memoria si tiene menos de 10 min (contextoReciente) y solo
  * si no hay, de GET /api/me/contexto. Los textos largos (conclusión, compromisos, motivo) van con la etiqueta arriba y a
- * todo el ancho. Con la próxima reunión dentro de hoy..hoy + 30, "Agendar la próxima reunión" abre Agendar con la
- * fecha y con quién (en memoria: fijarPedidoAgendar).
+ * todo el ancho. Con la próxima reunión de hoy en adelante (sin tope desde la 0850), "Agendar la próxima reunión" abre
+ * Agendar con la fecha y con quién (en memoria: fijarPedidoAgendar).
  */
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'

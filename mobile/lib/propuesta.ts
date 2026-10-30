@@ -13,12 +13,14 @@
  * - F4.1 (agenda, spec 2026-10-14): Reportar empieza por el sitio (la cita de hoy o la sede); la cita elegida arma el
  *   borrador (tipo, médico o cuenta y subtipo, sede y agenda_id); el dictado de un campo se AÑADE a lo escrito.
  */
-import { esFechaIso, fechaBogota, hoyBogota, sumarDias } from './fechas'
+import { esFechaIso, fechaBogota, hoyBogota } from './fechas'
 import { esPunto, haversineM, textoDistancia, type Punto } from './geo'
 import type {
   CamposDictadoResponse,
-  CitaCreate,
+  CitaCreateBase,
+  CitaCreateTipo,
   CitaItem,
+  ComoPersona,
   ConfigContexto,
   ContactoContexto,
   ContextoResponse,
@@ -37,7 +39,7 @@ import type {
   VisitaPropuesta,
   VisitaUpdate,
 } from './tipos'
-import { DIAS_AGENDA_ADELANTE, ETIQUETA_TIPO_VISITA, MAX_NOTA_CITA } from './tipos'
+import { ETIQUETA_TIPO_VISITA, MAX_NOTA_CITA } from './tipos'
 
 // ---------------------------------------------------------------------------------------------
 // Límites y mensajes (los mismos de web/lib/reporte-visitas.ts y de visitas_registrar)
@@ -1368,9 +1370,11 @@ export function textoResultadoDictado(resultado: Pick<ResultadoDictado, 'agregad
 // F4.1 Agendar (POST /api/me/agenda): formulario, revisión antes de enviar y cuerpo
 // ---------------------------------------------------------------------------------------------
 
-/** Mensajes de la ventana: los mismos de web/lib/reporte-visitas.ts (mensajeFechaCita) y del esquema de la hora. */
+/**
+ * Mensajes de la fecha y la hora: los mismos de web/lib/reporte-visitas.ts (mensajeFechaCita) y del esquema de la hora.
+ * Desde la 0850 no hay tope hacia adelante (A4): ya no está "Solo se agenda hasta 30 días adelante".
+ */
 export const MENSAJE_CITA_PASADA = 'No se agenda en el pasado: elige hoy o una fecha posterior'
-export const MENSAJE_CITA_LEJANA = `Solo se agenda hasta ${DIAS_AGENDA_ADELANTE} días adelante`
 export const MENSAJE_HORA_CITA = 'Hora no válida: usa HH:MM (de 00:00 a 23:59)'
 
 export interface FormularioCita {
@@ -1384,17 +1388,20 @@ export interface FormularioCita {
   subtipo_id: string | null
   sede_id: string | null
   nota: string
+  /**
+   * 0850 (C12): "como qué" agenda quien tiene los dos papeles ('ejecutivo' o 'lider'); null para los demás (el servidor
+   * decide: como Ejecutivo Comercial si lo tiene; si no, como líder).
+   */
+  como: ComoPersona | null
 }
 
-/** Formulario nuevo: hoy, sin hora, el primer tipo del perfil (médica primero). */
+/** Lo que arma cuerpoCita: el cuerpo de POST /api/me/agenda con la hora aún opcional (cuerpoCitaConHora la exige). */
+export type CuerpoCita = Omit<CitaCreateBase, 'hora'> & { hora: string | null } & CitaCreateTipo
+
+/** Formulario nuevo: hoy, sin hora, el primer tipo del perfil (médica primero), sin "como qué". */
 export function formularioCitaVacio(hoy: string, perfil: readonly TipoVisita[]): FormularioCita {
   const tipo: TipoVisita | null = perfil.includes('medica') ? 'medica' : perfil.includes('institucional') ? 'institucional' : null
-  return { fecha: hoy, hora: '', tipo, medico_id: null, cuenta_id: null, subtipo_id: null, sede_id: null, nota: '' }
-}
-
-/** De hoy a hoy + 30 (Bogotá): las fechas que se pueden agendar. */
-export function ventanaCita(hoy: string): { desde: string; hasta: string } {
-  return { desde: hoy, hasta: sumarDias(hoy, DIAS_AGENDA_ADELANTE) }
+  return { fecha: hoy, hora: '', tipo, medico_id: null, cuenta_id: null, subtipo_id: null, sede_id: null, nota: '', como: null }
 }
 
 /** Hora del formulario → 'HH:MM'; '' → null (sin hora); undefined si no es una hora válida. */
@@ -1410,15 +1417,15 @@ export function horaDeCita(texto: string): string | null | undefined {
 }
 
 /**
- * Revisa la cita como lo hará el servidor (forma y ventana; el día libre, el perfil en esa fecha, el médico en la sede,
- * la cuenta, el subtipo vigente y los repetidos los decide la base): todos los errores a la vez, con su campo.
+ * Revisa la cita como lo hará el servidor (forma y fecha: no en el pasado, sin tope hacia adelante desde la 0850; el día
+ * libre, el perfil en esa fecha, el médico en la sede, la cuenta, el subtipo vigente y los repetidos los decide la
+ * base): todos los errores a la vez, con su campo.
  */
 export function validarCita(formulario: FormularioCita, hoy: string, perfil?: readonly TipoVisita[]): ErrorVisita[] {
   const errores: ErrorVisita[] = []
   const falla = (campo: string, mensaje: string) => errores.push({ campo, mensaje })
   if (!esFechaIso(formulario.fecha)) falla('fecha', 'Fecha no válida: usa AAAA-MM-DD')
   else if (formulario.fecha < hoy) falla('fecha', MENSAJE_CITA_PASADA)
-  else if (formulario.fecha > ventanaCita(hoy).hasta) falla('fecha', MENSAJE_CITA_LEJANA)
   if (horaDeCita(formulario.hora) === undefined) falla('hora', MENSAJE_HORA_CITA)
   if (!formulario.tipo) falla('tipo', 'Elige el tipo de visita')
   else if (perfil && !perfil.includes(formulario.tipo)) falla('tipo', mensajePerfil(formulario.tipo))
@@ -1432,12 +1439,16 @@ export function validarCita(formulario: FormularioCita, hoy: string, perfil?: re
   return errores
 }
 
-/** Cuerpo de POST /api/me/agenda (lo que no aplica al tipo va en null). Lanza si está incompleto: validarlo antes. */
-export function cuerpoCita(formulario: FormularioCita): CitaCreate {
+/**
+ * Cuerpo de POST /api/me/agenda (lo que no aplica al tipo va en null; `como`, null salvo para quien tiene los dos
+ * papeles). Lanza si está incompleto: validarlo antes. Puede ir "sin hora" (las pruebas de antes): la app agenda con
+ * cuerpoCitaConHora de lib/agenda.ts, que la exige.
+ */
+export function cuerpoCita(formulario: FormularioCita): CuerpoCita {
   const hora = horaDeCita(formulario.hora)
   if (!formulario.tipo || !formulario.sede_id || hora === undefined || !esFechaIso(formulario.fecha)) throw new Error('La cita está incompleta')
   const nota = formulario.nota.trim() ? formulario.nota.trim().slice(0, MAX_NOTA_CITA) : null
-  const base = { fecha: formulario.fecha, hora, sede_id: formulario.sede_id, nota }
+  const base = { fecha: formulario.fecha, hora, sede_id: formulario.sede_id, nota, como: formulario.como ?? null }
   if (formulario.tipo === 'medica') {
     if (!formulario.medico_id) throw new Error('Elige el médico')
     return { ...base, tipo: 'medica', medico_id: formulario.medico_id, cuenta_id: null, subtipo_id: null }

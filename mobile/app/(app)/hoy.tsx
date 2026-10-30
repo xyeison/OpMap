@@ -13,27 +13,38 @@
  * Estilo Uber (2026-10-15, spec 2026-10-15-movil-estilo-uber): sin encabezado; arriba el croquis (tu punto, las sedes
  * cercanas y el radio de la sede de la cita "de ahora") con el logotipo, y la hoja blanca con "Hola, …", "Agendar" y
  * el resto en secciones con filas de separador fino.
+ *
+ * F1b (actividades de campo, spec 2026-10-15-actividades-de-campo): una líder (sin Ejecutivo Comercial) es persona de
+ * campo: ya no ve "no está enlazado" ni la meta del día (no tiene cuota, C4); solo quien el servidor confirmó sin líneas
+ * ve "Tu usuario no tiene líneas para reportar". "Reportar actividad" y "Actividades de hoy" (la app habla de
+ * actividades). "¿Qué pasó con esto?" (components/agenda/QuePasoConEsto) junta lo atrasado de hoy y lo sin cerrar de
+ * los 31 días anteriores (GET /api/me/agenda hacia atrás, en la misma carga) con Reportar, "No se hizo" y Cancelar; lo
+ * que está ahí no se repite en "Tu agenda de hoy", y la cita "de ahora" sigue en "Siguiente".
  */
 import { useFocusEffect, useRouter } from 'expo-router'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { View } from 'react-native'
 import { Croquis, PastillaLogo } from '../../components/Croquis'
 import { Logo } from '../../components/Logo'
+import { QuePasoConEsto } from '../../components/agenda/QuePasoConEsto'
 import { FilaCita } from '../../components/reporte/FilaCita'
+import { enPie, fijarPedidoAgendar, pedidoOtraFecha, rutaAgendar } from '../../lib/agenda'
 import * as api from '../../lib/api'
 import { useCola } from '../../lib/cola-contexto'
 import { guardarContexto, leerContextoGuardado } from '../../lib/contexto-guardado'
 import { FRESCURA_PINTAR_MS, FRESCURA_SIN_PEDIR_MS, contextoReciente, escucharInvalidacion } from '../../lib/contexto-memoria'
-import { aApiError, esNoDisponible, type ApiError } from '../../lib/errores'
-import { fechaCorta, fechaLarga, horaBogota, hoyBogota } from '../../lib/fechas'
+import { aApiError, esNoDisponible, mensajeDeError, type ApiError } from '../../lib/errores'
+import { fechaCorta, fechaLarga, horaBogota, hoyBogota, sumarDias } from '../../lib/fechas'
 import { textoDistancia, textoPrecision } from '../../lib/geo'
+import { vibrarExito } from '../../lib/haptica'
 import { Icono } from '../../lib/iconos'
-import { citaAtrasada, citaDeAhora, debeRecargarHoy, textoSiguienteCita, textoUbicacionTomada } from '../../lib/pantallas'
+import { citaAtrasada, citaDeAhora, debeRecargarHoy, porCerrar, textoSiguienteCita, textoUbicacionTomada } from '../../lib/pantallas'
+import { AYUDA_SIN_LINEAS, MENSAJE_SIN_LINEAS, estadoPersona, tieneCuota } from '../../lib/persona'
 import { avance, conQuien, conQuienCita, detalleModalidad, fraccionBarra, numeroTexto, plural, sinCortes } from '../../lib/reglas'
 import { fijarCitaParaReportar, fijarReintento } from '../../lib/retorno'
 import { useSesion } from '../../lib/sesion'
 import type { CitaItem, ContextoResponse, VisitaItem, VisitasResponse } from '../../lib/tipos'
-import { ETIQUETA_TIPO_VISITA } from '../../lib/tipos'
+import { ETIQUETA_TIPO_VISITA, MAX_DIAS_CONSULTA_AGENDA } from '../../lib/tipos'
 import { pedirUbicacionEnDosPasos, type ResultadoUbicacion } from '../../lib/ubicacion'
 import { Aviso, Barra, Bloque, BordeHoja, Boton, Cargando, Fila, FilaLista, Grupo, Insignia, Pantalla, Seccion, Texto, Titulo, Vacio, useColores } from '../../lib/ui'
 
@@ -53,6 +64,8 @@ export default function Hoy() {
   const [errorContexto, setErrorContexto] = useState<ApiError | null>(null)
   const [visitas, setVisitas] = useState<VisitasResponse | null>(null)
   const [errorVisitas, setErrorVisitas] = useState<ApiError | null>(null)
+  /** Las citas de los 31 días anteriores (pendientes y hechas): de ahí sale lo "sin cerrar" de "¿Qué pasó con esto?". */
+  const [anteriores, setAnteriores] = useState<CitaItem[]>([])
   const [ubicacion, setUbicacion] = useState<ResultadoUbicacion | null>(null)
   const [cargando, setCargando] = useState(true)
   const [refrescando, setRefrescando] = useState(false)
@@ -97,6 +110,11 @@ export default function Hoy() {
         },
         error => setErrorVisitas(aApiError(error))
       )
+      // Lo sin cerrar de días anteriores (como mucho 31 días hacia atrás, una consulta). Si falla, queda lo que había.
+      const pedidoAnteriores = api.agenda(sumarDias(hoy, -MAX_DIAS_CONSULTA_AGENDA), sumarDias(hoy, -1)).then(
+        datos => setAnteriores(datos.items),
+        () => undefined
+      )
       // Hoy solo muestra (meta, agenda y distancias): le basta la primera ubicación (la última conocida reciente o una
       // lectura rápida) y no espera la de alta precisión, que sigue mientras la app está abierta y deja fresca la
       // última conocida con que Reportar muestra su lista enseguida (lib/ubicacion-pasos.ts).
@@ -124,7 +142,7 @@ export default function Hoy() {
               return null
             }
           )
-      const [, llegada] = await Promise.all([pedidoVisitas, pedidoContexto, reintentar()])
+      const [, llegada] = await Promise.all([pedidoVisitas, pedidoContexto, reintentar(), pedidoAnteriores])
       if (llegada !== null) {
         ultimaCarga.current = llegada
         setActualizado(new Date(llegada).toISOString())
@@ -199,7 +217,12 @@ export default function Hoy() {
   const hoy = hoyBogota()
   const nombre = contexto?.ejecutiva.nombre ?? perfil?.ejecutiva?.full_name ?? perfil?.usuario.full_name ?? ''
   const zona = contexto?.ejecutiva.zona ?? perfil?.ejecutiva?.zona ?? null
-  const sinEjecutiva = perfil !== null && perfil.ejecutiva === null && !sinConfirmar
+  // F1b: la persona del contexto (si llegó) o la del perfil. Solo quien el servidor confirmó sin líneas ve el aviso; una
+  // líder sin Ejecutivo Comercial es persona de campo y no lo ve.
+  const persona = contexto?.persona ?? perfil?.persona
+  const estado = estadoPersona({ role: perfil?.usuario.role, persona, sinConfirmar })
+  const sinLineas = estado === 'sin_lineas' && !contexto
+  const conCuota = tieneCuota({ persona, ejecutiva: perfil?.ejecutiva })
   const pendientes = cola.items.filter(e => e.estado === 'pendiente')
   const porConfirmar = cola.items.filter(e => e.estado === 'por_confirmar')
   const noEnviadas = cola.items.filter(e => e.estado === 'no_enviada')
@@ -211,11 +234,30 @@ export default function Hoy() {
     fijarCitaParaReportar(cita.id)
     router.push('/reportar')
   }
+  /** "No se hizo" o Cancelar desde "¿Qué pasó con esto?": la cita cerrada, o el mensaje del error (lib/api invalida). */
+  const cerrarCita = async (cita: CitaItem, uso: 'cerrar' | 'cancelar', motivo: api.MotivoDeCierre): Promise<CitaItem | string> => {
+    try {
+      const { cita: cerrada } = uso === 'cerrar' ? await api.cerrarCita(cita.id, motivo) : await api.cancelarCita(cita.id, motivo)
+      vibrarExito()
+      setAnteriores(prev => prev.filter(x => x.id !== cita.id))
+      return cerrada
+    } catch (e) {
+      return mensajeDeError(e)
+    }
+  }
+  const otraFecha = (cita: CitaItem) => {
+    fijarPedidoAgendar(pedidoOtraFecha(cita))
+    router.push(rutaAgendar({}))
+  }
   const items = (visitas?.items ?? []).slice().sort((a, b) => b.checked_in_at.localeCompare(a.checked_in_at))
   const textoUbicacion = ubicacion?.ubicacion ? textoUbicacionTomada(ubicacion.ubicacion.precision, ubicacion.ubicacion.aproximada) : (ubicacion?.error ?? '')
 
   // Croquis: tu punto, las sedes cercanas y el radio de la sede de la cita "de ahora" (o la más cercana).
-  const deAhoraCroquis = contexto ? citaDeAhora((contexto.agenda_hoy ?? []).filter(c => c.estado !== 'cancelada'), ahora) : null
+  const citasDeHoy = (contexto?.agenda_hoy ?? []).filter(enPie)
+  const deAhoraCroquis = contexto ? citaDeAhora(citasDeHoy, ahora) : null
+  // "¿Qué pasó con esto?": lo atrasado de hoy (sin la cita "de ahora") y lo sin cerrar de días anteriores.
+  const sinResultado = porCerrar([...citasDeHoy, ...anteriores.filter(c => c.fecha < hoy)], ahora, deAhoraCroquis?.id ?? null)
+  const aparte = new Set(sinResultado.map(c => c.id))
   const sedesCroquis = [...(contexto?.sedes_cerca ?? []), ...(deAhoraCroquis ? [deAhoraCroquis.sede] : [])]
   const punto = ubicacion?.ubicacion ?? null
   const precisionTexto = punto ? textoPrecision(punto.precision) : null
@@ -252,9 +294,9 @@ export default function Hoy() {
         {contexto ? <Boton titulo="Agendar" variante="secundario" compacto icono="agregar" alPresionar={() => router.push('/agenda/nueva')} /> : null}
       </View>
 
-      {sinEjecutiva ? (
-        <Aviso tono="peligro" titulo="Tu usuario no está enlazado con un Ejecutivo Comercial">
-          Pide a quien administra OpMap que enlace tu usuario para poder reportar visitas.
+      {sinLineas ? (
+        <Aviso tono="peligro" titulo={MENSAJE_SIN_LINEAS}>
+          {AYUDA_SIN_LINEAS}
         </Aviso>
       ) : null}
       {sinConfirmar ? (
@@ -263,18 +305,30 @@ export default function Hoy() {
         </Aviso>
       ) : null}
 
-      <Boton titulo="Reportar visita" detalle="Dicta lo que pasó o repórtala por toques" grande icono="microfono" alPresionar={() => router.push('/reportar')} />
+      <Boton titulo="Reportar actividad" detalle="Dicta lo que pasó o repórtalo por toques" grande icono="microfono" alPresionar={() => router.push('/reportar')} />
 
-      <MetaDelDia contexto={contexto} error={errorContexto} />
+      {/* Sin Ejecutivo Comercial (una líder) no hay cuota ni meta del día (C4); sin contexto, el error de la carga. */}
+      {conCuota || !contexto ? <MetaDelDia contexto={contexto} error={sinLineas ? null : errorContexto} /> : null}
       {contexto && errorContexto && !actualizando ? (
         <Texto suave peque>
           {`No se pudo actualizar (${errorContexto.message}). Ves lo último que llegó hoy.`}
         </Texto>
       ) : null}
 
+      <QuePasoConEsto
+        citas={sinResultado}
+        hoy={hoy}
+        ahora={ahora}
+        alReportar={reportarCita}
+        alNoSeHizo={(cita, motivo) => cerrarCita(cita, 'cerrar', motivo)}
+        alCancelar={(cita, motivo) => cerrarCita(cita, 'cancelar', motivo)}
+        alOtraFecha={otraFecha}
+      />
+
       {contexto ? (
         <AgendaDeHoy
           citas={contexto.agenda_hoy ?? []}
+          aparte={aparte}
           ahora={ahora}
           alReportarCita={reportarCita}
           alVerAgenda={() => router.push('/agenda')}
@@ -360,15 +414,15 @@ export default function Hoy() {
       ) : null}
 
       <View>
-        <Seccion titulo="Visitas de hoy" estilo={{ marginBottom: 4 }} />
-        {errorVisitas ? (
+        <Seccion titulo="Actividades de hoy" estilo={{ marginBottom: 4 }} />
+        {errorVisitas && sinLineas ? null : errorVisitas ? (
           <Aviso tono={esNoDisponible(errorVisitas) ? 'info' : errorVisitas.tipo === 'red' || errorVisitas.tipo === 'tiempo' ? 'alerta' : 'peligro'}>
             {esNoDisponible(errorVisitas) ? 'El reporte de visitas todavía no está activo en el servidor.' : errorVisitas.message}
           </Aviso>
         ) : !visitas ? (
-          <Vacio texto="Cargando tus visitas de hoy…" />
+          <Vacio texto="Cargando tus actividades de hoy…" />
         ) : items.length === 0 ? (
-          <Vacio texto="Todavía no has reportado visitas hoy." />
+          <Vacio texto="Todavía no has reportado actividades hoy." />
         ) : (
           items.map((visita, i) => <FilaVisita key={visita.id} visita={visita} primera={i === 0} alPresionar={() => router.push(`/visita/${visita.id}`)} />)
         )}
@@ -412,16 +466,19 @@ function MetaDelDia({ contexto, error }: { contexto: ContextoResponse | null; er
  * Las citas de hoy (pendientes y hechas), en filas con separador. La pendiente se toca para reportarla (Reportar la
  * abre elegida) y lleva "Atrasada" si ya pasó su hora; la hecha abre su visita. Arriba, la cita "de ahora"
  * ("Siguiente: 10:30 · …") en un bloque destacado que también lleva a reportarla. "Ver agenda" abre Mi agenda
- * ("Agendar" está junto al saludo).
+ * ("Agendar" está junto al saludo). F1b: las que están en "¿Qué pasó con esto?" (`aparte`) no se repiten en la lista,
+ * pero cuentan en "x de y hechas" (es el día).
  */
 function AgendaDeHoy({
   citas,
+  aparte,
   ahora,
   alReportarCita,
   alVerAgenda,
   alAbrirVisita,
 }: {
   citas: readonly CitaItem[]
+  aparte: ReadonlySet<string>
   ahora: Date
   alReportarCita: (cita: CitaItem) => void
   alVerAgenda: () => void
@@ -429,10 +486,11 @@ function AgendaDeHoy({
 }) {
   // Por hora (sin hora al final); el contexto con punto las trae por distancia, pero aquí se lee el día en orden.
   const ordenadas = [...citas]
-    .filter(c => c.estado !== 'cancelada')
+    .filter(enPie)
     .sort((a, b) => (a.hora === b.hora ? conQuienCita(a).localeCompare(conQuienCita(b), 'es') : a.hora === null ? 1 : b.hora === null ? -1 : a.hora < b.hora ? -1 : 1))
   const hechas = ordenadas.filter(c => c.estado === 'hecha').length
   const deAhora = citaDeAhora(ordenadas, ahora)
+  const enLista = ordenadas.filter(c => !aparte.has(c.id))
   return (
     <View style={{ gap: 10 }}>
       {/* "x de y hechas" en gris; en verde (insignia de éxito) cuando están todas, como antes. */}
@@ -449,9 +507,13 @@ function AgendaDeHoy({
       {deAhora ? <SiguienteCita cita={deAhora} titulo={textoSiguienteCita(deAhora, ahora)} alPresionar={() => alReportarCita(deAhora)} /> : null}
       {ordenadas.length === 0 ? (
         <Vacio texto="No tienes citas para hoy." />
+      ) : enLista.length === 0 ? (
+        <Texto suave peque>
+          Las de hoy que ya pasaron están arriba, en «¿Qué pasó con esto?».
+        </Texto>
       ) : (
         <View>
-          {ordenadas.map((cita, i) => (
+          {enLista.map((cita, i) => (
             <FilaCita
               key={cita.id}
               cita={cita}

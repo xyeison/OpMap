@@ -1882,6 +1882,12 @@ export interface CitaItem {
   no_realizada_motivo: string | null
   /** La cita de la que esta es "otra fecha", o null. */
   viene_de: string | null
+  /**
+   * F1b (aditivo): la fecha y el estado de esa cita, para que el detalle diga "Viene de la cita del 12 oct · No se
+   * hizo" aunque la app no la tenga cargada (puede ser de otro mes). null sin viene_de.
+   */
+  viene_de_fecha: string | null
+  viene_de_estado: EstadoCita | null
   /** Su "otra fecha" (la sucesora no eliminada), o null. */
   sucesora_id: string | null
   /** Como Ejecutivo Comercial (con executive_id) o como líder (sin él). */

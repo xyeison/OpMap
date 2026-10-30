@@ -1,6 +1,10 @@
 /**
  * Ajustes: quién soy, "Mis días libres" (spec 2026-10-15: Días libres dejó la barra de abajo y se abre desde aquí y
  * desde Mi agenda), servidor, versión de la app y cerrar sesión (olvidar el token del teléfono).
+ *
+ * F1b (actividades de campo): "Quién soy" dice su papel según el caso —"Líder · Trauma" y "Ejecutivo Comercial ·
+ * Sustitutos óseos · Bucaramanga" (papelesDePersona de lib/persona.ts; Paola, los dos)—. Sin la persona (aún no se
+ * sabe), lo de antes: su Ejecutivo Comercial y su zona. "Mis días libres" solo con Ejecutivo Comercial (hasta F3).
  */
 import Constants from 'expo-constants'
 import { useRouter } from 'expo-router'
@@ -10,6 +14,7 @@ import { URL_API } from '../../lib/api'
 import { useCola } from '../../lib/cola-contexto'
 import { esServidorDesarrollo, nombreServidor } from '../../lib/http'
 import { Icono } from '../../lib/iconos'
+import { muestraDiasLibres, papelesDePersona } from '../../lib/persona'
 import { plural, tituloRol } from '../../lib/reglas'
 import { useSesion } from '../../lib/sesion'
 import { ALTO_TOQUE_MIN, Aviso, Boton, Fila, Pantalla, Subtitulo, Tarjeta, Texto, confirmar, useColores } from '../../lib/ui'
@@ -21,6 +26,8 @@ export default function Ajustes() {
   const { resumen } = useCola()
   const [saliendo, setSaliendo] = useState(false)
   const version = Constants.expoConfig?.version ?? '—'
+  const papeles = papelesDePersona(perfil?.persona, perfil?.ejecutiva?.zona)
+  const conDiasLibres = muestraDiasLibres({ persona: perfil?.persona, ejecutiva: perfil?.ejecutiva })
 
   async function cerrarSesion() {
     const advertencia =
@@ -43,23 +50,39 @@ export default function Ajustes() {
         <Fila etiqueta="Nombre" valor={perfil?.usuario.full_name || '—'} />
         {perfil?.usuario.email ? <Fila etiqueta="Correo" valor={perfil.usuario.email} /> : null}
         <Fila etiqueta="Rol" valor={tituloRol(perfil?.usuario.role)} />
-        <Fila etiqueta="Ejecutivo Comercial" valor={perfil?.ejecutiva?.full_name ?? 'Sin enlazar'} />
-        {perfil?.ejecutiva?.zona ? <Fila etiqueta="Zona" valor={perfil.ejecutiva.zona} /> : null}
+        {papeles.length > 0 ? (
+          // Su papel en el campo (lo que agenda y reporta, y con qué líneas).
+          <View style={{ gap: 4 }}>
+            <Texto suave>Reportas como</Texto>
+            {papeles.map(papel => (
+              <Texto key={papel} media>
+                {papel}
+              </Texto>
+            ))}
+          </View>
+        ) : (
+          <>
+            <Fila etiqueta="Ejecutivo Comercial" valor={perfil?.ejecutiva?.full_name ?? 'Sin enlazar'} />
+            {perfil?.ejecutiva?.zona ? <Fila etiqueta="Zona" valor={perfil.ejecutiva.zona} /> : null}
+          </>
+        )}
         {sinConfirmar ? <Texto suave peque>Sin conexión: estos datos son los guardados en el teléfono.</Texto> : null}
       </Tarjeta>
 
-      <Tarjeta alPresionar={() => router.push('/dias-libres')} etiquetaAccesible="Mis días libres: registrar uno o ver los que tienes">
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: ALTO_TOQUE_MIN }}>
-          <Icono nombre="calendario" tamano={26} />
-          <View style={{ flex: 1, gap: 2 }}>
-            <Subtitulo>Mis días libres</Subtitulo>
-            <Texto suave peque>
-              Registra un día libre o revisa los que tienes.
-            </Texto>
+      {conDiasLibres ? (
+        <Tarjeta alPresionar={() => router.push('/dias-libres')} etiquetaAccesible="Mis días libres: registrar uno o ver los que tienes">
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: ALTO_TOQUE_MIN }}>
+            <Icono nombre="calendario" tamano={26} />
+            <View style={{ flex: 1, gap: 2 }}>
+              <Subtitulo>Mis días libres</Subtitulo>
+              <Texto suave peque>
+                Registra un día libre o revisa los que tienes.
+              </Texto>
+            </View>
+            <Icono nombre="adelante" tamano={22} color={c.textoSuave} />
           </View>
-          <Icono nombre="adelante" tamano={22} color={c.textoSuave} />
-        </View>
-      </Tarjeta>
+        </Tarjeta>
+      ) : null}
 
       <Tarjeta>
         <Subtitulo>App</Subtitulo>

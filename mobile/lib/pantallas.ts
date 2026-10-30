@@ -82,6 +82,28 @@ export function citaAtrasada(cita: Pick<CitaItem, 'fecha' | 'hora' | 'estado'>, 
   return minutos !== null && minutos < 0
 }
 
+/** Cuántas citas de "¿Qué pasó con esto?" se ven antes de "Ver todas" (con 19 sin cerrar, Hoy no debe ser una lista). */
+export const MAX_POR_CERRAR_VISIBLES = 4
+
+/**
+ * "¿Qué pasó con esto?" de Hoy (F1b; C6 de la spec de actividades de campo): lo programado que no se cerró solo y espera
+ * su resultado. Las pendientes de días anteriores ("Sin cerrar") y las de hoy cuya hora ya pasó ("Atrasada"), salvo la
+ * cita "de ahora" (`deAhora`: de 30 min antes a 60 min después de su hora), que sigue en "Siguiente" para reportarla:
+ * así ninguna cita sale dos veces en Hoy. Orden: hoy primero, después de la más reciente a la más vieja; cada día por
+ * hora (las sin hora al final). Las hechas, canceladas, que no se hicieron y de mañana no entran.
+ */
+export function porCerrar<T extends Pick<CitaItem, 'id' | 'fecha' | 'hora' | 'estado'>>(citas: readonly T[], ahora: Date, deAhora: string | null = null): T[] {
+  const hoy = hoyBogota(ahora)
+  const vistas = new Set<string>()
+  return citas
+    .filter(cita => {
+      if (cita.estado !== 'pendiente' || cita.id === deAhora || vistas.has(cita.id)) return false
+      vistas.add(cita.id)
+      return cita.fecha < hoy || citaAtrasada(cita, ahora)
+    })
+    .sort((a, b) => b.fecha.localeCompare(a.fecha) || (a.hora ?? '99:99').localeCompare(b.hora ?? '99:99') || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+}
+
 /** "Ubicación tomada · ±12 m" (y "(aproximada)" si es la aproximada); sin precisión, "Ubicación tomada". */
 export function textoUbicacionTomada(precision: number | null | undefined, aproximada = false): string {
   const texto = textoPrecision(precision)
@@ -164,7 +186,7 @@ export function marcasDiasLibres(items: readonly Pick<DiaLibreItem, 'fecha' | 'e
 
 /**
  * Las marcas de Días libres con las citas en pie de cada día (revisión 2026-10-15: así se ve que el día que se va a pedir
- * libre tiene citas). Las canceladas no cuentan.
+ * libre tiene citas). Las canceladas y las que no se hicieron no cuentan.
  */
 export function marcasConCitas(
   libres: Readonly<Record<string, MarcaDiaLibre>>,
@@ -173,7 +195,7 @@ export function marcasConCitas(
   const marcas: Record<string, { estadoLibre?: EstadoDiaLibre; citas?: number }> = {}
   for (const [fecha, marca] of Object.entries(libres)) marcas[fecha] = { ...marca }
   for (const cita of citas) {
-    if (cita.estado === 'cancelada') continue
+    if (cita.estado !== 'pendiente' && cita.estado !== 'hecha') continue
     const marca = (marcas[cita.fecha] ??= {})
     marca.citas = (marca.citas ?? 0) + 1
   }

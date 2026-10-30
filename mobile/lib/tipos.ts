@@ -29,6 +29,11 @@ export type EstadoDiaLibre = 'registrado' | 'por_aprobar' | 'aprobado' | 'rechaz
 export type OrigenMeta = 'ejecutiva' | 'zona' | 'general' | null
 
 export const ETIQUETA_TIPO_VISITA: Record<TipoVisita, string> = { medica: 'Médica', institucional: 'Institucional' }
+/**
+ * La visita como actividad de campo (F1b, spec 2026-10-15-actividades-de-campo, tabla de tipos): las opciones de
+ * "¿Qué hiciste?" (Reportar) y "¿Qué vas a hacer?" (Agendar). "Visita" queda solo para estos dos tipos.
+ */
+export const ETIQUETA_ACTIVIDAD: Record<TipoVisita, string> = { medica: 'Visita a médico', institucional: 'Visita institucional' }
 export const ETIQUETA_MODALIDAD: Record<Modalidad, string> = { presencial: 'Presencial', telefonica: 'Telefónica' }
 export const ETIQUETA_MEDIO: Record<MedioTelefonica, string> = { llamada: 'Llamada', videollamada: 'Videollamada' }
 export const ETIQUETA_ESTADO_DIA_LIBRE: Record<EstadoDiaLibre, string> = {
@@ -69,6 +74,40 @@ export interface LoginMovilResponse {
 export interface MeResponse {
   user: { id: string; email: string; full_name: string; role: Role; active: boolean }
   ejecutiva: EjecutivaMovil | null
+  /** 0850: la persona de campo, o null (la dirección comercial, A1, o un usuario sin líneas). */
+  persona: PersonaMovil | null
+}
+
+// ---------------------------------------------------------------------------------------------
+// Persona de campo (F1a, migración 0850; la app la usa desde F1b): quien agenda y reporta es el USUARIO, con el
+// Ejecutivo Comercial como algo opcional. Copia de web/lib/reporte-visitas.ts y web/lib/persona-campo.ts.
+// ---------------------------------------------------------------------------------------------
+
+/** Papel de la persona de campo: solo Ejecutivo Comercial, solo líder, o los dos (Paola: una sola agenda). */
+export type RolPersona = 'ejecutivo' | 'lider' | 'lider_y_ejecutivo'
+/** "Como qué" se agenda o se reporta (C12): como Ejecutivo Comercial (con su zona) o como líder (sin ella). */
+export type ComoPersona = 'ejecutivo' | 'lider'
+
+/** Una línea de la persona de campo y "como qué" la lleva. */
+export interface LineaPersona {
+  id: string
+  nombre: string
+  como: ComoPersona
+}
+
+/** La persona de campo en GET /api/auth/me; null para la dirección comercial o un usuario sin líneas. */
+export interface PersonaMovil {
+  rol: RolPersona
+  lineas: LineaPersona[]
+}
+
+/** La persona de campo en el contexto. */
+export interface PersonaContexto extends PersonaMovil {
+  user_id: string
+  /** users.full_name. */
+  nombre: string
+  /** Su Ejecutivo Comercial activo, o null (líder sin Ejecutivo Comercial). */
+  executive_id: string | null
 }
 
 /** Respuesta de error de toda la API: { error } y, en la pre-validación de visitas, los errores por campo. */
@@ -193,6 +232,10 @@ export interface VozDisponible {
 
 /** GET /api/me/contexto?lat=&lng=&precision= (sin lat/lng: sedes_cerca vacío y mis_medicos sin distancias). */
 export interface ContextoResponse {
+  /**
+   * Quien reporta, en la forma de la 0840. Desde la 0850, sin Ejecutivo Comercial (una líder): id = el del usuario, su
+   * nombre, sin zona ni municipio y sus líneas de líder. Las líneas son siempre TODAS las suyas.
+   */
   ejecutiva: EjecutivaContexto
   hoy: HoyContexto
   config: ConfigContexto
@@ -207,6 +250,11 @@ export interface ContextoResponse {
    * la más cercana primero; sin punto, por hora. Sin la 0840 aplicada: [] (el resto del contexto sigue igual).
    */
   agenda_hoy: CitaItem[]
+  /**
+   * 0850: la persona de campo (papel y líneas con "como qué"). Un contexto guardado en el teléfono antes de F1b no la
+   * trae: quien la lea no se fía del tipo (lib/persona.ts).
+   */
+  persona: PersonaContexto
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -394,7 +442,8 @@ export interface CuotaResponse {
 /** GET /api/me/numeros?mes=AAAA-MM (F3: solo KPI 1 y días hábiles sin visitas). */
 export interface NumerosResponse {
   mes: string
-  cuota: CuotaResponse
+  /** null sin Ejecutivo Comercial (0850: una líder no tiene cuota de visitas, C4). */
+  cuota: CuotaResponse | null
   hechas: {
     medica: number
     institucional: number
@@ -416,18 +465,49 @@ export interface NumerosResponse {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Agenda (F4.1, migración 0840): GET/POST /api/me/agenda, POST /api/me/agenda/[id]/cancelar, contexto.agenda_hoy,
-// el bloque `agenda` de Mis números y el dictado por campo (POST /api/me/voz/campos). Copia de web/lib/reporte-visitas.ts.
+// Agenda (F4.1, migración 0840; ciclo de vida desde la 0850): GET/POST /api/me/agenda, POST /api/me/agenda/[id]/
+// {cancelar, cerrar, eliminar, otra-fecha}, contexto.agenda_hoy, el bloque `agenda` de Mis números y el dictado por
+// campo (POST /api/me/voz/campos). Copia de web/lib/reporte-visitas.ts y web/lib/agenda-ciclo.ts (las listas y las
+// reglas del ciclo de vida, en lib/agenda-ciclo.ts).
 // ---------------------------------------------------------------------------------------------
 
-export type EstadoCita = 'pendiente' | 'hecha' | 'cancelada'
+/**
+ * Estado de una cita (0850, A7): no se mueve de fecha ni se borra; se cierra con su resultado —hecha (reportando la
+ * visita), no se hizo (con motivo), cancelada (con motivo)— o se elimina si se agendó por error (nunca sale en una
+ * lectura).
+ */
+export type EstadoCita = 'pendiente' | 'hecha' | 'no_realizada' | 'cancelada' | 'eliminada'
 
-export const ETIQUETA_ESTADO_CITA: Record<EstadoCita, string> = { pendiente: 'Pendiente', hecha: 'Hecha', cancelada: 'Cancelada' }
+/** Las etiquetas de ESTADOS_CITA de web/lib/agenda-ciclo.ts (scripts/checks/21-persona.ts compara los dos archivos). */
+export const ETIQUETA_ESTADO_CITA: Record<EstadoCita, string> = {
+  pendiente: 'Programada',
+  hecha: 'Hecha',
+  no_realizada: 'No se hizo',
+  cancelada: 'Cancelada',
+  eliminada: 'Eliminada',
+}
 
-/** Límites del servidor: nota de la cita y motivo de cancelación (300), de hoy a 30 días, consulta de 31 días. */
+/** Cómo se muestra (C6): lo pendiente pasado no se cierra solo: "Atrasada" hoy pasada su hora, "Sin cerrar" después. */
+export type EstadoVisible = 'programada' | 'atrasada' | 'sin_cerrar' | 'hecha' | 'no_realizada' | 'cancelada' | 'eliminada'
+
+export const ETIQUETA_ESTADO_VISIBLE: Record<EstadoVisible, string> = {
+  programada: 'Programada',
+  atrasada: 'Atrasada',
+  sin_cerrar: 'Sin cerrar',
+  hecha: 'Hecha',
+  no_realizada: 'No se hizo',
+  cancelada: 'Cancelada',
+  eliminada: 'Eliminada',
+}
+
+/** Motivos de cierre (C10), los mismos para cancelar y para "no se hizo"; 'salida' solo lo pone el sistema (A16). */
+export type MotivoCierre = 'cliente' | 'prioridad' | 'falta_tiempo' | 'fuerza_mayor' | 'otro' | 'salida'
+/** Los que la persona puede elegir (sin 'salida'). */
+export type MotivoElegible = Exclude<MotivoCierre, 'salida'>
+
+/** Límites del servidor: nota de la cita y motivo (300) y consulta de 31 días. Sin tope para agendar hacia adelante (A4). */
 export const MAX_NOTA_CITA = 300
 export const MAX_MOTIVO_CANCELACION_CITA = 300
-export const DIAS_AGENDA_ADELANTE = 30
 export const MAX_DIAS_CONSULTA_AGENDA = 31
 
 /** Sede de una cita, con lo que Reportar necesita para medir la distancia y el radio. */
@@ -468,6 +548,25 @@ export interface CitaItem {
   anticipada: boolean
   /** Ella la puede cancelar: pendiente y de hoy en adelante. */
   cancelable: boolean
+  // --- 0850: ciclo de vida (A7) ---
+  /** Motivo del cierre (no_realizada o cancelada), o null. */
+  motivo_codigo: MotivoCierre | null
+  /** Cuándo se marcó "no se hizo", o null. */
+  no_realizada_at: string | null
+  /** Texto del motivo de "no se hizo", o null. */
+  no_realizada_motivo: string | null
+  /** La cita de la que esta es "otra fecha", o null. */
+  viene_de: string | null
+  /** Fecha de esa cita (AAAA-MM-DD), para decir "Viene de la cita del 12 oct", o null. */
+  viene_de_fecha: string | null
+  /** Estado de esa cita (no_realizada, cancelada o hecha con visita no efectiva), o null. */
+  viene_de_estado: EstadoCita | null
+  /** Su "otra fecha" (la sucesora no eliminada), o null. */
+  sucesora_id: string | null
+  /** Como Ejecutivo Comercial (con executive_id) o como líder (sin él). */
+  como: ComoPersona
+  /** Programada, atrasada (hoy, pasada su hora), sin cerrar (de un día anterior) o su estado cerrado (C6). */
+  estado_visible: EstadoVisible
 }
 
 /** GET /api/me/agenda?desde=&hasta=&canceladas= (sin fechas: hoy a hoy + 7; como mucho 31 días; sin canceladas). */
@@ -475,25 +574,30 @@ export interface AgendaResponse {
   desde: string
   hasta: string
   hoy: string
-  /** Última fecha en la que se puede agendar hoy (hoy + 30). */
-  max_fecha: string
+  /** Desde la 0850 no hay tope hacia adelante (A4): null. La app no la lee (lo vigila web/scripts/reporte-api-check.ts). */
+  max_fecha: null
   items: CitaItem[]
 }
 
-/** POST /api/me/agenda → 201 y POST /api/me/agenda/[id]/cancelar → 200. */
+/** POST /api/me/agenda → 201, POST /api/me/agenda/[id]/cancelar y /cerrar → 200, /otra-fecha → 201. */
 export interface CitaResponse {
   cita: CitaItem
 }
 
 /** Cuerpo de POST /api/me/agenda: tipo discriminado como la visita. */
 export interface CitaCreateBase {
-  /** AAAA-MM-DD, de hoy a hoy + 30 (Bogotá); no en un día libre aprobado. */
+  /** AAAA-MM-DD, de hoy en adelante, sin tope (A4, 0850; Bogotá); no en un día libre aprobado. */
   fecha: string
-  /** HH:MM (opcional). */
-  hora: string | null
+  /** HH:MM, obligatoria desde el 2026-10-15; de hoy, no una hora que ya pasó (C13). */
+  hora: string
   sede_id: string
   /** Hasta 300 caracteres (opcional). */
   nota: string | null
+  /**
+   * 0850 (C12), solo para quien tiene los dos papeles: 'ejecutivo' (la cita lleva su Ejecutivo Comercial) o 'lider'
+   * (sin él). Sin el dato: como Ejecutivo Comercial si lo tiene; si no, como líder.
+   */
+  como?: ComoPersona | null
 }
 
 export type CitaCreateTipo =
@@ -502,9 +606,35 @@ export type CitaCreateTipo =
 
 export type CitaCreate = CitaCreateBase & CitaCreateTipo
 
-/** Cuerpo de POST /api/me/agenda/[id]/cancelar (el motivo es opcional, hasta 300 caracteres). */
+/**
+ * Cuerpo de POST /api/me/agenda/[id]/cancelar. Desde la 0850 el motivo es OBLIGATORIO (A8): un código de la lista
+ * (sin 'salida') y, con 'otro', el texto (3 a 300). La app manda siempre el código.
+ */
 export interface CitaCancelar {
   motivo: string | null
+  motivo_codigo?: MotivoElegible
+}
+
+/** Cuerpo de POST /api/me/agenda/[id]/cerrar ("no se hizo", 0850): código de la lista y, con 'otro', el texto. */
+export interface CitaCerrar {
+  motivo_codigo: MotivoElegible
+  motivo: string | null
+}
+
+/** Cuerpo de POST /api/me/agenda/[id]/otra-fecha (0850): la fecha y la hora nuevas; la sede y la nota pueden cambiar. */
+export interface CitaOtraFecha {
+  fecha: string
+  hora: string
+  /** null: la misma sede de la anterior. */
+  sede_id: string | null
+  /** Ausente: la nota de la anterior; null: sin nota. */
+  nota?: string | null
+  como?: ComoPersona | null
+}
+
+/** POST /api/me/agenda/[id]/eliminar → 200 (0850): la cita ya no sale en ninguna lectura. */
+export interface CitaEliminadaResponse {
+  cita_id: string
 }
 
 /** Indicador de la agenda en Mis números, por mes. Las razones van de 0 a 1 con 2 decimales (× 100 para el %). */
@@ -515,10 +645,12 @@ export interface NumerosAgenda {
   efectivas_agendadas: number
   /** efectivas_agendadas ÷ efectivas; null si no hay efectivas. */
   porcentaje_agendadas: number | null
-  /** Citas del mes de días ya pasados o de hoy, sin las canceladas. */
+  /** Citas del mes de días ya pasados o de hoy, sin las canceladas ni las eliminadas (las que no se hicieron, sí). */
   citas_hasta_hoy: number
   /** De ellas, las hechas (con su visita, efectiva o no). */
   citas_hechas: number
+  /** De ellas, las que no se hicieron (0850). */
+  citas_no_realizadas: number
   /** citas_hechas ÷ citas_hasta_hoy; null si no hay citas. */
   cumplimiento: number | null
 }
