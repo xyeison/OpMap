@@ -4,6 +4,8 @@ import { useParams, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { useUser } from '@/contexts/UserContext'
 import ProtectedRoute from '@/components/ProtectedRoute'
+import ImportarSiaModal, { pedirPrecarga, type PrecargaRespuesta } from '@/components/contracts/ImportarSiaModal'
+import { pesos } from '@/components/contracts/sia-ui'
 
 interface Contract {
   id?: string
@@ -32,6 +34,10 @@ interface Contract {
   requires_experiencia?: boolean
   min_experiencia_years?: number
   custom_requirements?: string
+  // SIA Observa: de dónde se importó (los llena "Importar desde SIA / SECOP")
+  sia_contrato_id?: string | null
+  secop_contrato_id?: string | null
+  lineas?: string[] | null
 }
 
 interface Hospital {
@@ -73,6 +79,8 @@ export default function ContractEditPage() {
   const [providers, setProviders] = useState<Provider[]>([])
   const [hospitalSearch, setHospitalSearch] = useState('')
   const [showHospitalDropdown, setShowHospitalDropdown] = useState(false)
+  const [showImportar, setShowImportar] = useState(false)
+  const [importado, setImportado] = useState<PrecargaRespuesta | null>(null)
   
   const [contract, setContract] = useState<Contract>({
     hospital_id: '',
@@ -105,6 +113,43 @@ export default function ContractEditPage() {
   useEffect(() => {
     loadData()
   }, [contractId])
+
+  // Desde la bandeja /contracts/detectados: /contracts/new/edit?hospital_id=…&sia_id=… (o secop_id=…) precarga al entrar
+  const siaIdUrl = searchParams?.get('sia_id') || ''
+  const secopIdUrl = searchParams?.get('secop_id') || ''
+  useEffect(() => {
+    if (!isNew || (!siaIdUrl && !secopIdUrl)) return
+    pedirPrecarga(siaIdUrl ? { siaId: siaIdUrl } : { secopId: secopIdUrl })
+      .then(aplicarPrecarga)
+      .catch(error => alert(error instanceof Error ? error.message : 'No se pudo precargar el contrato'))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isNew, siaIdUrl, secopIdUrl])
+
+  /** Llena el formulario con lo de SIA/SECOP (y los indicadores leídos por la IA, si hay). La persona revisa y guarda. */
+  const aplicarPrecarga = (data: PrecargaRespuesta) => {
+    const p = data.precarga
+    setContract(prev => ({
+      ...prev,
+      hospital_id: p.hospital_id || prev.hospital_id,
+      contract_number: p.contract_number,
+      current_provider: p.current_provider,
+      proveedor_id: data.proveedor?.id ?? undefined,
+      contract_value: p.contract_value,
+      contract_type: p.contract_type,
+      contracting_model: p.contracting_model,
+      start_date: p.start_date ?? prev.start_date,
+      end_date: p.end_date ?? prev.end_date,
+      duration_months: p.duration_months ?? prev.duration_months,
+      description: p.description,
+      documents_link: p.documents_link,
+      sia_contrato_id: p.sia_contrato_id,
+      secop_contrato_id: p.secop_contrato_id,
+      lineas: p.lineas,
+      ...((data.indicadores ?? {}) as Partial<Contract>),
+    }))
+    setImportado(data)
+    setShowImportar(false)
+  }
   
   // Cerrar dropdown cuando se hace clic fuera
   useEffect(() => {
@@ -260,6 +305,59 @@ export default function ContractEditPage() {
             </h1>
           </div>
         </div>
+
+        {showImportar && (contract.hospital_id || preselectedHospitalId) && (
+          <ImportarSiaModal hospitalId={contract.hospital_id || preselectedHospitalId} onClose={() => setShowImportar(false)} onImport={aplicarPrecarga} />
+        )}
+
+        {isNew && (
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-gray-50 p-4">
+            <p className="text-sm text-gray-700">
+              {contract.hospital_id || preselectedHospitalId
+                ? 'Trae número, proveedor, valor, fechas y, si ya se leyeron, los indicadores del estudio previo.'
+                : 'Elige primero la IPS para importar un contrato de SIA Observa o SECOP.'}
+            </p>
+            <button
+              type="button"
+              disabled={!(contract.hospital_id || preselectedHospitalId)}
+              onClick={() => setShowImportar(true)}
+              className="px-4 py-2 border border-gray-900 text-gray-900 rounded-lg hover:bg-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Importar desde SIA / SECOP
+            </button>
+          </div>
+        )}
+
+        {importado && (
+          <div className="mb-6 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 space-y-2">
+            <p>
+              Precargado desde {importado.origen === 'sia' ? 'SIA Observa' : 'SECOP'}. Revisa cada campo y pulsa &ldquo;Crear Contrato&rdquo;: nada se guarda antes.
+            </p>
+            {importado.precarga.valor_secop !== null && (
+              <p>
+                Valor: el vigente de SIA es {pesos(importado.precarga.contract_value)}; en SECOP figura {pesos(importado.precarga.valor_secop)}.
+              </p>
+            )}
+            {importado.extraccion ? (
+              <details>
+                <summary className="cursor-pointer">
+                  Indicadores y requisitos leídos de los documentos por la IA ({importado.extraccion.modelo})
+                  {importado.extraccion.discrepancias.length > 0 ? ` · ${importado.extraccion.discrepancias.length} diferencias con SIA` : ''}
+                </summary>
+                <ul className="mt-2 list-disc pl-5 space-y-0.5">
+                  {importado.extraccion.fuentes.map((f, i) => (
+                    <li key={i}>
+                      {f.campo}: {f.documento}, pág. {f.pagina}
+                    </li>
+                  ))}
+                </ul>
+                {importado.extraccion.faltantes.length > 0 && <p className="mt-2 text-blue-800">No está en los documentos: {importado.extraccion.faltantes.join(', ')}.</p>}
+              </details>
+            ) : (
+              importado.origen === 'sia' && <p>Los indicadores financieros aún no se han leído de los documentos: complétalos a mano.</p>
+            )}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-8">
           {/* Información Básica */}

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { requirePermission } from '@/lib/require-role'
 import { badJson, isUuid, readJsonBody, serverError } from '../../_lib/api-error'
-import { CONTRACT_EDITABLE_COLUMNS, pickAllowed } from '../../_lib/allow-list'
+import { CONTRACT_EDITABLE_COLUMNS, pickAllowed, sanearEnlacesContrato } from '../../_lib/allow-list'
 
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   const auth = await requirePermission(request, 'contracts:view')
@@ -77,7 +77,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     if (!body || typeof body !== 'object') return badJson()
 
     // Solo columnas reales y editables de hospital_contracts (sin id, created_by, created_at...)
-    const contractData = pickAllowed(body as Record<string, unknown>, CONTRACT_EDITABLE_COLUMNS)
+    const contractData = sanearEnlacesContrato(pickAllowed(body as Record<string, unknown>, CONTRACT_EDITABLE_COLUMNS))
     if ('proveedor_id' in contractData) {
       contractData.proveedor_id = isUuid(contractData.proveedor_id) ? contractData.proveedor_id : null
     }
