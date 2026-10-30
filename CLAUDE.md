@@ -109,6 +109,10 @@ nada llama a Google.
   `sin_persona` y `/api/me/*` → 403. Paola entra solo como líder. La regla está en el servidor
   (`appSoloLideres` de `lib/persona-campo.ts`); `APP_CAMPO_EJECUTIVOS=true` la apaga (las pruebas de F3 y F4; en
   producción no se pone).
+- **La app de campo también es web** (dueño, 2026-10-30, `docs/decisiones/2026-10-30-app-de-campo-en-la-web.md`): la
+  misma app de `mobile/` se publica en `/campo` de OpMap. `npm run build` la arma con `scripts/construir-campo.mjs` en
+  `public/campo` (no se versiona). Llama a la API de su mismo origen. `/campo` es pública como página (`esAppDeCampo`
+  del middleware). Sin tiendas: cada push a master la publica.
 - **Territorio y contratos**: el anexo de territorio (Anexo A IPS, Anexo B municipios) va al contrato de
   cada Ejecutivo Comercial; las versiones (`territory_snapshots`) son inmutables.
 - **SECOP I** se cuenta por el valor ADJUDICADO a cada contratista desde `f789-7hwg` (`fuente = 'secop1'`); el

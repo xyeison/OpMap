@@ -31,6 +31,17 @@ const nextConfig = {
       ],
     },
   },
+  // La app de campo en la web (/campo, dueño 2026-10-30; la arma scripts/construir-campo.mjs en public/campo): una sola
+  // página que se enruta sola. Sus archivos (/campo/_expo/..., íconos, manifiesto) se sirven tal cual; cualquier otra
+  // ruta suya (/campo/hoy, /campo/agenda/nueva…) recibe su index.html. "fallback": después de los archivos y las páginas.
+  async rewrites() {
+    return {
+      fallback: [
+        { source: '/campo', destination: '/campo/index.html' },
+        { source: '/campo/:ruta*', destination: '/campo/index.html' },
+      ],
+    }
+  },
   async headers() {
     return [
       {

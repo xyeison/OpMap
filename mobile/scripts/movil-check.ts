@@ -653,6 +653,18 @@ async function main() {
   {
     check('sin variable → producción', normalizarBase(undefined) === URL_PRODUCCION && normalizarBase('  ') === URL_PRODUCCION)
     check('quita barras finales', normalizarBase('http://localhost:3000///') === 'http://localhost:3000')
+    check(
+      'en la web (/campo), sin variable → el origen de la página; la variable manda; sin las dos → producción',
+      normalizarBase(undefined, 'https://op-map-git-x.vercel.app/') === 'https://op-map-git-x.vercel.app' &&
+        normalizarBase('http://localhost:3099', 'https://op-map-umber.vercel.app') === 'http://localhost:3099' &&
+        normalizarBase('', null) === URL_PRODUCCION &&
+        normalizarBase(' ', '  ') === URL_PRODUCCION
+    )
+    check(
+      'lib/api.ts: en la web pasa el origen de la página (window.location.origin) como respaldo; en el teléfono, nada',
+      /const ORIGEN_WEB = Platform\.OS === 'web' && typeof window !== 'undefined' \? window\.location\.origin : null/.test(readFileSync(path.resolve(__dirname, '../lib/api.ts'), 'utf8')) &&
+        /export const URL_API = normalizarBase\(process\.env\.EXPO_PUBLIC_API_URL, ORIGEN_WEB\)/.test(readFileSync(path.resolve(__dirname, '../lib/api.ts'), 'utf8'))
+    )
     check('construirUrl con parámetros (omite vacíos)', construirUrl('http://localhost:3000/', '/api/me/visitas', { fecha: HOY, x: null, y: '' }) === 'http://localhost:3000/api/me/visitas?fecha=2026-10-13')
     check('construirUrl codifica', construirUrl('http://h', '/api/me/contexto', { lat: 4.711, lng: -74.0721, nota: 'a b' }) === 'http://h/api/me/contexto?lat=4.711&lng=-74.0721&nota=a%20b')
     check('construirUrl exige "/"', (await lanza(() => construirUrl('http://h', 'api/x'))) !== null)
@@ -1228,6 +1240,25 @@ async function main() {
     const raiz = path.resolve(__dirname, '..')
     const app = JSON.parse(readFileSync(path.join(raiz, 'app.json'), 'utf8')).expo as Record<string, unknown>
     check('app.json: el nombre visible es "VG Visitas"', app.name === 'VG Visitas')
+    // La app en la web (dueño, 2026-10-30): servida por OpMap en /campo, como una sola página que se agrega al inicio
+    const web = (app.web ?? {}) as Record<string, unknown>
+    const experimentos = (app.experiments ?? {}) as Record<string, unknown>
+    const plantilla = existsSync(path.join(raiz, 'public/index.html')) ? readFileSync(path.join(raiz, 'public/index.html'), 'utf8') : ''
+    const manifiesto = existsSync(path.join(raiz, 'public/manifest.json')) ? (JSON.parse(readFileSync(path.join(raiz, 'public/manifest.json'), 'utf8')) as Record<string, unknown>) : {}
+    check(
+      'web: en /campo (experiments.baseUrl), una sola página (output single), con manifiesto e ícono para la pantalla de inicio, y "VG Visitas"',
+      experimentos.baseUrl === '/campo' &&
+        web.output === 'single' &&
+        /<link rel="manifest" href="\/campo\/manifest\.json" \/>/.test(plantilla) &&
+        /<link rel="apple-touch-icon" href="\/campo\/apple-touch-icon\.png" \/>/.test(plantilla) &&
+        /<div id="root"><\/div>/.test(plantilla) &&
+        manifiesto.name === 'VG Visitas' &&
+        manifiesto.start_url === '/campo/' &&
+        manifiesto.scope === '/campo/' &&
+        manifiesto.display === 'standalone' &&
+        ['public/apple-touch-icon.png', 'public/icono-192.png', 'public/icono-512.png'].every(archivo => existsSync(path.join(raiz, archivo))),
+      { baseUrl: experimentos.baseUrl, output: web.output, manifiesto }
+    )
     check('app.json: sin la clave raíz "splash" (no existe en el esquema de SDK 57; la ignoraría el build)', !('splash' in app))
     const plugins = (app.plugins ?? []) as unknown[]
     const splash = plugins.find(p => Array.isArray(p) && p[0] === 'expo-splash-screen') as [string, Record<string, unknown>] | undefined

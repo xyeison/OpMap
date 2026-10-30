@@ -38,3 +38,6 @@ next-env.d.ts
 
 # development scripts
 scripts-dev/
+
+# La app de campo para la web: la arma scripts/construir-campo.mjs en cada build (no se versiona)
+/public/campo/
