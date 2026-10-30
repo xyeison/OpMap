@@ -969,7 +969,7 @@ Spec `docs/specs/2026-10-30-campo-sin-senal-pwa.md`; decisiones del dueño en
 - Sesión vencida sin señal: se sigue reportando a la cola; al volver la señal pide entrar y sube. Cerrar sesión avisa
   cuántas visitas y fotos hay sin subir y no las borra.
 
-### Base de datos (0940, NO aplicada; rollback 9959)
+### Base de datos (0940, APLICADA el 2026-10-30 21:54 UTC; rollback 9959)
 - `visits`: `tz`, `gps_at`, `marcas text[] NOT NULL DEFAULT '{}'` (GIN), `en_sitio`, `foto_path`, `medico_no_listado`
   jsonb, `motivo_codigo`. `visits_app_check` nuevo: médica con `medico_id` O `medico_no_listado`; presencial sin
   `distance_m` permitido; `en_sitio` solo con distancia; marcas del conjunto conocido.
@@ -1012,8 +1012,9 @@ Spec `docs/specs/2026-10-30-campo-sin-senal-pwa.md`; decisiones del dueño en
 - `web`: `npm run check` (typecheck, lint, 48 suites; `reporte-check` 402, `reporte-api-check` 456, `campo-web-check` 24).
 - `mobile`: `npm run check` (tsc + 1054 pruebas).
 - `node scripts/construir-campo.mjs` local genera `public/campo/sw.js` (ver el resumen del PR).
-- Pendiente del dueño: aplicar la 0940 en la misma ventana que el despliegue y la lista de pruebas en un Android y un
-  iPhone reales (`mobile/README.md`, "Sin señal").
+- 2026-10-30: PR #59 mezclado y desplegado (master `83833c9`); la 0940 aplicada a las 21:54 UTC con autorización del dueño,
+  tras el ensayo `BEGIN; … ROLLBACK;` (detalle en `database/migrations/README.md`). Pendiente del dueño: la lista de
+  pruebas en un Android y un iPhone reales (`mobile/README.md`, "Sin señal").
 
 ### Correcciones del revisor del proyecto (2026-10-30)
 - 0940: las marcas se agregan con `array_append` (con `text[] || 'literal'` PostgreSQL leía el literal como arreglo y
