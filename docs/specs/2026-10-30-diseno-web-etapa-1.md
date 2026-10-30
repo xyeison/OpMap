@@ -1,6 +1,16 @@
 # Spec: OpMap con el diseño de la app (tipo Uber) · etapa 1: el armazón y el tema  (2026-10-30)
 
-**Estado**: borrador para el dueño. Maqueta con datos inventados: `docs/specs/2026-10-30-diseno-web-etapa-1-maqueta.jpg`.
+**Estado**: aprobada por el dueño el 2026-10-30 con comentarios ("apruebo entonces la etapa uno de diseño con los
+comentarios que te hice"). Maqueta con datos inventados: `docs/specs/2026-10-30-diseno-web-etapa-1-maqueta.jpg`.
+
+**Comentarios del dueño (2026-10-30), que mandan sobre la maqueta:**
+- "no veo todas las opciones que tenemos ya en la aplicación web": el menú lleva TODAS las opciones que cada rol tiene
+  hoy, las mismas de `getNavigationMenu` (la maqueta mostraba solo unas);
+- "deberíamos tener como un acordeón vertical de los títulos de los menús. Si le doy click, me salen los submenús":
+  - cada grupo (Terceros, Empleados, Inteligencia de Mercado, Configuración) es un título que se abre y se cierra;
+  - las opciones sueltas (Agendamiento, Mapa, Calendario, Zonas, Líneas) van siempre a la vista;
+  - el grupo de la página abierta empieza abierto;
+- "tenemos que tener la opción de agendamiento": Agendamiento sigue de primera para quien usa la app (las líderes).
 
 ## Problema
 El dueño, el 2026-10-30:
@@ -24,9 +34,11 @@ Por etapas, una por PR, para no cambiar todo de golpe. Esta es la etapa 1.
    - en la web son variables CSS y Tailwind las usa por nombre (`bg-fondo`, `text-texto`, `bg-acento`…);
    - un solo origen: una prueba exige que la web y la app tengan los mismos valores.
 2. **La letra DM Sans** en toda la web (hoy Inter).
-3. **El armazón nuevo**, como en la maqueta:
-   - barra de arriba blanca (negra en oscuro) con "OpMap" y el nombre de la página;
-   - en el celular, el menú en un cajón; en escritorio, fijo a la izquierda, con los mismos grupos de hoy;
+3. **El armazón nuevo**, como en la maqueta y con los comentarios:
+   - barra de arriba blanca (negra en oscuro) con "OpMap";
+   - en el celular, el menú en un cajón; en escritorio, fijo a la izquierda, salvo en el Mapa: allí sigue el cajón y la
+     barra conserva su alto, para que el mapa no cambie;
+   - el menú en acordeón: los títulos de grupo se abren y se cierran;
    - lo elegido va en negro (blanco en oscuro) y las filas tienen al menos 44 px de alto.
    - El inicio de sesión, con el mismo estilo.
 4. **El tema lo elige cada persona**:
