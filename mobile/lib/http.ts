@@ -15,10 +15,14 @@ export const TIEMPO_PROPONER_MS = 60_000
 /** Tiempo máximo de cada envío de la cola sin señal (corto: si no hay red, que lo intente después). */
 export const TIEMPO_COLA_MS = 15_000
 
-/** Normaliza la URL base: sin espacios ni barras finales; vacía → producción. */
-export function normalizarBase(valor: string | null | undefined): string {
+/**
+ * Normaliza la URL base: sin espacios ni barras finales; vacía → `respaldo` (por defecto, producción). En la web
+ * (/campo, 2026-10-30) lib/api.ts pasa el origen de la página: la app llama a la API de su mismo sitio, y cada preview
+ * a la suya, sin CORS.
+ */
+export function normalizarBase(valor: string | null | undefined, respaldo?: string | null): string {
   const limpia = (valor ?? '').trim().replace(/\/+$/, '')
-  return limpia || URL_PRODUCCION
+  return limpia || (respaldo ?? '').trim().replace(/\/+$/, '') || URL_PRODUCCION
 }
 
 export type ValorQuery = string | number | boolean | null | undefined

@@ -40,3 +40,6 @@ next-env.d.ts
 scripts-dev/
 # Caché local de SIA Observa (respuestas del portal, scripts/sia-*.ts)
 /.sia-cache
+
+# La app de campo para la web: la arma scripts/construir-campo.mjs en cada build (no se versiona)
+/public/campo/

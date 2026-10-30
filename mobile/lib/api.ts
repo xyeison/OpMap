@@ -69,7 +69,10 @@ import type {
   SedeCreateResponse,
 } from './tipos'
 
-export const URL_API = normalizarBase(process.env.EXPO_PUBLIC_API_URL)
+/** En la web (/campo de OpMap, 2026-10-30), el origen de la página: la API de su mismo sitio. En el teléfono, nada. */
+const ORIGEN_WEB = Platform.OS === 'web' && typeof window !== 'undefined' ? window.location.origin : null
+
+export const URL_API = normalizarBase(process.env.EXPO_PUBLIC_API_URL, ORIGEN_WEB)
 
 type Metodo = 'GET' | 'POST' | 'PATCH' | 'DELETE'
 

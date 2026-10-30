@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover" />
+    <title>VG Visitas</title>
+    <!-- App de campo en la web (/campo, 2026-10-30): se agrega a la pantalla de inicio como una app -->
+    <link rel="manifest" href="/campo/manifest.json" />
+    <link rel="apple-touch-icon" href="/campo/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="VG Visitas" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+    <!-- theme-color lo pone Expo desde app.json (web.themeColor) -->
+
+    <!-- El reinicio de estilos que recomienda react-native-web: https://necolas.github.io/react-native-web/docs/setup/#root-element -->
+    <style id="expo-reset">
+      html,
+      body {
+        height: 100%;
+      }
+      body {
+        overflow: hidden;
+      }
+      #root {
+        display: flex;
+        height: 100%;
+        flex: 1;
+      }
+    </style>
+  </head>
+
+  <body>
+    <noscript>VG Visitas necesita JavaScript.</noscript>
+    <div id="root"></div>
+  </body>
+</html>

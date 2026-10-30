@@ -44,10 +44,19 @@ function isPublicApi(pathname: string): boolean {
 // Mantener sincronizada con la lista del matcher de `config` (abajo).
 const STATIC_FILE_RE = /\.(ico|png|jpe?g|svg|webp|gif|css|js|map|txt|xml|json|woff2?|ttf)$/i
 
+/**
+ * La app de campo en la web (/campo, dueño 2026-10-30): solo su página y sus archivos, sin datos. Tiene su propio
+ * ingreso (token de portador); los datos siguen detrás de /api/* con sesión o token.
+ */
+export function esAppDeCampo(pathname: string): boolean {
+  return pathname === '/campo' || pathname.startsWith('/campo/')
+}
+
 function isPublicPage(pathname: string): boolean {
   return (
     pathname === '/login' ||
     pathname.startsWith('/login/') ||
+    esAppDeCampo(pathname) ||
     pathname.startsWith('/_next/') ||
     pathname.startsWith('/__nextjs') ||
     pathname === '/favicon.ico' ||
