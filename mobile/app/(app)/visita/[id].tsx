@@ -28,7 +28,7 @@ import { tieneCuota } from '../../../lib/persona'
 import { MAX_FAILURE_REASON, MENSAJE_PROXIMA_ANTES_DE_VISITA, cambiosDeVisita, proximaAntesDeLaVisita, valoresDeVisita } from '../../../lib/propuesta'
 import { conQuien, detalleModalidad, numeroTexto } from '../../../lib/reglas'
 import { useSesion } from '../../../lib/sesion'
-import { ETIQUETA_TIPO_VISITA, type LineaEjecutiva, type PersonaMovil, type VisitaItem } from '../../../lib/tipos'
+import { ETIQUETA_MARCA, ETIQUETA_TIPO_VISITA, type LineaEjecutiva, type PersonaMovil, type VisitaItem } from '../../../lib/tipos'
 import { Aviso, Boton, Campo, Cargando, Fila, Grupo, Insignia, Pantalla, Separador, Subtitulo, Tarjeta, Texto, Titulo, confirmar } from '../../../lib/ui'
 
 const ETIQUETA_CUENTA_PARA: Record<NonNullable<VisitaItem['cuenta_para']>, string> = {
@@ -210,10 +210,21 @@ function Visita({ id, fecha }: { id: string; fecha: string }) {
           {visita.out_of_territory ? <Insignia texto="Fuera de tu territorio" tono="info" /> : null}
           {visita.sede_por_confirmar ? <Insignia texto="Sede por confirmar" tono="alerta" /> : null}
           <Insignia texto={visita.input_mode === 'voz' ? 'Por voz' : 'Por toques'} />
+          {/* 0940: las marcas del servidor (nunca bloquean), la precisión del GPS, el médico no listado y la foto */}
+          {(Array.isArray(visita.marcas) ? visita.marcas : []).map(marca => (
+            <Insignia key={marca} texto={ETIQUETA_MARCA[marca] ?? marca} tono={marca === 'en_sitio' ? 'exito' : 'info'} />
+          ))}
+          {visita.gps_accuracy_m != null ? <Insignia texto={`GPS ±${visita.gps_accuracy_m} m`} /> : null}
+          {visita.foto ? <Insignia texto="Con foto" /> : null}
           {visita.lineas.map(l => (
             <Insignia key={l} texto={nombreLinea(l)} />
           ))}
         </Grupo>
+        {visita.medico_no_listado ? (
+          <Texto peque suave>
+            {`Médico no listado: ${visita.medico_no_listado.nombre}${visita.medico_no_listado.especialidad ? ` · ${visita.medico_no_listado.especialidad}` : ''} (por validar en OpMap)`}
+          </Texto>
+        ) : null}
       </Tarjeta>
 
       {agendarProxima && proxima ? (

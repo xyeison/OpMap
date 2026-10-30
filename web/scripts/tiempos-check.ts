@@ -309,6 +309,8 @@ async function main() {
       ['agenda/[id]/cerrar/route.ts', ['POST /api/me/agenda/:id/cerrar']],
       ['agenda/[id]/eliminar/route.ts', ['POST /api/me/agenda/:id/eliminar']],
       ['agenda/[id]/otra-fecha/route.ts', ['POST /api/me/agenda/:id/otra-fecha']],
+      // Sin señal (0940): la foto de la visita.
+      ['visitas/foto/route.ts', ['POST /api/me/visitas/foto', 'GET /api/me/visitas/foto']],
     ]
     // "Cada ruta de /api/me/*" (spec, Medición): ningún route.ts de app/api/me queda fuera de esta lista.
     const archivosRuta: string[] = []

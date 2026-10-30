@@ -1,8 +1,11 @@
 /**
  * Dónde guarda la app lo que necesita entre aperturas:
  * - El TOKEN de sesión: almacén seguro del teléfono (expo-secure-store: Keychain en iPhone, Keystore en
- *   Android). En el navegador (React Native Web, solo para verificar) va en localStorage.
- * - El PERFIL (usuario y Ejecutivo Comercial enlazado, sin secretos) y la COLA sin señal: AsyncStorage.
+ *   Android). En el navegador (/campo) va en IndexedDB (lib/almacen-idb.ts, clave opmap.token.v1): el service worker
+ *   lo necesita para subir la cola con Background Sync; antes estaba en localStorage y se migra solo.
+ * - El PERFIL (usuario y Ejecutivo Comercial enlazado, sin secretos), el CONTEXTO guardado y la COLA sin señal:
+ *   AsyncStorage en el teléfono; IndexedDB en el navegador (app sin señal, dueño 2026-10-30: "todo se guarda primero en
+ *   IndexedDB, nunca solo en memoria").
  * Nunca se guarda la contraseña ni el audio.
  * El token además vive en MEMORIA (MemoriaToken de lib/token.ts, spec 2026-10-15): el llavero se lee una sola vez por
  * apertura y no en cada petición; guardar y borrar actualizan las dos cosas y un 401 lo olvida al instante.
@@ -10,25 +13,18 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as SecureStore from 'expo-secure-store'
 import { Platform } from 'react-native'
+import { kvBorrar, kvEscribir, kvLeer } from './almacen-idb'
 import { MemoriaToken } from './token'
 
-const CLAVE_TOKEN = 'opmap.token.v1'
+export const CLAVE_TOKEN = 'opmap.token.v1'
 
 const esWeb = Platform.OS === 'web'
 
-function almacenWeb(): Storage | null {
-  try {
-    return typeof globalThis !== 'undefined' && 'localStorage' in globalThis ? globalThis.localStorage : null
-  } catch {
-    return null
-  }
-}
-
-/** El llavero del teléfono (o localStorage en el navegador). Solo lo usa la memoria de abajo. */
+/** El llavero del teléfono (o IndexedDB en el navegador). Solo lo usa la memoria de abajo. */
 const llavero = {
   async leer(): Promise<string | null> {
     try {
-      if (esWeb) return almacenWeb()?.getItem(CLAVE_TOKEN) ?? null
+      if (esWeb) return await kvLeer(CLAVE_TOKEN)
       return await SecureStore.getItemAsync(CLAVE_TOKEN)
     } catch {
       return null
@@ -36,7 +32,7 @@ const llavero = {
   },
   async guardar(token: string): Promise<void> {
     if (esWeb) {
-      almacenWeb()?.setItem(CLAVE_TOKEN, token)
+      await kvEscribir(CLAVE_TOKEN, token)
       return
     }
     await SecureStore.setItemAsync(CLAVE_TOKEN, token, { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY })
@@ -44,7 +40,7 @@ const llavero = {
   async borrar(): Promise<void> {
     try {
       if (esWeb) {
-        almacenWeb()?.removeItem(CLAVE_TOKEN)
+        await kvBorrar(CLAVE_TOKEN)
         return
       }
       await SecureStore.deleteItemAsync(CLAVE_TOKEN)
@@ -93,10 +89,17 @@ export function olvidarTokenPor401(token: string | null | undefined): void {
   memoriaToken.olvidarSiEs(token)
 }
 
-/** Lee un JSON de AsyncStorage (null si no hay o está dañado). */
+/** Texto por clave: AsyncStorage en el teléfono, IndexedDB en el navegador. */
+export const almacenTexto = {
+  leer: (clave: string): Promise<string | null> => (esWeb ? kvLeer(clave) : AsyncStorage.getItem(clave)),
+  escribir: (clave: string, valor: string): Promise<void> => (esWeb ? kvEscribir(clave, valor) : AsyncStorage.setItem(clave, valor)),
+  borrar: (clave: string): Promise<void> => (esWeb ? kvBorrar(clave) : AsyncStorage.removeItem(clave)),
+}
+
+/** Lee un JSON (null si no hay o está dañado). */
 export async function leerJson<T>(clave: string): Promise<T | null> {
   try {
-    const texto = await AsyncStorage.getItem(clave)
+    const texto = await almacenTexto.leer(clave)
     return texto ? (JSON.parse(texto) as T) : null
   } catch {
     return null
@@ -104,19 +107,13 @@ export async function leerJson<T>(clave: string): Promise<T | null> {
 }
 
 export async function guardarJson(clave: string, valor: unknown): Promise<void> {
-  await AsyncStorage.setItem(clave, JSON.stringify(valor))
+  await almacenTexto.escribir(clave, JSON.stringify(valor))
 }
 
 export async function borrarClave(clave: string): Promise<void> {
   try {
-    await AsyncStorage.removeItem(clave)
+    await almacenTexto.borrar(clave)
   } catch {
     // nada que hacer
   }
-}
-
-/** Texto crudo (la cola guarda su propio formato). */
-export const almacenTexto = {
-  leer: (clave: string) => AsyncStorage.getItem(clave),
-  escribir: (clave: string, valor: string) => AsyncStorage.setItem(clave, valor),
 }

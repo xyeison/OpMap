@@ -13,7 +13,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { jsonError, readJson, zodMessage } from '@/app/api/kams/_lib/kam-shared'
 import { visitaCreateSchema, visitasQuerySchema } from '@/lib/reporte-visitas-schemas'
-import { validarVisita, type ErrorVisita, type VisitaCreateResponse, type VisitasResponse } from '@/lib/reporte-visitas'
+import { fechaBogota, validarVisita, type ErrorVisita, type VisitaCreateResponse, type VisitasResponse } from '@/lib/reporte-visitas'
 import { ahora, leerConfig, leerGeneral, requirePersonaDeCampo } from '../../config-visitas/_lib/visitas-server'
 import { ejecutivoDeLaVisita } from '@/lib/persona-campo'
 import { hoyBogota } from '@/lib/visits-rules'
@@ -76,6 +76,9 @@ export async function POST(request: NextRequest) {
     try {
       const instante = ahora()
       const hoy = hoyBogota(instante)
+      // 0940: se aceptan visitas de otro día, así que topes, configuración y vigencias se miran en la fecha de la visita
+      // (como la base, v_fecha), no en hoy. Hoy sigue mandando para lo demás (editable, hora_inconsistente).
+      const fechaVisita = fechaBogota(datos.checked_in_at)
 
       // 1. Idempotencia: el mismo client_id (reintento de la cola sin señal) devuelve la visita que ya estaba.
       const previa = await t.fase('previa', () => visitaPorClientId(datos.client_id))
@@ -92,17 +95,18 @@ export async function POST(request: NextRequest) {
       const ejecutivoVisita = ejecutivoDeLaVisita(persona, datos.lineas)
       const [contexto, general, personas, deHoy] = await t.fase('validar', () =>
         Promise.all([
-          contextoValidacion(datos, persona, hoy),
+          contextoValidacion(datos, persona, fechaVisita),
           leerGeneral(),
           ejecutivoVisita ? leerConfig('config_personas', { soloActivas: true, executiveId: ejecutivoVisita }) : Promise.resolve([]),
-          leerVisitas(persona.userId, hoy, hoy),
+          leerVisitas(persona.userId, fechaVisita, fechaVisita),
         ])
       )
       const resultado = validarVisita({
         datos,
         contexto,
-        config: configDeHoy(general, personas, ejecutivoVisita, hoy),
+        config: configDeHoy(general, personas, ejecutivoVisita, fechaVisita),
         hoy,
+        fechaVisita,
         ahora: instante,
         visitasDeHoy: visitasParaTopes(deHoy),
       })

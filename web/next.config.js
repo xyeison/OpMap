@@ -5,9 +5,9 @@ const securityHeaders = [
   { key: 'X-Content-Type-Options', value: 'nosniff' },
   { key: 'X-Frame-Options', value: 'DENY' },
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-  // GPS y micrófono solo para el propio sitio: la app de visita los necesita para reportar
-  // (spec docs/specs/2026-10-12-app-de-visita-opmap.md). La cámara sigue cerrada.
-  { key: 'Permissions-Policy', value: 'camera=(), microphone=(self), geolocation=(self)' },
+  // GPS, micrófono y cámara solo para el propio sitio: la app de visita los necesita para reportar (spec
+  // docs/specs/2026-10-12-app-de-visita-opmap.md; la cámara desde la foto de la visita, 2026-10-30, /campo).
+  { key: 'Permissions-Policy', value: 'camera=(self), microphone=(self), geolocation=(self)' },
   { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains' },
 ]
 

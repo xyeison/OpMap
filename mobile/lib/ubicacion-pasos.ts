@@ -55,8 +55,13 @@ export const MENSAJE_SIN_UBICACION = 'No se pudo tomar la ubicación. Sal a un l
 export const EDAD_MAXIMA_ULTIMA_MS = 120_000
 /** Tiempo máximo para leer la última posición conocida (es una lectura del teléfono, no del GPS). */
 export const TIEMPO_ULTIMA_MS = 2_000
-/** Tiempo máximo por defecto de la lectura de alta precisión. */
-export const TIEMPO_PRECISA_MS = 10_000
+/**
+ * Tiempo máximo por defecto de la lectura de alta precisión: hasta 20 s (app sin señal, dueño 2026-10-30: "toma la
+ * ubicación con alta precisión durante hasta 20 segundos y quédate con la lectura más precisa"). Antes, 10 s.
+ */
+export const TIEMPO_PRECISA_MS = 20_000
+/** Con una lectura así de precisa (o mejor) no hace falta esperar los 20 s: la final sale ya. */
+export const PRECISION_SUFICIENTE_M = 15
 /** Si el punto final se aleja más que esto del primero, se vuelve a pedir el contexto (sedes cercanas). */
 export const DISTANCIA_RECARGA_M = 100
 
@@ -79,6 +84,11 @@ export interface FuentesUbicacion {
   rapida?: () => Promise<Lectura>
   /** La última lectura conocida de hace menos de `edadMaximaMs` (null si no hay). */
   ultima: (edadMaximaMs: number) => Promise<Lectura | null>
+  /**
+   * Lecturas de alta precisión EN VIVO (watchPosition) mientras dure la final: la app las recoge hasta 20 s y se queda
+   * con la más precisa (mejorLectura). Devuelve cómo dejar de observar. Sin esto, la final es la primera lectura precisa.
+   */
+  observar?: (alLeer: (lectura: Lectura) => void) => () => void
   /**
    * Las lecturas rápidas que tomó la propia app (ver registroDeRapidas). La lectura rápida queda en el caché del
    * sistema como "última conocida"; sin este registro, la final y "Crear sede aquí" la tomarían como respaldo cuando la
@@ -151,9 +161,58 @@ async function ultimaReciente(fuentes: FuentesUbicacion, opciones: { sinRapidasP
   return aUbicacion(lectura, true, ahora)
 }
 
+/** La lectura más precisa de la lista (sin precisión conocida = la peor); a igual precisión, la más reciente. null si no hay. */
+export function mejorLectura(lecturas: readonly Lectura[]): Lectura | null {
+  const validas = lecturas.filter(l => esPunto(l.lat, l.lng))
+  if (validas.length === 0) return null
+  const precisionDe = (l: Lectura) => (l.precision !== null && l.precision !== undefined && Number.isFinite(l.precision) ? l.precision : Number.POSITIVE_INFINITY)
+  return validas.reduce((mejor, l) => {
+    if (precisionDe(l) < precisionDe(mejor)) return l
+    if (precisionDe(l) === precisionDe(mejor) && (l.timestamp ?? 0) > (mejor.timestamp ?? 0)) return l
+    return mejor
+  })
+}
+
 /**
- * La ubicación que vale (la regla de siempre): pide el permiso, toma una lectura nueva de alta precisión con tiempo
- * máximo y, si no llega, usa la última conocida de hace menos de 2 minutos (marcada aproximada). Nunca lanza.
+ * Recoge lecturas de alta precisión hasta `timeoutMs` (la observación en vivo y la lectura puntual) y devuelve la más
+ * precisa; corta antes si una llega a PRECISION_SUFICIENTE_M. null si ninguna llegó a tiempo. Nunca lanza.
+ */
+export function recogerMejorLectura(fuentes: FuentesUbicacion, timeoutMs: number): Promise<Lectura | null> {
+  return new Promise(resolve => {
+    const lecturas: Lectura[] = []
+    let terminado = false
+    let dejarDeObservar: () => void = () => undefined
+    const terminar = () => {
+      if (terminado) return
+      terminado = true
+      clearTimeout(temporizador)
+      try {
+        dejarDeObservar()
+      } catch {
+        // nada
+      }
+      resolve(mejorLectura(lecturas))
+    }
+    const recibir = (lectura: Lectura) => {
+      if (terminado || !lectura || !esPunto(lectura.lat, lectura.lng)) return
+      lecturas.push(lectura)
+      const precision = lectura.precision
+      if (precision !== null && precision !== undefined && Number.isFinite(precision) && precision <= PRECISION_SUFICIENTE_M) terminar()
+    }
+    const temporizador = setTimeout(terminar, timeoutMs)
+    try {
+      if (fuentes.observar) dejarDeObservar = fuentes.observar(recibir)
+    } catch {
+      dejarDeObservar = () => undefined
+    }
+    fuentes.precisa().then(recibir, () => undefined)
+  })
+}
+
+/**
+ * La ubicación que vale: pide el permiso, recoge lecturas de alta precisión hasta el tiempo máximo (20 s) y se queda
+ * con la más precisa (si la fuente observa en vivo; si no, la primera lectura precisa, como antes) y, si no llega
+ * ninguna, usa la última conocida de hace menos de 2 minutos (marcada aproximada). Nunca lanza.
  */
 export async function ubicacionFinal(
   fuentes: FuentesUbicacion,
@@ -163,7 +222,8 @@ export async function ubicacionFinal(
   try {
     const concedido = await (opciones.permiso ?? fuentes.permiso())
     if (!concedido) return { ubicacion: null, error: MENSAJE_SIN_PERMISO_UBICACION }
-    const nueva = aUbicacion(await conTiempo(fuentes.precisa(), timeoutMs), false, (fuentes.ahora ?? Date.now)())
+    const lectura = fuentes.observar ? await recogerMejorLectura(fuentes, timeoutMs) : await conTiempo(fuentes.precisa(), timeoutMs)
+    const nueva = aUbicacion(lectura, false, (fuentes.ahora ?? Date.now)())
     if (nueva) return { ubicacion: nueva, error: null }
     const ultima = await ultimaReciente(fuentes, { sinRapidasPropias: true })
     if (ultima) return { ubicacion: ultima, error: null }

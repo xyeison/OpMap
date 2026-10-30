@@ -23,7 +23,8 @@ import { Redirect, useRouter } from 'expo-router'
 import { Tabs } from 'expo-router/js-tabs'
 import { useState, type ReactNode } from 'react'
 import { Pressable, Text, View } from 'react-native'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { SafeAreaInsetsContext, useSafeAreaInsets } from 'react-native-safe-area-context'
+import { EstadoCola } from '../../components/EstadoCola'
 import { Logo } from '../../components/Logo'
 import { Icono } from '../../lib/iconos'
 import { OCULTAS, PESTANAS, SIN_ENCABEZADO } from '../../lib/navegacion'
@@ -149,15 +150,20 @@ export default function AppLayout() {
   const { estado, perfil, sinConfirmar } = useSesion()
   const c = useColores()
   const fuente = useFuente()
+  const insets = useSafeAreaInsets()
   if (estado === 'cargando') return <Cargando texto="Abriendo VG Visitas…" />
   if (estado !== 'con_sesion') return <Redirect href="/login" />
   const quien = estadoPersona({ role: perfil?.usuario.role, persona: perfil?.persona, sinPersona: perfil?.sinPersona, sinConfirmar })
   if (!entraALasPestanas(quien)) return <FueraDeLaApp {...avisoFuera(quien, perfil?.sinPersona)} />
 
   return (
-    <>
+    <View style={{ flex: 1, backgroundColor: c.fondo }}>
       {/* Encabezado blanco (negro en modo oscuro): hora y batería del color que contrasta. */}
       <BarraDeEstado />
+      {/* App sin señal (2026-10-30): "En línea" / "Sin conexión", pendientes por subir y "Subir ahora", siempre a la vista.
+          La franja toma el margen de arriba (la muesca del teléfono); lo de abajo ya no lo suma otra vez. */}
+      <EstadoCola />
+      <SafeAreaInsetsContext.Provider value={{ ...insets, top: 0 }}>
       <Tabs
         backBehavior="history"
         screenOptions={{
@@ -222,6 +228,7 @@ export default function AppLayout() {
           <Tabs.Screen key={o.ruta} name={o.ruta} options={{ href: null, title: o.encabezado, headerLeft: () => <BotonVolver />, headerRight: () => null }} />
         ))}
       </Tabs>
-    </>
+      </SafeAreaInsetsContext.Provider>
+    </View>
   )
 }

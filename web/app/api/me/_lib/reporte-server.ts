@@ -76,8 +76,11 @@ import {
   type EstadoCita,
   type LineaEjecutiva,
   type LineaPersona,
+  type MarcaVisita,
   type MedicoContexto,
+  type MedicoNoListado,
   type MotivoCierre,
+  type MotivoNoEfectiva,
   type Modalidad,
   type ModoEntrada,
   type NumerosAgenda,
@@ -401,10 +404,51 @@ export interface FilaVisita {
   agenda_id: string | null
   /** Agendada: cita creada antes del día de la visita (0840). */
   agendada: boolean
+  /** 0940: marcas del servidor; sin la 0940 PostgREST no manda la columna (undefined → []). */
+  marcas?: MarcaVisita[] | null
+  en_sitio?: boolean | null
+  gps_accuracy_m?: number | string | null
+  medico_no_listado?: MedicoNoListado | null
+  motivo_codigo?: string | null
+  foto_path?: string | null
 }
 
-export const COLUMNAS_VISITA =
+/** Las columnas de la 0850 (siempre existen) y, aparte, las de la 0940 (si la base no las tiene, se leen sin ellas). */
+const COLUMNAS_VISITA_0850 =
   'id, client_id, source, user_id, executive_id, tipo, subtipo_id, subtipo_codigo, medico_id, cuenta_id, sede_id, contacto_id, modalidad, medio, efectiva, failure_reason, checked_in_at, distance_m, conclusion, compromisos, next_step_date, input_mode, out_of_territory, visit_date, deleted_at, agenda_id, agendada'
+const COLUMNAS_VISITA_0940 = 'marcas, en_sitio, gps_accuracy_m, medico_no_listado, motivo_codigo, foto_path'
+export const COLUMNAS_VISITA = `${COLUMNAS_VISITA_0850}, ${COLUMNAS_VISITA_0940}`
+
+/** Mensaje del 503 de la foto cuando la migración 0940 (bucket y visitas_foto) no está aplicada. */
+export const MENSAJE_FALTA_MIGRACION_0940 = 'La foto de la visita aún no está disponible: falta aplicar la migración 0940 en la base de datos'
+
+/**
+ * ¿La base aún no tiene las columnas de la 0940? Se recuerda por proceso para no repetir la consulta fallida; vuelve a
+ * probar cuando el proceso se reinicia (el despliegue que acompaña a la migración).
+ */
+let sin0940 = false
+export function faltaMigracion0940(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const { code, message, details } = error as ErrorBase
+  const texto = `${message ?? ''} ${details ?? ''}`
+  if (!/marcas|en_sitio|medico_no_listado|motivo_codigo|foto_path|motivos_no_efectiva/.test(texto)) return false
+  if (code && ['42P01', '42703', 'PGRST204', 'PGRST205'].includes(code)) return true
+  return /Could not find the (table|function)|Could not find the '[^']+' column|relation .* does not exist|column [\w."]+ does not exist/i.test(texto)
+}
+/** Columnas de visits que se piden hoy (con o sin las de la 0940). */
+export function columnasVisita(): string {
+  return sin0940 ? COLUMNAS_VISITA_0850 : COLUMNAS_VISITA
+}
+/** Reintenta una lectura de visits sin las columnas de la 0940 cuando la base dice que no existen. */
+async function conOSin0940<T>(leer: (columnas: string) => Promise<T>): Promise<T> {
+  try {
+    return await leer(columnasVisita())
+  } catch (error) {
+    if (sin0940 || !faltaMigracion0940(error)) throw error
+    sin0940 = true
+    return leer(columnasVisita())
+  }
+}
 
 /**
  * Visitas de la app de una PERSONA (0850: por user_id, con o sin Ejecutivo Comercial) entre dos fechas (visit_date), sin
@@ -416,24 +460,45 @@ export async function leerVisitas(
   hasta: string,
   opciones: { conAnuladas?: boolean } = {}
 ): Promise<FilaVisita[]> {
-  return fetchAllRows<FilaVisita>((from, to) => {
-    let consulta = supabaseAdmin
-      .from('visits')
-      .select(COLUMNAS_VISITA)
-      .eq('source', 'app')
-      .eq('user_id', userId)
-      .gte('visit_date', desde)
-      .lte('visit_date', hasta)
-    if (!opciones.conAnuladas) consulta = consulta.is('deleted_at', null)
-    return consulta.order('checked_in_at').order('id').range(from, to) as unknown as PromiseLike<{ data: FilaVisita[] | null; error: { message: string } | null }>
-  })
+  return conOSin0940(columnas =>
+    fetchAllRows<FilaVisita>((from, to) => {
+      let consulta = supabaseAdmin
+        .from('visits')
+        .select(columnas)
+        .eq('source', 'app')
+        .eq('user_id', userId)
+        .gte('visit_date', desde)
+        .lte('visit_date', hasta)
+      if (!opciones.conAnuladas) consulta = consulta.is('deleted_at', null)
+      return consulta.order('checked_in_at').order('id').range(from, to) as unknown as PromiseLike<{ data: FilaVisita[] | null; error: { message: string } | null }>
+    })
+  )
 }
 
 /** Una visita por un campo único (id o client_id), o null. */
 async function visitaPor(campo: 'id' | 'client_id', valor: string): Promise<FilaVisita | null> {
-  const { data, error } = await supabaseAdmin.from('visits').select(COLUMNAS_VISITA).eq(campo, valor).limit(1)
-  if (error) throw error
-  return ((data ?? []) as unknown as FilaVisita[])[0] ?? null
+  return conOSin0940(async columnas => {
+    const { data, error } = await supabaseAdmin.from('visits').select(columnas).eq(campo, valor).limit(1)
+    if (error) throw error
+    return ((data ?? []) as unknown as FilaVisita[])[0] ?? null
+  })
+}
+
+/**
+ * Lista cerrada de motivos de la visita no efectiva (motivos_no_efectiva, 0940), activos y en orden. Sin la 0940 (la
+ * tabla no existe): [] (la app sigue con el texto libre). Cualquier otro error se lanza.
+ */
+export async function leerMotivos(): Promise<MotivoNoEfectiva[]> {
+  if (sin0940) return []
+  const { data, error } = await supabaseAdmin.from('motivos_no_efectiva').select('codigo, nombre, orden').eq('activo', true).order('orden').order('codigo')
+  if (error) {
+    if (faltaMigracion0940(error)) {
+      sin0940 = true
+      return []
+    }
+    throw error
+  }
+  return ((data ?? []) as { codigo: string; nombre: string }[]).map(fila => ({ codigo: fila.codigo, nombre: fila.nombre }))
 }
 
 /** Una visita por id (o null). */
@@ -577,6 +642,13 @@ export async function armarVisitaItems(
       editable: visitaEditable(fila, entrada.persona.userId, entrada.hoy),
       agenda_id: fila.agenda_id ?? null,
       agendada: fila.agendada === true,
+      // 0940 (sin la migración: sin marcas, sin foto)
+      marcas: Array.isArray(fila.marcas) ? [...fila.marcas] : [],
+      en_sitio: typeof fila.en_sitio === 'boolean' ? fila.en_sitio : null,
+      gps_accuracy_m: fila.gps_accuracy_m === null || fila.gps_accuracy_m === undefined ? null : Number(fila.gps_accuracy_m),
+      medico_no_listado: fila.medico_no_listado && typeof fila.medico_no_listado === 'object' ? { nombre: String(fila.medico_no_listado.nombre ?? ''), especialidad: fila.medico_no_listado.especialidad ?? null } : null,
+      motivo_codigo: fila.motivo_codigo ?? null,
+      foto: typeof fila.foto_path === 'string' && fila.foto_path.length > 0,
     }
   })
 }
@@ -794,7 +866,16 @@ export async function misMedicos(persona: Pick<PersonaCampo, 'executiveId' | 'li
     const lng = aNumero(sede.lng)
     const distancia_m = punto && esPunto(lat, lng) ? haversineM(punto, { lat: lat as number, lng: lng as number }) : null
     const lista = sedesPorMedico.get(vinculo.medico_id) ?? []
-    lista.push({ id: sede.id, nombre: sede.nombre, cuenta_nombre: sede.cuenta_id ? cuentas.get(sede.cuenta_id) ?? null : null, distancia_m })
+    // 0940: con la cuenta y las coordenadas (6 decimales), para que la app mida distancias y reporte sin señal.
+    lista.push({
+      id: sede.id,
+      nombre: sede.nombre,
+      cuenta_nombre: sede.cuenta_id ? cuentas.get(sede.cuenta_id) ?? null : null,
+      distancia_m,
+      cuenta_id: sede.cuenta_id,
+      lat: esPunto(lat, lng) ? lat : null,
+      lng: esPunto(lat, lng) ? lng : null,
+    })
     sedesPorMedico.set(vinculo.medico_id, lista)
   }
   const porDistancia = (a: SedeDeMedico, b: SedeDeMedico) =>
@@ -878,7 +959,7 @@ export async function cargarContexto(persona: PersonaCampo, punto: Punto | null,
   const visitasHoyP = leerVisitas(persona.userId, hoy, hoy)
   const sedesP = punto ? sedesCercaDe(punto) : Promise.resolve([] as SedeCerca[])
   const citasHoyP = leerCitas(persona.userId, hoy, hoy)
-  const [detalle, general, config, lineas, subtipos, visitasHoy, medicos, sedes, compromisos, contactos, confirmadas, agendaHoy] = await Promise.all([
+  const [detalle, general, config, lineas, subtipos, visitasHoy, medicos, sedes, compromisos, contactos, confirmadas, agendaHoy, motivos] = await Promise.all([
     detalleP,
     generalP,
     configP,
@@ -891,6 +972,7 @@ export async function cargarContexto(persona: PersonaCampo, punto: Punto | null,
     sedesP.then(lista => contactosDeCuentas(lista.map(sede => sede.cuenta_id))),
     visitasHoyP.then(lista => confirmacionDeSedes(lista.map(visita => visita.sede_id))),
     Promise.all([citasHoyP, configP]).then(([citasHoy, cfg]) => armarCitaItems(citasHoy, { hoy, punto, radio_m: cfg.radio_m, ahora })),
+    leerMotivos(),
   ])
   const meta = detalle ? metaDelDia(detalle, hoy) : { medica: 0, institucional: 0 }
   const conteo = detalle ? detalle.conteo : await leerConteo()
@@ -922,6 +1004,7 @@ export async function cargarContexto(persona: PersonaCampo, punto: Punto | null,
     voz: vozDisponible(),
     agenda_hoy: agendaHoy,
     persona: personaContexto(persona, lineas),
+    motivos_no_efectiva: motivos,
   }
 }
 
@@ -950,11 +1033,16 @@ export async function contextoValidacion(datos: VisitaCreate, persona: PersonaCa
   const ejecutivoVisita = ejecutivoDeLaVisita(persona, datos.lineas)
   const comoLider = ejecutivoVisita === null
   // La sede (con su cuenta) y el médico o el subtipo no dependen entre sí: van en paralelo (spec 2026-10-15, paquete 4).
-  const [sede, porTipo] = await Promise.all([
+  const sinPorTipo: PorTipoValidacion = { medico: null, subtipo: null, contacto: null }
+  const [sede, porTipo, motivos] = await Promise.all([
     sedeParaValidar(datos.sede_id),
     datos.tipo === 'medica'
-      ? medicoParaValidar(datos.medico_id, ejecutivoVisita, hoy, comoLider ? datos.lineas : null)
+      ? datos.medico_id
+        ? medicoParaValidar(datos.medico_id, ejecutivoVisita, hoy, comoLider ? datos.lineas : null)
+        : Promise.resolve(sinPorTipo) // 0940: médico no listado, nada que buscar
       : institucionalParaValidar(datos.subtipo_id, datos.contacto_id),
+    // 0940: solo si viene un motivo de lista (sin la migración, [] y la base decide)
+    !datos.efectiva && datos.motivo_codigo ? leerMotivos() : Promise.resolve(null),
   ])
   return {
     ejecutiva: {
@@ -968,6 +1056,7 @@ export async function contextoValidacion(datos: VisitaCreate, persona: PersonaCa
     subtipo: porTipo.subtipo,
     contacto: porTipo.contacto,
     como_lider: comoLider,
+    ...(motivos && motivos.length > 0 ? { motivos: motivos.map(motivo => motivo.codigo) } : {}),
   }
 }
 
@@ -1089,6 +1178,11 @@ export function jsonbRegistrar(datos: VisitaCreate, executiveId: string | null):
     lineas: [...datos.lineas],
     // 0840: la cita que se cumple (null = que la base busque la del mismo médico o cuenta). La 0830 ignora la clave.
     agenda_id: datos.agenda_id,
+    // 0940 (app sin señal): hora del teléfono, lectura del GPS, motivo de lista y médico no listado. La 0850 las ignora.
+    tz: datos.tz,
+    gps_at: datos.gps_at,
+    motivo_codigo: datos.motivo_codigo,
+    medico_no_listado: datos.medico_no_listado,
   }
 }
 

@@ -30,6 +30,25 @@ const fuentes: FuentesUbicacion = {
     const posicion = await Location.getLastKnownPositionAsync({ maxAge: edadMaximaMs })
     return posicion ? aLectura(posicion) : null
   },
+  // En vivo, solo mientras dura la final (hasta 20 s, app sin señal 2026-10-30): la app se queda con la más precisa.
+  // Nunca en segundo plano: se deja de observar al terminar o al salir de la pantalla.
+  observar: alLeer => {
+    let activa = true
+    let suscripcion: Location.LocationSubscription | null = null
+    Location.watchPositionAsync({ accuracy: Location.Accuracy.BestForNavigation, timeInterval: 1000, distanceInterval: 0 }, posicion => {
+      if (activa) alLeer(aLectura(posicion))
+    }).then(
+      s => {
+        if (activa) suscripcion = s
+        else s.remove()
+      },
+      () => undefined
+    )
+    return () => {
+      activa = false
+      suscripcion?.remove()
+    }
+  },
   // Uno solo para toda la app: Hoy y Reportar toman lecturas rápidas; la final y Nueva sede no las usan de respaldo.
   rapidasPropias: registroDeRapidas(),
 }

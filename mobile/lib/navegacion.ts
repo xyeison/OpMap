@@ -49,6 +49,8 @@ export const OCULTAS: readonly PantallaOculta[] = [
   { ruta: 'medico/nuevo', encabezado: 'Nuevo médico' },
   { ruta: 'sede/nueva', encabezado: 'Nueva sede' },
   { ruta: 'contacto/nuevo', encabezado: 'Nuevo contacto' },
+  // App sin señal (2026-10-30): cómo agregarla a la pantalla de inicio (Android e iPhone).
+  { ruta: 'instalar', encabezado: 'Agregar a inicio' },
 ]
 
 /**

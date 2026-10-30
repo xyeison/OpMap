@@ -63,7 +63,7 @@ const exactas =
     lista as readonly string[]
 
 /** Cuerpo de POST /api/me/visitas: todas las claves, en las dos variantes de tipo y de modalidad. */
-type ClavesVisitaCreate = keyof VisitaCreateBase | 'tipo' | 'medico_id' | 'cuenta_id' | 'subtipo_id' | 'contacto_id' | 'modalidad' | 'medio'
+type ClavesVisitaCreate = keyof VisitaCreateBase | 'tipo' | 'medico_id' | 'medico_no_listado' | 'cuenta_id' | 'subtipo_id' | 'contacto_id' | 'modalidad' | 'medio'
 type ObjetoVisitaCreate = Record<ClavesVisitaCreate, unknown>
 /** Cuerpo de POST /api/me/agenda: todas las claves de las dos variantes (médica e institucional). */
 type ObjetoCitaCreate = Record<keyof CitaCreateBase | 'tipo' | 'medico_id' | 'cuenta_id' | 'subtipo_id', unknown>
@@ -79,6 +79,7 @@ export const CLAVES_API = {
   personaContexto: exactas<PersonaContexto>()(['user_id', 'nombre', 'executive_id', 'rol', 'lineas']),
   contexto: exactas<ContextoResponse>()([
     'ejecutiva', 'hoy', 'config', 'sedes_cerca', 'mis_medicos', 'contactos', 'subtipos', 'compromisos_vencidos', 'voz', 'agenda_hoy', 'persona',
+    'motivos_no_efectiva',
   ]),
   contextoEjecutiva: exactas<EjecutivaContexto>()(['id', 'nombre', 'zona', 'municipio', 'lineas']),
   linea: exactas<LineaEjecutiva>()(['id', 'code', 'name']),
@@ -88,7 +89,7 @@ export const CLAVES_API = {
   telefonica: exactas<TelefonicaEfectiva>()(['habilitada', 'tope_dia', 'medios']),
   sedeCerca: exactas<SedeCerca>()(['id', 'nombre', 'cuenta_id', 'cuenta_nombre', 'cuenta_clase', 'ciudad', 'lat', 'lng', 'distancia_m', 'hospital_id', 'ubicacion_confirmada']),
   medico: exactas<MedicoContexto>()(['id', 'nombre', 'especialidades', 'municipality_id', 'lineas', 'sedes']),
-  sedeDeMedico: exactas<SedeDeMedico>()(['id', 'nombre', 'cuenta_nombre', 'distancia_m']),
+  sedeDeMedico: exactas<SedeDeMedico>()(['id', 'nombre', 'cuenta_nombre', 'distancia_m', 'cuenta_id', 'lat', 'lng']),
   contacto: exactas<ContactoContexto>()(['id', 'cuenta_id', 'sede_id', 'nombre', 'cargo_texto', 'rol']),
   subtipo: exactas<SubtipoContexto>()(['id', 'codigo', 'nombre', 'roles_sugeridos']),
   compromiso: exactas<CompromisoVencido>()(['visita_id', 'fecha', 'con', 'next_step_date']),
@@ -98,11 +99,13 @@ export const CLAVES_API = {
     'id', 'client_id', 'tipo', 'subtipo', 'medico', 'cuenta', 'sede', 'contacto', 'modalidad', 'medio', 'efectiva', 'failure_reason',
     'checked_in_at', 'distance_m', 'conclusion', 'compromisos', 'next_step_date', 'lineas', 'input_mode', 'out_of_territory', 'cuenta_para',
     'peso', 'sede_por_confirmar', 'editable', 'agenda_id', 'agendada',
+    'marcas', 'en_sitio', 'gps_accuracy_m', 'medico_no_listado', 'motivo_codigo', 'foto',
   ]),
   visitaCreate: exactas<ObjetoVisitaCreate>()([
     'client_id', 'tipo', 'subtipo_id', 'medico_id', 'cuenta_id', 'sede_id', 'contacto_id', 'modalidad', 'medio', 'efectiva', 'failure_reason',
     'retry_date', 'checked_in_at', 'reported_at', 'lat', 'lng', 'gps_accuracy_m', 'conclusion', 'compromisos', 'next_step_date', 'transcript',
     'input_mode', 'lineas', 'agenda_id',
+    'tz', 'gps_at', 'motivo_codigo', 'medico_no_listado',
   ]),
   visitaCreateResponse: exactas<VisitaCreateResponse>()(['visita', 'repetida']),
   transcripcion: exactas<TranscripcionResponse>()(['transcript', 'duracion_s', 'modelo']),

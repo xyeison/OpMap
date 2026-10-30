@@ -97,6 +97,13 @@ import {
   MENSAJE_SIN_OPENAI,
   MENSAJE_SIN_ZONA,
   MENSAJE_SOLO_HOY,
+  DIAS_MAX_ATRAS,
+  MENSAJE_FOTO_VISITA,
+  MENSAJE_MEDICO_DOS_VECES,
+  MENSAJE_MEDICO_NO_LISTADO_SIN_NOMBRE,
+  MENSAJE_MOTIVO_NO_EFECTIVA_NO_VALIDO,
+  MENSAJE_SIN_PUNTO_PARA_EL_MAPA,
+  PRECISION_BAJA_M,
   MENSAJE_TELEFONICA_NO_HABILITADA,
   MENSAJE_TOPE_MEDICO,
   MENSAJE_VISITA_NO_EDITABLE,
@@ -186,6 +193,7 @@ import { GET as verContexto, POST as pedirContexto } from '../app/api/me/context
 import { GET as verVisitas, POST as reportarVisita } from '../app/api/me/visitas/route'
 import { PATCH as corregirVisita } from '../app/api/me/visitas/[id]/route'
 import { POST as anularVisita } from '../app/api/me/visitas/[id]/anular/route'
+import { GET as verFoto, POST as subirFotoRuta } from '../app/api/me/visitas/foto/route'
 import { POST as transcribir } from '../app/api/me/voz/transcribir/route'
 import { POST as proponer } from '../app/api/me/voz/proponer/route'
 import { GET as verNumeros } from '../app/api/me/numeros/route'
@@ -439,9 +447,15 @@ function matchesFilters(row: Fila, params: URLSearchParams): boolean {
       if (!condiciones.some(condicion => cumpleCondicion(row, condicion))) return false
       continue
     }
-    const original = row[key]
-    const value = original === null || original === undefined ? 'null' : String(original)
-    if (raw.startsWith('eq.')) {
+    // visits.marcas tiene DEFAULT '{}' en la base (0940): una fila sin la clave (las de VMO de este falso) vale como vacía.
+    const original = key === 'marcas' && (row[key] === null || row[key] === undefined) ? [] : row[key]
+    // Un arreglo (0940: visits.marcas) se compara como lo escribe PostgREST: {a,b}; vacío, {}.
+    const value = original === null || original === undefined ? 'null' : Array.isArray(original) ? `{${original.join(',')}}` : String(original)
+    if (raw.startsWith('cs.')) {
+      // contiene (cs.{a,b}): todos los pedidos están en el arreglo de la fila
+      const pedidos = raw.slice(3).replace(/^\{|\}$/g, '').split(',').filter(Boolean).map(x => x.replace(/^"|"$/g, ''))
+      if (!Array.isArray(original) || !pedidos.every(x => original.includes(x))) return false
+    } else if (raw.startsWith('eq.')) {
       if (value !== raw.slice(3)) return false
     } else if (raw.startsWith('neq.')) {
       if (value === raw.slice(4)) return false
@@ -505,6 +519,8 @@ function fakeSupabase(tablas: Tablas) {
   const requests: { method: string; table: string; params: URLSearchParams; body: unknown }[] = []
   const external: string[] = []
   const rpcs: { nombre: string; args: Fila }[] = []
+  /** 0940: lo que se subió al bucket falso (storage): ruta y bytes. */
+  const storage: { method: string; ruta: string; bytes: number }[] = []
   const estado = {
     sin0830: false,
     /** La base sin la 0840: sin visitas_agenda, agenda_crear, agenda_cancelar ni visits.agenda_id/agendada. */
@@ -584,14 +600,28 @@ function fakeSupabase(tablas: Tablas) {
     if (!['presencial', 'telefonica'].includes(p.modalidad)) return forma('Modalidad no válida: presencial o telefonica')
     if (typeof p.efectiva !== 'boolean') return forma('Indica si la visita fue efectiva (sí o no)')
     if (!Array.isArray(p.lineas)) return forma('Elige al menos una línea')
+    // 0940: médico de OpMap O médico no listado (exactamente uno)
+    const noListado = p.tipo === 'medica' && p.medico_no_listado && typeof p.medico_no_listado === 'object' ? (p.medico_no_listado as { nombre?: string; especialidad?: string | null }) : null
+    if (noListado && !String(noListado.nombre ?? '').trim()) return forma(MENSAJE_MEDICO_NO_LISTADO_SIN_NOMBRE)
+    if (p.tipo === 'medica' && !p.medico_id && !noListado) return forma('Elige el médico')
+    if (p.tipo === 'medica' && p.medico_id && noListado) return forma(MENSAJE_MEDICO_DOS_VECES)
     const efectiva = p.efectiva as boolean
-    if (!efectiva && !String(p.failure_reason ?? '').trim()) return regla('Indica el motivo de la visita no efectiva (hasta 300 caracteres)')
+    // 0940: motivo de la lista (motivos_no_efectiva); sin texto, el nombre del motivo
+    let failure: string | null = efectiva ? null : String(p.failure_reason ?? '').trim() || null
+    const motivoCod: string | null = efectiva ? null : ((p.motivo_codigo as string | null) ?? null)
+    if (!efectiva && motivoCod) {
+      const motivo = store('motivos_no_efectiva').find(m => m.codigo === motivoCod && m.activo)
+      if (!motivo) return regla(MENSAJE_MOTIVO_NO_EFECTIVA_NO_VALIDO)
+      if (!failure) failure = motivo.nombre
+    }
+    if (!efectiva && !failure) return regla('Indica el motivo de la visita no efectiva (hasta 300 caracteres)')
+    const marcas: string[] = []
 
     // 1. Idempotencia por client_id (por persona)
     const previa = store('visits').find(v => v.client_id === p.client_id)
     if (previa) {
       if (previa.user_id !== args.p_user) return pgError('23505', 'Ese client_id ya se usó en otra visita', 409)
-      return json({ visita_id: previa.id, repetida: true, out_of_territory: previa.out_of_territory, distance_m: previa.distance_m, visit_date: previa.visit_date, agenda_id: previa.agenda_id ?? null, agendada: previa.agendada === true })
+      return json({ visita_id: previa.id, repetida: true, out_of_territory: previa.out_of_territory, distance_m: previa.distance_m, visit_date: previa.visit_date, agenda_id: previa.agenda_id ?? null, agendada: previa.agendada === true, marcas: previa.marcas ?? [], en_sitio: previa.en_sitio ?? null })
     }
     // 2. Persona de campo, líneas suyas, el Ejecutivo Comercial de la visita (o como líder), mismo día, horas
     const resultado = personaFalsa(args.p_user)
@@ -605,10 +635,11 @@ function fakeSupabase(tablas: Tablas) {
     const ejecutiva = exec ? store('executives').find(e => e.id === exec) : null
     if (exec && !ejecutiva?.base_kam_id) return regla(MENSAJE_SIN_ZONA)
     const fecha = fechaBogota(p.checked_in_at)
-    if (fecha !== hoyFalso()) return regla(MENSAJE_SOLO_HOY)
-    if (Date.parse(p.checked_in_at) > Date.now() + TOLERANCIA_RELOJ_SEGUNDOS * 1000) return regla(MENSAJE_LLEGADA_FUTURA)
+    // 0940: otro día ya no se rechaza; hora del teléfono por delante del servidor o más de DIAS_MAX_ATRAS días → marca
     if (Date.parse(p.reported_at) < Date.parse(p.checked_in_at)) return regla('La hora del reporte no puede ser anterior a la de llegada')
-    if (Date.parse(p.reported_at) > Date.now() + TOLERANCIA_RELOJ_SEGUNDOS * 1000) return regla(MENSAJE_REPORTE_FUTURO)
+    if (Date.parse(p.checked_in_at) > Date.now() + TOLERANCIA_RELOJ_SEGUNDOS * 1000 || Date.parse(p.reported_at) > Date.now() + TOLERANCIA_RELOJ_SEGUNDOS * 1000 || fecha < sumarDias(hoyFalso(), -DIAS_MAX_ATRAS)) {
+      marcas.push('hora_inconsistente')
+    }
     if (p.next_step_date && p.next_step_date < fecha) return regla(MENSAJE_PROXIMA_ANTES_DE_VISITA)
     if (!efectiva && p.retry_date && p.retry_date < fecha) return regla(MENSAJE_REINTENTO_ANTES_DE_VISITA)
     // 3. Perfil (como líder: la configuración general)
@@ -620,7 +651,9 @@ function fakeSupabase(tablas: Tablas) {
     if (store('cuentas').find(c => c.id === sede.cuenta_id)?.activo !== true) return regla(MENSAJE_CUENTA_INACTIVA)
     let oot = false
     let subtipoCodigo: string | null = null
-    if (p.tipo === 'medica') {
+    if (p.tipo === 'medica' && noListado) {
+      marcas.push('medico_por_validar') // 0940: nadie lo busca; queda por validar
+    } else if (p.tipo === 'medica') {
       if (!store('medicos').some(m => m.id === p.medico_id && m.activo)) return regla('Ese médico no existe o está inactivo')
       if (!store('medico_sedes').some(ms => ms.medico_id === p.medico_id && ms.sede_id === p.sede_id)) return regla('El médico no atiende en esa sede')
       if (!exec) {
@@ -639,13 +672,20 @@ function fakeSupabase(tablas: Tablas) {
         if (contacto.activo === false) return regla(MENSAJE_CONTACTO_INACTIVO)
       }
     }
-    // 5. Presencial o telefónica (tope por persona)
+    // 5. Presencial (0940: marcas, nunca rechazo) o telefónica (tope por persona)
     let distancia: number | null = null
+    let enSitio: boolean | null = null
     if (p.modalidad === 'presencial') {
-      if (p.lat === null || p.lat === undefined) return regla('La ubicación del teléfono es obligatoria en una visita presencial')
-      if (sede.lat === null || sede.lng === null) return regla(MENSAJE_SEDE_SIN_UBICACION)
-      distancia = haversineM({ lat: Number(p.lat), lng: Number(p.lng) }, { lat: Number(sede.lat), lng: Number(sede.lng) })
-      if (distancia > cfg.radio_m) return regla(mensajeFueraDeRadio(distancia, sede.nombre, cfg.radio_m))
+      const conGps = p.lat !== null && p.lat !== undefined
+      const precision = p.gps_accuracy_m === null || p.gps_accuracy_m === undefined ? null : Number(p.gps_accuracy_m)
+      if (!conGps) marcas.push('sin_ubicacion')
+      else if (precision !== null && precision > PRECISION_BAJA_M) marcas.push('precision_baja')
+      if (sede.lat === null || sede.lng === null) marcas.push('ips_sin_coordenadas')
+      else if (conGps) {
+        distancia = haversineM({ lat: Number(p.lat), lng: Number(p.lng) }, { lat: Number(sede.lat), lng: Number(sede.lng) })
+        enSitio = Math.max(distancia - (precision ?? 0), 0) <= cfg.radio_m
+        if (!enSitio) marcas.push('lejos_de_ips')
+      }
     } else {
       if (!cfg.telefonica.habilitada) return regla(MENSAJE_TELEFONICA_NO_HABILITADA)
       if (!cfg.telefonica.medios.includes(p.medio)) return regla(`Medio no válido: ${cfg.telefonica.medios.join(' o ')}`)
@@ -674,13 +714,16 @@ function fakeSupabase(tablas: Tablas) {
     const municipio = store('municipalities').find(m => m.code === sede.municipality_id)
     const zona = ejecutiva ? store('kams').find(k => k.id === ejecutiva.base_kam_id) : undefined
     const punto =
-      p.modalidad === 'presencial'
+      p.modalidad === 'presencial' && p.lat !== null && p.lat !== undefined
         ? { lat: Number(p.lat), lng: Number(p.lng) }
         : sede.lat !== null
           ? { lat: Number(sede.lat), lng: Number(sede.lng) }
           : municipio
             ? { lat: municipio.lat, lng: municipio.lng }
-            : { lat: Number(zona?.lat ?? 0), lng: Number(zona?.lng ?? 0) }
+            : zona
+              ? { lat: Number(zona.lat), lng: Number(zona.lng) }
+              : null
+    if (!punto) return regla(MENSAJE_SIN_PUNTO_PARA_EL_MAPA)
     const id = randomUUID()
     store('visits').push({
       id,
@@ -711,7 +754,7 @@ function fakeSupabase(tablas: Tablas) {
       modalidad: p.modalidad,
       medio: p.modalidad === 'telefonica' ? p.medio : null,
       efectiva,
-      failure_reason: efectiva ? null : p.failure_reason,
+      failure_reason: failure,
       retry_date: efectiva ? null : (p.retry_date ?? null),
       checked_in_at: p.checked_in_at,
       reported_at: p.reported_at,
@@ -729,10 +772,29 @@ function fakeSupabase(tablas: Tablas) {
       deleted_reason: null,
       agenda_id: citaVinculada?.id ?? null,
       agendada,
+      // 0940
+      tz: p.tz ?? null,
+      gps_at: p.modalidad === 'presencial' && p.lat !== null && p.lat !== undefined ? (p.gps_at ?? null) : null,
+      marcas,
+      en_sitio: enSitio,
+      medico_no_listado: noListado ? { nombre: String(noListado.nombre).trim().slice(0, 200), especialidad: noListado.especialidad ? String(noListado.especialidad).trim().slice(0, 60) : null } : null,
+      motivo_codigo: motivoCod,
+      foto_path: null,
     })
     for (const line_id of Array.from(new Set(lineas))) store('visit_lines').push({ visit_id: id, line_id })
     if (citaVinculada) Object.assign(citaVinculada, { estado: 'hecha', visita_id: id, updated_at: new Date().toISOString() })
-    return json({ visita_id: id, repetida: false, out_of_territory: oot, distance_m: distancia, visit_date: fecha, agenda_id: citaVinculada?.id ?? null, agendada })
+    return json({ visita_id: id, repetida: false, out_of_territory: oot, distance_m: distancia, visit_date: fecha, agenda_id: citaVinculada?.id ?? null, agendada, marcas, en_sitio: enSitio })
+  }
+
+  // --- Espejo de visitas_foto (0940): enlaza la foto subida con la visita propia por client_id ---
+  function visitasFoto(args: Fila): Response {
+    if (!args.p_client || !args.p_user || !String(args.p_path ?? '').trim()) return pgError('22023', 'Faltan la visita, el usuario o la ruta de la foto')
+    const visita = store('visits').find(v => v.client_id === args.p_client && v.source === 'app' && v.user_id === args.p_user && !v.deleted_at)
+    if (!visita) return pgError('P0002', MENSAJE_FOTO_VISITA, 404)
+    const repetida = !!visita.foto_path
+    visita.foto_path = args.p_path
+    visita.updated_by = args.p_user
+    return json({ visita_id: visita.id, repetida })
   }
 
   const aVinculo = (cita: Fila): CitaVinculo => ({
@@ -1037,6 +1099,16 @@ function fakeSupabase(tablas: Tablas) {
       throw new Error(`reporte-api-check: intento de red a ${url.origin}`)
     }
     const method = (init?.method || 'GET').toUpperCase()
+    // 0940: Storage falso (la foto de la visita): subir (POST/PUT objeto) y firmar un enlace (POST sign). Antes de leer el
+    // cuerpo como JSON: la subida manda bytes.
+    if (url.pathname.startsWith('/storage/v1/object/')) {
+      const ruta = url.pathname.replace('/storage/v1/object/', '')
+      if (ruta.startsWith('sign/')) return json({ signedURL: `/object/${ruta.slice(5)}?token=firma-falsa` })
+      if (!ruta.startsWith('visitas-fotos/')) return json({ statusCode: '404', error: 'Bucket not found', message: 'Bucket not found' }, 404)
+      const cuerpo = init?.body as { byteLength?: number; size?: number } | undefined
+      storage.push({ method, ruta, bytes: cuerpo?.byteLength ?? cuerpo?.size ?? 0 })
+      return json({ Key: ruta, Id: randomUUID() })
+    }
     const table = url.pathname.replace('/rest/v1/', '')
     const body = init?.body ? JSON.parse(String(init.body)) : undefined
     requests.push({ method, table, params: url.searchParams, body })
@@ -1097,6 +1169,7 @@ function fakeSupabase(tablas: Tablas) {
       if (estado.errorRpc && nombre.startsWith('visitas_')) return json(estado.errorRpc, 400)
       const funciones: Record<string, (args: Fila) => Response> = {
         visitas_registrar: visitasRegistrar,
+        visitas_foto: visitasFoto,
         visitas_editar: visitasEditar,
         visitas_anular: visitasAnular,
         agenda_crear: agendaCrear,
@@ -1182,7 +1255,7 @@ function fakeSupabase(tablas: Tablas) {
   }
 
   const writes = () => requests.filter(request => request.method !== 'GET')
-  return { handler, requests, external, writes, rpcs, estado }
+  return { handler, requests, external, writes, rpcs, storage, estado }
 }
 
 // ---------------------------------------------------------------------------
@@ -1354,6 +1427,13 @@ function datosIniciales(): Tablas {
     config_general: Object.keys(CONFIG_GENERAL_DEFECTO).map(parametro => filaConfig({ parametro, valor: CONFIG_GENERAL_DEFECTO[parametro], clave: parametro })),
     // Berta: solo institucional, telefónica habilitada con tope 1.
     config_personas: [filaConfig({ executive_id: EJEC_B, perfil: ['institucional'], telefonica_habilitada: true, tope_telefonicas_dia: 1, radio_m: null, clave: EJEC_B })],
+    // 0940: la lista cerrada de motivos de la no efectiva
+    motivos_no_efectiva: [
+      { codigo: 'medico_no_estaba', nombre: 'El médico no estaba', orden: 10, activo: true },
+      { codigo: 'cita_cancelada', nombre: 'Cancelaron la cita', orden: 30, activo: true },
+      { codigo: 'retirado', nombre: 'Retirado', orden: 90, activo: false },
+      { codigo: 'otro', nombre: 'Otro', orden: 99, activo: true },
+    ],
     calendario: festivosColombia(2026).map(festivo => ({
       id: randomUUID(),
       fecha: festivo.fecha,
@@ -1709,17 +1789,16 @@ async function main() {
         const r = await pedir(reportarVisita, '/api/me/visitas', { method: 'POST', body: cuerpo, portador: true, userId })
         check(nombre, r.status === 400 && r.body?.error === mensaje && Array.isArray(r.body?.errores) && r.body.errores.some((e: { mensaje: string }) => e.mensaje === mensaje), r.body)
       }
-      const lejos = alNorte(-680) // a ~800 m de la Clínica Norte
-      const distancia = haversineM(lejos, alNorte(120))
-      await rechazo('presencial a 800 m: 400 "Estás a N m de Clínica Norte; el radio es 500 m"', cuerpoVisita({ ...lejos }), mensajeFueraDeRadio(distancia, 'Clínica Norte', 500))
-      await rechazo('sede sin coordenadas: presencial rechazada (decisión 6)', cuerpoVisita({ sede_id: S3 }), MENSAJE_SEDE_SIN_UBICACION)
       await rechazo('telefónica sin habilitar: 400', cuerpoVisita({ modalidad: 'telefonica', medio: 'llamada', lat: null, lng: null }), MENSAJE_TELEFONICA_NO_HABILITADA)
-      await rechazo('ayer: 400 "Solo se reportan visitas del mismo día"', cuerpoVisita({ checked_in_at: '2026-10-12T16:00:00.000-05:00', reported_at: '2026-10-12T16:05:00.000-05:00' }), MENSAJE_SOLO_HOY)
-      await rechazo('llegada 30 minutos en el futuro: 400 (la base tolera 5 minutos)', cuerpoVisita({ checked_in_at: '2026-10-13T11:12:00.000-05:00', reported_at: '2026-10-13T11:13:00.000-05:00' }), MENSAJE_LLEGADA_FUTURA)
       await rechazo('líneas ajenas: 400', cuerpoVisita({ lineas: [L1, L_AJENA] }), MENSAJE_LINEAS_AJENAS)
       await rechazo('médico que no atiende en esa sede: 400', cuerpoVisita({ sede_id: S2, ...alNorte(800) }), 'El médico no atiende en esa sede')
       await rechazo('perfil solo institucional (Berta): médica 400', cuerpoVisita({ medico_id: M1 }), mensajePerfil('medica'), OTRA_ID)
-      await rechazo('reported_at 8 minutos en el futuro (reloj del teléfono adelantado): 400', cuerpoVisita({ reported_at: '2026-10-13T10:50:00.000-05:00' }), MENSAJE_REPORTE_FUTURO)
+      await rechazo('motivo que no está en la lista (0940): 400', cuerpoVisita({ efectiva: false, failure_reason: null, motivo_codigo: 'inventado' }), MENSAJE_MOTIVO_NO_EFECTIVA_NO_VALIDO)
+      await rechazo('motivo retirado de la lista (inactivo): 400', cuerpoVisita({ efectiva: false, failure_reason: null, motivo_codigo: 'retirado' }), MENSAJE_MOTIVO_NO_EFECTIVA_NO_VALIDO)
+      const sinNombre = await pedir(reportarVisita, '/api/me/visitas', { method: 'POST', body: cuerpoVisita({ medico_id: null, medico_no_listado: { nombre: ' ', especialidad: null } }), portador: true })
+      check('médico no listado sin nombre: 400 del esquema', sinNombre.status === 400 && sinNombre.body.error === MENSAJE_MEDICO_NO_LISTADO_SIN_NOMBRE, sinNombre.body)
+      const dosMedicos = await pedir(reportarVisita, '/api/me/visitas', { method: 'POST', body: cuerpoVisita({ medico_no_listado: { nombre: 'X', especialidad: null } }), portador: true })
+      check('médico de OpMap y no listado a la vez: 400', dosMedicos.status === 400 && dosMedicos.body.error === MENSAJE_MEDICO_DOS_VECES, dosMedicos.body)
       await rechazo('próxima reunión anterior a la visita: 400 (nunca nace como compromiso vencido)', cuerpoVisita({ next_step_date: '2026-10-12' }), MENSAJE_PROXIMA_ANTES_DE_VISITA)
       await rechazo('fecha para reintentar anterior a la visita: 400', cuerpoVisita({ efectiva: false, failure_reason: 'No estaba', retry_date: '2026-10-01' }), MENSAJE_REINTENTO_ANTES_DE_VISITA)
       const cuentaSur = tablas.cuentas.find(c => c.id === C2) as Fila
@@ -1751,6 +1830,85 @@ async function main() {
       const sinMotivo = await pedir(reportarVisita, '/api/me/visitas', { method: 'POST', body: cuerpoVisita({ efectiva: false, failure_reason: null }), portador: true })
       check('no efectiva sin motivo: 400 del esquema (con errores por campo)', sinMotivo.status === 400 && sinMotivo.body.errores?.some((e: { campo: string }) => e.campo === 'failure_reason'), sinMotivo.body)
       check('ningún rechazo llegó a visitas_registrar ni guardó nada', visitasApp().length === antes && !fake.rpcs.some(r => r.nombre === 'visitas_registrar'), fake.rpcs)
+
+      // 0940 (dueño, 2026-10-30): lo que antes se rechazaba por la ubicación o por el día ahora se GUARDA con marcas. Cada
+      // visita de prueba se anula al final (misma persona, mismo día) para no mover los topes ni las listas de abajo.
+      const vivasAntes = visitasApp().filter(v => !v.deleted_at).length
+      // Una visita de otro día no se anula desde la app (solo las del mismo día): la "anula" la administración. Aquí se
+      // marca en el almacén falso para que no mueva Mis números más abajo.
+      const anularEnLaBase = (fila: Fila | undefined) => {
+        if (fila) fila.deleted_at = new Date().toISOString()
+      }
+      const aceptada = async (nombre: string, cuerpo: Fila, revisar: (visita: W.VisitaItem, fila: Fila | undefined) => boolean, userId = VENTAS_ID) => {
+        const r = await pedir(reportarVisita, '/api/me/visitas', { method: 'POST', body: cuerpo, portador: true, userId })
+        const fila = visitasApp().find(v => v.client_id === cuerpo.client_id)
+        check(nombre, r.status === 201 && r.body.repetida === false && ok('visitaItem', r.body.visita) && revisar(r.body.visita as W.VisitaItem, fila), { status: r.status, body: r.body, fila })
+        return { id: r.body?.visita?.id as string | undefined, visita: r.body?.visita as W.VisitaItem | undefined, fila }
+      }
+      const anular = async (id: string | undefined, userId = VENTAS_ID) => {
+        if (!id) return
+        const r = await pedir(anularVisita, `/api/me/visitas/${id}/anular`, { method: 'POST', body: { motivo: 'Prueba de la 0940: visita de prueba' }, id, portador: true, userId })
+        if (r.status !== 200) check(`anular la visita de prueba ${id}`, false, r.body)
+      }
+      const lejos = alNorte(-680) // a ~800 m de la Clínica Norte
+      const distancia = haversineM(lejos, alNorte(120))
+      const lejosR = await aceptada('presencial a 800 m: 201 con la marca lejos_de_ips, en_sitio false y la distancia (antes 400 por el radio)', cuerpoVisita({ ...lejos }), (v, fila) => v.marcas.join() === 'lejos_de_ips' && v.en_sitio === false && Math.abs((v.distance_m ?? 0) - distancia) <= 1 && fila?.lat === lejos.lat)
+      await anular(lejosR.id)
+      const sinCoords = await aceptada('sede sin coordenadas: 201 con ips_sin_coordenadas; el punto del mapa es el municipio (antes 400, decisión 6)', cuerpoVisita({ sede_id: S3 }), (v, fila) => v.marcas.join() === 'ips_sin_coordenadas' && v.distance_m === null && v.en_sitio === null && fila?.lat === 7.119349 && fila?.lng === -73.122741)
+      await anular(sinCoords.id)
+      const sinGps = await aceptada('presencial SIN GPS: 201 con sin_ubicacion; el punto del mapa es el de la sede, gps_at null', cuerpoVisita({ lat: null, lng: null, gps_accuracy_m: null, gps_at: '2026-10-13T10:40:00.000-05:00' }), (v, fila) => v.marcas.join() === 'sin_ubicacion' && v.gps_accuracy_m === null && fila?.lat === alNorte(120).lat && fila?.gps_at === null && fila?.distance_m === null)
+      await anular(sinGps.id)
+      const imprecisa = await aceptada(`precisión de 150 m (> ${PRECISION_BAJA_M}): 201 con precision_baja y sigue en sitio`, cuerpoVisita({ gps_accuracy_m: 150 }), v => v.marcas.join() === 'precision_baja' && v.en_sitio === true && v.gps_accuracy_m === 150)
+      await anular(imprecisa.id)
+      const futura = await aceptada('llegada 30 minutos en el futuro: 201 con hora_inconsistente (antes 400)', cuerpoVisita({ checked_in_at: '2026-10-13T11:12:00.000-05:00', reported_at: '2026-10-13T11:13:00.000-05:00' }), v => v.marcas.join() === 'hora_inconsistente')
+      await anular(futura.id)
+      const reporteFuturo = await aceptada('reported_at 8 minutos en el futuro: 201 con hora_inconsistente', cuerpoVisita({ reported_at: '2026-10-13T10:50:00.000-05:00' }), v => v.marcas.join() === 'hora_inconsistente')
+      await anular(reporteFuturo.id)
+      // Ayer y hace 8 días no se pueden anular (solo el mismo día): van con Berta (institucional, otra persona) para no mover las listas de Ana.
+      const bertaInst = (extra: Fila = {}) => cuerpoVisita({ tipo: 'institucional', medico_id: null, cuenta_id: C2, sede_id: S2, subtipo_id: SUBTIPO_ID.compras, contacto_id: K2, ...alNorte(800), ...extra })
+      const ayer = await aceptada('ayer (Berta): 201 SIN hora_inconsistente, visit_date de ayer (antes 400 "Solo se reportan visitas del mismo día")', bertaInst({ checked_in_at: '2026-10-12T16:00:00.000-05:00', reported_at: '2026-10-12T16:05:00.000-05:00' }), (v, fila) => v.marcas.length === 0 && fila?.visit_date === '2026-10-12' && v.editable === false, OTRA_ID)
+      anularEnLaBase(ayer.fila)
+      // Hace 8 días (> DIAS_MAX_ATRAS): la config y los subtipos rigen desde 2026-10-12, así que va médica con Ana.
+      const hace8 = await aceptada(`hace 8 días (> ${DIAS_MAX_ATRAS}): 201 con hora_inconsistente, visit_date de ese día`, cuerpoVisita({ checked_in_at: '2026-10-05T10:40:00.000-05:00', reported_at: '2026-10-05T10:45:00.000-05:00' }), (v, fila) => v.marcas.join() === 'hora_inconsistente' && fila?.visit_date === '2026-10-05' && v.editable === false)
+      anularEnLaBase(hace8.fila)
+      const medicosAntes = tablas.medicos.length
+      const noListado = await aceptada('médico no listado: 201 con medico_por_validar, sin medico_id, con nombre y especialidad, y NO se crea el médico', cuerpoVisita({ medico_id: null, medico_no_listado: { nombre: '  Dr.  Nuevo  Pérez ', especialidad: 'columna' } }), (v, fila) => v.marcas.join() === 'medico_por_validar' && v.medico === null && v.medico_no_listado?.nombre === 'Dr. Nuevo Pérez' && v.medico_no_listado?.especialidad === 'columna' && fila?.medico_id === null && tablas.medicos.length === medicosAntes)
+      const conMotivo = await aceptada('no efectiva con motivo de la lista y sin texto: 201 y el texto es el nombre del motivo', cuerpoVisita({ efectiva: false, failure_reason: null, motivo_codigo: 'medico_no_estaba', tz: 'America/Bogota', gps_at: '2026-10-13T10:40:00.000-05:00' }), (v, fila) => v.efectiva === false && v.motivo_codigo === 'medico_no_estaba' && v.failure_reason === 'El médico no estaba' && fila?.failure_reason === 'El médico no estaba')
+      const rpc0940 = fake.rpcs.filter(x => x.nombre === 'visitas_registrar').at(-1)
+      check('el jsonb lleva tz, gps_at, motivo_codigo y medico_no_listado (la 0850 los ignora; la 0940 los guarda)', rpc0940?.args.p.tz === 'America/Bogota' && rpc0940?.args.p.gps_at === '2026-10-13T10:40:00.000-05:00' && rpc0940?.args.p.motivo_codigo === 'medico_no_estaba' && 'medico_no_listado' in (rpc0940?.args.p ?? {}), rpc0940?.args.p)
+
+      // La foto (0940): sube aparte, después de la visita, por client_id; idempotente.
+      const fotoDe = async (clientId: string | null, blob: Blob | null, userId = VENTAS_ID) => {
+        const formulario = new FormData()
+        if (clientId) formulario.append('client_id', clientId)
+        if (blob) formulario.append('foto', blob, 'foto.jpg')
+        return leer(await subirFotoRuta(new NextRequest('http://localhost:3000/api/me/visitas/foto', { method: 'POST', headers: { authorization: `Bearer ${tokenDe(userId)}` }, body: formulario })))
+      }
+      const bytesJpeg = new Uint8Array(2048)
+      bytesJpeg.set([0xff, 0xd8, 0xff, 0xe0])
+      const jpeg = new Blob([bytesJpeg], { type: 'image/jpeg' })
+      const clienteConMotivo = conMotivo.visita?.client_id ?? null
+      const subida = await fotoDe(clienteConMotivo, jpeg)
+      check('POST /api/me/visitas/foto: 200, la foto queda en el bucket privado visitas-fotos en <user>/<client_id>.jpg y la visita con foto_path', subida.status === 200 && subida.body.foto === true && subida.body.repetida === false && fake.storage.at(-1)?.ruta === `visitas-fotos/${VENTAS_ID}/${clienteConMotivo}.jpg` && tablas.visits.find(v => v.client_id === clienteConMotivo)?.foto_path === `${VENTAS_ID}/${clienteConMotivo}.jpg`, { body: subida.body, storage: fake.storage })
+      const otraVez = await fotoDe(clienteConMotivo, jpeg)
+      check('la misma foto otra vez (reintento de la cola): 200 repetida, reemplaza, una sola ruta', otraVez.status === 200 && otraVez.body.repetida === true && fake.storage.filter(s => s.ruta.endsWith(`${clienteConMotivo}.jpg`)).length === 2)
+      const enLista = await pedir(verVisitas, '/api/me/visitas', { portador: true })
+      check('GET /api/me/visitas dice que la visita tiene foto', enLista.body.items.some((v: W.VisitaItem) => v.client_id === clienteConMotivo && v.foto === true))
+      const enlace = await leer(await verFoto(new NextRequest(`http://localhost:3000/api/me/visitas/foto?client_id=${clienteConMotivo}`, { headers: { authorization: `Bearer ${tokenDe(VENTAS_ID)}` } })))
+      check('GET /api/me/visitas/foto: enlace firmado de 10 minutos', enlace.status === 200 && typeof enlace.body.url === 'string' && enlace.body.expira_en === 600, enlace.body)
+      const png = await fotoDe(clienteConMotivo, new Blob([new Uint8Array(10)], { type: 'image/png' }))
+      check('PNG → 400 "La foto debe ser JPEG"', png.status === 400 && png.body.error === 'La foto debe ser JPEG')
+      const disfrazado = await fotoDe(clienteConMotivo, new Blob([new Uint8Array(64)], { type: 'image/jpeg' }))
+      check('declarado image/jpeg pero sin los bytes FF D8 FF → 400 "La foto debe ser JPEG" y nada subido', disfrazado.status === 400 && disfrazado.body.error === 'La foto debe ser JPEG' && fake.storage.filter(s => s.ruta.endsWith(`${clienteConMotivo}.jpg`)).length === 2)
+      const sinFoto = await fotoDe(clienteConMotivo, null)
+      check('sin el campo foto → 400', sinFoto.status === 400)
+      const ajena = await fotoDe(clienteConMotivo, jpeg, OTRA_ID)
+      check('la foto de una visita de otra persona → 404 y nada subido', ajena.status === 404 && ajena.body.error === MENSAJE_FOTO_VISITA && fake.storage.filter(s => s.ruta.endsWith(`${clienteConMotivo}.jpg`)).length === 2)
+      const inexistente = await fotoDe(randomUUID(), jpeg)
+      check('la foto de un client_id que no existe → 404', inexistente.status === 404)
+      await anular(noListado.id)
+      await anular(conMotivo.id)
+      check('las visitas de prueba de la 0940 quedaron anuladas: las listas vuelven a estar como antes', visitasApp().filter(v => !v.deleted_at).length === vivasAntes)
 
       const cuerpo = cuerpoVisita()
       const r = await pedir(reportarVisita, '/api/me/visitas', { method: 'POST', body: cuerpo, portador: true })
@@ -2493,6 +2651,17 @@ async function main() {
       check('200 con las importadas y las de la app', r.status === 200 && filas.some(f => f.id === VMO_ID) && filas.some(f => f.kam_name === 'Ana Ejecutiva'), r.body)
       check('solo las columnas del mapa: nunca transcripción, conclusión ni compromisos', filas.every(f => !('transcript' in f) && !('conclusion' in f) && !('compromisos' in f)) && !r.texto.includes('TRANSCRIPCION-INTERNA'), Object.keys(filas[0] ?? {}))
       check('sin las anuladas', anuladas.length > 0 && !filas.some(f => anuladas.includes(f.id)))
+      // 0940: filtro por marca (contiene), "sin marcas" (las de VMO: '{}') y "En sitio" (la columna booleana, no una marca)
+      const enSitio = await pedir(visitasDelMapa, '/api/visits/filtered?year=2026&month=10&marca=en_sitio', { userId: ADMIN_ID })
+      const vivasEnSitio = tablas.visits.filter(v => !v.deleted_at && v.en_sitio === true).map(v => v.id)
+      check('marca=en_sitio: solo las visitas con en_sitio = true (la columna), ninguna de VMO', enSitio.status === 200 && (enSitio.body as Fila[]).length === vivasEnSitio.length && (enSitio.body as Fila[]).every(f => vivasEnSitio.includes(f.id)) && vivasEnSitio.length > 0, { recibidas: (enSitio.body as Fila[]).map(f => f.id), vivasEnSitio })
+      const porValidar = await pedir(visitasDelMapa, '/api/visits/filtered?year=2026&month=10&marca=medico_por_validar', { userId: ADMIN_ID })
+      const conMarca = tablas.visits.filter(v => !v.deleted_at && Array.isArray(v.marcas) && v.marcas.includes('medico_por_validar')).map(v => v.id)
+      check('marca=medico_por_validar: solo las que la llevan en marcas (contiene)', porValidar.status === 200 && (porValidar.body as Fila[]).map(f => f.id).sort().join() === conMarca.sort().join(), { recibidas: (porValidar.body as Fila[]).map(f => f.id), conMarca })
+      const sinMarcas = await pedir(visitasDelMapa, '/api/visits/filtered?year=2026&month=10&marca=sin_marcas', { userId: ADMIN_ID })
+      check('marca=sin_marcas: las de VMO (marcas vacías) y ninguna con marca', sinMarcas.status === 200 && (sinMarcas.body as Fila[]).some(f => f.id === VMO_ID) && !(sinMarcas.body as Fila[]).some(f => conMarca.includes(f.id)))
+      const marcaRara = await pedir(visitasDelMapa, '/api/visits/filtered?year=2026&month=10&marca=inventada', { userId: ADMIN_ID })
+      check('una marca que no existe se ignora (200, sin filtrar)', marcaRara.status === 200 && (marcaRara.body as Fila[]).length === filas.length)
       const deLaApp = tablas.visits.filter(v => v.source === 'app').map(v => v.id)
       check('con visits:view: también las de VMO de cada persona', filas.some(f => f.id === 'vmo-de-ana') && filas.some(f => f.id === 'vmo-de-berta'))
       for (const [quien, userId, suya, ajena] of [

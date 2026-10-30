@@ -81,6 +81,7 @@
     "eslint-config-next": "14.2.35",
     "mapshaper": "^0.7.83",
     "tsx": "^4.23.15",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "workbox-build": "^7.4.1"
   }
 }

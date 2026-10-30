@@ -16,6 +16,9 @@ import { FILTRO_MAPA_ASIGNACION, esColumnaInexistente } from '../_lib/visitas-ma
 /** Las columnas del mapa de calor y de la página de visitas (las 14 originales de visits). */
 const COLUMNAS_MAPA =
   'id, kam_id, kam_name, visit_type, contact_type, lat, lng, visit_date, hospital_id, imported_by, imported_at, created_at, updated_at, import_id'
+/** 0940 (app sin señal): las marcas del servidor y "en sitio", para el tablero y el filtro por marca. Si la base no las tiene, se consulta sin ellas. */
+const COLUMNAS_MAPA_0940 = `${COLUMNAS_MAPA}, marcas, en_sitio`
+const MARCAS_VALIDAS = new Set(['en_sitio', 'lejos_de_ips', 'sin_ubicacion', 'precision_baja', 'ips_sin_coordenadas', 'hora_inconsistente', 'medico_por_validar'])
 
 
 function monthBounds(year: number, month: number) {
@@ -45,6 +48,9 @@ export async function GET(request: NextRequest) {
     const visitType = searchParams.get('visitType')
     const contactType = searchParams.get('contactType')
     const kamIds = searchParams.get('kamIds')?.split(',').filter(isUuid)
+    // 0940: filtro por marca del servidor (solo visitas de la app las tienen; 'sin_marcas' = ninguna).
+    const marcaParam = searchParams.get('marca')
+    const marca = marcaParam && (MARCAS_VALIDAS.has(marcaParam) || marcaParam === 'sin_marcas') ? marcaParam : null
 
     const hasYear = Number.isInteger(year) && year > 0
 
@@ -72,9 +78,9 @@ export async function GET(request: NextRequest) {
     // Solo las columnas que usa el mapa (nunca la transcripción, la conclusión ni los compromisos de las visitas de
     // la app: son internos) y sin las anuladas (deleted_at, migración 0830). Antes de la 0830 las columnas deleted_at y
     // source no existen: se consulta sin esos filtros (no hay visitas de la app).
-    const consultar = (range: { startDate: string; endDate: string }, con0830: boolean) =>
+    const consultar = (range: { startDate: string; endDate: string }, con0830: boolean, con0940: boolean) =>
       fetchAllRows<any>((from, to) => {
-        let query = supabaseAdmin.from('visits').select(COLUMNAS_MAPA)
+        let query = supabaseAdmin.from('visits').select(con0940 ? COLUMNAS_MAPA_0940 : COLUMNAS_MAPA)
         if (con0830) query = query.is('deleted_at', null)
         if (propia) query = query.eq('source', 'vmo_import').eq('executive_id', propia)
         // F1a (0850): las de la app sin Ejecutivo Comercial (como líder) no van al mapa de asignación.
@@ -83,16 +89,25 @@ export async function GET(request: NextRequest) {
         if (visitType && visitType !== 'all') query = query.eq('visit_type', visitType)
         if (contactType && contactType !== 'all') query = query.eq('contact_type', contactType)
         if (kamIds && kamIds.length > 0) query = query.in('kam_id', kamIds)
+        // 0940: por marca (contiene) o sin ninguna marca (la de VMO no tiene: '{}')
+        // 0940: por marca (contiene), sin ninguna marca (la de VMO no tiene: '{}') o "en sitio" (la columna booleana).
+        if (con0940 && marca) query = marca === 'sin_marcas' ? query.eq('marcas', '{}') : marca === 'en_sitio' ? query.eq('en_sitio', true) : query.contains('marcas', [marca])
         return query.order('visit_date', { ascending: false }).order('id').range(from, to)
       })
 
     const allVisits: any[] = []
+    let con0940 = true
     for (const range of ranges) {
-      let { data, error } = await consultar(range, true)
+      let { data, error } = await consultar(range, true, con0940)
+      // Antes de la 0940 no hay marcas: se consulta sin ellas (y sin el filtro por marca).
+      if (error && con0940 && esColumnaInexistente(error)) {
+        con0940 = false
+        ;({ data, error } = await consultar(range, true, false))
+      }
       // Antes de la 0830 no hay deleted_at, source ni executive_id: sin visits:view no hay cómo saber cuáles son suyas
       if (error && esColumnaInexistente(error)) {
         if (propia) continue
-        ;({ data, error } = await consultar(range, false))
+        ;({ data, error } = await consultar(range, false, false))
       }
       if (error) return serverError('visits/filtered GET', error, 'Error al cargar las visitas')
       allVisits.push(...data)

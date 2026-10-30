@@ -36,7 +36,7 @@ import { useCola } from '../../lib/cola-contexto'
 import { guardarContexto, leerContextoGuardado } from '../../lib/contexto-guardado'
 import { FRESCURA_PINTAR_MS, FRESCURA_SIN_PEDIR_MS, contextoReciente, escucharInvalidacion } from '../../lib/contexto-memoria'
 import { aApiError, esNoDisponible, mensajeDeError, type ApiError } from '../../lib/errores'
-import { fechaCorta, fechaLarga, horaBogota, hoyBogota, sumarDias } from '../../lib/fechas'
+import { fechaBogota, fechaCorta, fechaLarga, horaBogota, hoyBogota, sumarDias } from '../../lib/fechas'
 import { textoDistancia, textoPrecision } from '../../lib/geo'
 import { vibrarExito } from '../../lib/haptica'
 import { Icono } from '../../lib/iconos'
@@ -46,7 +46,13 @@ import { avance, conQuien, conQuienCita, detalleModalidad, fraccionBarra, numero
 import { fijarCitaParaReportar, fijarReintento } from '../../lib/retorno'
 import { useSesion } from '../../lib/sesion'
 import type { CitaItem, ContextoResponse, VisitaItem, VisitasResponse } from '../../lib/tipos'
-import { ETIQUETA_TIPO_VISITA, MAX_DIAS_CONSULTA_AGENDA } from '../../lib/tipos'
+import { ETIQUETA_MARCA, ETIQUETA_TIPO_VISITA, MAX_DIAS_CONSULTA_AGENDA } from '../../lib/tipos'
+import { ETIQUETA_ESTADO_COLA, type ElementoCola } from '../../lib/cola'
+import { ETIQUETA_ESTADO_FOTO } from '../../lib/cola-fotos'
+import { abrir as abrirIdb } from '../../lib/almacen-idb'
+import { AVISO_INCOGNITO, AVISO_NO_INSTALADA } from '../../lib/instalacion'
+import { almacenamientoDudoso, correInstalada, esNavegador, medirAlmacenamiento } from '../../lib/pwa'
+import { AVISO_HABEAS_DATA } from '../../lib/propuesta'
 import { pedirUbicacionEnDosPasos, type ResultadoUbicacion } from '../../lib/ubicacion'
 import { Aviso, Barra, Bloque, BordeHoja, Boton, Cargando, Fila, FilaLista, Grupo, Insignia, Pantalla, Seccion, Texto, Titulo, Vacio, useColores } from '../../lib/ui'
 
@@ -55,7 +61,7 @@ const RELOJ_MS = 30_000
 
 export default function Hoy() {
   const router = useRouter()
-  const { perfil, sinConfirmar, refrescar: refrescarSesion } = useSesion()
+  const { perfil, sinConfirmar, vencida, refrescar: refrescarSesion } = useSesion()
   /** ¿El servidor tiene el ciclo de vida de la cita (F1a)? Sin saberlo, sí (decide el servidor). */
   const ciclo = conCicloDeVida(perfil?.servidor)
   // Para confirmar la sesión con el servidor cuando la app abrió sin señal (sin rehacer `cargar` en cada cambio); y si
@@ -77,6 +83,10 @@ export default function Hoy() {
   /** Hay una carga en curso mientras se ve lo que ya había ("Actualizando…", sin tapar la pantalla). */
   const [actualizando, setActualizando] = useState(false)
   const [actualizado, setActualizado] = useState<string | null>(null)
+  /** Cuándo se guardaron en el teléfono los datos para trabajar sin señal (el contexto): el guardado o el de ahora. */
+  const [datosGuardadosAt, setDatosGuardadosAt] = useState<string | null>(null)
+  /** App sin señal: el almacenamiento del navegador no es fiable (modo incógnito o bloqueado). */
+  const [almacenDudoso, setAlmacenDudoso] = useState(false)
   const [ahora, setAhora] = useState(() => new Date())
   const enCurso = useRef(false)
   /** Cuándo llegó el contexto que se ve (ms); null: todavía nada del servidor en esta pantalla. */
@@ -94,7 +104,19 @@ export default function Hoy() {
     } else {
       leerContextoGuardado(sesion.current.usuarioId).then(
         guardado => {
-          if (vigente && guardado) setContexto(actual => actual ?? guardado.contexto)
+          if (vigente && guardado) {
+            setContexto(actual => actual ?? guardado.contexto)
+            setDatosGuardadosAt(actual => actual ?? guardado.guardado_at)
+          }
+        },
+        () => undefined
+      )
+    }
+    // App sin señal (2026-10-30): en el navegador, avisar si lo guardado no es fiable (incógnito o datos bloqueados).
+    if (esNavegador()) {
+      medirAlmacenamiento(abrirIdb).then(
+        medido => {
+          if (vigente) setAlmacenDudoso(almacenamientoDudoso(medido))
         },
         () => undefined
       )
@@ -142,7 +164,9 @@ export default function Hoy() {
             datos => {
               setContexto(datos)
               setErrorContexto(null)
-              void guardarContexto(sesion.current.usuarioId, datos) // para poder reportar sin señal más tarde, hoy
+              // Para poder reportar sin señal más tarde (médicos, sedes con coordenadas, motivos, configuración).
+              void guardarContexto(sesion.current.usuarioId, datos)
+              setDatosGuardadosAt(new Date().toISOString())
               return Date.now()
             },
             error => {
@@ -232,9 +256,15 @@ export default function Hoy() {
   const estado = estadoPersona({ role: perfil?.usuario.role, persona, sinConfirmar })
   const sinLineas = estado === 'sin_lineas' && !contexto
   const conCuota = tieneCuota({ persona, ejecutiva: perfil?.ejecutiva })
-  const pendientes = cola.items.filter(e => e.estado === 'pendiente')
-  const porConfirmar = cola.items.filter(e => e.estado === 'por_confirmar')
+  // App sin señal (2026-10-30): la cola con estados (pendiente, subiendo, enviada, con error) y las fotos.
+  const pendientes = cola.items.filter(e => e.estado === 'pendiente' || e.estado === 'enviando')
   const noEnviadas = cola.items.filter(e => e.estado === 'no_enviada')
+  const enviadasHoy = cola.items.filter(e => e.estado === 'enviada')
+  const fotoDe = (clientId: string) => cola.fotos.find(f => f.client_id === clientId) ?? null
+  /** Las guardadas en el teléfono que el servidor aún no devuelve en su lista (pendientes y las enviadas que la lista no trae todavía). */
+  const idsServidor = new Set((visitas?.items ?? []).map(v => v.client_id).filter((id): id is string => !!id))
+  const enElTelefono: ElementoCola[] = [...pendientes, ...enviadasHoy.filter(e => !idsServidor.has(e.client_id))].filter(e => e.fecha === hoyBogota())
+  const instalada = correInstalada()
   const reportarDeNuevo = (e: (typeof noEnviadas)[number]) => {
     fijarReintento({ client_id: e.client_id, cuerpo: e.cuerpo, error: e.error })
     router.push('/reportar')
@@ -310,8 +340,20 @@ export default function Hoy() {
         </Aviso>
       ) : null}
       {sinConfirmar ? (
-        <Aviso tono="alerta">
-          Sin conexión con el servidor: Reportar usa las sedes y médicos guardados hoy; lo que confirmes se guarda en el teléfono y se envía solo al volver la señal.
+        <Aviso tono="alerta" titulo={vencida ? 'Tu sesión venció y no hay señal' : undefined}>
+          {vencida
+            ? 'Puedes seguir reportando: lo que confirmes se guarda en el teléfono. Al volver la señal la app te pedirá entrar de nuevo y entonces sube todo.'
+            : 'Sin conexión con el servidor: Reportar usa las sedes y médicos guardados; lo que confirmes se guarda en el teléfono y se sube solo al volver la señal.'}
+        </Aviso>
+      ) : null}
+      {almacenDudoso ? (
+        <Aviso tono="peligro" titulo="Este navegador puede borrar lo guardado">
+          {AVISO_INCOGNITO}
+        </Aviso>
+      ) : null}
+      {instalada === false ? (
+        <Aviso tono="info" accion={<Boton titulo="Cómo agregarla" variante="secundario" compacto alPresionar={() => router.push('/instalar')} />}>
+          {AVISO_NO_INSTALADA}
         </Aviso>
       ) : null}
 
@@ -351,33 +393,33 @@ export default function Hoy() {
       {pendientes.length > 0 ? (
         <Aviso
           tono="alerta"
-          titulo={`${plural(pendientes.length, 'visita guardada', 'visitas guardadas')} sin enviar`}
-          accion={<Boton titulo="Enviar ahora" variante="secundario" cargando={cola.enviando} alPresionar={() => void cola.reintentar()} />}
+          titulo={`${plural(pendientes.length, 'visita pendiente', 'visitas pendientes')} por subir`}
+          accion={<Boton titulo="Subir ahora" variante="secundario" cargando={cola.enviando} alPresionar={() => void cola.subirAhora()} />}
         >
           <View style={{ gap: 4 }}>
-            <Texto peque>Se envían solas al volver la señal, hasta las 23:59 de hoy.</Texto>
+            <Texto peque>
+              {cola.enLinea ? 'Se suben solas en un momento (reintentos con espera creciente).' : 'Sin conexión: se suben solas al volver la señal, también al abrir la app.'}
+            </Texto>
             {pendientes.map(e => (
               <Texto key={e.client_id} peque>
-                {horaBogota(e.cuerpo.checked_in_at)} · {e.resumen}
+                {`${e.fecha === hoy ? '' : `${fechaCorta(e.fecha)} `}${horaBogota(e.cuerpo.checked_in_at)} · ${e.resumen} · ${ETIQUETA_ESTADO_COLA[e.estado]}${e.intentos > 0 && e.error ? ` (${e.intentos} ${e.intentos === 1 ? 'intento' : 'intentos'}: ${e.error})` : ''}`}
               </Texto>
             ))}
           </View>
         </Aviso>
       ) : null}
 
-      {porConfirmar.length > 0 ? (
-        <Aviso
-          tono="alerta"
-          titulo={`${plural(porConfirmar.length, 'visita de un día anterior', 'visitas de días anteriores')} por confirmar`}
-          accion={<Boton titulo="Revisar ahora" variante="secundario" cargando={cola.enviando} alPresionar={() => void cola.reintentar()} />}
-        >
+      {cola.resumenFotos.pendientes > 0 || cola.resumenFotos.no_enviadas > 0 ? (
+        <Aviso tono={cola.resumenFotos.no_enviadas > 0 ? 'peligro' : 'info'} titulo={`${plural(cola.resumenFotos.pendientes + cola.resumenFotos.no_enviadas, 'foto', 'fotos')} por subir`}>
           <View style={{ gap: 4 }}>
-            <Texto peque>Pasó la medianoche sin respuesta del servidor: al volver la señal se revisa si quedaron guardadas.</Texto>
-            {porConfirmar.map(e => (
-              <Texto key={e.client_id} peque>
-                {fechaCorta(e.fecha)} {horaBogota(e.cuerpo.checked_in_at)} · {e.resumen}
-              </Texto>
-            ))}
+            <Texto peque>Las fotos suben después de su visita, con sus propios reintentos.</Texto>
+            {cola.fotos
+              .filter(f => f.estado !== 'enviada')
+              .map(f => (
+                <Texto key={f.client_id} peque>
+                  {`${ETIQUETA_ESTADO_FOTO[f.estado]}${f.error ? `: ${f.error}` : ''}`}
+                </Texto>
+              ))}
           </View>
         </Aviso>
       ) : null}
@@ -386,16 +428,12 @@ export default function Hoy() {
         <Aviso
           key={e.client_id}
           tono="peligro"
-          titulo="Visita no enviada"
+          titulo="Visita con error: el servidor no la aceptó"
           accion={
-            e.fecha === hoy ? (
-              <View style={{ gap: 8 }}>
-                <Boton titulo="Reportar de nuevo" detalle="Vuelve como tarjeta, con lo que escribiste" variante="secundario" alPresionar={() => reportarDeNuevo(e)} />
-                <Boton titulo="Descartar" variante="texto" alPresionar={() => void cola.quitar(e.client_id)} />
-              </View>
-            ) : (
-              <Boton titulo="Entendido" variante="secundario" alPresionar={() => void cola.quitar(e.client_id)} />
-            )
+            <View style={{ gap: 8 }}>
+              <Boton titulo="Reportar de nuevo" detalle="Vuelve como tarjeta, con lo que escribiste" variante="secundario" alPresionar={() => reportarDeNuevo(e)} />
+              <Boton titulo="Descartar" variante="texto" alPresionar={() => void cola.quitar(e.client_id)} />
+            </View>
           }
         >
           {`${fechaCorta(e.fecha)} ${horaBogota(e.cuerpo.checked_in_at)} · ${e.resumen}. ${e.error ?? ''}`}
@@ -431,12 +469,20 @@ export default function Hoy() {
           <Aviso tono={esNoDisponible(errorVisitas) ? 'info' : errorVisitas.tipo === 'red' || errorVisitas.tipo === 'tiempo' ? 'alerta' : 'peligro'}>
             {esNoDisponible(errorVisitas) ? 'El reporte de visitas todavía no está activo en el servidor.' : errorVisitas.message}
           </Aviso>
-        ) : !visitas ? (
-          <Vacio texto="Cargando tus actividades de hoy…" />
-        ) : items.length === 0 ? (
+        ) : !visitas && enElTelefono.length === 0 ? (
+          <Vacio texto={cola.enLinea ? 'Cargando tus actividades de hoy…' : 'Sin conexión: aquí verás las que guardes en el teléfono.'} />
+        ) : items.length === 0 && enElTelefono.length === 0 ? (
           <Vacio texto="Todavía no has reportado actividades hoy." />
         ) : (
-          items.map((visita, i) => <FilaVisita key={visita.id} visita={visita} primera={i === 0} alPresionar={() => router.push(`/visita/${visita.id}`)} />)
+          <>
+            {/* Primero lo que está en el teléfono (pendiente, subiendo o enviada y aún no en la lista del servidor), con su estado. */}
+            {enElTelefono.map((e, i) => (
+              <FilaEnElTelefono key={e.client_id} elemento={e} primera={i === 0} foto={fotoDe(e.client_id)?.estado ?? null} alPresionar={e.visita_id ? () => router.push(`/visita/${e.visita_id}`) : undefined} />
+            ))}
+            {items.map((visita, i) => (
+              <FilaVisita key={visita.id} visita={visita} primera={i === 0 && enElTelefono.length === 0} fotoEstado={fotoDe(visita.client_id ?? '')?.estado ?? null} alPresionar={() => router.push(`/visita/${visita.id}`)} />
+            ))}
+          </>
         )}
       </View>
 
@@ -444,7 +490,38 @@ export default function Hoy() {
         {textoUbicacion}
         {actualizado ? `${textoUbicacion ? ' · ' : ''}Actualizado a las ${horaBogota(actualizado)}` : ''}
       </Texto>
+      <Texto suave peque>
+        {datosGuardadosAt
+          ? `Datos para trabajar sin señal (médicos, sedes, motivos): actualizados ${fechaBogota(datosGuardadosAt) === hoy ? 'hoy' : `el ${fechaCorta(fechaBogota(datosGuardadosAt))}`} a las ${horaBogota(datosGuardadosAt)}.`
+          : 'Aún no hay datos guardados para trabajar sin señal: abre la app con internet una vez.'}
+      </Texto>
+      <Texto suave peque>
+        {AVISO_HABEAS_DATA}
+      </Texto>
     </Pantalla>
+  )
+}
+
+/** Una visita guardada en el teléfono (cola), con su estado de subida; la enviada abre su visita. */
+function FilaEnElTelefono({ elemento, primera, foto, alPresionar }: { elemento: ElementoCola; primera: boolean; foto: 'pendiente' | 'enviando' | 'enviada' | 'no_enviada' | null; alPresionar?: () => void }) {
+  const tono = elemento.estado === 'enviada' ? 'exito' : elemento.estado === 'no_enviada' ? 'peligro' : 'alerta'
+  return (
+    <FilaLista alPresionar={alPresionar} primera={primera} etiquetaAccesible={`${elemento.resumen}, ${ETIQUETA_ESTADO_COLA[elemento.estado]}`}>
+      <View style={{ flex: 1, gap: 4 }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
+          <Texto media estilo={{ flexShrink: 1 }}>
+            {elemento.resumen}
+          </Texto>
+          <Texto suave estilo={{ fontVariant: ['tabular-nums'] }}>{horaBogota(elemento.cuerpo.checked_in_at)}</Texto>
+        </View>
+        <Grupo>
+          <Insignia texto={ETIQUETA_ESTADO_COLA[elemento.estado]} tono={tono} />
+          {elemento.cuerpo.modalidad === 'presencial' && elemento.cuerpo.lat === null ? <Insignia texto={ETIQUETA_MARCA.sin_ubicacion} tono="info" /> : null}
+          {elemento.cuerpo.gps_accuracy_m != null ? <Insignia texto={`GPS ±${elemento.cuerpo.gps_accuracy_m} m`} /> : null}
+          {foto ? <Insignia texto={ETIQUETA_ESTADO_FOTO[foto]} tono={foto === 'enviada' ? 'exito' : foto === 'no_enviada' ? 'peligro' : 'neutro'} /> : null}
+        </Grupo>
+      </View>
+    </FilaLista>
   )
 }
 
@@ -575,7 +652,8 @@ function Avance({ etiqueta, hechas, meta }: { etiqueta: string; hechas: number; 
 }
 
 /** Una visita de hoy: fila con separador (con quién y la hora; tipo, sede y modalidad; su estado). */
-function FilaVisita({ visita, primera, alPresionar }: { visita: VisitaItem; primera: boolean; alPresionar: () => void }) {
+function FilaVisita({ visita, primera, fotoEstado, alPresionar }: { visita: VisitaItem; primera: boolean; fotoEstado?: 'pendiente' | 'enviando' | 'enviada' | 'no_enviada' | null; alPresionar: () => void }) {
+  const marcas = Array.isArray(visita.marcas) ? visita.marcas : []
   return (
     <FilaLista alPresionar={alPresionar} primera={primera} etiquetaAccesible={`Visita a ${conQuien(visita)}`}>
       <View style={{ flex: 1, gap: 4 }}>
@@ -589,10 +667,16 @@ function FilaVisita({ visita, primera, alPresionar }: { visita: VisitaItem; prim
           {ETIQUETA_TIPO_VISITA[visita.tipo]} · {visita.sede.nombre} · {detalleModalidad(visita, textoDistancia)}
         </Texto>
         <Grupo>
+          <Insignia texto="Enviada" tono="exito" />
           <Insignia texto={visita.efectiva ? 'Efectiva' : 'No efectiva'} tono={visita.efectiva ? 'exito' : 'alerta'} />
           {visita.out_of_territory ? <Insignia texto="Fuera de tu territorio" tono="info" /> : null}
           {visita.sede_por_confirmar ? <Insignia texto="Sede por confirmar: aún no suma" tono="alerta" /> : null}
           {visita.input_mode === 'voz' ? <Insignia texto="Por voz" /> : null}
+          {/* 0940: las marcas del servidor (nunca bloquean) */}
+          {marcas.map(marca => (
+            <Insignia key={marca} texto={ETIQUETA_MARCA[marca] ?? marca} tono={marca === 'en_sitio' ? 'exito' : 'info'} />
+          ))}
+          {visita.foto ? <Insignia texto="Con foto" /> : fotoEstado && fotoEstado !== 'enviada' ? <Insignia texto={ETIQUETA_ESTADO_FOTO[fotoEstado]} tono={fotoEstado === 'no_enviada' ? 'peligro' : 'neutro'} /> : null}
         </Grupo>
       </View>
     </FilaLista>
