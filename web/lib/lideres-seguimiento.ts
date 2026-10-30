@@ -1,7 +1,6 @@
 // Cifras del seguimiento de las líderes en /lideres (dueño, 2026-10-29): por período y líder, por mes, tipo y ciudad,
-// la agenda de tres semanas y la calidad del registro. Sirven igual para el histórico guardado (GET
-// /api/lideres/historico) y para la vista previa de un Excel antes de guardarlo. Puro: pruebas en
-// scripts/lideres-historico-check.ts.
+// la agenda de tres semanas y la calidad del registro, sobre el histórico guardado (GET /api/lideres/historico; desde el
+// 2026-10-30 ya no hay vista previa de un Excel en la página). Puro: pruebas en scripts/lideres-historico-check.ts.
 import { normalizarTexto, type EstadoHistorico, type TipoHistorico } from './lideres-historico'
 
 /** Nombre que se usa cuando la fila no trae ciudad: no cuenta como una ciudad más. */
@@ -9,11 +8,11 @@ export const SIN_CIUDAD = 'Sin ciudad'
 
 export interface ActividadSeguimiento {
   fecha: string | null
-  /** Nombre visible de la líder (el de OpMap, o el del Excel en la vista previa). */
+  /** Nombre visible de la líder (el de OpMap; el del Excel si el usuario no aparece). */
   lider: string
   /** Nombre visible de la ciudad (el del DANE, o el texto del Excel). */
   ciudad: string
-  /** Código DANE; null si no se reconoció (o en la vista previa, antes de guardar). */
+  /** Código DANE; null si no se reconoció. */
   municipio_id: string | null
   tipo: TipoHistorico
   tipo_a_mano: boolean

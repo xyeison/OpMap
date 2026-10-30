@@ -3,8 +3,9 @@
  * izquierda ("Sin hora" en pequeño), con quién (médico, o cuenta y subtipo), la sede (y la cuenta si dice algo más),
  * la nota y el estado. Si se puede tocar lleva "›": la hecha abre su visita y la pendiente (spec 2026-10-15, desde
  * Hoy) se reporta (lo dice la etiqueta accesible). Revisión 2026-10-15: solo "›" a la derecha (antes "Reportar" con la
- * flecha ocupaba ~67 pt y partía el nombre y la sede) y "Atrasada" junto a "Pendiente". `children` va debajo (p. ej.
- * "Cancelar esta cita"). Nunca documentos.
+ * flecha ocupaba ~67 pt y partía el nombre y la sede) y "Atrasada" junto a su estado. `children` va debajo (p. ej.
+ * los botones de "¿Qué pasó con esto?"). F1b: el día encima de la hora si no es de hoy ("ayer", "12 oct") y "Sin cerrar"
+ * en la pendiente de un día anterior (C6). Nunca documentos.
  */
 import type { ReactNode } from 'react'
 import { View } from 'react-native'
@@ -19,14 +20,18 @@ interface Props {
   conTipo?: boolean
   /** Mostrar la nota. */
   conNota?: boolean
-  /** Pendiente de hoy con la hora ya pasada (lib/pantallas.ts citaAtrasada): "Atrasada" junto a "Pendiente". */
+  /** Pendiente de hoy con la hora ya pasada (lib/pantallas.ts citaAtrasada): "Atrasada" junto a su estado. */
   atrasada?: boolean
+  /** Pendiente de un día anterior (C6): "Sin cerrar" junto a su estado. */
+  sinCerrar?: boolean
+  /** El día, encima de la hora, si no es de hoy ("ayer", "12 oct"). */
+  dia?: string | null
   /** La primera de la lista va sin separador arriba. */
   primera?: boolean
   children?: ReactNode
 }
 
-export function FilaCita({ cita, alPresionar, conTipo, conNota, atrasada, primera, children }: Props) {
+export function FilaCita({ cita, alPresionar, conTipo, conNota, atrasada, sinCerrar, dia, primera, children }: Props) {
   const con = conQuienCita(cita)
   const cuenta = cita.tipo === 'medica' ? cuentaDistinta(cita.sede.nombre, cita.sede.cuenta_nombre) : null
   const reportar = !!alPresionar && cita.estado === 'pendiente'
@@ -35,9 +40,14 @@ export function FilaCita({ cita, alPresionar, conTipo, conNota, atrasada, primer
       alPresionar={alPresionar}
       primera={primera}
       estilo={{ alignItems: 'flex-start' }}
-      etiquetaAccesible={`Cita ${textoHoraCita(cita.hora)} con ${con} en ${cita.sede.nombre}, ${ETIQUETA_ESTADO_CITA[cita.estado]}${atrasada ? ', atrasada' : ''}${alPresionar ? (reportar ? '. Toca para reportarla' : '. Toca para ver la visita') : ''}`}
+      etiquetaAccesible={`Cita ${dia ? `de ${dia} ` : ''}${textoHoraCita(cita.hora)} con ${con} en ${cita.sede.nombre}, ${ETIQUETA_ESTADO_CITA[cita.estado]}${atrasada ? ', atrasada' : ''}${sinCerrar ? ', sin cerrar' : ''}${alPresionar ? (reportar ? '. Toca para reportarla' : '. Toca para ver la visita') : ''}`}
     >
       <View style={{ width: 56, paddingTop: cita.hora ? 0 : 2 }}>
+        {dia ? (
+          <Texto peque suave>
+            {dia}
+          </Texto>
+        ) : null}
         {cita.hora ? (
           <Texto negrita estilo={{ fontSize: 15, fontVariant: ['tabular-nums'] }}>
             {textoHoraCita(cita.hora)}
@@ -63,6 +73,7 @@ export function FilaCita({ cita, alPresionar, conTipo, conNota, atrasada, primer
           {conTipo ? <Insignia texto={ETIQUETA_TIPO_VISITA[cita.tipo]} /> : null}
           <Insignia texto={ETIQUETA_ESTADO_CITA[cita.estado]} tono={cita.estado === 'hecha' ? 'exito' : 'neutro'} />
           {atrasada ? <Insignia texto="Atrasada" tono="alerta" /> : null}
+          {sinCerrar ? <Insignia texto="Sin cerrar" tono="alerta" /> : null}
         </Grupo>
         {children}
       </View>

@@ -1,4 +1,4 @@
-// POST /api/me/voz/proponer (visits:report + Ejecutivo Comercial enlazado) — { transcript, lat?, lng?, precision?,
+// POST /api/me/voz/proponer (visits:report + persona de campo, F1a) — { transcript, lat?, lng?, precision?,
 // hora, cita_id? } → el contexto (el mismo de GET /api/me/contexto, recortado por contextoDictado: sin documentos ni
 // teléfonos) → Claude (claude-sonnet-5-5, herramienta proponer_visitas con esquema cerrado) → propuestaSchema →
 // normalizarPropuesta (descarta todo id que no esté en el contexto; un médico que no cruza sale como
@@ -16,7 +16,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { jsonError, readJson, zodMessage } from '@/app/api/kams/_lib/kam-shared'
 import { propuestaSchema, proponerSchema } from '@/lib/reporte-visitas-schemas'
 import { MENSAJE_FALLO_PROPUESTA, contextoDictado, horaBogota, normalizarPropuesta, type PropuestaResponse } from '@/lib/reporte-visitas'
-import { ahora, requireEjecutiva } from '../../../config-visitas/_lib/visitas-server'
+import { ahora, requirePersonaDeCampo } from '../../../config-visitas/_lib/visitas-server'
 import { hoyBogota } from '@/lib/visits-rules'
 import {
   cargarContexto,
@@ -36,7 +36,7 @@ export const maxDuration = 60
 
 export async function POST(request: NextRequest) {
   return medirRuta('POST /api/me/voz/proponer', async t => {
-    const auth = await t.fase('auth', () => requireEjecutiva(request, 'POST /api/me/voz/proponer'))
+    const auth = await t.fase('auth', () => requirePersonaDeCampo(request, 'POST /api/me/voz/proponer'))
     if (!auth.ok) return auth.response
 
     const sinLlave = respuestaSinLlave('anthropic')
@@ -54,13 +54,14 @@ export async function POST(request: NextRequest) {
 
     let contexto
     try {
-      contexto = await t.fase('ctx', () => cargarContexto(auth.persona, puntoDe(datos), hoyBogota(ahora())))
+      const instante = ahora()
+      contexto = await t.fase('ctx', () => cargarContexto(auth.persona, puntoDe(datos), hoyBogota(instante), instante))
     } catch (error) {
       return errorReporte('POST /api/me/voz/proponer', error, 'Error al cargar el contexto del dictado')
     }
 
     // Límite por persona: solo cuentan las llamadas que de verdad van a Claude.
-    const limitado = limiteVoz('proponer', auth.persona.id)
+    const limitado = limiteVoz('proponer', auth.persona.userId)
     if (limitado) return limitado
 
     try {

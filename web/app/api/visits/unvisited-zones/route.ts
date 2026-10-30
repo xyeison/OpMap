@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin'
 import { requireUser } from '@/lib/require-role'
 import { fetchAllRows, isUuid, serverError } from '../../_lib/api-error'
-import { sinAnuladas } from '../_lib/visitas-mapa'
+import { FILTRO_MAPA_ASIGNACION, sinAnuladas } from '../_lib/visitas-mapa'
 
 // Cobertura: IPS asignadas sin visitas a menos de 5 km en el período. Requiere sesión.
 // Lecturas paginadas con .range() (M-01).
@@ -75,7 +75,8 @@ export async function GET(request: NextRequest) {
     let visitsQuery = supabase
       .from('visits')
       .select('id, lat, lng, kam_id, visit_type')
-    if (filtrarAnuladas) visitsQuery = visitsQuery.is('deleted_at', null)
+    // F1a (0850): las de la app sin Ejecutivo Comercial (como líder) no marcan IPS visitadas en el mapa de asignación.
+    if (filtrarAnuladas) visitsQuery = visitsQuery.is('deleted_at', null).or(FILTRO_MAPA_ASIGNACION)
 
     if (dateFilter.start && dateFilter.end) {
       visitsQuery = visitsQuery

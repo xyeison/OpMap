@@ -1,5 +1,6 @@
 // Utilidades de servidor de la F2 de visitas (configuración, calendario, días libres y cuota):
-// /api/config-visitas/**, /api/calendario/**, /api/dias-libres/**, /api/me/dias-libres/** y /api/me/cuota.
+// /api/config-visitas/**, /api/calendario/**, /api/dias-libres/**, /api/me/dias-libres/** y /api/me/cuota. Desde F1a
+// (migración 0850) también la persona de campo de /api/me/** (personaDeCampo y requirePersonaDeCampo).
 // La carpeta empieza por "_" para que Next.js no la exponga como ruta. Contrato:
 // docs/fases/fase7-visitas-f2-config-calendario.md (sección "API"). Todo con supabaseAdmin (service_role).
 //
@@ -7,13 +8,24 @@
 // gracia, día hábil, transiciones de un día libre, cuota): ninguna regla de negocio se repite en las rutas. Las
 // escrituras de configuración pasan SIEMPRE por las funciones config_registrar y config_cerrar de la base.
 import { NextResponse } from 'next/server'
-import type { SessionUser } from '@/lib/auth-server'
+import { sesionDeLaApp, type SessionUser } from '@/lib/auth-server'
 import { hasPermission, type Permission } from '@/lib/permissions'
 import { requirePermission, requireUser, type AuthResult } from '@/lib/require-role'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { zoneDisplayName } from '@/lib/zone-names'
 import type { CambioConfig } from '@/lib/visits-config-schemas'
 import { fetchAllRows, jsonError } from '@/app/api/kams/_lib/kam-shared'
+import {
+  MENSAJE_DIRECCION_NO_REPORTA,
+  MENSAJE_EJECUTIVO_EN_VMO,
+  MENSAJE_SIN_LINEAS,
+  appSoloLideres,
+  lineasDeLaApp,
+  lineasParaReportar,
+  rolDePersona,
+  type LineaCampo,
+  type RolPersona,
+} from '@/lib/persona-campo'
 import {
   enTrozos,
   esViolacionUnica,
@@ -380,7 +392,9 @@ export type EjecutivaResult =
 
 /**
  * Rutas /api/me/*: exige visits:report (401/403) y que el usuario esté enlazado con un Ejecutivo Comercial
- * (403 "Tu usuario no está enlazado con un Ejecutivo Comercial").
+ * (403 "Tu usuario no está enlazado con un Ejecutivo Comercial"). Con la app solo para líderes (dueño, 2026-10-30),
+ * desde la app (token de portador) → 403 MENSAJE_EJECUTIVO_EN_VMO: la cuota y los días libres de un Ejecutivo
+ * Comercial siguen en la web (/calendario, con la cookie), no en la app.
  */
 export async function requireEjecutiva(request: Request, contexto: string): Promise<EjecutivaResult> {
   const auth = await requirePermission(request, 'visits:report')
@@ -388,9 +402,118 @@ export async function requireEjecutiva(request: Request, contexto: string): Prom
   try {
     const persona = await personaDelUsuario(auth.user.id)
     if (!persona) return { ok: false, response: jsonError(MENSAJE_SIN_EJECUTIVA, 403) }
+    if (appSoloLideres(process.env) && sesionDeLaApp(request)) return { ok: false, response: jsonError(MENSAJE_EJECUTIVO_EN_VMO, 403) }
     return { ok: true, user: auth.user, persona }
   } catch (error) {
     return { ok: false, response: errorVisitas(contexto, error, 'Error al cargar tu Ejecutivo Comercial') }
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Persona de campo (F1a, migración 0850): líderes y Ejecutivos Comerciales
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * La persona de campo (spec 2026-10-15, "Quién es quién"; espejo de persona_de_campo): quien agenda y reporta es el
+ * USUARIO; el Ejecutivo Comercial es opcional (una líder no lo tiene; Paola tiene los dos papeles).
+ */
+export interface PersonaCampo {
+  userId: string
+  /** users.full_name. */
+  nombre: string
+  rol: RolPersona
+  /** Su Ejecutivo Comercial ACTIVO, o null. */
+  executiveId: string | null
+  /** Ese Ejecutivo Comercial con su zona (para la cuota, el contexto y los días libres), o null. */
+  ejecutiva: PersonaVisitas | null
+  /** executive_lines de su Ejecutivo Comercial activo (ordenadas). */
+  lineasEc: string[]
+  /** Líneas activas que lidera (ordenadas). */
+  lineasLider: string[]
+  /** La unión (persona_lineas), ordenada. */
+  lineas: string[]
+}
+
+export type PersonaCampoResult = { ok: true; persona: PersonaCampo } | { ok: false; error: string }
+
+/**
+ * Lee la persona de campo del usuario con las filas reales (su Ejecutivo Comercial activo y sus líneas, las líneas que
+ * lidera) y la arma con lib/persona-campo.ts. La dirección comercial → MENSAJE_DIRECCION_NO_REPORTA (A1); sin líneas →
+ * MENSAJE_SIN_LINEAS. Un Ejecutivo Comercial sin zona sí pasa aquí (como antes): el reporte lo rechaza después con
+ * MENSAJE_SIN_ZONA (validarVisita y la base). Con la app solo para líderes (dueño, 2026-10-30: lineasDeLaApp), quien
+ * solo es Ejecutivo Comercial → MENSAJE_EJECUTIVO_EN_VMO y Paola entra solo como líder, sin su Ejecutivo Comercial.
+ */
+export async function personaDeCampo(user: Pick<SessionUser, 'id' | 'role' | 'active' | 'full_name'>): Promise<PersonaCampoResult> {
+  if (user.role === 'commercial_director') return { ok: false, error: MENSAJE_DIRECCION_NO_REPORTA }
+  const [ejecutivas, lideradas] = await Promise.all([
+    fetchAllRows<EjecutivaFila>((from, to) =>
+      supabaseAdmin.from('executives').select(COLUMNAS_EJECUTIVA).eq('user_id', user.id).eq('status', 'active').order('id').range(from, to)
+    ),
+    fetchAllRows<LineaCampo>((from, to) =>
+      supabaseAdmin.from('business_lines').select('id, active, leader_user_id').eq('leader_user_id', user.id).order('id').range(from, to)
+    ),
+  ])
+  const fila = ejecutivas[0] ?? null
+  const lineasEjecutiva = fila
+    ? (
+        await fetchAllRows<{ line_id: string }>((from, to) =>
+          supabaseAdmin.from('executive_lines').select('line_id').eq('executive_id', fila.id).order('line_id').range(from, to)
+        )
+      ).map(vinculo => vinculo.line_id)
+    : []
+  const soloLideres = appSoloLideres(process.env)
+  const deLaApp = lineasDeLaApp(
+    lineasParaReportar({
+      usuario: { id: user.id, role: user.role, active: user.active },
+      ejecutiva: fila ? { id: fila.id, status: fila.status, base_kam_id: fila.base_kam_id } : null,
+      lineasEjecutiva,
+      lineas: lideradas,
+    }),
+    soloLideres
+  )
+  if (!deLaApp.ok) return { ok: false, error: deLaApp.error }
+  const { ec, lider, todas } = deLaApp
+  const rol = rolDePersona(ec, lider)
+  if (!rol) return { ok: false, error: MENSAJE_SIN_LINEAS }
+  const ejecutiva = fila && !soloLideres ? (await armarPersonas([fila]))[0] : null
+  return {
+    ok: true,
+    persona: {
+      userId: user.id,
+      nombre: user.full_name,
+      rol,
+      executiveId: ejecutiva?.id ?? null,
+      ejecutiva,
+      lineasEc: ec,
+      lineasLider: lider,
+      lineas: todas,
+    },
+  }
+}
+
+export type PersonaDeCampoResult =
+  | { ok: true; user: SessionUser; persona: PersonaCampo }
+  | { ok: false; response: NextResponse }
+
+/**
+ * Rutas /api/me/* de la persona de campo (F1a): sesión (401); la dirección comercial → 403
+ * MENSAJE_DIRECCION_NO_REPORTA (A1: no agenda ni reporta, aunque lidere una línea); sin visits:report → 403; sin líneas
+ * para reportar → 403 MENSAJE_SIN_LINEAS. Reemplaza a requireEjecutiva salvo en /api/me/dias-libres* y /api/me/cuota
+ * (hasta F3, solo del Ejecutivo Comercial).
+ */
+export async function requirePersonaDeCampo(request: Request, contexto: string): Promise<PersonaDeCampoResult> {
+  const auth = await requireUser(request)
+  if (!auth.ok) return auth
+  if (auth.user.role === 'commercial_director') return { ok: false, response: jsonError(MENSAJE_DIRECCION_NO_REPORTA, 403) }
+  if (!hasPermission(auth.user.role, 'visits:report')) {
+    return { ok: false, response: NextResponse.json({ error: 'Acceso denegado' }, { status: 403 }) }
+  }
+  try {
+    const resultado = await personaDeCampo(auth.user)
+    if (!resultado.ok) return { ok: false, response: jsonError(resultado.error, 403) }
+    return { ok: true, user: auth.user, persona: resultado.persona }
+  } catch (error) {
+    return { ok: false, response: errorVisitas(contexto, error, 'Error al cargar tu persona de campo') }
   }
 }
 

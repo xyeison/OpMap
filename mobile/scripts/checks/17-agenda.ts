@@ -2,6 +2,9 @@
  * Sección 17 de scripts/movil-check.ts (spec 2026-10-15-usabilidad-y-agenda-con-hora, paquete 3):
  * calendario del mes, franjas de media hora, hora obligatoria (validarCitaConHora,
  * cuerpoCitaConHora), textos de Agendar, pedido para Agendar y las pantallas de la agenda.
+ * F1b (actividades de campo): el choque es un error con el texto del servidor (errorChoque, ya no avisoChoque), sin
+ * tope hacia adelante (ventanaInicialAgendar, rangoPorCargar) y "otra fecha" (pedidoOtraFecha, cuerpoOtraFecha). Lo
+ * demás de F1b (persona, ciclo de vida, textos) está en 21-persona.ts.
  *
  * Corren en Node, sin React Native ni red (las que revisan una pantalla leen su archivo y miran cada cosa dentro de su
  * bloque: el <Selector …/> del médico, la llamada, la función). Este solo, desde mobile/:
@@ -18,10 +21,12 @@ import {
   MIN_LIBRES_PLEGADAS,
   OTRA_HORA,
   avisoAgendadaHoy,
-  avisoChoque,
   bloqueaAgendar,
   citasQueChocan,
   cuerpoCitaConHora,
+  cuerpoOtraFecha,
+  enPie,
+  errorChoque,
   errorCitaRepetida,
   fechaInicialAgendar,
   fijarCitaResaltada,
@@ -34,9 +39,11 @@ import {
   marcasDelMes,
   medicosConCitaEseDia,
   ocupacionDelDia,
+  pedidoOtraFecha,
   plegarLibres,
   primeraFranjaLibre,
   puedeAgendarProxima,
+  rangoPorCargar,
   rutaAgendar,
   rutaMiAgenda,
   siguienteFranjaLibre,
@@ -45,6 +52,7 @@ import {
   tomarCitaResaltada,
   tomarPedidoAgendar,
   validarCitaConHora,
+  ventanaInicialAgendar,
   vistaCalendarioAgendar,
   type PedidoAgendar,
 } from '../../lib/agenda'
@@ -133,6 +141,7 @@ function cita(extra: Partial<CitaItem> = {}): CitaItem {
     dentro_del_radio: null,
     anticipada: true,
     cancelable: true,
+    motivo_codigo: null, no_realizada_at: null, no_realizada_motivo: null, viene_de: null, viene_de_fecha: null, viene_de_estado: null, sucesora_id: null, como: 'ejecutivo', estado_visible: 'programada',
     ...extra,
   }
 }
@@ -260,6 +269,12 @@ export async function pruebas(t: Probador): Promise<void> {
       'citasQueChocan: 09:45 se pisa con 09:30 y 09:45 (bloques de 30 min); 10:00 solo con 09:45; la cancelada nunca; la hecha sí',
       citasQueChocan('09:45', delDia).length === 2 && citasQueChocan('10:00', delDia).map(c => c.hora).join() === '09:45' && citasQueChocan('10:15', delDia).length === 0 && citasQueChocan('08:15', delDia).map(c => c.estado).join() === 'hecha'
     )
+    check(
+      'en pie (0850): pendientes y hechas; la que no se hizo, la cancelada y la eliminada no ocupan la línea ni chocan',
+      enPie({ estado: 'pendiente' }) && enPie({ estado: 'hecha' }) && !enPie({ estado: 'no_realizada' }) && !enPie({ estado: 'cancelada' }) && !enPie({ estado: 'eliminada' }) &&
+        ocupacionDelDia([cita({ hora: '09:30', estado: 'no_realizada' })]).filas.every(f => f.citas.length === 0) &&
+        citasQueChocan('09:30', [cita({ hora: '09:30', estado: 'no_realizada' }), cita({ hora: '09:45', estado: 'eliminada' })]).length === 0
+    )
     check('franjaPasada: hoy a las 10:42, 10:30 ya pasó y 11:00 no; ayer siempre; mañana nunca', franjaPasada(HOY, '10:30', A_LAS_10_42) && !franjaPasada(HOY, '11:00', A_LAS_10_42) && franjaPasada('2026-10-14', '18:00', A_LAS_10_42) && !franjaPasada('2026-10-16', '07:00', A_LAS_10_42))
     check('filaDeAhora: la línea "Ahora" va antes de la primera franja que aún no empieza', filaDeAhora(franjas, '10:42') === franjas.indexOf('11:00') && filaDeAhora(franjas, '06:00') === 0 && filaDeAhora(franjas, '20:00') === franjas.length)
   }
@@ -338,10 +353,28 @@ export async function pruebas(t: Probador): Promise<void> {
     const dra = cita({ hora: '09:30', medico: { id: 'm-x', nombre: 'Dra. X' } })
     const clinica = cita({ hora: '10:30', tipo: 'institucional', medico: null, cuenta: { id: 'c-y', nombre: 'Clínica Y' }, subtipo: { id: 's', codigo: 'compras', nombre: 'Compras' } })
     const delDia = [clinica, dra, cita({ hora: '11:00', estado: 'cancelada', medico: { id: 'm-z', nombre: 'Dr. Cancelado' } })]
-    check("avisoChoque nombra la hora y con quién: 'A las 09:30 ya tienes cita con Dra. X. Puedes agendar igual.'", avisoChoque('09:30', delDia) === 'A las 09:30 ya tienes cita con Dra. X. Puedes agendar igual.', avisoChoque('09:30', delDia))
-    check('avisoChoque: 09:45 se pisa con la de las 09:30 (dice su hora)', avisoChoque('09:45', delDia)?.startsWith('A las 09:30 ya tienes cita con Dra. X') === true)
-    check('avisoChoque: con dos citas las nombra a las dos', avisoChoque('10:00', [...delDia, cita({ hora: '10:15', medico: { id: 'm-w', nombre: 'Dr. W' } })]) === 'A las 10:15 ya tienes cita con Dr. W. Puedes agendar igual.' && avisoChoque('09:40', [dra, cita({ hora: '09:45', medico: { id: 'm-v', nombre: 'Dr. V' } })]) === 'A las 09:30 y 09:45 ya tienes cita con Dra. X y Dr. V. Puedes agendar igual.')
-    check('avisoChoque da null si la franja está libre, si solo choca una cancelada y sin hora', avisoChoque('08:00', delDia) === null && avisoChoque('11:00', delDia) === null && avisoChoque('', delDia) === null && avisoChoque('09:30', [cita({ hora: null })]) === null)
+    // 0850: el choque lo bloquea el servidor (409 en hora) con este texto; antes era un aviso ("Puedes agendar igual").
+    const choque = (hora: string, citas = delDia) => errorChoque({ fecha: HOY, hora }, citas)
+    check("errorChoque: el error en hora con el texto del servidor ('A las 09:30 ya tienes cita con Dra. X: elige otra hora')", choque('09:30')?.campo === 'hora' && choque('09:30')?.mensaje === 'A las 09:30 ya tienes cita con Dra. X: elige otra hora', choque('09:30'))
+    check('errorChoque: 09:45 se cruza con la de las 09:30 (dice su hora); 10:00 no (media hora justa)', choque('09:45')?.mensaje.startsWith('A las 09:30 ya tienes cita con Dra. X') === true && choque('10:00') === null)
+    check(
+      'errorChoque: con dos, la primera por hora (como agenda_choque); la institucional dice cuenta y subtipo',
+      choque('09:40', [dra, cita({ hora: '09:45', medico: { id: 'm-v', nombre: 'Dr. V' } })])?.mensaje === 'A las 09:30 ya tienes cita con Dra. X: elige otra hora' &&
+        choque('10:45')?.mensaje === 'A las 10:30 ya tienes cita con Clínica Y · Compras: elige otra hora'
+    )
+    check(
+      'errorChoque da null si la franja está libre, si solo choca una cancelada o una que no se hizo, sin hora, o de otro día',
+      choque('08:00') === null &&
+        choque('11:00') === null &&
+        choque('') === null &&
+        choque('09:30', [cita({ hora: null })]) === null &&
+        choque('09:30', [cita({ hora: '09:30', estado: 'no_realizada' })]) === null &&
+        errorChoque({ fecha: '2026-10-16', hora: '09:30' }, delDia) === null
+    )
+    check(
+      'ningún texto dice ya "Puedes agendar igual" (ni lib/agenda.ts ni Agendar; los comentarios cuentan la historia)',
+      !sinComentarios(leer('mobile/lib/agenda.ts')).includes('Puedes agendar igual') && !sinComentarios(leer('mobile/app/(app)/agenda/nueva.tsx')).includes('Puedes agendar igual')
+    )
     check('avisoAgendadaHoy solo cuando la fecha es hoy (y dice que contará como no agendada)', avisoAgendadaHoy(HOY, HOY)?.includes('no agendada') === true && avisoAgendadaHoy('2026-10-16', HOY) === null)
     check("textoCitasDelDia → 'Ese día ya tienes: 09:30 Dra. X · 10:30 Clínica Y · Compras' (sin la cancelada); null si no hay", textoCitasDelDia(delDia) === 'Ese día ya tienes: 09:30 Dra. X · 10:30 Clínica Y · Compras' && textoCitasDelDia([]) === null, textoCitasDelDia(delDia))
     const conCita = medicosConCitaEseDia([dra, cita({ fecha: '2026-10-16', hora: '08:00', medico: { id: 'm-otro', nombre: 'Otro' } }), cita({ hora: null, medico: { id: 'm-sin', nombre: 'Sin' } }), cita({ estado: 'cancelada', medico: { id: 'm-c', nombre: 'C' } })], HOY)
@@ -375,7 +408,36 @@ export async function pruebas(t: Probador): Promise<void> {
     pedido.medico_id = 'cambiado'
     const tomado = tomarPedidoAgendar()
     check('el pedido (con quién) va en memoria y se toma una sola vez (copia)', tomado?.medico_id === 'm-123' && tomado.sede_id === 's-9' && tomarPedidoAgendar() === null, tomado)
-    check('puedeAgendarProxima: solo de hoy a hoy + 30', puedeAgendarProxima(HOY, HOY) && puedeAgendarProxima(sumarDias(HOY, 30), HOY) && !puedeAgendarProxima(sumarDias(HOY, 31), HOY) && !puedeAgendarProxima('2026-10-14', HOY) && !puedeAgendarProxima(null, HOY))
+    check('puedeAgendarProxima: de hoy en adelante, sin tope (0850, A4)', puedeAgendarProxima(HOY, HOY) && puedeAgendarProxima(sumarDias(HOY, 31), HOY) && puedeAgendarProxima(sumarDias(HOY, 400), HOY) && !puedeAgendarProxima('2026-10-14', HOY) && !puedeAgendarProxima(null, HOY))
+    check('ventanaInicialAgendar: de hoy a hoy + 30 (una consulta de 31 días, el máximo del servidor)', ventanaInicialAgendar(HOY).desde === HOY && ventanaInicialAgendar(HOY).hasta === '2026-11-14')
+    const traido = [ventanaInicialAgendar(HOY)]
+    check(
+      'rangoPorCargar: noviembre sin lo ya traído (del 15 al 30); octubre, nada; diciembre entero; un mes pasado, nada',
+      JSON.stringify(rangoPorCargar(traido, '2026-11', HOY)) === JSON.stringify({ desde: '2026-11-15', hasta: '2026-11-30' }) &&
+        rangoPorCargar(traido, '2026-10', HOY) === null &&
+        JSON.stringify(rangoPorCargar(traido, '2026-12', HOY)) === JSON.stringify({ desde: '2026-12-01', hasta: '2026-12-31' }) &&
+        rangoPorCargar([], '2026-09', HOY) === null &&
+        JSON.stringify(rangoPorCargar([], '2026-10', HOY)) === JSON.stringify({ desde: HOY, hasta: '2026-10-31' }),
+      [rangoPorCargar(traido, '2026-11', HOY), rangoPorCargar(traido, '2026-12', HOY)]
+    )
+    // "Agendar otra fecha" (A7): el pedido lleva la cita cerrada; el cuerpo, solo lo que puede cambiar.
+    const cerrada = cita({ id: 'cerrada-1', fecha: '2026-10-12', hora: '09:00', estado: 'no_realizada', motivo_codigo: 'cliente', nota: 'Llevar muestras', medico: { id: 'm-1', nombre: 'Dra. X' } })
+    const pedidoOtra = pedidoOtraFecha(cerrada)
+    check('pedidoOtraFecha: el tipo, el médico, la sede y la cita misma (en memoria, nunca en la URL)', pedidoOtra.tipo === 'medica' && pedidoOtra.medico_id === 'm-1' && pedidoOtra.sede_id === 'sede-1' && pedidoOtra.otraFecha?.id === 'cerrada-1')
+    const formOtra: FormularioCita = { ...formularioCitaVacio('2026-10-16', ['medica']), hora: '9:00', medico_id: 'm-1', sede_id: 'sede-1', nota: '  Llevar muestras ' }
+    const cuerpoOtra = cuerpoOtraFecha(formOtra, cerrada)
+    check(
+      'cuerpoOtraFecha: fecha, hora HH:MM, la misma sede como null, la nota limpia y "como" (las claves del contrato)',
+      tieneClaves(cuerpoOtra, 'citaOtraFecha') && cuerpoOtra.fecha === '2026-10-16' && cuerpoOtra.hora === '09:00' && cuerpoOtra.sede_id === null && cuerpoOtra.nota === 'Llevar muestras' && cuerpoOtra.como === null,
+      cuerpoOtra
+    )
+    check(
+      'cuerpoOtraFecha: otra sede va con su id; sin nota, null; con "como", el elegido; sin hora, lanza',
+      cuerpoOtraFecha({ ...formOtra, sede_id: 'sede-2', nota: '', como: 'lider' }, cerrada).sede_id === 'sede-2' &&
+        cuerpoOtraFecha({ ...formOtra, nota: '   ' }, cerrada).nota === null &&
+        cuerpoOtraFecha({ ...formOtra, como: 'lider' }, cerrada).como === 'lider' &&
+        (await t.lanza(() => cuerpoOtraFecha({ ...formOtra, hora: '' }, cerrada))) === MENSAJE_HORA_OBLIGATORIA
+    )
     check('rutaMiAgenda lleva al día', rutaMiAgenda('2026-10-16') === '/agenda?fecha=2026-10-16' && rutaMiAgenda('x') === '/agenda' && rutaMiAgenda(null) === '/agenda')
     fijarCitaResaltada({ id: 'c-1', fecha: '2026-10-16' })
     const resaltada = tomarCitaResaltada()
@@ -388,11 +450,12 @@ export async function pruebas(t: Probador): Promise<void> {
     const nueva = leer('mobile/app/(app)/agenda/nueva.tsx')
     const selectorHora = leer('mobile/components/agenda/SelectorHora.tsx')
     check('Agendar: no quedan el chip "Sin hora" ni el campo "Hora (opcional)"', !sinComentarios(nueva).includes('Sin hora') && !sinComentarios(nueva).includes('Hora (opcional)') && !sinComentarios(selectorHora).includes('Sin hora'))
+    const queVas = nueva.indexOf('<Subtitulo>¿Qué vas a hacer?</Subtitulo>')
     const cuando = nueva.indexOf('<Subtitulo>¿Cuándo?</Subtitulo>')
     const aQueHora = nueva.indexOf('<Subtitulo>¿A qué hora?</Subtitulo>')
     const conQuien = nueva.indexOf('<Subtitulo>¿Con quién?</Subtitulo>')
     const nota = nueva.indexOf('etiqueta="Nota (opcional)"')
-    check('Agendar: ¿Cuándo? → ¿A qué hora? → ¿Con quién? → Nota', cuando > 0 && cuando < aQueHora && aQueHora < conQuien && conQuien < nota, { cuando, aQueHora, conQuien, nota })
+    check('Agendar (F1b): ¿Qué vas a hacer? → ¿Cuándo? → ¿A qué hora? → ¿Con quién? → Nota', queVas > 0 && queVas < cuando && cuando < aQueHora && aQueHora < conQuien && conQuien < nota, { queVas, cuando, aQueHora, conQuien, nota })
     const selectorMedico = bloqueJsx(nueva, 'Selector', 'etiqueta="Médico"')
     check('Agendar: el Selector de médicos empieza cerrado (sin abiertoInicial) y marca el que ya tiene cita ese día', !!selectorMedico && !selectorMedico.includes('abiertoInicial') && selectorMedico.includes('conCita.get(m.id)'), selectorMedico.slice(0, 200))
     // Revisión 2026-10-15: un solo buscador de médicos (había dos: el filtro del selector y "Buscar otro médico en OpMap").
@@ -400,7 +463,12 @@ export async function pruebas(t: Probador): Promise<void> {
       'Agendar: un solo buscador de médicos: el del Selector, que ofrece "Buscar en OpMap" (buscarFuera) con lo escrito',
       selectorMedico.includes('buscarFuera={{') && /donde: 'OpMap'/.test(selectorMedico) && /consulta=\{consulta\}/.test(selectorMedico) && !sinComentarios(nueva).includes('Buscar otro médico en OpMap') && !selectorMedico.includes('extra=')
     )
-    check('Agendar: el calendario va con la ventana (hoy a hoy + 30) y sus marcas', /<CalendarioMes\s[^>]*desde=\{ventana\.desde\}[^>]*hasta=\{ventana\.hasta\}[^>]*marcas=\{marcas\}/.test(nueva))
+    const calendarioAgendar = bloqueJsx(nueva, 'CalendarioMes', 'alCambiar={elegirFecha}')
+    check(
+      'Agendar (0850, A4): el calendario desde hoy y SIN tope (sin hasta), con sus marcas, y pide cada mes al llegar a él',
+      /desde=\{hoy\}/.test(calendarioAgendar) && !/hasta=/.test(calendarioAgendar) && /marcas=\{marcas\}/.test(calendarioAgendar) && /alCambiarMes=\{mes => void cargarMes\(mes\)\}/.test(calendarioAgendar) && /rangoPorCargar\(cargados\.current, mes, hoy\)/.test(nueva),
+      calendarioAgendar
+    )
     check('Agendar: usa validarCitaConHora y cuerpoCitaConHora (no validarCita ni cuerpoCita sueltas)', /validarCitaConHora\(formulario, hoy, perfil, \{ citas \}\)/.test(nueva) && /api\.agendar\(cuerpoCitaConHora\(formulario\)\)/.test(nueva) && !/\bvalidarCita\(/.test(nueva) && !/\bcuerpoCita\(/.test(nueva))
     const pie = bloqueJsx(nueva, 'Pantalla', 'pie=')
     check('Agendar: el botón principal va en Pantalla.pie con el resumen (textoBotonAgendar)', /<Pantalla pie=\{pie\}>/.test(pie) && /const pie = \([\s\S]*?<Boton titulo=\{textoBotonAgendar\(formulario\.fecha, formulario\.hora\)\}[\s\S]*?\n {2}\)/.test(nueva))
@@ -409,7 +477,7 @@ export async function pruebas(t: Probador): Promise<void> {
     check('Agendar: lee rutaAgendar (fecha y hora de la URL) y tomarPedidoAgendar, y se vuelve a montar con SoloEnFoco clave', /useLocalSearchParams<\{ fecha\?: string; hora\?: string \}>/.test(nueva) && /tomarPedidoAgendar\(\)/.test(nueva) && /<SoloEnFoco clave=\{`\$\{fecha \?\? ''\}\|\$\{hora \?\? ''\}\|\$\{entrada\.vez\}`\}>/.test(nueva))
     const guardar = nueva.slice(nueva.indexOf('const guardar = async'), nueva.indexOf('if (cargando && !contexto)'))
     check("Agendar: al agendar invalida el contexto ('cita'), resalta la cita y vuelve a Mi agenda en su día", /invalidarContexto\('cita'\)/.test(guardar) && /fijarCitaResaltada\(cita\)/.test(guardar) && /router\.navigate\(rutaMiAgenda\(cita\.fecha\)\)/.test(guardar))
-    check('Agendar: avisa el choque, "Ese día ya tienes" (lista) y la cita de hoy', /avisoChoque\(formulario\.hora, citasDelDia\)/.test(nueva) && /lineasCitasDelDia\(citasDelDia\)/.test(nueva) && /avisoAgendadaHoy\(formulario\.fecha, hoy\)/.test(nueva))
+    check('Agendar: dice el choque (errorChoque, el texto del servidor), "Ese día ya tienes" (lista) y la cita de hoy', /errorChoque\(formulario, citas\)/.test(nueva) && /lineasCitasDelDia\(citasDelDia\)/.test(nueva) && /avisoAgendadaHoy\(formulario\.fecha, hoy\)/.test(nueva) && !/avisoChoque/.test(nueva))
     check(
       'SelectorHora: "Por la mañana" y "Por la tarde" con las franjas (no "Mañana": es el día siguiente) y "Otra hora" con OTRA_HORA',
       /franjasHorario\(\)/.test(selectorHora) && /grupo\('Por la mañana'/.test(selectorHora) && /grupo\('Por la tarde'/.test(selectorHora) && !/grupo\('Mañana'/.test(selectorHora) && /OTRA_HORA\.horas\.map/.test(selectorHora) && /OTRA_HORA\.minutos\.map/.test(selectorHora)
@@ -423,15 +491,31 @@ export async function pruebas(t: Probador): Promise<void> {
     check('Mi agenda: tiene entrada a "/dias-libres" y a Agendar', /router\.push\('\/dias-libres'\)/.test(agenda) && /router\.push\(rutaAgendar\(/.test(agenda))
     check('Mi agenda: la semana por defecto, con "Ver mes"', /useState<'semana' \| 'mes'>\('semana'\)/.test(agenda) && agenda.includes("'Ver mes'"))
     check('Mi agenda: vuelve a pedir al recibir el foco', /useFocusEffect\(\s*useCallback\(\(\) => \{[\s\S]*?void recargar\(\)/.test(agenda))
-    const cancelar = agenda.slice(agenda.indexOf('const cancelar = async'), agenda.indexOf('return (', agenda.indexOf('const cancelar = async')))
-    check("Mi agenda: cancelar invalida el contexto ('cita')", /api\.cancelarCita\(cita\.id, motivo\)/.test(cancelar) && /invalidarContexto\('cita'\)/.test(cancelar))
+    const cancelar = agenda.slice(agenda.indexOf('const cancelar = async'), agenda.indexOf('const noSeHizo = async'))
+    const apiTs = leer('mobile/lib/api.ts')
+    const cancelarApi = apiTs.slice(apiTs.indexOf('export async function cancelarCita('), apiTs.indexOf('export async function cerrarCita('))
+    check(
+      "Mi agenda: cancelar manda el motivo (con o sin el código, según el servidor: ciclo) y lib/api.ts invalida el contexto ('cita') después del 2xx",
+      /api\.cancelarCita\(cita\.id, motivo, ciclo\)/.test(cancelar) && cancelarApi.indexOf("invalidarContexto('cita')") > cancelarApi.indexOf('await peticion')
+    )
     check('Mi agenda: tocar una franja libre abre Agendar a esa hora', /alTocarFranja=\{hora => router\.push\(rutaAgendar\(\{ fecha: dia, hora \}\)\)\}/.test(agenda))
     const calendario = leer('mobile/components/agenda/CalendarioMes.tsx')
     check('CalendarioMes: la vista de mes dibuja semanasVisibles (sin las semanas enteras fuera de desde..hasta) y la de semana, cuadriculaSemana', /semanasVisibles\(cuadriculaMes\(mes, /.test(calendario) && /cuadriculaSemana\(lunes, /.test(calendario))
     const linea = leer('mobile/components/agenda/LineaDelDia.tsx')
-    check('LineaDelDia: "Ahora", "Sin hora" y "Ver canceladas (n)"', />Ahora</.test(linea) && /\n\s+Sin hora\n/.test(linea) && /Ver canceladas \(\$\{canceladas\.length\}\)/.test(linea))
+    check(
+      'LineaDelDia: "Ahora", "Sin hora" y "Ver las que no se hicieron (n)" (canceladas y no hechas), abierta sola si ahí está la cita abierta',
+      />Ahora</.test(linea) && /\n\s+Sin hora\n/.test(linea) && /Ver las que no se hicieron \(\$\{cerradas\.length\}\)/.test(linea) && /cerradas\.some\(cita => cita\.id === abierta\)/.test(linea)
+    )
     const detalle = leer('mobile/components/agenda/DetalleCita.tsx')
-    check('DetalleCita: "Ver la visita", "Cancelar esta cita" con motivo opcional', detalle.includes('titulo="Ver la visita"') && detalle.includes('titulo="Cancelar esta cita"') && detalle.includes('etiqueta="Motivo (opcional)"'))
+    check(
+      'DetalleCita (F1b): Reportar, "Ver la visita", "No se hizo", Cancelar, "Agendar otra fecha" y "Eliminar: lo agendé por error", según accionesDeCita',
+      ['titulo="Reportar"', 'titulo="Ver la visita"', 'titulo="No se hizo"', 'titulo="Cancelar"', 'titulo="Agendar otra fecha"', 'titulo="Eliminar: lo agendé por error"'].every(t => detalle.includes(t)) &&
+        /const acciones = accionesDeCita\(cita, hoy, visitaEfectiva\)/.test(detalle)
+    )
+    check(
+      'DetalleCita: el motivo es obligatorio (FormularioMotivo, sin "Motivo (opcional)") y no hay "Mover" ni "Reprogramar"',
+      /<FormularioMotivo uso="cerrar"/.test(detalle) && /<FormularioMotivo uso="cancelar"/.test(detalle) && !sinComentarios(detalle).includes('Motivo (opcional)') && !/Mover|Reprogramar/.test(sinComentarios(detalle))
+    )
   }
 
   // -------------------------------------------------------------------------
@@ -512,10 +596,13 @@ export async function pruebas(t: Probador): Promise<void> {
       'Agendar: sin fecha en la URL abre desde mañana (fechaInicialAgendar) en el formulario y en primeraFranjaLibre',
       /formularioCitaVacio\(fechaDeUrl \?\? fechaInicialAgendar\(hoy\), \[\]\)/.test(nueva) && /primeraFranjaLibre\(fechaInicialAgendar\(hoy\), ventana\.hasta, citasVentana, marcasVentana\)/.test(nueva)
     )
-    const pie = nueva.slice(nueva.indexOf('const pie = ('), nueva.indexOf('return (', nueva.indexOf('const pie = (')))
+    const pie = nueva.slice(nueva.indexOf('const textosPie = '), nueva.indexOf('return (', nueva.indexOf('const pie = (')))
     check(
-      'Agendar: el pie dice la cita repetida (ya) y el choque de hora (antes: al final de la tarjeta de la hora, fuera de la vista)',
-      /\) : repetida \? \(\s*<Texto peque color=\{c\.peligro\}>\s*\{repetida\.mensaje\}/.test(pie) && /\) : choque \? \(\s*<Texto peque color=\{c\.alerta\}>\s*\{choque\}/.test(pie) && !/\{choque \? <Aviso/.test(nueva)
+      'Agendar: el pie dice la cita repetida y el choque de hora en rojo (0850: los rechaza el servidor), con textosPieAgendar',
+      /const textosPie = textosPieAgendar\(\{ errorServidor: errorServidor\?\.mensaje \?\? null, intentado, errores: erroresLocales, repetida, choque \}\)/.test(pie) &&
+        /\{textosPie\.map\(texto => \(\s*<Texto key=\{texto\} peque color=\{c\.peligro\}>/.test(pie) &&
+        !/Falta algo/.test(sinComentarios(nueva)) &&
+        !/\{choque \? <Aviso/.test(nueva)
     )
     const elegirFechaTs = nueva.slice(nueva.indexOf('const elegirFecha = '), nueva.indexOf('const elegirHora = '))
     check('Agendar: al cambiar a hoy, una hora que ya pasó se cambia por la siguiente libre', /const yaPaso = typeof hora === 'string' && franjaPasada\(fecha, hora\)/.test(elegirFechaTs) && /if \(horaAuto \|\| yaPaso\)/.test(elegirFechaTs))

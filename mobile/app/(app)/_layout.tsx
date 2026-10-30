@@ -10,19 +10,27 @@
  * está en la hoja (lib/navegacion.ts SIN_ENCABEZADO).
  *
  * Las pantallas sin pestaña (Días libres, Agendar, visita, nuevo médico, nueva sede) viven en el mismo grupo con
- * `href: null` y "Volver". Días libres se abre desde Agenda y desde Ajustes. Sin sesión → ingreso.
+ * `href: null` y "Volver". Días libres se abre desde Agenda y desde Ajustes (solo con Ejecutivo Comercial). Sin sesión →
+ * ingreso.
+ *
+ * F1b (actividades de campo, A1): la dirección comercial no agenda ni reporta: al entrar ve "La dirección comercial sigue
+ * a su equipo en la web" con "Cerrar sesión" y no entra a las pestañas (lo decide su rol, que el login ya trae:
+ * lib/persona.ts estadoPersona). La app es solo para las líderes (dueño, 2026-10-30): quien el servidor dejó fuera con
+ * su porqué (sin_persona, p. ej. "Las visitas de los Ejecutivos Comerciales se registran en VMO") ve ese aviso igual.
+ * Los demás entran como siempre; lo que el servidor no les deja hacer, lo dice él.
  */
 import { Redirect, useRouter } from 'expo-router'
 import { Tabs } from 'expo-router/js-tabs'
 import { StatusBar } from 'expo-status-bar'
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Pressable, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Logo } from '../../components/Logo'
 import { Icono } from '../../lib/iconos'
 import { OCULTAS, PESTANAS, SIN_ENCABEZADO } from '../../lib/navegacion'
+import { avisoFuera, entraALasPestanas, estadoPersona } from '../../lib/persona'
 import { useSesion } from '../../lib/sesion'
-import { ALTO_TOQUE_MIN, Cargando, LETRA, TAMANO, useColores, useFuente } from '../../lib/ui'
+import { ALTO_TOQUE_MIN, Aviso, Boton, Cargando, LETRA, Pantalla, TAMANO, Texto, Titulo, useColores, useFuente } from '../../lib/ui'
 
 /** Alto de la caja del ícono de cada pestaña (y tamaño máximo del ícono): 24 pt, como el ícono de Material. */
 const ALTO_ICONO_PESTANA = 24
@@ -94,12 +102,57 @@ function Encabezado({ titulo, izquierda, derecha }: { titulo: string; izquierda:
   )
 }
 
+/**
+ * Quien no entra a las pestañas: la dirección comercial (A1: sigue a su equipo en la web) o quien el servidor dejó fuera
+ * con su porqué (app solo para líderes, dueño 2026-10-30). Solo el aviso, quién es y "Cerrar sesión".
+ */
+function FueraDeLaApp({ titulo, texto }: { titulo: string; texto: string }) {
+  const { perfil, salir, refrescar } = useSesion()
+  const [saliendo, setSaliendo] = useState(false)
+  const [revisando, setRevisando] = useState(false)
+  const nombre = perfil?.usuario.full_name?.trim().split(/\s+/)[0] ?? ''
+  return (
+    <>
+      <StatusBar style="auto" />
+      <Pantalla>
+        <Logo ancho={96} />
+        <Titulo>{nombre ? `Hola, ${nombre}` : 'Hola'}</Titulo>
+        <Aviso tono="info" titulo={titulo}>
+          {texto}
+        </Aviso>
+        {perfil?.usuario.email ? <Texto suave peque>{`Entraste como ${perfil.usuario.email}.`}</Texto> : null}
+        {/* Si ya le asignaron su línea, entra sin cerrar la app (vuelve a preguntar a /api/auth/me). */}
+        <Boton
+          titulo="Volver a intentar"
+          variante="secundario"
+          cargando={revisando}
+          alPresionar={() => {
+            setRevisando(true)
+            void refrescar().finally(() => setRevisando(false))
+          }}
+        />
+        <Boton
+          titulo="Cerrar sesión"
+          variante="peligro"
+          cargando={saliendo}
+          alPresionar={() => {
+            setSaliendo(true)
+            void salir().finally(() => setSaliendo(false))
+          }}
+        />
+      </Pantalla>
+    </>
+  )
+}
+
 export default function AppLayout() {
-  const { estado } = useSesion()
+  const { estado, perfil, sinConfirmar } = useSesion()
   const c = useColores()
   const fuente = useFuente()
   if (estado === 'cargando') return <Cargando texto="Abriendo VG Visitas…" />
   if (estado !== 'con_sesion') return <Redirect href="/login" />
+  const quien = estadoPersona({ role: perfil?.usuario.role, persona: perfil?.persona, sinPersona: perfil?.sinPersona, sinConfirmar })
+  if (!entraALasPestanas(quien)) return <FueraDeLaApp {...avisoFuera(quien, perfil?.sinPersona)} />
 
   return (
     <>

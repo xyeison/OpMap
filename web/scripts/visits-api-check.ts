@@ -84,6 +84,9 @@ const FAKE_SUPABASE_URL = 'http://supabase.test'
 process.env.NEXT_PUBLIC_SUPABASE_URL = FAKE_SUPABASE_URL
 process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-de-prueba'
 process.env.SESSION_SECRET = 'secreto-de-prueba-visits-api-check-0123456789abcdefghijklmnopqrstuvwxyz'
+// Estas pruebas (F2) usan los días libres y la cuota desde la app con un Ejecutivo Comercial: con la app solo para
+// líderes (dueño, 2026-10-30) eso se cierra; la regla la prueba reporte-api-check (sección 16).
+process.env.APP_CAMPO_EJECUTIVOS = 'true'
 
 // ---------------------------------------------------------------------------
 // Reloj falso: new Date() y Date.now() devuelven el instante fijado (las rutas, la sesión y el Supabase falso)
@@ -909,8 +912,12 @@ async function main() {
         ['GET /api/me/cuota', miCuota, '/api/me/cuota?mes=2027-02'],
       ]
       for (const [nombre, handler, path, method] of meRutas) {
-        const r = await pedir(handler, path, { method, userId: DIRECTORA_ID, id: X, body: method ? diaLibre('2027-02-10') : undefined })
+        // El administrador (visits:report) sin Ejecutivo Comercial enlazado (aún: se enlaza en la sección 9c).
+        const r = await pedir(handler, path, { method, userId: ADMIN_ID, id: X, body: method ? diaLibre('2027-02-10') : undefined })
         check(`usuario sin ejecutiva enlazada → 403 "${MENSAJE_SIN_EJECUTIVA}" en ${nombre}`, r.status === 403 && r.body?.error === MENSAJE_SIN_EJECUTIVA, r)
+        // F1a (A1): la dirección comercial ya no tiene visits:report.
+        const directora = await pedir(handler, path, { method, userId: DIRECTORA_ID, id: X, body: method ? diaLibre('2027-02-10') : undefined })
+        check(`la dirección comercial (sin visits:report desde F1a) → 403 en ${nombre}`, directora.status === 403, directora)
       }
       const rrhhMe = await pedir(miCuota, '/api/me/cuota', { userId: RRHH_ID })
       check('recursos humanos no tiene visits:report → 403 en /api/me/cuota', rrhhMe.status === 403, rrhhMe)

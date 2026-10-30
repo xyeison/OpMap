@@ -142,14 +142,18 @@ export function tituloDiaAgenda(fecha: string, hoy: string): string {
 }
 
 /**
- * Mi agenda (F4.1): "3 citas" cuenta las que siguen en pie (pendientes y hechas); las canceladas también se muestran,
- * con su insignia, porque una cita no se borra: se cancela (decisión 1). Si hay, se añade " · 1 cancelada".
+ * Mi agenda (F4.1): "3 citas" cuenta las que siguen en pie (pendientes y hechas); las canceladas y (0850) las que no se
+ * hicieron también se muestran, con su insignia, porque una cita no se borra: se cierra (A7). Si hay, se añade
+ * " · 1 cancelada" y " · 1 no se hizo". Las eliminadas por error no llegan (no salen en ninguna lectura).
  */
 export function textoTotalAgenda(citas: readonly Pick<CitaItem, 'estado'>[]): string {
   const canceladas = citas.filter(cita => cita.estado === 'cancelada').length
-  const enPie = citas.length - canceladas
-  const base = enPie === 1 ? '1 cita' : `${enPie} citas`
-  return canceladas === 0 ? base : `${base} · ${canceladas === 1 ? '1 cancelada' : `${canceladas} canceladas`}`
+  const noHechas = citas.filter(cita => cita.estado === 'no_realizada').length
+  const enPie = citas.filter(cita => cita.estado === 'pendiente' || cita.estado === 'hecha').length
+  const partes = [enPie === 1 ? '1 cita' : `${enPie} citas`]
+  if (canceladas > 0) partes.push(canceladas === 1 ? '1 cancelada' : `${canceladas} canceladas`)
+  if (noHechas > 0) partes.push(noHechas === 1 ? '1 no se hizo' : `${noHechas} no se hicieron`)
+  return partes.join(' · ')
 }
 
 /** Las citas por día, de `desde` a `hasta` (ambos incluidos, también los días sin citas), cada día por hora. */

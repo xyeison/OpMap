@@ -22,7 +22,7 @@ import { fechaLarga, fechaRelativa, hoyBogota, puedeRegistrarDiaLibre, sumarDias
 import { avisoCitasEnDiaLibre, marcasConCitas, marcasDiasLibres, primerDiaRegistrable } from '../../lib/pantallas'
 import { ejecutivaPuedeAnular, ordenarDiasLibres, textoFraccion } from '../../lib/reglas'
 import type { CitaItem, DiaLibreItem, EstadoDiaLibre, MisDiasLibresResponse } from '../../lib/tipos'
-import { DIAS_AGENDA_ADELANTE, ETIQUETA_ESTADO_DIA_LIBRE } from '../../lib/tipos'
+import { ETIQUETA_ESTADO_DIA_LIBRE, MAX_DIAS_CONSULTA_AGENDA } from '../../lib/tipos'
 import { Aviso, Boton, Campo, Cargando, Chip, Grupo, Insignia, Pantalla, Subtitulo, Texto, confirmar, useColores, type Tono } from '../../lib/ui'
 
 const DIAS_ATRAS = 90
@@ -54,9 +54,10 @@ export default function DiasLibres() {
   const [anulando, setAnulando] = useState<string | null>(null)
 
   const cargar = useCallback(async () => {
-    // Las citas solo marcan el calendario y avisan: si fallan (o no está la agenda), la pantalla sigue igual.
+    // Las citas solo marcan el calendario y avisan: si fallan (o no está la agenda), la pantalla sigue igual. Una sola
+    // consulta (la agenda ya no tiene tope hacia adelante: se marcan los próximos 31 días, el máximo por consulta).
     const hoyAhora = hoyBogota()
-    void api.agenda(hoyAhora, sumarDias(hoyAhora, DIAS_AGENDA_ADELANTE)).then(
+    void api.agenda(hoyAhora, sumarDias(hoyAhora, MAX_DIAS_CONSULTA_AGENDA - 1)).then(
       r => setCitas(r.items),
       () => undefined
     )

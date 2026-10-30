@@ -1,7 +1,7 @@
 /**
  * Reportar (contrato fase 8, sección "App móvil"; F4.1 agenda, spec 2026-10-14):
  *   1. ¿Dónde estás?: arriba las citas PENDIENTES de hoy, la más cercana primero, con su distancia y si está dentro del
- *      radio (ListaCitas); debajo "Visita no agendada" con las sedes a menos de 1 km (y en el croquis), un buscador y
+ *      radio (ListaCitas); debajo "No agendada" con las sedes a menos de 1 km (y en el croquis), un buscador y
  *      "Crear sede aquí". Hablar y Por toques se habilitan solo después de elegir una cita o una sede. Con una cita, la
  *      tarjeta sale ya armada (tipo, médico o cuenta y subtipo, sede y agenda_id) y el dictado va con esa cita.
  *   2. Hablar (graba hasta 3 minutos con el nivel visible; el audio se borra al llegar la transcripción o al
@@ -38,7 +38,7 @@
  *     sin "Cargando tus citas…"; de 1 a 3 minutos se refresca sin tapar la pantalla.
  *   - Mientras Claude arma las visitas ya se ve "Lo que dijiste" (se pliega y se despliega).
  *   - La tarjeta de voz que está bien sale en resumen; "Confirmar visita 1 de N" va fijo al pie (Pantalla.pie).
- *   - La visita confirmada con próxima reunión de hoy a hoy + 30 ofrece "Agendar esa reunión".
+ *   - La visita confirmada con próxima reunión de hoy en adelante (sin tope desde la 0850) ofrece "Agendar esa reunión".
  *   - Vibra con el 201 y deja las marcas de tiempo (lib/tiempos.ts) del dictado.
  *
  * Revisión 2026-10-15 (la misma calidad, sin sorpresas):
@@ -322,7 +322,7 @@ export default function Reportar() {
   const ultimo = useRef({ contexto, puntoContexto, extras, punto, catalogo, sinSenal, llegada, fase, borradores: borradores.length, tarjetas: borradores, sedeElegida, cita })
   ultimo.current = { contexto, puntoContexto, extras, punto, catalogo, sinSenal, llegada, fase, borradores: borradores.length, tarjetas: borradores, sedeElegida, cita }
 
-  /** Visitas de hoy para los topes: las del servidor más las de la cola de hoy (sin repetir client_id). */
+  /** Las visitas de hoy para los topes: las del servidor más las de la cola de hoy (sin repetir client_id). */
   const visitasHoy = useMemo<VisitaHoyTope[]>(() => {
     const hoy = hoyBogota()
     const lista: VisitaHoyTope[] = visitasServidor.map(v => ({ client_id: v.client_id, medico_id: v.medico?.id ?? null, modalidad: v.modalidad, efectiva: v.efectiva }))
@@ -987,7 +987,7 @@ export default function Reportar() {
   const pendientesDeEnvio = resultados.filter(r => r.estado === 'pendiente').length
   const terminado = fase === 'tarjetas' && borradores.length === 0 && resultados.length > 0
   const radioM = catalogo.config.radio_m
-  /** "Visita no agendada": las sedes a menos de 1 km (las que entraron solo por una cita no se listan aquí). */
+  /** "No agendada": las sedes a menos de 1 km (las que entraron solo por una cita no se listan aquí). */
   const sedesCercanas = catalogo.sedes.filter(s => s.distancia_m !== null && !s.de_agenda)
   const sede = sedeElegida ? (catalogo.sedes.find(s => s.id === sedeElegida) ?? null) : null
   const cambiarEleccion = () => {
@@ -1097,7 +1097,7 @@ export default function Reportar() {
       {fase === 'lista' && eligio ? (
         // Ya eligió: solo lo elegido, con "Cambiar"; debajo, Hablar y Por toques.
         <View style={{ gap: 10 }}>
-          <Seccion titulo={cita ? 'Tu cita' : 'Visita no agendada'} />
+          <Seccion titulo={cita ? 'Tu cita' : 'No agendada'} />
           {cita ? (
             <ListaCitas citas={[cita]} radioM={radioM} elegida={cita.id} alElegir={elegirCita} />
           ) : sede ? (
@@ -1120,7 +1120,7 @@ export default function Reportar() {
             />
           </View>
           <View style={{ gap: 6 }}>
-            <Seccion titulo="Visita no agendada" />
+            <Seccion titulo="No agendada" />
             <Texto suave peque>
               Si no estaba en tu agenda, elige la sede donde estás.
             </Texto>

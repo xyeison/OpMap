@@ -105,6 +105,7 @@ export async function pruebas(t: Probador): Promise<void> {
     compromisos_vencidos: [],
     voz: { transcribir: true, proponer: true },
     agenda_hoy: [],
+    persona: { user_id: 'u-16', nombre: 'Ejecutivo de prueba', executive_id: 'e-16', rol: 'ejecutivo', lineas: [] },
   }
   const catalogo = catalogoDesdeContexto(contexto, {}, TEL)
   let n = 0
@@ -259,11 +260,11 @@ export async function pruebas(t: Probador): Promise<void> {
       !/titulo="Descartar" variante="texto"/.test(tarjetaTs)
   )
 
-  // --- Tarjeta de una cita: sin "Tipo de visita" ------------------------------------------------------------------
+  // --- Tarjeta de una cita: sin "¿Qué hiciste?" (F1b: antes "Tipo de visita") ------------------------------------
   const bloqueTipoTs = entre(tarjetaTs, 'const bloqueTipo = (', '\n  )\n')
   check(
-    'TarjetaBorrador: "Tipo de visita" va en bloqueTipo y solo se pinta sin cita (agenda_id)',
-    bloqueTipoTs.includes('Tipo de visita') && /\{!borrador\.agenda_id \? bloqueTipo : null\}/.test(tarjetaTs) && (tarjetaTs.match(/Tipo de visita<\/Texto>/g) ?? []).length === 1
+    'TarjetaBorrador: "¿Qué hiciste?" (F1b) va en bloqueTipo, con "Visita a médico" y "Visita institucional", y solo se pinta sin cita (agenda_id)',
+    bloqueTipoTs.includes('¿Qué hiciste?') && /texto=\{ETIQUETA_ACTIVIDAD\[tipo\]\}/.test(bloqueTipoTs) && /\{!borrador\.agenda_id \? bloqueTipo : null\}/.test(tarjetaTs) && (tarjetaTs.match(/¿Qué hiciste\?<\/Texto>/g) ?? []).length === 1 && !tarjetaTs.includes('Tipo de visita<')
   )
   const cita: CitaItem = {
     id: '11111111-0000-4000-8000-0000000016f1',
@@ -281,8 +282,9 @@ export async function pruebas(t: Probador): Promise<void> {
     dentro_del_radio: true,
     anticipada: true,
     cancelable: true,
+    motivo_codigo: null, no_realizada_at: null, no_realizada_motivo: null, viene_de: null, viene_de_fecha: null, viene_de_estado: null, sucesora_id: null, como: 'ejecutivo', estado_visible: 'programada',
   }
-  check('la tarjeta que viene de una cita lleva su agenda_id (y por eso no muestra "Tipo de visita")', borradorDesdeCita(cita, catalogo, { nuevoId }).agenda_id === cita.id)
+  check('la tarjeta que viene de una cita lleva su agenda_id (y por eso no muestra "¿Qué hiciste?")', borradorDesdeCita(cita, catalogo, { nuevoId }).agenda_id === cita.id)
 
   // --- ordenarMedicos ------------------------------------------------------------------------------------------
   const grupos = ordenarMedicos(catalogo.medicos, S_NORTE, TEL)
@@ -505,8 +507,8 @@ export async function pruebas(t: Probador): Promise<void> {
       ["'Mañana'", "'En 1 semana'", "'En 15 días'", "'En 1 mes'", '"Sin fecha"'].every(atajo => camposTs.includes(atajo))
   )
   check(
-    'puedeAgendarProxima: solo de hoy a hoy + 30',
-    puedeAgendarProxima(HOY, HOY) && puedeAgendarProxima('2026-11-14', HOY) && !puedeAgendarProxima('2026-11-15', HOY) && !puedeAgendarProxima('2026-10-14', HOY) && !puedeAgendarProxima(null, HOY)
+    'puedeAgendarProxima: de hoy en adelante, sin tope (0850, A4; antes hasta hoy + 30)',
+    puedeAgendarProxima(HOY, HOY) && puedeAgendarProxima('2026-11-14', HOY) && puedeAgendarProxima('2026-11-15', HOY) && puedeAgendarProxima('2027-12-01', HOY) && !puedeAgendarProxima('2026-10-14', HOY) && !puedeAgendarProxima(null, HOY)
   )
   check(
     'pedidoAgendarDe: con quién va en memoria (médico y sede; o cuenta, subtipo y sede), nunca en la URL',
@@ -516,7 +518,7 @@ export async function pruebas(t: Probador): Promise<void> {
   )
   const agendarTs = entre(reportar, 'const agendarReunion = (r: Resultado) => {', '\n  }\n')
   check(
-    'Reportar: la visita confirmada ofrece "Agendar esa reunión" solo dentro de la ventana (fijarPedidoAgendar + rutaAgendar)',
+    'Reportar: la visita confirmada ofrece "Agendar esa reunión" con la próxima de hoy en adelante (fijarPedidoAgendar + rutaAgendar)',
     /if \(r\.pedidoAgendar\) fijarPedidoAgendar\(r\.pedidoAgendar\)/.test(agendarTs) &&
       /router\.push\(rutaAgendar\(\{ fecha: r\.proxima \}\)\)/.test(agendarTs) &&
       /\{r\.proxima && r\.pedidoAgendar && puedeAgendarProxima\(r\.proxima, hoy\) \? \(\s*<Boton titulo="Agendar esa reunión"[^>]*alPresionar=\{\(\) => agendarReunion\(r\)\}/.test(reportar) &&

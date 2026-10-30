@@ -1,6 +1,8 @@
-// /api/me/visitas (visits:report + Ejecutivo Comercial enlazado).
+// /api/me/visitas (visits:report + persona de campo, F1a: Ejecutivo Comercial o líder, por user_id).
 //   GET ?fecha=AAAA-MM-DD (sin fecha: hoy) — sus visitas de la app de ese día (sin las anuladas), con a qué meta suma
-//       cada una (valorVisita con el conteo vigente en su fecha) y si aún puede corregirla.
+//       cada una (valorVisita con el conteo vigente en su fecha) y si aún puede corregirla. Como líder, la visita va sin
+//       Ejecutivo Comercial ni zona y con un médico de sus líneas (0850, C9); si además tiene Ejecutivo Comercial, no suma
+//       a su cuota (C4: cuenta_para null y peso 0, como en el contexto y en Mis números).
 //   POST — reporta UNA visita: visitaCreateSchema → idempotencia por client_id (la misma visita otra vez devuelve la
 //       que ya estaba, `repetida: true`, sin validar de nuevo) → pre-validación pura (validarVisita: 400 con todos los
 //       errores) → RPC visitas_registrar (la base es la última palabra: 23514 → 400 con su mensaje) → 201
@@ -12,7 +14,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { jsonError, readJson, zodMessage } from '@/app/api/kams/_lib/kam-shared'
 import { visitaCreateSchema, visitasQuerySchema } from '@/lib/reporte-visitas-schemas'
 import { validarVisita, type ErrorVisita, type VisitaCreateResponse, type VisitasResponse } from '@/lib/reporte-visitas'
-import { ahora, leerConfig, leerGeneral, requireEjecutiva } from '../../config-visitas/_lib/visitas-server'
+import { ahora, leerConfig, leerGeneral, requirePersonaDeCampo } from '../../config-visitas/_lib/visitas-server'
+import { ejecutivoDeLaVisita } from '@/lib/persona-campo'
 import { hoyBogota } from '@/lib/visits-rules'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import {
@@ -34,7 +37,7 @@ export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
   return medirRuta('GET /api/me/visitas', async t => {
-    const auth = await t.fase('auth', () => requireEjecutiva(request, 'GET /api/me/visitas'))
+    const auth = await t.fase('auth', () => requirePersonaDeCampo(request, 'GET /api/me/visitas'))
     if (!auth.ok) return auth.response
 
     const consulta = visitasQuerySchema.safeParse({ fecha: request.nextUrl.searchParams.get('fecha') })
@@ -43,7 +46,7 @@ export async function GET(request: NextRequest) {
     try {
       const hoy = hoyBogota(ahora())
       const fecha = consulta.data.fecha ?? hoy
-      const [filas, conteo, general] = await t.fase('db', () => Promise.all([leerVisitas(auth.persona.id, fecha, fecha), leerConteo(), leerGeneral()]))
+      const [filas, conteo, general] = await t.fase('db', () => Promise.all([leerVisitas(auth.persona.userId, fecha, fecha), leerConteo(), leerGeneral()]))
       const items = await t.fase('armar', () => armarVisitaItems(filas, { persona: auth.persona, hoy, conteo, general }))
       const respuesta: VisitasResponse = { fecha, items }
       return NextResponse.json(respuesta, { headers: { 'Cache-Control': 'no-store' } })
@@ -60,7 +63,7 @@ function erroresDeZod(issues: readonly { path: (string | number)[]; message: str
 
 export async function POST(request: NextRequest) {
   return medirRuta('POST /api/me/visitas', async t => {
-    const auth = await t.fase('auth', () => requireEjecutiva(request, 'POST /api/me/visitas'))
+    const auth = await t.fase('auth', () => requirePersonaDeCampo(request, 'POST /api/me/visitas'))
     if (!auth.ok) return auth.response
     const { user, persona } = auth
 
@@ -77,35 +80,37 @@ export async function POST(request: NextRequest) {
       // 1. Idempotencia: el mismo client_id (reintento de la cola sin señal) devuelve la visita que ya estaba.
       const previa = await t.fase('previa', () => visitaPorClientId(datos.client_id))
       if (previa) {
-        if (previa.executive_id !== persona.id) return jsonError('Ese client_id ya se usó en otra visita', 409)
+        if (previa.user_id !== persona.userId) return jsonError('Ese client_id ya se usó en otra visita', 409)
         const [conteo, general] = await t.fase('leer', () => Promise.all([leerConteo(), leerGeneral()]))
         const [visita] = await t.fase('armar', () => armarVisitaItems([previa], { persona, hoy, conteo, general }))
         const respuesta: VisitaCreateResponse = { visita, repetida: true }
         return NextResponse.json(respuesta, { status: 201 })
       }
 
-      // 2. Pre-validación pura (todos los errores a la vez), con lo que la base tiene hoy.
+      // 2. Pre-validación pura (todos los errores a la vez), con lo que la base tiene hoy. El Ejecutivo Comercial de la
+      //    visita sale de sus líneas (0850): sin él, la visita es como líder (configuración general, médico de sus líneas).
+      const ejecutivoVisita = ejecutivoDeLaVisita(persona, datos.lineas)
       const [contexto, general, personas, deHoy] = await t.fase('validar', () =>
         Promise.all([
           contextoValidacion(datos, persona, hoy),
           leerGeneral(),
-          leerConfig('config_personas', { soloActivas: true, executiveId: persona.id }),
-          leerVisitas(persona.id, hoy, hoy),
+          ejecutivoVisita ? leerConfig('config_personas', { soloActivas: true, executiveId: ejecutivoVisita }) : Promise.resolve([]),
+          leerVisitas(persona.userId, hoy, hoy),
         ])
       )
       const resultado = validarVisita({
         datos,
         contexto,
-        config: configDeHoy(general, personas, persona.id, hoy),
+        config: configDeHoy(general, personas, ejecutivoVisita, hoy),
         hoy,
         ahora: instante,
         visitasDeHoy: visitasParaTopes(deHoy),
       })
       if (!resultado.ok) return jsonError(resultado.errores[0].mensaje, 400, { errores: resultado.errores })
 
-      // 3. La base registra (atómica: visita + líneas, topes con candado por ejecutiva). Devuelve { visita_id,
-      //    repetida, out_of_territory, distance_m, visit_date }.
-      const { data, error } = await t.fase('rpc', () => supabaseAdmin.rpc('visitas_registrar', { p: jsonbRegistrar(datos, persona.id), p_user: user.id }))
+      // 3. La base registra (atómica: visita + líneas, topes con candado por persona). Devuelve { visita_id,
+      //    repetida, out_of_territory, distance_m, visit_date, agenda_id, agendada }.
+      const { data, error } = await t.fase('rpc', () => supabaseAdmin.rpc('visitas_registrar', { p: jsonbRegistrar(datos, persona.executiveId), p_user: user.id }))
       if (error) {
         const traducido = respuestaErrorVisita(error, 'Los datos de la visita no son válidos')
         if (traducido) return traducido

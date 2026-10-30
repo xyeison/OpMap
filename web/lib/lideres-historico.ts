@@ -1,11 +1,12 @@
 // Histórico del Excel "Tracker Líderes" de la directora comercial (dueño, 2026-10-29,
-// docs/decisiones/2026-10-29-historico-tracker-lideres.md). El navegador lee la hoja REGISTRO y se queda con lo que
-// sirve para el seguimiento: fecha, líder, ciudad, tipo, estado, cuántos médicos o contactos y si tenía observación.
-// Ningún texto libre sale del navegador: ni los nombres de médicos o contactos, ni las observaciones, ni un tipo
+// docs/decisiones/2026-10-29-historico-tracker-lideres.md). Desde el 2026-10-30 (dueño) se carga una sola vez con
+// scripts/lideres-historico-cargar.ts (ya no se sube desde /lideres): el script lee la hoja REGISTRO y se queda con lo
+// que sirve para el seguimiento: fecha, líder, ciudad, tipo, estado, cuántos médicos o contactos y si tenía observación.
+// Ningún texto libre sale de la lectura: ni los nombres de médicos o contactos, ni las observaciones, ni un tipo
 // escrito a mano (solo la marca "a mano"), ni una fecha ilegible (solo sus dígitos y separadores). Pueden traer datos de
-// médicos y de pacientes. El servidor reconoce a cada líder (su usuario) y cada ciudad (código DANE) y reemplaza el
-// histórico completo: el Excel manda. Puro (sin red): lo usan /lideres y /api/lideres/historico.
-// Pruebas: scripts/lideres-historico-check.ts.
+// médicos y de pacientes. El servidor (app/api/lideres/_lib/historico-server.ts) reconoce a cada líder (su usuario) y
+// cada ciudad (código DANE) y reemplaza el histórico completo: el Excel manda. Puro (sin red): lo usan el script de
+// carga, el servidor y /lideres. Pruebas: scripts/lideres-historico-check.ts.
 
 /** Encabezados de la hoja REGISTRO (se comparan sin tildes ni mayúsculas). */
 export const COLUMNAS_TRACKER = {
@@ -321,7 +322,7 @@ export function crearResolutorCiudades(municipios: MunicipioRef[]): (ciudad: str
 }
 
 // ---------------------------------------------------------------------------
-// Lo que manda el navegador
+// Lo que manda el script de carga (scripts/lideres-historico-cargar.ts)
 // ---------------------------------------------------------------------------
 
 export interface CargaTracker {
@@ -345,7 +346,7 @@ function diaReal(iso: unknown): iso is string {
   return !Number.isNaN(fecha.getTime()) && fecha.toISOString().slice(0, 10) === iso
 }
 
-/** Valida el cuerpo de POST /api/lideres/historico. Rechaza cualquier campo de más en las filas (privacidad). */
+/** Valida el cuerpo de la carga (lo recibe procesarCargaTracker). Rechaza cualquier campo de más en las filas (privacidad). */
 export function validarCarga(cuerpo: unknown): { ok: true; carga: CargaTracker } | { ok: false; error: string } {
   if (!cuerpo || typeof cuerpo !== 'object') return { ok: false, error: 'Cuerpo inválido' }
   const c = cuerpo as Record<string, unknown>

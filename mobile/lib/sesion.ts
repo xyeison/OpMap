@@ -7,6 +7,11 @@
  * sigue con el perfil guardado (para poder reportar y encolar). Nunca se entra sin token. Un 401 en cualquier
  * petición (también en esa confirmación) olvida el token y cierra la sesión. Cerrar sesión = olvidar el token, el
  * perfil y el contexto (guardado y en memoria) y avisar al servidor si hay señal. Nunca se guarda la contraseña.
+ *
+ * F1b (actividades de campo): el perfil guarda la persona de campo de GET /api/auth/me (papel y líneas con "como qué";
+ * lib/persona.ts). El login no la trae: al entrar se pide /api/auth/me en segundo plano (completarPersona); sin señal se
+ * sabrá al confirmar la próxima vez, y mientras tanto la app sigue como antes (el servidor decide). Con la respuesta se
+ * guarda también si el servidor tiene F1a (`servidor`: /api/auth/me sin la clave `persona` = 'sin_f1a').
  */
 import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import * as api from './api'
@@ -14,15 +19,33 @@ import { borrarClave, borrarToken, guardarJson, guardarToken, leerJson, leerToke
 import { olvidarContextoGuardado } from './contexto-guardado'
 import { olvidarContextoEnMemoria } from './contexto-memoria'
 import { MENSAJE_SESION_VENCIDA, aApiError } from './errores'
+import { personaDeMe, servidorDeMe, type ServidorDeCampo } from './persona'
 import { TIEMPO_ME_FONDO_MS, TIEMPO_ME_MS, arranqueDeSesion } from './sesion-reglas'
 import { leerCargaToken, tokenVencido } from './token'
-import type { EjecutivaMovil, UsuarioMovil } from './tipos'
+import type { EjecutivaMovil, PersonaMovil, UsuarioMovil } from './tipos'
 
 const CLAVE_PERFIL = 'opmap.perfil.v1'
 
 export interface Perfil {
   usuario: UsuarioMovil & { email?: string }
   ejecutiva: EjecutivaMovil | null
+  /**
+   * La persona de campo (0850): su papel y sus líneas; null si el servidor dice que no tiene líneas (o es la dirección
+   * comercial). Sin el dato (undefined): aún no se sabe (recién entró, o un perfil guardado antes de F1b).
+   */
+  persona?: PersonaMovil | null
+  /**
+   * Sin persona, por qué (MeResponse.sin_persona; app solo para líderes, dueño 2026-10-30: "Las visitas de los
+   * Ejecutivos Comerciales se registran en VMO"): con él la app no entra a las pestañas y lo muestra (estadoPersona).
+   * null o sin el dato: no se sabe.
+   */
+  sinPersona?: string | null
+  /**
+   * Qué servidor respondió la última vez GET /api/auth/me (servidorDeMe): 'sin_f1a' si no manda la persona (sin la
+   * 0850: la app no ofrece "No se hizo", Eliminar, "Agendar otra fecha" ni "¿Qué pasó con esto?"). Sin el dato: no se
+   * sabe y la app sigue como está.
+   */
+  servidor?: ServidorDeCampo
   expira_at: string | null
 }
 
@@ -77,6 +100,9 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
         const nuevo: Perfil = {
           usuario: { id: respuesta.user.id, full_name: respuesta.user.full_name, role: respuesta.user.role, email: respuesta.user.email },
           ejecutiva: respuesta.ejecutiva,
+          persona: personaDeMe(respuesta, guardado?.persona),
+          sinPersona: respuesta.sin_persona ?? null,
+          servidor: servidorDeMe(respuesta),
           expira_at: guardado?.expira_at ?? expiraDelToken(token),
         }
         await guardarJson(CLAVE_PERFIL, nuevo).catch(() => undefined)
@@ -141,6 +167,35 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
   // 401 en cualquier petición → olvidar el token.
   useEffect(() => api.alVencerSesion(() => void olvidar(MENSAJE_SESION_VENCIDA)), [olvidar])
 
+  /**
+   * Justo después de entrar (F1b): el login no trae la persona de campo, así que se pide GET /api/auth/me en segundo
+   * plano y se suma al perfil. Sin señal no pasa nada (no deja "sin confirmar": se acaba de entrar con el servidor); un
+   * 401 cierra la sesión como siempre; si mientras tanto se salió o entró otra vez, no toca nada.
+   */
+  const completarPersona = useCallback(
+    async (token: string, base: Perfil) => {
+      const desde = generacion.current
+      try {
+        const respuesta = await api.me(token, TIEMPO_ME_FONDO_MS)
+        if (!montado.current || generacion.current !== desde) return
+        const nuevo: Perfil = {
+          ...base,
+          ejecutiva: respuesta.ejecutiva,
+          persona: personaDeMe(respuesta, base.persona),
+          sinPersona: respuesta.sin_persona ?? null,
+          servidor: servidorDeMe(respuesta),
+        }
+        await guardarJson(CLAVE_PERFIL, nuevo).catch(() => undefined)
+        if (!montado.current || generacion.current !== desde) return
+        setPerfil(nuevo)
+      } catch (lanzado) {
+        if (generacion.current !== desde) return
+        if (aApiError(lanzado).status === 401) await olvidar(MENSAJE_SESION_VENCIDA)
+      }
+    },
+    [olvidar]
+  )
+
   const entrar = useCallback(async (email: string, password: string) => {
     const respuesta = await api.login(email, password)
     generacion.current++
@@ -152,7 +207,8 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
     setSinConfirmar(false)
     setAviso(null)
     setEstado('con_sesion')
-  }, [])
+    void completarPersona(respuesta.token, nuevo)
+  }, [completarPersona])
 
   const salir = useCallback(async () => {
     await api.logout()

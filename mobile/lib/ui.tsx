@@ -316,7 +316,7 @@ export function Bloque({ children, alPresionar, estilo, etiquetaAccesible }: Pro
 }
 
 /**
- * Fila de una lista con separador fino arriba (las filas de "Más citas de hoy", "Visitas de hoy"): toda la fila se
+ * Fila de una lista con separador fino arriba (las filas de "Más citas de hoy", "Actividades de hoy"): toda la fila se
  * toca (≥ 44 pt) si lleva alPresionar, con "›" a la derecha.
  */
 export function FilaLista({

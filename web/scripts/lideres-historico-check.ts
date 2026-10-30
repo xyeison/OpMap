@@ -8,11 +8,18 @@
  *   líder y la ciudad, y la validación de la carga (rechaza campos de más).
  * - lib/lideres-seguimiento.ts: resumen por período y líder, por mes, por tipo y por ciudad, la agenda de tres semanas y
  *   la calidad del registro.
- * - app/api/lideres/_lib/historico-server.ts: vista previa sin escribir, rechazo con líderes desconocidas, guardar con la
- *   función de reemplazo, la migración sin aplicar (503) y la lectura del histórico.
+ * - scripts/lideres-historico-cargar.ts (la carga única del Excel desde el 2026-10-30): argumentos, la lectura del Excel
+ *   como la hacía /lideres (hoja, filas, corte, huella y cuerpo), quién carga y lo que imprime (sin nombres de médicos
+ *   ni observaciones).
+ * - app/api/lideres/_lib/historico-server.ts: procesarCargaTracker, la que llama el script (antes la llamaba el POST de
+ *   la ruta): la vista previa no escribe, una líder desconocida da 400 y no guarda, sin la 0920 da 503 y, al guardar,
+ *   cada fila lleva su usuario y su código; y la lectura del histórico.
+ * - app/api/lideres/historico/route.ts: solo GET (el Excel ya no se sube desde la página).
  *
  * Uso (desde web/): npx tsx scripts/lideres-historico-check.ts   (incluida en npm run test)
  */
+import { createHash } from 'crypto'
+import * as XLSX from 'xlsx'
 import {
   contarContactos,
   crearResolutorCiudades,
@@ -27,6 +34,8 @@ import {
   type FilaTracker,
 } from '../lib/lideres-historico'
 import { agendaTresSemanas, calidadRegistro, realizadasPorCiudad, realizadasPorMes, realizadasPorTipo, resumenPorLider, type ActividadSeguimiento } from '../lib/lideres-seguimiento'
+import * as rutaHistorico from '../app/api/lideres/historico/route'
+import { cuerpoDeCarga, leerArgumentos, leerExcelTracker, lineasResultado, problemaDeQuienCarga, USO, type RespuestaCarga } from './lideres-historico-cargar'
 
 for (const clave of ['SUPABASE_SERVICE_ROLE_KEY', 'NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_URL']) delete process.env[clave]
 process.env.NEXT_PUBLIC_SUPABASE_URL = 'http://supabase.test'
@@ -155,7 +164,7 @@ eq(
 eq('"Armenia" es de dos departamentos: la capital (63001)', ciudad('Armenia'), '63001')
 check('dos municipios con el mismo nombre y ninguno capital: sin código; Verona, La Guajira y vacío: sin código', ciudad('Betania') === null && ciudad('Verona') === null && ciudad('La Guajira') === null && ciudad('') === null)
 
-console.log('\n4. Validar la carga (lo que manda el navegador)')
+console.log('\n4. Validar la carga (lo que manda el script de carga)')
 const FILA: FilaTracker = { fila: 2, fecha: '2026-10-20', fecha_texto: null, lider_texto: 'Ana', ciudad_texto: 'Bogota', tipo: 'correria', tipo_a_mano: false, estado: 'realizada', contactos: 1, con_observacion: false }
 const CARGA = { archivo: 'Tracker Líderes.xlsx', huella: 'a'.repeat(64), corte: CORTE, filas: [FILA], confirmar: false }
 check('carga buena', validarCarga(CARGA).ok)
@@ -211,6 +220,96 @@ check(
 )
 eq('calidad del registro (con códigos DANE)', calidadRegistro(actividades, true), { sinCerrar: 2, canceladasSinObservacion: 1, realizadasSinContactos: 1, fechasIlegibles: 1, tiposAMano: 1, ciudadesSinCodigo: 1 })
 
+console.log('\n6. El script de carga única: argumentos, el Excel como lo leía /lideres y quién carga')
+const UUID = '6f1c2a9e-3b4d-4c5e-8f70-1a2b3c4d5e6f'
+eq('ruta y --user: vista previa (sin --run)', leerArgumentos(['Tracker.xlsx', '--user', UUID]), { archivo: 'Tracker.xlsx', user: UUID, run: false })
+eq('--run y --user=uuid, en cualquier orden; el uuid queda en minúsculas', leerArgumentos(['--run', `--user=${UUID.toUpperCase()}`, 'Tracker.xlsx']), { archivo: 'Tracker.xlsx', user: UUID, run: true })
+const errorDeArgumentos = (argv: string[]) => {
+  try {
+    leerArgumentos(argv)
+    return null
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error)
+  }
+}
+const argumentosMalos = [
+  ['--user', UUID],
+  ['Tracker.xlsx'],
+  ['Tracker.xlsx', '--user'],
+  ['Tracker.xlsx', '--user', '--run'],
+  ['Tracker.xlsx', '--user', 'laura'],
+  ['Tracker.xlsx', '--user', UUID, '--dry-run'],
+  ['a.xlsx', 'b.xlsx', '--user', UUID],
+].map(errorDeArgumentos)
+check(
+  'error sin ruta, sin --user, con --user sin valor o que no es un uuid, con una opción desconocida o con dos rutas',
+  argumentosMalos.every(mensaje => mensaje !== null),
+  argumentosMalos
+)
+check('sin la ruta, el error dice cómo se usa', (errorDeArgumentos(['--user', UUID]) ?? '').includes(USO))
+
+const escribirLibro = (libro: XLSX.WorkBook): Buffer => XLSX.write(libro, { type: 'buffer', bookType: 'xlsx' })
+const libroTracker = XLSX.utils.book_new()
+XLSX.utils.book_append_sheet(libroTracker, XLSX.utils.aoa_to_sheet([['Listas'], ['Correría']]), 'LISTAS')
+// La hoja de la sección 2 desde la fila 3, con el rango guardado desde A3 (como un Excel con dos filas vacías arriba):
+// los números de fila deben seguir la hoja (sin range: 0 se correrían dos)
+const hojaRegistro = XLSX.utils.sheet_add_aoa(XLSX.utils.aoa_to_sheet([]), hoja, { origin: 'A3' })
+hojaRegistro['!ref'] = 'A3:G8'
+XLSX.utils.book_append_sheet(libroTracker, hojaRegistro, 'REGISTRO')
+const bytesTracker = escribirLibro(libroTracker)
+const delExcel = leerExcelTracker(bytesTracker, 'Tracker Líderes.xlsx', CORTE)
+const lecturaExcel = delExcel.ok ? delExcel.lectura : null
+check(
+  'lee la hoja REGISTRO aunque el libro tenga otras: las filas de leerTracker, con su número en la hoja (encabezado en la fila 3)',
+  XLSX.read(bytesTracker, { type: 'buffer' }).Sheets.REGISTRO['!ref'] === 'A3:G8' &&
+    !!lecturaExcel &&
+    JSON.stringify(lecturaExcel.filas) === JSON.stringify(filas.map(fila => ({ ...fila, fila: fila.fila + 2 }))) &&
+    lecturaExcel.sinLider === 1 &&
+    lecturaExcel.estadosNoReconocidos === 1,
+  delExcel
+)
+check(
+  'huella = sha256 del archivo, el corte y el nombre del archivo, como los mandaba la página',
+  !!lecturaExcel && lecturaExcel.huella === createHash('sha256').update(bytesTracker).digest('hex') && lecturaExcel.corte === CORTE && lecturaExcel.archivo === 'Tracker Líderes.xlsx'
+)
+const cuerpoScript = lecturaExcel ? cuerpoDeCarga(lecturaExcel, false) : null
+check(
+  'el cuerpo es el de la página ({ archivo, huella, corte, filas, confirmar }) y validarCarga lo acepta sin confirmar y confirmando',
+  !!cuerpoScript &&
+    !!lecturaExcel &&
+    Object.keys(cuerpoScript).join() === 'archivo,huella,corte,filas,confirmar' &&
+    cuerpoScript.confirmar === false &&
+    validarCarga(cuerpoScript).ok &&
+    validarCarga(cuerpoDeCarga(lecturaExcel, true)).ok,
+  cuerpoScript
+)
+check(
+  'ningún nombre de médico, observación ni tipo escrito a mano en lo que manda el script',
+  !!cuerpoScript && !JSON.stringify({ ...cuerpoScript, huella: '' }).match(/Secret|Juan|rodilla|Dr\.|paciente|1234/),
+  cuerpoScript
+)
+const libroSinRegistro = XLSX.utils.book_new()
+XLSX.utils.book_append_sheet(libroSinRegistro, XLSX.utils.aoa_to_sheet(hoja), 'Hoja1')
+XLSX.utils.book_append_sheet(libroSinRegistro, XLSX.utils.aoa_to_sheet([['Listas']]), 'LISTAS')
+const libroUnaHoja = XLSX.utils.book_new()
+XLSX.utils.book_append_sheet(libroUnaHoja, XLSX.utils.aoa_to_sheet(hoja), 'Hoja1')
+const sinRegistro = leerExcelTracker(escribirLibro(libroSinRegistro), 'Otro.xlsx', CORTE)
+const unaHoja = leerExcelTracker(escribirLibro(libroUnaHoja), 'Otro.xlsx', CORTE)
+check(
+  'con varias hojas y ninguna REGISTRO: error que la nombra; con una sola hoja, aunque se llame distinto, la lee',
+  !sinRegistro.ok && sinRegistro.error.includes('REGISTRO') && unaHoja.ok && unaHoja.lectura.filas.length === 3,
+  { sinRegistro, unaHoja: unaHoja.ok ? unaHoja.lectura.filas.length : unaHoja }
+)
+const quienCarga = (cambios: { role?: string; active?: boolean | null }) => ({ id: UUID, full_name: 'Laura Directora', role: 'commercial_director', active: true, ...cambios })
+check(
+  'carga la dirección comercial o el administrador, activos (activo sin dato cuenta como activo, como en la función de la 0920)',
+  problemaDeQuienCarga(quienCarga({})) === null && problemaDeQuienCarga(quienCarga({ role: 'admin' })) === null && problemaDeQuienCarga(quienCarga({ active: null })) === null
+)
+check(
+  'no carga: un uuid que no es de nadie, un usuario inactivo, una líder de negocio ni un Ejecutivo Comercial (sin lideres:seguimiento)',
+  [null, quienCarga({ active: false }), quienCarga({ role: 'line_leader' }), quienCarga({ role: 'sales_manager' })].every(usuario => problemaDeQuienCarga(usuario) !== null)
+)
+
 // ---------------------------------------------------------------------------
 // Supabase FALSO: GET de users, municipalities, lideres_historico(_cargas) y la RPC
 // ---------------------------------------------------------------------------
@@ -261,7 +360,7 @@ async function main() {
   ]
   const carga = { archivo: 'Tracker Líderes.xlsx', huella: 'b'.repeat(64), corte: CORTE, filas: filasCarga }
 
-  console.log('\n6. Vista previa: quién es quién, sin escribir')
+  console.log('\n7. procesarCargaTracker sin confirmar (la vista previa del script): quién es quién, sin escribir')
   const vista = await leer(await procesarCargaTracker({ ...carga, confirmar: false }, 'u-dir'))
   check(
     'reconoce a las dos líderes, dice qué ciudad no es de Colombia y cuenta estados',
@@ -288,11 +387,17 @@ async function main() {
   const aviso = (texto: string) => conAvisos.body.vistaPrevia.lideres.find((item: { lider_texto: string }) => item.lider_texto === texto)?.aviso
   check('la vista previa avisa si la persona reconocida no es líder de negocio o está inactiva', aviso('Carla Ventas') === 'no es líder de negocio' && aviso('Irene Ida') === 'inactiva' && aviso('Ana Líder') === null, conAvisos.body.vistaPrevia.lideres)
 
-  console.log('\n7. Guardar')
+  console.log('\n8. procesarCargaTracker confirmando (--run del script): guardar')
+  const llamadasRpc = () => llamadas.filter(llamada => llamada.ruta === 'rpc/lideres_historico_reemplazar').length
   const sinMigracion = await leer(await procesarCargaTracker({ ...carga, confirmar: true }, 'u-dir'))
   check('sin la migración 0920: 503 con un mensaje claro (la vista previa sí funciona)', sinMigracion.status === 503 && /0920/.test(sinMigracion.body.error), sinMigracion.body)
+  const rpcAntes = llamadasRpc()
   const desconocida = await leer(await procesarCargaTracker({ ...carga, filas: [...filasCarga, { ...FILA, fila: 5, lider_texto: 'Nadie Conocido' }], confirmar: true }, 'u-dir'))
-  check('una líder que no está en OpMap: 400 que la nombra, y no guarda', desconocida.status === 400 && desconocida.body.error.includes('"Nadie Conocido"'), desconocida.body)
+  check(
+    'una líder que no está en OpMap: 400 que la nombra, y no guarda (ni llama a la función de reemplazo)',
+    desconocida.status === 400 && desconocida.body.error.includes('"Nadie Conocido"') && llamadasRpc() === rpcAntes,
+    desconocida.body
+  )
   migracionAplicada = true
   const guardado = await leer(await procesarCargaTracker({ ...carga, confirmar: true }, 'u-dir'))
   const rpc = llamadas.filter(llamada => llamada.ruta === 'rpc/lideres_historico_reemplazar').pop()
@@ -300,7 +405,7 @@ async function main() {
   check('200: guarda las 3 con su usuario y su código DANE (Verona sin código)', guardado.status === 200 && guardado.body.guardado.filas === 3 && enviado?.p_filas.map(f => `${f.user_id}:${f.municipio_id}`).join() === 'u-ana:11001,u-ana:null,u-beto:13001', { body: guardado.body, enviado })
   check('quién guardó y qué archivo', enviado?.p_user === 'u-dir' && enviado.p_carga.archivo === 'Tracker Líderes.xlsx' && enviado.p_carga.huella === 'b'.repeat(64))
 
-  console.log('\n8. Leer el histórico guardado')
+  console.log('\n9. Leer el histórico guardado (GET)')
   const historico = await leer(await leerHistoricoTracker())
   check(
     'la última carga y las filas con el nombre de OpMap y de la ciudad',
@@ -311,6 +416,71 @@ async function main() {
   migracionAplicada = false
   const sinTabla = await leer(await leerHistoricoTracker())
   check('sin la migración: disponible = false, sin filas', sinTabla.status === 200 && sinTabla.body.disponible === false && sinTabla.body.filas.length === 0, sinTabla.body)
+
+  console.log('\n10. El script de punta a punta (Excel → procesarCargaTracker → lo que imprime) y la ruta sin POST')
+  if (!lecturaExcel) check('el Excel de la sección 6 se leyó', false)
+  else {
+    const escrituras = () => llamadas.filter(llamada => llamada.metodo !== 'GET').length
+    const escriturasAntes = escrituras()
+    const previa = await procesarCargaTracker(cuerpoDeCarga(lecturaExcel, false), 'u-dir')
+    const lineasPrevia = lineasResultado(lecturaExcel, previa.status, (await previa.json()) as RespuestaCarga, false)
+    const textoPrevia = lineasPrevia.join('\n')
+    check(
+      'sin --run: filas y estados, cada líder con su usuario, la ciudad sin código, las fechas ilegibles y las filas sin líder; termina en "Nada guardado." y no escribe',
+      previa.status === 200 &&
+        textoPrevia.includes('Vista previa: 3 actividades (1 realizadas, 0 canceladas, 1 sin cerrar y 1 planificadas).') &&
+        textoPrevia.includes('"Ana Líder" → Ana María Líder (u-ana) · 2 filas') &&
+        textoPrevia.includes('"Beto Líder" → Beto Líder Dos (u-beto) · 1 fila') &&
+        textoPrevia.includes('\n  Verona: 1') &&
+        textoPrevia.includes('Fechas ilegibles (se guardan sin fecha, solo con sus dígitos y separadores): 1.') &&
+        textoPrevia.includes('Filas sin líder (no se guardan): 1.') &&
+        lineasPrevia[lineasPrevia.length - 1] === 'Nada guardado.' &&
+        escrituras() === escriturasAntes,
+      lineasPrevia
+    )
+    check('lo que imprime no trae nombres de médicos, observaciones ni el tipo escrito a mano', !textoPrevia.match(/Secret|Juan|rodilla|Dr\.|paciente|1234/), lineasPrevia)
+    const vistaConDesconocida: RespuestaCarga = {
+      vistaPrevia: {
+        filas: 1,
+        lideres: [{ lider_texto: 'Nadie Conocido', filas: 1, user_id: null, nombre: null, aviso: null }],
+        ciudadesSinCodigo: [],
+        ciudades: [],
+        porEstado: { realizada: 1, cancelada: 0, sin_cerrar: 0, planificada: 0 },
+        fechasIlegibles: 0,
+      },
+    }
+    const desconocidaScript = lineasResultado(lecturaExcel, 200, vistaConDesconocida, false)
+    check(
+      'sin --run y con una líder que no está en OpMap: lo marca y avisa que --run se rechazaría',
+      desconocidaScript.includes('  "Nadie Conocido" → NO ESTÁ EN OPMAP · 1 fila') && desconocidaScript.some(linea => linea.startsWith('Con --run se rechazaría')) && desconocidaScript[desconocidaScript.length - 1] === 'Nada guardado.',
+      desconocidaScript
+    )
+    const sinTablaRun = await procesarCargaTracker(cuerpoDeCarga(lecturaExcel, true), 'u-dir')
+    const lineasSinTabla = lineasResultado(lecturaExcel, sinTablaRun.status, (await sinTablaRun.json()) as RespuestaCarga, true)
+    check(
+      '--run sin la 0920: dice el error 503 y "Nada guardado."',
+      sinTablaRun.status === 503 && lineasSinTabla.some(linea => linea.startsWith('Error 503: Falta aplicar la migración 0920')) && lineasSinTabla[lineasSinTabla.length - 1] === 'Nada guardado.',
+      lineasSinTabla
+    )
+    migracionAplicada = true
+    const conRun = await procesarCargaTracker(cuerpoDeCarga(lecturaExcel, true), 'u-dir')
+    const lineasRun = lineasResultado(lecturaExcel, conRun.status, (await conRun.json()) as RespuestaCarga, true)
+    const rpcScript = llamadas.filter(llamada => llamada.ruta === 'rpc/lideres_historico_reemplazar').pop()?.cuerpo as { p_filas: Fila[]; p_user: string; p_carga: Fila } | undefined
+    check(
+      '--run: guarda las 3 filas del Excel con su número, su usuario y su código, la huella del archivo y quién carga, y lo dice',
+      conRun.status === 200 &&
+        lineasRun[lineasRun.length - 1] === 'Guardado: 3 actividades (carga carga-1). El histórico anterior se reemplazó.' &&
+        rpcScript?.p_filas.map(f => `${f.fila}:${f.user_id}:${f.municipio_id}`).join() === '4:u-ana:11001,6:u-ana:null,7:u-beto:13001' &&
+        rpcScript.p_carga.huella === lecturaExcel.huella &&
+        rpcScript.p_user === 'u-dir',
+      { lineasRun, rpcScript }
+    )
+  }
+  check(
+    'la ruta /api/lideres/historico solo tiene GET: el Excel ya no se sube desde la página',
+    typeof rutaHistorico.GET === 'function' && ['POST', 'PUT', 'PATCH', 'DELETE'].every(metodo => !(metodo in rutaHistorico)),
+    Object.keys(rutaHistorico)
+  )
 
   console.log(`\nResultado: ${passed} OK, ${failed} con fallo`)
   if (failed > 0) process.exit(1)

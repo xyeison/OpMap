@@ -25,10 +25,13 @@ import {
   type ValorQuery,
 } from './http'
 import { parteAudio } from './subida-audio'
+import { cuerpoCancelar, cuerpoMotivo } from './agenda-ciclo'
 import type {
   AgendaResponse,
   CamposDictadoResponse,
   CitaCreate,
+  CitaEliminadaResponse,
+  CitaOtraFecha,
   CitaResponse,
   ContextoResponse,
   CuotaResponse,
@@ -37,6 +40,7 @@ import type {
   LoginMovilResponse,
   MeResponse,
   MisDiasLibresResponse,
+  MotivoElegible,
   NumerosResponse,
   PropuestaResponse,
   TipoVisita,
@@ -294,22 +298,72 @@ export function vozCampos(transcript: string, tipo: TipoVisita): Promise<CamposD
   })
 }
 
-// --- Agenda (F4.1, migración 0840) ---------------------------------------------------------------------------
+// --- Agenda (F4.1, migración 0840; ciclo de vida desde la 0850) ----------------------------------------------
+// Lo que cierra, cancela, elimina o pide otra fecha cambia las citas de hoy: después del 2xx el contexto en memoria deja
+// de servir (invalidarContexto('cita')) y Hoy vuelve a pedir. Sin la API de F1a (un servidor anterior) esas rutas
+// responden 404 sin { error }: el mensaje es "Esto todavía no está disponible en el servidor." (lib/errores.ts).
 
-/** Sus citas (sin fechas: de hoy a hoy + 7; como mucho 31 días; sin las canceladas salvo `canceladas`). 503 sin la 0840. */
+/**
+ * Sus citas (sin fechas: de hoy a hoy + 7; como mucho 31 días; también hacia atrás). Sin `canceladas`, solo las
+ * pendientes y las hechas; con él, también las canceladas y las que no se hicieron. Las eliminadas nunca.
+ */
 export function agenda(desde?: string, hasta?: string, canceladas?: boolean): Promise<AgendaResponse> {
   return peticion<AgendaResponse>('/api/me/agenda', { query: { desde, hasta, canceladas: canceladas ? 'true' : undefined } })
 }
 
-/** Agenda una cita (201). 400 con { error, errores? } por forma, ventana, día libre, perfil, médico, cuenta o subtipo; 409 repetida. */
+/**
+ * Agenda una cita (201). 400 con { error, errores? } por forma, fecha, hora pasada, día libre, perfil, médico, cuenta o
+ * subtipo; 409 repetida o choque de media hora (con el error en `hora`). Sin tope hacia adelante.
+ */
 export function agendar(cuerpo: CitaCreate): Promise<CitaResponse> {
   return peticion<CitaResponse>('/api/me/agenda', { metodo: 'POST', cuerpo })
 }
 
-/** Cancela una cita propia pendiente de hoy en adelante (el motivo es opcional, hasta 300 caracteres). */
-export function cancelarCita(id: string, motivo?: string | null): Promise<CitaResponse> {
-  const limpio = motivo?.trim() ? motivo.trim().slice(0, 300) : null
-  return peticion<CitaResponse>(`/api/me/agenda/${encodeURIComponent(id)}/cancelar`, { metodo: 'POST', cuerpo: { motivo: limpio } })
+/** El motivo que eligió (de la lista, sin 'salida') y lo que escribió (con 'otro', de 3 a 300 caracteres). */
+export interface MotivoDeCierre {
+  motivo_codigo: MotivoElegible
+  motivo?: string | null
+}
+
+/**
+ * Cancela una cita propia pendiente de hoy en adelante, con motivo OBLIGATORIO (A8). 400 cerrada o de ayer; 404 ajena.
+ * `conCicloDeVida` false (el servidor no tiene F1a: conCicloDeVida de lib/persona.ts): solo `{ motivo }`, con lo escrito
+ * o la etiqueta del motivo elegido (cuerpoCancelar).
+ */
+export async function cancelarCita(id: string, motivo: MotivoDeCierre, conCicloDeVida = true): Promise<CitaResponse> {
+  const respuesta = await peticion<CitaResponse>(`/api/me/agenda/${encodeURIComponent(id)}/cancelar`, {
+    metodo: 'POST',
+    cuerpo: cuerpoCancelar(motivo.motivo_codigo, motivo.motivo, conCicloDeVida),
+  })
+  invalidarContexto('cita')
+  return respuesta
+}
+
+/** "No se hizo" (A7, C7): cierra una cita propia pendiente de su día o anterior con su motivo. 400 cerrada o futura; 404. */
+export async function cerrarCita(id: string, motivo: MotivoDeCierre): Promise<CitaResponse> {
+  const respuesta = await peticion<CitaResponse>(`/api/me/agenda/${encodeURIComponent(id)}/cerrar`, {
+    metodo: 'POST',
+    cuerpo: cuerpoMotivo(motivo.motivo_codigo, motivo.motivo),
+  })
+  invalidarContexto('cita')
+  return respuesta
+}
+
+/** "Eliminar: lo agendé por error" (C8): una cita propia pendiente de hoy en adelante; no cuenta en nada. 400; 404. */
+export async function eliminarCita(id: string): Promise<CitaEliminadaResponse> {
+  const respuesta = await peticion<CitaEliminadaResponse>(`/api/me/agenda/${encodeURIComponent(id)}/eliminar`, { metodo: 'POST', cuerpo: {} })
+  invalidarContexto('cita')
+  return respuesta
+}
+
+/**
+ * "Agendar otra fecha" (A7): una cita NUEVA enlazada a la anterior, que debe estar cerrada y sin otra fecha (201 con
+ * viene_de). 400 sigue programada o efectiva; 409 ya tiene otra fecha o choque de media hora; 404.
+ */
+export async function otraFechaCita(id: string, cuerpo: CitaOtraFecha): Promise<CitaResponse> {
+  const respuesta = await peticion<CitaResponse>(`/api/me/agenda/${encodeURIComponent(id)}/otra-fecha`, { metodo: 'POST', cuerpo })
+  invalidarContexto('cita')
+  return respuesta
 }
 
 // --- Números y cuota -----------------------------------------------------------------------------------------

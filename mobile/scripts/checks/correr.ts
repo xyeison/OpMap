@@ -14,6 +14,7 @@ const ARCHIVOS: Record<string, () => Promise<{ pruebas: ArchivoDePruebas }>> = {
   '18-tiempos': () => import('./18-tiempos'),
   '19-pantallas': () => import('./19-pantallas'),
   '20-estilo': () => import('./20-estilo'),
+  '21-persona': () => import('./21-persona'),
 }
 
 async function main() {
