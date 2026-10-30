@@ -24,7 +24,7 @@ import { randomUUID } from 'node:crypto'
 import { NextRequest } from 'next/server'
 import { passwordVersion, SESSION_COOKIE_NAME, signSession } from '../lib/session'
 import { dvNit } from '../lib/secop'
-import { SUBTIPOS_SEMILLA } from '../lib/terceros'
+import { MENSAJE_DOC_MEDICO_CC_CE, SUBTIPOS_SEMILLA } from '../lib/terceros'
 import { todayInBogota } from '../app/api/executives/_lib/executive-shared'
 import { GET as listarCuentas, POST as crearCuenta } from '../app/api/terceros/cuentas/route'
 import { POST as buscarCuentas } from '../app/api/terceros/cuentas/buscar/route'
@@ -981,6 +981,17 @@ async function main() {
         await crearMedico(apiRequest('/api/terceros/medicos', { method: 'POST', userId: VENTAS_ID, body: medicoNuevo({ sedes: [{ sede_id: randomUUID(), rol: 'atiende' }] }) }))
       )
       check('médico con una sede que no existe → 400', sedeFalsa.status === 400 && tablas.medicos.length === 0, sedeFalsa)
+      // Dueño, 2026-10-30: solo cédula de ciudadanía (CC) o de extranjería (CE), también por la API
+      const otrosTipos = await Promise.all(
+        ['PA', 'PEP', 'PPT', 'otro'].map(async tipo =>
+          leer(await crearMedico(apiRequest('/api/terceros/medicos', { method: 'POST', userId: VENTAS_ID, body: medicoNuevo({ tipo_documento: tipo, numero_documento: 'X1234567' }) })))
+        )
+      )
+      check(
+        'crear un médico con pasaporte, PEP, PPT u "otro" → 400 con el mensaje de CC o CE, y nada guardado',
+        otrosTipos.every(r => r.status === 400 && r.body?.error === MENSAJE_DOC_MEDICO_CC_CE) && tablas.medicos.length === 0,
+        otrosTipos.map(r => [r.status, r.body?.error])
+      )
 
       const creado = await leer(await crearMedico(apiRequest('/api/terceros/medicos', { method: 'POST', userId: VENTAS_ID, body: medicoNuevo() })))
       medicoId = creado.body?.id ?? ''
@@ -1513,6 +1524,14 @@ async function main() {
         detalle.body.contactos.length === 2 && detalle.body.sedes[0].id === SEDE_CLINICA_2 && detalle.body.sedes[0].es_principal === true,
         detalle.body
       )
+
+      // Los dados de baja son historia (revisión 2026-10-30): su teléfono se puede usar en uno nuevo, y reactivarlo con el
+      // teléfono de otro activo de la cuenta → 409
+      const bajaLuz = await leer(await editarContacto(apiRequest(`/api/terceros/contactos/${otraCuenta.body.id}`, { method: 'PATCH', body: { activo: false } }), params(otraCuenta.body.id)))
+      const nuevaLuz = await leer(await crearContacto(apiRequest('/api/terceros/contactos', { method: 'POST', userId: VENTAS_ID, body: { cuenta_id: OTRA_CUENTA, nombre: 'Luz M. Mora', telefono: '300 123 4567' } })))
+      check('el teléfono de un contacto dado de baja se puede usar en uno nuevo de la misma cuenta → 201', bajaLuz.status === 200 && nuevaLuz.status === 201, { baja: bajaLuz.status, nueva: nuevaLuz.body })
+      const reactivar = await leer(await editarContacto(apiRequest(`/api/terceros/contactos/${otraCuenta.body.id}`, { method: 'PATCH', body: { activo: true } }), params(otraCuenta.body.id)))
+      check('reactivar uno con el teléfono de otro activo de la cuenta → 409 con ese otro', reactivar.status === 409 && reactivar.body?.existente?.id === nuevaLuz.body?.id, reactivar.body)
 
       const subtipos = await leer(await listarSubtipos(apiRequest('/api/terceros/subtipos', { userId: VIEWER_ID })))
       check(

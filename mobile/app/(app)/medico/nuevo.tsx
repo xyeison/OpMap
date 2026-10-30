@@ -4,7 +4,8 @@
  * (POST /api/terceros/medicos/verificar): si ya existe se muestra el existente y se usa ese; si hay nombres
  * parecidos se ofrecen. Las sedes salen de las cercanas, del buscador de sedes o de "Crear consultorio" (una cuenta
  * consultorio con el GPS del sitio). Al crear, vuelve a la pantalla que lo pidió: Reportar, con el médico puesto en la
- * tarjeta, o Agendar (CLAVE_RETORNO_AGENDAR, 2026-10-30), que lo elige. Desde Agendar no se está en el sitio: el
+ * tarjeta, o Agendar (CLAVE_RETORNO_AGENDAR, 2026-10-30), que lo elige al volver (medicoParaAgendar: Agendar se monta de
+ * cero y toma su vuelta). Desde Agendar no se está en el sitio: el
  * consultorio queda sin ubicación. El documento solo viaja en el cuerpo de las peticiones y nunca se muestra en listas.
  *
  * Spec 2026-10-15: cada error va junto a su campo (erroresNuevoMedico) y "Verificar" / "Crear médico" quedan fijos al
@@ -22,7 +23,7 @@ import { erroresNuevoMedico } from '../../../lib/pantallas'
 import { medicoParaReportar, sedeConsultorio } from '../../../lib/propuesta'
 import { sinCortes } from '../../../lib/reglas'
 import { SoloEnFoco } from '../../../lib/montaje'
-import { CLAVE_RETORNO_AGENDAR, avisarRetorno, leerPedido } from '../../../lib/retorno'
+import { CLAVE_RETORNO_AGENDAR, avisarRetorno, leerPedido, medicoParaAgendar } from '../../../lib/retorno'
 import {
   ESPECIALIDADES,
   ROLES_MEDICO_SEDE,
@@ -87,7 +88,9 @@ function NuevoMedico() {
     // GPS de aquí está a 0 m). Las demás quedan "desconocidas" y decide el servidor.
     const conocidas = new Map(distancias)
     for (const sede of sedes) if (sede.distancia_m !== null) conocidas.set(sede.sede_id, sede.distancia_m)
-    avisarRetorno({ tipo: 'medico', clave, medico: medicoParaReportar(medico, conocidas) })
+    // Agendar no está montado (SoloEnFoco): el médico va a su vuelta; Reportar sí oye el aviso
+    if (clave === CLAVE_RETORNO_AGENDAR) medicoParaAgendar(medico.id)
+    else avisarRetorno({ tipo: 'medico', clave, medico: medicoParaReportar(medico, conocidas) })
     setNumero('')
     if (router.canGoBack()) router.back()
     else router.replace(clave === CLAVE_RETORNO_AGENDAR ? '/agenda/nueva' : '/reportar')

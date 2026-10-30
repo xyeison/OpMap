@@ -4,7 +4,7 @@
  * lo pidió (por su clave). Vive en memoria mientras la app está abierta: no guarda nada (y nunca documentos).
  */
 import type { Punto } from './geo'
-import type { MedicoOpcion, SedeOpcion } from './propuesta'
+import type { FormularioCita, MedicoOpcion, SedeOpcion } from './propuesta'
 import type { ContactoContexto, VisitaCreate } from './tipos'
 
 export type Retorno =
@@ -16,10 +16,38 @@ export type Retorno =
 type Oyente = (retorno: Retorno) => void
 
 /**
- * La clave con que Agendar pide "Crear médico" (dueño, 2026-10-30: "debería dejarme crearlo si no lo encuentra"): el
- * mismo Nuevo médico de Reportar avisa con ella y Agendar lo elige. Reportar no tiene tarjeta con esa clave.
+ * La clave con que Agendar pide "Crear médico" (dueño, 2026-10-30: "debería dejarme crearlo si no lo encuentra"): con
+ * ella, Nuevo médico no avisa (Agendar no está montado para oírlo) sino que deja el médico en la vuelta de abajo.
  */
 export const CLAVE_RETORNO_AGENDAR = 'agendar'
+
+// ---------------------------------------------------------------------------------------------
+// La vuelta a Agendar (revisión 2026-10-30): Agendar se desmonta al abrir Nuevo médico (SoloEnFoco) y se monta de cero
+// al volver, así que ni oye el aviso ni recuerda lo que llevaba. Antes de ir, deja aquí su formulario; Nuevo médico suma
+// el médico creado (o el que ya estaba con ese documento); Agendar lo toma al montarse. En memoria, una sola vez y por
+// VIGENCIA_VUELTA_AGENDAR_MS; nunca documentos.
+// ---------------------------------------------------------------------------------------------
+
+export const VIGENCIA_VUELTA_AGENDAR_MS = 30 * 60_000
+
+let vueltaAgendar: { formulario: FormularioCita; medicoId: string | null; desde: number } | null = null
+
+export function guardarAgendarAntesDeCrear(formulario: FormularioCita, ahora: number = Date.now()): void {
+  vueltaAgendar = { formulario, medicoId: null, desde: ahora }
+}
+
+/** Nuevo médico, pedido desde Agendar: el médico que quedó (creado o el que ya estaba). Sin vuelta guardada, nada. */
+export function medicoParaAgendar(medicoId: string): void {
+  if (vueltaAgendar) vueltaAgendar = { ...vueltaAgendar, medicoId }
+}
+
+/** Al montarse Agendar: lo que llevaba y el médico, una sola vez (después, null). Vencida, null. */
+export function tomarVueltaAgendar(ahora: number = Date.now()): { formulario: FormularioCita; medicoId: string | null } | null {
+  const vuelta = vueltaAgendar
+  vueltaAgendar = null
+  if (!vuelta || ahora - vuelta.desde > VIGENCIA_VUELTA_AGENDAR_MS) return null
+  return { formulario: vuelta.formulario, medicoId: vuelta.medicoId }
+}
 
 const oyentes = new Set<Oyente>()
 /** Lo último que llegó sin nadie escuchando (Reportar se volvió a montar): se entrega al suscribirse. */

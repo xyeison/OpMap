@@ -1,9 +1,11 @@
 'use client'
 
 // Médicos (/medicos, menú Terceros): vuelve el 2026-10-30 (dueño: "En la web también, recuerda que son 1 sola tabla para
-// web+app"). La misma tabla y la misma API que la app de visita: lista con buscador, detalle y "Nuevo médico", que solo
-// se crea con cédula de ciudadanía (CC) o de extranjería (CE). Permisos: terceros:view para ver, terceros:create para
-// crear, terceros:manage para editar y ver documentos, visitantes:manage para asignar visitantes.
+// web+app"). La misma tabla y la misma API que la app de visita: lista con buscador, detalle y crear, que solo se hace con
+// cédula de ciudadanía (CC) o de extranjería (CE). Crear sin repetir (dueño, 2026-10-30): "Nuevo médico" arriba solo si
+// la lista cabe en una página; con más, se busca por nombre y "Crear médico" aparece cuando la búsqueda no encuentra a
+// nadie, con ese nombre. Permisos: terceros:view para ver, terceros:create para crear, terceros:manage para editar y ver
+// documentos, visitantes:manage para asignar visitantes.
 // Spec: docs/specs/2026-10-30-medicos-y-contactos-sin-duplicados.md.
 import { useCallback, useState } from 'react'
 import ProtectedRoute from '@/components/ProtectedRoute'
@@ -15,7 +17,7 @@ import MedicoForm from '@/components/terceros/MedicoForm'
 import MedicosTab from '@/components/terceros/MedicosTab'
 import { AvisoOk } from '@/components/terceros/comun'
 
-type Abierto = { tipo: 'medico'; id: string } | { tipo: 'cuenta'; id: string } | { tipo: 'nuevo-medico' }
+type Abierto = { tipo: 'medico'; id: string } | { tipo: 'cuenta'; id: string } | { tipo: 'nuevo-medico'; nombre?: string }
 
 export default function MedicosPage() {
   return (
@@ -46,6 +48,12 @@ function MedicosContenido() {
   const [abierto, setAbierto] = useState<Abierto | null>(null)
   const [version, setVersion] = useState(0)
   const [aviso, setAviso] = useState('')
+  /** Si la lista pasa de una página (null: aún no se sabe): con varias, se busca primero y se crea desde la búsqueda. */
+  const [hayVariasPaginas, setHayVariasPaginas] = useState<boolean | null>(null)
+  const crearConNombre = useCallback((nombre: string) => {
+    setAviso('')
+    setAbierto({ tipo: 'nuevo-medico', nombre })
+  }, [])
 
   const refrescar = useCallback(() => setVersion(v => v + 1), [])
   const cerrar = useCallback(() => setAbierto(null), [])
@@ -61,7 +69,7 @@ function MedicosContenido() {
             <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white">Médicos</h1>
             <p className="text-gray-300 mt-2 text-sm sm:text-base">Las sedes donde atienden y quién los visita. Los mismos de la app de visita.</p>
           </div>
-          {puedeCrear && (
+          {puedeCrear && hayVariasPaginas === false && (
             <button
               type="button"
               onClick={() => {
@@ -85,7 +93,7 @@ function MedicosContenido() {
         </div>
       )}
 
-      <MedicosTab version={version} onAbrir={abrirMedico} />
+      <MedicosTab version={version} onAbrir={abrirMedico} onCrear={puedeCrear ? crearConNombre : undefined} onPaginacion={setHayVariasPaginas} />
 
       {abierto?.tipo === 'medico' && (
         <MedicoDetalleModal
@@ -113,6 +121,7 @@ function MedicosContenido() {
 
       {abierto?.tipo === 'nuevo-medico' && (
         <MedicoForm
+          nombreInicial={abierto.nombre}
           puedeAdministrar={puedeAdministrar}
           onCerrar={cerrar}
           onAbrirMedico={abrirMedico}

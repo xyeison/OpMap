@@ -84,9 +84,11 @@ interface Props {
   /** Abrir un médico que ya existe (documento repetido o nombre parecido). */
   onAbrirMedico: (id: string) => void
   puedeAdministrar: boolean
+  /** El nombre que se buscó y no estaba (Médicos: "Crear médico" desde la búsqueda). */
+  nombreInicial?: string
 }
 
-export default function MedicoForm({ onCerrar, onCreado, onAbrirMedico, puedeAdministrar }: Props) {
+export default function MedicoForm({ onCerrar, onCreado, onAbrirMedico, puedeAdministrar, nombreInicial }: Props) {
   // Documento y verificación
   const [tipoDoc, setTipoDoc] = useState<TipoDocMedicoNuevo>('CC')
   const [numeroDoc, setNumeroDoc] = useState('')
@@ -97,7 +99,7 @@ export default function MedicoForm({ onCerrar, onCreado, onAbrirMedico, puedeAdm
   const [parecidos, setParecidos] = useState<MedicoVerificarRespuesta['parecidos']>([])
 
   // Datos
-  const [nombre, setNombre] = useState('')
+  const [nombre, setNombre] = useState(nombreInicial ?? '')
   const [especialidades, setEspecialidades] = useState<EspecialidadMedico[]>([])
   const [municipio, setMunicipio] = useState<string | null>(null)
   const [ciudad, setCiudad] = useState<string | null>(null)

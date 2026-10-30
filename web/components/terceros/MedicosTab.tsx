@@ -5,6 +5,8 @@
 // { items: [{ id, nombre, especialidades, municipality_id, ciudad, sedes, visitantes, activo }], total, page }.
 // Nunca trae el documento. Un visitante vigente que ya no cumple la regla (Ejecutivo Comercial inactivo o sin esa
 // línea) sale marcado "Revisar". Tabla en escritorio y tarjetas en el celular.
+// Crear sin repetir (dueño, 2026-10-30): la página muestra "Nuevo médico" solo si la lista cabe en una página
+// (onPaginacion); con más, se busca por nombre y "Crear médico" aparece aquí cuando la búsqueda no encuentra a nadie.
 import { useEffect, useRef, useState } from 'react'
 import { TERCEROS_POR_PAGINA, etiquetaEspecialidad, etiquetaRolMedicoSede, type MedicoListItem } from '@/lib/terceros'
 import MunicipioSelector from './MunicipioSelector'
@@ -32,7 +34,19 @@ function textoVisitantes(medico: MedicoListItem): string {
   return medico.visitantes.map(v => `${v.executive} · ${v.line}${v.aviso ? ' (revisar)' : ''}`).join(' · ')
 }
 
-export default function MedicosTab({ version, onAbrir }: { version: number; onAbrir: (id: string) => void }) {
+export default function MedicosTab({
+  version,
+  onAbrir,
+  onCrear,
+  onPaginacion,
+}: {
+  version: number
+  onAbrir: (id: string) => void
+  /** Crear con el nombre buscado (sin el permiso, no se pasa y no se ofrece). */
+  onCrear?: (nombre: string) => void
+  /** Si la lista SIN filtros pasa de una página (lo que decide si la página muestra "Nuevo médico"). */
+  onPaginacion?: (hayVariasPaginas: boolean) => void
+}) {
   const [texto, setTexto] = useState('')
   const [municipio, setMunicipio] = useState<string | null>(null)
   const [soloMios, setSoloMios] = useState(false)
@@ -68,7 +82,10 @@ export default function MedicosTab({ version, onAbrir }: { version: number; onAb
           visitantes: Array.isArray(medico.visitantes) ? medico.visitantes : [],
         }))
         setItems(lista)
-        setTotal(totalDe(respuesta.data, lista.length))
+        const cuantos = totalDe(respuesta.data, lista.length)
+        setTotal(cuantos)
+        // Sin filtros, el total es el de todos los médicos: decide si se ofrece "Nuevo médico" o se busca primero
+        if (!busqueda && !municipio && !soloMios) onPaginacion?.(cuantos > TERCEROS_POR_PAGINA)
       } catch (err) {
         if (miTurno !== turno.current) return
         setError(mensajeExcepcion(err, 'No se pudieron cargar los médicos'))
@@ -134,10 +151,23 @@ export default function MedicosTab({ version, onAbrir }: { version: number; onAb
           <Cargando texto="Cargando médicos..." />
         ) : items.length === 0 ? (
           <div className="text-center py-12 px-4">
-            <h3 className="text-sm font-medium text-gray-900">No se encontraron médicos</h3>
+            <h3 className="text-sm font-medium text-gray-900">{busqueda ? `No encontré a "${busqueda}"` : 'No se encontraron médicos'}</h3>
             <p className="mt-1 text-sm text-gray-500">
-              {hayFiltros ? 'Prueba con otros términos de búsqueda o con otros filtros' : 'Crea el primer médico para comenzar'}
+              {busqueda && onCrear
+                ? 'Si no está en OpMap, créalo con su cédula: así no queda repetido.'
+                : hayFiltros
+                  ? 'Prueba con otros términos de búsqueda o con otros filtros'
+                  : 'Crea el primer médico para comenzar'}
             </p>
+            {busqueda && onCrear && (
+              <button
+                type="button"
+                onClick={() => onCrear(busqueda)}
+                className="mt-4 w-full sm:w-auto px-5 py-3 bg-gray-900 text-white rounded-lg hover:bg-gray-800 shadow-md font-medium"
+              >
+                Crear médico
+              </button>
+            )}
           </div>
         ) : (
           <div className={cargando ? 'opacity-60 transition-opacity' : ''}>

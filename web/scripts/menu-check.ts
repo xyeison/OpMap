@@ -264,7 +264,19 @@ check(
   '/medicos muestra los médicos (MedicosTab, MedicoDetalleModal y MedicoForm) con terceros:view, ya no "Próximamente"',
   !paginaMedicos.includes('@/components/Proximamente') && /<MedicosTab /.test(paginaMedicos) && /<MedicoDetalleModal/.test(paginaMedicos) && /<MedicoForm/.test(paginaMedicos) && /permission="terceros:view"/.test(paginaMedicos)
 )
+check(
+  '/medicos: "Nuevo médico" arriba solo si la lista cabe en una página; si no, "Crear médico" desde la búsqueda que no encontró a nadie, con ese nombre (dueño, 2026-10-30)',
+  /\{puedeCrear && hayVariasPaginas === false && \(/.test(paginaMedicos) &&
+    /<MedicosTab [^>]*onCrear=\{puedeCrear \? crearConNombre : undefined\} onPaginacion=\{setHayVariasPaginas\}/.test(paginaMedicos) &&
+    /nombreInicial=\{abierto\.nombre\}/.test(paginaMedicos)
+)
 const COMPONENTES_TERCEROS = path.join(__dirname, '..', 'components', 'terceros')
+const listaMedicos = readFileSync(path.join(COMPONENTES_TERCEROS, 'MedicosTab.tsx'), 'utf8')
+check(
+  'la lista de médicos: sin filtros avisa si pasa de una página; con una búsqueda sin resultados ofrece "Crear médico" con lo buscado',
+  /if \(!busqueda && !municipio && !soloMios\) onPaginacion\?\.\(cuantos > TERCEROS_POR_PAGINA\)/.test(listaMedicos) &&
+    /\{busqueda && onCrear && \([\s\S]{0,200}onClick=\{\(\) => onCrear\(busqueda\)\}[\s\S]{0,200}Crear médico/.test(listaMedicos)
+)
 const formularioMedico = readFileSync(path.join(COMPONENTES_TERCEROS, 'MedicoForm.tsx'), 'utf8')
 const detalleMedico = readFileSync(path.join(COMPONENTES_TERCEROS, 'MedicoDetalleModal.tsx'), 'utf8')
 check(

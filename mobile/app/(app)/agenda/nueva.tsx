@@ -93,7 +93,7 @@ import {
 } from '../../../lib/persona'
 import { cambiarFormularioCita, errorDe, formularioCitaVacio, horaDeCita, sedesDeCuentaBuscada, type FormularioCita } from '../../../lib/propuesta'
 import { conQuienCita } from '../../../lib/reglas'
-import { CLAVE_RETORNO_AGENDAR, escucharRetorno, fijarPedido } from '../../../lib/retorno'
+import { CLAVE_RETORNO_AGENDAR, fijarPedido, guardarAgendarAntesDeCrear, tomarVueltaAgendar } from '../../../lib/retorno'
 import { useSesion } from '../../../lib/sesion'
 import { etiquetaClaseCuenta, etiquetaEspecialidad } from '../../../lib/terceros'
 import {
@@ -198,7 +198,9 @@ function NuevaCita({ fechaPedida, horaPedida, pedido }: { fechaPedida?: string; 
   /** En una pantalla baja, la semana (con "Ver mes"): así "¿A qué hora?" cae en la primera pantalla. */
   const vistaInicial = vistaCalendarioAgendar(altoPantalla)
   const [vistaCalendario, setVistaCalendario] = useState(vistaInicial)
-  const [formulario, setFormulario] = useState<FormularioCita>(() => ({
+  /** Volviendo de "Crear médico": lo que llevaba y el médico que quedó (lib/retorno.ts, una sola vez). */
+  const [vuelta] = useState(() => tomarVueltaAgendar())
+  const [formulario, setFormulario] = useState<FormularioCita>(() => vuelta?.formulario ?? ({
     ...formularioCitaVacio(fechaDeUrl ?? fechaInicialAgendar(hoy), []),
     hora: typeof horaDeUrl === 'string' ? horaDeUrl : '',
     // Otra fecha: el mismo tipo y "con quién" de la anterior (los copia el servidor), su sede y su nota.
@@ -410,30 +412,29 @@ function NuevaCita({ fechaPedida, horaPedida, pedido }: { fechaPedida?: string; 
   }
 
   /**
-   * "¿No está en OpMap? Crear médico" (dueño, 2026-10-30): el mismo Nuevo médico de Reportar, completo y con CC o CE. Al
-   * volver (escucharRetorno, abajo) se elige.
+   * "Crear médico" (dueño, 2026-10-30): aparece en la búsqueda de OpMap cuando no encontró a nadie, con lo que se buscó
+   * como nombre. Es el mismo Nuevo médico de Reportar, completo y con CC o CE. Agendar se desmonta al ir: deja su
+   * formulario en la vuelta (lib/retorno.ts) y al volver lo recupera con el médico que quedó (efecto de abajo).
    */
-  const crearMedico = () => {
-    fijarPedido({ clave: CLAVE_RETORNO_AGENDAR, municipio: contexto?.ejecutiva?.municipio ?? null, sedes: [] })
+  const crearMedico = (nombre: string) => {
+    guardarAgendarAntesDeCrear(formulario)
+    fijarPedido({ clave: CLAVE_RETORNO_AGENDAR, nombre, municipio: contexto?.ejecutiva?.municipio ?? null, sedes: [] })
     router.push('/medico/nuevo')
   }
 
   /**
-   * El médico recién creado (o el que ya estaba con ese documento): se trae el contexto de nuevo, porque el que crea una
-   * líder ya es de sus líneas (0950) y llega en sus médicos; si no llega, se busca como uno de OpMap (agregarMedico no
-   * elige, como líder, al que no es de sus líneas: entonces se dice).
+   * El médico que quedó en Nuevo médico (creado, o el que ya estaba con ese documento): si está entre los suyos del
+   * contexto recién traído (el que crea una líder ya es de sus líneas, 0950), se elige; si no, se trae como uno de OpMap
+   * (agregarMedico no elige, como líder, al que no es de sus líneas: entonces se dice).
    */
-  const ponerMedicoCreado = async (id: string) => {
+  const ponerMedicoCreado = async (id: string, ctx: ContextoResponse) => {
     setAvisoPedido(null)
+    const propio = medicosDelPapel(ctx.mis_medicos, persona, como).find(m => m.id === id)
+    if (propio) {
+      cambiar({ medico_id: propio.id, sede_id: propio.sedes.length === 1 ? propio.sedes[0].id : null })
+      return
+    }
     try {
-      invalidarContexto('terceros')
-      const ctx = await api.contexto(null)
-      setContexto(ctx)
-      const propio = medicosDelPapel(ctx.mis_medicos, persona, como).find(m => m.id === id)
-      if (propio) {
-        cambiar({ medico_id: propio.id, sede_id: propio.sedes.length === 1 ? propio.sedes[0].id : null })
-        return
-      }
       const { medico: publico } = await api.medico(id)
       agregarMedico(publico)
       if (comoLider && !medicoDelPapel(lineasDeBusqueda(publico, hoy), persona, como)) {
@@ -443,15 +444,13 @@ function NuevaCita({ fechaPedida, horaPedida, pedido }: { fechaPedida?: string; 
       setAvisoPedido('El médico quedó en OpMap: búscalo arriba por su nombre.')
     }
   }
-  const alVolverDeCrear = useRef(ponerMedicoCreado)
-  alVolverDeCrear.current = ponerMedicoCreado
-  useEffect(
-    () =>
-      escucharRetorno(retorno => {
-        if (retorno.tipo === 'medico' && retorno.clave === CLAVE_RETORNO_AGENDAR) void alVolverDeCrear.current(retorno.medico.id)
-      }),
-    []
-  )
+  const vueltaAplicada = useRef(false)
+  useEffect(() => {
+    if (!contexto || !vuelta?.medicoId || vueltaAplicada.current) return
+    vueltaAplicada.current = true
+    void ponerMedicoCreado(vuelta.medicoId, contexto)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contexto])
 
   const ponerCuenta = async (item: { id: string; nombre: string; clase: string | null }, sedePreferida?: string | null): Promise<boolean> => {
     setErrorCuenta(null)
@@ -669,9 +668,8 @@ function NuevaCita({ fechaPedida, horaPedida, pedido }: { fechaPedida?: string; 
               opciones={medicos.map(m => ({ id: m.id, titulo: m.nombre, detalle: m.detalle, lateral: conCita.get(m.id) ?? (m.propio ? null : 'Buscado') }))}
               alElegir={elegirMedico}
               error={error('medico_id')}
-              vacio="Aún no tienes médicos asignados: escribe su nombre arriba para buscarlo en OpMap, o créalo."
+              vacio="Aún no tienes médicos asignados: escribe su nombre arriba para buscarlo en OpMap; si no está, ahí mismo lo creas."
               tituloElegido={medico?.nombre ?? null}
-              extra={<Boton titulo="¿No está en OpMap? Crear médico" variante="texto" alPresionar={crearMedico} />}
               buscarFuera={{
                 donde: 'OpMap',
                 resultados: (consulta, cerrar) => (
@@ -685,6 +683,9 @@ function NuevaCita({ fechaPedida, horaPedida, pedido }: { fechaPedida?: string; 
                     titulo={item => item.nombre}
                     detalle={item => [item.especialidades.map(etiquetaEspecialidad).join(', '), item.ciudad].filter(Boolean).join(' · ') || null}
                     sinResultados={comoLider ? 'No encontré a nadie de tus líneas de líder con ese nombre en OpMap.' : 'No encontré a nadie con ese nombre en OpMap.'}
+                    siNoHay={buscado => (
+                      <Boton titulo="Crear médico" detalle={`"${buscado}" no está: créalo con su cédula`} variante="secundario" alPresionar={() => crearMedico(buscado)} />
+                    )}
                     alElegir={item => {
                       agregarMedico(item)
                       cerrar()

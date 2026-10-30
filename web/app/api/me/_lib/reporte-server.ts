@@ -24,7 +24,7 @@ import OpenAI from 'openai'
 import Anthropic from '@anthropic-ai/sdk'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { fetchAllRows, jsonError } from '@/app/api/kams/_lib/kam-shared'
-import { leerPorIds, mensajeRegla, nombresMunicipios, sinTablaMedicoLineas, type ErrorBase } from '@/app/api/terceros/_lib/terceros-server'
+import { leerMedicoLineas, leerPorIds, mensajeRegla, nombresMunicipios, type ErrorBase } from '@/app/api/terceros/_lib/terceros-server'
 import {
   calcularCuotaDetallada,
   errorVisitas,
@@ -708,14 +708,7 @@ async function lineasDeEjecutivasActivas(executiveIds: Iterable<string>): Promis
  */
 async function lineasPropias(campo: 'medico_id' | 'line_id', ids: readonly string[]): Promise<LineaPropiaMedico[]> {
   if (ids.length === 0) return []
-  try {
-    return await leerPorIds<LineaPropiaMedico>(ids, (trozo, from, to) =>
-      supabaseAdmin.from('medico_lineas').select('medico_id, line_id, desde').in(campo, trozo).order('medico_id').order('line_id').range(from, to)
-    )
-  } catch (error) {
-    if (sinTablaMedicoLineas(error)) return []
-    throw error
-  }
+  return leerMedicoLineas(campo, ids)
 }
 
 /**

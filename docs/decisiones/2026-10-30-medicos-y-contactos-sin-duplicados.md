@@ -17,17 +17,27 @@
 - **El médico que crea una líder queda de sus líneas de líder** desde ese día (`medico_lineas`), para que pueda
   agendarlo y reportarlo enseguida (C9). La dirección le asigna el Ejecutivo Comercial visitante cuando quiera
   (decisión de Claude por encargo del dueño).
+- **Crear sin repetir, desde la búsqueda** (dueño, 2026-10-30, al ver la maqueta):
+  - en Médicos de la web, "Nuevo médico" aparece solo si la lista cabe en una página;
+  - con más, se busca por nombre y "Crear médico" aparece cuando la búsqueda no encuentra a nadie, con ese nombre;
+  - en la app (Agendar y Reportar), igual: "Crear médico" está en la búsqueda de OpMap cuando no hay resultados.
 - **Contactos:**
   - nombre, y teléfono o correo (al menos uno), en la web y en la app;
-  - si en la misma cuenta ya hay uno con ese teléfono (se comparan los dígitos) o ese correo, no se crea otro: se
-    ofrece el que ya está;
+  - si en la misma cuenta ya hay uno activo con ese teléfono (se comparan los dígitos) o ese correo, no se crea otro:
+    se ofrece el que ya está;
+  - los dados de baja no cuentan: su teléfono se puede usar en uno nuevo, y reactivar uno que choca con otro activo da
+    409 (decisión de Claude en la revisión, para que un contacto inactivo no deje sin salida);
   - el mismo teléfono en otra cuenta sí se permite (decisión de Claude).
 - **Visita institucional:**
-  - el contacto es obligatorio al reportar;
+  - el contacto es obligatorio al reportar (lo revisa la validación después de la idempotencia: una visita sin contacto
+    guardada antes de la regla y reenviada por la cola sin señal vuelve como repetida);
   - si no está, se crea ahí mismo ("Nuevo contacto");
   - la cita de Agendar no guarda contacto.
-- Se borran, con respaldo, los 10 médicos de prueba (documento "otro") y lo que los usaba, todo de las pruebas del 13
-  al 15 de octubre: vínculos médico-sede, visitantes, citas y 4 visitas anuladas.
+- Se borran, con respaldo, los 10 médicos de prueba y lo que los usaba, todo de las pruebas del 13 al 15 de octubre:
+  - van por su id, y la migración se detiene si alguno ya no es de prueba;
+  - con ellos se van sus vínculos médico-sede, sus visitantes, 23 citas canceladas y 4 visitas anuladas.
+- **Migración autorizada** por el dueño el 2026-10-30 ("autorizo el aplicar la migración"). Antes, un ensayo en
+  producción que se deshizo (la 0950 y su rollback en una sola transacción) devolvió las cifras esperadas.
 
 **Consecuencias**:
 - **Migración 0950** (rollback 9960), que se aplica solo con autorización del dueño:

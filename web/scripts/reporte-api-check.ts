@@ -511,6 +511,8 @@ function fakeSupabase(tablas: Tablas) {
     sin0840: false,
     /** La base sin la 0850: sin las columnas user_id, motivo_codigo, no_realizada_*, eliminada_*, viene_de ni las funciones nuevas. */
     sin0850: false,
+    /** La base sin la 0950: medico_lineas no existe (PGRST205). */
+    sin0950: false,
     rechazoForzado: null as string | null,
     /** Error crudo de PostgREST que devuelve la próxima RPC visitas_* (para probar qué sale en los logs). */
     errorRpc: null as Fila | null,
@@ -563,7 +565,8 @@ function fakeSupabase(tablas: Tablas) {
     return mapa
   }
   const medicoEsDeLineas = (medicoId: string, lineas: readonly string[], fecha: string) =>
-    medicoDeLineasPura(medicoId, lineas, store('medico_visitantes') as VisitanteMedico[], lineasEjecutivasActivas(), fecha, store('medico_lineas') as LineaPropiaMedico[])
+    // Sin la 0950, medico_de_lineas no mira medico_lineas (no existe)
+    medicoDeLineasPura(medicoId, lineas, store('medico_visitantes') as VisitanteMedico[], lineasEjecutivasActivas(), fecha, estado.sin0950 ? [] : (store('medico_lineas') as LineaPropiaMedico[]))
 
   /** Visitas efectivas de la PERSONA (0850: por user_id) ese día, no anuladas, para los topes. */
   const deHoy = (user: string, fecha: string, extra: (v: Fila) => boolean, excluir?: string) =>
@@ -1068,6 +1071,8 @@ function fakeSupabase(tablas: Tablas) {
         if (nueva && !(estado.sin0830 && table === 'visits')) return pgError('42703', `column ${table}.${nueva} does not exist`, 400)
       }
     }
+
+    if (estado.sin0950 && table === 'medico_lineas') return pgError('PGRST205', "Could not find the table 'public.medico_lineas' in the schema cache", 404)
 
     if (estado.sin0840) {
       if (table === 'rpc/agenda_crear' || table === 'rpc/agenda_cancelar') return pgError('PGRST202', `Could not find the function public.${table.slice(4)} in the schema cache`, 404)
@@ -1778,6 +1783,18 @@ async function main() {
       })
       const filaInst = porId(inst.body?.visita?.id)
       check('institucional con subtipo y contacto: 201, copia subtipo_codigo y suma a la institucional', inst.status === 201 && filaInst?.subtipo_codigo === 'compras' && inst.body.visita.cuenta_para === 'institucional' && inst.body.visita.contacto?.nombre === 'Luis Pérez' && inst.body.visita.subtipo?.codigo === 'compras', inst.body)
+
+      // Revisión 2026-10-30: una institucional sin contacto guardada antes de la regla, cuya respuesta se perdió, vuelve
+      // como repetida al reenviarla la cola sin señal (el contacto lo exige validarVisita, después de la idempotencia)
+      const filaVieja = filaVisitaApp({ visit_date: '2026-09-20', tipo: 'institucional', medico_id: null, cuenta_id: C1, sede_id: S1, subtipo_id: SUBTIPO_ID.compras, subtipo_codigo: 'compras', contacto_id: null })
+      tablas.visits.push(filaVieja)
+      const reenvio = await pedir(reportarVisita, '/api/me/visitas', {
+        method: 'POST',
+        body: cuerpoVisita({ client_id: filaVieja.client_id, tipo: 'institucional', medico_id: null, cuenta_id: C1, subtipo_id: SUBTIPO_ID.compras }),
+        portador: true,
+      })
+      tablas.visits.splice(tablas.visits.indexOf(filaVieja), 1)
+      check('una institucional sin contacto de antes de la regla, reenviada por la cola sin señal → 201 repetida (no 400)', reenvio.status === 201 && reenvio.body.repetida === true && reenvio.body.visita?.id === filaVieja.id, reenvio.body)
 
       // Berta: solo institucional, telefónica con tope 1.
       // Berta llama desde su casa (a 5 km): el GPS del teléfono NUNCA queda en la visita ni en el mapa de calor.
@@ -3380,6 +3397,21 @@ async function main() {
         check('la líder agenda enseguida al médico que creó (C9) → 201 como líder', citaNuevo.status === 201 && citaNuevo.body.cita.como === 'lider', citaNuevo.body)
         const nuevoDeAdmin = await pedir(crearMedico, '/api/terceros/medicos', { method: 'POST', userId: ADMIN_ID, body: { tipo_documento: 'CE', numero_documento: 'E77001', nombre: 'Dr. Del Admin', especialidades: ['columna'], municipality_id: '68001', sedes: [{ sede_id: S1, rol: 'atiende' }] } })
         check('quien no lidera líneas (administrador) crea un médico sin medico_lineas', nuevoDeAdmin.status === 201 && !tablas.medico_lineas.some(f => f.medico_id === nuevoDeAdmin.body.id), nuevoDeAdmin.body)
+
+        // Revisión 2026-10-30: sin la 0950 (medico_lineas no existe) la app de las líderes sigue funcionando: nada da 500
+        fake.estado.sin0950 = true
+        try {
+          const ctxSin0950 = await pedir(verContexto, '/api/me/contexto', { portador: true, userId: LIDER_ID })
+          const medicoSin0950 = await pedir(crearMedico, '/api/terceros/medicos', { method: 'POST', portador: true, userId: LIDER_ID, body: { tipo_documento: 'CC', numero_documento: '1098765433', nombre: 'Dra. Sin Tabla', especialidades: ['ortopedia'], municipality_id: '68001', sedes: [{ sede_id: S1, rol: 'atiende' }] } })
+          const citaSin0950 = await agendaDe(LIDER_ID, { fecha: '2026-10-17', hora: '11:00', tipo: 'medica', medico_id: idNuevo, sede_id: S1 })
+          check(
+            'sin la 0950: el contexto de la líder da 200, crear un médico da 201 (sin sus líneas) y agendar uno sin visitante da 400 de la regla (no 500)',
+            ctxSin0950.status === 200 && medicoSin0950.status === 201 && citaSin0950.status === 400 && citaSin0950.body?.error === MENSAJE_MEDICO_AJENO,
+            { contexto: ctxSin0950.status, medico: medicoSin0950.status, cita: citaSin0950.status, error: citaSin0950.body?.error }
+          )
+        } finally {
+          fake.estado.sin0950 = false
+        }
 
         const [meLuciaSolo, meAdminSolo, meDirectoraSolo] = await Promise.all([meDe(LIDER_ID), meDe(ADMIN_ID), meDe(DIRECTORA_ID)])
         check(

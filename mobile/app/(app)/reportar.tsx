@@ -918,11 +918,11 @@ export default function Reportar() {
     router.push(rutaAgendar({ fecha: r.proxima }))
   }
 
-  const pedirMedico = (borrador: Borrador) => {
+  const pedirMedico = (borrador: Borrador, nombre?: string) => {
     esperandoCreacion.current = true
     fijarPedido({
       clave: borrador.clave,
-      nombre: borrador.medico_nombre_dicho,
+      nombre: nombre ?? borrador.medico_nombre_dicho,
       municipio: contexto?.ejecutiva.municipio ?? null,
       sedes: catalogo?.sedes ?? [],
       punto,
@@ -1248,7 +1248,7 @@ export default function Reportar() {
               alCambiar={cambios => cambiar(borrador.clave, cambios)}
               alConfirmar={() => void confirmarTarjeta(borrador.clave)}
               alDescartar={() => void descartar(borrador.clave)}
-              alCrearMedico={() => pedirMedico(borrador)}
+              alCrearMedico={nombre => pedirMedico(borrador, nombre)}
               alCrearContacto={() => pedirContacto(borrador)}
               alCrearSede={() => pedirSede(borrador.clave)}
               alAgregarMedico={medico => {

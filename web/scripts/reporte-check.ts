@@ -490,13 +490,16 @@ seccion('4. validarVisita')
   check('institucional sin subtipo_id: lo frena el esquema', !visitaCreateSchema.safeParse(cuerpoInstitucional({ subtipo_id: undefined })).success)
   const contactoAjeno = validar(parsear(cuerpoInstitucional()), { contexto: { contacto: { id: CONT1, cuenta_id: CUENTA2 } } })
   check('contacto de otra cuenta: rechazada', !contactoAjeno.ok && mensajes(contactoAjeno).includes(MENSAJE_CONTACTO_OTRA_CUENTA))
-  const sinContacto = visitaCreateSchema.safeParse(cuerpoInstitucional({ contacto_id: null }))
+  // Dueño, 2026-10-30: la institucional siempre con contacto. Lo exige validarVisita y no el esquema: la idempotencia por
+  // client_id va entre los dos, y una institucional sin contacto guardada antes de la regla vuelve como repetida.
+  const sinContactoEsquema = visitaCreateSchema.safeParse(cuerpoInstitucional({ contacto_id: null }))
+  const sinContacto = sinContactoEsquema.success ? validar(sinContactoEsquema.data, { contexto: { contacto: null } }) : null
   check(
-    'institucional sin contacto: lo frena el esquema en contacto_id (dueño, 2026-10-30)',
-    !sinContacto.success && sinContacto.error.issues.some(issue => issue.path.join('.') === 'contacto_id' && issue.message === MENSAJE_CONTACTO_OBLIGATORIO),
-    sinContacto.success ? null : sinContacto.error.issues
+    'institucional sin contacto: el esquema la deja pasar y validarVisita la frena en contacto_id con MENSAJE_CONTACTO_OBLIGATORIO',
+    sinContactoEsquema.success && !!sinContacto && !sinContacto.ok && sinContacto.errores.some(e => e.campo === 'contacto_id' && e.mensaje === MENSAJE_CONTACTO_OBLIGATORIO),
+    sinContacto?.errores ?? (sinContactoEsquema.success ? null : sinContactoEsquema.error.issues)
   )
-  check('la médica no pide contacto', visitaCreateSchema.safeParse(cuerpoMedica({ contacto_id: null })).success)
+  check('la médica no pide contacto', visitaCreateSchema.safeParse(cuerpoMedica({ contacto_id: null })).success && validar(parsear(cuerpoMedica())).ok)
   const sedeAjena = validar(parsear(cuerpoInstitucional({ cuenta_id: CUENTA2 })))
   check('sede que no es de la cuenta: rechazada', !sedeAjena.ok && mensajes(sedeAjena).includes(MENSAJE_SEDE_NO_DE_LA_CUENTA))
 

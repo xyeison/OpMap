@@ -610,4 +610,21 @@ export async function pruebas(t: Probador): Promise<void> {
         /alCrearContacto=\{\(\) => pedirContacto\(borrador\)\}/.test(reportar)
     )
   }
+
+  // --- Crear médico solo cuando la búsqueda no encuentra a nadie (dueño, 2026-10-30) ---------------------------
+  {
+    const buscador = leer('components/reporte/Buscador.tsx')
+    check(
+      'Buscador: siNoHay se muestra solo cuando la búsqueda terminó sin resultados, con lo que se buscó',
+      /\{!buscando && resultados && resultados\.length === 0 && siNoHay \? siNoHay\(buscado\) : null\}/.test(buscador) && /setResultados\(encontrados\)\s*setBuscado\(texto\)/.test(buscador)
+    )
+    const selectorMedicoTarjeta = entre(tarjetaTs, 'const selectorMedico = (abrir: boolean) => (', 'const selectorSedeMedico')
+    check(
+      'TarjetaBorrador: "Crear médico completo" va en la búsqueda que no encontró a nadie (con lo buscado), ya no siempre a la vista',
+      /siNoHay=\{buscado => \(\s*<Boton titulo="Crear médico completo"[^>]*alPresionar=\{\(\) => props\.alCrearMedico\(buscado\)\}/.test(selectorMedicoTarjeta) &&
+        !/¿No está en OpMap\? Crear médico completo/.test(selectorMedicoTarjeta) &&
+        /alCrearMedico=\{nombre => pedirMedico\(borrador, nombre\)\}/.test(reportar) &&
+        /nombre: nombre \?\? borrador\.medico_nombre_dicho/.test(reportar)
+    )
+  }
 }

@@ -84,7 +84,8 @@ interface Props {
   alCambiar: (cambios: Partial<Borrador>) => void
   alConfirmar: () => void
   alDescartar: () => void
-  alCrearMedico: () => void
+  /** Nuevo médico, con el nombre buscado (desde la búsqueda de OpMap que no encontró nada) o el dictado. */
+  alCrearMedico: (nombre?: string) => void
   /** "Nuevo contacto" de la cuenta de la tarjeta (institucional, 2026-10-30). */
   alCrearContacto: () => void
   alCrearSede: () => void
@@ -234,7 +235,7 @@ export function TarjetaBorrador(props: Props) {
         <Aviso tono="alerta" titulo={`"${borrador.medico_nombre_dicho}" no está entre tus médicos`}>
           <View style={{ gap: 8 }}>
             <Texto peque>Búscalo en OpMap escribiendo su nombre en la lista, o créalo completo (con su documento, que se digita).</Texto>
-            <Boton titulo="Crear médico completo" variante="secundario" alPresionar={props.alCrearMedico} />
+            <Boton titulo="Crear médico completo" variante="secundario" alPresionar={() => props.alCrearMedico()} />
           </View>
         </Aviso>
       ) : null}
@@ -245,7 +246,7 @@ export function TarjetaBorrador(props: Props) {
         opciones={opcionesMedico}
         alElegir={id => props.alCambiar({ medico_id: id })}
         error={error('medico_id')}
-        vacio="Aún no tienes médicos asignados: escribe su nombre arriba para buscarlo en OpMap, o créalo."
+        vacio="Aún no tienes médicos asignados: escribe su nombre arriba para buscarlo en OpMap; si no está, ahí mismo lo creas."
         abiertoInicial={abrir}
         tituloElegido={medico?.nombre ?? null}
         buscarFuera={{
@@ -259,6 +260,10 @@ export function TarjetaBorrador(props: Props) {
               titulo={item => item.nombre}
               detalle={item => [item.especialidades.map(etiquetaEspecialidad).join(', '), item.ciudad].filter(Boolean).join(' · ') || null}
               sinResultados="No encontré a nadie con ese nombre en OpMap."
+              // Dueño, 2026-10-30: crear solo cuando la búsqueda no encuentra a nadie (así no se repite)
+              siNoHay={buscado => (
+                <Boton titulo="Crear médico completo" detalle={`"${buscado}" no está: créalo con su cédula`} variante="secundario" alPresionar={() => props.alCrearMedico(buscado)} />
+              )}
               alElegir={item => {
                 props.alAgregarMedico(medicoDesdeBusqueda(item, catalogo))
                 cerrar()
@@ -266,7 +271,6 @@ export function TarjetaBorrador(props: Props) {
             />
           ),
         }}
-        extra={<Boton titulo="¿No está en OpMap? Crear médico completo" variante="texto" alPresionar={props.alCrearMedico} />}
       />
       {avisoVisitante(medico) ? (
         <Texto peque suave>
