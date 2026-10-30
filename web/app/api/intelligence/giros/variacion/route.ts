@@ -20,6 +20,7 @@ import {
   loadFetchLog,
   loadGirosIntel,
   loadGirosPeriodBounds,
+  loadCoberturaGiros,
   loadIdentificaBounds,
   loadIntelHospitals,
 } from '../../_lib/giros-server'
@@ -40,10 +41,11 @@ export interface VariacionApiResponse extends ResultadoVariaciones {
 }
 
 const NOTAS_COMUNES = [
-  'Cada prestador (NIT) se compara con lo que creció el giro de todas las IPS del país en las mismas ventanas, con la misma fuente y el mismo régimen: solo es noticia si se separa del mercado.',
-  'Confianza: prueba t de Welch sobre el giro mensual (o, si un solo mes explica el cambio, ese mes frente a los de la base), corregida por mirar cientos de IPS a la vez (Benjamini–Hochberg). Alta: q < 0,05; media: p < 0,05; baja: el resto ("sin cambio claro").',
-  'Tendencia: Mann–Kendall sobre los últimos 12 meses (o los que haya) y pendiente de Sen. "Sostenido" = tendencia significativa en la misma dirección.',
-  'La ADRES gira al NIT, no a la sede. Al filtrar por departamento o municipio, cada NIT entra con la parte de sus sedes del filtro (por camas); el % de cambio no se altera.',
+  'El "mercado" son todas las IPS cargadas en OpMap (los NIT que se consultan a la ADRES), no todo el país: cada prestador (NIT) se compara con lo que creció su giro en las mismas ventanas, con la misma fuente y el mismo régimen. Solo es noticia si se separa al menos 10 % de ese ritmo.',
+  'Confianza: dos pruebas contra "creció como el mercado": t de Welch sobre el giro mensual y el mes que más se aparta frente a los de la comparación (corregido por haber elegido el más extremo); se toma la mejor, pagando por usar dos. Luego se corrige por mirar cientos de IPS a la vez (Benjamini–Hochberg, con todas las IPS cargadas, aunque se filtre). Alta: q < 0,05; media (indicio): p < 0,05; baja: el resto.',
+  '"Sostenido": la mayoría de los meses recientes (2 de cada 3) por encima o por debajo de lo esperado. "Pago grande en un mes": un solo mes explica el 60 % o más del cambio. La tendencia de 12 meses (Mann–Kendall y Sen) va en el CSV.',
+  'Solo se comparan los NIT con consulta correcta a la ADRES en todos los meses comparados: un mes sin consultar no es un mes sin giro.',
+  'La ADRES gira al NIT, no a la sede. Al filtrar por departamento o municipio, cada NIT entra con la parte de sus sedes del filtro (por camas); el % de cambio no se altera y el mínimo mensual se mide con el giro de todo el NIT.',
 ]
 
 const NOTA_ENTIDADES: Record<GirosFuente, string> = {
@@ -56,7 +58,8 @@ const NOTA_ENTIDADES: Record<GirosFuente, string> = {
 //      &line=<code>&departamento=<DANE 2>&municipio=<DANE 5>&regimen=todos|contributivo|subsidiado&fuente=auto|reporte29|identifica
 // IPS (por NIT) cuyo giro cambió fuera de lo normal (spec docs/specs/2026-10-29-giros-variaciones.md). Misma fuente
 // automática que /api/intelligence/giros. Lee la RPC adres_giros_intel una vez por tramo de meses (base, reciente y lo
-// que falte de la tendencia): sin Google, sin escribir. Permiso intelligence:view; line, como en /giros, solo si es del
+// que falte de la tendencia) y la bitácora adres_fetch_log (qué meses se consultaron de cada NIT): sin Google, sin
+// escribir. Permiso intelligence:view; line, como en /giros, solo si es del
 // usuario. 400 si la comparación pide meses que no están cargados (el mensaje dice cuántos).
 export async function GET(request: NextRequest) {
   const auth = await requirePermission(request, 'intelligence:view')
@@ -127,7 +130,11 @@ export async function GET(request: NextRequest) {
     const v = ventanas.value
 
     const tramos = [v.base, v.reciente, ...v.extra]
-    const partes = (await Promise.all(tramos.map(tramo => loadGirosIntel(fuente, tramo.desde, tramo.hasta, query.regimen)))).map(parseIntel)
+    const [cobertura, ...intel] = await Promise.all([
+      loadCoberturaGiros(fuente),
+      ...tramos.map(tramo => loadGirosIntel(fuente, tramo.desde, tramo.hasta, query.regimen)),
+    ])
+    const partes = intel.map(parseIntel)
     const series = new Map<string, Record<string, number>>()
     for (const parte of partes) {
       for (const nit of parte.nits) {
@@ -149,6 +156,7 @@ export async function GET(request: NextRequest) {
       filtro: { departamento: query.departamento, municipio: query.municipio },
       minimoMensual: variacion.minimoMensual,
       conEjecutivo: line !== null,
+      cobertura,
     })
 
     const body: VariacionApiResponse = {

@@ -29,8 +29,9 @@ departamento, municipio, régimen, fuente y el mes "hasta".
 - Compara los últimos 3, 6 o 12 meses contra los N meses anteriores, o contra los mismos meses del año anterior.
   - Si no hay datos suficientes, la opción queda apagada con el porqué. Ejemplo: 12 meses contra 12 pide 24 meses de
     giros y hoy hay 18.
-- Arriba, una frase con el contexto: "El giro de todas las IPS del país subió 9,7 % (abr–sep 2026 frente a oct
-  2025–mar 2026). 23 IPS subieron bastante más que eso y 8 bajaron."
+- Arriba, una frase con el contexto: "El giro de las 600 IPS cargadas en OpMap subió 9,7 % (abr–sep 2026 frente a
+  oct 2025 – mar 2026). En este filtro, con confianza alta: N por encima de ese ritmo y M por debajo." Los indicios
+  (confianza media) se cuentan aparte.
 - Una fila por prestador (NIT), con:
   - la IPS principal y el número de sedes, municipio y Zona (y el Ejecutivo Comercial si hay línea);
   - el giro antes y después, el cambio en pesos y en %, y el cambio frente al mercado;
@@ -40,40 +41,54 @@ departamento, municipio, régimen, fuente y el mes "hasta".
 - Se puede ver las que suben, las que bajan o todas; con confianza o todas; y fijar el giro mínimo.
 - Se ordena por cambio en pesos, en % o por confianza. Se exporta a CSV.
 
-## Método (la recomendación)
+## Método (la recomendación; ajustado tras la revisión del 2026-10-29)
 1. **Unidad: el NIT**, porque la ADRES gira al NIT. Si se filtra por municipio, la parte de cada NIT se reparte por
-   camas, como en el resto de la página. El % no cambia con ese reparto.
+   camas, como en el resto de la página. El % no cambia con ese reparto. El tamaño mínimo se mide con el giro de todo el
+   NIT.
 2. **Ventana por defecto: los últimos 6 meses contra los 6 anteriores.**
    - 3 meses avisa antes, pero con más ruido.
-   - Contra el año anterior se quita la estacionalidad (diciembre y julio traen pagos grandes). Con 18 meses cargados
-     solo sirve para 3 y 6 meses.
-3. **Ajuste por mercado.** El total del país, con la misma fuente y el mismo régimen, crece por la UPC y por los pagos
-   de la ADRES. Una IPS solo es noticia si se separa de eso. Se reporta el % propio y el "frente al mercado":
-   (1 + cambio) / (1 + cambio del mercado) − 1.
-4. **¿Es cambio o vaivén?** Prueba t de Welch sobre los giros mensuales.
-   - La hipótesis nula es que la IPS creció igual que el mercado.
-   - Da un valor p de dos colas.
-5. **Muchas IPS a la vez.** Con unas 560 pruebas, el 5 % de falsos positivos son unas 28 IPS. Se corrige con
-   Benjamini–Hochberg (valor q).
+   - Contra el año anterior se quita la estacionalidad (julio y diciembre traen pagos grandes). Con 18 meses cargados
+     solo cabe para 3 y 6 meses.
+3. **Mercado = todas las IPS cargadas en OpMap**, con la misma fuente y el mismo régimen. No es todo el país: la ADRES se
+   consulta NIT por NIT para las IPS de OpMap. Una IPS solo es noticia si se separa de ese ritmo al menos un 10 %. Se
+   reporta "frente al mercado": (1 + cambio) / (1 + cambio del mercado) − 1.
+4. **Solo se comparan meses consultados.** Con la bitácora `adres_fetch_log` (consultas ok o sin registros) se dejan
+   fuera, contados aparte, los NIT sin consulta en todos los meses comparados. Un mes sin consultar no es un mes sin
+   giro; si no, una IPS creada después de la carga inicial o una consulta fallida darían "giros nuevos" o "baja".
+5. **¿Cambio o vaivén?** Dos pruebas contra "creció como el mercado":
+   - t de Welch sobre el giro mensual;
+   - el mes reciente que más se aparta, frente a los meses de la comparación (t de predicción), corregido por haber
+     elegido el más extremo de N meses (Šidák: 1 − (1 − p)^N).
+
+   El valor p de la fila es mín(1, 2 × el menor de los dos): Bonferroni por usar dos pruebas.
+6. **Muchas IPS a la vez.** Benjamini–Hochberg con TODAS las IPS cargadas que pasan el mínimo, aunque se filtre un
+   municipio. Filtrar no le quita la corrección a nadie.
    - Confianza **alta**: q < 0,05.
-   - **Media**: p < 0,05 pero q ≥ 0,05.
+   - **Media** (un "indicio", puede ser azar): p < 0,05.
    - **Baja**: el resto.
-6. **Tendencia.** Mann–Kendall sobre los últimos 12 meses (o los que haya), con la pendiente de Sen como % del giro
-   mensual típico. "Sostenido" = tendencia con p < 0,05 en la misma dirección.
-7. **Señal**:
+
+   Por defecto solo se listan las de confianza alta.
+7. **Calibración.** Simulación en las pruebas, sin ningún cambio real, con 1.200 IPS que varían ±25 % al mes:
+   - p < 0,05 en el 2,6 %;
+   - ninguna con confianza alta.
+
+   El primer diseño, que elegía la prueba según los datos, marcaba entre el 8 y el 16 %.
+8. **Señal**:
    - Sube:
-     - **sostenido**: con tendencia;
-     - **en un mes**: un solo mes explica el 60 % o más del aumento, como un pago extraordinario;
-     - **escalón**: el resto.
+     - **sostenido**: 2 de cada 3 meses recientes, o más, por encima de lo esperado;
+     - **pago grande en un mes**: un solo mes explica el 60 % o más del cambio frente al mercado. Es solo una etiqueta:
+       la confianza sale del punto 5;
+     - **sube**: el resto.
    - Baja, con las mismas tres.
-   - **Giros nuevos**: no tenía giros antes.
-   - **Dejó de recibir**: no tiene giros ahora.
-   - **Sin cambio claro**.
-8. **Quién lo explica.** Se compara cada entidad ordenadora entre las dos ventanas y se muestran las 3 que más aportan
-   en la dirección del cambio, marcando "nueva" (no giraba antes) y "dejó de girar". En el subsidiado la ADRES a
-   veces registra el municipio o el departamento en vez de la EPS: se avisa en la nota.
-9. **Tamaño mínimo.** Por defecto, al menos 100 M al mes en promedio en alguna de las dos ventanas. Así no aparecen
-   prestadores diminutos con +900 %. Opciones: todas, ≥ 100 M y ≥ 1.000 M al mes.
+   - "Crece menos que el mercado" o "cae menos que el mercado": cuando el mercado y la IPS van en direcciones distintas.
+   - **Cambio pequeño**: significativo, pero a menos de 10 % del mercado.
+   - **Giros nuevos** y **dejó de recibir**.
+   - La tendencia de 12 meses (Mann–Kendall y pendiente de Sen) va en el CSV, como dato.
+9. **Quién lo explica.** Se compara cada entidad ordenadora entre las dos ventanas y se muestran las 3 que más aportan
+   en la dirección del cambio en pesos, marcando "nueva" (no giraba antes) y "dejó de girar". En el subsidiado la ADRES
+   a veces registra el municipio o el departamento en vez de la EPS: se avisa en la nota.
+10. **Tamaño mínimo.** Por defecto, al menos 100 M al mes en promedio en alguna de las dos ventanas, con el giro de todo
+    el NIT. Opciones: todas, ≥ 100 M y ≥ 1.000 M al mes.
 
 ## Criterios de aceptación (pruebas puras, `web/scripts/giros-variacion-check.ts`)
 - [ ] Ventanas:

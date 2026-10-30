@@ -21,8 +21,8 @@ export const COMPARACIONES: readonly Comparacion[] = ['anterior', 'anio_anterior
 
 /** Tendencia: hasta 12 meses que terminan en el mes "hasta". */
 export const MESES_TENDENCIA = 12
-/** Un mes "explica" el cambio si aporta al menos esta parte del exceso sobre el mercado. */
-export const PARTE_UN_MES = 0.75
+/** Un mes "explica" el cambio si aporta al menos esta parte del cambio frente al mercado (solo es la etiqueta). */
+export const PARTE_UN_MES = 0.6
 /** Significancia de las pruebas (valor p o q). */
 export const ALFA = 0.05
 /**
@@ -315,12 +315,14 @@ export function ventanasVariacion(params: {
 // ---------------------------------------------------------------------------
 
 export type SenalVariacion =
+  /** La mayoría de los meses recientes por encima de lo esperado (MESES_SOSTENIDO). */
   | 'sube_sostenido'
-  | 'sube_escalon'
+  | 'sube'
+  /** Un solo mes explica al menos PARTE_UN_MES del cambio frente al mercado (un pago extraordinario). */
   | 'sube_un_mes'
   | 'giros_nuevos'
   | 'baja_sostenido'
-  | 'baja_escalon'
+  | 'baja'
   | 'baja_un_mes'
   | 'dejo_de_recibir'
   /** Frente al mercado baja, pero en pesos no: crece, menos que el resto. */
@@ -335,11 +337,11 @@ export type ConfianzaVariacion = 'alta' | 'media' | 'baja'
 
 export const SENAL_TEXTO: Record<SenalVariacion, string> = {
   sube_sostenido: 'Sube sostenido',
-  sube_escalon: 'Sube de nivel',
+  sube: 'Sube',
   sube_un_mes: 'Pago grande en un mes',
   giros_nuevos: 'Giros nuevos',
   baja_sostenido: 'Baja sostenido',
-  baja_escalon: 'Baja de nivel',
+  baja: 'Baja',
   baja_un_mes: 'Un mes muy bajo',
   dejo_de_recibir: 'Dejó de recibir',
   crece_menos: 'Crece menos que el mercado',
@@ -359,12 +361,12 @@ export const CONFIANZA_TEXTO: Record<ConfianzaVariacion, string> = { alta: 'Alta
 
 /** Por encima del mercado (incluye los giros nuevos y "cae menos que el mercado"). */
 export function senalSube(senal: SenalVariacion): boolean {
-  return senal === 'sube_sostenido' || senal === 'sube_escalon' || senal === 'sube_un_mes' || senal === 'giros_nuevos' || senal === 'cae_menos'
+  return senal === 'sube_sostenido' || senal === 'sube' || senal === 'sube_un_mes' || senal === 'giros_nuevos' || senal === 'cae_menos'
 }
 
 /** Por debajo del mercado (incluye "dejó de recibir" y "crece menos que el mercado"). */
 export function senalBaja(senal: SenalVariacion): boolean {
-  return senal === 'baja_sostenido' || senal === 'baja_escalon' || senal === 'baja_un_mes' || senal === 'dejo_de_recibir' || senal === 'crece_menos'
+  return senal === 'baja_sostenido' || senal === 'baja' || senal === 'baja_un_mes' || senal === 'dejo_de_recibir' || senal === 'crece_menos'
 }
 
 export interface EntidadCambio {
@@ -401,13 +403,18 @@ export interface VariacionIps {
   variacion: number | null
   /** (1 + variacion) / (1 + variación del mercado) − 1. */
   frenteAlMercado: number | null
-  /** Valor p de la prueba usada (ver `prueba`) y su valor q (Benjamini–Hochberg entre todas las filas). */
+  /**
+   * Valor p de la fila: el menor entre Welch (promedio mensual) y el mes atípico (corregido por Šidák por los meses de
+   * la ventana), multiplicado por 2 (Bonferroni por usar dos pruebas). Su valor q es de Benjamini–Hochberg entre TODOS
+   * los NIT evaluados del país, no solo los del filtro.
+   */
   p: number | null
   q: number | null
-  /** 'nivel': Welch sobre el promedio mensual; 'mes': un mes atípico frente a los de la base; null sin prueba. */
+  /** La prueba que dio el menor valor p: 'nivel' (Welch) o 'mes' (un mes fuera de lo normal); null sin prueba. */
   prueba: 'nivel' | 'mes' | null
+  /** Tendencia de los últimos 12 meses (o los que haya): solo informativa. */
   tendencia: { tau: number; p: number; pendientePct: number | null } | null
-  /** Mes que explica la mayor parte del cambio (PARTE_UN_MES), si lo hay. */
+  /** Mes que explica al menos PARTE_UN_MES del cambio frente al mercado, si lo hay. */
   mesPico: string | null
   senal: SenalVariacion
   confianza: ConfianzaVariacion
@@ -423,30 +430,47 @@ export interface TotalesVariacion {
 }
 
 export interface ResultadoVariaciones {
-  /** Todo el país (todos los NIT con giros de la fuente y el régimen), sin filtros. */
+  /** Todos los NIT cargados en OpMap con los meses completos (sin filtros): el "mercado" con el que se compara. */
   mercado: TotalesVariacion & { nits: number }
   /** Las IPS del filtro, con el reparto por camas (también las pequeñas). */
   grupo: TotalesVariacion & { nits: number }
   filas: VariacionIps[]
   resumen: {
+    /** Filas del filtro (todas las confianzas). */
     evaluadas: number
-    /** Por encima del mercado sin contar los giros nuevos (senalSube). */
-    suben: number
-    /** Por debajo del mercado sin contar "dejó de recibir" (senalBaja). */
-    bajan: number
+    /** Por encima del mercado (senalSube sin los giros nuevos), por confianza. */
+    suben: { alta: number; media: number }
+    /** Por debajo del mercado (senalBaja sin "dejó de recibir"), por confianza. */
+    bajan: { alta: number; media: number }
     nuevas: number
     dejan: number
     /** Sin cambio claro o con un cambio pequeño frente al mercado. */
     sinCambio: number
-    /** NIT del filtro por debajo del mínimo mensual (no se listan). */
+    /** NIT del filtro cuyo giro total (del NIT, no de su parte) está por debajo del mínimo mensual: no se listan. */
     pequenas: number
     /** NIT con giros que no tienen ninguna IPS activa en OpMap (no se listan). */
     sinIps: number
+    /** NIT sin consulta correcta a la ADRES en todos los meses comparados (bitácora): ni se listan ni van al mercado. */
+    sinDatosCompletos: number
+    /** Cuántos NIT entran en la corrección de Benjamini–Hochberg (todo el país). */
+    familia: number
   }
+}
+
+/** Meses consultados a la ADRES de un NIT (bitácora: consultas ok o sin registros), como rangos 'YYYY-MM'. */
+export type CoberturaNits = Map<string, Array<{ desde: string; hasta: string }>>
+
+/** ¿Los rangos consultados cubren todos los meses pedidos? */
+export function cubreMeses(rangos: Array<{ desde: string; hasta: string }> | undefined, meses: string[]): boolean {
+  if (!rangos || rangos.length === 0) return false
+  return meses.every(mes => rangos.some(rango => rango.desde <= mes && mes <= rango.hasta))
 }
 
 const suma = (valores: number[]) => valores.reduce((acc, v) => acc + v, 0)
 const variacionDe = (base: number, reciente: number) => (base > 0 ? reciente / base - 1 : null)
+
+/** Meses recientes (de la ventana) que deben ir por encima (o por debajo) de lo esperado para llamarlo "sostenido". */
+export const mesesSostenido = (ventana: number) => Math.ceil((2 * ventana) / 3)
 
 function ejecutivoDe(hospital: IntelHospital): { nombre: string; color: string | null } {
   if (hospital.executive) return { nombre: hospital.executive.full_name, color: hospital.executive.color }
@@ -477,13 +501,68 @@ export function entidadesDelCambio(
   return out.sort((x, y) => Math.abs(y.cambio) - Math.abs(x.cambio) || x.nombre.localeCompare(y.nombre, 'es')).slice(0, n)
 }
 
+/** Lo que se calcula una vez por NIT, sin filtro: totales, pruebas y forma del cambio. */
+interface PruebaNit {
+  base: number
+  reciente: number
+  pNivel: number | null
+  pMes: number | null
+  p: number | null
+  prueba: VariacionIps['prueba']
+  /** Índice (en la ventana reciente) del mes que más se aparta, y su parte del cambio frente al mercado. */
+  indiceExtremo: number | null
+  parteExtremo: number | null
+  /** Meses recientes por encima (o por debajo, según la dirección) de lo esperado. */
+  mesesEnDireccion: number
+  q: number | null
+}
+
 /**
- * Analiza cada NIT del filtro:
- * - totales de las dos ventanas (con el reparto por camas si el filtro deja fuera sedes del NIT);
- * - Welch contra "creció como el mercado" y Benjamini–Hochberg entre todos los evaluados;
- * - Mann–Kendall y Sen sobre la tendencia, y si un solo mes explica el cambio;
- * - las entidades que lo explican.
- * El mercado es todo el país (series completas, sin filtro), con la misma fuente y régimen.
+ * Pruebas de un NIT contra "creció como el mercado" (factor = 1 + crecimiento del mercado):
+ * - Welch sobre los giros mensuales de las dos ventanas;
+ * - el mes reciente que más se aparta, frente a los meses de la base, con la corrección de Šidák por haber elegido el
+ *   más extremo de N meses: 1 − (1 − p)^N;
+ * - p de la fila = mín(1, 2 × el menor de los dos) (Bonferroni por usar dos pruebas).
+ * Se elige "el mes más extremo" antes de probar, pero la corrección lo paga: bajo la hipótesis nula la fila no da
+ * p < 0,05 más del 5 % de las veces (prueba de calibración en scripts/giros-variacion-check.ts).
+ */
+export function probarNit(base: number[], reciente: number[], factor: number): Omit<PruebaNit, 'q'> {
+  const B = suma(base)
+  const R = suma(reciente)
+  const sinPrueba = { base: B, reciente: R, pNivel: null, pMes: null, p: null, prueba: null, indiceExtremo: null, parteExtremo: null, mesesEnDireccion: 0 }
+  if (B <= 0 || R <= 0) return sinPrueba
+  const esperado = factor * media(base)
+  const exceso = R - factor * B
+  const direccion = Math.sign(exceso)
+  const excesos = reciente.map(v => v - esperado)
+  const indiceExtremo = direccion >= 0 ? excesos.indexOf(Math.max(...excesos)) : excesos.indexOf(Math.min(...excesos))
+  const nivel = welch(reciente, base, factor)
+  const mes = pruebaMesAtipico(reciente[indiceExtremo], base, factor)
+  const pMes = mes ? 1 - Math.pow(1 - mes.p, reciente.length) : null
+  const pNivel = nivel ? nivel.p : null
+  const menor = pNivel === null ? pMes : pMes === null ? pNivel : Math.min(pNivel, pMes)
+  return {
+    base: B,
+    reciente: R,
+    pNivel,
+    pMes,
+    p: menor === null ? null : Math.min(1, 2 * menor),
+    prueba: menor === null ? null : pMes !== null && pMes === menor && (pNivel === null || pMes < pNivel) ? 'mes' : 'nivel',
+    indiceExtremo: exceso !== 0 ? indiceExtremo : null,
+    parteExtremo: exceso !== 0 ? excesos[indiceExtremo] / exceso : null,
+    mesesEnDireccion: direccion === 0 ? 0 : excesos.filter(e => Math.sign(e) === direccion).length,
+  }
+}
+
+/**
+ * Analiza los NIT:
+ * 1. Solo los que tienen consulta correcta a la ADRES en todos los meses comparados (bitácora `cobertura`; null = sin
+ *    bitácora, se toman todos): un mes sin consultar no es un mes sin giro.
+ * 2. El mercado: todos esos NIT, sin filtro, con la misma fuente y régimen.
+ * 3. Las pruebas (probarNit) para cada NIT con IPS activa en OpMap y giro total ≥ mínimo mensual, en TODO el país, y
+ *    Benjamini–Hochberg entre todos ellos: filtrar por municipio no le quita la corrección.
+ * 4. Las filas del filtro, con los pesos según la parte de sus sedes (reparto por camas) y las entidades que explican
+ *    el cambio.
  */
 export function analizarVariaciones(params: {
   hospitals: IntelHospital[]
@@ -497,21 +576,32 @@ export function analizarVariaciones(params: {
   filtro: GirosFilter
   minimoMensual: number
   conEjecutivo: boolean
+  /** Meses consultados de cada NIT (bitácora); null = sin bitácora. */
+  cobertura?: CoberturaNits | null
 }): ResultadoVariaciones {
-  const { hospitals, series, entidadesBase, entidadesReciente, nombresEntidades, ventanas, filtro, minimoMensual, conEjecutivo } = params
+  const { hospitals, series, entidadesBase, entidadesReciente, nombresEntidades, ventanas, filtro, minimoMensual, conEjecutivo, cobertura } = params
   const valoresDe = (nit: string, meses: string[]) => meses.map(mes => series.get(nit)?.[mes] || 0)
+  const comparados = [...ventanas.base.meses, ...ventanas.reciente.meses]
 
-  // Mercado: todos los NIT con giros, sin filtro
+  // 1. Con los meses completos
+  const completos = new Set<string>()
+  let sinDatosCompletos = 0
+  series.forEach((_, nit) => {
+    if (!cobertura || cubreMeses(cobertura.get(nit), comparados)) completos.add(nit)
+    else sinDatosCompletos++
+  })
+
+  // 2. Mercado
   let mercadoBase = 0
   let mercadoReciente = 0
-  series.forEach((_, nit) => {
+  completos.forEach(nit => {
     mercadoBase += suma(valoresDe(nit, ventanas.base.meses))
     mercadoReciente += suma(valoresDe(nit, ventanas.reciente.meses))
   })
   const mercadoVariacion = variacionDe(mercadoBase, mercadoReciente)
   const factorMercado = 1 + (mercadoVariacion ?? 0)
 
-  // Sedes del filtro por NIT, con su parte del giro
+  // Sedes por NIT (todas) y las del filtro
   const partes = sedeShares(hospitals)
   const sedes = sedesPorNit(hospitals)
   const enFiltro = new Map<string, IntelHospital[]>()
@@ -525,59 +615,81 @@ export function analizarVariaciones(params: {
     if (lista) lista.push(hospital)
     else enFiltro.set(nit, [hospital])
   }
-
   let sinIps = 0
   series.forEach((_, nit) => {
     if (!nitsConIps.has(nit)) sinIps++
   })
 
+  // 3. Pruebas de todo el país y Benjamini–Hochberg entre todas
+  const pruebas = new Map<string, PruebaNit>()
+  completos.forEach(nit => {
+    if (!nitsConIps.has(nit)) return
+    const b = valoresDe(nit, ventanas.base.meses)
+    const r = valoresDe(nit, ventanas.reciente.meses)
+    if (suma(b) <= 0 && suma(r) <= 0) return
+    if (Math.max(suma(b), suma(r)) / ventanas.ventana < minimoMensual) return
+    pruebas.set(nit, { ...probarNit(b, r, factorMercado), q: null })
+  })
+  const nitsProbados = Array.from(pruebas.keys())
+  const q = benjaminiHochberg(nitsProbados.map(nit => pruebas.get(nit)!.p))
+  nitsProbados.forEach((nit, index) => {
+    pruebas.get(nit)!.q = q[index]
+  })
+
+  // 4. Filas del filtro
   const grupo = { base: 0, reciente: 0, nits: 0 }
   let pequenas = 0
   const filas: VariacionIps[] = []
+  const umbralSostenido = mesesSostenido(ventanas.ventana)
   enFiltro.forEach((lista, nit) => {
-    if (!series.has(nit)) return
+    if (!completos.has(nit)) return
     const parte = lista.reduce((acc, hospital) => acc + (partes.get(hospital.id) ?? 0), 0)
     const escalar = (valores: number[]) => valores.map(v => v * parte)
-    const b = escalar(valoresDe(nit, ventanas.base.meses))
-    const r = escalar(valoresDe(nit, ventanas.reciente.meses))
-    const base = suma(b)
-    const reciente = suma(r)
+    const base = suma(valoresDe(nit, ventanas.base.meses)) * parte
+    const reciente = suma(valoresDe(nit, ventanas.reciente.meses)) * parte
     if (base <= 0 && reciente <= 0) return
     grupo.base += base
     grupo.reciente += reciente
     grupo.nits++
-    if (Math.max(base, reciente) / ventanas.ventana < minimoMensual) {
+    const prueba = pruebas.get(nit)
+    if (!prueba) {
       pequenas++
       return
     }
 
     const principal = [...lista].sort((x, y) => (y.beds || 0) - (x.beds || 0) || x.name.localeCompare(y.name, 'es'))[0]
     const ejecutivo = conEjecutivo ? ejecutivoDe(principal) : null
-    const variacion = variacionDe(base, reciente)
-    const tendenciaValores = escalar(valoresDe(nit, ventanas.tendencia))
+    const variacion = variacionDe(prueba.base, prueba.reciente)
+    const frenteAlMercado = variacion === null ? null : (1 + variacion) / factorMercado - 1
+    const tendenciaValores = valoresDe(nit, ventanas.tendencia)
     const mk = mannKendall(tendenciaValores)
     const tipico = mediana(tendenciaValores)
-    const exceso = reciente - factorMercado * base
+    const mesesConGiro = (meses: string[]) => valoresDe(nit, meses).filter(v => v > 0).length
 
-    // Si un solo mes explica la mayor parte del exceso sobre el mercado (un pago extraordinario), se prueba ese mes
-    // contra los de la base; si no, Welch sobre el promedio mensual de las dos ventanas.
+    let senal: SenalVariacion = 'sin_cambio'
+    let confianza: ConfianzaVariacion = 'baja'
     let mesPico: string | null = null
-    let prueba: { p: number } | null = null
-    let tipoPrueba: VariacionIps['prueba'] = null
-    if (base > 0 && reciente > 0) {
-      if (exceso !== 0) {
-        const esperado = factorMercado * media(b)
-        const excesos = r.map(v => v - esperado)
-        const indice = exceso > 0 ? excesos.indexOf(Math.max(...excesos)) : excesos.indexOf(Math.min(...excesos))
-        if (excesos[indice] / exceso >= PARTE_UN_MES) {
-          mesPico = ventanas.reciente.meses[indice]
-          prueba = pruebaMesAtipico(r[indice], b, factorMercado)
-          tipoPrueba = prueba ? 'mes' : null
+    if (prueba.base <= 0) {
+      senal = 'giros_nuevos'
+      confianza = mesesConGiro(ventanas.reciente.meses) >= 2 ? 'alta' : 'media'
+    } else if (prueba.reciente <= 0) {
+      senal = 'dejo_de_recibir'
+      confianza = mesesConGiro(ventanas.base.meses) >= 2 ? 'alta' : 'media'
+    } else {
+      confianza = prueba.q !== null && prueba.q < ALFA ? 'alta' : prueba.p !== null && prueba.p < ALFA ? 'media' : 'baja'
+      if (confianza !== 'baja') {
+        if (frenteAlMercado !== null && Math.abs(frenteAlMercado) < CAMBIO_MINIMO_FRENTE_AL_MERCADO) senal = 'cambio_pequeno'
+        else {
+          const sube = prueba.reciente > factorMercado * prueba.base
+          if (prueba.parteExtremo !== null && prueba.indiceExtremo !== null && prueba.parteExtremo >= PARTE_UN_MES) {
+            mesPico = ventanas.reciente.meses[prueba.indiceExtremo]
+            senal = sube ? 'sube_un_mes' : 'baja_un_mes'
+          } else if (prueba.mesesEnDireccion >= umbralSostenido) senal = sube ? 'sube_sostenido' : 'baja_sostenido'
+          else senal = sube ? 'sube' : 'baja'
+          // Frente al mercado sí, en pesos no: que la palabra no diga "baja" de una IPS que creció
+          if (!sube && prueba.reciente >= prueba.base) senal = 'crece_menos'
+          if (sube && prueba.reciente < prueba.base) senal = 'cae_menos'
         }
-      }
-      if (!prueba) {
-        prueba = welch(r, b, factorMercado)
-        tipoPrueba = prueba ? 'nivel' : null
       }
     }
 
@@ -597,69 +709,41 @@ export function analizarVariaciones(params: {
       reciente,
       cambio: reciente - base,
       variacion,
-      frenteAlMercado: variacion === null ? null : (1 + variacion) / factorMercado - 1,
-      p: prueba ? prueba.p : null,
-      q: null,
-      prueba: tipoPrueba,
+      frenteAlMercado,
+      p: prueba.p,
+      q: prueba.q,
+      prueba: prueba.prueba,
       tendencia: mk ? { tau: mk.tau, p: mk.p, pendientePct: tipico > 0 ? pendienteSen(tendenciaValores) / tipico : null } : null,
       mesPico,
-      senal: 'sin_cambio',
-      confianza: 'baja',
+      senal,
+      confianza,
       // Las entidades explican el cambio en pesos (sin descontar el mercado): las que más movieron en su misma dirección
       entidades: entidadesDelCambio(entidadesBase.get(nit), entidadesReciente.get(nit), parte, Math.sign(reciente - base), nombresEntidades),
       serie: escalar(valoresDe(nit, ventanas.meses)),
     })
   })
 
-  // Benjamini–Hochberg entre todas las filas con prueba, y la señal de cada una
-  const q = benjaminiHochberg(filas.map(fila => fila.p))
-  filas.forEach((fila, index) => {
-    fila.q = q[index]
-    const mesesConGiro = (valores: number[]) => valores.filter(v => v > 0).length
-    if (fila.base <= 0) {
-      fila.senal = 'giros_nuevos'
-      fila.confianza = mesesConGiro(valoresDe(fila.nit, ventanas.reciente.meses)) >= 2 ? 'alta' : 'media'
-      return
-    }
-    if (fila.reciente <= 0) {
-      fila.senal = 'dejo_de_recibir'
-      fila.confianza = mesesConGiro(valoresDe(fila.nit, ventanas.base.meses)) >= 2 ? 'alta' : 'media'
-      return
-    }
-    fila.confianza = fila.q !== null && fila.q < ALFA ? 'alta' : fila.p !== null && fila.p < ALFA ? 'media' : 'baja'
-    if (fila.confianza === 'baja') {
-      fila.senal = 'sin_cambio'
-      return
-    }
-    if (fila.frenteAlMercado !== null && Math.abs(fila.frenteAlMercado) < CAMBIO_MINIMO_FRENTE_AL_MERCADO) {
-      fila.senal = 'cambio_pequeno'
-      return
-    }
-    const sube = fila.reciente > factorMercado * fila.base
-    const sostenido = fila.tendencia !== null && fila.tendencia.p < ALFA && (sube ? fila.tendencia.tau > 0 : fila.tendencia.tau < 0)
-    if (fila.mesPico) fila.senal = sube ? 'sube_un_mes' : 'baja_un_mes'
-    else if (sostenido) fila.senal = sube ? 'sube_sostenido' : 'baja_sostenido'
-    else fila.senal = sube ? 'sube_escalon' : 'baja_escalon'
-    // Frente al mercado sí, en pesos no: que la palabra no diga "baja" de una IPS que creció
-    if (!sube && fila.reciente >= fila.base) fila.senal = 'crece_menos'
-    if (sube && fila.reciente < fila.base) fila.senal = 'cae_menos'
-  })
-
   filas.sort((x, y) => Math.abs(y.cambio) - Math.abs(x.cambio) || x.nombre.localeCompare(y.nombre, 'es'))
   const contar = (condicion: (fila: VariacionIps) => boolean) => filas.filter(condicion).length
+  const porConfianza = (en: (senal: SenalVariacion) => boolean, excluir: SenalVariacion) => ({
+    alta: contar(fila => en(fila.senal) && fila.senal !== excluir && fila.confianza === 'alta'),
+    media: contar(fila => en(fila.senal) && fila.senal !== excluir && fila.confianza === 'media'),
+  })
   return {
-    mercado: { base: mercadoBase, reciente: mercadoReciente, variacion: mercadoVariacion, nits: series.size },
+    mercado: { base: mercadoBase, reciente: mercadoReciente, variacion: mercadoVariacion, nits: completos.size },
     grupo: { base: grupo.base, reciente: grupo.reciente, variacion: variacionDe(grupo.base, grupo.reciente), nits: grupo.nits },
     filas,
     resumen: {
       evaluadas: filas.length,
-      suben: contar(fila => senalSube(fila.senal) && fila.senal !== 'giros_nuevos'),
-      bajan: contar(fila => senalBaja(fila.senal) && fila.senal !== 'dejo_de_recibir'),
+      suben: porConfianza(senalSube, 'giros_nuevos'),
+      bajan: porConfianza(senalBaja, 'dejo_de_recibir'),
       nuevas: contar(fila => fila.senal === 'giros_nuevos'),
       dejan: contar(fila => fila.senal === 'dejo_de_recibir'),
       sinCambio: contar(fila => fila.senal === 'sin_cambio' || fila.senal === 'cambio_pequeno'),
       pequenas,
       sinIps,
+      sinDatosCompletos,
+      familia: pruebas.size,
     },
   }
 }

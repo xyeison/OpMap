@@ -12,6 +12,7 @@
 import {
   analizarVariaciones,
   benjaminiHochberg,
+  cubreMeses,
   betaIncompleta,
   entidadesDelCambio,
   logGamma,
@@ -188,6 +189,7 @@ const NIT = {
   sinIps: '900000009',
   rezagada: '900000010',
   chico: '900000011',
+  corrido: '900000012',
 }
 const hospitals: IntelHospital[] = [
   hospital('sube', NIT.sube, '68001', 100),
@@ -201,6 +203,7 @@ const hospitals: IntelHospital[] = [
   hospital('dos-b', NIT.dosSedes, '54001', 10),
   hospital('rezagada', NIT.rezagada, '68001', 20),
   hospital('chico', NIT.chico, '68001', 20),
+  hospital('corrido', NIT.corrido, '68001', 20),
 ]
 // El mercado: un NIT grande sin IPS en OpMap que crece 20 % (fija el crecimiento del país cerca de 20 %)
 const series = new Map<string, Record<string, number>>([
@@ -215,6 +218,8 @@ const series = new Map<string, Record<string, number>>([
   [NIT.dosSedes, serie([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0])],
   [NIT.rezagada, serie([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.03, 1.03, 1.03, 1.03, 1.03, 1.03])],
   [NIT.chico, serie([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.25, 1.25, 1.25, 1.25, 1.25, 1.25])],
+  // Un giro que se corrió de un mes al siguiente: el total sube como el mercado (×1,2), con un mes en 0 y otro doble
+  [NIT.corrido, serie([1.0, 1.01, 0.99, 1.0, 1.01, 0.99, 1.2, 1.2, 0, 2.4, 1.2, 1.2])],
 ])
 // Crecimiento del país calculado aparte, sumando todas las series
 const sumaMeses = (desde: number, hasta: number) => Array.from(series.values()).reduce((acc, porMes) => acc + meses.slice(desde, hasta).reduce((s, mes) => s + (porMes[mes] || 0), 0), 0)
@@ -243,7 +248,7 @@ const resultado = analizarVariaciones({
 })
 const fila = (nit: string) => resultado.filas.find(item => item.nit === nit)
 
-check('el mercado es todo el país (también el NIT sin IPS en OpMap): crece ≈ 20 %', cerca(resultado.mercado.variacion, MERCADO, 1e-9) && cerca(MERCADO, 0.2, 0.01) && resultado.mercado.nits === 11, { mercado: resultado.mercado, MERCADO })
+check('el mercado son todos los NIT cargados (también el que no tiene IPS activa en OpMap): crece ≈ 20 %', cerca(resultado.mercado.variacion, MERCADO, 1e-9) && cerca(MERCADO, 0.2, 0.01) && resultado.mercado.nits === series.size, { mercado: resultado.mercado, MERCADO })
 const sube = fila(NIT.sube)
 check(
   'sube parejo: "sube sostenido" con confianza alta, variación +64 % (11,1 / 6,75) y frente al mercado (1 + 64 %) / (1 + mercado) − 1',
@@ -275,6 +280,14 @@ check(
   chico?.senal === 'cambio_pequeno' && chico.confianza === 'alta' && cerca(chico.frenteAlMercado, 1.25 / (1 + MERCADO) - 1, 1e-9) && !senalSube(chico.senal) && !senalBaja(chico.senal),
   chico
 )
+const corrido = fila(NIT.corrido)
+check(
+  'un giro corrido de un mes al siguiente (total igual al mercado) no es noticia: ni sube ni baja, aunque un mes sea atípico',
+  !!corrido && !senalSube(corrido.senal) && !senalBaja(corrido.senal) && cerca(corrido.frenteAlMercado, 0, 0.01),
+  corrido
+)
+const dosNacional = fila(NIT.dosSedes)
+check('un escalón (1,0 seis meses y 2,0 los otros seis) es "sube sostenido": todos los meses recientes por encima', dosNacional?.senal === 'sube_sostenido', dosNacional)
 eq('textoSenal con el mes del pago grande', textoSenal({ senal: 'sube_un_mes', mesPico: '2026-07' }), 'Pago grande en jul 2026')
 check('la pequeña (menos de 100 M al mes) no se lista y se cuenta', !fila(NIT.pequena) && resultado.resumen.pequenas === 1, resultado.resumen)
 check('el NIT sin IPS en OpMap no se lista y se cuenta', !fila(NIT.sinIps) && resultado.resumen.sinIps === 1, resultado.resumen)
@@ -286,9 +299,10 @@ check(
 check('la fila lleva sede principal, Zona y Ejecutivo Comercial', sube?.nombre === 'IPS sube' && sube.zona === 'Zona Uno' && sube.ejecutivo === 'Ana' && sube.ejecutivo_color === '#123456', sube)
 check('la serie de la minigráfica tiene un valor por mes cargado', sube?.serie.length === meses.length && sube.serie[0] === 1 * M, sube?.serie)
 check(
-  'resumen: suben, bajan, nuevas, dejan y sin cambio suman las evaluadas',
+  'resumen: suben, bajan (por confianza), nuevas, dejan y sin cambio suman las evaluadas',
   resultado.resumen.evaluadas === resultado.filas.length &&
-    resultado.resumen.suben + resultado.resumen.bajan + resultado.resumen.nuevas + resultado.resumen.dejan + resultado.resumen.sinCambio === resultado.resumen.evaluadas,
+    resultado.resumen.suben.alta + resultado.resumen.suben.media + resultado.resumen.bajan.alta + resultado.resumen.bajan.media + resultado.resumen.nuevas + resultado.resumen.dejan + resultado.resumen.sinCambio ===
+      resultado.resumen.evaluadas,
   resultado.resumen
 )
 check('las filas van de mayor a menor cambio en pesos', resultado.filas.every((item, i) => i === 0 || Math.abs(resultado.filas[i - 1].cambio) >= Math.abs(item.cambio)))
@@ -314,6 +328,103 @@ check(
 check('las entidades también van con la parte (+6 mil M × 0,75)', !!dos && cerca(dos.entidades[0]?.cambio, 4.5 * M, 1), dos?.entidades)
 check('sin línea elegida no hay columna de Ejecutivo', dos?.ejecutivo === null)
 check('el mercado no cambia con el filtro', cerca(enBucaramanga.mercado.variacion, resultado.mercado.variacion ?? -1, 1e-12))
+const subeFiltrada = enBucaramanga.filas.find(item => item.nit === NIT.sube)
+check(
+  'la corrección por muchas IPS es de todo el país: al filtrar, la misma IPS conserva su valor q',
+  !!subeFiltrada && !!sube && subeFiltrada.q === sube.q && enBucaramanga.resumen.familia === resultado.resumen.familia,
+  { filtrada: subeFiltrada?.q, nacional: sube?.q }
+)
+const enCucuta = analizarVariaciones({
+  hospitals,
+  series,
+  entidadesBase,
+  entidadesReciente,
+  nombresEntidades,
+  ventanas,
+  filtro: { municipio: '54001' },
+  minimoMensual: 1_000_000_000,
+  conEjecutivo: false,
+})
+const dosEnCucuta = enCucuta.filas.find(item => item.nit === NIT.dosSedes)
+check(
+  'el mínimo se mide con el giro de todo el NIT: su sede de Cúcuta (parte 0,25, 0,5 mil M al mes) se lista con mínimo de 1.000 M',
+  !!dosEnCucuta && cerca(dosEnCucuta.parte, 0.25, 1e-12) && enCucuta.resumen.pequenas === 0,
+  { dosEnCucuta, resumen: enCucuta.resumen }
+)
+
+// Bitácora: un NIT sin consulta en los meses de la base no se compara (no es "giros nuevos") ni entra al mercado
+const coberturaCompleta = { desde: '2025-04', hasta: '2026-09' }
+const cobertura = new Map(Array.from(series.keys()).map(nit => [nit, [coberturaCompleta]]))
+cobertura.set(NIT.nueva, [{ desde: '2026-04', hasta: '2026-09' }])
+const conBitacora = analizarVariaciones({ hospitals, series, entidadesBase, entidadesReciente, nombresEntidades, ventanas, filtro: {}, minimoMensual: 100_000_000, conEjecutivo: false, cobertura })
+check(
+  'sin consulta de los meses de la base: no sale "giros nuevos", se cuenta aparte y no va al mercado',
+  !conBitacora.filas.some(item => item.nit === NIT.nueva) && conBitacora.resumen.sinDatosCompletos === 1 && conBitacora.mercado.nits === series.size - 1,
+  conBitacora.resumen
+)
+cobertura.set(NIT.nueva, [{ desde: '2025-04', hasta: '2025-12' }, { desde: '2026-01', hasta: '2026-09' }])
+const conDosConsultas = analizarVariaciones({ hospitals, series, entidadesBase, entidadesReciente, nombresEntidades, ventanas, filtro: {}, minimoMensual: 100_000_000, conEjecutivo: false, cobertura })
+check('dos consultas seguidas que cubren los meses cuentan como completas', conDosConsultas.filas.some(item => item.nit === NIT.nueva) && conDosConsultas.resumen.sinDatosCompletos === 0, conDosConsultas.resumen)
+check('cubreMeses: sin rangos → no', !cubreMeses(undefined, ['2026-01']) && !cubreMeses([], ['2026-01']))
+
+eq(
+  'quién explica: como mucho 3 entidades, de mayor a menor cambio',
+  entidadesDelCambio({}, { a: 1, b: 4, c: 3, d: 2 }, 1, 1, {}).map(entidad => entidad.clave),
+  ['b', 'c', 'd']
+)
+
+// Calibración bajo la hipótesis nula: todas las IPS crecen en promedio igual que el mercado, con un giro mensual que
+// varía ±25 %. Con pruebas válidas, p < 0,05 sale en ≈ 5 % o menos de las IPS y casi ninguna con confianza alta.
+function prng(semilla: number) {
+  let a = semilla >>> 0
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0
+    let t = a
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+let pruebasNulas = 0
+let menoresA5 = 0
+let altasNulas = 0
+let senalesNulas = 0
+for (const semilla of [11, 22, 33]) {
+  const azar = prng(semilla)
+  const normal = () => {
+    let x = 0
+    while (x === 0) x = azar()
+    return Math.sqrt(-2 * Math.log(x)) * Math.cos(2 * Math.PI * azar())
+  }
+  const hospitalesNulos: IntelHospital[] = []
+  const seriesNulas = new Map<string, Record<string, number>>()
+  for (let i = 0; i < 400; i++) {
+    const nit = String(800000000 + i)
+    hospitalesNulos.push(hospital(`n${i}`, nit, '68001', 10))
+    const nivel = 3e8 * Math.exp(normal())
+    seriesNulas.set(nit, Object.fromEntries(meses.map((mes, k) => [mes, Math.max(0, nivel * (k >= 6 ? 1.1 : 1) * (1 + 0.25 * normal()))])))
+  }
+  const nulo = analizarVariaciones({ hospitals: hospitalesNulos, series: seriesNulas, entidadesBase: new Map(), entidadesReciente: new Map(), ventanas, filtro: {}, minimoMensual: 0, conEjecutivo: false })
+  for (const item of nulo.filas) {
+    if (item.p === null) continue
+    pruebasNulas++
+    if (item.p < 0.05) menoresA5++
+    if (item.confianza === 'alta') altasNulas++
+    if (senalSube(item.senal) || senalBaja(item.senal)) senalesNulas++
+  }
+}
+check(
+  `sin cambios reales, p < 0,05 en ${((menoresA5 / pruebasNulas) * 100).toFixed(1)} % de ${pruebasNulas} IPS (≤ 5,5 %)`,
+  pruebasNulas === 1200 && menoresA5 / pruebasNulas <= 0.055,
+  { menoresA5, pruebasNulas }
+)
+check(`sin cambios reales, ${altasNulas} con confianza alta (≤ 3 de 1.200)`, altasNulas <= 3, { altasNulas })
+check(
+  `sin cambios reales, ${senalesNulas} marcadas como "sube" o "baja" (≤ 5 %: son indicios de confianza media; la vista por defecto solo muestra las de confianza alta)`,
+  senalesNulas / pruebasNulas <= 0.05,
+  { senalesNulas }
+)
+
 
 const todas = analizarVariaciones({
   hospitals,

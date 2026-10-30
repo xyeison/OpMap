@@ -73,7 +73,13 @@ export default function PeriodoGiros({
     if (!disponible) return
     const rango = rangoDePeriodo(valor, disponible)
     if (rango) onCambiar({ periodo: valor, ...rango })
-    else onCambiar({ periodo: PERIODO_PERSONALIZADO, desde: desde ?? disponible.min, hasta: hasta ?? disponible.max })
+    else
+      onCambiar({
+        periodo: PERIODO_PERSONALIZADO,
+        // El rango por defecto de la API puede empezar antes del primer mes con datos (fuente con menos de 12 meses)
+        desde: ajustarAlDisponible(desde ?? disponible.min, disponible),
+        hasta: ajustarAlDisponible(hasta ?? disponible.max, disponible),
+      })
   }
 
   return (

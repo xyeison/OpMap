@@ -1,8 +1,8 @@
 'use client'
 
 // "IPS con cambios fuera de lo normal" en Inteligencia › Giros (spec 2026-10-29-giros-variaciones). Compara los últimos
-// 3, 6 o 12 meses de cada prestador (NIT) con los anteriores o con el año anterior, frente a lo que creció todo el país,
-// y dice qué tan confiable es el cambio. Datos: GET /api/intelligence/giros/variacion con los filtros de la página.
+// 3, 6 o 12 meses de cada prestador (NIT) con los anteriores o con el año anterior, frente a lo que creció el giro de
+// todas las IPS cargadas en OpMap, y dice qué tan confiable es el cambio. Datos: GET /api/intelligence/giros/variacion con los filtros de la página.
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import type { VariacionApiResponse } from '@/app/api/intelligence/giros/variacion/route'
@@ -24,6 +24,14 @@ import { mesCorto, type MesesDisponibles } from '@/lib/periodo-giros'
 
 type Mostrar = 'suben' | 'bajan' | 'todas'
 type Orden = 'pesos' | 'porcentaje' | 'confianza'
+/** Desde qué confianza se listan: por defecto solo las de confianza alta (corregidas por mirar muchas IPS a la vez). */
+type ConfianzaMinima = 'alta' | 'media' | 'todas'
+
+const CONFIANZAS: Array<{ valor: ConfianzaMinima; etiqueta: string }> = [
+  { valor: 'alta', etiqueta: 'Solo confianza alta' },
+  { valor: 'media', etiqueta: 'Alta e indicios' },
+  { valor: 'todas', etiqueta: 'Todas' },
+]
 
 const PAGINA = 25
 const SELECT = 'rounded-lg border border-gray-300 px-3 py-2 bg-white text-sm'
@@ -104,13 +112,21 @@ function Entidades({ fila }: { fila: VariacionIps }) {
   )
 }
 
+/** Un número con decimales para Excel en español ("-12,5"): sale de un número, así que no puede ser una fórmula. */
+class Decimal {
+  constructor(readonly texto: string) {}
+}
+const decimal = (valor: number | null | undefined, cifras = 1): Decimal | null =>
+  valor === null || valor === undefined || !Number.isFinite(valor) ? null : new Decimal(valor.toLocaleString('es-CO', { maximumFractionDigits: cifras, useGrouping: false }))
+
 function construirCsv(data: VariacionApiResponse, filas: VariacionIps[]): string {
   const lineas: string[] = []
-  const agregar = (celdas: Array<string | number | null | undefined>) => lineas.push(celdas.map(csvCell).join(';'))
+  const agregar = (celdas: Array<string | number | Decimal | null | undefined>) =>
+    lineas.push(celdas.map(celda => (celda instanceof Decimal ? celda.texto : csvCell(celda))).join(';'))
   const conEjecutivo = data.line !== null
-  const pct = (fraccion: number | null) => (fraccion === null ? '' : (Math.round(fraccion * 1000) / 10).toLocaleString('es-CO'))
+  const pct = (fraccion: number | null) => decimal(fraccion === null ? null : fraccion * 100)
   agregar([`Comparación: ${data.ventanas.texto}`, `Fuente: ${data.fuente === 'identifica' ? 'ADRES Identifica tu Giro' : 'ADRES Reporte 29'}`, `Régimen: ${data.regimen}`])
-  agregar([`Mercado (todas las IPS del país): ${pct(data.mercado.variacion)} %`])
+  agregar([`Mercado (las ${data.mercado.nits} IPS cargadas en OpMap) (%)`, pct(data.mercado.variacion)])
   agregar([
     'NIT',
     'IPS',
@@ -151,9 +167,9 @@ function construirCsv(data: VariacionApiResponse, filas: VariacionIps[]): string
       CONFIANZA_TEXTO[fila.confianza],
       fila.p === null ? '' : fila.p.toExponential(2),
       fila.q === null ? '' : fila.q.toExponential(2),
-      fila.tendencia ? (Math.round(fila.tendencia.tau * 100) / 100).toLocaleString('es-CO') : '',
+      decimal(fila.tendencia?.tau, 2),
       fila.tendencia ? fila.tendencia.p.toExponential(2) : '',
-      fila.tendencia ? pct(fila.tendencia.pendientePct) : '',
+      pct(fila.tendencia?.pendientePct ?? null),
       fila.entidades.map(entidad => `${entidad.nombre} ${Math.round(entidad.cambio)}${entidad.nueva ? ' (nueva)' : entidad.dejo ? ' (dejó de girar)' : ''}`).join(' | '),
     ])
   }
@@ -195,7 +211,7 @@ export default function GirosVariaciones({
   const [comparacion, setComparacion] = useState<Comparacion>('anterior')
   const [minimo, setMinimo] = useState(MINIMO_MENSUAL_DEFECTO)
   const [mostrar, setMostrar] = useState<Mostrar>('suben')
-  const [soloConfianza, setSoloConfianza] = useState(true)
+  const [confianzaMinima, setConfianzaMinima] = useState<ConfianzaMinima>('alta')
   const [orden, setOrden] = useState<Orden>('pesos')
   const [data, setData] = useState<VariacionApiResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -261,10 +277,22 @@ export default function GirosVariaciones({
     return resultado.ok ? null : resultado.error
   }
 
+  const noCaben: Array<{ etiqueta: string; motivo: string }> = []
+  for (const item of VENTANAS) {
+    const motivo = motivoNoCabe(item, comparacion)
+    if (motivo) noCaben.push({ etiqueta: `${item} meses`, motivo })
+  }
+  for (const item of COMPARACIONES) {
+    if (item.valor === comparacion) continue
+    const motivo = motivoNoCabe(ventana, item.valor)
+    if (motivo) noCaben.push({ etiqueta: `Contra ${item.etiqueta}`, motivo })
+  }
+
   const filas = useMemo(() => {
     if (!data) return []
     const elegidas = data.filas.filter(fila => {
-      if (soloConfianza && fila.confianza === 'baja') return false
+      if (confianzaMinima === 'alta' && fila.confianza !== 'alta') return false
+      if (confianzaMinima === 'media' && fila.confianza === 'baja') return false
       if (mostrar === 'suben') return senalSube(fila.senal)
       if (mostrar === 'bajan') return senalBaja(fila.senal)
       return true
@@ -276,7 +304,7 @@ export default function GirosVariaciones({
       if (orden === 'confianza') return ORDEN_CONFIANZA[a.confianza] - ORDEN_CONFIANZA[b.confianza] || (a.q ?? a.p ?? 1) - (b.q ?? b.p ?? 1) || magnitud(b) - magnitud(a)
       return magnitud(b) - magnitud(a)
     })
-  }, [data, mostrar, soloConfianza, orden])
+  }, [data, mostrar, confianzaMinima, orden])
 
   const mesesBase = useMemo(() => new Set(data?.ventanas.base.meses ?? []), [data])
   const mesesRecientes = useMemo(() => new Set(data?.ventanas.reciente.meses ?? []), [data])
@@ -291,7 +319,9 @@ export default function GirosVariaciones({
             IPS con cambios fuera de lo normal
           </h2>
           <p className="text-xs text-gray-500 mt-0.5">
-            {data ? `${data.ventanas.texto} · ${data.fuente === 'identifica' ? 'Identifica tu Giro' : 'Reporte 29'} · frente a todo el país` : 'Giro de cada prestador frente a lo que creció todo el país'}
+            {data
+              ? `${data.ventanas.texto} · ${data.fuente === 'identifica' ? 'Identifica tu Giro' : 'Reporte 29'} · frente a las ${data.mercado.nits} IPS cargadas en OpMap`
+              : 'Giro de cada prestador frente a lo que creció el de todas las IPS cargadas en OpMap'}
           </p>
         </div>
         <button
@@ -375,17 +405,30 @@ export default function GirosVariaciones({
             <option value="confianza">Confianza</option>
           </select>
         </label>
-        <label className="inline-flex items-center gap-2 text-sm text-gray-700 min-h-[40px]">
-          <input type="checkbox" checked={soloConfianza} onChange={event => setSoloConfianza(event.target.checked)} className="h-4 w-4 rounded border-gray-300" />
-          Solo cambios con confianza
+        <label className="text-sm">
+          <span className="block text-xs font-medium text-gray-600 mb-1">Confianza</span>
+          <select value={confianzaMinima} onChange={event => setConfianzaMinima(event.target.value as ConfianzaMinima)} className={SELECT}>
+            {CONFIANZAS.map(item => (
+              <option key={item.valor} value={item.valor}>
+                {item.etiqueta}
+              </option>
+            ))}
+          </select>
         </label>
       </div>
+      {noCaben.length > 0 && (
+        <ul className="mt-2 text-xs text-gray-500 space-y-0.5">
+          {noCaben.map(item => (
+            <li key={item.etiqueta}>{item.motivo}</li>
+          ))}
+        </ul>
+      )}
 
       {error && <p className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">{error}</p>}
 
       {data && (
         <p className={`text-sm text-gray-700 mt-4 ${loading ? 'opacity-60' : ''}`}>
-          El giro de todas las IPS del país{' '}
+          El giro de las {data.mercado.nits} IPS cargadas en OpMap{' '}
           {data.mercado.variacion === null ? (
             'no tiene base para comparar'
           ) : (
@@ -393,19 +436,23 @@ export default function GirosVariaciones({
               {data.mercado.variacion >= 0 ? 'subió' : 'bajó'} <strong className="tabular-nums">{formatPct(Math.abs(data.mercado.variacion) * 100)}</strong>
             </>
           )}{' '}
-          ({data.ventanas.texto}). En este filtro: <strong className="tabular-nums">{data.resumen.suben}</strong> por encima del mercado,{' '}
-          <strong className="tabular-nums">{data.resumen.bajan}</strong> por debajo
+          ({data.ventanas.texto}). En este filtro, con confianza alta: <strong className="tabular-nums">{data.resumen.suben.alta}</strong> por encima de ese
+          ritmo y <strong className="tabular-nums">{data.resumen.bajan.alta}</strong> por debajo
           {data.resumen.nuevas > 0 && `, ${data.resumen.nuevas} con giros nuevos`}
-          {data.resumen.dejan > 0 && `, ${data.resumen.dejan} sin giros recientes`} y {data.resumen.sinCambio} sin cambio importante.
+          {data.resumen.dejan > 0 && `, ${data.resumen.dejan} sin giros recientes`}.
+          {data.resumen.suben.media + data.resumen.bajan.media > 0 &&
+            ` Hay además ${data.resumen.suben.media + data.resumen.bajan.media} ${data.resumen.suben.media + data.resumen.bajan.media === 1 ? 'indicio' : 'indicios'} (confianza media: pueden ser azar).`}
           {data.resumen.pequenas > 0 &&
             ` ${data.resumen.pequenas === 1 ? 'No se muestra 1 IPS' : `No se muestran ${data.resumen.pequenas} IPS`} con menos de ${minimoTexto} al mes.`}
+          {data.resumen.sinDatosCompletos > 0 &&
+            ` ${data.resumen.sinDatosCompletos === 1 ? '1 NIT no tiene' : `${data.resumen.sinDatosCompletos} NIT no tienen`} consulta a la ADRES en todos los meses y no se compara${data.resumen.sinDatosCompletos === 1 ? '' : 'n'}.`}
         </p>
       )}
 
       {!data && loading && !error && <p className="text-sm text-gray-500 py-6 text-center">Calculando…</p>}
 
       {data && filas.length === 0 && !loading && (
-        <p className="text-sm text-gray-500 py-6 text-center">Ninguna IPS de este filtro cumple lo elegido. Prueba con &ldquo;Todas&rdquo; o quita &ldquo;Solo cambios con confianza&rdquo;.</p>
+        <p className="text-sm text-gray-500 py-6 text-center">Ninguna IPS de este filtro cumple lo elegido. Prueba con &ldquo;Todas&rdquo; en Mostrar o en Confianza.</p>
       )}
 
       {data && filas.length > 0 && (
@@ -420,7 +467,9 @@ export default function GirosVariaciones({
                       {fila.nombre}
                     </Link>
                     <p className="text-xs text-gray-500 break-words">
-                      {[fila.municipio, fila.zona ?? 'Sin zona asignada', conEjecutivo ? fila.ejecutivo : null].filter(Boolean).join(' · ')}
+                      {[`NIT ${fila.nit}${fila.sedes > 1 ? ` (${fila.sedes} sedes)` : ''}`, fila.municipio, fila.zona ?? 'Sin zona asignada', conEjecutivo ? fila.ejecutivo : null]
+                        .filter(Boolean)
+                        .join(' · ')}
                     </p>
                   </div>
                   <div className="text-right shrink-0">
