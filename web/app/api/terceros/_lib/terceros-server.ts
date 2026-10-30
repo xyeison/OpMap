@@ -302,16 +302,16 @@ export async function contactoRepetido(
   return otro ? { id: otro.id, nombre: otro.nombre } : null
 }
 
-/** Sin la 0940 aplicada, medico_lineas no existe: tabla que no está (42P01) o que PostgREST no conoce (PGRST205). */
+/** Sin la 0950 aplicada, medico_lineas no existe: tabla que no está (42P01) o que PostgREST no conoce (PGRST205). */
 export function sinTablaMedicoLineas(error: unknown): boolean {
   const { code } = (error ?? {}) as { code?: string }
   return code === '42P01' || code === 'PGRST205'
 }
 
 /**
- * El médico que crea una líder queda de sus líneas de líder desde hoy (0940, medico_lineas; dueño 2026-10-30): así lo
+ * El médico que crea una líder queda de sus líneas de líder desde hoy (0950, medico_lineas; dueño 2026-10-30): así lo
  * agenda y lo reporta enseguida (C9), y la dirección le asigna el visitante después. Devuelve esas líneas; sin líneas de
- * líder (administrador, dirección…) no hace nada. Sin la 0940 tampoco (lo dice el log).
+ * líder (administrador, dirección…) no hace nada. Sin la 0950 tampoco (lo dice el log).
  */
 export async function medicoDeLasLineasDeSuLider(medicoId: string, userId: string): Promise<string[]> {
   const { data, error } = await supabaseAdmin.from('business_lines').select('id').eq('leader_user_id', userId).eq('active', true)
@@ -324,7 +324,7 @@ export async function medicoDeLasLineasDeSuLider(medicoId: string, userId: strin
     .insert(lineas.map(line_id => ({ medico_id: medicoId, line_id, user_id: userId, desde })))
   if (errorLineas) {
     if (sinTablaMedicoLineas(errorLineas)) {
-      console.warn('[terceros] medico_lineas no existe (falta la 0940): el médico creado por la líder queda sin sus líneas')
+      console.warn('[terceros] medico_lineas no existe (falta la 0950): el médico creado por la líder queda sin sus líneas')
       return []
     }
     throw errorLineas

@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
       if (error.code === '23514') return jsonError('La sede elegida no es de esa cuenta o faltan datos del contacto', 400)
       if (error.code === '23503') return jsonError('La cuenta o la sede elegidas no existen', 400)
       if (error.code === '23505') {
-        // Otro lo creó a la vez (índices únicos de la 0940): el que quedó
+        // Otro lo creó a la vez (índices únicos de la 0950): el que quedó
         const existente = await contactoRepetido(input.cuenta_id, input)
         return NextResponse.json({ error: MENSAJE_CONTACTO_REPETIDO, existente }, { status: 409 })
       }

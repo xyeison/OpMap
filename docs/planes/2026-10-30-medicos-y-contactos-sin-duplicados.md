@@ -13,7 +13,7 @@ Spec: `docs/specs/2026-10-30-medicos-y-contactos-sin-duplicados.md`. En cada pas
      - `terceros-api-check.ts`: POST repetido en la misma cuenta → 409 con `existente`; en otra cuenta → 201;
        corregir y quitar los dos → 400.
    - Código: el esquema, `POST /api/terceros/contactos` (buscar el repetido antes) y PATCH.
-3. **Migración 0940** (rollback 9959)
+3. **Migración 0950** (rollback 9960)
    - `medico_lineas` (medico_id, line_id, user_id, desde), con su llave y sus FK.
    - `medico_de_lineas`, con la misma firma, también mira `medico_lineas` desde su `desde`.
    - `contactos.telefono_digitos`, generada, y los índices únicos parciales por cuenta (dígitos y `lower(email)`).
@@ -45,4 +45,4 @@ Spec: `docs/specs/2026-10-30-medicos-y-contactos-sin-duplicados.md`. En cada pas
    - `ContactoForm` de la web: teléfono o correo y el 409.
 8. **Docs y cierre**
    - La decisión, `CLAUDE.md` (una línea), fase6 (contrato de terceros) y fase8 (institucional con contacto).
-   - `npm run check` en las dos, capturas, `revisor` y PR. La 0940 se aplica solo con la autorización del dueño.
+   - `npm run check` en las dos, capturas, `revisor` y PR. La 0950 se aplica solo con la autorización del dueño.

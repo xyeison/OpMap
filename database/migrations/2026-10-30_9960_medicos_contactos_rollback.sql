@@ -1,5 +1,5 @@
 -- =====================================================================================
--- OpMap · feat/medicos-contactos · 9959 — Rollback de 0940 (médicos y contactos sin duplicados)
+-- OpMap · feat/medicos-contactos · 9960 — Rollback de 0950 (médicos y contactos sin duplicados)
 -- Proyecto: norvxqgohddgsdkggqzq · Generado: 2026-10-30
 --
 -- Qué hace:
@@ -21,7 +21,7 @@ BEGIN
   IF to_regclass('public.medico_lineas') IS NOT NULL THEN
     SELECT count(*) INTO v_filas FROM public.medico_lineas;
   END IF;
-  RAISE NOTICE 'Rollback 0940: se quitan % fila(s) de medico_lineas (médicos creados por una líder para sus líneas).', v_filas;
+  RAISE NOTICE 'Rollback 0950: se quitan % fila(s) de medico_lineas (médicos creados por una líder para sus líneas).', v_filas;
 END
 $$;
 
@@ -59,7 +59,7 @@ ALTER TABLE public.contactos DROP COLUMN IF EXISTS telefono_digitos;
 DO $$
 BEGIN
   IF to_regclass('public.medicos_respaldo_20261030') IS NULL THEN
-    RAISE NOTICE 'Rollback 0940: no hay respaldo de lo de prueba; nada que devolver.';
+    RAISE NOTICE 'Rollback 0950: no hay respaldo de lo de prueba; nada que devolver.';
     RETURN;
   END IF;
   INSERT INTO public.medicos SELECT * FROM public.medicos_respaldo_20261030 r
@@ -74,7 +74,7 @@ BEGIN
     WHERE NOT EXISTS (SELECT 1 FROM public.visits v WHERE v.id = r.id);
   INSERT INTO public.visit_lines SELECT * FROM public.visit_lines_respaldo_20261030 r
     WHERE NOT EXISTS (SELECT 1 FROM public.visit_lines l WHERE l.visit_id = r.visit_id AND l.line_id = r.line_id);
-  RAISE NOTICE 'Rollback 0940: lo de prueba volvió desde las tablas *_respaldo_20261030 (quedan como estaban).';
+  RAISE NOTICE 'Rollback 0950: lo de prueba volvió desde las tablas *_respaldo_20261030 (quedan como estaban).';
 END
 $$;
 

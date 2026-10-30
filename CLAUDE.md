@@ -131,7 +131,7 @@ nada llama a Google.
   - el contacto lleva teléfono y/o correo y no se repite en la cuenta (409 con `existente`);
   - la visita institucional exige contacto.
 
-  Migración 0940 (rollback 9959): solo con autorización del dueño; borra con respaldo los médicos de prueba "otro".
+  Migración 0950 (rollback 9960): solo con autorización del dueño; borra con respaldo los médicos de prueba "otro".
 - **Territorio y contratos**: el anexo de territorio (Anexo A IPS, Anexo B municipios) va al contrato de
   cada Ejecutivo Comercial; las versiones (`territory_snapshots`) son inmutables.
 - **SECOP I** se cuenta por el valor ADJUDICADO a cada contratista desde `f789-7hwg` (`fuente = 'secop1'`); el

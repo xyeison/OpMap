@@ -170,12 +170,12 @@ check('de otra línea y de otro Ejecutivo Comercial → no', !deDeportiva('m-aje
 check('visitante de un Ejecutivo Comercial inactivo en otra línea → no (sus líneas no cuentan)', !medicoDeLineas('m-de-vieja', [TRAUMA], VISITANTES, lineasActivas, HOY))
 check('sin visitantes → no', !deDeportiva('m-sin-visitante'))
 check('con varias líneas basta una', medicoDeLineas('m-ajeno', [TRAUMA, ORTOPEDIA], VISITANTES, lineasActivas, HOY))
-// 0940 (dueño, 2026-10-30): el médico que crea una líder es de sus líneas desde ese día (medico_lineas), sin visitante
+// 0950 (dueño, 2026-10-30): el médico que crea una líder es de sus líneas desde ese día (medico_lineas), sin visitante
 const PROPIAS = [{ medico_id: 'm-sin-visitante', line_id: DEPORTIVA, desde: HOY }, { medico_id: 'm-manana', line_id: DEPORTIVA, desde: '2999-01-01' }]
 check('medico_lineas: el creado por la líder es de su línea aunque no tenga visitante', medicoDeLineas('m-sin-visitante', [DEPORTIVA], VISITANTES, lineasActivas, HOY, PROPIAS))
 check('medico_lineas: no es de otra línea, ni antes de su "desde"', !medicoDeLineas('m-sin-visitante', [TRAUMA], VISITANTES, lineasActivas, HOY, PROPIAS) && !medicoDeLineas('m-manana', [DEPORTIVA], VISITANTES, lineasActivas, HOY, PROPIAS))
 check('lineasDelMedico suma las de medico_lineas a las de sus visitantes', [...lineasDelMedico('m-sin-visitante', VISITANTES, lineasActivas, HOY, PROPIAS)].join() === DEPORTIVA)
-check('sin medico_lineas (antes de la 0940) todo sigue igual', !deDeportiva('m-sin-visitante'))
+check('sin medico_lineas (antes de la 0950) todo sigue igual', !deDeportiva('m-sin-visitante'))
 check('lineasDelMedico: la del visitante más las del Ejecutivo Comercial activo', igual([...lineasDelMedico('m-de-berta', VISITANTES, lineasActivas, HOY)].sort(), [DEPORTIVA, ORTOPEDIA].sort()))
 
 console.log('\n5. Permisos de la dirección comercial (A1)')
@@ -201,12 +201,12 @@ const mensajes = {
 }
 const faltan = Object.entries(mensajes).filter(([, texto]) => !SQL.includes(texto.replace(/'/g, "''"))).map(([nombre]) => nombre)
 check('cada mensaje de lib/persona-campo.ts está, letra por letra, en la 0850', faltan.length === 0, faltan)
-const SQL_0940 = readFileSync(path.join(__dirname, '..', '..', 'database', 'migrations', '2026-10-30_0940_medicos_contactos.sql'), 'utf8')
+const SQL_0950 = readFileSync(path.join(__dirname, '..', '..', 'database', 'migrations', '2026-10-30_0950_medicos_contactos.sql'), 'utf8')
 check(
-  'la 0940 deja medico_de_lineas con la misma firma y le suma medico_lineas desde su "desde", como medicoDeLineas',
-  SQL_0940.includes('FUNCTION public.medico_de_lineas(p_medico uuid, p_lineas uuid[], p_fecha date)') &&
-    SQL_0940.includes('FROM public.medico_lineas ml') && SQL_0940.includes('ml.desde <= p_fecha') &&
-    SQL_0940.includes("ml.line_id = ANY (coalesce(p_lineas, '{}'::uuid[]))")
+  'la 0950 deja medico_de_lineas con la misma firma y le suma medico_lineas desde su "desde", como medicoDeLineas',
+  SQL_0950.includes('FUNCTION public.medico_de_lineas(p_medico uuid, p_lineas uuid[], p_fecha date)') &&
+    SQL_0950.includes('FROM public.medico_lineas ml') && SQL_0950.includes('ml.desde <= p_fecha') &&
+    SQL_0950.includes("ml.line_id = ANY (coalesce(p_lineas, '{}'::uuid[]))")
 )
 
 console.log('\n7. La app de campo es solo para las líderes (dueño, 2026-10-30): los Ejecutivos Comerciales van por VMO')

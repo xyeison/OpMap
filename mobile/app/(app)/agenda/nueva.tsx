@@ -420,7 +420,7 @@ function NuevaCita({ fechaPedida, horaPedida, pedido }: { fechaPedida?: string; 
 
   /**
    * El médico recién creado (o el que ya estaba con ese documento): se trae el contexto de nuevo, porque el que crea una
-   * líder ya es de sus líneas (0940) y llega en sus médicos; si no llega, se busca como uno de OpMap (agregarMedico no
+   * líder ya es de sus líneas (0950) y llega en sus médicos; si no llega, se busca como uno de OpMap (agregarMedico no
    * elige, como líder, al que no es de sus líneas: entonces se dice).
    */
   const ponerMedicoCreado = async (id: string) => {

@@ -18,7 +18,7 @@ crearlos y consultarlos. No incluye visitas, metas, configuración, calendario n
   especialidad, municipio y al menos una sede donde atiende. Un médico sin sede no puede quedar guardado.
   Un segundo médico con el mismo documento se rechaza y se muestra el existente. Desde el 2026-10-30 el documento es
   solo cédula de ciudadanía (CC) o de extranjería (CE), al crear y al corregir; el médico que crea una líder queda de
-  sus líneas de líder (`medico_lineas`, 0940). `docs/decisiones/2026-10-30-medicos-y-contactos-sin-duplicados.md`.
+  sus líneas de líder (`medico_lineas`, 0950). `docs/decisiones/2026-10-30-medicos-y-contactos-sin-duplicados.md`.
 - **Contactos sin duplicados** (2026-10-30): nombre y teléfono y/o correo; en la misma cuenta no se repite el
   teléfono (por sus dígitos) ni el correo: `POST`/`PATCH /api/terceros/contactos` responden 409 con `existente`.
 - **Visitantes, no responsable**: varias ejecutivas por médico, cada una por una línea, incluso dos de la

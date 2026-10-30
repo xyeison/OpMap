@@ -246,7 +246,7 @@ business_lines, PRIMARY KEY)`, RLS sin políticas, solo service_role.
   - la tarjeta institucional ofrece "Nuevo contacto" (`contacto/nuevo`: nombre y teléfono y/o correo; el 409 ofrece
     el que ya está);
   - Agendar ofrece "Crear médico" (el mismo Nuevo médico, solo CC o CE) y lo elige al volver. El de una líder ya es
-    de sus líneas (`medico_lineas`, 0940).
+    de sus líneas (`medico_lineas`, 0950).
 
 ## API (todas con `requirePermission('visits:report')` salvo auth; `getSupabaseAdmin`; errores `{ error }`; 503 si falta la migración)
 

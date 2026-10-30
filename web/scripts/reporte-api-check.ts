@@ -1384,7 +1384,7 @@ function datosIniciales(): Tablas {
       { medico_id: M2, sede_id: S1, rol: 'atiende', principal: true },
     ],
     medico_visitantes: [{ id: randomUUID(), medico_id: M1, executive_id: EJEC_A, line_id: L1, desde: '2026-01-15', hasta: null }],
-    // 0940: el médico que crea una líder es de sus líneas (vacía al empezar)
+    // 0950: el médico que crea una líder es de sus líneas (vacía al empezar)
     medico_lineas: [],
     contactos: [
       { id: K1, cuenta_id: C1, sede_id: S1, nombre: 'Luis Pérez', cargo_texto: 'Jefe de compras', rol: 'compras', telefono: TELEFONO_K1, email: 'luis@clinica.test', activo: true },
@@ -3366,7 +3366,7 @@ async function main() {
           { cruce: meCruce.body, sinCruce: meSinCruce.body?.persona }
         )
 
-        // 0940 (dueño, 2026-10-30): el médico que crea una líder es de sus líneas desde ya: lo agenda enseguida
+        // 0950 (dueño, 2026-10-30): el médico que crea una líder es de sus líneas desde ya: lo agenda enseguida
         const nuevoDeLucia = await pedir(crearMedico, '/api/terceros/medicos', { method: 'POST', portador: true, userId: LIDER_ID, body: { tipo_documento: 'CC', numero_documento: '1098765432', nombre: 'Dra. Nueva Deportiva', especialidades: ['ortopedia'], municipality_id: '68001', sedes: [{ sede_id: S1, rol: 'atiende' }] } })
         const idNuevo = nuevoDeLucia.body?.id as string
         check(

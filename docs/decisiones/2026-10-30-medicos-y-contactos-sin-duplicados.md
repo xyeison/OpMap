@@ -30,13 +30,13 @@
   al 15 de octubre: vínculos médico-sede, visitantes, citas y 4 visitas anuladas.
 
 **Consecuencias**:
-- **Migración 0940** (rollback 9959), que se aplica solo con autorización del dueño:
+- **Migración 0950** (rollback 9960), que se aplica solo con autorización del dueño:
   - tabla `medico_lineas`;
   - `medico_de_lineas`, con la misma firma, también la mira;
   - `contactos.telefono_digitos` e índices únicos por cuenta del teléfono y del correo;
   - CHECK "teléfono o correo" `NOT VALID`: no toca los 2 contactos viejos sin ninguno de los dos;
   - la limpieza de lo de prueba, con tablas `*_respaldo_20261030`.
-- **Sin la 0940:**
+- **Sin la 0950:**
   - todo funciona como antes;
   - el médico que crea una líder no queda de sus líneas, y Agendar lo dice;
   - los contactos repetidos los frena la API, pero no la base.

@@ -703,8 +703,8 @@ async function lineasDeEjecutivasActivas(executiveIds: Iterable<string>): Promis
 }
 
 /**
- * Las filas de medico_lineas (0940: el médico que creó la líder es de sus líneas) de esos médicos o de esas líneas.
- * Antes de la 0940 (la tabla no existe), ninguna.
+ * Las filas de medico_lineas (0950: el médico que creó la líder es de sus líneas) de esos médicos o de esas líneas.
+ * Antes de la 0950 (la tabla no existe), ninguna.
  */
 async function lineasPropias(campo: 'medico_id' | 'line_id', ids: readonly string[]): Promise<LineaPropiaMedico[]> {
   if (ids.length === 0) return []
@@ -721,7 +721,7 @@ async function lineasPropias(campo: 'medico_id' | 'line_id', ids: readonly strin
 /**
  * C9 (0850): los médicos de las líneas L en una fecha, con las líneas de L por las que lo son: los que tienen un
  * visitante vigente en una línea de L, los cuyo visitante vigente es un Ejecutivo Comercial activo con alguna de L y
- * (0940) los que creó la líder de una de L.
+ * (0950) los que creó la líder de una de L.
  */
 export async function medicosDeLineas(lineas: readonly string[], fecha: string): Promise<Map<string, Set<string>>> {
   const resultado = new Map<string, Set<string>>()

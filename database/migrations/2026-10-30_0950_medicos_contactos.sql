@@ -1,7 +1,7 @@
 -- =====================================================================================
--- OpMap · feat/medicos-contactos · 0940 — Médicos y contactos sin duplicados
+-- OpMap · feat/medicos-contactos · 0950 — Médicos y contactos sin duplicados
 -- Proyecto: norvxqgohddgsdkggqzq · Generado: 2026-10-30 · ESTADO: NO APLICADA (se aplica solo con autorización del dueño)
--- Spec: docs/specs/2026-10-30-medicos-y-contactos-sin-duplicados.md · Rollback: 2026-10-30_9959_medicos_contactos_rollback.sql
+-- Spec: docs/specs/2026-10-30-medicos-y-contactos-sin-duplicados.md · Rollback: 2026-10-30_9960_medicos_contactos_rollback.sql
 --
 -- Qué hace:
 --   1. medico_lineas (medico_id, line_id, user_id, desde): el médico que crea una líder queda de sus líneas de líder
@@ -13,7 +13,7 @@
 --   4. Limpieza de lo de prueba (dueño, 2026-10-29: "el tema de médicos, bórralos"): los médicos con documento 'otro'
 --      (10 el 2026-10-30) y lo que los usa —sus sedes y visitantes (cascada), 23 citas canceladas y 4 visitas anuladas
 --      de la app— se copian a tablas *_respaldo_20261030 y se borran. Se detiene si algo AJENO los referencia.
---   5. Bloque DO de pruebas que se deshace (SQLSTATE 'P0940').
+--   5. Bloque DO de pruebas que se deshace (SQLSTATE 'P0950').
 -- Transaccional: todo o nada. Re-ejecutable: sí (IF NOT EXISTS / CREATE OR REPLACE; la limpieza no encuentra nada la
 --   segunda vez). Costo Google: 0. No recalcula asignaciones. Después: NOTIFY pgrst, 'reload schema';
 -- =====================================================================================
@@ -26,10 +26,10 @@ BEGIN;
 DO $$
 BEGIN
   IF to_regprocedure('public.medico_de_lineas(uuid, uuid[], date)') IS NULL THEN
-    RAISE EXCEPTION '0940: falta la 0850 (medico_de_lineas)';
+    RAISE EXCEPTION '0950: falta la 0850 (medico_de_lineas)';
   END IF;
   IF to_regclass('public.contactos') IS NULL OR to_regclass('public.medicos') IS NULL THEN
-    RAISE EXCEPTION '0940: faltan las tablas de terceros (0800)';
+    RAISE EXCEPTION '0950: faltan las tablas de terceros (0800)';
   END IF;
 END
 $$;
@@ -54,7 +54,7 @@ REVOKE ALL ON public.medico_lineas FROM anon, authenticated;
 GRANT SELECT, INSERT, DELETE ON public.medico_lineas TO service_role;
 
 -- C9: "médico de las líneas L" = con un visitante vigente en esa fecha en alguna línea de L, o cuyo visitante vigente
--- es un Ejecutivo Comercial activo con alguna línea de L, o (0940) creado por la líder de una línea de L desde su
+-- es un Ejecutivo Comercial activo con alguna línea de L, o (0950) creado por la líder de una línea de L desde su
 -- fecha. Espejo: medicoDeLineas (web/lib/persona-campo.ts).
 CREATE OR REPLACE FUNCTION public.medico_de_lineas(p_medico uuid, p_lineas uuid[], p_fecha date)
 RETURNS boolean
@@ -101,11 +101,11 @@ BEGIN
   -- Antes de los índices: que no haya repetidos ya (el 2026-10-30 hay 2 contactos, sin teléfono ni correo)
   IF EXISTS (SELECT 1 FROM public.contactos WHERE telefono_digitos IS NOT NULL
              GROUP BY cuenta_id, telefono_digitos HAVING count(*) > 1) THEN
-    RAISE EXCEPTION '0940: hay contactos repetidos por teléfono en una misma cuenta; resolverlos antes';
+    RAISE EXCEPTION '0950: hay contactos repetidos por teléfono en una misma cuenta; resolverlos antes';
   END IF;
   IF EXISTS (SELECT 1 FROM public.contactos WHERE email IS NOT NULL AND btrim(email) <> ''
              GROUP BY cuenta_id, lower(btrim(email)) HAVING count(*) > 1) THEN
-    RAISE EXCEPTION '0940: hay contactos repetidos por correo en una misma cuenta; resolverlos antes';
+    RAISE EXCEPTION '0950: hay contactos repetidos por correo en una misma cuenta; resolverlos antes';
   END IF;
 END
 $$;
@@ -159,7 +159,7 @@ BEGIN
   IF EXISTS (SELECT 1 FROM public.visitas_agenda WHERE visita_id IN (SELECT id FROM _v) AND id NOT IN (SELECT id FROM _c))
      OR EXISTS (SELECT 1 FROM public.visits WHERE agenda_id IN (SELECT id FROM _c) AND id NOT IN (SELECT id FROM _v))
      OR EXISTS (SELECT 1 FROM public.visitas_agenda WHERE viene_de IN (SELECT id FROM _c) AND id NOT IN (SELECT id FROM _c)) THEN
-    RAISE EXCEPTION '0940: algo que no es de prueba apunta a las citas o visitas de los médicos de prueba; no se borra nada';
+    RAISE EXCEPTION '0950: algo que no es de prueba apunta a las citas o visitas de los médicos de prueba; no se borra nada';
   END IF;
 
   SELECT count(*) INTO v_medicos FROM _m;
@@ -179,12 +179,12 @@ BEGIN
   DELETE FROM public.visitas_agenda WHERE id IN (SELECT id FROM _c);
   DELETE FROM public.medicos WHERE id IN (SELECT id FROM _m);
 
-  RAISE NOTICE '0940: borrados (con respaldo) % médico(s) de prueba, % cita(s) y % visita(s) de la app', v_medicos, v_citas, v_visitas;
+  RAISE NOTICE '0950: borrados (con respaldo) % médico(s) de prueba, % cita(s) y % visita(s) de la app', v_medicos, v_citas, v_visitas;
 END
 $$;
 
 -- -------------------------------------------------------------------------------------
--- 4. Pruebas que se deshacen (SQLSTATE 'P0940')
+-- 4. Pruebas que se deshacen (SQLSTATE 'P0950')
 -- -------------------------------------------------------------------------------------
 DO $$
 DECLARE
@@ -198,39 +198,39 @@ BEGIN
     SELECT id INTO v_linea FROM public.business_lines ORDER BY id LIMIT 1;
     SELECT id INTO v_otra FROM public.business_lines WHERE id <> v_linea ORDER BY id LIMIT 1;
     INSERT INTO public.medicos (tipo_documento, numero_documento, nombre, especialidades, municipality_id)
-      VALUES ('CC', '9409400940', 'Prueba 0940', ARRAY['ortopedia'], '11001') RETURNING id INTO v_medico;
+      VALUES ('CC', '9409500950', 'Prueba 0950', ARRAY['ortopedia'], '11001') RETURNING id INTO v_medico;
     IF public.medico_de_lineas(v_medico, ARRAY[v_linea], v_hoy) THEN
-      RAISE EXCEPTION '0940 prueba: un médico sin visitante ni medico_lineas no debe ser de la línea';
+      RAISE EXCEPTION '0950 prueba: un médico sin visitante ni medico_lineas no debe ser de la línea';
     END IF;
     INSERT INTO public.medico_lineas (medico_id, line_id, desde) VALUES (v_medico, v_linea, v_hoy);
     IF NOT public.medico_de_lineas(v_medico, ARRAY[v_linea], v_hoy) THEN
-      RAISE EXCEPTION '0940 prueba: el médico creado por la líder debe ser de su línea';
+      RAISE EXCEPTION '0950 prueba: el médico creado por la líder debe ser de su línea';
     END IF;
     IF v_otra IS NOT NULL AND public.medico_de_lineas(v_medico, ARRAY[v_otra], v_hoy) THEN
-      RAISE EXCEPTION '0940 prueba: no debe ser de otra línea';
+      RAISE EXCEPTION '0950 prueba: no debe ser de otra línea';
     END IF;
     IF public.medico_de_lineas(v_medico, ARRAY[v_linea], v_hoy - 1) THEN
-      RAISE EXCEPTION '0940 prueba: antes de "desde" no es de la línea';
+      RAISE EXCEPTION '0950 prueba: antes de "desde" no es de la línea';
     END IF;
 
     SELECT id INTO v_cuenta FROM public.cuentas ORDER BY id LIMIT 1;
-    INSERT INTO public.contactos (cuenta_id, nombre, telefono) VALUES (v_cuenta, 'Prueba 0940 A', '+57 300 940 0940');
-    IF (SELECT telefono_digitos FROM public.contactos WHERE cuenta_id = v_cuenta AND nombre = 'Prueba 0940 A') <> '3009400940' THEN
-      RAISE EXCEPTION '0940 prueba: telefono_digitos debe quitar el +57 y lo que no es dígito';
+    INSERT INTO public.contactos (cuenta_id, nombre, telefono) VALUES (v_cuenta, 'Prueba 0950 A', '+57 300 940 0950');
+    IF (SELECT telefono_digitos FROM public.contactos WHERE cuenta_id = v_cuenta AND nombre = 'Prueba 0950 A') <> '3009500950' THEN
+      RAISE EXCEPTION '0950 prueba: telefono_digitos debe quitar el +57 y lo que no es dígito';
     END IF;
     BEGIN
-      INSERT INTO public.contactos (cuenta_id, nombre, telefono) VALUES (v_cuenta, 'Prueba 0940 B', '300-940-0940');
-      RAISE EXCEPTION '0940 prueba: el mismo teléfono en la misma cuenta debió rechazarse';
+      INSERT INTO public.contactos (cuenta_id, nombre, telefono) VALUES (v_cuenta, 'Prueba 0950 B', '300-940-0950');
+      RAISE EXCEPTION '0950 prueba: el mismo teléfono en la misma cuenta debió rechazarse';
     EXCEPTION WHEN unique_violation THEN NULL;
     END;
     BEGIN
-      INSERT INTO public.contactos (cuenta_id, nombre) VALUES (v_cuenta, 'Prueba 0940 C');
-      RAISE EXCEPTION '0940 prueba: un contacto sin teléfono ni correo debió rechazarse';
+      INSERT INTO public.contactos (cuenta_id, nombre) VALUES (v_cuenta, 'Prueba 0950 C');
+      RAISE EXCEPTION '0950 prueba: un contacto sin teléfono ni correo debió rechazarse';
     EXCEPTION WHEN check_violation THEN NULL;
     END;
-    RAISE SQLSTATE 'P0940';
+    RAISE SQLSTATE 'P0950';
   EXCEPTION
-    WHEN SQLSTATE 'P0940' THEN NULL;
+    WHEN SQLSTATE 'P0950' THEN NULL;
   END;
 END
 $$;

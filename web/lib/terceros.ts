@@ -93,7 +93,7 @@ export const MENSAJE_CONTACTO_REPETIDO = 'Ese contacto ya está en la cuenta (el
 /**
  * Los dígitos de un teléfono para compararlo (se guarda como se escribió): sin espacios, guiones ni paréntesis, y sin
  * el +57 de Colombia ("+57 300 123 4567" y "300-123-4567" son el mismo). null si no tiene dígitos. Espejo de la columna
- * generada contactos.telefono_digitos (migración 0940).
+ * generada contactos.telefono_digitos (migración 0950).
  */
 export function digitosTelefono(telefono: string | null | undefined): string | null {
   const digitos = (telefono ?? '').replace(/\D/g, '')
