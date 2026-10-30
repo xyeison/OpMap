@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useUser } from '@/contexts/UserContext'
 import { usePermissions } from '@/hooks/usePermissions'
+import { esAppDeCampo } from '@/lib/app-campo'
 import { agruparMenu, getHomeRoute, getRoleTitle, opcionActiva, type NavigationItem } from '@/lib/permissions'
 import { useMapHeaderTitle } from '@/components/mapHeaderStore'
 
@@ -217,15 +218,11 @@ export default function NavigationWithPermissions() {
 // Compras públicas, que comparten la ruta y no cierran el menú al cambiar de página)
 function OpcionMenu({ item, activa, onElegir }: { item: NavigationItem; activa: boolean; onElegir: () => void }) {
   const Icon = getIconForRoute(item.href)
-  return (
-    <Link
-      href={item.href}
-      onClick={onElegir}
-      aria-current={activa ? 'page' : undefined}
-      className={`flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all ${
-        activa ? 'bg-gray-900 text-white shadow-md' : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900'
-      }`}
-    >
+  const clase = `flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all ${
+    activa ? 'bg-gray-900 text-white shadow-md' : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900'
+  }`
+  const contenido = (
+    <>
       <Icon className="w-5 h-5" />
       <span className="font-medium">{item.name}</span>
       {activa && (
@@ -233,6 +230,19 @@ function OpcionMenu({ item, activa, onElegir }: { item: NavigationItem; activa: 
           <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
         </svg>
       )}
+    </>
+  )
+  // La app de campo (Agendamiento, /campo) no es una página de Next: se abre como página completa
+  if (esAppDeCampo(item.href)) {
+    return (
+      <a href={item.href} onClick={onElegir} className={clase}>
+        {contenido}
+      </a>
+    )
+  }
+  return (
+    <Link href={item.href} onClick={onElegir} aria-current={activa ? 'page' : undefined} className={clase}>
+      {contenido}
     </Link>
   )
 }
@@ -251,6 +261,7 @@ function getIconForRoute(href: string) {
     '/aseguradoras': CompanyIcon, // "Próximamente"
     '/lideres': ExecutivesIcon, // "Próximamente"
     '/calendario': CalendarioIcon, // Fase 7 F2: festivos, días de empresa y de ciudad, días libres
+    '/campo/agenda': CalendarioIcon, // Agendamiento de la líder (la app de campo, 2026-10-30)
     '/configuracion': ConfiguracionIcon, // Fase 7 F2: configuración de visitas
     '/contracts': DocumentIcon,
     '/providers': ProvidersIcon,

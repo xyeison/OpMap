@@ -169,7 +169,9 @@ export const loginMovilSchema = cuerpo({
     .string({ required_error: 'Escribe tu contraseña', invalid_type_error: 'Escribe tu contraseña' })
     .min(1, 'Escribe tu contraseña')
     .max(1024, 'Contraseña no válida'),
-  cliente: z.literal('movil', { errorMap: () => ({ message: "El cliente de la app es 'movil'" }) }),
+  // 'campo-web': la app de campo en el navegador (/campo, 2026-10-30): además del token, la cookie de la web (un solo
+  // ingreso para la web y la app).
+  cliente: z.enum(['movil', 'campo-web'], { errorMap: () => ({ message: "El cliente de la app es 'movil' o 'campo-web'" }) }),
 })
 
 export type LoginMovil = z.infer<typeof loginMovilSchema>
@@ -268,6 +270,8 @@ function revisarVisita(datos: VisitaPlana, ctx: z.RefinementCtx) {
   } else {
     if (!datos.cuenta_id) falla('cuenta_id', 'Elige la cuenta')
     if (!datos.subtipo_id) falla('subtipo_id', 'Elige el subtipo de la visita institucional')
+    // El contacto obligatorio (dueño, 2026-10-30) lo exige validarVisita, después de la idempotencia por client_id: una
+    // institucional sin contacto guardada antes de la regla, reenviada por la cola sin señal, vuelve como repetida.
   }
   if (datos.modalidad === 'telefonica' && !datos.medio) falla('medio', 'Indica el medio: llamada o videollamada')
   revisarPunto(datos, ctx)
@@ -332,8 +336,8 @@ function normalizarVisita(datos: VisitaPlana): VisitaCreate {
 }
 
 /**
- * POST /api/me/visitas. Tipo discriminado (médica: medico_id; institucional: cuenta_id y subtipo_id, contacto
- * opcional), modalidad discriminada (presencial: lat y lng; telefónica: medio), lineas 1..10 sin repetir, textos
+ * POST /api/me/visitas. Tipo discriminado (médica: medico_id; institucional: cuenta_id y subtipo_id; el contacto, que
+ * desde el 2026-10-30 es obligatorio, lo exige validarVisita), modalidad discriminada (presencial: lat y lng; telefónica: medio), lineas 1..10 sin repetir, textos
  * con tope, instantes ISO con zona. Que el médico, la sede, el subtipo y el contacto existan y crucen, el radio,
  * los topes y el perfil los revisa validarVisita (y la base).
  */

@@ -23,7 +23,17 @@ import {
   type MotivoInvalidacion,
 } from '../../lib/contexto-memoria'
 import { lineaRegistroApi, rutaPatron } from '../../lib/http'
-import { TIEMPO_ME_FONDO_MS, TIEMPO_ME_MS, arranqueDeSesion } from '../../lib/sesion-reglas'
+import {
+  CLAVE_SALIDA_PENDIENTE,
+  TIEMPO_ME_FONDO_MS,
+  TIEMPO_ME_MS,
+  arranqueDeSesion,
+  cambioDeTokenEnOtraPestana,
+  clienteDeLogin,
+  dejarSalidaPendiente,
+  probarSesionDeLaWeb,
+  reintentarSalida,
+} from '../../lib/sesion-reglas'
 import { MARCAS_REPORTE, MAX_RECORRIDO_MS, crearRegistroMarcas, marcar } from '../../lib/tiempos'
 import { MemoriaToken, type LlaveroToken } from '../../lib/token'
 import type { ContextoResponse } from '../../lib/tipos'
@@ -281,8 +291,137 @@ export async function pruebas(t: Probador): Promise<void> {
     t.check('perfil de otro usuario que el del token → confirmar_antes', arranqueDeSesion({ perfilGuardado: perfil, tokenVigente: true, uidDelToken: 'usuario-2' }) === 'confirmar_antes' && arranqueDeSesion({ perfilGuardado: perfil, tokenVigente: true, uidDelToken: 'usuario-1' }) === 'entrar_y_confirmar')
     t.check('perfil dañado (sin id) → confirmar_antes', arranqueDeSesion({ perfilGuardado: { usuario: { id: '' } }, tokenVigente: true }) === 'confirmar_antes' && arranqueDeSesion({ perfilGuardado: {} as never, tokenVigente: true }) === 'confirmar_antes')
 
+    // Un solo ingreso con la web de OpMap (la app en el navegador, /campo, 2026-10-30)
+    t.check(
+      "clienteDeLogin: en el navegador 'campo-web' (el servidor pone además la cookie de la web); en el teléfono 'movil'",
+      clienteDeLogin(true) === 'campo-web' && clienteDeLogin(false) === 'movil'
+    )
+    t.check(
+      'probarSesionDeLaWeb: solo en el navegador y sin un token vigente (sin token o vencido) se pide el de la sesión de la web',
+      probarSesionDeLaWeb({ esWeb: true, tokenVigente: false }) && !probarSesionDeLaWeb({ esWeb: true, tokenVigente: true }) && !probarSesionDeLaWeb({ esWeb: false, tokenVigente: false })
+    )
+    // Revisión 2026-10-30: cerrar sesión sin señal no se deshace al volver a abrir (la cookie de la web pudo quedar viva)
+    t.check("CLAVE_SALIDA_PENDIENTE = 'opmap.salida-pendiente.v1' (la misma que olvida y marca la web: web/lib/app-campo.ts)", CLAVE_SALIDA_PENDIENTE === 'opmap.salida-pendiente.v1')
+    t.check(
+      'probarSesionDeLaWeb: con una salida pendiente no se entra con la cookie de la web',
+      !probarSesionDeLaWeb({ esWeb: true, tokenVigente: false, salidaPendiente: true }) && probarSesionDeLaWeb({ esWeb: true, tokenVigente: false, salidaPendiente: false })
+    )
+    t.check(
+      'dejarSalidaPendiente: solo en el navegador y si el servidor no respondió al cerrar sesión',
+      dejarSalidaPendiente({ esWeb: true, avisado: false }) && !dejarSalidaPendiente({ esWeb: true, avisado: true }) && !dejarSalidaPendiente({ esWeb: false, avisado: false })
+    )
+    t.check(
+      'reintentarSalida: con la marca y sin token vigente; con un token vigente (alguien entró otra vez) no se avisa (borraría la cookie nueva)',
+      reintentarSalida({ salidaPendiente: true, tokenVigente: false }) && !reintentarSalida({ salidaPendiente: true, tokenVigente: true }) && !reintentarSalida({ salidaPendiente: false, tokenVigente: false })
+    )
+    t.check(
+      'cambioDeTokenEnOtraPestana: borrado → cerrar; otro token → abrir; el mismo, o esta pestaña sin sesión que no lo había leído → nada',
+      cambioDeTokenEnOtraPestana({ nuevo: null, anterior: 'token-a' }) === 'cerrar' &&
+        cambioDeTokenEnOtraPestana({ nuevo: null, anterior: null }) === 'nada' &&
+        cambioDeTokenEnOtraPestana({ nuevo: 'token-b', anterior: 'token-a' }) === 'abrir' &&
+        cambioDeTokenEnOtraPestana({ nuevo: 'token-b', anterior: null }) === 'abrir' &&
+        cambioDeTokenEnOtraPestana({ nuevo: 'token-a', anterior: 'token-a' }) === 'nada' &&
+        cambioDeTokenEnOtraPestana({ nuevo: 'token-b', anterior: undefined }) === 'nada'
+    )
+    {
+      let enElNavegador: string | null = 'token-a'
+      const compartido: LlaveroToken = {
+        async leer() {
+          return enElNavegador
+        },
+        async guardar(token) {
+          enElNavegador = token
+        },
+        async borrar() {
+          enElNavegador = null
+        },
+      }
+      const pestana = new MemoriaToken(compartido)
+      const antesDeLeer = pestana.releer()
+      const primero = await pestana.leer()
+      enElNavegador = 'token-b' // otra pestaña
+      const enMemoria = await pestana.leer()
+      const anterior = pestana.releer()
+      const despues = await pestana.leer()
+      t.check(
+        'MemoriaToken.releer: devuelve lo que tenía en memoria y la próxima lectura es la del navegador (sin haber leído, undefined)',
+        antesDeLeer === undefined && primero === 'token-a' && enMemoria === 'token-a' && anterior === 'token-a' && despues === 'token-b',
+        { antesDeLeer, primero, enMemoria, anterior, despues }
+      )
+    }
+    const sesionWeb = leer('lib/sesion.ts')
+    const apiWeb = leer('lib/api.ts')
+    t.check(
+      'sesion.ts al abrir: en el navegador sin token vigente pide la sesión de la web (sesionDeLaWeb) antes de "sin_sesion" y, si llega, entra con ese token',
+      /probarSesionDeLaWeb\(\{ esWeb, tokenVigente, salidaPendiente \}\)\) \{\s*if \(await entrarConLaWeb\(\)\) return/.test(sesionWeb) && /await api\.sesionDeLaWeb\(\)/.test(sesionWeb) && /await guardarToken\(respuesta\.token\)/.test(sesionWeb)
+    )
+    t.check(
+      "api.ts: el login manda clienteDeLogin(Platform.OS === 'web') y sesionDeLaWeb es POST /api/auth/sesion-app sin token, con la cookie y TIEMPO_ME_MS",
+      /cliente: clienteDeLogin\(Platform\.OS === 'web'\)/.test(apiWeb) &&
+        /peticion<LoginMovilResponse>\('\/api\/auth\/sesion-app', \{ metodo: 'POST', sinToken: true, conCookie: true, timeoutMs: TIEMPO_ME_MS \}\)/.test(apiWeb)
+    )
+    t.check(
+      "api.ts: en el navegador las peticiones van SIN la cookie de la web ('omit'), salvo el login, sesion-app y el logout (conCookie); en el teléfono, como siempre",
+      /function credencialesWeb\(conCookie: boolean\)[\s\S]{0,160}if \(Platform\.OS !== 'web'\) return \{\}[\s\S]{0,80}credentials: conCookie \? 'same-origin' : 'omit'/.test(apiWeb) &&
+        /signal: control\.signal, \.\.\.credencialesWeb\(conCookie\)/.test(apiWeb) &&
+        (apiWeb.match(/conCookie: true/g) ?? []).length === 3 &&
+        /peticion\('\/api\/auth\/logout', \{ metodo: 'POST', timeoutMs: 5_000, conCookie: true \}\)/.test(apiWeb)
+    )
+    t.check(
+      'api.logout dice si el servidor respondió (true) o no (false, sin señal)',
+      /export async function logout\(\): Promise<boolean> \{\s*try \{\s*await peticion\('\/api\/auth\/logout'[^\n]*\n\s*return true\s*\} catch \{\s*return false/.test(apiWeb)
+    )
+    const salirWeb = sesionWeb.slice(sesionWeb.indexOf('const salir = useCallback('), sesionWeb.indexOf('const refrescar = useCallback('))
+    t.check(
+      'salir: sin respuesta del servidor deja la marca de salida pendiente (dejarSalidaPendiente) y después olvida la sesión',
+      /const avisado = await api\.logout\(\)[\s\S]*dejarSalidaPendiente\(\{ esWeb: Platform\.OS === 'web', avisado \}\)\) await guardarJson\(CLAVE_SALIDA_PENDIENTE, true\)[\s\S]*await olvidar\(null\)/.test(salirWeb),
+      salirWeb
+    )
+    const entrarWeb = sesionWeb.slice(sesionWeb.indexOf('const entrar = useCallback('), sesionWeb.indexOf('const salir = useCallback('))
+    t.check('entrar con la contraseña quita la marca de salida pendiente (es un ingreso nuevo)', /await guardarToken\(respuesta\.token\)[\s\S]{0,200}await borrarClave\(CLAVE_SALIDA_PENDIENTE\)/.test(entrarWeb))
+    const puenteWeb = sesionWeb.slice(sesionWeb.indexOf('const entrarConLaWeb = useCallback('), sesionWeb.indexOf('const abrir = useCallback('))
+    t.check(
+      'entrarConLaWeb: olvida el contexto guardado de la sesión anterior y, si no puede guardar el token, sigue como sin sesión (false, sin quedarse cargando)',
+      /try \{[\s\S]{0,160}await olvidarContextoGuardado\(\)\s*await guardarToken\(respuesta\.token\)\s*\} catch \{[\s\S]{0,160}return false/.test(puenteWeb),
+      puenteWeb.slice(0, 700)
+    )
+    const otraPestana = sesionWeb.slice(sesionWeb.indexOf('alCambiarTokenEnOtraPestana(({ nuevo, anterior })'), sesionWeb.indexOf('// 401 en cualquier petición'))
+    t.check(
+      'otra pestaña cambió el token: borrado → olvidar con aviso (la cola se queda); otro → nueva generación, "cargando" y abrir con ese',
+      /cambioDeTokenEnOtraPestana\(\{ nuevo, anterior \}\)/.test(otraPestana) &&
+        /if \(cambio === 'cerrar'\) \{\s*void olvidar\(MENSAJE_SESION_OTRA_PESTANA\)/.test(otraPestana) &&
+        /else if \(cambio === 'abrir'\) \{\s*generacion\.current\+\+[\s\S]*setEstado\('cargando'\)\s*void abrir\(\)/.test(otraPestana),
+      otraPestana.slice(0, 600)
+    )
+    const almacenWeb = leer('lib/almacen.ts')
+    t.check(
+      'almacen.ts: escucha "storage" solo del token (o de un borrado total), suelta lo de memoria antes de avisar y en el teléfono no escucha',
+      /if \(!esWeb \|\| typeof ventana\.addEventListener !== 'function'\) return \(\) => undefined/.test(almacenWeb) &&
+        /if \(evento\.key !== null && evento\.key !== CLAVE_TOKEN\) return\s*const anterior = memoriaToken\.releer\(\)\s*oyente\(/.test(almacenWeb) &&
+        /ventana\.addEventListener\('storage', alCambiar\)/.test(almacenWeb)
+    )
+    const ajustes = leer('app/(app)/ajustes.tsx')
+    t.check('Ajustes: "Ir a OpMap" solo en el navegador (vuelve a la web sin escribir la dirección)', /Platform\.OS === 'web'[\s\S]{0,400}Ir a OpMap/.test(ajustes))
+
     const sesion = leer('lib/sesion.ts')
-    const abrir = sesion.slice(sesion.indexOf('// Al abrir la app.'), sesion.indexOf('// 401 en cualquier petición'))
+    const abrir = sesion.slice(sesion.indexOf('const abrir = useCallback('), sesion.indexOf('// Al abrir la app.'))
+    // El orden al abrir (revisión 2026-10-30): la salida pendiente se reintenta antes de la sesión de la web, y la sesión
+    // de la web va antes de olvidar el token vencido y de arranqueDeSesion
+    const posicion = (patron: string) => abrir.indexOf(patron)
+    t.check(
+      'sesion.ts al abrir, en orden: reintentarSalida → probarSesionDeLaWeb (entrarConLaWeb) → arranqueDeSesion (el token vencido ya no se olvida antes: sin señal entra como entrar_vencida y con señal el 401 lo cierra)',
+      posicion('reintentarSalida(') > -1 &&
+        posicion('reintentarSalida(') < posicion('probarSesionDeLaWeb(') &&
+        posicion('probarSesionDeLaWeb(') < posicion('await entrarConLaWeb()') &&
+        posicion('await entrarConLaWeb()') < posicion('arranqueDeSesion(') &&
+        posicion('arranqueDeSesion(') < posicion("if (yaVencido) await olvidar(MENSAJE_SESION_VENCIDA, { conservar: true })"),
+      { reintentar: posicion('reintentarSalida('), web: posicion('probarSesionDeLaWeb('), arranque: posicion('arranqueDeSesion('), vencido: posicion("if (yaVencido) await olvidar(MENSAJE_SESION_VENCIDA, { conservar: true })") }
+    )
+    t.check(
+      'la salida pendiente: se lee solo en el navegador, se reintenta el logout y se quita solo si llegó',
+      /const salidaPendiente = esWeb && \(await leerJson<boolean>\(CLAVE_SALIDA_PENDIENTE\)\) === true/.test(abrir) &&
+        /if \(reintentarSalida\(\{ salidaPendiente, tokenVigente \}\)\) \{\s*if \(await api\.logout\(\)\) await borrarClave\(CLAVE_SALIDA_PENDIENTE\)/.test(abrir)
+    )
     t.check(
       'sesion.ts al abrir: usa arranqueDeSesion; con entrar_y_confirmar entra con lo guardado y confirma sin esperar (void confirmar)',
       /arranqueDeSesion\(\{ perfilGuardado: guardado, tokenVigente: token !== null/.test(abrir) &&
@@ -295,7 +434,7 @@ export async function pruebas(t: Probador): Promise<void> {
         /tokenVigente: token !== null && !yaVencido, uidDelToken: leerCargaToken\(token\)\?\.uid, tokenVencido: yaVencido/.test(abrir) &&
         /if \(arranque === 'sin_sesion' \|\| !token\) \{\s*if \(yaVencido\) await olvidar\(MENSAJE_SESION_VENCIDA, \{ conservar: true \}\)\s*else setEstado\('sin_sesion'\)/.test(abrir)
     )
-    const confirmar = sesion.slice(sesion.indexOf('const confirmar = useCallback('), sesion.indexOf('// Al abrir la app.'))
+    const confirmar = sesion.slice(sesion.indexOf('const confirmar = useCallback('), sesion.indexOf('const entrarConLaWeb = useCallback('))
     t.check(
       'la confirmación espera /api/auth/me con el tiempo que le pasan; un 401 cierra la sesión; una respuesta tardía de otra sesión no la revive',
       /async \(token: string, guardado: Perfil \| null, tiempoMs: number\)/.test(confirmar) &&

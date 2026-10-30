@@ -1,17 +1,53 @@
 /**
- * Regreso de las pantallas de creación a Reportar: "Crear médico completo" (medico/nuevo) y "Crear sede aquí"
- * (sede/nueva) avisan aquí lo que se creó (o eligió) y vuelven atrás; Reportar escucha y lo pone en la tarjeta que
+ * Regreso de las pantallas de creación a Reportar: "Crear médico completo" (medico/nuevo), "Crear sede aquí"
+ * (sede/nueva) y "Nuevo contacto" (contacto/nuevo) avisan aquí lo que se creó (o eligió) y vuelven atrás; Reportar escucha y lo pone en la tarjeta que
  * lo pidió (por su clave). Vive en memoria mientras la app está abierta: no guarda nada (y nunca documentos).
  */
 import type { Punto } from './geo'
-import type { MedicoOpcion, SedeOpcion } from './propuesta'
-import type { VisitaCreate } from './tipos'
+import type { FormularioCita, MedicoOpcion, SedeOpcion } from './propuesta'
+import type { ContactoContexto, VisitaCreate } from './tipos'
 
 export type Retorno =
   | { tipo: 'medico'; clave: string | null; medico: MedicoOpcion }
   | { tipo: 'sede'; clave: string | null; sede: SedeOpcion }
+  // Nuevo contacto (2026-10-30): el creado, o el que ya estaba en la cuenta con ese teléfono o correo
+  | { tipo: 'contacto'; clave: string | null; contacto: ContactoContexto }
 
 type Oyente = (retorno: Retorno) => void
+
+/**
+ * La clave con que Agendar pide "Crear médico" (dueño, 2026-10-30: "debería dejarme crearlo si no lo encuentra"): con
+ * ella, Nuevo médico no avisa (Agendar no está montado para oírlo) sino que deja el médico en la vuelta de abajo.
+ */
+export const CLAVE_RETORNO_AGENDAR = 'agendar'
+
+// ---------------------------------------------------------------------------------------------
+// La vuelta a Agendar (revisión 2026-10-30): Agendar se desmonta al abrir Nuevo médico (SoloEnFoco) y se monta de cero
+// al volver, así que ni oye el aviso ni recuerda lo que llevaba. Antes de ir, deja aquí su formulario; Nuevo médico suma
+// el médico creado (o el que ya estaba con ese documento); Agendar lo toma al montarse. En memoria, una sola vez y por
+// VIGENCIA_VUELTA_AGENDAR_MS; nunca documentos.
+// ---------------------------------------------------------------------------------------------
+
+export const VIGENCIA_VUELTA_AGENDAR_MS = 30 * 60_000
+
+let vueltaAgendar: { formulario: FormularioCita; medicoId: string | null; desde: number } | null = null
+
+export function guardarAgendarAntesDeCrear(formulario: FormularioCita, ahora: number = Date.now()): void {
+  vueltaAgendar = { formulario, medicoId: null, desde: ahora }
+}
+
+/** Nuevo médico, pedido desde Agendar: el médico que quedó (creado o el que ya estaba). Sin vuelta guardada, nada. */
+export function medicoParaAgendar(medicoId: string): void {
+  if (vueltaAgendar) vueltaAgendar = { ...vueltaAgendar, medicoId }
+}
+
+/** Al montarse Agendar: lo que llevaba y el médico, una sola vez (después, null). Vencida, null. */
+export function tomarVueltaAgendar(ahora: number = Date.now()): { formulario: FormularioCita; medicoId: string | null } | null {
+  const vuelta = vueltaAgendar
+  vueltaAgendar = null
+  if (!vuelta || ahora - vuelta.desde > VIGENCIA_VUELTA_AGENDAR_MS) return null
+  return { formulario: vuelta.formulario, medicoId: vuelta.medicoId }
+}
 
 const oyentes = new Set<Oyente>()
 /** Lo último que llegó sin nadie escuchando (Reportar se volvió a montar): se entrega al suscribirse. */
@@ -51,8 +87,11 @@ export function escucharRetorno(oyente: Oyente): () => void {
 export interface PedidoCreacion {
   /** Tarjeta de Reportar que pidió crear (null: elegir la sede del paso 1). */
   clave: string | null
-  /** Nombre que se dijo y no cruzó (Nuevo médico). Nunca un documento. */
+  /** Nombre que se dijo y no cruzó (Nuevo médico, Nuevo contacto). Nunca un documento. */
   nombre?: string | null
+  /** Nuevo contacto: la cuenta de la tarjeta (y su sede, si ya se eligió). */
+  cuenta?: { id: string; nombre: string } | null
+  sede_id?: string | null
   /** Municipio por defecto (DANE de 5 dígitos): el de la zona de la persona. */
   municipio?: string | null
   /** Sedes cercanas del contexto (para elegir dónde atiende el médico, o la cuenta de la sede nueva). */

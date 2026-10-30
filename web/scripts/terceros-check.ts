@@ -14,6 +14,9 @@ import {
   ROLES_MEDICO_SEDE,
   SUBTIPOS_SEMILLA,
   TIPOS_DOC_MEDICO,
+  TIPOS_DOC_MEDICO_NUEVO,
+  digitosTelefono,
+  mismoContacto,
   TIPOS_ID_CUENTA,
   VALORES_CLASE_CUENTA,
   VALORES_ESPECIALIDAD,
@@ -470,6 +473,16 @@ eq('especialidades sin repetir', nuevo?.especialidades, ['ortopedia', 'columna']
 eq('sede_id en minúsculas', nuevo?.sedes.map(s => s.sede_id), [UUID_A, UUID_B])
 eq('correo en minúsculas', nuevo?.email, 'juan.perez@ejemplo.com')
 check('descarta activo y created_by', nuevo !== undefined && !('activo' in nuevo) && !('created_by' in nuevo))
+// Médicos sin duplicados (dueño, 2026-10-30): el documento es la cédula de ciudadanía o la de extranjería
+const SOLO_CC_CE = 'cédula de ciudadanía (CC) o la cédula de extranjería (CE)'
+valido('médico con cédula de extranjería', medicoCreateSchema.safeParse({ ...medicoBase, tipo_documento: 'CE', numero_documento: 'E12345' }))
+for (const tipo of ['PA', 'PEP', 'PPT', 'otro']) {
+  invalido(`médico nuevo con ${tipo} → solo CC o CE`, medicoCreateSchema.safeParse({ ...medicoBase, tipo_documento: tipo, numero_documento: 'X12345' }), SOLO_CC_CE)
+  invalido(`corregir el documento a ${tipo} → solo CC o CE`, medicoUpdateSchema.safeParse({ tipo_documento: tipo, numero_documento: 'X12345' }), SOLO_CC_CE)
+  invalido(`verificar con ${tipo} → solo CC o CE`, medicoVerificarSchema.safeParse({ tipo_documento: tipo, numero_documento: 'X12345' }), SOLO_CC_CE)
+}
+eq('TIPOS_DOC_MEDICO_NUEVO: CC y CE (para crear, corregir y verificar)', TIPOS_DOC_MEDICO_NUEVO.map(t => t.valor), ['CC', 'CE'])
+eq('TIPOS_DOC_MEDICO sigue con todos (para mostrar lo que ya estaba guardado)', TIPOS_DOC_MEDICO.map(t => t.valor), ['CC', 'CE', 'PA', 'PEP', 'PPT', 'otro'])
 invalido('médico sin sedes (lista vacía)', medicoCreateSchema.safeParse({ ...medicoBase, sedes: [] }), 'al menos una sede')
 invalido('médico sin sedes (sin campo)', medicoCreateSchema.safeParse({ ...medicoBase, sedes: undefined }), 'al menos una sede')
 invalido('médico sin número de documento', medicoCreateSchema.safeParse({ ...medicoBase, numero_documento: undefined }), 'número de documento')
@@ -502,7 +515,7 @@ invalido(
 invalido('teléfono corto', medicoCreateSchema.safeParse({ ...medicoBase, telefono: '123' }), 'al menos 7 dígitos')
 invalido('correo inválido', medicoCreateSchema.safeParse({ ...medicoBase, email: 'no-es-correo' }), 'Correo no válido')
 eq('correo vacío → null', medicoCreateSchema.safeParse({ ...medicoBase, email: '' }).data?.email, null)
-eq('pasaporte normalizado', medicoCreateSchema.safeParse({ ...medicoBase, tipo_documento: 'PA', numero_documento: 'ab-123 45' }).data?.numero_documento, 'AB12345')
+eq('cédula de extranjería normalizada (letras en mayúscula, sin guiones ni espacios)', medicoCreateSchema.safeParse({ ...medicoBase, tipo_documento: 'CE', numero_documento: 'ab-123 45' }).data?.numero_documento, 'AB12345')
 
 console.log('11. Edición y verificación de médico')
 valido('cambiar nombre', medicoUpdateSchema.safeParse({ nombre: 'Juan Carlos Pérez' }))
@@ -539,10 +552,10 @@ invalido('fecha que no existe', visitanteUpdateSchema.safeParse({ hasta: '2026-0
 invalido('sin fecha', visitanteUpdateSchema.safeParse({}), 'fecha en que termina')
 check('esFechaValida: bisiesto', esFechaValida('2028-02-29') && !esFechaValida('2027-02-29'))
 
-const contactoBase = { cuenta_id: UUID_A, nombre: 'Ana Ruiz', cargo_texto: 'Jefe de Compras' }
+const contactoBase = { cuenta_id: UUID_A, nombre: 'Ana Ruiz', cargo_texto: 'Jefe de Compras', telefono: '300 123 4567' }
 eq('contacto: rol desde el cargo', contactoCreateSchema.safeParse(contactoBase).data?.rol, 'compras')
 eq('contacto: rol elegido gana', contactoCreateSchema.safeParse({ ...contactoBase, rol: 'gerencia' }).data?.rol, 'gerencia')
-eq('contacto sin cargo → otro', contactoCreateSchema.safeParse({ cuenta_id: UUID_A, nombre: 'Ana Ruiz' }).data?.rol, 'otro')
+eq('contacto sin cargo → otro', contactoCreateSchema.safeParse({ cuenta_id: UUID_A, nombre: 'Ana Ruiz', email: 'ana@clinica.co' }).data?.rol, 'otro')
 eq('contacto: sede vacía → null', contactoCreateSchema.safeParse({ ...contactoBase, sede_id: '' }).data?.sede_id, null)
 eq('contacto: sede en minúsculas', contactoCreateSchema.safeParse({ ...contactoBase, sede_id: UUID_B.toUpperCase() }).data?.sede_id, UUID_B)
 invalido('contacto con sede inválida', contactoCreateSchema.safeParse({ ...contactoBase, sede_id: 'abc' }), 'Sede no válida')
@@ -551,6 +564,14 @@ invalido('contacto sin nombre', contactoCreateSchema.safeParse({ cuenta_id: UUID
 invalido('contacto sin cuenta', contactoCreateSchema.safeParse({ nombre: 'Ana Ruiz' }), 'cuenta del contacto')
 eq('editar cargo no recalcula el rol', contactoUpdateSchema.safeParse({ cargo_texto: 'Gerente' }).data, { cargo_texto: 'Gerente' })
 invalido('editar contacto sin campos', contactoUpdateSchema.safeParse({}), 'No hay campos')
+// Contactos sin duplicados (dueño, 2026-10-30): teléfono y/o correo obligatorio; se comparan los dígitos del teléfono
+invalido('contacto sin teléfono ni correo', contactoCreateSchema.safeParse({ cuenta_id: UUID_A, nombre: 'Ana Ruiz' }), 'teléfono o el correo del contacto')
+invalido('contacto con teléfono y correo vacíos', contactoCreateSchema.safeParse({ cuenta_id: UUID_A, nombre: 'Ana Ruiz', telefono: '', email: '' }), 'teléfono o el correo del contacto')
+valido('contacto solo con teléfono', contactoCreateSchema.safeParse({ cuenta_id: UUID_A, nombre: 'Ana Ruiz', telefono: '6076543210' }))
+valido('contacto solo con correo', contactoCreateSchema.safeParse({ cuenta_id: UUID_A, nombre: 'Ana Ruiz', email: 'Ana@Clinica.co' }))
+eq('digitosTelefono: solo los dígitos, sin el +57 de Colombia', [digitosTelefono('+57 300 123 4567'), digitosTelefono('300-123-4567'), digitosTelefono('(607) 654 3210'), digitosTelefono('57 300 123 4567')], ['3001234567', '3001234567', '6076543210', '3001234567'])
+eq('digitosTelefono: vacío o sin dígitos → null', [digitosTelefono(''), digitosTelefono(null), digitosTelefono(undefined), digitosTelefono('---')], [null, null, null, null])
+check('mismoContacto: el mismo teléfono (por dígitos) o el mismo correo (sin mayúsculas)', mismoContacto({ telefono: '+57 300 123 4567', email: null }, { telefono: '3001234567', email: null }) && mismoContacto({ telefono: null, email: 'ANA@clinica.co' }, { telefono: '6070000000', email: 'ana@clinica.co' }) && !mismoContacto({ telefono: '3001234567', email: null }, { telefono: '3001234568', email: 'ana@clinica.co' }))
 invalido('cuerpo null', medicoCreateSchema.safeParse(null), 'se esperaba un objeto JSON')
 invalido('cuerpo que no es objeto', cuentaCreateSchema.safeParse('hola'), 'se esperaba un objeto JSON')
 

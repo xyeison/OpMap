@@ -14,15 +14,25 @@
  * guarda también si el servidor tiene F1a (`servidor`: /api/auth/me sin la clave `persona` = 'sin_f1a').
  */
 import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Platform } from 'react-native'
 import * as api from './api'
-import { borrarClave, borrarToken, guardarJson, guardarToken, leerJson, leerToken } from './almacen'
+import { alCambiarTokenEnOtraPestana, borrarClave, borrarToken, guardarJson, guardarToken, leerJson, leerToken } from './almacen'
 import { olvidarContextoGuardado } from './contexto-guardado'
 import { olvidarContextoEnMemoria } from './contexto-memoria'
-import { MENSAJE_SESION_VENCIDA, aApiError } from './errores'
+import { MENSAJE_SESION_OTRA_PESTANA, MENSAJE_SESION_VENCIDA, aApiError } from './errores'
 import { personaDeMe, servidorDeMe, type ServidorDeCampo } from './persona'
-import { TIEMPO_ME_FONDO_MS, TIEMPO_ME_MS, arranqueDeSesion } from './sesion-reglas'
+import {
+  CLAVE_SALIDA_PENDIENTE,
+  TIEMPO_ME_FONDO_MS,
+  TIEMPO_ME_MS,
+  arranqueDeSesion,
+  cambioDeTokenEnOtraPestana,
+  dejarSalidaPendiente,
+  probarSesionDeLaWeb,
+  reintentarSalida,
+} from './sesion-reglas'
 import { leerCargaToken, tokenVencido } from './token'
-import type { EjecutivaMovil, PersonaMovil, UsuarioMovil } from './tipos'
+import type { EjecutivaMovil, LoginMovilResponse, PersonaMovil, UsuarioMovil } from './tipos'
 
 const CLAVE_PERFIL = 'opmap.perfil.v1'
 
@@ -148,38 +158,108 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
     [olvidar]
   )
 
+  /**
+   * Un solo ingreso con la web de OpMap (2026-10-30, docs/specs/2026-10-30-agendamiento-lider-un-ingreso.md): la app en el
+   * navegador sin token vigente pide el de la sesión de la web (POST /api/auth/sesion-app, con la cookie): quien entró por
+   * "Agendamiento" no vuelve a escribir su contraseña. true si entró; sin sesión en la web, false y sigue como siempre.
+   */
+  const entrarConLaWeb = useCallback(async (): Promise<boolean> => {
+    let respuesta: LoginMovilResponse
+    try {
+      respuesta = await api.sesionDeLaWeb()
+    } catch {
+      return false
+    }
+    generacion.current++
+    olvidarContextoEnMemoria()
+    try {
+      // Lo guardado de la sesión anterior (quizá de otra persona: su contexto del día) no se hereda
+      await olvidarContextoGuardado()
+      await guardarToken(respuesta.token)
+    } catch {
+      // Sin dónde guardar el token (almacenamiento lleno o bloqueado): sigue como sin la sesión de la web
+      return false
+    }
+    const nuevo: Perfil = { usuario: { ...respuesta.usuario }, ejecutiva: respuesta.ejecutiva, expira_at: respuesta.expira_at }
+    await guardarJson(CLAVE_PERFIL, nuevo).catch(() => undefined)
+    if (!montado.current) return true
+    setPerfil(nuevo)
+    setSinConfirmar(false)
+    setAviso(null)
+    setEstado('con_sesion')
+    // Como después de entrar: la persona de campo (y el correo) llegan con GET /api/auth/me en segundo plano
+    void confirmar(respuesta.token, nuevo, TIEMPO_ME_FONDO_MS)
+    return true
+  }, [confirmar])
+
+  /** Al abrir la app (y, en el navegador, cuando otra pestaña cambia el token). */
+  const abrir = useCallback(async () => {
+    const esWeb = Platform.OS === 'web'
+    const token = await leerToken()
+    const yaVencido = token !== null && tokenVencido(token)
+    const tokenVigente = token !== null && !yaVencido
+    // En el navegador: si se cerró sesión sin señal, la cookie de la web pudo quedar viva (CLAVE_SALIDA_PENDIENTE). Se
+    // vuelve a avisar al servidor y, mientras la marca siga, la app no entra sola con esa cookie.
+    const salidaPendiente = esWeb && (await leerJson<boolean>(CLAVE_SALIDA_PENDIENTE)) === true
+    if (reintentarSalida({ salidaPendiente, tokenVigente })) {
+      if (await api.logout()) await borrarClave(CLAVE_SALIDA_PENDIENTE)
+    }
+    // En el navegador, sin token vigente: primero la sesión de la web (un solo ingreso)
+    if (probarSesionDeLaWeb({ esWeb, tokenVigente, salidaPendiente })) {
+      if (await entrarConLaWeb()) return
+    }
+    const guardado = token ? await leerJson<Perfil>(CLAVE_PERFIL) : null
+    // Token vencido: con señal el servidor responderá 401 y se vuelve al ingreso (conservando el perfil); SIN señal se
+    // entra con el perfil guardado para seguir reportando a la cola (arranqueDeSesion con vencido: 'entrar_vencida').
+    const arranque = arranqueDeSesion({ perfilGuardado: guardado, tokenVigente: token !== null && !yaVencido, uidDelToken: leerCargaToken(token)?.uid, tokenVencido: yaVencido })
+    if (!montado.current) return
+    if (arranque === 'sin_sesion' || !token) {
+      if (yaVencido) await olvidar(MENSAJE_SESION_VENCIDA, { conservar: true })
+      else setEstado('sin_sesion')
+      return
+    }
+    if ((arranque === 'entrar_y_confirmar' || arranque === 'entrar_vencida') && guardado) {
+      // Entra ya con lo guardado y confirma en segundo plano: un 401 cierra la sesión; sin señal queda "sin confirmar".
+      setPerfil(guardado)
+      setSinConfirmar(arranque === 'entrar_vencida')
+      setVencida(arranque === 'entrar_vencida')
+      setEstado('con_sesion')
+      void confirmar(token, guardado, TIEMPO_ME_FONDO_MS)
+      return
+    }
+    // Sin perfil guardado (o de otro usuario): se pregunta antes de entrar, como siempre.
+    await confirmar(token, null, TIEMPO_ME_MS)
+  }, [confirmar, olvidar, entrarConLaWeb])
+
   // Al abrir la app.
   useEffect(() => {
     montado.current = true
-    ;(async () => {
-      const token = await leerToken()
-      const guardado = token ? await leerJson<Perfil>(CLAVE_PERFIL) : null
-      const yaVencido = token !== null && tokenVencido(token)
-      // Token vencido: con señal el servidor responderá 401 y se vuelve al ingreso (conservando el perfil); SIN señal se
-      // entra con el perfil guardado para seguir reportando a la cola (arranqueDeSesion con vencido: 'entrar_vencida').
-      const arranque = arranqueDeSesion({ perfilGuardado: guardado, tokenVigente: token !== null && !yaVencido, uidDelToken: leerCargaToken(token)?.uid, tokenVencido: yaVencido })
-      if (!montado.current) return
-      if (arranque === 'sin_sesion' || !token) {
-        if (yaVencido) await olvidar(MENSAJE_SESION_VENCIDA, { conservar: true })
-        else setEstado('sin_sesion')
-        return
-      }
-      if ((arranque === 'entrar_y_confirmar' || arranque === 'entrar_vencida') && guardado) {
-        // Entra ya con lo guardado y confirma en segundo plano: un 401 cierra la sesión; sin señal queda "sin confirmar".
-        setPerfil(guardado)
-        setSinConfirmar(arranque === 'entrar_vencida')
-        setVencida(arranque === 'entrar_vencida')
-        setEstado('con_sesion')
-        void confirmar(token, guardado, TIEMPO_ME_FONDO_MS)
-        return
-      }
-      // Sin perfil guardado (o de otro usuario): se pregunta antes de entrar, como siempre.
-      await confirmar(token, null, TIEMPO_ME_MS)
-    })()
+    void abrir()
     return () => {
       montado.current = false
     }
-  }, [confirmar, olvidar])
+  }, [abrir])
+
+  // En el navegador, otra pestaña cambió el token (en OpMap se entró o se salió, u otra pestaña de la app): esta pestaña
+  // lo sigue (revisión 2026-10-30). Sin token se cierra aquí también (la cola se queda); con otro, se abre con ese.
+  useEffect(
+    () =>
+      alCambiarTokenEnOtraPestana(({ nuevo, anterior }) => {
+        const cambio = cambioDeTokenEnOtraPestana({ nuevo, anterior })
+        if (cambio === 'cerrar') {
+          void olvidar(MENSAJE_SESION_OTRA_PESTANA)
+        } else if (cambio === 'abrir') {
+          generacion.current++
+          olvidarContextoEnMemoria()
+          setPerfil(null)
+          setSinConfirmar(false)
+          setAviso(null)
+          setEstado('cargando')
+          void abrir()
+        }
+      }),
+    [abrir, olvidar]
+  )
 
   // 401 en cualquier petición → olvidar el token (el perfil, el contexto y la cola se quedan para volver a entrar).
   useEffect(() => api.alVencerSesion(() => void olvidar(MENSAJE_SESION_VENCIDA, { conservar: true })), [olvidar])
@@ -218,6 +298,8 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
     generacion.current++
     olvidarContextoEnMemoria()
     await guardarToken(respuesta.token)
+    // Un ingreso nuevo: la salida pendiente de antes ya no cuenta (en el navegador la cookie es la de este ingreso)
+    await borrarClave(CLAVE_SALIDA_PENDIENTE)
     const nuevo: Perfil = { usuario: { ...respuesta.usuario, email: email.trim().toLowerCase() }, ejecutiva: respuesta.ejecutiva, expira_at: respuesta.expira_at }
     await guardarJson(CLAVE_PERFIL, nuevo).catch(() => undefined)
     setPerfil(nuevo)
@@ -229,7 +311,10 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
   }, [completarPersona])
 
   const salir = useCallback(async () => {
-    await api.logout()
+    const avisado = await api.logout()
+    // En el navegador, si el servidor no se enteró, la cookie de la web pudo quedar viva: con la marca la app no entra
+    // sola con ella al volver a abrir (y al abrir vuelve a avisar)
+    if (dejarSalidaPendiente({ esWeb: Platform.OS === 'web', avisado })) await guardarJson(CLAVE_SALIDA_PENDIENTE, true).catch(() => undefined)
     await olvidar(null)
   }, [olvidar])
 

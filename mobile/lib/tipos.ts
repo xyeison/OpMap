@@ -793,6 +793,9 @@ export interface DiaLibreResponse {
 // ---------------------------------------------------------------------------------------------
 
 export type TipoDocMedico = 'CC' | 'CE' | 'PA' | 'PEP' | 'PPT' | 'otro'
+/** Para crear o verificar un médico: solo cédula de ciudadanía o de extranjería (dueño, 2026-10-30; web/lib/terceros.ts
+ * TIPOS_DOC_MEDICO_NUEVO). TipoDocMedico sigue con todos para mostrar los ya guardados. */
+export type TipoDocMedicoNuevo = 'CC' | 'CE'
 export type EspecialidadMedico =
   | 'ortopedia'
   | 'neurocirugia'
@@ -814,7 +817,7 @@ export interface MedicoVerificarRespuesta {
 
 /** Cuerpo de POST /api/terceros/medicos/verificar (el documento va en el cuerpo, nunca en la URL). */
 export interface MedicoVerificar {
-  tipo_documento: TipoDocMedico
+  tipo_documento: TipoDocMedicoNuevo
   numero_documento: string
   nombre: string | null
   municipality_id: string | null
@@ -828,7 +831,7 @@ export interface MedicoSedeCreate {
 
 /** Cuerpo de POST /api/terceros/medicos: médico completo (documento digitado, nombre, especialidad, ciudad y sedes). */
 export interface MedicoCreate {
-  tipo_documento: TipoDocMedico
+  tipo_documento: TipoDocMedicoNuevo
   numero_documento: string
   nombre: string
   especialidades: EspecialidadMedico[]
@@ -960,6 +963,22 @@ export interface CuentaCreateResponse {
 }
 
 /** GET /api/terceros/cuentas/[id] (lo que usa la app: sus sedes). */
+/** POST /api/terceros/contactos (terceros:create): nombre y teléfono y/o correo (dueño, 2026-10-30). */
+export interface ContactoCreate {
+  cuenta_id: string
+  sede_id: string | null
+  nombre: string
+  cargo_texto: string | null
+  telefono: string | null
+  email: string | null
+}
+
+/** 201 de POST /api/terceros/contactos (la app solo usa lo que ya muestra). 409: { error, existente: { id, nombre } }. */
+export interface ContactoCreateResponse {
+  id: string
+  contacto: { id: string; cuenta_id: string; sede_id: string | null; nombre: string; cargo_texto: string | null; rol: string }
+}
+
 export interface CuentaDetalleResponse {
   cuenta: { id: string; nombre: string; clase: ClaseCuenta; activo: boolean }
   sedes: SedeCreada[]

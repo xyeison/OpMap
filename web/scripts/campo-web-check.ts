@@ -20,6 +20,7 @@ import path from 'node:path'
 import { NextRequest } from 'next/server'
 import { generateSW } from 'workbox-build'
 import { middleware } from '../middleware'
+import { CLAVES_SESION_APP_CAMPO, CLAVE_SALIDA_PENDIENTE_APP_CAMPO, marcarSalidaPendienteAppCampo, olvidarSesionAppCampo } from '../lib/app-campo'
 import { opcionesServiceWorker } from './campo-sw.mjs'
 
 for (const key of ['SUPABASE_SERVICE_ROLE_KEY', 'NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_URL', 'SESSION_SECRET']) delete process.env[key]
@@ -121,6 +122,53 @@ async function main() {
   const todas = cabeceras ? await cabeceras() : []
   const permisos = todas.flatMap(h => h.headers).find(h => h.key === 'Permissions-Policy')
   check('Permissions-Policy deja la cámara, el micrófono y la ubicación al propio sitio (la foto y el GPS de la app en /campo)', permisos?.value === 'camera=(self), microphone=(self), geolocation=(self)', permisos)
+
+  console.log('\n4. Un solo ingreso: la web olvida la sesión de la app al entrar y al salir (2026-10-30)')
+  const quitadas: string[] = []
+  const almacen = { removeItem: (clave: string) => void quitadas.push(clave) }
+  olvidarSesionAppCampo(almacen)
+  check(
+    'olvidarSesionAppCampo quita el token, el perfil, el contexto del día (sedes, médicos y contactos) y la marca de salida pendiente de la app, no su cola sin señal',
+    JSON.stringify(quitadas) === JSON.stringify(['opmap.token.v1', 'opmap.perfil.v1', 'opmap.contexto.v1', 'opmap.salida-pendiente.v1']) && !quitadas.some(clave => /cola/.test(clave)),
+    quitadas
+  )
+  const marcadas: [string, string][] = []
+  marcarSalidaPendienteAppCampo({ setItem: (clave: string, valor: string) => void marcadas.push([clave, valor]) })
+  check(
+    "marcarSalidaPendienteAppCampo deja la marca como la guarda la app (JSON true en 'opmap.salida-pendiente.v1')",
+    JSON.stringify(marcadas) === JSON.stringify([[CLAVE_SALIDA_PENDIENTE_APP_CAMPO, 'true']]) && JSON.parse(marcadas[0]?.[1] ?? 'null') === true,
+    marcadas
+  )
+  let lanzo = false
+  try {
+    olvidarSesionAppCampo({ removeItem: () => { throw new Error('modo privado') } })
+    olvidarSesionAppCampo(null)
+    marcarSalidaPendienteAppCampo({ setItem: () => { throw new Error('modo privado') } })
+    marcarSalidaPendienteAppCampo(null)
+  } catch {
+    lanzo = true
+  }
+  check('olvidarSesionAppCampo y marcarSalidaPendienteAppCampo nunca lanzan (sin almacenamiento o en modo privado)', !lanzo)
+  check(
+    'las claves son las mismas que usa la app (CLAVE_TOKEN de almacen.ts, CLAVE_PERFIL de sesion.ts, CLAVE_CONTEXTO de contexto-guardado.ts y CLAVE_SALIDA_PENDIENTE de sesion-reglas.ts)',
+    movil('lib/almacen.ts').includes(`const CLAVE_TOKEN = '${CLAVES_SESION_APP_CAMPO[0]}'`) &&
+      movil('lib/sesion.ts').includes(`const CLAVE_PERFIL = '${CLAVES_SESION_APP_CAMPO[1]}'`) &&
+      movil('lib/contexto-guardado.ts').includes(`export const CLAVE_CONTEXTO = '${CLAVES_SESION_APP_CAMPO[2]}'`) &&
+      movil('lib/sesion-reglas.ts').includes(`export const CLAVE_SALIDA_PENDIENTE = '${CLAVE_SALIDA_PENDIENTE_APP_CAMPO}'`)
+  )
+  const contexto = leer('contexts/UserContext.tsx')
+  const loginWeb = contexto.slice(contexto.indexOf('const login = async'), contexto.indexOf('const logout = async'))
+  const logoutWeb = contexto.slice(contexto.indexOf('const logout = async'), contexto.indexOf('return (', contexto.indexOf('const logout = async')))
+  check(
+    'UserContext: el login de la web olvida la sesión de la app solo cuando entró (response.ok)',
+    /if \(response\.ok\) \{[\s\S]*?olvidarSesionAppCampo\(localStorage\)[\s\S]*?return true/.test(loginWeb) && (loginWeb.match(/olvidarSesionAppCampo\(localStorage\)/g) ?? []).length === 1,
+    loginWeb.slice(0, 600)
+  )
+  check(
+    'UserContext: el logout de la web olvida la sesión de la app y, si el servidor no respondió, deja la marca de salida pendiente',
+    /avisado = response\.ok/.test(logoutWeb) && /olvidarSesionAppCampo\(localStorage\)\s*if \(!avisado\) marcarSalidaPendienteAppCampo\(localStorage\)/.test(logoutWeb),
+    logoutWeb
+  )
 
   console.log(`\n${passed} pruebas bien, ${failed} con falla`)
   if (failed > 0) process.exit(1)

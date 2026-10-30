@@ -32,6 +32,11 @@ interface Props<T> {
   consulta?: string
   /** Texto cuando la búsqueda no trae nada. */
   sinResultados?: string
+  /**
+   * Lo que se ofrece SOLO cuando la búsqueda terminó sin nada, con lo que se buscó (dueño, 2026-10-30: "si no encuentra
+   * nada que coincide, aparece la opción crear médico"). Así no se crea lo que ya estaba.
+   */
+  siNoHay?: (buscado: string) => ReactNode
 }
 
 export function Buscador<T>({
@@ -46,11 +51,14 @@ export function Buscador<T>({
   pie,
   consulta,
   sinResultados = 'No encontré nada con ese nombre.',
+  siNoHay,
 }: Props<T>) {
   const c = useColores()
   const [propio, setPropio] = useState('')
   const q = consulta ?? propio
   const [resultados, setResultados] = useState<T[] | null>(null)
+  /** Lo que se buscó para llegar a `resultados` (lo que se ofrece crear si no hay nada). */
+  const [buscado, setBuscado] = useState('')
   const [buscando, setBuscando] = useState(false)
   const [error, setError] = useState<string | null>(null)
   /** La búsqueda en curso: la siguiente la cancela. */
@@ -76,6 +84,7 @@ export function Buscador<T>({
       const encontrados = await llamada.current(texto, propia.signal)
       if (propia.signal.aborted) return
       setResultados(encontrados)
+      setBuscado(texto)
     } catch (lanzado) {
       if (propia.signal.aborted) return
       setError(mensajeDeError(lanzado))
@@ -148,6 +157,7 @@ export function Buscador<T>({
         </View>
       ) : null}
       {!buscando && resultados && resultados.length === 0 ? <Aviso tono="neutro">{sinResultados}</Aviso> : null}
+      {!buscando && resultados && resultados.length === 0 && siNoHay ? siNoHay(buscado) : null}
       {(resultados ?? []).map(item => {
         const textoDetalle = detalle ? detalle(item) : null
         return (

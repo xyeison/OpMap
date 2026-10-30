@@ -225,9 +225,28 @@ business_lines, PRIMARY KEY)`, RLS sin políticas, solo service_role.
   full_name, role }, ejecutiva: { id, full_name, zona } | null }` sin `Set-Cookie`; mismos límites de intentos.
   Sin `cliente` sigue igual que hoy (cookie). `POST /api/auth/logout` con portador → 200.
 - `GET /api/auth/me` con portador → el usuario y su ejecutiva enlazada (lo que la app necesita al abrir).
+- **Un solo ingreso con la web** (la app en el navegador, `/campo`, 2026-10-30; spec
+  `docs/specs/2026-10-30-agendamiento-lider-un-ingreso.md`):
+  - `POST /api/auth/login` con `cliente: 'campo-web'` responde como el móvil y además pone la cookie de la web.
+  - `POST /api/auth/sesion-app` toma la cookie de la web y devuelve el mismo token, con la forma del login móvil.
+    Solo para las líderes (`campo:app` del rol): otro rol → 403. Solo con portador o sin nada → 401; desde otro
+    sitio → 403.
+  - La app en el navegador lo pide al abrir si no tiene un token vigente ni la marca `opmap.salida-pendiente.v1`
+    (cerrar sesión sin señal). Sus peticiones de datos van sin la cookie (`credentials: 'omit'`): el servidor responde
+    como la persona del token. Sigue lo que otra pestaña hace con el token (evento `storage`).
+  - La web olvida `opmap.token.v1`, `opmap.perfil.v1`, `opmap.contexto.v1` y la marca al entrar y al salir; la cola sin
+    señal se queda.
 - CORS solo con `NODE_ENV !== 'production'` para `http://localhost:8081` y `http://127.0.0.1:8081`:
   `Access-Control-Allow-Origin` (el origen pedido, si está en la lista), `-Headers: authorization, content-type`,
   `-Methods: GET, POST, PATCH, DELETE, OPTIONS`, `OPTIONS` → 204. Pruebas: en producción ninguna cabecera CORS.
+
+- **Médicos y contactos sin duplicados** (dueño, 2026-10-30, `docs/decisiones/2026-10-30-medicos-y-contactos-sin-duplicados.md`):
+  - la visita institucional exige `contacto_id` (`visitaCreateSchema` → 400 en `contacto_id`; la app,
+    `validarBorrador`);
+  - la tarjeta institucional ofrece "Nuevo contacto" (`contacto/nuevo`: nombre y teléfono y/o correo; el 409 ofrece
+    el que ya está);
+  - Agendar ofrece "Crear médico" (el mismo Nuevo médico, solo CC o CE) y lo elige al volver. El de una líder ya es
+    de sus líneas (`medico_lineas`, 0950).
 
 ## API (todas con `requirePermission('visits:report')` salvo auth; `getSupabaseAdmin`; errores `{ error }`; 503 si falta la migración)
 

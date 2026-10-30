@@ -68,6 +68,9 @@ export type Permission =
   | 'daysoff:approve'          // Fase 7 F2: ver todos los días libres, aprobar o rechazar en bloque, registrar o anular por otra persona
   | 'daysoff:view'             // Fase 7 F2: ver, sin aprobar, los días libres de las ejecutivas de SUS líneas (lo limita la API)
   | 'visits:report'            // Fase 7 F2 / F1a (0850): persona de campo (Ejecutivo Comercial o líder): agenda, reporta, sus días libres y su cuota
+  // La app de campo (/campo) es de las líderes (dueño, 2026-10-30): "Agendamiento" abre su agenda desde el menú de
+  // OpMap. Solo line_leader (los Ejecutivos Comerciales van por VMO; el admin no lidera líneas).
+  | 'campo:app'
 
 // Definición de permisos por rol
 export const rolePermissions: Record<Role, Permission[]> = {
@@ -154,7 +157,8 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'terceros:view',
     'terceros:create',   // Solo para la app de visita (registrar lo que falte al reportar)
     'daysoff:view',      // Fase 7 F2: ve (sin aprobar) los días libres de las ejecutivas de SUS líneas
-    'visits:report'      // F1a (0850): agenda y reporta como líder (y como Ejecutiva si también lo es); días libres y cuota solo con Ejecutivo Comercial
+    'visits:report',     // F1a (0850): agenda y reporta como líder (y como Ejecutiva si también lo es); días libres y cuota solo con Ejecutivo Comercial
+    'campo:app'          // 2026-10-30: "Agendamiento" en el menú (su agenda en la app de campo)
   ],
   // Director comercial: todo lo de ver + gestionar líneas, equipo y cobertura de todas las líneas; con el administrador,
   // el único que asigna Ejecutivos Comerciales a líneas y Zonas (dueño, 2026-10-29). Sin users:manage ni
@@ -333,6 +337,7 @@ export function getAllowedRoutes(role: Role | undefined): string[] {
   if (permissions.includes('executives:view')) routes.push('/lideres')      // Líderes de negocio ("Próximamente")
   if (PERMISOS_CONFIGURACION.some(permiso => permissions.includes(permiso))) routes.push('/configuracion') // visitas, municipios y asignación
   if (PERMISOS_CALENDARIO.some(permiso => permissions.includes(permiso))) routes.push('/calendario') // Fase 7 F2
+  if (permissions.includes('campo:app')) routes.push('/campo/agenda') // Agendamiento: la app de campo (2026-10-30)
 
   return routes
 }
@@ -360,6 +365,9 @@ export function getNavigationMenu(role: Role | undefined): NavigationItem[] {
   const tiene = (permiso: Permission) => permissions.includes(permiso)
   const gestionaContratos = tiene('contracts:edit') || role === 'admin'
 
+  // Agendamiento (dueño, 2026-10-30): primero, la agenda de la líder en la app de campo (una página fuera de Next:
+  // el menú la abre como página completa)
+  if (tiene('campo:app')) menu.push({ name: 'Agendamiento', href: '/campo/agenda', icon: 'calendar' })
   if (tiene('map:view')) menu.push({ name: 'Mapa', href: '/map', icon: 'map' })
 
   // Terceros. Cuentas clave (/terceros) son hoy las cuentas de la app de visita (las IPS); el dueño explicará el resto

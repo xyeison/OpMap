@@ -62,6 +62,8 @@ export const MENSAJE_TOPE_MEDICO = 'Ya reportaste una visita a este médico hoy'
 export const MENSAJE_SEDE_NO_DEL_MEDICO = 'El médico no atiende en esa sede'
 export const MENSAJE_SEDE_NO_DE_LA_CUENTA = 'Esa sede no es de la cuenta elegida'
 export const MENSAJE_CONTACTO_OTRA_CUENTA = 'Ese contacto no es de la cuenta elegida'
+/** El mismo texto del servidor (web/lib/reporte-visitas.ts): la visita institucional lleva contacto (2026-10-30). */
+export const MENSAJE_CONTACTO_OBLIGATORIO = 'Elige el contacto de la visita institucional'
 export const MENSAJE_LINEAS_AJENAS = 'Alguna de las líneas no es tuya'
 export const MENSAJE_SIN_UBICACION_PRESENCIAL = 'La ubicación del teléfono es obligatoria en una visita presencial'
 export const MENSAJE_FAILURE = `Indica el motivo de la visita no efectiva (hasta ${MAX_FAILURE_REASON} caracteres)`
@@ -171,6 +173,8 @@ export interface Catalogo {
 export interface ExtrasCatalogo {
   sedes?: readonly SedeOpcion[]
   medicos?: readonly MedicoOpcion[]
+  /** Los creados en Nuevo contacto (o el que ya estaba, del 409) en este reporte. */
+  contactos?: readonly ContactoContexto[]
 }
 
 /**
@@ -287,7 +291,7 @@ export function catalogoDesdeContexto(
     telefonicas_hoy: contexto.hoy.hechas.telefonicas,
     sedes,
     medicos,
-    contactos: contexto.contactos,
+    contactos: [...contexto.contactos, ...(extras.contactos ?? []).filter(extra => !contexto.contactos.some(c => c.id === extra.id))],
     subtipos: contexto.subtipos,
     motivos: Array.isArray(contexto.motivos_no_efectiva) ? contexto.motivos_no_efectiva : [],
   }
@@ -810,7 +814,10 @@ export function validarBorrador(borrador: Borrador, catalogo: Catalogo, entrada:
       if (sede && borrador.cuenta_id && sede.cuenta_id !== borrador.cuenta_id) falla('cuenta_id', MENSAJE_SEDE_NO_DE_LA_CUENTA)
     }
     if (!borrador.subtipo_id) falla('subtipo_id', 'Elige el subtipo de la visita institucional')
-    if (borrador.contacto_id) {
+    // Dueño, 2026-10-30: siempre con quién fue (el servidor también lo exige)
+    if (!borrador.contacto_id) {
+      falla('contacto_id', borrador.contacto_nombre_dicho ? `"${borrador.contacto_nombre_dicho}" no está en la cuenta: elígelo o créalo con su teléfono o correo` : MENSAJE_CONTACTO_OBLIGATORIO)
+    } else {
       const contacto = catalogo.contactos.find(c => c.id === borrador.contacto_id)
       if (!contacto || contacto.cuenta_id !== borrador.cuenta_id) falla('contacto_id', MENSAJE_CONTACTO_OTRA_CUENTA)
     }

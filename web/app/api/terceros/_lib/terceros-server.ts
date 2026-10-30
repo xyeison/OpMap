@@ -12,6 +12,7 @@ import { fetchAllRows, jsonError } from '@/app/api/kams/_lib/kam-shared'
 import { todayInBogota } from '@/app/api/executives/_lib/executive-shared'
 import {
   avisoVisitante,
+  mismoContacto,
   nitsEquivalentes,
   normalizarIdentificacion,
   numerosEquivalentesANit,
@@ -282,6 +283,86 @@ export async function sedePorRepsCode(
   const { data, error } = await consulta
   if (error) throw error
   return data && data.length > 0 ? (data[0] as { id: string; nombre: string; cuenta_id: string }) : null
+}
+
+/**
+ * El contacto ACTIVO de la cuenta que ya tiene ese teléfono (por dígitos) o ese correo (sin mayúsculas), o null
+ * (contactos sin duplicados, dueño 2026-10-30). Los inactivos son historia: no cuentan (los índices únicos de la 0950
+ * tampoco), así que el teléfono de uno dado de baja se puede usar en uno nuevo. Mira los de la cuenta (unos pocos) y
+ * compara con mismoContacto de lib/terceros.ts; `excluirId`: el contacto que se está corrigiendo.
+ */
+export async function contactoRepetido(
+  cuentaId: string,
+  datos: { telefono?: string | null; email?: string | null },
+  excluirId?: string
+): Promise<{ id: string; nombre: string } | null> {
+  const filas = await fetchAllRows<{ id: string; nombre: string; telefono: string | null; email: string | null }>((from, to) =>
+    supabaseAdmin.from('contactos').select('id, nombre, telefono, email').eq('cuenta_id', cuentaId).eq('activo', true).order('id').range(from, to)
+  )
+  const otro = filas.find(fila => fila.id !== excluirId && mismoContacto(datos, fila))
+  return otro ? { id: otro.id, nombre: otro.nombre } : null
+}
+
+/**
+ * Sin la 0950 aplicada, medico_lineas no existe: tabla que no está (42P01) o que PostgREST no conoce (PGRST205). También
+ * por el mensaje, por si el error ya perdió su código (fetchAllRows lanza solo el mensaje).
+ */
+export function sinTablaMedicoLineas(error: unknown): boolean {
+  const { code, message } = (error ?? {}) as { code?: string; message?: string }
+  if (code === '42P01' || code === 'PGRST205') return true
+  return typeof message === 'string' && message.includes('medico_lineas') && /does not exist|schema cache|could not find/i.test(message)
+}
+
+/**
+ * Las filas de medico_lineas de esos médicos o de esas líneas, por trozos y páginas, mirando el código de cada error:
+ * sin la 0950 (la tabla no existe), ninguna. Así la app de las líderes funciona igual antes de aplicarla (revisión
+ * 2026-10-30: con fetchAllRows el código se perdía y el contexto daba 500).
+ */
+export async function leerMedicoLineas(campo: 'medico_id' | 'line_id', ids: readonly string[]): Promise<{ medico_id: string; line_id: string; desde: string }[]> {
+  const filas: { medico_id: string; line_id: string; desde: string }[] = []
+  for (const trozo of enTrozos(Array.from(new Set(ids.filter(Boolean))))) {
+    for (let desde = 0; ; desde += 1000) {
+      const { data, error } = await supabaseAdmin
+        .from('medico_lineas')
+        .select('medico_id, line_id, desde')
+        .in(campo, trozo)
+        .order('medico_id')
+        .order('line_id')
+        .range(desde, desde + 999)
+      if (error) {
+        if (sinTablaMedicoLineas(error)) return []
+        throw new Error(error.message)
+      }
+      const pagina = (data ?? []) as { medico_id: string; line_id: string; desde: string }[]
+      filas.push(...pagina)
+      if (pagina.length < 1000) break
+    }
+  }
+  return filas
+}
+
+/**
+ * El médico que crea una líder queda de sus líneas de líder desde hoy (0950, medico_lineas; dueño 2026-10-30): así lo
+ * agenda y lo reporta enseguida (C9), y la dirección le asigna el visitante después. Devuelve esas líneas; sin líneas de
+ * líder (administrador, dirección…) no hace nada. Sin la 0950 tampoco (lo dice el log).
+ */
+export async function medicoDeLasLineasDeSuLider(medicoId: string, userId: string): Promise<string[]> {
+  const { data, error } = await supabaseAdmin.from('business_lines').select('id').eq('leader_user_id', userId).eq('active', true)
+  if (error) throw error
+  const lineas = ((data ?? []) as Array<{ id: string }>).map(linea => linea.id)
+  if (lineas.length === 0) return []
+  const desde = todayInBogota()
+  const { error: errorLineas } = await supabaseAdmin
+    .from('medico_lineas')
+    .insert(lineas.map(line_id => ({ medico_id: medicoId, line_id, user_id: userId, desde })))
+  if (errorLineas) {
+    if (sinTablaMedicoLineas(errorLineas)) {
+      console.warn('[terceros] medico_lineas no existe (falta la 0950): el médico creado por la líder queda sin sus líneas')
+      return []
+    }
+    throw errorLineas
+  }
+  return lineas
 }
 
 export async function medicoPorDocumento(

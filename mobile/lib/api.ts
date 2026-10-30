@@ -26,6 +26,7 @@ import {
 } from './http'
 import { parteAudio } from './subida-audio'
 import { cuerpoCancelar, cuerpoMotivo } from './agenda-ciclo'
+import { TIEMPO_ME_MS, clienteDeLogin } from './sesion-reglas'
 import type {
   AgendaResponse,
   CamposDictadoResponse,
@@ -50,6 +51,8 @@ import type {
   VisitaItem,
   VisitasResponse,
   VisitaUpdate,
+  ContactoCreate,
+  ContactoCreateResponse,
 } from './tipos'
 import type {
   CuentaCreate,
@@ -88,6 +91,13 @@ export interface OpcionesPeticion {
   sinToken?: boolean
   /** Token explícito (al validar uno recién recibido, antes de guardarlo). */
   token?: string
+  /**
+   * En el navegador (/campo), mandar la cookie de la web y aceptar la que llegue: solo el login, el puente con la sesión
+   * de la web y el logout. Lo demás va SIN la cookie (revisión 2026-10-30): el servidor responde siempre como la persona
+   * del token, aunque en otra pestaña haya entrado otra en OpMap, y la app sigue siendo la app (sesionDeLaApp del
+   * servidor: lo de Ejecutivo Comercial cerrado como en el teléfono). En el teléfono no cambia nada.
+   */
+  conCookie?: boolean
 }
 
 // --- 401 → cerrar sesión -------------------------------------------------------------------------------------
@@ -132,8 +142,14 @@ function registrarPeticion(datos: DatosRegistroApi): void {
 
 // --- Petición genérica ---------------------------------------------------------------------------------------
 
+/** En el navegador, con o sin la cookie de la web (OpcionesPeticion.conCookie); en el teléfono, como siempre. */
+function credencialesWeb(conCookie: boolean): { credentials?: RequestCredentials } {
+  if (Platform.OS !== 'web') return {}
+  return { credentials: conCookie ? 'same-origin' : 'omit' }
+}
+
 export async function peticion<T>(ruta: string, opciones: OpcionesPeticion = {}): Promise<T> {
-  const { metodo = 'GET', query, cuerpo, formulario, timeoutMs = TIEMPO_NORMAL_MS, sinToken = false } = opciones
+  const { metodo = 'GET', query, cuerpo, formulario, timeoutMs = TIEMPO_NORMAL_MS, sinToken = false, conCookie = false } = opciones
   const url = construirUrl(URL_API, ruta, query)
   const token = sinToken ? null : (opciones.token ?? (await leerToken()))
 
@@ -152,7 +168,7 @@ export async function peticion<T>(ruta: string, opciones: OpcionesPeticion = {})
   const inicio = relojMs()
   let respuesta: Response
   try {
-    respuesta = await fetch(url, { method: metodo, headers: cabeceras, body, signal: control.signal })
+    respuesta = await fetch(url, { method: metodo, headers: cabeceras, body, signal: control.signal, ...credencialesWeb(conCookie) })
   } catch (error) {
     registrarPeticion({ metodo, ruta, estado: null, ms: relojMs() - inicio })
     throw aApiError(error)
@@ -180,9 +196,20 @@ export async function peticion<T>(ruta: string, opciones: OpcionesPeticion = {})
 export function login(email: string, password: string): Promise<LoginMovilResponse> {
   return peticion<LoginMovilResponse>('/api/auth/login', {
     metodo: 'POST',
-    cuerpo: { email: email.trim().toLowerCase(), password, cliente: 'movil' },
+    // En el navegador (/campo) 'campo-web': el servidor pone además la cookie de la web (un solo ingreso, 2026-10-30)
+    cuerpo: { email: email.trim().toLowerCase(), password, cliente: clienteDeLogin(Platform.OS === 'web') },
     sinToken: true,
+    conCookie: true,
   })
+}
+
+/**
+ * La app en el navegador, abierta desde OpMap (Agendamiento): el token de la sesión de la web, sin volver a escribir la
+ * contraseña (POST /api/auth/sesion-app con la cookie, que el navegador manda solo en el mismo origen). 401 sin sesión;
+ * 403 si quien entró no usa la app de campo (entra con su contraseña). La persona espera: TIEMPO_ME_MS.
+ */
+export function sesionDeLaWeb(): Promise<LoginMovilResponse> {
+  return peticion<LoginMovilResponse>('/api/auth/sesion-app', { metodo: 'POST', sinToken: true, conCookie: true, timeoutMs: TIEMPO_ME_MS })
 }
 
 /** Quién es la sesión. `timeoutMs`: al abrir la app se espera poco (TIEMPO_ME_MS de lib/sesion-reglas.ts). */
@@ -190,12 +217,16 @@ export function me(token?: string, timeoutMs?: number): Promise<MeResponse> {
   return peticion<MeResponse>('/api/auth/me', { token, timeoutMs })
 }
 
-/** Avisa al servidor (responde 200 con o sin token). Cerrar sesión de verdad es olvidar el token. */
-export async function logout(): Promise<void> {
+/**
+ * Avisa al servidor (responde 200 con o sin token; en el navegador borra además la cookie de la web) y dice si llegó.
+ * Cerrar sesión de verdad es olvidar el token: sin señal se olvida igual (lib/sesion.ts deja la marca de salida pendiente).
+ */
+export async function logout(): Promise<boolean> {
   try {
-    await peticion('/api/auth/logout', { metodo: 'POST', timeoutMs: 5_000 })
+    await peticion('/api/auth/logout', { metodo: 'POST', timeoutMs: 5_000, conCookie: true })
+    return true
   } catch {
-    // sin señal: igual se olvida el token
+    return false
   }
 }
 
@@ -448,6 +479,16 @@ export function medico(id: string): Promise<{ medico: MedicoPublico }> {
 /** Vincula una sede más a un médico (el médico atiende también ahí). */
 export async function vincularSedeMedico(medicoId: string, sede: MedicoSedeCreate): Promise<{ medico: MedicoPublico }> {
   const respuesta = await peticion<{ medico: MedicoPublico }>(`/api/terceros/medicos/${encodeURIComponent(medicoId)}/sedes`, { metodo: 'POST', cuerpo: sede })
+  invalidarContexto('terceros')
+  return respuesta
+}
+
+/**
+ * Nuevo contacto de una cuenta (la visita institucional siempre lleva contacto, dueño 2026-10-30): con teléfono y/o
+ * correo. 409 con `existente` ({ id, nombre }) si en la cuenta ya hay uno con ese teléfono o correo.
+ */
+export async function crearContacto(datos: ContactoCreate): Promise<ContactoCreateResponse> {
+  const respuesta = await peticion<ContactoCreateResponse>('/api/terceros/contactos', { metodo: 'POST', cuerpo: datos })
   invalidarContexto('terceros')
   return respuesta
 }

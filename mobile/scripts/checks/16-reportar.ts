@@ -18,6 +18,7 @@ import {
   cambiarBorrador,
   catalogoDesdeContexto,
   validarBorrador,
+  MENSAJE_CONTACTO_OBLIGATORIO,
   type Borrador,
   type MedicoOpcion,
 } from '../../lib/propuesta'
@@ -576,4 +577,55 @@ export async function pruebas(t: Probador): Promise<void> {
       /setFase\('lista'\)\s*marcar\('lista_pintada'\)/.test(iniciarTs) &&
       /marcar\('toque_confirmar'\)/.test(confirmarTs)
   )
+
+  // --- La visita institucional siempre lleva contacto (dueño, 2026-10-30) ---------------------------------------
+  {
+    const K_SUR = 'ffffffff-0000-4000-8000-0000000016f1'
+    const SUB = 'ffffffff-0000-4000-8000-0000000016f2'
+    const ctxInst: ContextoResponse = { ...contexto, subtipos: [{ id: SUB, codigo: 'compras', nombre: 'Compras', roles_sugeridos: ['compras'] }] }
+    const rosa = { id: K_SUR, cuenta_id: C_SUR, sede_id: S_SUR, nombre: 'Rosa Díaz', cargo_texto: null, rol: 'otro' }
+    const catInst = catalogoDesdeContexto(ctxInst, { contactos: [rosa] }, TEL)
+    check(
+      'catalogoDesdeContexto suma los contactos creados en el reporte (extras.contactos) sin repetir los del contexto',
+      catInst.contactos.length === 1 && catInst.contactos[0].id === K_SUR && catalogoDesdeContexto({ ...ctxInst, contactos: [rosa] }, { contactos: [rosa] }, TEL).contactos.length === 1
+    )
+    const institucional = cambiarBorrador(cambiarBorrador(buena, { tipo: 'institucional' }, catInst), { cuenta_id: C_SUR, sede_id: S_SUR, subtipo_id: SUB }, catInst)
+    const errorContacto = (b: Borrador) => validarBorrador(b, catInst, entrada()).errores.find(e => e.campo === 'contacto_id')?.mensaje ?? null
+    check('institucional sin contacto: el error va en contacto_id, con el texto del servidor', errorContacto(institucional) === MENSAJE_CONTACTO_OBLIGATORIO, validarBorrador(institucional, catInst, entrada()).errores)
+    check('si dijo un nombre que no está, el error lo nombra y dice cómo crearlo', errorContacto({ ...institucional, contacto_nombre_dicho: 'Marta' }) === '"Marta" no está en la cuenta: elígelo o créalo con su teléfono o correo')
+    check('con un contacto de la cuenta (también uno recién creado): sin error en contacto_id', errorContacto(cambiarBorrador(institucional, { contacto_id: K_SUR }, catInst)) === null)
+    check('la médica no pide contacto', errorContacto(buena) === null)
+    const selectorContacto = entre(tarjetaTs, 'const selectorContacto', 'const bloqueModalidad')
+    check(
+      'TarjetaBorrador: "Contacto" sin "(opcional)" ni "Sin contacto", con "¿No está? Nuevo contacto" (alCrearContacto)',
+      /etiqueta="Contacto"/.test(selectorContacto) &&
+        !/opcional|textoNinguno|'Sin contacto'/.test(selectorContacto) &&
+        /extra=\{<Boton titulo="¿No está\? Nuevo contacto" variante="texto" alPresionar=\{props\.alCrearContacto\} \/>\}/.test(selectorContacto),
+      selectorContacto
+    )
+    check(
+      'Reportar: "Nuevo contacto" lleva la cuenta y la sede de la tarjeta a /contacto/nuevo, y lo creado vuelve a esa tarjeta (contacto_id)',
+      /fijarPedido\(\{ clave: borrador\.clave, nombre: borrador\.contacto_nombre_dicho, cuenta: \{ id: borrador\.cuenta_id, nombre: cuentaNombre \}, sede_id: borrador\.sede_id \}\)\s*router\.push\('\/contacto\/nuevo'\)/.test(reportar) &&
+        /retorno\.tipo === 'contacto'\s*\? \{ \.\.\.ext, contactos: unir\(ext\.contactos, \[retorno\.contacto\]\) \}/.test(reportar) &&
+        /retorno\.tipo === 'contacto'\s*\? \{ contacto_id: retorno\.contacto\.id \}/.test(reportar) &&
+        /alCrearContacto=\{\(\) => pedirContacto\(borrador\)\}/.test(reportar)
+    )
+  }
+
+  // --- Crear médico solo cuando la búsqueda no encuentra a nadie (dueño, 2026-10-30) ---------------------------
+  {
+    const buscador = leer('components/reporte/Buscador.tsx')
+    check(
+      'Buscador: siNoHay se muestra solo cuando la búsqueda terminó sin resultados, con lo que se buscó',
+      /\{!buscando && resultados && resultados\.length === 0 && siNoHay \? siNoHay\(buscado\) : null\}/.test(buscador) && /setResultados\(encontrados\)\s*setBuscado\(texto\)/.test(buscador)
+    )
+    const selectorMedicoTarjeta = entre(tarjetaTs, 'const selectorMedico = (abrir: boolean) => (', 'const selectorSedeMedico')
+    check(
+      'TarjetaBorrador: "Crear médico completo" va en la búsqueda que no encontró a nadie (con lo buscado), ya no siempre a la vista',
+      /siNoHay=\{buscado => \(\s*<Boton titulo="Crear médico completo"[^>]*alPresionar=\{\(\) => props\.alCrearMedico\(buscado\)\}/.test(selectorMedicoTarjeta) &&
+        !/¿No está en OpMap\? Crear médico completo/.test(selectorMedicoTarjeta) &&
+        /alCrearMedico=\{nombre => pedirMedico\(borrador, nombre\)\}/.test(reportar) &&
+        /nombre: nombre \?\? borrador\.medico_nombre_dicho/.test(reportar)
+    )
+  }
 }

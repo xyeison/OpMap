@@ -118,7 +118,7 @@ import {
 import { useSesion } from '../../lib/sesion'
 import { avisoDelPie, pedidoAgendarDe, resumenParaPie } from '../../lib/tarjeta-resumen'
 import { marcar } from '../../lib/tiempos'
-import type { CitaItem, ContextoResponse, SedeBusquedaItem, VisitaItem, VisitasResponse } from '../../lib/tipos'
+import type { CitaItem, ContactoContexto, ContextoResponse, SedeBusquedaItem, VisitaItem, VisitasResponse } from '../../lib/tipos'
 import { pedirUbicacion, pedirUbicacionEnDosPasos, type ResultadoUbicacion, type Ubicacion } from '../../lib/ubicacion'
 import {
   DISTANCIA_RECARGA_M,
@@ -175,9 +175,10 @@ function prepararMicrofono(contexto: ContextoResponse | null | undefined, sinSen
 interface Extras {
   sedes: SedeOpcion[]
   medicos: MedicoOpcion[]
+  contactos: ContactoContexto[]
 }
 
-const EXTRAS_VACIOS: Extras = { sedes: [], medicos: [] }
+const EXTRAS_VACIOS: Extras = { sedes: [], medicos: [], contactos: [] }
 
 const TEXTO_TOMANDO_UBICACION = 'Tomando tu ubicación…'
 const TEXTO_CARGANDO_SEDES = 'Cargando tus citas y las sedes cercanas…'
@@ -632,7 +633,7 @@ export default function Reportar() {
     }, [])
   )
 
-  // Lo que se creó en Nuevo médico o Nueva sede vuelve aquí y queda puesto en la tarjeta que lo pidió.
+  // Lo que se creó en Nuevo médico, Nueva sede o Nuevo contacto vuelve aquí y queda puesto en la tarjeta que lo pidió.
   useEffect(
     () =>
       escucharRetorno((retorno: Retorno) => {
@@ -640,7 +641,9 @@ export default function Reportar() {
         const nuevos: Extras =
           retorno.tipo === 'medico'
             ? { ...ext, medicos: unir(ext.medicos, [retorno.medico]) }
-            : { ...ext, sedes: unir(ext.sedes, [retorno.sede]) }
+            : retorno.tipo === 'contacto'
+              ? { ...ext, contactos: unir(ext.contactos, [retorno.contacto]) }
+              : { ...ext, sedes: unir(ext.sedes, [retorno.sede]) }
         setExtras(nuevos)
         if (!ctx) return
         const cat = catalogoDesdeContexto(ctx, nuevos as ExtrasCatalogo, p, { sinSenal: offline })
@@ -648,9 +651,11 @@ export default function Reportar() {
           const cambios: Partial<Borrador> =
             retorno.tipo === 'medico'
               ? { medico_id: retorno.medico.id }
-              : retorno.sede.cuenta_id
-                ? { cuenta_id: retorno.sede.cuenta_id, sede_id: retorno.sede.id }
-                : { sede_id: retorno.sede.id }
+              : retorno.tipo === 'contacto'
+                ? { contacto_id: retorno.contacto.id }
+                : retorno.sede.cuenta_id
+                  ? { cuenta_id: retorno.sede.cuenta_id, sede_id: retorno.sede.id }
+                  : { sede_id: retorno.sede.id }
           setBorradores(prev => prev.map(b => (b.clave === retorno.clave ? cambiarBorrador(b, cambios, cat) : b)))
         } else if (retorno.tipo === 'sede') {
           setSedeElegida(retorno.sede.id)
@@ -915,11 +920,11 @@ export default function Reportar() {
     router.push(rutaAgendar({ fecha: r.proxima }))
   }
 
-  const pedirMedico = (borrador: Borrador) => {
+  const pedirMedico = (borrador: Borrador, nombre?: string) => {
     esperandoCreacion.current = true
     fijarPedido({
       clave: borrador.clave,
-      nombre: borrador.medico_nombre_dicho,
+      nombre: nombre ?? borrador.medico_nombre_dicho,
       municipio: contexto?.ejecutiva.municipio ?? null,
       sedes: catalogo?.sedes ?? [],
       punto,
@@ -927,6 +932,15 @@ export default function Reportar() {
       puntoFinal: lugarDeLaVisita(finalPendiente.current, { punto, llegada }).then(lugar => lugar.punto),
     })
     router.push('/medico/nuevo')
+  }
+
+  /** "Nuevo contacto" de la tarjeta institucional (2026-10-30): la cuenta (y la sede) de la tarjeta van en el pedido. */
+  const pedirContacto = (borrador: Borrador) => {
+    if (!borrador.cuenta_id) return
+    const cuentaNombre = catalogo?.sedes.find(s => s.cuenta_id === borrador.cuenta_id)?.cuenta_nombre ?? 'la cuenta'
+    esperandoCreacion.current = true
+    fijarPedido({ clave: borrador.clave, nombre: borrador.contacto_nombre_dicho, cuenta: { id: borrador.cuenta_id, nombre: cuentaNombre }, sede_id: borrador.sede_id })
+    router.push('/contacto/nuevo')
   }
 
   const pedirSede = (clave: string | null) => {
@@ -1243,7 +1257,8 @@ export default function Reportar() {
               alCambiar={cambios => cambiar(borrador.clave, cambios)}
               alConfirmar={() => void confirmarTarjeta(borrador.clave)}
               alDescartar={() => void descartar(borrador.clave)}
-              alCrearMedico={() => pedirMedico(borrador)}
+              alCrearMedico={nombre => pedirMedico(borrador, nombre)}
+              alCrearContacto={() => pedirContacto(borrador)}
               alCrearSede={() => pedirSede(borrador.clave)}
               alAgregarMedico={medico => {
                 tocarTarjeta()
