@@ -142,14 +142,15 @@ nada llama a Google.
 - **Un solo diseño, el de la app (tipo Uber)** (dueño, 2026-10-30, `docs/specs/2026-10-30-diseno-web-etapa-1.md`): por
   etapas, una por PR. La paleta es la de la app: `web/lib/tema.ts` = `mobile/lib/paleta.ts` (una prueba lo exige), letra
   DM Sans. Cada persona elige Claro, Oscuro o Automático (menú de OpMap y Ajustes de la app); se guarda en el navegador o
-  el teléfono con la clave `opmap.tema.v1`, nunca en la base, y en el navegador vale para OpMap y `/campo`. El menú lleva
-  todas las opciones del rol, en acordeón por grupo. Las páginas aún no rehechas siguen en claro (`<main data-tema="claro">`);
+  el teléfono con la clave `opmap.tema.v1`, nunca en la base, y en el navegador vale para OpMap y `/campo`. Las páginas aún no rehechas siguen en claro (`<main data-tema="claro">`);
   la rehecha lleva `data-sigue-tema`. En el Mapa solo cambia la barra de arriba: su leyenda, filtros y buscador conservan
   la letra de antes (Inter) hasta que el dueño autorice cambiarlos (`docs/mapa-estetica.md`).
   Desde el 2026-10-31 (dueño, `docs/decisiones/2026-10-31-inicio-de-modulos-tipo-iphone.md`) "/" y el logotipo abren
   `/inicio`, la cuadrícula de módulos del rol tipo iPhone (`bloquesDeInicio`; el Mapa es el primer cuadro, ya no la
   página de inicio), y la app de campo lleva en su franja de estado el botón "OpMap" que vuelve a `/inicio`
-  (`mobile/lib/opmap-enlace.ts`: misma pestaña; instalada, otra pestaña; sin señal, solo avisa).
+  (`mobile/lib/opmap-enlace.ts`: misma pestaña; instalada, otra pestaña; sin señal, solo avisa). Ese mismo día el dueño
+  quitó el menú hamburguesa y el menú fijo ("quita en dos"): la barra solo lleva "OpMap" y el nombre de la página, y la
+  bolita con la inicial abre el panel con el Tema, quién es y "Cerrar sesión" (`NavigationWithPermissions.tsx`).
 - **La app de campo trabaja sin señal y el servidor MARCA, no rechaza** (dueño, 2026-10-30,
   `docs/decisiones/2026-10-30-campo-sin-senal-marcas-en-vez-de-rechazos.md`, spec `docs/specs/2026-10-30-campo-sin-senal-pwa.md`):
   la visita siempre se guarda (otro día, lejos de la IPS, sin GPS, precisión baja, IPS sin coordenadas, hora del

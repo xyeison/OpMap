@@ -123,7 +123,7 @@ check(
 check('el cuerpo usa los papeles (bg-fondo text-texto); las páginas siguen en claro (main conserva su fondo de hoy)', /<body className=\{`\$\{dmSans\.className\} bg-fondo text-texto`\}>/.test(layout) && /from-white via-gray-50 to-white/.test(layout))
 check(
   'las páginas que esta etapa no rehace siguen en claro aunque el tema sea oscuro: <main> con data-tema="claro" y text-texto (spec, punto 5)',
-  /<main data-contenido-principal data-tema="claro" className="[^"]*\btext-texto\b[^"]*">/.test(layout)
+  /<main data-tema="claro" className="[^"]*\btext-texto\b[^"]*">/.test(layout)
 )
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const tailwind = require('../tailwind.config.js') as { theme: { extend: { colors: Record<string, unknown> } } }
