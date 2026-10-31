@@ -12,6 +12,7 @@ import {
   UUID_RE,
   getSessionSecret,
   parseSessionPayload,
+  type SessionPayload,
 } from './session-config'
 
 export { ALL_SESSION_COOKIE_NAMES, SESSION_COOKIE_NAME, SESSION_MAX_AGE_SECONDS }
@@ -66,6 +67,29 @@ export function signSession(uid: string, pv: string, emp?: string | null): strin
  * Lanza si falta SESSION_SECRET en producción (fail closed).
  */
 export function verifySession(token: string | null | undefined): { uid: string; pv: string; emp: string | null } | null {
+  const payload = payloadVerificado(token)
+  return payload ? { uid: payload.uid, pv: payload.pv, emp: payload.emp } : null
+}
+
+/**
+ * Vuelve a firmar una sesión válida con otra empresa activa: mismo uid, mismo pv y la MISMA expiración (cambiar de
+ * empresa o pasar la sesión a la app no la alarga). `emp` null o no uuid → sin claim. null si el token no es válido.
+ * Devuelve el token nuevo y su exp (segundos Unix), para la cookie (maxAge) o para el expira_at de la app.
+ */
+export function refirmarSesion(token: string | null | undefined, emp: string | null): { token: string; exp: number } | null {
+  const payload = payloadVerificado(token)
+  if (!payload) return null
+  const secret = getSessionSecret()
+  const iat = Math.floor(Date.now() / 1000)
+  const exp = Math.min(payload.exp, iat + SESSION_MAX_AGE_SECONDS)
+  const nuevo: Record<string, unknown> = { uid: payload.uid, pv: payload.pv, iat, exp }
+  if (typeof emp === 'string' && UUID_RE.test(emp)) nuevo.emp = emp
+  const body = toBase64Url(JSON.stringify(nuevo))
+  return { token: `${body}.${sign(body, secret)}`, exp }
+}
+
+/** Firma (en tiempo constante) y expiración; el payload completo o null. */
+function payloadVerificado(token: string | null | undefined): SessionPayload | null {
   if (!token || token.length > SESSION_TOKEN_MAX_LENGTH) return null
 
   const secret = getSessionSecret()
@@ -80,8 +104,7 @@ export function verifySession(token: string | null | undefined): { uid: string; 
   if (given.length !== expected.length || !timingSafeEqual(given, expected)) return null
 
   const json = Buffer.from(body, 'base64url').toString('utf8')
-  const payload = parseSessionPayload(json, Math.floor(Date.now() / 1000))
-  return payload ? { uid: payload.uid, pv: payload.pv, emp: payload.emp } : null
+  return parseSessionPayload(json, Math.floor(Date.now() / 1000))
 }
 
 /**

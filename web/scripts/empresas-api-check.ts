@@ -12,6 +12,11 @@
  *      (Paola: líder + ejecutiva concede campo:app y visits:report y niega executives:lines), mismos 401 y 403 de antes.
  *      Y lo que se decide DESPUÉS de la puerta también suma: GET /api/dias-libres (verTodos) y GET /api/me/lines
  *      (map:all-lines) con quien tiene dos papeles.
+ *   C. Rutas de sesión: GET /api/auth/me trae la empresa activa, las empresas y los papeles (sin papeles: 'user' y
+ *      ninguna empresa); POST /api/auth/empresa cambia la empresa activa (escribe la columna y refirma la cookie, o
+ *      devuelve el token nuevo a la app, sin alargar la sesión; 403 sin papel allí, 400 con un cuerpo inválido, 401
+ *      sin sesión); sesion-app pasa a la app un token con la empresa activa; GET /api/empresas lista las activas por
+ *      código (sin la 0960, ninguna).
  *
  * El patrón del Supabase falso viene de scripts/lineas-permitidas-api-check.ts.
  * Uso (desde web/): npx tsx scripts/empresas-api-check.ts   Código de salida 1 si algo falla.
@@ -25,6 +30,10 @@ import { requireAnyPermission, requirePermission } from '../lib/require-role'
 import { EMPRESA_MEDIX_ID, EMPRESA_VG_ID } from '../lib/empresas-reglas'
 import { GET as diasLibresGet } from '../app/api/dias-libres/route'
 import { GET as meLinesGet } from '../app/api/me/lines/route'
+import { GET as meGet } from '../app/api/auth/me/route'
+import { POST as empresaPost } from '../app/api/auth/empresa/route'
+import { GET as empresasGet } from '../app/api/empresas/route'
+import { POST as sesionAppPost } from '../app/api/auth/sesion-app/route'
 
 for (const key of [
   'GOOGLE_MAPS_API_KEY',
@@ -546,6 +555,156 @@ async function main() {
     const enVg = await requirePermission(peticion(LIZETH), 'campo:app')
     check('en VG (solo ejecutiva) ya no tiene campo:app', !enVg.ok)
     if (!enVg.ok) eq('→ 403', enVg.response.status, 403)
+  }
+
+  print('\nC. Rutas de sesión')
+
+  /** Petición a una ruta con la sesión de la web (cookie) o de la app (portador), con cuerpo JSON opcional. */
+  function aRuta(ruta: string, opciones: { userId?: string; portador?: boolean; cuerpo?: unknown; metodo?: string } = {}) {
+    const headers: Record<string, string> = {}
+    if (opciones.userId) {
+      const token = signSession(opciones.userId, passwordVersion(`hash-${opciones.userId}`))
+      if (opciones.portador) headers.authorization = `Bearer ${token}`
+      else headers.cookie = `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}`
+    }
+    if (opciones.cuerpo !== undefined) headers['content-type'] = 'application/json'
+    return new NextRequest(`http://localhost:3000${ruta}`, {
+      method: opciones.metodo ?? (opciones.cuerpo === undefined ? 'GET' : 'POST'),
+      headers,
+      body: opciones.cuerpo === undefined ? undefined : JSON.stringify(opciones.cuerpo),
+    })
+  }
+  /** El token de la cookie de sesión en el Set-Cookie de la respuesta, o null. */
+  function cookieDe(response: Response): string | null {
+    const cabecera = response.headers.get('set-cookie') ?? ''
+    const m = new RegExp(`${SESSION_COOKIE_NAME}=([^;]+)`).exec(cabecera)
+    return m ? decodeURIComponent(m[1]) : null
+  }
+  const columnaDe = (id: string) => tablas.users.find(u => u.id === id)?.empresa_activa_id ?? null
+
+  type CuerpoMe = { user?: { role?: string; empresa?: { id: string; codigo: string; nombre_corto: string } | null; empresas?: { codigo: string }[]; papeles?: { id: string }[] } }
+
+  print('\n  GET /api/auth/me: Lizeth (empresa activa Medix por la columna)')
+  {
+    tablas.users.find(u => u.id === LIZETH)!.empresa_activa_id = EMPRESA_MEDIX_ID
+    const r = await meGet(aRuta('/api/auth/me', { userId: LIZETH }))
+    eq('200', r.status, 200)
+    const cuerpo = (await cuerpoDe(r)) as CuerpoMe
+    eq('user.empresas: las dos, por código', cuerpo.user?.empresas?.map(e => e.codigo), ['medix', 'vg'])
+    eq("user.empresa.codigo = la columna ('medix')", cuerpo.user?.empresa?.codigo, 'medix')
+    eq('user.empresa = { id, codigo, nombre_corto }', cuerpo.user?.empresa, { id: EMPRESA_MEDIX_ID, codigo: 'medix', nombre_corto: 'Medix' })
+    eq('user.papeles: solo el de Medix', cuerpo.user?.papeles?.map(p => p.id), [P_LIZETH_MEDIX])
+    eq("user.role 'line_leader'", cuerpo.user?.role, 'line_leader')
+  }
+
+  print('\n  GET /api/auth/me: Foco 2 (usuario activo sin papeles)')
+  {
+    const r = await meGet(aRuta('/api/auth/me', { userId: SIN_PAPELES }))
+    eq('200', r.status, 200)
+    const cuerpo = (await cuerpoDe(r)) as CuerpoMe
+    eq("user.role 'user'", cuerpo.user?.role, 'user')
+    eq('user.empresas []', cuerpo.user?.empresas, [])
+    eq('user.empresa null', cuerpo.user?.empresa, null)
+  }
+
+  print('\n  POST /api/auth/empresa')
+  {
+    const conCookie = await empresaPost(aRuta('/api/auth/empresa', { userId: LIZETH, cuerpo: { empresa_id: EMPRESA_VG_ID } }))
+    eq('Lizeth con cookie a VG → 200', conCookie.status, 200)
+    eq('cuerpo { empresa } (sin token: la cookie es httpOnly)', await cuerpoDe(conCookie), { empresa: { id: EMPRESA_VG_ID, codigo: 'vg', nombre_corto: 'VG Medical' } })
+    const cookie = cookieDe(conCookie)
+    check('Set-Cookie con la cookie de sesión', cookie !== null, conCookie.headers.get('set-cookie'))
+    eq('la cookie refirmada trae emp = VG', verifySession(cookie)?.emp, EMPRESA_VG_ID)
+    eq('y el mismo uid', verifySession(cookie)?.uid, LIZETH)
+    check('la cookie sigue httpOnly', /httponly/i.test(conCookie.headers.get('set-cookie') ?? ''), conCookie.headers.get('set-cookie'))
+    eq('users.empresa_activa_id = VG', columnaDe(LIZETH), EMPRESA_VG_ID)
+
+    // Cambiar de empresa no alarga la sesión: con un token que vence en una hora, el refirmado vence a la misma hora
+    {
+      const iat = Math.floor(Date.now() / 1000)
+      const exp = iat + 3600
+      const body = Buffer.from(JSON.stringify({ uid: LIZETH, pv: passwordVersion(`hash-${LIZETH}`), iat, exp })).toString('base64url')
+      const corto = `${body}.${createHmac('sha256', SECRETO).update(body).digest('base64url')}`
+      const r = await empresaPost(new NextRequest('http://localhost:3000/api/auth/empresa', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', cookie: `${SESSION_COOKIE_NAME}=${encodeURIComponent(corto)}` },
+        body: JSON.stringify({ empresa_id: EMPRESA_MEDIX_ID }),
+      }))
+      const refirmada = cookieDe(r)
+      eq('un token que vence en 1 h: 200 y la cookie refirmada vence a la misma hora (no se alarga)', [r.status, refirmada ? payloadDe(refirmada).exp : null], [200, exp])
+      check('y su Max-Age es lo que le queda, no 7 días', /max-age=(3[56]\d\d)\b/i.test(r.headers.get('set-cookie') ?? ''), r.headers.get('set-cookie'))
+    }
+
+    tablas.users.find(u => u.id === LIZETH)!.empresa_activa_id = EMPRESA_MEDIX_ID
+    const conPortador = await empresaPost(aRuta('/api/auth/empresa', { userId: LIZETH, portador: true, cuerpo: { empresa_id: EMPRESA_VG_ID } }))
+    eq('Lizeth con portador (app) a VG → 200', conPortador.status, 200)
+    const cuerpoApp = (await cuerpoDe(conPortador)) as { empresa?: { codigo: string }; token?: string; expira_at?: string }
+    eq("cuerpo con la empresa 'vg'", cuerpoApp.empresa?.codigo, 'vg')
+    eq('y un token cuyo emp es VG', verifySession(cuerpoApp.token)?.emp, EMPRESA_VG_ID)
+    check('y expira_at es una fecha', typeof cuerpoApp.expira_at === 'string' && !Number.isNaN(Date.parse(cuerpoApp.expira_at)), cuerpoApp.expira_at)
+    check('sin Set-Cookie para la app', conPortador.headers.get('set-cookie') === null, conPortador.headers.get('set-cookie'))
+    eq('users.empresa_activa_id = VG', columnaDe(LIZETH), EMPRESA_VG_ID)
+
+    const marca = fake.requests.length
+    const aMedix = await empresaPost(aRuta('/api/auth/empresa', { userId: PAOLA, cuerpo: { empresa_id: EMPRESA_MEDIX_ID } }))
+    eq('Paola (solo de VG) a Medix → 403', aMedix.status, 403)
+    eq("con 'No tienes papel en esa empresa'", await cuerpoDe(aMedix), { error: 'No tienes papel en esa empresa' })
+    eq('la columna de Paola sigue null', columnaDe(PAOLA), null)
+    check('no escribe nada', fake.writes(marca).length === 0, fake.writes(marca))
+    check('ni refirma la cookie', aMedix.headers.get('set-cookie') === null, aMedix.headers.get('set-cookie'))
+
+    const vacio = await empresaPost(aRuta('/api/auth/empresa', { userId: PAOLA, cuerpo: {} }))
+    eq('cuerpo {} → 400', vacio.status, 400)
+    eq("con 'empresa_id no válido'", await cuerpoDe(vacio), { error: 'empresa_id no válido' })
+    const noJson = await empresaPost(new NextRequest('http://localhost:3000/api/auth/empresa', { method: 'POST', headers: aRuta('/api/auth/empresa', { userId: PAOLA }).headers, body: 'esto no es JSON' }))
+    eq("cuerpo que no es JSON → 400 'Cuerpo de la petición no válido'", [noJson.status, await cuerpoDe(noJson)], [400, { error: 'Cuerpo de la petición no válido' }])
+    const sinSesion = await empresaPost(aRuta('/api/auth/empresa', { cuerpo: { empresa_id: EMPRESA_VG_ID } }))
+    eq('sin sesión → 401', sinSesion.status, 401)
+  }
+
+  print('\n  POST /api/auth/sesion-app: el token de la app lleva la empresa activa, sin alargar la sesión')
+  {
+    const pedir = (token: string) =>
+      sesionAppPost(new NextRequest('http://localhost:3000/api/auth/sesion-app', {
+        method: 'POST',
+        headers: { cookie: `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}`, origin: 'http://localhost:3000', 'sec-fetch-site': 'same-origin' },
+      }))
+    const pv = passwordVersion(`hash-${PAOLA}`)
+    const sinEmp = signSession(PAOLA, pv)
+    const r = await pedir(sinEmp)
+    const cuerpo = (await cuerpoDe(r)) as { token?: string; usuario?: { empresa?: { codigo: string } | null } }
+    eq('Paola (líder en VG), cookie sin emp → 200', r.status, 200)
+    eq('el token de la app trae emp = VG', verifySession(cuerpo.token)?.emp, EMPRESA_VG_ID)
+    check('y vence cuando vencía la cookie (no se alarga)', !!cuerpo.token && payloadDe(cuerpo.token).exp === payloadDe(sinEmp).exp, cuerpo.token && [payloadDe(cuerpo.token), payloadDe(sinEmp)])
+    eq("usuario.empresa 'vg'", cuerpo.usuario?.empresa?.codigo, 'vg')
+    const conEmp = signSession(PAOLA, pv, EMPRESA_VG_ID)
+    eq('con la cookie que ya trae emp = VG → el MISMO token', ((await cuerpoDe(await pedir(conEmp))) as { token?: string }).token, conEmp)
+    const gerente = await pedir(signSession(FOCO1, passwordVersion(`hash-${FOCO1}`)))
+    eq('un gerente a secas (sin papel de líder) → 403', gerente.status, 403)
+  }
+
+  print('\n  GET /api/empresas')
+  {
+    const sinSesion = await empresasGet(aRuta('/api/empresas'))
+    eq('sin sesión → 401', sinSesion.status, 401)
+    const conSesion = await empresasGet(aRuta('/api/empresas', { userId: PAOLA }))
+    eq('con sesión → 200', conSesion.status, 200)
+    eq('las dos activas, por código, { id, codigo, nombre_corto }', await cuerpoDe(conSesion), {
+      empresas: [
+        { id: EMPRESA_MEDIX_ID, codigo: 'medix', nombre_corto: 'Medix' },
+        { id: EMPRESA_VG_ID, codigo: 'vg', nombre_corto: 'VG Medical' },
+      ],
+    })
+
+    // Sin la 0960 (preview de Vercel): users sin la columna y sin la tabla empresas → lista vacía, no 500
+    const { empresa_activa_id: _sinColumna, ...paolaSinColumna } = usuario(PAOLA, 'line_leader', 'Paola')
+    const fakeAntes = fakeSupabase({ users: [paolaSinColumna] }, { codigoSinTabla: '42P01' })
+    fetchHandler = fakeAntes.handler
+    const logs = moduleLogs.length
+    const antes = await empresasGet(aRuta('/api/empresas', { userId: PAOLA }))
+    eq('sin la 0960 → 200 { empresas: [] }', [antes.status, await cuerpoDe(antes)], [200, { empresas: [] }])
+    check('sin console.error', moduleLogs.length === logs, moduleLogs.slice(logs))
+    fetchHandler = fake.handler
   }
 
   print('\nGenerales')

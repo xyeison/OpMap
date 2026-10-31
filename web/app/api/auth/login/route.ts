@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { SESSION_COOKIE_NAME, SESSION_MAX_AGE_SECONDS, passwordVersion, sessionCookieOptions, signSession } from '@/lib/session'
 import { burnPasswordCheck, hashPassword, verifyPassword } from '@/lib/passwords'
 import { ejecutivaEnlazada } from '@/lib/auth-server'
+import { cargarSesionDeFila, empresasDeSesion } from '@/lib/empresas'
 import type { LoginMovilResponse } from '@/lib/reporte-visitas'
 
 export const runtime = 'nodejs'
@@ -142,11 +143,12 @@ export async function POST(request: NextRequest) {
       emailFailures.set(emailKey, [...recentHits(emailFailures, emailKey, EMAIL_WINDOW_MS, at), at])
     }
 
-    // 4. Buscar el usuario activo
+    // 4. Buscar el usuario activo. '*' y no una lista: users.empresa_activa_id solo existe con la 0960 (pedirla por
+    // nombre antes daría 42703) y su presencia decide si se cargan los papeles (cargarSesionDeFila).
     const supabase = getSupabaseAdmin()
     const { data: user, error } = await supabase
       .from('users')
-      .select('id, email, full_name, role, active, created_at, password')
+      .select('*')
       .eq('email', email)
       .eq('active', true)
       .maybeSingle()
@@ -192,9 +194,11 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 7. Emitir la sesión firmada (DESPUÉS del re-hash, con el hash definitivo)
-    const token = signSession(user.id, passwordVersion(storedPassword))
-    const { password: _password, ...userWithoutPassword } = user
+    // 7. Emitir la sesión firmada (DESPUÉS del re-hash, con el hash definitivo), con la empresa activa como claim emp
+    // (caché; manda users.empresa_activa_id). Sin la 0960, sin emp y con users.role como único papel.
+    const sesion = await cargarSesionDeFila(user, null)
+    const token = signSession(user.id, passwordVersion(storedPassword), sesion.empresa?.id ?? null)
+    const empresas = empresasDeSesion(sesion)
 
     // 7a. App móvil: el token va en el cuerpo, sin cookie, con el Ejecutivo Comercial enlazado (si lo hay).
     // Si la base falla al buscar la ejecutiva, el login no se cae: ejecutiva null y la app vuelve a preguntar
@@ -209,7 +213,7 @@ export async function POST(request: NextRequest) {
       const respuesta: LoginMovilResponse = {
         token,
         expira_at: expiraAt(token),
-        usuario: { id: user.id, full_name: user.full_name, role: user.role },
+        usuario: { id: user.id, full_name: user.full_name, role: sesion.role, ...empresas },
         ejecutiva,
       }
       const json = NextResponse.json(respuesta, { headers: { 'Cache-Control': 'no-store' } })
@@ -217,9 +221,18 @@ export async function POST(request: NextRequest) {
       return json
     }
 
-    // 7b. Web: cookie de sesión
+    // 7b. Web: cookie de sesión. `user` lleva las mismas columnas de siempre (nunca la contraseña ni el resto de la
+    // fila) y, como /api/auth/me, la empresa activa, las empresas y los papeles (role = el más alto de la activa).
     const response = NextResponse.json({
-      user: userWithoutPassword,
+      user: {
+        id: user.id,
+        email: user.email,
+        full_name: user.full_name,
+        role: sesion.role,
+        active: user.active,
+        created_at: user.created_at,
+        ...empresas,
+      },
       message: 'Login exitoso',
     })
     response.cookies.set(SESSION_COOKIE_NAME, token, sessionCookieOptions())

@@ -2790,27 +2790,32 @@ async function main() {
       // token). Se restauran al terminar para no tocar las demás pruebas.
       const usuarios = tablas.users as Fila[]
       const originales = usuarios.map(u => ({ fila: u, password: u.password }))
+      // Capa 1 de empresas: el usuario del login y de me gana empresa, empresas y papeles. La app los copia en la
+      // Task 10 del plan (mobile/lib/claves-api.ts); hasta entonces se suman aquí (la unión vale antes y después).
+      const DE_EMPRESAS = ['empresa', 'empresas', 'papeles']
+      const clavesUsuario = Array.from(new Set([...CLAVES_API.usuario, ...DE_EMPRESAS])).sort().join(' ')
+      const okUsuario = (objeto: unknown) => clavesDe(objeto).join(' ') === clavesUsuario
       try {
         const entrar = (userId: string, cliente?: string) =>
           pedirLogin(login, { email: `${String(usuarios.find(u => u.id === userId)?.email).toUpperCase()} `, password: `hash-${userId}`, ...(cliente ? { cliente } : {}) })
         const movil = await entrar(VENTAS_ID, 'movil')
         check(
-          'POST /api/auth/login { cliente: movil }: 200 con exactamente las claves de login, usuario y ejecutivaMovil',
-          movil.status === 200 && ok('login', movil.body) && ok('usuario', movil.body.usuario) && ok('ejecutivaMovil', movil.body.ejecutiva) && movil.body.ejecutiva.id === EJEC_A && movil.body.ejecutiva.zona === 'Bucaramanga',
+          'POST /api/auth/login { cliente: movil }: 200 con exactamente las claves de login, usuario (con empresa, empresas y papeles) y ejecutivaMovil',
+          movil.status === 200 && ok('login', movil.body) && okUsuario(movil.body.usuario) && ok('ejecutivaMovil', movil.body.ejecutiva) && movil.body.ejecutiva.id === EJEC_A && movil.body.ejecutiva.zona === 'Bucaramanga',
           movil.body && { claves: clavesDe(movil.body), usuario: clavesDe(movil.body.usuario), ejecutiva: clavesDe(movil.body.ejecutiva) }
         )
         check('login móvil: sin Set-Cookie (el token va en el cuerpo)', movil.headers.get('set-cookie') === null && typeof movil.body?.token === 'string')
         const yo = await leer(await verMe(new NextRequest('http://localhost:3000/api/auth/me', { headers: { authorization: `Bearer ${movil.body?.token}` } })))
         check(
-          'GET /api/auth/me con ese token: exactamente las claves de me, user = { id, email, full_name, role, active } y ejecutivaMovil',
-          yo.status === 200 && ok('me', yo.body) && clavesDe(yo.body.user).join(' ') === 'active email full_name id role' && ok('ejecutivaMovil', yo.body.ejecutiva) && yo.body.user.id === VENTAS_ID,
+          'GET /api/auth/me con ese token: exactamente las claves de me, user = { id, email, full_name, role, active, empresa, empresas, papeles } y ejecutivaMovil',
+          yo.status === 200 && ok('me', yo.body) && clavesDe(yo.body.user).join(' ') === 'active email empresa empresas full_name id papeles role' && ok('ejecutivaMovil', yo.body.ejecutiva) && yo.body.user.id === VENTAS_ID,
           yo.body && { claves: clavesDe(yo.body), user: clavesDe(yo.body.user), ejecutiva: clavesDe(yo.body.ejecutiva) }
         )
         const sinEjecutiva = await entrar(DIRECTORA_ID, 'movil')
         const yoSin = await leer(await verMe(new NextRequest('http://localhost:3000/api/auth/me', { headers: { authorization: `Bearer ${sinEjecutiva.body?.token}` } })))
         check(
           'sin Ejecutivo Comercial enlazado: las mismas claves, con ejecutiva null (login y me)',
-          sinEjecutiva.status === 200 && ok('login', sinEjecutiva.body) && ok('usuario', sinEjecutiva.body.usuario) && sinEjecutiva.body.ejecutiva === null && yoSin.status === 200 && ok('me', yoSin.body) && yoSin.body.ejecutiva === null,
+          sinEjecutiva.status === 200 && ok('login', sinEjecutiva.body) && okUsuario(sinEjecutiva.body.usuario) && sinEjecutiva.body.ejecutiva === null && yoSin.status === 200 && ok('me', yoSin.body) && yoSin.body.ejecutiva === null,
           { login: sinEjecutiva.body, me: yoSin.body }
         )
         const web = await entrar(ADMIN_ID)

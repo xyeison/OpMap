@@ -28,6 +28,7 @@
  * Lo que valida la forma de los cuerpos (zod) está en lib/reporte-visitas-schemas.ts.
  */
 import type { Role } from './permissions'
+import type { PapelActivo } from './empresas-reglas'
 import { etiquetaDe, valoresDe, type Opcion } from './terceros'
 import { MENSAJE_CITA_OTRO_PAPEL, MENSAJE_MEDICO_AJENO, MENSAJE_SIN_ZONA, type ComoPersona, type RolPersona } from './persona-campo'
 import { MENSAJE_CITA_CERRADA, type EstadoCita, type EstadoVisible, type MotivoCierre, type MotivoElegible, type NumerosAgenda } from './agenda-ciclo'
@@ -1875,11 +1876,25 @@ export function numerosDesdeCumplimiento(
   }
 }
 
-/** Usuario en la respuesta del login móvil y de /api/auth/me. */
+/** Una empresa en las respuestas de sesión (login, /api/auth/me, /api/auth/empresa, /api/empresas). */
+export interface EmpresaMovil {
+  id: string
+  codigo: string
+  nombre_corto: string
+}
+
+/**
+ * Usuario en la respuesta del login móvil y de /api/auth/me. `role` es el papel más alto en la empresa activa (caché
+ * para lo que aún lee un solo rol); `empresa` la activa (null sin papeles o sin la 0960), `empresas` donde tiene algún
+ * papel activo (por código) y `papeles` solo los de la activa.
+ */
 export interface UsuarioMovil {
   id: string
   full_name: string
   role: Role
+  empresa: EmpresaMovil | null
+  empresas: EmpresaMovil[]
+  papeles: PapelActivo[]
 }
 
 /** El Ejecutivo Comercial enlazado con el usuario (no inactivo), con el nombre de su zona. */
@@ -1900,7 +1915,16 @@ export interface LoginMovilResponse {
 
 /** GET /api/auth/me (cookie o portador). `user` es lo que ya usaba la web; `ejecutiva` lo que la app necesita. */
 export interface MeResponse {
-  user: { id: string; email: string; full_name: string; role: Role; active: boolean }
+  user: {
+    id: string
+    email: string
+    full_name: string
+    role: Role
+    active: boolean
+    empresa: EmpresaMovil | null
+    empresas: EmpresaMovil[]
+    papeles: PapelActivo[]
+  }
   ejecutiva: EjecutivaMovil | null
   /** 0850: la persona de campo, o null (la dirección comercial, A1, o un usuario sin líneas). */
   persona: PersonaMovil | null

@@ -7,7 +7,7 @@
 // contraseña actual (si la contraseña cambió, la sesión y el token del teléfono quedan revocados). Luego carga sus
 // papeles y su empresa activa (lib/empresas.ts; sin la 0960, users.role es el único papel).
 import { getSupabaseAdmin } from './supabase-admin'
-import { cargarPapelesDeUsuario, sesionDesdePapeles } from './empresas'
+import { cargarSesionDeFila } from './empresas'
 import { SESSION_COOKIE_NAME, passwordVersion, passwordVersionMatches, verifySession } from './session'
 import { zoneDisplayName } from './zone-names'
 import type { Role } from './permissions'
@@ -124,9 +124,8 @@ export async function getUserFromRequest(request: Request): Promise<SessionUser 
     if (!passwordVersionMatches(passwordVersion(password), session.pv)) return null
 
     // Papeles y empresa activa. Sin la columna users.empresa_activa_id la 0960 no está aplicada: ni se piden los
-    // papeles (users.role es el único). sesionDesdePapeles copia solo los campos de la sesión: nunca la contraseña.
-    const cargado = 'empresa_activa_id' in user ? await cargarPapelesDeUsuario(user.id) : 'sin_tabla'
-    return sesionDesdePapeles(user as SesionBase, cargado, session.emp)
+    // papeles (users.role es el único). cargarSesionDeFila copia solo los campos de la sesión: nunca la contraseña.
+    return await cargarSesionDeFila(user as SesionBase, session.emp)
   } catch (error) {
     // Incluye la falta de SESSION_SECRET o de SUPABASE_SERVICE_ROLE_KEY en producción (fail closed)
     console.error('Error obteniendo el usuario de la petición:', error)

@@ -7,6 +7,7 @@ import { getSupabaseAdmin, type SupabaseAdminClient } from './supabase-admin'
 import { empresaActivaDe, papelMasAlto, type Empresa, type PapelActivo } from './empresas-reglas'
 import type { Role } from './permissions'
 import type { SessionUser } from './auth-server'
+import type { EmpresaMovil } from './reporte-visitas'
 
 export interface PapelesDeUsuario {
   empresas: Empresa[]
@@ -68,9 +69,10 @@ export async function cargarPapelesDeUsuario(
   return { empresas, papeles, empresaActivaId }
 }
 
-/** Empresas activas, por código. Lanza si la base falla (incluida la 0960 sin aplicar). */
+/** Empresas activas, por código. Sin la 0960 (tabla inexistente), ninguna. Lanza ante cualquier otro error de la base. */
 export async function listarEmpresas(db: SupabaseAdminClient = getSupabaseAdmin()): Promise<Empresa[]> {
   const { data, error } = await db.from('empresas').select(COLUMNAS_EMPRESA).eq('activa', true).order('codigo')
+  if (faltaLa0960(error)) return []
   if (error) throw new Error(`empresas: ${error.message}`)
   return (data || []) as Empresa[]
 }
@@ -116,4 +118,30 @@ export function sesionDesdePapeles(
   const empresa = empresaActivaDe({ empresaActivaId: cargado.empresaActivaId, claimEmp, empresas: cargado.empresas })
   const papeles = empresa ? cargado.papeles.filter(p => p.empresa_id === empresa.id) : []
   return { ...persona, role: papelMasAlto(papeles), empresa, empresas: cargado.empresas, papeles }
+}
+
+type FilaDeUsuario = { id: string; email: string; full_name: string; active: boolean; role: Role }
+
+/**
+ * La sesión a partir de una fila de users leída con select('*'): sin la columna users.empresa_activa_id la 0960 no está
+ * aplicada y ni se piden los papeles (users.role es el único). La usan getUserFromRequest y el login. Copia solo los
+ * campos de la sesión (nunca la contraseña). Lanza si la base falla al leer los papeles.
+ */
+export async function cargarSesionDeFila(fila: FilaDeUsuario, claimEmp: string | null): Promise<SessionUser> {
+  const cargado = 'empresa_activa_id' in fila ? await cargarPapelesDeUsuario(fila.id) : 'sin_tabla'
+  return sesionDesdePapeles(fila, cargado, claimEmp)
+}
+
+/** La empresa como la ven la app y las respuestas de sesión: { id, codigo, nombre_corto }. */
+export function empresaMovil(empresa: Empresa): EmpresaMovil {
+  return { id: empresa.id, codigo: empresa.codigo, nombre_corto: empresa.nombre_corto }
+}
+
+/** Lo de empresas que llevan /api/auth/me y el login: la activa, las empresas donde tiene papel y sus papeles allí. */
+export function empresasDeSesion(user: Pick<SessionUser, 'empresa' | 'empresas' | 'papeles'>): {
+  empresa: EmpresaMovil | null
+  empresas: EmpresaMovil[]
+  papeles: PapelActivo[]
+} {
+  return { empresa: user.empresa ? empresaMovil(user.empresa) : null, empresas: user.empresas.map(empresaMovil), papeles: user.papeles }
 }
