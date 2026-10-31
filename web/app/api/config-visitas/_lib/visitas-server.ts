@@ -8,7 +8,7 @@
 // gracia, día hábil, transiciones de un día libre, cuota): ninguna regla de negocio se repite en las rutas. Las
 // escrituras de configuración pasan SIEMPRE por las funciones config_registrar y config_cerrar de la base.
 import { NextResponse } from 'next/server'
-import { sesionDeLaApp, type SessionUser } from '@/lib/auth-server'
+import type { SessionUser } from '@/lib/auth-server'
 import { hasPermission, type Permission } from '@/lib/permissions'
 import { requirePermission, requireUser, type AuthResult } from '@/lib/require-role'
 import { supabaseAdmin } from '@/lib/supabase-admin'
@@ -17,10 +17,7 @@ import type { CambioConfig } from '@/lib/visits-config-schemas'
 import { fetchAllRows, jsonError } from '@/app/api/kams/_lib/kam-shared'
 import {
   MENSAJE_DIRECCION_NO_REPORTA,
-  MENSAJE_EJECUTIVO_EN_VMO,
   MENSAJE_SIN_LINEAS,
-  appSoloLideres,
-  lineasDeLaApp,
   lineasParaReportar,
   rolDePersona,
   type LineaCampo,
@@ -392,9 +389,8 @@ export type EjecutivaResult =
 
 /**
  * Rutas /api/me/*: exige visits:report (401/403) y que el usuario esté enlazado con un Ejecutivo Comercial
- * (403 "Tu usuario no está enlazado con un Ejecutivo Comercial"). Con la app solo para líderes (dueño, 2026-10-30),
- * desde la app (token de portador) → 403 MENSAJE_EJECUTIVO_EN_VMO: la cuota y los días libres de un Ejecutivo
- * Comercial siguen en la web (/calendario, con la cookie), no en la app.
+ * (403 "Tu usuario no está enlazado con un Ejecutivo Comercial"). Desde la app (token de portador) y desde la web
+ * (cookie) responde igual: los Ejecutivos Comerciales usan la app (dueño, 2026-10-31).
  */
 export async function requireEjecutiva(request: Request, contexto: string): Promise<EjecutivaResult> {
   const auth = await requirePermission(request, 'visits:report')
@@ -402,7 +398,6 @@ export async function requireEjecutiva(request: Request, contexto: string): Prom
   try {
     const persona = await personaDelUsuario(auth.user.id)
     if (!persona) return { ok: false, response: jsonError(MENSAJE_SIN_EJECUTIVA, 403) }
-    if (appSoloLideres(process.env) && sesionDeLaApp(request)) return { ok: false, response: jsonError(MENSAJE_EJECUTIVO_EN_VMO, 403) }
     return { ok: true, user: auth.user, persona }
   } catch (error) {
     return { ok: false, response: errorVisitas(contexto, error, 'Error al cargar tu Ejecutivo Comercial') }
@@ -440,8 +435,8 @@ export type PersonaCampoResult = { ok: true; persona: PersonaCampo } | { ok: fal
  * Lee la persona de campo del usuario con las filas reales (su Ejecutivo Comercial activo y sus líneas, las líneas que
  * lidera) y la arma con lib/persona-campo.ts. La dirección comercial → MENSAJE_DIRECCION_NO_REPORTA (A1); sin líneas →
  * MENSAJE_SIN_LINEAS. Un Ejecutivo Comercial sin zona sí pasa aquí (como antes): el reporte lo rechaza después con
- * MENSAJE_SIN_ZONA (validarVisita y la base). Con la app solo para líderes (dueño, 2026-10-30: lineasDeLaApp), quien
- * solo es Ejecutivo Comercial → MENSAJE_EJECUTIVO_EN_VMO y Paola entra solo como líder, sin su Ejecutivo Comercial.
+ * MENSAJE_SIN_ZONA (validarVisita y la base). Los Ejecutivos Comerciales usan la app (dueño, 2026-10-31): Paola entra
+ * con sus dos papeles.
  */
 export async function personaDeCampo(user: Pick<SessionUser, 'id' | 'role' | 'active' | 'full_name'>): Promise<PersonaCampoResult> {
   if (user.role === 'commercial_director') return { ok: false, error: MENSAJE_DIRECCION_NO_REPORTA }
@@ -461,21 +456,15 @@ export async function personaDeCampo(user: Pick<SessionUser, 'id' | 'role' | 'ac
         )
       ).map(vinculo => vinculo.line_id)
     : []
-  const soloLideres = appSoloLideres(process.env)
-  const deLaApp = lineasDeLaApp(
-    lineasParaReportar({
-      usuario: { id: user.id, role: user.role, active: user.active },
-      ejecutiva: fila ? { id: fila.id, status: fila.status, base_kam_id: fila.base_kam_id } : null,
-      lineasEjecutiva,
-      lineas: lideradas,
-    }),
-    soloLideres
-  )
-  if (!deLaApp.ok) return { ok: false, error: deLaApp.error }
-  const { ec, lider, todas } = deLaApp
+  const { ec, lider, todas } = lineasParaReportar({
+    usuario: { id: user.id, role: user.role, active: user.active },
+    ejecutiva: fila ? { id: fila.id, status: fila.status, base_kam_id: fila.base_kam_id } : null,
+    lineasEjecutiva,
+    lineas: lideradas,
+  })
   const rol = rolDePersona(ec, lider)
   if (!rol) return { ok: false, error: MENSAJE_SIN_LINEAS }
-  const ejecutiva = fila && !soloLideres ? (await armarPersonas([fila]))[0] : null
+  const ejecutiva = fila ? (await armarPersonas([fila]))[0] : null
   return {
     ok: true,
     persona: {

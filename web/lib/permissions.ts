@@ -68,8 +68,8 @@ export type Permission =
   | 'daysoff:approve'          // Fase 7 F2: ver todos los días libres, aprobar o rechazar en bloque, registrar o anular por otra persona
   | 'daysoff:view'             // Fase 7 F2: ver, sin aprobar, los días libres de las ejecutivas de SUS líneas (lo limita la API)
   | 'visits:report'            // Fase 7 F2 / F1a (0850): persona de campo (Ejecutivo Comercial o líder): agenda, reporta, sus días libres y su cuota
-  // La app de campo (/campo) es de las líderes (dueño, 2026-10-30): "Agendamiento" abre su agenda desde el menú de
-  // OpMap. Solo line_leader (los Ejecutivos Comerciales van por VMO; el admin no lidera líneas).
+  // La app de campo (/campo): "Agendamiento" abre su agenda desde el menú de OpMap, con un solo ingreso. Las líderes
+  // (2026-10-30) y, desde el 2026-10-31, los Ejecutivos Comerciales (sales_manager); el admin no lidera líneas.
   | 'campo:app'
 
 // Definición de permisos por rol
@@ -134,7 +134,8 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'terceros:view',     // Fase 6 F1: terceros (cuentas, sedes, médicos sin documento, contactos)
     'terceros:create',
     'secop:procesos',    // Radar de procesos de SECOP II sin contrato (2026-10-25); sin intelligence:view: ni compras ni /inteligencia
-    'visits:report'      // Fase 7 F2: sus días libres y su cuota (si su usuario está enlazado a una ejecutiva)
+    'visits:report',     // Fase 7 F2: sus días libres y su cuota (si su usuario está enlazado a una ejecutiva)
+    'campo:app'          // 2026-10-31: "Agendamiento" en el menú; los Ejecutivos Comerciales vuelven a la app (VMO, transitorio)
   ],
   // Líder de negocio: SOLO CONSULTA desde el 2026-10-29 (dueño: "eso tiene que pasar por el administrador o por el
   // director comercial"; docs/decisiones/2026-10-29-solo-admin-y-direccion-asignan.md). Ya no edita su línea, su

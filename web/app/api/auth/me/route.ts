@@ -1,8 +1,8 @@
 // GET /api/auth/me: el usuario de la sesión (cookie de la web o, sin cookie, el token de portador de la app
 // móvil), el Ejecutivo Comercial enlazado con él (id, full_name, zona) o null y (F1a, 0850) la persona de campo
 // ({ rol, lineas: [{ id, nombre, como }] }) o null (la dirección comercial, A1, o un usuario sin líneas) y, sin persona,
-// `sin_persona`: el porqué cuando se sabe (app solo para líderes, dueño 2026-10-30: "Las visitas de los Ejecutivos
-// Comerciales se registran en VMO"; o sin líneas). `user` es lo que ya usaba la web (contexts/UserContext.tsx);
+// `sin_persona`: el porqué cuando se sabe ("Tu usuario no tiene líneas para reportar"; los Ejecutivos Comerciales
+// usan la app desde el 2026-10-31). `user` es lo que ya usaba la web (contexts/UserContext.tsx);
 // `ejecutiva`, `persona` y `sin_persona`, lo que la app necesita al abrir. Forma: MeResponse en lib/reporte-visitas.ts.
 // Si la base falla al buscar la ejecutiva o la persona, se responde igual con null.
 import { NextResponse, NextRequest } from 'next/server'

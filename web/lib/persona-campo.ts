@@ -37,11 +37,6 @@ export const MENSAJE_CAMBIO_DE_PAPEL =
 export const MENSAJE_CITA_OTRO_PAPEL = 'Esa cita es de tu otro papel (como líder o como Ejecutivo Comercial)'
 /** `como` que no es ni 'ejecutivo' ni 'lider' (22023). */
 export const MENSAJE_COMO_NO_VALIDO = 'Como no válido: ejecutivo o lider'
-/**
- * La app de campo es solo para las líderes (dueño, 2026-10-30): quien solo es Ejecutivo Comercial registra sus visitas
- * en VMO, que llegan al mapa con el importador de /visits. 403 de /api/me/* y `sin_persona` de /api/auth/me.
- */
-export const MENSAJE_EJECUTIVO_EN_VMO = 'Las visitas de los Ejecutivos Comerciales se registran en VMO'
 
 // ---------------------------------------------------------------------------------------------
 // Tipos
@@ -114,49 +109,6 @@ export function lineasParaReportar(entrada: {
   const ec = entrada.ejecutiva && entrada.ejecutiva.status === 'active' ? ordenadas(entrada.lineasEjecutiva) : []
   const lider = ordenadas(entrada.lineas.filter(linea => linea.active && linea.leader_user_id === usuario.id).map(linea => linea.id))
   return { ec, lider, todas: ordenadas([...ec, ...lider]) }
-}
-
-/**
- * ¿La app de campo es solo para las líderes? Sí (dueño, 2026-10-30, docs/decisiones/2026-10-30-app-de-campo-solo-lideres.md):
- * los Ejecutivos Comerciales siguen en VMO. Con APP_CAMPO_EJECUTIVOS=true la vuelven a usar como antes (las pruebas de
- * F3 y F4, y el día en que la app reemplace a VMO). Recibe el entorno: este archivo también se importa en el navegador.
- */
-export function appSoloLideres(env: Readonly<Record<string, string | undefined>>): boolean {
-  return env.APP_CAMPO_EJECUTIVOS?.trim().toLowerCase() !== 'true'
-}
-
-/**
- * Las líneas con las que la persona usa la app (sobre lo que da lineasParaReportar). Con la app solo para líderes,
- * quien solo tiene líneas de Ejecutivo Comercial → MENSAJE_EJECUTIVO_EN_VMO, y quien tiene los dos papeles (Paola)
- * entra solo como líder: sin su Ejecutivo Comercial, ni cuota, ni zona, ni "Como Ejecutivo Comercial". Sin ninguna
- * línea sigue como antes (rolDePersona da null). No toca persona_de_campo de la base: la API ya no le pide nada como
- * Ejecutivo Comercial (las citas van con como 'lider' y las visitas solo con líneas de líder).
- *
- * Una línea que lidera y que TAMBIÉN es de su Ejecutivo Comercial no cuenta como de líder: la base haría de Ejecutivo
- * Comercial la visita con esa línea (ejecutivo_de_la_visita), y eso va por VMO. Hoy no pasa (revisado el 2026-10-30).
- */
-export function lineasDeLaApp(
-  lineas: { ec: string[]; lider: string[]; todas: string[] },
-  soloLideres: boolean
-): { ok: true; ec: string[]; lider: string[]; todas: string[] } | { ok: false; error: string } {
-  if (!soloLideres) return { ok: true, ...lineas }
-  const lider = lineas.lider.filter(linea => !lineas.ec.includes(linea))
-  if (lider.length === 0 && lineas.ec.length > 0) return { ok: false, error: MENSAJE_EJECUTIVO_EN_VMO }
-  return { ok: true, ec: [], lider, todas: [...lider] }
-}
-
-/**
- * "Como qué" pide la API a la base al agendar (agenda_crear y agenda_otra_fecha). Con la app solo para líderes, siempre
- * como líder (sin `como`, la base agendaría como Ejecutivo Comercial a quien tiene los dos papeles), y 'ejecutivo' →
- * MENSAJE_EJECUTIVO_EN_VMO. Si no, el que llegó, o null: decide la base (C12).
- */
-export function comoDeLaApp(
-  como: ComoPersona | null | undefined,
-  soloLideres: boolean
-): { ok: true; como: ComoPersona | null } | { ok: false; error: string } {
-  if (!soloLideres) return { ok: true, como: como ?? null }
-  if (como === 'ejecutivo') return { ok: false, error: MENSAJE_EJECUTIVO_EN_VMO }
-  return { ok: true, como: 'lider' }
 }
 
 /** Papel de la persona según sus líneas: null si no tiene ninguna. */

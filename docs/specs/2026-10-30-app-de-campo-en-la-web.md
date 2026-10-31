@@ -15,7 +15,7 @@ El dueño, el 2026-10-30: "yo quiero que tengamos una versión web. Porque la ap
   "VG Visitas".
 - Es el mismo código de `mobile/`: lo que cambie en la app llega a la web al publicar OpMap. No se mantiene una
   segunda app.
-- Funciona como en el teléfono. Las reglas son las de la API, con la app solo para líderes (2026-10-30).
+- Funciona como en el teléfono. Las reglas son las de la API (la app solo para líderes del 2026-10-30 se reemplazó el 2026-10-31).
   - El dictado: el navegador pide el micrófono.
   - La ubicación: el navegador pide el permiso; necesita https.
   - La cola sin señal: guarda en el navegador.

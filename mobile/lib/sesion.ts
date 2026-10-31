@@ -45,8 +45,8 @@ export interface Perfil {
    */
   persona?: PersonaMovil | null
   /**
-   * Sin persona, por qué (MeResponse.sin_persona; app solo para líderes, dueño 2026-10-30: "Las visitas de los
-   * Ejecutivos Comerciales se registran en VMO"): con él la app no entra a las pestañas y lo muestra (estadoPersona).
+   * Sin persona, por qué (MeResponse.sin_persona, p. ej. "Tu usuario no tiene líneas para reportar"): con él la app no
+   * entra a las pestañas y lo muestra (estadoPersona).
    * null o sin el dato: no se sabe.
    */
   sinPersona?: string | null

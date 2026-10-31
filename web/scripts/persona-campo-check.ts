@@ -26,17 +26,13 @@ import {
   MENSAJE_COMO_NO_VALIDO,
   MENSAJE_DIRECCION_NO_REPORTA,
   MENSAJE_EJECUTIVA_AJENA,
-  MENSAJE_EJECUTIVO_EN_VMO,
   MENSAJE_LINEA_AJENA,
   MENSAJE_MEDICO_AJENO,
   MENSAJE_SIN_LINEAS,
   MENSAJE_SIN_LINEAS_LIDER,
   MENSAJE_SIN_ZONA,
-  appSoloLideres,
-  comoDeLaApp,
   ejecutivoDeLaCita,
   ejecutivoDeLaVisita,
-  lineasDeLaApp,
   lineasDelMedico,
   lineasParaReportar,
   medicoDeLineas,
@@ -209,29 +205,16 @@ check(
     SQL_0950.includes("ml.line_id = ANY (coalesce(p_lineas, '{}'::uuid[]))")
 )
 
-console.log('\n7. La app de campo es solo para las líderes (dueño, 2026-10-30): los Ejecutivos Comerciales van por VMO')
+console.log('\n7. Los Ejecutivos Comerciales usan la app (dueño, 2026-10-31: reemplaza la regla del 2026-10-30)')
+const fuentePersona = readFileSync(path.join(__dirname, '..', 'lib', 'persona-campo.ts'), 'utf8')
 check(
-  'appSoloLideres: sin APP_CAMPO_EJECUTIVOS (producción), sí; con "true" (sin importar mayúsculas ni espacios), no; con otra cosa, sí',
-  appSoloLideres({}) && appSoloLideres({ APP_CAMPO_EJECUTIVOS: '' }) && appSoloLideres({ APP_CAMPO_EJECUTIVOS: 'false' }) && appSoloLideres({ APP_CAMPO_EJECUTIVOS: '1' }) && !appSoloLideres({ APP_CAMPO_EJECUTIVOS: 'true' }) && !appSoloLideres({ APP_CAMPO_EJECUTIVOS: ' TRUE ' })
+  'la regla "app solo para líderes" ya no existe en el código (ni APP_CAMPO_EJECUTIVOS, ni MENSAJE_EJECUTIVO_EN_VMO, ni appSoloLideres)',
+  !fuentePersona.includes('APP_CAMPO_EJECUTIVOS') && !fuentePersona.includes('MENSAJE_EJECUTIVO_EN_VMO') && !fuentePersona.includes('appSoloLideres')
 )
-const soloEc = { ec: [ORTOPEDIA], lider: [], todas: [ORTOPEDIA] }
-const dosPapeles = { ec: [ORTOPEDIA], lider: [TRAUMA], todas: [ORTOPEDIA, TRAUMA].sort() }
-const soloLider = { ec: [], lider: [TRAUMA], todas: [TRAUMA] }
-const ninguna = { ec: [], lider: [], todas: [] }
-check('quien solo es Ejecutivo Comercial → MENSAJE_EJECUTIVO_EN_VMO', igual(lineasDeLaApp(soloEc, true), { ok: false, error: MENSAJE_EJECUTIVO_EN_VMO }))
-check('Paola (los dos papeles) → solo sus líneas de líder, sin las de Ejecutivo Comercial', igual(lineasDeLaApp(dosPapeles, true), { ok: true, ec: [], lider: [TRAUMA], todas: [TRAUMA] }))
-check('una líder sigue igual; sin ninguna línea sigue sin líneas (rolDePersona da null: MENSAJE_SIN_LINEAS)', igual(lineasDeLaApp(soloLider, true), { ok: true, ...soloLider }) && igual(lineasDeLaApp(ninguna, true), { ok: true, ...ninguna }) && rolDePersona([], []) === null)
-check('con los Ejecutivos Comerciales adentro (soloLideres false), todo como antes', [soloEc, dosPapeles, soloLider, ninguna].every(lineas => igual(lineasDeLaApp(lineas, false), { ok: true, ...lineas })))
-// Una línea que lidera y que también es de su Ejecutivo Comercial: la base haría la visita de Ejecutiva (ejecutivo_de_la_visita)
-const cruceUnica = { ec: [ORTOPEDIA, TRAUMA].sort(), lider: [TRAUMA], todas: [ORTOPEDIA, TRAUMA].sort() }
-const cruceConOtra = { ec: [TRAUMA], lider: [DEPORTIVA, TRAUMA].sort(), todas: [DEPORTIVA, TRAUMA].sort() }
-check('una línea que lidera y que también es de su Ejecutivo Comercial no cuenta como de líder: si es la única → MENSAJE_EJECUTIVO_EN_VMO', igual(lineasDeLaApp(cruceUnica, true), { ok: false, error: MENSAJE_EJECUTIVO_EN_VMO }))
-check('...y si lidera otra, entra solo con esa', igual(lineasDeLaApp(cruceConOtra, true), { ok: true, ec: [], lider: [DEPORTIVA], todas: [DEPORTIVA] }))
 check(
-  'comoDeLaApp: solo para líderes, sin "como" o como líder → lider; "como ejecutivo" → MENSAJE_EJECUTIVO_EN_VMO',
-  igual(comoDeLaApp(null, true), { ok: true, como: 'lider' }) && igual(comoDeLaApp(undefined, true), { ok: true, como: 'lider' }) && igual(comoDeLaApp('lider', true), { ok: true, como: 'lider' }) && igual(comoDeLaApp('ejecutivo', true), { ok: false, error: MENSAJE_EJECUTIVO_EN_VMO })
+  'Paola (los dos papeles) conserva sus dos listas, ec y lider, también con una línea en las dos (el "cruce": la base hace de Ejecutiva esa visita)',
+  igual(lineasParaReportar({ ...entradaPaola, lineasEjecutiva: [SUSTITUTOS, TRAUMA] }), { ec: [SUSTITUTOS, TRAUMA].sort(), lider: [TRAUMA], todas: [SUSTITUTOS, TRAUMA].sort() })
 )
-check('comoDeLaApp con los Ejecutivos Comerciales adentro: el que llegó, o null (decide la base, C12)', igual(comoDeLaApp(null, false), { ok: true, como: null }) && igual(comoDeLaApp('ejecutivo', false), { ok: true, como: 'ejecutivo' }) && igual(comoDeLaApp('lider', false), { ok: true, como: 'lider' }))
 
 // ---------------------------------------------------------------------------------------------
 console.log(`\n${passed} pruebas bien, ${failed} con falla`)

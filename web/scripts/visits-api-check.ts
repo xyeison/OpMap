@@ -84,9 +84,6 @@ const FAKE_SUPABASE_URL = 'http://supabase.test'
 process.env.NEXT_PUBLIC_SUPABASE_URL = FAKE_SUPABASE_URL
 process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-de-prueba'
 process.env.SESSION_SECRET = 'secreto-de-prueba-visits-api-check-0123456789abcdefghijklmnopqrstuvwxyz'
-// Estas pruebas (F2) usan los días libres y la cuota desde la app con un Ejecutivo Comercial: con la app solo para
-// líderes (dueño, 2026-10-30) eso se cierra; la regla la prueba reporte-api-check (sección 16).
-process.env.APP_CAMPO_EJECUTIVOS = 'true'
 
 // ---------------------------------------------------------------------------
 // Reloj falso: new Date() y Date.now() devuelven el instante fijado (las rutas, la sesión y el Supabase falso)

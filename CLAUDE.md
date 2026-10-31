@@ -115,18 +115,19 @@ nada llama a Google.
   solo fecha, líder, ciudad, tipo, estado, cuántos contactos y si había observación (ningún texto libre: ni nombres de
   médicos, ni observaciones, ni el tipo escrito a mano) y reemplaza el histórico (`lideres_historico`, migración 0920
   APLICADA el 2026-10-29; su DELETE lleva WHERE por pg-safeupdate de PostgREST).
-- **La app de campo es SOLO para las líderes** (dueño, 2026-10-30, `docs/decisiones/2026-10-30-app-de-campo-solo-lideres.md`):
-  los Ejecutivos Comerciales siguen reportando en VMO. Quien solo es Ejecutivo Comercial no entra: `/api/auth/me` →
-  `sin_persona` y `/api/me/*` → 403 (cuota y días libres, solo desde la app: en la web siguen). Paola entra solo como
-  líder. La regla está en el servidor
-  (`appSoloLideres` de `lib/persona-campo.ts`); `APP_CAMPO_EJECUTIVOS=true` la apaga (las pruebas de F3 y F4; en
-  producción no se pone).
+- **La app de campo es de las líderes Y de los Ejecutivos Comerciales** (dueño, 2026-10-31,
+  `docs/decisiones/2026-10-31-ejecutivos-comerciales-vuelven-a-la-app.md`; reemplaza la regla del 2026-10-30 que la
+  dejaba solo para las líderes): agendan, reportan, cuota y días libres; Paola con sus dos papeles; `campo:app` también
+  para `sales_manager`. La base decide quién reporta (`persona_de_campo`); no hay llave de entorno. El Excel de VMO
+  (`/visits`) sigue, TRANSITORIO, solo para el mapa de calor, hasta que el dueño lo apague. La dirección sigue sin
+  reportar (A1); "Equipo" para vigilar llega en la Entrega 2 de `docs/specs/2026-10-31-equipo-en-la-app-y-ejecutivos-de-vuelta.md`.
 - **La app de campo también es web** (dueño, 2026-10-30, `docs/decisiones/2026-10-30-app-de-campo-en-la-web.md`): la
   misma app de `mobile/` se publica en `/campo` de OpMap. `npm run build` la arma con `scripts/construir-campo.mjs` en
   `public/campo` (no se versiona). Llama a la API de su mismo origen. `/campo` es pública como página (`esAppDeCampo`
   de `lib/app-campo.ts`). Sin tiendas: cada push a master la publica. Las líderes la abren con "Agendamiento" en el menú de
   OpMap (permiso `campo:app`), con un solo ingreso: login `campo-web` y `POST /api/auth/sesion-app`
-  (`docs/specs/2026-10-30-agendamiento-lider-un-ingreso.md`).
+  (`docs/specs/2026-10-30-agendamiento-lider-un-ingreso.md`). En un preview de Vercel (protegido con su cookie) la app manda las cookies del
+  origen (`esPreviewDeVercel`, 2026-10-31); sin eso `/api/*` daba 401 y la app decía "sesión vencida". En producción, sin la cookie de la web.
 - **Médicos y contactos sin duplicados** (dueño, 2026-10-30, `docs/decisiones/2026-10-30-medicos-y-contactos-sin-duplicados.md`):
   - el médico se crea y se corrige solo con CC o CE, en `/medicos`, Reportar y Agendar (una sola tabla web+app);
   - se crea desde la búsqueda que no encontró a nadie; "Nuevo médico" arriba solo si la lista cabe en una página;
@@ -211,7 +212,7 @@ nada llama a Google.
   por `config_registrar`/`config_cerrar`), calendario y festivos, días libres con aprobación en bloque, rol `hr`,
   cuota del periodo; `/configuracion` y `/calendario` (migración 0810 aplicada 2026-10-12).
 - `docs/specs/2026-10-12-traspaso-ejecutivo-comercial.md` – traspaso de un Ejecutivo Comercial y "Contratar" (0820 aplicada 2026-10-12).
-- `docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md` – app de visita F3+F4: visitas de la app en `visits` + `visit_lines`, `visitas_registrar/editar/anular`, `/api/me/*` (contexto, visitas, voz, números), token de portador, app Expo en `mobile/` (migración 0830 aplicada 2026-10-14); F4.1 agenda (`visitas_agenda`, `/api/me/agenda*`, `/api/me/voz/campos`; 0840 aplicada 2026-10-14); desde 2026-10-15 la cita lleva hora obligatoria y la agenda es un calendario, y `/api/me/*` mide con `Server-Timing` y líneas `[tiempos]` (`docs/specs/2026-10-15-usabilidad-y-agenda-con-hora.md`); F4.2 (F1a de `docs/specs/2026-10-15-actividades-de-campo.md`): la persona de campo es el usuario (líderes y Ejecutivos Comerciales; la dirección comercial no agenda ni reporta) y la cita se cierra con su resultado (no se hizo, cancelar con motivo, eliminar por error, otra fecha), choque de media hora y sin tope (migración 0850 APLICADA el 2026-10-30). Desde el 2026-10-30 la app es solo para las líderes (ver la regla de arriba). F5 sin señal (PWA en `/campo` con service worker, cola en IndexedDB, foto, marcas en vez de rechazos; migración 0940 APLICADA el 2026-10-30, rollback 9959; `docs/specs/2026-10-30-campo-sin-senal-pwa.md`).
+- `docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md` – app de visita F3+F4: visitas de la app en `visits` + `visit_lines`, `visitas_registrar/editar/anular`, `/api/me/*` (contexto, visitas, voz, números), token de portador, app Expo en `mobile/` (migración 0830 aplicada 2026-10-14); F4.1 agenda (`visitas_agenda`, `/api/me/agenda*`, `/api/me/voz/campos`; 0840 aplicada 2026-10-14); desde 2026-10-15 la cita lleva hora obligatoria y la agenda es un calendario, y `/api/me/*` mide con `Server-Timing` y líneas `[tiempos]` (`docs/specs/2026-10-15-usabilidad-y-agenda-con-hora.md`); F4.2 (F1a de `docs/specs/2026-10-15-actividades-de-campo.md`): la persona de campo es el usuario (líderes y Ejecutivos Comerciales; la dirección comercial no agenda ni reporta) y la cita se cierra con su resultado (no se hizo, cancelar con motivo, eliminar por error, otra fecha), choque de media hora y sin tope (migración 0850 APLICADA el 2026-10-30). Desde el 2026-10-31 la app es de las líderes y de los Ejecutivos Comerciales (ver la regla de arriba). F5 sin señal (PWA en `/campo` con service worker, cola en IndexedDB, foto, marcas en vez de rechazos; migración 0940 APLICADA el 2026-10-30, rollback 9959; `docs/specs/2026-10-30-campo-sin-senal-pwa.md`).
 - `docs/arquitectura-y-scripts.md` – scripts Python, estructura de carpetas, archivos clave.
 - `docs/historico-resultados.md` – cifras de 2025 y colores originales (histórico, no vigente).
 - `docs/FLUJO_DE_TRABAJO_IA.md` – cómo trabajamos con Claude Code en este repo y por qué.

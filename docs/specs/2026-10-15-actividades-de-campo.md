@@ -5,13 +5,11 @@
 F1b escrita en la rama `feat/campo-f1b` (sin migración), con las correcciones de la revisión del 2026-10-30. Falta la
 prueba en el iPhone del dueño, contra un servidor con la 0850 (ver "F1b"). Queda abierto lo de "Lo que sigue abierto".
 
-**Cambio del dueño del 2026-10-30** (`docs/decisiones/2026-10-30-app-de-campo-solo-lideres.md`): la app es SOLO para las
-líderes. Los Ejecutivos Comerciales siguen reportando en VMO.
-- El servidor no da persona a quien solo es Ejecutivo Comercial: `sin_persona` en `/api/auth/me` y 403 en `/api/me/*`.
-- Paola entra solo como líder.
-- Lo de esta spec sobre Ejecutivos Comerciales en la app, y lo de Paola "como Ejecutivo Comercial" (C4, C12 y A13 en
-  la app), queda dormido. Lo vuelve a encender `APP_CAMPO_EJECUTIVOS=true` en el servidor, para cuando la app reemplace
-  a VMO.
+**Cambio del dueño del 2026-10-30** (`docs/decisiones/2026-10-30-app-de-campo-solo-lideres.md`): la app era SOLO para
+las líderes. **Reemplazado el 2026-10-31** (`docs/decisiones/2026-10-31-ejecutivos-comerciales-vuelven-a-la-app.md`): los
+Ejecutivos Comerciales vuelven a la app y todo lo de esta spec sobre ellos (C4, C12 y A13) vale otra vez; VMO queda
+transitorio para el mapa de calor. "Equipo" (F4) se hace dentro de la app
+(`docs/specs/2026-10-31-equipo-en-la-app-y-ejecutivos-de-vuelta.md`).
 
 **Fuentes**:
 - Estudio del 2026-10-15, de solo lectura: modelo de datos, Excel de la directora, vista de la directora y tipos de

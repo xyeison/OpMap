@@ -18,6 +18,7 @@ import {
   TIEMPO_PROPONER_MS,
   TIEMPO_TRANSCRIBIR_MS,
   construirUrl,
+  esPreviewDeVercel,
   jsonSeguro,
   lineaRegistroApi,
   normalizarBase,
@@ -94,8 +95,7 @@ export interface OpcionesPeticion {
   /**
    * En el navegador (/campo), mandar la cookie de la web y aceptar la que llegue: solo el login, el puente con la sesión
    * de la web y el logout. Lo demás va SIN la cookie (revisión 2026-10-30): el servidor responde siempre como la persona
-   * del token, aunque en otra pestaña haya entrado otra en OpMap, y la app sigue siendo la app (sesionDeLaApp del
-   * servidor: lo de Ejecutivo Comercial cerrado como en el teléfono). En el teléfono no cambia nada.
+   * del token, aunque en otra pestaña haya entrado otra en OpMap. En el teléfono no cambia nada.
    */
   conCookie?: boolean
 }
@@ -145,7 +145,8 @@ function registrarPeticion(datos: DatosRegistroApi): void {
 /** En el navegador, con o sin la cookie de la web (OpcionesPeticion.conCookie); en el teléfono, como siempre. */
 function credencialesWeb(conCookie: boolean): { credentials?: RequestCredentials } {
   if (Platform.OS !== 'web') return {}
-  return { credentials: conCookie ? 'same-origin' : 'omit' }
+  // Preview de Vercel: con sus cookies (su protección lo exige; ver esPreviewDeVercel). Producción: sin la de la web.
+  return { credentials: conCookie || esPreviewDeVercel(globalThis.location?.hostname) ? 'same-origin' : 'omit' }
 }
 
 export async function peticion<T>(ruta: string, opciones: OpcionesPeticion = {}): Promise<T> {

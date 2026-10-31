@@ -1905,9 +1905,9 @@ export interface MeResponse {
   /** 0850: la persona de campo, o null (la dirección comercial, A1, o un usuario sin líneas). */
   persona: PersonaMovil | null
   /**
-   * Por qué no hay persona, cuando el servidor lo sabe: MENSAJE_EJECUTIVO_EN_VMO (solo es Ejecutivo Comercial: la app es
-   * solo para las líderes, dueño 2026-10-30), MENSAJE_SIN_LINEAS… La app no entra a las pestañas y lo muestra. null con
-   * persona, para quien no reporta (la dirección comercial, que la app reconoce por su rol) o si la base falló.
+   * Por qué no hay persona, cuando el servidor lo sabe: MENSAJE_SIN_LINEAS (un usuario sin líneas). La app no entra a
+   * las pestañas y lo muestra. null con persona, para quien no reporta (la dirección comercial, que la app reconoce por
+   * su rol) o si la base falló. (Los Ejecutivos Comerciales usan la app desde el 2026-10-31.)
    */
   sin_persona: string | null
 }
