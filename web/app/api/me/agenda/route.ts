@@ -79,8 +79,8 @@ export async function POST(request: NextRequest) {
     if (horaPasada) return jsonError(horaPasada, 400, { errores: [{ campo: 'hora', mensaje: horaPasada }] })
 
     try {
-      // La persona la saca la base de p_user (persona_de_campo); "como qué", de `como` (C12; con la app solo para
-      // líderes, siempre 'lider').
+      // La persona la saca la base de p_user (persona_de_campo); "como qué", de `como` (C12: el que llegó, o null y
+      // decide la base).
       const { data, error } = await t.fase('rpc', () => supabaseAdmin.rpc('agenda_crear', { p: { ...jsonbCita(datos), como }, p_user: auth.user.id }))
       if (error) {
         const traducido = respuestaErrorAgenda(error, 'Los datos de la cita no son válidos')

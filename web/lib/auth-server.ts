@@ -64,14 +64,6 @@ export function esRutaApi(url: string): boolean {
 }
 
 /**
- * ¿La sesión de la petición es el token de la app (portador en /api/ y sin la cookie de la web)? Lo usa la app como
- * contrato ("la app sigue siendo la app" aunque otra persona haya entrado en OpMap en otra pestaña).
- */
-export function sesionDeLaApp(request: Request): boolean {
-  return !readCookie(request, SESSION_COOKIE_NAME) && esRutaApi(request.url) && readBearer(request) !== null
-}
-
-/**
  * Token de sesión de la petición: la cookie; sin cookie, el portador solo en rutas /api/ (las páginas nunca lo
  * aceptan: el middleware las redirige al login).
  */

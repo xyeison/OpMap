@@ -860,7 +860,7 @@ líneas.
 | `PATCH /api/me/visitas/[id]` | Cambiar el papel → 400 "Para cambiar el papel de la visita …, anúlala y repórtala de nuevo". Pasar a efectiva una visita cuya cita ya tiene otra fecha → 400 "La cita de esta visita ya tiene otra fecha: elimina primero esa otra fecha" (A7) |
 | `POST /api/me/visitas/[id]/anular` | Anular una visita cuya cita ya tiene otra fecha → 400 "La cita de esta visita ya tiene otra fecha: elimina primero esa otra fecha" (A7: la cita volvería a pendiente con su otra fecha colgando) |
 | `GET /api/me/numeros` | Sin Ejecutivo Comercial: `cuota: null` y cumplimiento null; con él, la cuota solo cuenta sus visitas como Ejecutivo Comercial. `agenda` + `citas_no_realizadas` (las eliminadas no cuentan) |
-| `GET /api/auth/me` | + `persona: { rol, lineas } \| null` (null sin `visits:report` o sin líneas) y `sin_persona: string \| null`: sin persona, el porqué cuando se sabe ("Las visitas de los Ejecutivos Comerciales se registran en VMO", "Tu usuario no tiene líneas para reportar"; null para la dirección comercial, que la app reconoce por su rol) |
+| `GET /api/auth/me` | + `persona: { rol, lineas } \| null` (null sin `visits:report` o sin líneas) y `sin_persona: string \| null`: sin persona, el porqué cuando se sabe ("Tu usuario no tiene líneas para reportar"; null para la dirección comercial, que la app reconoce por su rol) |
 | `GET /api/me/agenda` | `max_fecha: null` (sin tope, A4). `canceladas=true` trae también las que no se hicieron; las eliminadas nunca |
 | `POST /api/me/agenda` | + `como?: 'ejecutivo' \| 'lider'` (sin él: como Ejecutivo Comercial si lo tiene). Hoy a una hora pasada → 400 "Esa hora ya pasó" en `hora`, sin ir a la base. Choque de media hora → 409 "A las 09:30 ya tienes cita con …: elige otra hora" con `errores: [{ campo: 'hora' }]`. Sin tope hacia adelante |
 | `POST /api/me/agenda/[id]/cancelar` | `{ motivo_codigo?, motivo? }`: el motivo es OBLIGATORIO (A8); solo texto (la app de hoy) = `otro`; nada → 400 "Elige o escribe el motivo de la cancelación"; `salida` no se elige |
@@ -890,8 +890,8 @@ líneas.
   líder ya no recibe 403 (ve "no está enlazado" pero reporta y agenda bien).
 - **La app de F1b** (`mobile/`, sin migración; detalle en la sección "F1b" de la spec): la sesión guarda la persona de
   `/api/auth/me` (el login no la trae: se pide en segundo plano al entrar); la dirección comercial ve "La dirección
-  comercial sigue a su equipo en la web" sin pestañas, y quien el servidor deja fuera con `sin_persona` (app solo para
-  líderes, 2026-10-30) ve ese porqué, también sin pestañas; Hoy junta lo atrasado y lo sin cerrar en "¿Qué pasó con
+  comercial sigue a su equipo en la web" sin pestañas, y quien el servidor deja fuera con `sin_persona` (p. ej. un
+  administrador sin líneas) ve ese porqué, también sin pestañas; Hoy junta lo atrasado y lo sin cerrar en "¿Qué pasó con
   esto?" (`GET /api/me/agenda` de los 31 días anteriores) con Reportar, "No se hizo" y Cancelar; el detalle de una cita
   en Mi agenda tiene Reportar, "No se hizo", Cancelar, "Agendar otra fecha" y "Eliminar: lo agendé por error"; Agendar
   empieza por "¿Qué vas a hacer?", no tiene tope, ofrece "Como Ejecutivo Comercial" / "Como líder" a quien tiene los dos

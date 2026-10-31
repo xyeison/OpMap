@@ -3,9 +3,10 @@
 // el token que la app necesita, sin volver a escribir su contraseña. Es el MISMO token de la cookie (mismo formato que el
 // del login móvil): no da más permisos ni más tiempo.
 //   - Exige la cookie de la web: solo con el portador → 401 (no sirve para alargar un token de la app).
-//   - Solo para quien usa la app de campo (campo:app, las líderes: el mismo criterio del menú "Agendamiento"); los demás
-//     roles → 403 (revisión 2026-10-30): la cookie httpOnly del administrador o de la dirección no se vuelve un token que
-//     el JavaScript de la página puede leer. Los demás entran a la app con su contraseña, como siempre.
+//   - Solo para quien usa la app de campo (campo:app: las líderes y, desde el 2026-10-31, los Ejecutivos Comerciales; el
+//     mismo criterio del menú "Agendamiento"); los demás roles → 403 (revisión 2026-10-30): la cookie httpOnly del
+//     administrador o de la dirección no se vuelve un token que el JavaScript de la página puede leer, hasta "Equipo"
+//     (Entrega 2 de docs/specs/2026-10-31-equipo-en-la-app-y-ejecutivos-de-vuelta.md).
 //   - Exige el mismo origen: un Origin de otro sitio o Sec-Fetch-Site cross-site → 403 (la cookie es SameSite=Lax y
 //     esta ruta es POST, pero se comprueba igual).
 //   - Respuesta: LoginMovilResponse { token, expira_at, usuario, ejecutiva }, como el login móvil, sin caché.

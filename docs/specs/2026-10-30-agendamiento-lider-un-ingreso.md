@@ -18,7 +18,8 @@ El dueño, el 2026-10-30:
 ## Resultado esperado
 - **El menú de OpMap de la líder empieza con "Agendamiento"**, que abre su agenda en la app (`/campo/agenda`).
   - Solo lo ve quien usa la app: las líderes, permiso nuevo `campo:app`.
-  - Los Ejecutivos Comerciales no lo ven: van por VMO.
+  - Los Ejecutivos Comerciales no lo ven: van por VMO. (Desde el 2026-10-31 sí lo ven:
+    `docs/decisiones/2026-10-31-ejecutivos-comerciales-vuelven-a-la-app.md`.)
 - **Un solo ingreso:**
   - quien inició sesión en OpMap y abre la app entra sin volver a escribir su contraseña;
   - quien inicia sesión en la app (en el navegador) queda también dentro de OpMap.
