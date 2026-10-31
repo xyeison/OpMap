@@ -99,7 +99,7 @@ export function useFuente(): (peso: Peso) => TextStyle {
 
 type GlifoIonicons = ComponentProps<typeof Ionicons>['name']
 
-function IconoUi({ nombre, color, tamano = 20, activo = false }: { nombre: NombreIcono; color: string; tamano?: number; activo?: boolean }) {
+export function IconoUi({ nombre, color, tamano = 20, activo = false }: { nombre: NombreIcono; color: string; tamano?: number; activo?: boolean }) {
   return <Ionicons name={glifoDe(nombre, activo) as GlifoIonicons} size={tamano} color={color} />
 }
 

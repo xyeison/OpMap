@@ -1093,7 +1093,7 @@ export default function Reportar() {
       </View>
 
       {/* Línea guía antes de elegir (los botones de Hablar y Por toques salen después de elegir, no deshabilitados). */}
-      {fase === 'lista' && !eligio ? <Texto>Toca tu cita o la sede donde estás. Después cuentas qué pasó, hablando o por toques.</Texto> : null}
+      {fase === 'lista' && !eligio ? <Texto>Toca tu cita o la sede donde estás.</Texto> : null}
 
       {avisoCita ? <Aviso tono="info">{avisoCita}</Aviso> : null}
       {nadaAbierto ? avisoCitaPendiente : null}
@@ -1108,13 +1108,6 @@ export default function Reportar() {
         <Aviso tono="alerta" accion={<Boton titulo="Volver a intentar" variante="secundario" cargando={reubicando} alPresionar={() => void reubicar()} />}>
           {`${errorUbicacion} Puedes reportar igual: la visita queda marcada "sin ubicación".`}
         </Aviso>
-      ) : null}
-
-      {/* Habeas data (dueño, 2026-10-30): la ubicación se toma solo al confirmar, nunca en segundo plano. */}
-      {fase === 'lista' ? (
-        <Texto suave peque>
-          {AVISO_HABEAS_DATA}
-        </Texto>
       ) : null}
 
       {fase === 'lista' && eligio ? (
@@ -1144,9 +1137,6 @@ export default function Reportar() {
           </View>
           <View style={{ gap: 6 }}>
             <Seccion titulo="No agendada" />
-            <Texto suave peque>
-              Si no estaba en tu agenda, elige la sede donde estás.
-            </Texto>
             <ListaSedes
               sedes={sedesCercanas}
               radioM={radioM}
@@ -1173,6 +1163,11 @@ export default function Reportar() {
             )}
             <Boton titulo="¿No está? Crear sede aquí" variante="texto" alPresionar={() => pedirSede(null)} />
           </View>
+          {/* Habeas data (dueño, 2026-10-30): la ubicación se toma solo al confirmar, nunca en segundo plano. Al final
+              (dueño, 2026-10-31: arriba había mucho texto y no se veía qué se podía tocar). */}
+          <Texto suave peque>
+            {AVISO_HABEAS_DATA}
+          </Texto>
         </>
       ) : null}
 

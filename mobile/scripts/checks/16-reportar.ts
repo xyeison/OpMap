@@ -490,6 +490,11 @@ export async function pruebas(t: Probador): Promise<void> {
       !/Primero elige dónde estás/.test(reportar)
   )
   check('Reportar: hay una línea guía arriba antes de elegir', /\{fase === 'lista' && !eligio \? <Texto>Toca tu cita o la sede donde estás\./.test(reportar))
+  // Dueño, 2026-10-31: "hay mucho texto y no es claro cuál es la opción que se puede tocar".
+  check('Reportar: la línea guía es UNA frase corta, no hay frase explicativa bajo "No agendada" y el habeas data va al final de la lista', /<Texto>Toca tu cita o la sede donde estás\.<\/Texto>/.test(reportar) && !/Si no estaba en tu agenda/.test(reportar) && reportar.indexOf('{AVISO_HABEAS_DATA}') > reportar.indexOf('¿No está? Crear sede aquí'))
+  const listaCitasTs = leer('components/reporte/ListaCitas.tsx')
+  const listaSedesTs = leer('components/reporte/ListaSedes.tsx')
+  check('¿Dónde estás?: cada cita y cada sede es una tarjeta tocable (Tarjeta con alPresionar y "›"), no una fila con separador', /<Tarjeta key=\{cita\.id\} alPresionar=/.test(listaCitasTs) && /<IconoUi nombre="adelante"/.test(listaCitasTs) && !/FilaLista/.test(listaCitasTs) && /<Tarjeta key=\{sede\.id\} alPresionar=/.test(listaSedesTs) && /<IconoUi nombre="adelante"/.test(listaSedesTs) && !/FilaLista/.test(listaSedesTs))
 
   // --- Lo que dijiste ------------------------------------------------------------------------------------------
   const proponiendoTs = entre(reportar, "{fase === 'proponiendo' ? (", "{fase === 'tarjetas' && borradores.length > 0 ? (")
