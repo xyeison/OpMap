@@ -64,7 +64,8 @@ import {
   ventanaSecop,
   type SedeMapa,
 } from '@/lib/mapa-detalle'
-import { hasPermission, type Role } from '@/lib/permissions'
+import type { Role } from '@/lib/permissions'
+import { tienePermisoDe } from '@/lib/empresas-reglas'
 import { supabaseAdmin, type SupabaseAdminClient } from '@/lib/supabase-admin'
 import type { AlcanceDetalle, ComprasDetalle, GirosDetalle, IpsDetalle, ProcesosDetalle, TerritorioDetalle, Ventana } from '@/lib/types/mapa-detalle'
 
@@ -77,9 +78,9 @@ export const PERMISOS_DETALLE = ['intelligence:view', 'secop:procesos'] as const
  * Qué trae la tarjeta según el rol: intelligence:view → 'completo' (giros, compras y procesos); solo secop:procesos →
  * 'procesos'. null si no tiene ninguno (la ruta ya respondió 403 sin leer nada).
  */
-export function alcanceDelRol(role: Role): AlcanceDetalle | null {
-  if (hasPermission(role, 'intelligence:view')) return 'completo'
-  if (hasPermission(role, 'secop:procesos')) return 'procesos'
+export function alcanceDelRol(role: Role | readonly { papel: Role }[]): AlcanceDetalle | null {
+  if (tienePermisoDe(role, 'intelligence:view')) return 'completo'
+  if (tienePermisoDe(role, 'secop:procesos')) return 'procesos'
   return null
 }
 

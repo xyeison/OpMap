@@ -17,7 +17,8 @@
 // salen las cifras; la ruta las aplica antes de leer nada.
 // Imports relativos (no '@/') para que las pruebas con tsx lo usen tal cual (scripts/zona-estadisticas-check.ts).
 import { addMonthsYm, aggregateSecopRanking, monthEndYm, type SecopFact } from './compras-publicas'
-import { hasPermission, type Role } from './permissions'
+import type { Role } from './permissions'
+import { tienePermisoDe } from './empresas-reglas'
 import {
   camasCapacidad,
   topEps,
@@ -247,16 +248,16 @@ export interface ZonaDatosResponse {
  * IPS (camas, servicios del REPS, giros repartidos por sede, población repartida por camas), lo mismo que pide la ficha
  * de la IPS con sus tarjetas de giros y de entorno. Hoy lo tienen todos los roles salvo recursos humanos (hr).
  */
-export function puedeVerDatosDeZona(role: Role | undefined): boolean {
-  return hasPermission(role, 'executives:view') && hasPermission(role, 'hospitals:view')
+export function puedeVerDatosDeZona(role: Role | undefined | readonly { papel: Role }[]): boolean {
+  return tienePermisoDe(role, 'executives:view') && tienePermisoDe(role, 'hospitals:view')
 }
 
 /**
  * ¿Ve las compras públicas (SECOP y la parte de VG Medical)? intelligence:view, el permiso de /api/secop/* y de la
  * tarjeta de SECOP de la ficha de la IPS. Sin él la ruta ni siquiera lee SECOP.
  */
-export function veComprasPublicas(role: Role | undefined): boolean {
-  return hasPermission(role, 'intelligence:view')
+export function veComprasPublicas(role: Role | undefined | readonly { papel: Role }[]): boolean {
+  return tienePermisoDe(role, 'intelligence:view')
 }
 
 /**

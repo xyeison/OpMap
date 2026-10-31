@@ -27,7 +27,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { requireUser } from '@/lib/require-role'
-import { hasPermission } from '@/lib/permissions'
+import { tienePermiso } from '@/lib/empresas-reglas'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { fetchAllRows, serverError } from '@/app/api/_lib/api-error'
 import { jsonError, zodMessage } from '@/app/api/kams/_lib/kam-shared'
@@ -149,7 +149,7 @@ export async function GET(request: NextRequest) {
   const auth = await requireUser(request)
   if (!auth.ok) return auth.response
   const user = auth.user
-  if (!puedeVerDatosDeZona(user.role)) return jsonError('Acceso denegado', 403)
+  if (!puedeVerDatosDeZona(user.papeles)) return jsonError('Acceso denegado', 403)
 
   const parsed = querySchema.safeParse({ line: request.nextUrl.searchParams.get('line') ?? undefined })
   if (!parsed.success) return jsonError(zodMessage(parsed.error), 400)
@@ -200,10 +200,10 @@ export async function GET(request: NextRequest) {
     const editable = linea ? await canEditCoverageLine(user, linea.id) : false
     const body = armarRespuesta({ me, linea, inputs, calculada, kamsDetalle, permitidas, cargados, cobertura: { calculadaEn, desactualizada, recalculada }, avisos })
     body.acceso = {
-      asignar: hasPermission(user.role, 'executives:lines') && editable,
-      ajustar: hasPermission(user.role, 'coverage:edit') && editable,
-      comprasPublicas: veComprasPublicas(user.role),
-      administrar: hasPermission(user.role, 'kams:edit'),
+      asignar: tienePermiso(user.papeles, 'executives:lines') && editable,
+      ajustar: tienePermiso(user.papeles, 'coverage:edit') && editable,
+      comprasPublicas: veComprasPublicas(user.papeles),
+      administrar: tienePermiso(user.papeles, 'kams:edit'),
     }
     return NextResponse.json(body, { headers: NO_STORE })
   } catch (error) {

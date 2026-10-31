@@ -10,7 +10,7 @@
 //       lo registra (decisión 3 del contrato). Nunca para la ejecutiva enlazada con quien registra (403): sus propios
 //       días van por /api/me/dias-libres y los aprueba otra persona (decisión 13 del contrato).
 import { NextRequest, NextResponse } from 'next/server'
-import { hasPermission } from '@/lib/permissions'
+import { tienePermiso } from '@/lib/empresas-reglas'
 import { requirePermission } from '@/lib/require-role'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { fetchAllRows, jsonError, readJson, zodMessage } from '@/app/api/kams/_lib/kam-shared'
@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const hoy = hoyActual()
-    const verTodos = hasPermission(user.role, 'daysoff:approve')
+    const verTodos = tienePermiso(user.papeles, 'daysoff:approve')
     let permitidas: string[] | null = null
     if (!verTodos) {
       const mias = await ejecutivasDeMisLineas(user.id)

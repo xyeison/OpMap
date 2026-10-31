@@ -43,8 +43,13 @@ export async function requirePermission(request: Request, permission: Permission
 
 /**
  * Exige sesión válida (401) y que alguno de sus papeles tenga AL MENOS UNO de los permisos indicados (403 si no tiene ninguno). La ruta
- * decide después qué entrega según cuáles tiene (tienePermiso(user.papeles, …)): p. ej. las tarjetas del mapa dan todo con
- * intelligence:view y solo los procesos de SECOP II con secop:procesos. Con la lista vacía siempre es 403.
+ * decide después qué entrega según cuáles tiene, siempre con la SUMA de papeles (tienePermiso(user.papeles, …)): p. ej. las
+ * tarjetas del mapa dan todo con intelligence:view y solo los procesos de SECOP II con secop:procesos. Con la lista vacía
+ * siempre es 403.
+ *
+ * Regla para el código que sigue a la puerta: nunca se decide un permiso con `user.role` (es solo el papel más alto, para
+ * textos y para quien aún lee un solo rol), es decir, ni con hasPermission(user.role, …). Se usa tienePermiso(user.papeles, …)
+ * o una función que reciba `papeles`.
  */
 export async function requireAnyPermission(request: Request, permissions: readonly Permission[]): Promise<AuthResult> {
   const auth = await requireUser(request)

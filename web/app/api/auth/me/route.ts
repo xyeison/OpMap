@@ -8,7 +8,7 @@
 import { NextResponse, NextRequest } from 'next/server'
 import { ejecutivaEnlazada, getUserFromRequest } from '@/lib/auth-server'
 import type { MeResponse } from '@/lib/reporte-visitas'
-import { hasPermission } from '@/lib/permissions'
+import { tienePermiso } from '@/lib/empresas-reglas'
 import { personaDeCampo } from '@/app/api/config-visitas/_lib/visitas-server'
 import { lineasDePersona, personaMovil } from '@/app/api/me/_lib/reporte-server'
 
@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
     }
     try {
       // Solo quien reporta (visits:report; la dirección comercial ya no lo tiene, A1).
-      const resultado = hasPermission(user.role, 'visits:report') ? await personaDeCampo(user) : null
+      const resultado = tienePermiso(user.papeles, 'visits:report') ? await personaDeCampo(user) : null
       if (resultado && resultado.ok) persona = personaMovil(resultado.persona, await lineasDePersona(resultado.persona.lineas))
       else if (resultado) sinPersona = resultado.error
     } catch (error) {

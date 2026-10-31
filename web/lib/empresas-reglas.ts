@@ -73,6 +73,14 @@ export function tienePermiso(papeles: readonly { papel: Role }[], permiso: Permi
 }
 
 /**
+ * Para las funciones puras que sirven al navegador (que solo conoce el papel más alto) y al servidor (que tiene todos
+ * los papeles): con una lista de papeles suma; con un solo papel (o ninguno) decide como hasPermission.
+ */
+export function tienePermisoDe(quien: Role | undefined | readonly { papel: Role }[], permiso: Permission): boolean {
+  return typeof quien === 'object' ? tienePermiso(quien, permiso) : hasPermission(quien, permiso)
+}
+
+/**
  * La columna si está en la lista; si no, el claim si está; si no, la primera; null sin empresas. "La primera" es VG
  * Medical (la empresa de siempre) y, sin ella, la menor por código: ordenar solo por código dejaría a 'medix' antes
  * que 'vg'. No modifica la lista de entrada.

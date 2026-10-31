@@ -26,7 +26,8 @@
 // Imports relativos (no '@/') para que un script con tsx pueda usarlo.
 import { createHash, randomUUID } from 'crypto'
 import { supabaseAdmin, type SupabaseAdminClient } from './supabase-admin'
-import { hasPermission, type Permission } from './permissions'
+import type { Permission } from './permissions'
+import { tienePermiso } from './empresas-reglas'
 import { isLineLeader, loadCoverageResponse, resolveUserLines, type CoverageUser } from './coverage'
 import { zoneDisplayName } from './zone-names'
 import { computeTerritoryWinners, type ZoneNameLookup } from './territory-rules'
@@ -795,8 +796,8 @@ export async function canManageTerritoryLine(
   permission: Permission,
   db: SupabaseAdminClient = supabaseAdmin
 ): Promise<boolean> {
-  if (!hasPermission(user.role, permission)) return false
-  if (hasPermission(user.role, 'map:all-lines')) return true
+  if (!tienePermiso(user.papeles, permission)) return false
+  if (tienePermiso(user.papeles, 'map:all-lines')) return true
   return isLineLeader(user, lineId, db)
 }
 

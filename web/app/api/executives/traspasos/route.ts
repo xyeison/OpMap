@@ -7,7 +7,7 @@
 // Spec: docs/specs/2026-10-12-traspaso-ejecutivo-comercial.md.
 import { NextRequest, NextResponse } from 'next/server'
 import { requirePermission } from '@/lib/require-role'
-import { hasPermission } from '@/lib/permissions'
+import { tienePermiso } from '@/lib/empresas-reglas'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { fetchAllRows, jsonError } from '@/app/api/kams/_lib/kam-shared'
 import { UUID_RE } from '@/lib/fase1-schemas'
@@ -63,7 +63,7 @@ export async function GET(request: NextRequest) {
   const filtro = request.nextUrl.searchParams.get('executive_id')
   if (filtro !== null && !UUID_RE.test(filtro)) return jsonError('executive_id no válido', 400)
   const persona = filtro ? filtro.toLowerCase() : null
-  const veMotivo = hasPermission(auth.user.role, 'executives:edit') || hasPermission(auth.user.role, 'executives:transfer')
+  const veMotivo = tienePermiso(auth.user.papeles, 'executives:edit') || tienePermiso(auth.user.papeles, 'executives:transfer')
 
   try {
     let filas: FilaTraspaso[]

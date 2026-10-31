@@ -24,7 +24,7 @@ const querySchema = z.discriminatedUnion('tipo', [
 export async function GET(request: NextRequest) {
   const auth = await requireAnyPermission(request, PERMISOS_DETALLE)
   if (!auth.ok) return auth.response
-  const alcance = alcanceDelRol(auth.user.role) ?? 'procesos'
+  const alcance = alcanceDelRol(auth.user.papeles) ?? 'procesos'
 
   const parsed = querySchema.safeParse({
     tipo: request.nextUrl.searchParams.get('tipo') ?? '',

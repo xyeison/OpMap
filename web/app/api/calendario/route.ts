@@ -6,7 +6,8 @@
 //   POST { fecha, alcance: 'empresa' | 'ciudad', municipality_id?, tipo, nombre } (calendar:manage): origen 'manual';
 //        409 si ya hay un día activo igual (misma fecha, alcance y ciudad). Nada de esto recalcula asignaciones.
 import { NextRequest, NextResponse } from 'next/server'
-import { hasPermission, PERMISOS_CALENDARIO } from '@/lib/permissions'
+import { PERMISOS_CALENDARIO } from '@/lib/permissions'
+import { tienePermiso } from '@/lib/empresas-reglas'
 import { requirePermission } from '@/lib/require-role'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { jsonError, readJson, zodMessage } from '@/app/api/kams/_lib/kam-shared'
@@ -51,7 +52,7 @@ export async function GET(request: NextRequest) {
     const dias = await leerCalendario(desde, hasta, {
       municipio,
       todasLasCiudades: municipio === null,
-      conAnulados: hasPermission(auth.user.role, 'calendar:manage'),
+      conAnulados: tienePermiso(auth.user.papeles, 'calendar:manage'),
     })
     const ciudades = await nombresMunicipios(dias.map(dia => dia.municipality_id))
     const respuesta: CalendarioResponse = { dias: dias.map(dia => itemCalendario(dia, ciudades)) }

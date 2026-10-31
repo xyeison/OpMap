@@ -18,7 +18,7 @@ export const dynamic = 'force-dynamic'
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   const auth = await requireAnyPermission(request, PERMISOS_DETALLE)
   if (!auth.ok) return auth.response
-  const alcance = alcanceDelRol(auth.user.role) ?? 'procesos'
+  const alcance = alcanceDelRol(auth.user.papeles) ?? 'procesos'
 
   const id = String(params?.id || '')
   if (!isUuid(id)) return NextResponse.json({ error: 'ID de IPS no válido' }, { status: 400 })

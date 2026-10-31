@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { requireUser } from '@/lib/require-role'
-import { hasPermission } from '@/lib/permissions'
+import { tienePermiso } from '@/lib/empresas-reglas'
 import { fetchAllRows, isUuid, serverError } from '../../_lib/api-error'
 import { FILTRO_MAPA_ASIGNACION, esColumnaInexistente } from '../_lib/visitas-mapa'
 
@@ -30,7 +30,7 @@ function monthBounds(year: number, month: number) {
 export async function GET(request: NextRequest) {
   const auth = await requireUser(request)
   if (!auth.ok) return auth.response
-  const soloHistorico = !hasPermission(auth.user.role, 'visits:view')
+  const soloHistorico = !tienePermiso(auth.user.papeles, 'visits:view')
 
   try {
     const searchParams = request.nextUrl.searchParams

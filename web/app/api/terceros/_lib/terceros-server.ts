@@ -6,7 +6,7 @@
 // documento del médico; el detalle lo selecciona solo si quien pide puede administrar.
 import { NextResponse } from 'next/server'
 import type { SessionUser } from '@/lib/auth-server'
-import { hasPermission } from '@/lib/permissions'
+import { tienePermiso } from '@/lib/empresas-reglas'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { fetchAllRows, jsonError } from '@/app/api/kams/_lib/kam-shared'
 import { todayInBogota } from '@/app/api/executives/_lib/executive-shared'
@@ -36,8 +36,8 @@ type Pagina<T> = { data: T[] | null; error: { message: string } | null }
 export const hoyEnBogota = todayInBogota
 
 /** ¿Puede administrar terceros (editar, desactivar, ver documentos, marcar cliente)? */
-export function puedeAdministrar(user: Pick<SessionUser, 'role'>): boolean {
-  return hasPermission(user.role, 'terceros:manage')
+export function puedeAdministrar(user: Pick<SessionUser, 'papeles'>): boolean {
+  return tienePermiso(user.papeles, 'terceros:manage')
 }
 
 /**

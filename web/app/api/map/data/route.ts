@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { requirePermission } from '@/lib/require-role'
-import { hasPermission } from '@/lib/permissions'
+import { tienePermiso } from '@/lib/empresas-reglas'
 import { LINE_CODE_RE, findAccessibleLine, loadCoverageResponse, loadExecutiveIdsOfLines, resolveUserLines } from '@/lib/coverage'
 import type { CoverageExecutiveRef, CoverageLineInfo } from '@/lib/types/coverage'
 import { computeTerritoryWinners, territoryIdOf } from '@/lib/territory-rules'
@@ -109,7 +109,7 @@ export async function GET(request: NextRequest) {
 
     // Líneas que ve el usuario: misma regla que GET /api/me/lines (lib/coverage.ts: resolveUserLines /
     // findAccessibleLine). Con map:all-lines, todas (no hace falta leerlas).
-    const canSeeAllLines = hasPermission(auth.user.role, 'map:all-lines')
+    const canSeeAllLines = tienePermiso(auth.user.papeles, 'map:all-lines')
     const myLines = canSeeAllLines ? null : await resolveUserLines(auth.user)
 
     // Con ?line=<code> (vista por Ejecutivos Comerciales, o la de zonas con una línea elegida) la línea debe estar
@@ -136,10 +136,10 @@ export async function GET(request: NextRequest) {
     // pedir al cambiar de línea); el mapa los pide al abrir cada tarjeta a /api/map/detalle/* solo si el rol tiene
     // intelligence:view. Los contratos cargados a mano (hospital_contracts) ya no se leen ni se mandan a nadie: con
     // ello se cierra el hueco de permisos anotado en la spec 2026-10-14.
-    const inteligenciaIncluida = hasPermission(auth.user.role, 'intelligence:view')
+    const inteligenciaIncluida = tienePermiso(auth.user.papeles, 'intelligence:view')
     // Procesos de SECOP II sin contrato (radar, spec 2026-10-25): con secop:procesos (o intelligence:view) las tarjetas
     // también piden /api/map/detalle/*; un Ejecutivo Comercial (sales_manager) recibe ahí solo los procesos.
-    const procesosIncluidos = inteligenciaIncluida || hasPermission(auth.user.role, 'secop:procesos')
+    const procesosIncluidos = inteligenciaIncluida || tienePermiso(auth.user.papeles, 'secop:procesos')
 
     // Cargar todos los datos necesarios para el mapa
     const [kamsResult, assignmentsResult, municipalitiesResult, hospitalsResult, executivesResult] = await Promise.all([

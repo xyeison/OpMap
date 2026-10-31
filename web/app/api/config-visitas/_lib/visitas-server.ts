@@ -9,7 +9,8 @@
 // escrituras de configuración pasan SIEMPRE por las funciones config_registrar y config_cerrar de la base.
 import { NextResponse } from 'next/server'
 import { sesionDeLaApp, type SessionUser } from '@/lib/auth-server'
-import { hasPermission, type Permission } from '@/lib/permissions'
+import type { Permission } from '@/lib/permissions'
+import { tienePermiso } from '@/lib/empresas-reglas'
 import { requirePermission, requireUser, type AuthResult } from '@/lib/require-role'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { zoneDisplayName } from '@/lib/zone-names'
@@ -92,7 +93,7 @@ export function hoyActual(): string {
 export async function requireAlgunPermiso(request: Request, permisos: readonly Permission[]): Promise<AuthResult> {
   const auth = await requireUser(request)
   if (!auth.ok) return auth
-  if (!permisos.some(permiso => hasPermission(auth.user.role, permiso))) {
+  if (!permisos.some(permiso => tienePermiso(auth.user.papeles, permiso))) {
     return { ok: false, response: NextResponse.json({ error: 'Acceso denegado' }, { status: 403 }) }
   }
   return auth
@@ -505,7 +506,7 @@ export async function requirePersonaDeCampo(request: Request, contexto: string):
   const auth = await requireUser(request)
   if (!auth.ok) return auth
   if (auth.user.role === 'commercial_director') return { ok: false, response: jsonError(MENSAJE_DIRECCION_NO_REPORTA, 403) }
-  if (!hasPermission(auth.user.role, 'visits:report')) {
+  if (!tienePermiso(auth.user.papeles, 'visits:report')) {
     return { ok: false, response: NextResponse.json({ error: 'Acceso denegado' }, { status: 403 }) }
   }
   try {
@@ -758,10 +759,14 @@ export async function registrarDiaLibre(entrada: {
   }
 }
 
-/** ¿Puede este usuario aprobar con la configuración vigente hoy? (daysoff:approve y rol en `aprueban`, o admin) */
-export function puedeAprobarHoy(user: Pick<SessionUser, 'role'>, general: readonly GeneralVigencia[], hoy: string): boolean {
-  if (!hasPermission(user.role, 'daysoff:approve')) return false
-  return rolPuedeAprobar(user.role, generalVigente(general, 'aprobacion_dias_libres', hoy))
+/**
+ * ¿Puede este usuario aprobar con la configuración vigente hoy? daysoff:approve y que ALGUNO de sus papeles en la
+ * empresa activa esté en `aprueban` (o sea admin): la suma de papeles, no solo el más alto.
+ */
+export function puedeAprobarHoy(user: Pick<SessionUser, 'papeles'>, general: readonly GeneralVigencia[], hoy: string): boolean {
+  if (!tienePermiso(user.papeles, 'daysoff:approve')) return false
+  const aprobacion = generalVigente(general, 'aprobacion_dias_libres', hoy)
+  return user.papeles.some(({ papel }) => rolPuedeAprobar(papel, aprobacion))
 }
 
 export const MENSAJE_ROL_NO_APRUEBA =

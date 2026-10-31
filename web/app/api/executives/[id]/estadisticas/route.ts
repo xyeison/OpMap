@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requirePermission } from '@/lib/require-role'
-import { hasPermission } from '@/lib/permissions'
+import { tienePermiso } from '@/lib/empresas-reglas'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { fetchAllRows, serverError } from '@/app/api/_lib/api-error'
 import { UUID_RE } from '@/lib/fase1-schemas'
@@ -197,9 +197,9 @@ async function loadVisitasZonas(kamIds: string[]): Promise<VisitaFila[]> {
 export async function GET(request: NextRequest, { params }: Params) {
   const auth = await requirePermission(request, 'executives:view')
   if (!auth.ok) return auth.response
-  if (!puedeVerDatosDeZona(auth.user.role)) return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 })
-  const verSecop = veComprasPublicas(auth.user.role)
-  const verMedicos = hasPermission(auth.user.role, 'terceros:view')
+  if (!puedeVerDatosDeZona(auth.user.papeles)) return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 })
+  const verSecop = veComprasPublicas(auth.user.papeles)
+  const verMedicos = tienePermiso(auth.user.papeles, 'terceros:view')
 
   if (!UUID_RE.test(params.id)) return NextResponse.json({ error: 'ID de Ejecutivo Comercial no válido' }, { status: 400 })
   const executiveId = params.id.toLowerCase()

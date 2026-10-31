@@ -86,8 +86,8 @@ async function loadZona(kamId: string): Promise<ZonaRef | null> {
 export async function GET(request: NextRequest, { params }: Params) {
   const auth = await requirePermission(request, 'executives:view')
   if (!auth.ok) return auth.response
-  if (!puedeVerDatosDeZona(auth.user.role)) return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 })
-  const verSecop = veComprasPublicas(auth.user.role)
+  if (!puedeVerDatosDeZona(auth.user.papeles)) return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 })
+  const verSecop = veComprasPublicas(auth.user.papeles)
 
   if (!UUID_RE.test(params.id)) return NextResponse.json({ error: 'ID de Zona no válido' }, { status: 400 })
   const kamId = params.id.toLowerCase()

@@ -25,7 +25,8 @@
 // Imports relativos (no '@/') para que scripts/fase2-check.ts lo pueda usar con tsx.
 import { z } from 'zod'
 import { supabaseAdmin, type SupabaseAdminClient } from './supabase-admin'
-import { hasPermission, type Role } from './permissions'
+import type { Role } from './permissions'
+import { tienePermiso } from './empresas-reglas'
 import { zoneDisplayName } from './zone-names'
 import type {
   ComputedCoverage,
@@ -519,6 +520,8 @@ export async function recomputeAndSaveCoverage(db: SupabaseAdminClient = supabas
 export interface CoverageUser {
   id: string
   role: Role
+  /** Los papeles de la empresa activa (SessionUser.papeles): los permisos se deciden con su SUMA, no con `role`. */
+  papeles: readonly { papel: Role }[]
 }
 
 interface LineAccessRow {
@@ -557,7 +560,7 @@ export async function resolveUserLines(user: CoverageUser, db: SupabaseAdminClie
     role,
   })
 
-  if (hasPermission(user.role, 'map:all-lines')) {
+  if (tienePermiso(user.papeles, 'map:all-lines')) {
     return { lines: lines.map(line => toMeLine(line, 'all')), canSeeAll: true }
   }
 
@@ -644,8 +647,8 @@ export async function canEditCoverageLine(
   lineId: string,
   db: SupabaseAdminClient = supabaseAdmin
 ): Promise<boolean> {
-  if (!hasPermission(user.role, 'coverage:edit')) return false
-  if (hasPermission(user.role, 'map:all-lines')) return true
+  if (!tienePermiso(user.papeles, 'coverage:edit')) return false
+  if (tienePermiso(user.papeles, 'map:all-lines')) return true
   return isLineLeader(user, lineId, db)
 }
 

@@ -5,7 +5,7 @@ import { jsonError, readJson, zodMessage } from '@/app/api/kams/_lib/kam-shared'
 import { UUID_RE, businessLineUpdateSchema } from '@/lib/fase1-schemas'
 import type { BusinessLineResponse } from '@/lib/types/lines'
 import { loadBusinessLines } from '../_lib/line-shared'
-import { hasPermission } from '@/lib/permissions'
+import { tienePermiso } from '@/lib/empresas-reglas'
 import { isLineLeader } from '@/lib/coverage'
 
 type Params = { params: { id: string } }
@@ -28,7 +28,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     }
     const changes = parsed.data
 
-    if (!hasPermission(auth.user.role, 'map:all-lines')) {
+    if (!tienePermiso(auth.user.papeles, 'map:all-lines')) {
       if (!(await isLineLeader(auth.user, lineId))) {
         return jsonError('Solo puedes editar la línea que lideras', 403)
       }

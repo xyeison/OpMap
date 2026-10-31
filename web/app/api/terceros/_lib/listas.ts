@@ -55,7 +55,7 @@ const compararCuentas = (a: FilaCuenta, b: FilaCuenta) =>
  * terceros:manage.
  */
 export async function listarCuentas(
-  user: Pick<SessionUser, 'role'>,
+  user: Pick<SessionUser, 'papeles'>,
   filtros: BusquedaCuentas,
   opciones: OpcionesLista
 ): Promise<Pagina<CuentaListItem>> {
@@ -151,7 +151,7 @@ const compararMedicos = (a: MedicoBase, b: MedicoBase) =>
  * visitante vigente. Nunca lleva el documento. 50 por página.
  */
 export async function listarMedicos(
-  user: Pick<SessionUser, 'id' | 'role'>,
+  user: Pick<SessionUser, 'id' | 'papeles'>,
   filtros: BusquedaMedicos,
   opciones: OpcionesLista
 ): Promise<Pagina<MedicoListItem>> {

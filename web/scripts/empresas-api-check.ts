@@ -10,6 +10,8 @@
  *      cambiarEmpresaActiva escribe la columna solo si la persona tiene papel activo en esa empresa.
  *   B. Permisos: requirePermission y requireAnyPermission deciden por la SUMA de los papeles de la empresa activa
  *      (Paola: líder + ejecutiva concede campo:app y visits:report y niega executives:lines), mismos 401 y 403 de antes.
+ *      Y lo que se decide DESPUÉS de la puerta también suma: GET /api/dias-libres (verTodos) y GET /api/me/lines
+ *      (map:all-lines) con quien tiene dos papeles.
  *
  * El patrón del Supabase falso viene de scripts/lineas-permitidas-api-check.ts.
  * Uso (desde web/): npx tsx scripts/empresas-api-check.ts   Código de salida 1 si algo falla.
@@ -21,6 +23,8 @@ import { getUserFromRequest } from '../lib/auth-server'
 import { cambiarEmpresaActiva } from '../lib/empresas'
 import { requireAnyPermission, requirePermission } from '../lib/require-role'
 import { EMPRESA_MEDIX_ID, EMPRESA_VG_ID } from '../lib/empresas-reglas'
+import { GET as diasLibresGet } from '../app/api/dias-libres/route'
+import { GET as meLinesGet } from '../app/api/me/lines/route'
 
 for (const key of [
   'GOOGLE_MAPS_API_KEY',
@@ -253,6 +257,7 @@ const LIZETH = '00000000-0000-4000-8000-000000000002' // line_leader en Medix, s
 const FOCO1 = '00000000-0000-4000-8000-000000000003' // sales_manager en VG, line_leader en Medix INACTIVO
 const SIN_PAPELES = '00000000-0000-4000-8000-000000000004' // activa, sin ningún papel
 const MIXTO = '00000000-0000-4000-8000-000000000005' // sales_manager + hr en VG: daysoff:approve solo lo da hr, y el más alto es sales_manager
+const GERENTE_VIEWER = '00000000-0000-4000-8000-000000000006' // sales_manager + viewer en VG: map:all-lines solo lo da viewer
 
 const L_TRAUMA = '10000000-0000-4000-8000-000000000005'
 const KAM_BAQ = '20000000-0000-4000-8000-000000000001'
@@ -265,6 +270,8 @@ const P_FOCO1_VG = '40000000-0000-4000-8000-000000000005'
 const P_FOCO1_MEDIX = '40000000-0000-4000-8000-000000000006'
 const P_MIXTO_GERENTE = '40000000-0000-4000-8000-000000000007'
 const P_MIXTO_RRHH = '40000000-0000-4000-8000-000000000008'
+const P_GV_GERENTE = '40000000-0000-4000-8000-000000000009'
+const P_GV_VIEWER = '40000000-0000-4000-8000-00000000000a'
 
 function usuario(id: string, role: string, nombre: string, empresa_activa_id: string | null = null): Fila {
   return { id, email: `${id.slice(-4)}@prueba.test`, full_name: nombre, role, active: true, password: `hash-${id}`, empresa_activa_id }
@@ -286,6 +293,7 @@ function datosIniciales(): Tablas {
       usuario(FOCO1, 'sales_manager', 'Foco uno'),
       usuario(SIN_PAPELES, 'viewer', 'Sin papeles'),
       usuario(MIXTO, 'sales_manager', 'Mixto'),
+      usuario(GERENTE_VIEWER, 'sales_manager', 'Gerente y visor'),
     ],
     empresas: [empresa(EMPRESA_VG_ID, 'vg', 'VG Medical S.A.S.', 'VG Medical'), empresa(EMPRESA_MEDIX_ID, 'medix', 'Medix', 'Medix')],
     papeles: [
@@ -297,8 +305,16 @@ function datosIniciales(): Tablas {
       papel(P_FOCO1_MEDIX, FOCO1, EMPRESA_MEDIX_ID, 'line_leader', L_TRAUMA, false),
       papel(P_MIXTO_GERENTE, MIXTO, EMPRESA_VG_ID, 'sales_manager'),
       papel(P_MIXTO_RRHH, MIXTO, EMPRESA_VG_ID, 'hr'),
+      papel(P_GV_GERENTE, GERENTE_VIEWER, EMPRESA_VG_ID, 'sales_manager'),
+      papel(P_GV_VIEWER, GERENTE_VIEWER, EMPRESA_VG_ID, 'viewer'),
     ],
     papel_zonas: [{ papel_id: P_PAOLA_LIDER, kam_id: KAM_BAQ }],
+    // Lo que leen las rutas de la prueba "después de la puerta" (días libres y /api/me/lines)
+    business_lines: [{ id: L_TRAUMA, code: 'trauma', name: 'Trauma', leader_user_id: PAOLA, max_reach_minutes: 300, sort_order: 1, active: true }],
+    executives: [],
+    executive_lines: [],
+    dias_libres: [],
+    config_general: [], // vacía: rigen los valores de la semilla (aprueban: dirección comercial y RR. HH.)
   }
 }
 
@@ -459,6 +475,33 @@ async function main() {
     check('requireAnyPermission también suma (calendar:manage de hr)', todos.ok, todos.ok ? undefined : todos.response.status)
     const nada = await requirePermission(peticion(MIXTO), 'hospitals:edit')
     check('y lo que ningún papel da se niega', !nada.ok)
+  }
+
+  print('\n  Después de la puerta también suma: GET /api/dias-libres (verTodos, daysoff:approve)')
+  {
+    const ejecutiva = randomUUID()
+    const url = (usuarioId: string) => {
+      const base = peticion(usuarioId)
+      return new NextRequest(`http://localhost:3000/api/dias-libres?executive_id=${ejecutiva}`, { headers: base.headers })
+    }
+    const mixto = await diasLibresGet(url(MIXTO))
+    eq('Mixto (gerente + RR. HH.) ve los días libres de todos: 200, no el 403 de "solo tus líneas"', mixto.status, 200)
+    eq('y puede aprobar: su papel de RR. HH. está en `aprueban`, aunque el más alto sea gerente', ((await mixto.json()) as { puede_aprobar?: boolean }).puede_aprobar, true)
+    const solo = await diasLibresGet(url(FOCO1))
+    eq('un gerente a secas, de una ejecutiva que no es de sus líneas: 403 (daysoff:view no basta)', solo.status, 403)
+  }
+
+  print('\n  Después de la puerta también suma: GET /api/me/lines (map:all-lines, lib/coverage.ts)')
+  {
+    const conViewer = await meLinesGet(peticion(GERENTE_VIEWER))
+    eq('gerente + visor: 200', conViewer.status, 200)
+    const cuerpoViewer = (await cuerpoDe(conViewer)) as { canSeeAll?: boolean; lines?: { code: string; role: string }[] }
+    eq('canSeeAll lo da el papel de visor (map:all-lines)', cuerpoViewer.canSeeAll, true)
+    eq("y ve la línea como 'all'", cuerpoViewer.lines?.map(l => `${l.code}:${l.role}`), ['trauma:all'])
+    const soloGerente = await meLinesGet(peticion(FOCO1))
+    const cuerpoGerente = (await cuerpoDe(soloGerente)) as { canSeeAll?: boolean; lines?: unknown[] }
+    eq('un gerente a secas no ve todas las líneas', cuerpoGerente.canSeeAll, false)
+    eq('y sin ejecutiva enlazada ni líneas que lidere, ninguna', cuerpoGerente.lines, [])
   }
 
   print('\n  requirePermission: sin sesión y sin papeles')

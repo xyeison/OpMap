@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { requirePermission } from '@/lib/require-role'
-import { hasPermission } from '@/lib/permissions'
+import { tienePermiso } from '@/lib/empresas-reglas'
 import { badJson, readJsonBody, serverError, validationError } from '@/app/api/_lib/api-error'
 import { esFueraEscala, esServicio, normalizeNitEmpresa, type VigiladoFila, type VigiladosResponse } from '@/lib/compras-publicas'
 import { SECOP_MISSING_MESSAGE, isMissingRelationError, loadHechos, loadVigilados, upsertVigilado } from '../_lib/secop-server'
@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
         }
       })
       .sort((a, b) => Number(b.activo) - Number(a.activo) || (b.ventas?.valor ?? 0) - (a.ventas?.valor ?? 0) || (a.nombre || a.nit).localeCompare(b.nombre || b.nit, 'es'))
-    const body: VigiladosResponse = { vigilados, canEdit: hasPermission(auth.user.role, 'fuentes:manage') }
+    const body: VigiladosResponse = { vigilados, canEdit: tienePermiso(auth.user.papeles, 'fuentes:manage') }
     return NextResponse.json(body, { headers: { 'Cache-Control': 'no-store' } })
   } catch (error) {
     if (isMissingRelationError(error)) return serverError('secop/vigilados GET', error, SECOP_MISSING_MESSAGE, 503)

@@ -5,7 +5,7 @@ import { jsonError, readJson, zodMessage } from '@/app/api/kams/_lib/kam-shared'
 import { UUID_RE, lineZonesSchema } from '@/lib/fase1-schemas'
 import type { LineZone, LineZoneRow, LineZonesResponse } from '@/lib/types/lines'
 import { lineExists } from '../../_lib/line-shared'
-import { hasPermission } from '@/lib/permissions'
+import { tienePermiso } from '@/lib/empresas-reglas'
 import { isLineLeader } from '@/lib/coverage'
 
 type Params = { params: { id: string } }
@@ -33,7 +33,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
       return jsonError('Línea no encontrada', 404)
     }
 
-    if (!hasPermission(auth.user.role, 'map:all-lines') && !(await isLineLeader(auth.user, lineId))) {
+    if (!tienePermiso(auth.user.papeles, 'map:all-lines') && !(await isLineLeader(auth.user, lineId))) {
       return jsonError('Solo puedes editar la línea que lideras', 403)
     }
 
