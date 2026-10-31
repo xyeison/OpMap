@@ -803,3 +803,23 @@ tablas tienen FKs hacia `business_lines`, `executives` y `users`.
 - Orden: después de la 0850 (aplicada el 2026-10-30). Tras aplicar: `NOTIFY pgrst, 'reload schema';`. Costo Google: 0.
 - El radio pasa de 500 a 300 m como parámetro (`config_general.radio_presencial_m`, decisión del dueño); la dirección lo
   cambia desde la web como cualquier parámetro.
+
+# Migraciones — Empresas, papeles por empresa y asignaciones (0960, capa 1)
+
+> **ESTADO: ESCRITA el 2026-10-31, NO APLICADA** (se aplica solo con autorización del dueño, en la misma ventana que el
+> despliegue de la capa 1). Spec `docs/specs/2026-10-31-empresas-papeles-y-asignaciones.md`; decisión
+> `docs/decisiones/2026-10-31-empresas-papeles-y-asignaciones.md`; plan `docs/planes/2026-10-31-empresas-capa-1-modelo-y-sesion.md`.
+> Detalle de tablas y reglas en `docs/base-de-datos.md` ("Empresas y papeles (0960)"). Ensayada el 2026-10-31 en un
+> PostgreSQL 16 local con un esquema mínimo (no en la base real): aplicar, re-aplicar, 9961, 9961 otra vez y volver a
+> aplicar terminaron bien, y las precondiciones y el freno del rollback abortan con su mensaje.
+
+| # | Archivo | Qué hace | Destructivo |
+|---|---|---|---|
+| 22 | `2026-10-31_0960_empresas_papeles_asignaciones.sql` | Crea `empresas` (VG …0001 y Medix …0002, ids fijos), `linea_empresas`, `papeles` (CHECK línea solo y siempre para `line_leader`; único por persona, empresa, papel y línea; disparador `papeles_linea_en_empresa`), `papel_zonas` (disparador diferido `papeles_lider_unico`: una líder nacional por línea y empresa, o varias con Zonas disjuntas), `executive_empresas`, `asignaciones` (disparador `asignaciones_coherentes`) y `odoo_enlaces`; añade `users.empresa_activa_id` y `empresa_id NOT NULL DEFAULT VG` en `coverage`, `coverage_overrides`, `territory_snapshots`, `visits`, `visitas_agenda` y `medico_visitantes`; UNIQUE `coverage (empresa_id, line_id, kam_id)` (la de `(line_id, kam_id)` sigue hasta la 0970: el recálculo hace upsert por ella). Siembra, cada tabla solo si está vacía: todas las líneas en VG; papeles desde `users.role` y `business_lines.leader_user_id` (solo usuarios activos; admin y dirección también en Medix); todas las personas en VG; una asignación por fila de `executive_lines` en la zona base; enlaces `hr.employee` de VG. Precondiciones: un `line_leader` activo sin línea, una fila de `executive_lines` sin zona base o un `role` fuera de los 9 → RAISE. RLS sin políticas, solo `service_role`. Bloque DO de pruebas que se deshace (`P0960`) | No (tablas y columnas nuevas con default; las filas existentes no cambian) |
+| — | `2026-10-31_9961_empresas_papeles_asignaciones_rollback.sql` | Avisa cuántas filas de `papeles` (y Zonas) y de `asignaciones` se pierden; **aborta** si hay visitas, citas, visitantes, ajustes de cobertura o anexos de otra empresa que no sea VG; borra la cobertura de otra empresa (se recalcula), quita la UNIQUE por empresa (deja o recrea la de `(line_id, kam_id)`), las columnas `empresa_id` y `empresa_activa_id`, las tablas, disparadores y funciones. No toca `users.role`, `leader_user_id`, `executive_lines`, `executives.company` ni `odoo_employee_id` | Sí (papeles, asignaciones y enlaces; se protege con el RAISE) |
+
+- Orden: después de la 0950. Tras aplicar: `NOTIFY pgrst, 'reload schema';` (va al final de los dos archivos). Costo
+  Google: 0; no recalcula cobertura ni asignaciones.
+- Rollback: la 9961 va después de las de las capas siguientes (9962, 9963), que son las que pueden crear filas de otra
+  empresa.
+- Las cachés `users.role` y `business_lines.leader_user_id` siguen hasta la capa 4 y las escribe el servidor.

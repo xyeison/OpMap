@@ -120,8 +120,9 @@ Usuarios del sistema.
 - email: text (único)
 - password: text (hash)
 - full_name: text
-- role: text (CHECK: 'admin', 'user', 'viewer', 'sales_manager', 'contract_manager', 'data_manager', 'line_leader', 'commercial_director'; la migración 0810 (aplicada 2026-10-12) añade 'hr' = recursos humanos; permisos por rol en web/lib/permissions.ts)
+- role: text (CHECK: 'admin', 'user', 'viewer', 'sales_manager', 'contract_manager', 'data_manager', 'line_leader', 'commercial_director'; la migración 0810 (aplicada 2026-10-12) añade 'hr' = recursos humanos; permisos por rol en web/lib/permissions.ts). Desde la 0960 es CACHÉ del papel más alto en VG (ver "Empresas y papeles (0960)")
 - active: boolean
+- empresa_activa_id: uuid → empresas (0960; NULL = la única o la primera)
 - created_at: timestamp
 ```
 
@@ -389,6 +390,75 @@ executive_lines_respaldo_20261023 (0870): copia de executive_lines (executive_id
                                  asignado después) y NO borra el respaldo ni reabre visitantes; después, recalcular. Orden: 9947 antes
                                  que 9946.
 ```
+
+#### Empresas y papeles (0960)
+Capa 1 de `docs/specs/2026-10-31-empresas-papeles-y-asignaciones.md` (decisión `docs/decisiones/2026-10-31-empresas-papeles-y-asignaciones.md`).
+Archivo `database/migrations/2026-10-31_0960_empresas_papeles_asignaciones.sql`, rollback
+`2026-10-31_9961_empresas_papeles_asignaciones_rollback.sql`. **ESCRITA el 2026-10-31, SIN APLICAR** (solo con autorización del
+dueño, en la ventana del despliegue de la capa 1). Tablas nuevas con RLS sin políticas, sin privilegios para
+anon/authenticated/PUBLIC y GRANT a `service_role`. Espejo en TypeScript de la semilla y de la regla de líderes:
+`web/lib/empresas-reglas.ts` (`papelesDeSemilla`, `validarLiderDeLinea`, `cacheRolDe`, `cacheLiderDe`).
+```sql
+empresas:           id (VG = a0000000-0000-4000-8000-000000000001, Medix = …0002: fijos), codigo UNIQUE (vg, medix), nombre,
+                    nombre_corto (lo que se ve en la barra), nit (VG 901080496), activa, odoo_url (NULL hasta conectar), created_at.
+                    No se borran: se desactivan.
+linea_empresas:     line_id → business_lines ON DELETE CASCADE, empresa_id → empresas; PK (line_id, empresa_id). En qué
+                    empresas existe cada línea. Semilla: todas las líneas en VG.
+papeles:            id, user_id → users ON DELETE CASCADE, empresa_id → empresas, papel (los 9 roles: admin, commercial_director,
+                    line_leader, sales_manager, contract_manager, data_manager, hr, viewer, user), line_id → business_lines
+                    (CHECK papeles_linea_solo_lider: obligatoria si y solo si papel = line_leader), activo, created_by → users
+                    ON DELETE SET NULL (NULL = la semilla), created_at. Único papeles_unico_idx (user_id, empresa_id, papel,
+                    coalesce(line_id, 0…0)). Lo que una persona puede hacer = la SUMA de sus papeles activos en la empresa activa.
+                    Disparador papeles_linea_en_empresa (BEFORE INSERT/UPDATE): la línea debe estar en linea_empresas para esa
+                    empresa → 23514 "Esa línea no está en esta empresa".
+papel_zonas:        papel_id → papeles ON DELETE CASCADE, kam_id → kams; PK (papel_id, kam_id). Zonas de una líder; sin filas =
+                    líder nacional. Disparador papeles_lider_unico (CONSTRAINT TRIGGER DEFERRABLE INITIALLY DEFERRED, en papeles
+                    AFTER INSERT/UPDATE y en papel_zonas AFTER INSERT/UPDATE/DELETE; se revisa al cerrar la transacción, así la
+                    líder y sus Zonas entran juntas): por (empresa, línea), entre los papeles line_leader ACTIVOS de personas
+                    distintas, o una sola nacional y nadie más (23514 "Esa línea ya tiene líder nacional en esta empresa") o
+                    todas con Zonas disjuntas (23514 "Otra líder de esa línea ya tiene alguna de esas Zonas"). Candado
+                    pg_advisory_xact_lock por (empresa, línea) contra dos altas simultáneas.
+executive_empresas: executive_id → executives ON DELETE CASCADE, empresa_id → empresas, activo; PK (executive_id, empresa_id).
+                    A qué empresas pertenece la persona del equipo comercial (también vacantes). Reemplaza executives.company.
+                    Semilla: todas en VG, activo = status <> 'inactive'.
+asignaciones:       id, executive_id → executives ON DELETE CASCADE, kam_id → kams ON DELETE CASCADE, line_id → business_lines
+                    ON DELETE CASCADE, empresa_id → empresas, created_by → users ON DELETE SET NULL, created_at; UNIQUE
+                    asignaciones_unica (executive_id, kam_id, line_id, empresa_id). Qué línea lleva cada quien en cada Zona y
+                    empresa; reemplaza executive_lines y executive_allowed_lines desde la capa 2. Disparador
+                    asignaciones_coherentes (BEFORE INSERT/UPDATE): la línea en la empresa ("Esa línea no está en esta
+                    empresa") y la persona en la empresa, activa o no ("Esa persona no está en esta empresa"). Semilla: una por
+                    fila de executive_lines, en la zona base (base_kam_id) y en VG, de cualquier status.
+odoo_enlaces:       id, empresa_id → empresas, tabla, fila_id uuid, modelo (hr.employee, res.users, res.partner…), odoo_id int,
+                    created_at; UNIQUE (empresa_id, tabla, fila_id) y (empresa_id, modelo, odoo_id). Solo enlaces, nada se
+                    sincroniza. Semilla: executives.odoo_employee_id → (VG, executives, id, hr.employee, odoo_employee_id).
+users (+0960):      empresa_activa_id → empresas ON DELETE SET NULL (NULL = la única o la primera, VG). El claim emp del token
+                    es caché: manda la columna.
+empresa_id (+0960): uuid NOT NULL DEFAULT VG → empresas en coverage, coverage_overrides, territory_snapshots, visits,
+                    visitas_agenda y medico_visitantes (columna con DEFAULT constante: no reescribe filas ni dispara la
+                    inmutabilidad de los anexos). El DEFAULT VG se quita en la capa 4, cuando las funciones de la base y el
+                    importador de VMO manden la empresa. visit_lines no cambia.
+coverage (+0960):   UNIQUE coverage_empresa_line_kam_key (empresa_id, line_id, kam_id). La vieja coverage_line_id_kam_id_key
+                    (line_id, kam_id) SIGUE en la capa 1 porque el recálculo (lib/coverage.ts) hace upsert con onConflict
+                    'line_id,kam_id'; la quita la 0970 cuando el recálculo upserte por empresa. coverage_overrides_active_uidx
+                    (line_id, kam_id) WHERE active tampoco cambia todavía.
+```
+- **Semilla de papeles** (espejo de `papelesDeSemilla`): por cada usuario ACTIVO con `role` distinto de `line_leader`, una
+  fila en VG con su `role`, y otra en Medix si es `admin` o `commercial_director`; por cada línea cuyo `leader_user_id` es un
+  usuario ACTIVO, una fila `line_leader` en VG con esa línea (un líder inactivo o inexistente no produce fila).
+- **Precondiciones** (RAISE y no se aplica nada): faltan tablas; y, si se va a sembrar: un usuario activo con un `role`
+  fuera de los 9; un usuario activo `line_leader` que no lidera ninguna línea (dice cuántos); una fila de `executive_lines`
+  de una persona sin `base_kam_id`.
+- **Re-ejecutable**: cada semilla (salvo `odoo_enlaces`) corre solo si su tabla está vacía, así volver a correrla no
+  devuelve lo que el dueño quitó; todas con `ON CONFLICT DO NOTHING`. Avisa (NOTICE) si para alguien el papel más alto en VG
+  no es su `users.role` de hoy (quien lidera una línea sin ser `line_leader`) y si un `odoo_employee_id` repetido quedó sin enlace.
+- **Cachés hasta la capa 4**: `users.role` (= el papel más alto en VG, `user` sin ninguno) y `business_lines.leader_user_id`
+  (= la líder nacional de VG; NULL si no hay o solo hay por Zonas) siguen en la tabla y los escribe el servidor cada vez que
+  cambian los papeles; ningún código nuevo los lee. `executive_lines` también sigue (Zonas la escribe hasta la capa 2).
+  La 0960 no los toca.
+- **Rollback 9961**: avisa cuántas filas de `papeles` (y Zonas) y de `asignaciones` se pierden; se DETIENE si hay visitas,
+  citas, visitantes, ajustes o anexos de otra empresa (quedarían como de VG); borra la cobertura de otra empresa (se
+  recalcula); quita las columnas, la UNIQUE por empresa (deja la de siempre) y las tablas. No toca `users.role`,
+  `leader_user_id`, `executive_lines`, `executives.company` ni `odoo_employee_id`.
 
 ### Vistas
 
