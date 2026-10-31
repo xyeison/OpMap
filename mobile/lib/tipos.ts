@@ -108,8 +108,8 @@ export interface MeResponse {
   /** 0850: la persona de campo, o null (la dirección comercial, A1, o un usuario sin líneas). */
   persona: PersonaMovil | null
   /**
-   * Sin persona, el porqué cuando el servidor lo sabe ("Las visitas de los Ejecutivos Comerciales se registran en VMO":
-   * la app es solo para las líderes, dueño 2026-10-30; o sin líneas): la app no entra a las pestañas y lo muestra.
+   * Sin persona, el porqué cuando el servidor lo sabe ("Tu usuario no tiene líneas para reportar"): la app no entra a
+   * las pestañas y lo muestra.
    * Opcional: un servidor anterior no lo manda.
    */
   sin_persona?: string | null

@@ -248,7 +248,7 @@ export default function Hoy() {
 
   const hoy = hoyBogota()
   const nombre = contexto?.ejecutiva.nombre ?? perfil?.ejecutiva?.full_name ?? perfil?.usuario.full_name ?? ''
-  // Con contexto, su zona (null para una líder, también Paola: la app es solo para líderes); sin él, la del perfil.
+  // Con contexto, su zona (null para una líder sin Ejecutivo Comercial); sin él, la del perfil.
   const zona = contexto ? contexto.ejecutiva.zona : (perfil?.ejecutiva?.zona ?? null)
   // F1b: la persona del contexto (si llegó) o la del perfil. Solo quien el servidor confirmó sin líneas ve el aviso; una
   // líder sin Ejecutivo Comercial es persona de campo y no lo ve.

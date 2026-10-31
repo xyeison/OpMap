@@ -8,10 +8,9 @@
  * contexto (ContextoResponse.persona). Sin el dato —un servidor sin la 0850, un perfil guardado antes de F1b o sin
  * señal— la app sigue como antes: entra y el servidor decide (nunca deja fuera a nadie por no saber).
  *
- * La app es solo para las líderes (dueño, 2026-10-30): el servidor no le da persona a quien solo es Ejecutivo
- * Comercial (MeResponse.sin_persona: "Las visitas de los Ejecutivos Comerciales se registran en VMO") y a Paola le da
- * solo su papel de líder. Lo de "Como Ejecutivo Comercial", la cuota y los días libres de aquí abajo queda para cuando la
- * app vuelva a recibir a los Ejecutivos Comerciales (APP_CAMPO_EJECUTIVOS en el servidor).
+ * La app es de las líderes y de los Ejecutivos Comerciales (dueño, 2026-10-31; reemplaza la regla del 2026-10-30): el
+ * servidor da la persona a quien tiene líneas, con sus dos papeles si los tiene (Paola). Quien el servidor deja fuera con su porqué (MeResponse.sin_persona, p. ej. un administrador sin líneas) ve el
+ * aviso y no entra a las pestañas.
  *
  * Con un servidor que respondió /api/auth/me SIN la clave `persona` (sin F1a) la app no ofrece lo que ese servidor no
  * tiene: "No se hizo", Eliminar, "Agendar otra fecha" ni "¿Qué pasó con esto?", y cancela con solo `{ motivo }`
@@ -27,13 +26,13 @@ import type { ComoPersona, EjecutivaMovil, MedicoPublico, PersonaMovil, RolPerso
 export const MENSAJE_DIRECCION_EN_LA_WEB = 'La dirección comercial sigue a su equipo en la web'
 /** El mismo texto de web/lib/persona-campo.ts (MENSAJE_SIN_LINEAS): un usuario sin líneas no agenda ni reporta. */
 export const MENSAJE_SIN_LINEAS = 'Tu usuario no tiene líneas para reportar'
-/** Qué hacer sin líneas (la app es solo para las líderes, dueño 2026-10-30). */
-export const AYUDA_SIN_LINEAS = 'La app es para las líderes de negocio: pide a quien administra OpMap que te asigne tu línea.'
+/** Qué hacer sin líneas. */
+export const AYUDA_SIN_LINEAS = 'Pide a quien administra OpMap que te asigne tu línea o tu Zona.'
 /**
- * Para quién es la app (dueño, 2026-10-30, docs/decisiones/2026-10-30-app-de-campo-solo-lideres.md): las líderes. Los
- * Ejecutivos Comerciales registran sus visitas en VMO. Va debajo del aviso de quien no entra a las pestañas.
+ * Para quién es la app (dueño, 2026-10-31, docs/decisiones/2026-10-31-ejecutivos-comerciales-vuelven-a-la-app.md): las
+ * líderes y los Ejecutivos Comerciales. Va debajo del aviso de quien no entra a las pestañas.
  */
-export const TEXTO_APP_DE_LIDERES = 'La app es para las líderes de negocio: agendan y reportan en campo.'
+export const TEXTO_PARA_QUIEN_ES_LA_APP = 'La app es para las líderes de negocio y los Ejecutivos Comerciales: agendan y reportan en campo.'
 
 /**
  * "Como qué" se agenda (C12), solo para quien tiene los dos papeles. "Ejecutivo Comercial" siempre así en la app
@@ -47,10 +46,9 @@ export const ETIQUETA_COMO: Record<ComoPersona, string> = { ejecutivo: 'Como Eje
 
 /**
  * - 'direccion': la dirección comercial (rol commercial_director): no entra a las pestañas (A1).
- * - 'campo': persona de campo. Con la app solo para líderes (dueño, 2026-10-30), el servidor solo la da a una líder
- *   (Paola, solo como líder).
- * - 'fuera': el servidor confirmó que no hay persona y dijo por qué (MeResponse.sin_persona: "Las visitas de los
- *   Ejecutivos Comerciales se registran en VMO", sin líneas…): no entra a las pestañas y lo ve (avisoFuera).
+ * - 'campo': persona de campo (líder, Ejecutivo Comercial o los dos, como Paola).
+ * - 'fuera': el servidor confirmó que no hay persona y dijo por qué (MeResponse.sin_persona: sin líneas…): no entra a
+ *   las pestañas y lo ve (avisoFuera).
  * - 'sin_lineas': el servidor confirmó que no tiene líneas, sin decir por qué (un servidor anterior): entra y Hoy lo dice.
  * - 'sin_saber': todavía no se sabe (login recién hecho, perfil de antes de F1b, sin señal, servidor sin la 0850).
  */
@@ -78,8 +76,8 @@ export function entraALasPestanas(estado: EstadoPersona): boolean {
 
 /** El aviso de quien no entra a las pestañas: la dirección comercial (A1) o el porqué del servidor (sin_persona). */
 export function avisoFuera(estado: EstadoPersona, sinPersona: string | null | undefined): { titulo: string; texto: string } {
-  if (estado === 'direccion') return { titulo: MENSAJE_DIRECCION_EN_LA_WEB, texto: TEXTO_APP_DE_LIDERES }
-  return { titulo: sinPersona?.trim() || MENSAJE_SIN_LINEAS, texto: TEXTO_APP_DE_LIDERES }
+  if (estado === 'direccion') return { titulo: MENSAJE_DIRECCION_EN_LA_WEB, texto: TEXTO_PARA_QUIEN_ES_LA_APP }
+  return { titulo: sinPersona?.trim() || MENSAJE_SIN_LINEAS, texto: TEXTO_PARA_QUIEN_ES_LA_APP }
 }
 
 /**

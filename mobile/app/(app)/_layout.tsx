@@ -15,8 +15,8 @@
  *
  * F1b (actividades de campo, A1): la dirección comercial no agenda ni reporta: al entrar ve "La dirección comercial sigue
  * a su equipo en la web" con "Cerrar sesión" y no entra a las pestañas (lo decide su rol, que el login ya trae:
- * lib/persona.ts estadoPersona). La app es solo para las líderes (dueño, 2026-10-30): quien el servidor dejó fuera con
- * su porqué (sin_persona, p. ej. "Las visitas de los Ejecutivos Comerciales se registran en VMO") ve ese aviso igual.
+ * lib/persona.ts estadoPersona). Quien el servidor dejó fuera con su porqué (sin_persona, p. ej. "Tu usuario no tiene
+ * líneas para reportar") ve ese aviso igual.
  * Los demás entran como siempre; lo que el servidor no les deja hacer, lo dice él.
  */
 import { Redirect, useRouter } from 'expo-router'
@@ -105,7 +105,7 @@ function Encabezado({ titulo, izquierda, derecha }: { titulo: string; izquierda:
 
 /**
  * Quien no entra a las pestañas: la dirección comercial (A1: sigue a su equipo en la web) o quien el servidor dejó fuera
- * con su porqué (app solo para líderes, dueño 2026-10-30). Solo el aviso, quién es y "Cerrar sesión".
+ * con su porqué (sin líneas). Solo el aviso, quién es y "Cerrar sesión".
  */
 function FueraDeLaApp({ titulo, texto }: { titulo: string; texto: string }) {
   const { perfil, salir, refrescar } = useSesion()

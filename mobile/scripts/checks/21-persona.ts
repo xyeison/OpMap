@@ -61,10 +61,11 @@ import { cuerpoCitaConHora, cuerpoOtraFecha, errorChoque, textosPieAgendar, vali
 import { tieneClaves } from '../../lib/claves-api'
 import { MAX_POR_CERRAR_VISIBLES, porCerrar } from '../../lib/pantallas'
 import {
+  AYUDA_SIN_LINEAS,
   ETIQUETA_COMO,
   MENSAJE_DIRECCION_EN_LA_WEB,
   MENSAJE_SIN_LINEAS,
-  TEXTO_APP_DE_LIDERES,
+  TEXTO_PARA_QUIEN_ES_LA_APP,
   avisoFuera,
   comoPorDefecto,
   conCicloDeVida,
@@ -213,24 +214,24 @@ export async function pruebas(t: Probador): Promise<void> {
         entraALasPestanas('sin_lineas') &&
         entraALasPestanas('sin_saber')
     )
-    const EN_VMO = 'Las visitas de los Ejecutivos Comerciales se registran en VMO'
     check(
-      'app solo para líderes (2026-10-30): sin persona y con el porqué del servidor (sin_persona) → fuera: no entra; sin señal o sin el porqué, como antes',
-      estadoPersona({ role: 'sales_manager', persona: null, sinPersona: EN_VMO }) === 'fuera' &&
+      'los Ejecutivos Comerciales usan la app (2026-10-31): con persona de Ejecutivo entra; sin persona y con el porqué del servidor (sin_persona, p. ej. un administrador sin líneas) → fuera: no entra; sin señal o sin el porqué, como antes',
+      estadoPersona({ role: 'sales_manager', persona: CARMEN }) === 'campo' &&
         estadoPersona({ role: 'admin', persona: null, sinPersona: MENSAJE_SIN_LINEAS }) === 'fuera' &&
         !entraALasPestanas('fuera') &&
-        estadoPersona({ role: 'sales_manager', persona: null, sinPersona: EN_VMO, sinConfirmar: true }) === 'sin_saber' &&
+        estadoPersona({ role: 'sales_manager', persona: null, sinPersona: MENSAJE_SIN_LINEAS, sinConfirmar: true }) === 'sin_saber' &&
         estadoPersona({ role: 'sales_manager', persona: null, sinPersona: '  ' }) === 'sin_lineas' &&
         estadoPersona({ role: 'sales_manager', persona: null, sinPersona: null }) === 'sin_lineas' &&
-        estadoPersona({ role: 'line_leader', persona: LUCIA, sinPersona: EN_VMO }) === 'campo' &&
-        estadoPersona({ role: 'commercial_director', persona: null, sinPersona: EN_VMO }) === 'direccion'
+        estadoPersona({ role: 'line_leader', persona: LUCIA, sinPersona: MENSAJE_SIN_LINEAS }) === 'campo' &&
+        estadoPersona({ role: 'commercial_director', persona: null, sinPersona: MENSAJE_SIN_LINEAS }) === 'direccion'
     )
     check(
-      'avisoFuera: la dirección ve el mensaje de la web; quien queda fuera, el porqué del servidor (o "sin líneas"); los dos con para quién es la app',
-      JSON.stringify(avisoFuera('direccion', null)) === JSON.stringify({ titulo: MENSAJE_DIRECCION_EN_LA_WEB, texto: TEXTO_APP_DE_LIDERES }) &&
-        JSON.stringify(avisoFuera('fuera', EN_VMO)) === JSON.stringify({ titulo: EN_VMO, texto: TEXTO_APP_DE_LIDERES }) &&
+      'avisoFuera: la dirección ve el mensaje de la web; quien queda fuera, el porqué del servidor (o "sin líneas"); los dos con para quién es la app (líderes y Ejecutivos Comerciales)',
+      JSON.stringify(avisoFuera('direccion', null)) === JSON.stringify({ titulo: MENSAJE_DIRECCION_EN_LA_WEB, texto: TEXTO_PARA_QUIEN_ES_LA_APP }) &&
+        JSON.stringify(avisoFuera('fuera', MENSAJE_SIN_LINEAS)) === JSON.stringify({ titulo: MENSAJE_SIN_LINEAS, texto: TEXTO_PARA_QUIEN_ES_LA_APP }) &&
         avisoFuera('fuera', null).titulo === MENSAJE_SIN_LINEAS &&
-        TEXTO_APP_DE_LIDERES === 'La app es para las líderes de negocio: agendan y reportan en campo.'
+        TEXTO_PARA_QUIEN_ES_LA_APP === 'La app es para las líderes de negocio y los Ejecutivos Comerciales: agendan y reportan en campo.' &&
+        AYUDA_SIN_LINEAS === 'Pide a quien administra OpMap que te asigne tu línea o tu Zona.'
     )
     check(
       'personaDeMe: la del servidor manda (también null); un servidor sin la 0850 (sin la clave) deja la que se sabía',
@@ -318,10 +319,8 @@ export async function pruebas(t: Probador): Promise<void> {
     const web = leer('web/lib/persona-campo.ts')
     check('MENSAJE_SIN_LINEAS es el mismo texto del servidor (web/lib/persona-campo.ts)', web.includes(`export const MENSAJE_SIN_LINEAS = '${MENSAJE_SIN_LINEAS}'`))
     check('el mensaje de la dirección comercial: "La dirección comercial sigue a su equipo en la web" (sin "(Equipo)", que aún no existe)', MENSAJE_DIRECCION_EN_LA_WEB === 'La dirección comercial sigue a su equipo en la web')
-    check(
-      'el porqué de quien solo es Ejecutivo Comercial es el mismo texto del servidor (MENSAJE_EJECUTIVO_EN_VMO de web/lib/persona-campo.ts)',
-      web.includes(`export const MENSAJE_EJECUTIVO_EN_VMO = '${EN_VMO}'`)
-    )
+    const persona = leer('mobile/lib/persona.ts')
+    check('la app ya no dice que es solo para las líderes ni habla de VMO (los Ejecutivos Comerciales la usan, 2026-10-31)', !persona.includes('VMO') && !persona.includes('solo para las líderes'))
   }
 
   // -------------------------------------------------------------------------

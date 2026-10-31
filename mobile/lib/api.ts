@@ -95,7 +95,7 @@ export interface OpcionesPeticion {
    * En el navegador (/campo), mandar la cookie de la web y aceptar la que llegue: solo el login, el puente con la sesión
    * de la web y el logout. Lo demás va SIN la cookie (revisión 2026-10-30): el servidor responde siempre como la persona
    * del token, aunque en otra pestaña haya entrado otra en OpMap, y la app sigue siendo la app (sesionDeLaApp del
-   * servidor: lo de Ejecutivo Comercial cerrado como en el teléfono). En el teléfono no cambia nada.
+   * servidor). En el teléfono no cambia nada.
    */
   conCookie?: boolean
 }
