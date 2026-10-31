@@ -99,7 +99,7 @@ Menú: "Terceros" → `/terceros` para `terceros:view`.
 | Ruta | Permiso | Respuesta |
 | --- | --- | --- |
 | `GET /api/terceros/cuentas?q=&clase=&cliente=&page=` | terceros:view | `{ items: [{ id, nombre, clase, es_cliente, tipo_identificacion, numero_identificacion*, modalidad_facturacion, sedes: n, activo }], total, page }` (* el número de identificación de una cuenta `consultorio` con tipo CC/CE/PA solo con terceros:manage; el NIT sí se muestra) |
-| `POST /api/terceros/cuentas` | terceros:create | crea cuenta + sede principal; 409 con `{ existente: { id, nombre } }` si ya hay una cuenta con esa identificación |
+| `POST /api/terceros/cuentas` | terceros:create | crea cuenta + sede principal; 409 con `{ existente: { id, nombre } }` si ya hay una cuenta con esa identificación. Clase `consultorio` (2026-10-31): `sede.direccion` obligatoria; sin `lat/lng` la geocodifica con Google solo con certeza (`lib/google-geocode.ts`) y responde `geocodificacion: { ubicada, motivo, texto }`; sin certeza queda sin ubicar |
 | `GET /api/terceros/cuentas/[id]` | terceros:view | `{ cuenta, sedes: [...], contactos: [...] }` |
 | `PATCH /api/terceros/cuentas/[id]` | terceros:manage | edita nombre, clase, es_cliente, modalidad, notas, activo |
 | `POST /api/terceros/sedes` | terceros:create | crea sede de una cuenta (`origen 'manual'`, `ubicacion_confirmada false`); 409 si el `reps_code` ya existe |

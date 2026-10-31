@@ -486,10 +486,10 @@ export async function pruebas(t: Probador): Promise<void> {
     )
     const nuevoMedico = leer('mobile/app/(app)/medico/nuevo.tsx')
     check(
-      'Nuevo médico: pedido por Agendar deja el médico en la vuelta (medicoParaAgendar; Agendar no está montado), si no avisa a Reportar; sin pantalla anterior vuelve a Agendar; sin GPS el consultorio queda sin ubicación',
+      'Nuevo médico: pedido por Agendar deja el médico en la vuelta (medicoParaAgendar; Agendar no está montado), si no avisa a Reportar; sin pantalla anterior vuelve a Agendar; el consultorio se crea con su dirección (2026-10-31) y, sin GPS, el servidor lo ubica con ella',
       /if \(clave === CLAVE_RETORNO_AGENDAR\) medicoParaAgendar\(medico\.id\)\s*else avisarRetorno\(/.test(nuevoMedico) &&
         /router\.replace\(clave === CLAVE_RETORNO_AGENDAR \? '\/agenda\/nueva' : '\/reportar'\)/.test(nuevoMedico) &&
-        /sin ubicación \(no estás en el sitio\)/.test(nuevoMedico)
+        /ubicado por su dirección/.test(nuevoMedico)
     )
     {
       // La vuelta a Agendar (revisión 2026-10-30): de verdad, con el módulo
