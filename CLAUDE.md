@@ -120,7 +120,16 @@ nada llama a Google.
   dejaba solo para las líderes): agendan, reportan, cuota y días libres; Paola con sus dos papeles; `campo:app` también
   para `sales_manager`. La base decide quién reporta (`persona_de_campo`); no hay llave de entorno. El Excel de VMO
   (`/visits`) sigue, TRANSITORIO, solo para el mapa de calor, hasta que el dueño lo apague. La dirección sigue sin
-  reportar (A1); "Equipo" para vigilar llega en la Entrega 2 de `docs/specs/2026-10-31-equipo-en-la-app-y-ejecutivos-de-vuelta.md`.
+  reportar (A1).
+- **"Equipo" vive en la app, no en una página web** (dueño, 2026-10-31, `docs/decisiones/2026-10-31-equipo-en-la-app.md`,
+  spec `docs/specs/2026-10-31-equipo-en-la-app-y-ejecutivos-de-vuelta.md`): permiso `team:view` (admin, dirección,
+  líder); la dirección y el administrador ven a todas las personas de campo, cada líder a sí misma y a los Ejecutivos de
+  sus líneas (todo lo que hacen, más cuántas visitas por línea; a Paola, la líder de Sustitutos la ve solo como
+  Ejecutiva). Dónde están sale de lo reportado y agendado, NUNCA del GPS en vivo; las marcas van con palabras, nunca
+  metros. Rendimiento por periodo (máx. 93 días; cuota solo en mes completo). Una sola app, un solo ingreso:
+  `sesion-app` acepta `campo:app` o `team:view`. La API `/api/equipo/*` nunca devuelve transcripción, foto, GPS,
+  distancia ni documentos. VMO no entra en Equipo. Reglas puras en `web/lib/equipo.ts`; pruebas `equipo-check.ts` y
+  `equipo-api-check.ts`.
 - **La app de campo también es web** (dueño, 2026-10-30, `docs/decisiones/2026-10-30-app-de-campo-en-la-web.md`): la
   misma app de `mobile/` se publica en `/campo` de OpMap. `npm run build` la arma con `scripts/construir-campo.mjs` en
   `public/campo` (no se versiona). Llama a la API de su mismo origen. `/campo` es pública como página (`esAppDeCampo`

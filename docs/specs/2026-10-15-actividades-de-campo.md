@@ -694,6 +694,10 @@ mapa.
 
 ## Vista de la directora: `/equipo`
 
+> **Hecho de otra forma el 2026-10-31**: "Equipo" vive en la app de campo (pestaña `/campo/equipo`), no en una página
+> web; sin "Próximas semanas", mapa de calor ni Excel por ahora. Ver `docs/decisiones/2026-10-31-equipo-en-la-app.md` y
+> `docs/specs/2026-10-31-equipo-en-la-app-y-ejecutivos-de-vuelta.md`. Lo de abajo queda como la idea original.
+
 **Permisos.**
 - `team:view` (nuevo) para `admin`, `commercial_director` y `line_leader`: Hoy, Próximas semanas y Tablero.
 - `team:map` (nuevo) solo para `commercial_director` y `admin` (el dueño): Mapa de calor (A3).
