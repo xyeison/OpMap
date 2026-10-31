@@ -3,12 +3,14 @@
  * seccionesConfiguracion (lib/permissions.ts). SIN red ni Supabase; solo lee el disco para comprobar que cada
  * opción del menú tiene su página.
  *
- * Reglas (dueño, 2026-10-29, docs/specs/2026-10-29-menu-por-grupos.md; antes 2026-10-14): sin Dashboard; el Mapa va
- * primero; luego los grupos Terceros (IPS, Cuentas clave, Médicos, Aseguradoras, Proveedores) y Empleados (Ejecutivos
- * Comerciales, Líderes de negocio); Calendario, Zonas (/kams) y Líneas sueltas; el grupo Inteligencia de Mercado
- * (ADRES, Compras públicas, Contratos, Cumplimiento) y el grupo Configuración (Mi Empresa, Usuarios, Visita VMO y
- * Parámetros, al final). Médicos, Aseguradoras y Líderes de negocio abren "Próximamente". Municipios sigue dentro de
- * Parámetros (territories:view); Regiones (/zones) se quitó. "/" lleva al Mapa; sin mapa, a Calendario.
+ * Reglas (dueño, 2026-10-29, docs/specs/2026-10-29-menu-por-grupos.md; antes 2026-10-14): sin Dashboard; primero las
+ * opciones sueltas, Agendamiento (solo la líder), Mapa, Calendario, Zonas (/kams) y Líneas (dueño, 2026-10-31,
+ * docs/specs/2026-10-31-menu-volver-opmap-cruce-reps.md: "pareciera que debajo de empleado está calendario"); después
+ * los grupos Terceros (IPS, Cuentas clave, Médicos, Aseguradoras, Proveedores), Empleados (Ejecutivos Comerciales,
+ * Líderes de negocio), Inteligencia de Mercado (ADRES, Compras públicas, Contratos, Cumplimiento) y Configuración (Mi
+ * Empresa, Usuarios, Visita VMO y Parámetros, al final). Médicos, Aseguradoras y Líderes de negocio abren
+ * "Próximamente". Municipios sigue dentro de Parámetros (territories:view); Regiones (/zones) se quitó. "/" lleva al
+ * Mapa; sin mapa, a Calendario. El REPS (importar y cruce) es solo del administrador y del gestor de datos (sección 10).
  * Los permisos de cada rol NO cambian, salvo zones:view y zones:edit, que salieron el 2026-10-14 con las Regiones
  * (spec docs/specs/2026-10-14-quitar-regiones.md): sección 8.
  *
@@ -51,10 +53,14 @@ function eq<T>(name: string, actual: T, expected: T) {
 const ROLES = Object.keys(rolePermissions) as Role[]
 const hrefs = (rol: Role | undefined) => getNavigationMenu(rol).map(item => item.href)
 
-// Orden canónico del menú completo (el de admin, más Agendamiento: primero y solo de la líder, 2026-10-30)
+// Orden canónico del menú completo (el de admin, más Agendamiento: primero y solo de la líder, 2026-10-30). Las
+// opciones sueltas van antes que los grupos (dueño, 2026-10-31).
 const ORDEN = [
   '/campo/agenda',
   '/map',
+  '/calendario',
+  '/kams',
+  '/lines',
   '/hospitals',
   '/terceros',
   '/medicos',
@@ -62,9 +68,6 @@ const ORDEN = [
   '/providers',
   '/executives',
   '/lideres',
-  '/calendario',
-  '/kams',
-  '/lines',
   '/inteligencia',
   '/inteligencia?tab=secop',
   '/contracts',
@@ -78,18 +81,19 @@ const TERCEROS = ['/terceros', '/medicos', '/aseguradoras']
 const INTELIGENCIA = ['/inteligencia', '/inteligencia?tab=secop']
 
 // ---------------------------------------------------------------------------------------------
-console.log('1. Menú exacto por rol (orden del dueño, 2026-10-29)')
+console.log('1. Menú exacto por rol (orden del dueño, 2026-10-29; las sueltas primero desde el 2026-10-31)')
+// Las mismas opciones de cada rol que antes del 2026-10-31: solo cambió el orden
 const ESPERADO: Record<Role, string[]> = {
   admin: ORDEN.filter(href => href !== '/campo/agenda'),
-  sales_manager: ['/map', '/hospitals', ...TERCEROS, '/executives', '/lideres', '/calendario', '/kams', '/lines', '/contracts', '/configuracion'],
+  sales_manager: ['/map', '/calendario', '/kams', '/lines', '/hospitals', ...TERCEROS, '/executives', '/lideres', '/contracts', '/configuracion'],
   // Agendamiento (dueño, 2026-10-30): primero, la agenda de la líder en la app de campo
-  line_leader: ['/campo/agenda', '/map', '/hospitals', ...TERCEROS, '/executives', '/lideres', '/calendario', '/kams', '/lines', ...INTELIGENCIA, '/contracts', '/configuracion'],
-  commercial_director: ['/map', '/hospitals', ...TERCEROS, '/providers', '/executives', '/lideres', '/calendario', '/kams', '/lines', ...INTELIGENCIA, '/contracts', '/visits', '/configuracion'],
-  hr: ['/executives', '/lideres', '/calendario', '/lines'],
-  contract_manager: ['/map', '/hospitals', '/providers', '/executives', '/lideres', '/lines', '/contracts', '/compliance', '/mi-empresa'],
-  data_manager: ['/map', '/hospitals', ...TERCEROS, '/executives', '/lideres', '/kams', '/lines', ...INTELIGENCIA, '/visits', '/configuracion'],
-  viewer: ['/map', '/hospitals', ...TERCEROS, '/executives', '/lideres', '/lines', ...INTELIGENCIA],
-  user: ['/map', '/hospitals', '/executives', '/lideres', '/lines'],
+  line_leader: ['/campo/agenda', '/map', '/calendario', '/kams', '/lines', '/hospitals', ...TERCEROS, '/executives', '/lideres', ...INTELIGENCIA, '/contracts', '/configuracion'],
+  commercial_director: ['/map', '/calendario', '/kams', '/lines', '/hospitals', ...TERCEROS, '/providers', '/executives', '/lideres', ...INTELIGENCIA, '/contracts', '/visits', '/configuracion'],
+  hr: ['/calendario', '/lines', '/executives', '/lideres'],
+  contract_manager: ['/map', '/lines', '/hospitals', '/providers', '/executives', '/lideres', '/contracts', '/compliance', '/mi-empresa'],
+  data_manager: ['/map', '/kams', '/lines', '/hospitals', ...TERCEROS, '/executives', '/lideres', ...INTELIGENCIA, '/visits', '/configuracion'],
+  viewer: ['/map', '/lines', '/hospitals', ...TERCEROS, '/executives', '/lideres', ...INTELIGENCIA],
+  user: ['/map', '/lines', '/hospitals', '/executives', '/lideres'],
 }
 for (const rol of ROLES) {
   eq(`${rol}: menú`, hrefs(rol), ESPERADO[rol])
@@ -121,6 +125,17 @@ for (const rol of ROLES) {
   check(`${rol}: sin opciones repetidas`, new Set(menu).size === menu.length, menu)
   if (hasPermission(rol, 'map:view')) check(`${rol}: el Mapa va primero (después de Agendamiento, si lo tiene)`, menu.filter(href => href !== '/campo/agenda')[0] === '/map', menu)
   if (menu.includes('/configuracion')) check(`${rol}: Parámetros (/configuracion) va al final`, menu[menu.length - 1] === '/configuracion', menu)
+  // Dueño, 2026-10-31: "primero irían [...] los que están sueltos, y después los menús tipo acordeón"
+  const items = getNavigationMenu(rol)
+  const primeraDeGrupo = items.findIndex(item => item.grupo)
+  check(
+    `${rol}: las opciones sueltas van todas antes que los grupos`,
+    primeraDeGrupo < 0 || items.slice(primeraDeGrupo).every(item => item.grupo),
+    items.map(item => `${item.grupo ?? '·'} ${item.name}`)
+  )
+  const ordenDeGrupos = ['Terceros', 'Empleados', 'Inteligencia de Mercado', 'Configuración']
+  const gruposDelRol = Array.from(new Set(items.map(item => item.grupo).filter((grupo): grupo is string => Boolean(grupo))))
+  eq(`${rol}: los grupos van en el orden Terceros, Empleados, Inteligencia de Mercado, Configuración`, gruposDelRol, ordenDeGrupos.filter(grupo => gruposDelRol.includes(grupo)))
   check(
     `${rol}: sin Dashboard, Municipios ni Regiones en el menú`,
     !menu.some(href => ['/', '/dashboard', '/territories', '/zones'].includes(href)) &&
@@ -138,6 +153,9 @@ console.log('3. Textos visibles del menú')
 const nombres = new Map(getNavigationMenu('admin').map(item => [item.href, item.name]))
 eq('nombres del menú completo', Object.fromEntries(nombres), {
   '/map': 'Mapa',
+  '/calendario': 'Calendario',
+  '/kams': 'Zonas',
+  '/lines': 'Líneas',
   '/hospitals': 'IPS',
   '/terceros': 'Cuentas clave',
   '/medicos': 'Médicos',
@@ -145,9 +163,6 @@ eq('nombres del menú completo', Object.fromEntries(nombres), {
   '/providers': 'Proveedores',
   '/executives': 'Ejecutivos Comerciales',
   '/lideres': 'Líderes de negocio',
-  '/calendario': 'Calendario',
-  '/kams': 'Zonas',
-  '/lines': 'Líneas',
   '/inteligencia': 'ADRES',
   '/inteligencia?tab=secop': 'Compras públicas',
   '/contracts': 'Contratos',
@@ -164,7 +179,8 @@ check(
 
 // Grupos: títulos (no son enlaces) en el orden del dueño; cada opción suelta es una sección sin título
 const grupos = (rol: Role) => agruparMenu(getNavigationMenu(rol)).map(seccion => seccion.grupo ?? seccion.items[0].name)
-eq('admin: secciones del menú', grupos('admin'), ['Mapa', 'Terceros', 'Empleados', 'Calendario', 'Zonas', 'Líneas', 'Inteligencia de Mercado', 'Configuración'])
+eq('admin: secciones del menú', grupos('admin'), ['Mapa', 'Calendario', 'Zonas', 'Líneas', 'Terceros', 'Empleados', 'Inteligencia de Mercado', 'Configuración'])
+eq('líder: secciones del menú (Agendamiento primero)', grupos('line_leader'), ['Agendamiento', 'Mapa', 'Calendario', 'Zonas', 'Líneas', 'Terceros', 'Empleados', 'Inteligencia de Mercado', 'Configuración'])
 eq(
   'admin: opciones de cada grupo',
   Object.fromEntries(agruparMenu(getNavigationMenu('admin')).filter(seccion => seccion.grupo).map(seccion => [seccion.grupo, seccion.items.map(item => item.name)])),
@@ -175,7 +191,7 @@ eq(
     'Configuración': ['Mi Empresa', 'Usuarios', 'Visita VMO', 'Parámetros'],
   }
 )
-eq('user: un grupo solo sale si tiene alguna opción', grupos('user'), ['Mapa', 'Terceros', 'Empleados', 'Líneas'])
+eq('user: un grupo solo sale si tiene alguna opción', grupos('user'), ['Mapa', 'Líneas', 'Terceros', 'Empleados'])
 for (const rol of ROLES) {
   const titulos = agruparMenu(getNavigationMenu(rol)).map(seccion => seccion.grupo).filter(Boolean)
   check(`${rol}: cada grupo sale una sola vez y con opciones`, new Set(titulos).size === titulos.length && agruparMenu(getNavigationMenu(rol)).every(seccion => seccion.items.length > 0))
@@ -413,6 +429,57 @@ console.log('9. El armazón con el diseño de la app: menú en acordeón y tema 
     'el armazón usa los papeles de la app (bg-fondo, bg-superficie, bg-acento text-sobre-acento, text-texto-suave) y no los grises fijos de antes',
     /bg-fondo/.test(navegacion) && /bg-superficie/.test(navegacion) && /bg-acento text-sobre-acento/.test(navegacion) && /text-texto-suave/.test(navegacion) && !/bg-gray-900|text-gray-700|bg-white/.test(navegacion)
   )
+}
+
+// ---------------------------------------------------------------------------------------------
+console.log('10. El REPS (importar y cruce) es de administración (dueño, 2026-10-31)')
+{
+  // "hay gestión que hace solamente la parte administrativa y le aparece a un líder. Por ejemplo, cruce de reps"
+  eq('reps:manage: solo el administrador y el gestor de datos', ROLES.filter(rol => hasPermission(rol, 'reps:manage')), ['admin', 'data_manager'])
+  eq('reps:manage está en la lista de admin y de data_manager', ROLES.filter(rol => (rolePermissions[rol] ?? []).includes('reps:manage')), ['admin', 'data_manager'])
+
+  /** Tramos {cond && ( … ) y {cond ? ( … ) de un archivo (paréntesis balanceados desde el que abre). */
+  const tramosCon = (texto: string, condicion: string): Array<[number, number]> => {
+    const tramos: Array<[number, number]> = []
+    for (const encontrado of Array.from(texto.matchAll(new RegExp(`\\{${condicion} (?:&&|\\?) \\(`, 'g')))) {
+      const abre = (encontrado.index ?? 0) + encontrado[0].length - 1
+      let nivel = 0
+      for (let i = abre; i < texto.length; i++) {
+        if (texto[i] === '(') nivel++
+        else if (texto[i] === ')' && --nivel === 0) {
+          tramos.push([abre, i])
+          break
+        }
+      }
+    }
+    return tramos
+  }
+  const posiciones = (texto: string, aguja: string) => {
+    const out: number[] = []
+    for (let i = texto.indexOf(aguja); i >= 0; i = texto.indexOf(aguja, i + 1)) out.push(i)
+    return out
+  }
+
+  const paginaIps = readFileSync(path.join(APP, 'hospitals', 'page.tsx'), 'utf8')
+  const tramos = tramosCon(paginaIps, 'puedeReps')
+  const enlacesReps = [...posiciones(paginaIps, 'href="/hospitals/reps"'), ...posiciones(paginaIps, 'href="/hospitals/import"')]
+  check('IPS: puedeReps sale de can(\'reps:manage\')', /const puedeReps = can\('reps:manage'\)/.test(paginaIps))
+  check(
+    'IPS: "Cruce REPS" e "Importar del REPS" (también el del aviso de los filtros) salen solo con puedeReps',
+    posiciones(paginaIps, 'href="/hospitals/reps"').length === 1 && enlacesReps.length >= 2 &&
+      enlacesReps.every(i => tramos.some(([desde, hasta]) => i > desde && i < hasta)),
+    { enlaces: enlacesReps.length, tramos: tramos.length }
+  )
+  const paginaCruce = readFileSync(path.join(APP, 'hospitals', 'reps', 'page.tsx'), 'utf8')
+  check(
+    '/hospitals/reps pide reps:manage (PermissionGuard) y, sin él, dice que es de administración',
+    /<PermissionGuard\s+permission="reps:manage"/.test(paginaCruce) && !/permission="hospitals:view"/.test(paginaCruce) && /de administración/.test(paginaCruce)
+  )
+  const paginaImportar = readFileSync(path.join(APP, 'hospitals', 'import', 'page.tsx'), 'utf8')
+  check('/hospitals/import pide reps:manage (can), sin el rol escrito a mano', /can\('reps:manage'\)/.test(paginaImportar) && !/role === 'data_manager'/.test(paginaImportar))
+  check('ninguna página de IPS decide el REPS por el rol escrito a mano', !/role === 'data_manager'/.test(paginaIps))
+  const rutaResumen = readFileSync(path.join(APP, 'api', 'hospitals', 'reps', 'summary', 'route.ts'), 'utf8')
+  check('GET /api/hospitals/reps/summary pide reps:manage (la prueba con la ruta real está en ips-routes-check)', /requirePermission\(request, 'reps:manage'\)/.test(rutaResumen) && !/'hospitals:view'/.test(rutaResumen))
 }
 
 // ---------------------------------------------------------------------------------------------

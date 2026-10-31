@@ -54,7 +54,8 @@ nada llama a Google.
 
 - **Terminología en la UI**: persona → "Ejecutivo Comercial", territorio → "Zona", hospital → "IPS" (dueño, 2026-10-29;
   la ruta `/hospitals` y la tabla `hospitals` no cambian). El menú va por grupos (Terceros, Empleados, Inteligencia de
-  Mercado, Configuración: `docs/specs/2026-10-29-menu-por-grupos.md`). Las Regiones (tabla `zones`)
+  Mercado, Configuración: `docs/specs/2026-10-29-menu-por-grupos.md`), con las opciones sueltas (Agendamiento, Mapa,
+  Calendario, Zonas, Líneas) antes de los grupos (2026-10-31, `docs/specs/2026-10-31-menu-volver-opmap-cruce-reps.md`). Las Regiones (tabla `zones`)
   se quitaron de la interfaz el 2026-10-14; la tabla queda sin uso. Nunca "KAM" en texto visible. En código siguen
   `kams`, `kam_id`, rutas `/kams`.
 - **Modelo**: cada fila de `kams` es una ZONA (ciudad base = `area_id`), no una persona. Personas =
@@ -126,7 +127,8 @@ nada llama a Google.
   `public/campo` (no se versiona). Llama a la API de su mismo origen. `/campo` es pública como página (`esAppDeCampo`
   de `lib/app-campo.ts`). Sin tiendas: cada push a master la publica. Las líderes la abren con "Agendamiento" en el menú de
   OpMap (permiso `campo:app`), con un solo ingreso: login `campo-web` y `POST /api/auth/sesion-app`
-  (`docs/specs/2026-10-30-agendamiento-lider-un-ingreso.md`).
+  (`docs/specs/2026-10-30-agendamiento-lider-un-ingreso.md`). En una pestaña del navegador la franja de arriba lleva
+  "OpMap" para volver con el menú (2026-10-31; `mostrarIrAOpMap`: en el teléfono y en la app instalada no va).
 - **Médicos y contactos sin duplicados** (dueño, 2026-10-30, `docs/decisiones/2026-10-30-medicos-y-contactos-sin-duplicados.md`):
   - el médico se crea y se corrige solo con CC o CE, en `/medicos`, Reportar y Agendar (una sola tabla web+app);
   - se crea desde la búsqueda que no encontró a nadie; "Nuevo médico" arriba solo si la lista cabe en una página;
@@ -181,7 +183,8 @@ nada llama a Google.
 - **Giro ADRES por NIT**: entre sedes activas del mismo NIT se reparte por camas (nunca se suma dos veces).
   Solo régimen subsidiado, publicado hasta junio-2025. El script se identifica con su User-Agent; no evadir
   el firewall de la ADRES.
-- Importar del REPS: solo `admin`/`data_manager`, PDF solo con texto (sin OCR); solo se guardan sedes con
+- Importar del REPS y "Cruce REPS": solo `admin`/`data_manager` (permiso `reps:manage` en las páginas y en
+  `GET /api/hospitals/reps/summary`, dueño 2026-10-31), PDF solo con texto (sin OCR); solo se guardan sedes con
   cruce. Permiso `intelligence:view` para `/inteligencia`.
 
 ## Dónde está el detalle (leer solo cuando toque)

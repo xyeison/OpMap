@@ -50,6 +50,10 @@ export type Permission =
   | 'territory:snapshot'       // Fase 2b: guardar versiones inmutables del anexo (admin y commercial_director)
   | 'municipalities:recompute' // Fase 2b: recalcular municipality_zone con la caché (sin Google)
   | 'intelligence:view'        // Fase 3: inteligencia de giros ADRES (/inteligencia, GET /api/intelligence/giros)
+  // Fase 3: el REPS es de administración (dueño, 2026-10-31, docs/specs/2026-10-31-menu-volver-opmap-cruce-reps.md):
+  // "Importar del REPS" (/hospitals/import) y "Cruce REPS" (/hospitals/reps, GET /api/hospitals/reps/summary). Solo
+  // admin y data_manager; la sección "Sede REPS" de la ficha sigue con hospitals:view y hospitals:edit.
+  | 'reps:manage'
   // Procesos de SECOP II sin contrato (radar comercial, spec 2026-10-25): la sección de las tarjetas del mapa y la tarjeta de
   // la ficha. Los roles con intelligence:view y, además, los Ejecutivos Comerciales (sales_manager), que siguen sin ver
   // las compras de SECOP ni /inteligencia. Nunca suma a las compras.
@@ -107,6 +111,7 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'territory:snapshot',
     'municipalities:recompute',
     'intelligence:view',
+    'reps:manage',
     'secop:procesos',
     'kams:bogota-config',
     'fuentes:manage',
@@ -233,6 +238,7 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'map:all-lines',
     'territory:view',
     'intelligence:view',
+    'reps:manage',       // Importar del REPS y Cruce REPS (con el admin, los únicos)
     'secop:procesos',
     'terceros:view',
     'terceros:create',
@@ -352,9 +358,11 @@ export interface NavigationItem {
   grupo?: string
 }
 
-// Menú por grupos (dueño, 2026-10-29, docs/specs/2026-10-29-menu-por-grupos.md): Mapa; Terceros (IPS, Cuentas clave,
-// Médicos, Aseguradoras y Proveedores); Empleados (Ejecutivos Comerciales y Líderes de negocio); Calendario, Zonas y
-// Líneas; Inteligencia de Mercado (ADRES, Compras públicas, Contratos y Cumplimiento); Configuración (Mi Empresa,
+// Menú por grupos (dueño, 2026-10-29, docs/specs/2026-10-29-menu-por-grupos.md). Primero las opciones sueltas:
+// Agendamiento, Mapa, Calendario, Zonas y Líneas (dueño, 2026-10-31: "primero irían [...] los que están sueltos, y
+// después los menús tipo acordeón"; docs/specs/2026-10-31-menu-volver-opmap-cruce-reps.md). Después los grupos:
+// Terceros (IPS, Cuentas clave, Médicos, Aseguradoras y Proveedores); Empleados (Ejecutivos Comerciales y Líderes de
+// negocio); Inteligencia de Mercado (ADRES, Compras públicas, Contratos y Cumplimiento); Configuración (Mi Empresa,
 // Usuarios, Visita VMO y Parámetros). Médicos, Aseguradoras y Líderes de negocio abren "Próximamente". Sin Dashboard,
 // sin Municipios (está en Parámetros) y sin Regiones. Cada opción sale solo con su permiso.
 export function getNavigationMenu(role: Role | undefined): NavigationItem[] {
@@ -369,6 +377,11 @@ export function getNavigationMenu(role: Role | undefined): NavigationItem[] {
   // el menú la abre como página completa)
   if (tiene('campo:app')) menu.push({ name: 'Agendamiento', href: '/campo/agenda', icon: 'calendar' })
   if (tiene('map:view')) menu.push({ name: 'Mapa', href: '/map', icon: 'map' })
+  // Fase 7 F2: calendario (festivos, días de empresa y de ciudad) y días libres
+  if (PERMISOS_CALENDARIO.some(permiso => tiene(permiso))) menu.push({ name: 'Calendario', href: '/calendario', icon: 'calendar' })
+  // Cada fila de kams es una Zona (las rutas siguen siendo /kams)
+  if (tiene('kams:view')) menu.push({ name: 'Zonas', href: '/kams', icon: 'users' })
+  if (tiene('lines:view')) menu.push({ name: 'Líneas', href: '/lines', icon: 'lines' })
 
   // Terceros. Cuentas clave (/terceros) son hoy las cuentas de la app de visita (las IPS); el dueño explicará el resto
   const TERCEROS = 'Terceros'
@@ -385,12 +398,6 @@ export function getNavigationMenu(role: Role | undefined): NavigationItem[] {
     menu.push({ name: 'Ejecutivos Comerciales', href: '/executives', icon: 'executives', grupo: EMPLEADOS })
     menu.push({ name: 'Líderes de negocio', href: '/lideres', icon: 'executives', grupo: EMPLEADOS })
   }
-
-  // Fase 7 F2: calendario (festivos, días de empresa y de ciudad) y días libres
-  if (PERMISOS_CALENDARIO.some(permiso => tiene(permiso))) menu.push({ name: 'Calendario', href: '/calendario', icon: 'calendar' })
-  // Cada fila de kams es una Zona (las rutas siguen siendo /kams)
-  if (tiene('kams:view')) menu.push({ name: 'Zonas', href: '/kams', icon: 'users' })
-  if (tiene('lines:view')) menu.push({ name: 'Líneas', href: '/lines', icon: 'lines' })
 
   // Fase 3 y 5: giros ADRES y compras públicas son pestañas de /inteligencia
   const INTELIGENCIA = 'Inteligencia de Mercado'

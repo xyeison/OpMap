@@ -59,6 +59,18 @@ export const OCULTAS: readonly PantallaOculta[] = [
  */
 export const SIN_ENCABEZADO: readonly Pestana['ruta'][] = ['hoy', 'reportar']
 
+/** Inicio de OpMap (la web, en el mismo origen que /campo): lleva a cada quien a su página (a la líder, al Mapa). */
+export const RUTA_OPMAP = '/'
+
+/**
+ * ¿Va el botón "OpMap" en la franja de arriba (components/EstadoCola.tsx)? Solo en una pestaña del navegador, adonde se
+ * llega desde "Agendamiento" de OpMap y donde, sin él, se perdía el menú (dueño, 2026-10-31). En el teléfono
+ * (correInstalada() da null) y en la app instalada desde el ícono de inicio (true), no: ahí es la app.
+ */
+export function mostrarIrAOpMap(instalada: boolean | null): boolean {
+  return instalada === false
+}
+
 /** Letras de un nombre (cuenta "ú" como una sola). */
 export function letras(texto: string): number {
   return Array.from(texto).length

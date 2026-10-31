@@ -9,7 +9,7 @@
  */
 import { usarMotorHaptico, vibrarAviso, vibrarExito, vibrarSuave, type ToqueHaptico } from '../../lib/haptica'
 import { GLIFOS_ICONOS, type NombreIcono } from '../../lib/iconos-nombres'
-import { MAX_LETRAS_PESTANA, OCULTAS, PESTANAS, letras } from '../../lib/navegacion'
+import { MAX_LETRAS_PESTANA, OCULTAS, PESTANAS, RUTA_OPMAP, letras, mostrarIrAOpMap } from '../../lib/navegacion'
 import { ALTO_TOQUE_MIN, COLORES_CLAROS, COLORES_OSCUROS, TAMANO, contraste, type Colores } from '../../lib/paleta'
 import type { Probador } from './probador'
 
@@ -254,6 +254,34 @@ export async function pruebas(t: Probador): Promise<void> {
 
   const app = JSON.parse(leer('app.json')) as { expo: { android?: { softwareKeyboardLayoutMode?: string } } }
   t.check("app.json: android.softwareKeyboardLayoutMode 'resize'", app.expo.android?.softwareKeyboardLayoutMode === 'resize')
+
+  // -------------------------------------------------------------------------
+  // Volver a OpMap (dueño, 2026-10-31, docs/specs/2026-10-31-menu-volver-opmap-cruce-reps.md): abierta desde
+  // "Agendamiento" en una pestaña del navegador, la franja de arriba lleva "OpMap" para volver a la web con su menú. En
+  // el teléfono (Expo) y en la app instalada desde el ícono de inicio, no: ahí es la app.
+  // -------------------------------------------------------------------------
+  t.check('mostrarIrAOpMap: en una pestaña del navegador (correInstalada() === false), sí', mostrarIrAOpMap(false) === true)
+  t.check('mostrarIrAOpMap: en el teléfono (null) y en la app instalada (true), no', mostrarIrAOpMap(null) === false && mostrarIrAOpMap(true) === false)
+  t.check("RUTA_OPMAP es '/' (el inicio de OpMap, que lleva a cada quien a su página)", RUTA_OPMAP === '/', RUTA_OPMAP)
+  const irAOpMap = cuerpoDeFuncion(leer('lib/pwa.ts'), 'irAOpMap')
+  t.check('pwa.ts: irAOpMap() abre RUTA_OPMAP en la misma pestaña (location.assign) y en el teléfono no hace nada', /ventana\(\)\?\.location\?\.assign\?\.\(RUTA_OPMAP\)/.test(irAOpMap), irAOpMap)
+  const franja = cuerpoDeFuncion(leer('components/EstadoCola.tsx'), 'EstadoCola')
+  const condicionOpMap = /\{mostrarIrAOpMap\(correInstalada\(\)\) \? \(/.exec(franja)
+  const botonOpMap = condicionOpMap ? bloque(franja, condicionOpMap.index + condicionOpMap[0].length - 1) : ''
+  t.check('franja: el botón "OpMap" sale solo con mostrarIrAOpMap(correInstalada())', botonOpMap !== '', franja.slice(0, 200))
+  t.check(
+    'franja: el botón dice "OpMap" con el ícono "atras", se anuncia "Volver a OpMap" y llama a irAOpMap',
+    />OpMap</.test(botonOpMap) && /<Icono nombre="atras"/.test(botonOpMap) && /accessibilityLabel="Volver a OpMap"/.test(botonOpMap) && /onPress=\{\(\) => irAOpMap\(\)\}/.test(botonOpMap),
+    botonOpMap
+  )
+  t.check('franja: el botón va con el color del texto de la franja (borde y letra), sin colores escritos a mano', /borderColor:\s*texto\b/.test(botonOpMap) && /\bcolor:\s*texto\b/.test(botonOpMap) && !/'#[0-9a-f]{3,8}'/i.test(botonOpMap), botonOpMap)
+  // Este botón solo sale en la web, y ahí react-native-web no aplica hitSlop: el Pressable mismo mide 44 de alto (la
+  // píldora de adentro, 32) y el margen negativo usa el relleno de la franja (6 arriba y 6 abajo) para que no crezca.
+  const toqueOpMap = minHeightTocable(botonOpMap)
+  t.check(`franja: el Pressable de "OpMap" mide al menos ${ALTO_TOQUE_MIN} de alto por sí mismo (en la web no hay hitSlop)`, toqueOpMap.ok && !/hitSlop\s*=/.test(botonOpMap), toqueOpMap)
+  t.check('franja: el toque de "OpMap" no agranda la franja (marginVertical: -6, lo que mide su relleno)', /marginVertical:\s*-6\b/.test(botonOpMap) && /paddingBottom:\s*6\b/.test(franja), botonOpMap)
+  const puntoDeEstado = franja.indexOf('width: 8, height: 8')
+  t.check('franja: "OpMap" va primero, a la izquierda del estado (como "Volver")', botonOpMap !== '' && puntoDeEstado > 0 && franja.indexOf(botonOpMap) < puntoDeEstado)
 
   // -------------------------------------------------------------------------
   // Vibración (lib/haptica.ts)

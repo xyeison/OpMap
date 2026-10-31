@@ -81,6 +81,7 @@ import { PUT as updateHospitalRoute } from '../app/api/hospitals/[id]/route'
 import { POST as activateHospitalRoute } from '../app/api/hospitals/[id]/activate/route'
 import { GET as pendingAssignmentRoute } from '../app/api/hospitals/pending-assignment/route'
 import { POST as processPendingRoute } from '../app/api/hospitals/process-pending/route'
+import { GET as repsSummaryRoute } from '../app/api/hospitals/reps/summary/route'
 import { POST as createUserRoute } from '../app/api/users/route'
 import { POST as importVisitsRoute } from '../app/api/visits/import/route'
 import { PATCH as updateExecutiveRoute } from '../app/api/executives/[id]/route'
@@ -468,7 +469,8 @@ function fakeSupabase(tables: Record<string, Array<Record<string, unknown>>>) {
     const store = (tables[table] = tables[table] ?? [])
 
     let rows: Array<Record<string, unknown>>
-    if (method === 'GET') {
+    // HEAD: el conteo de supabase-js (count: 'exact', head: true); aquí sin Content-Range, el conteo sale null
+    if (method === 'GET' || method === 'HEAD') {
       rows = store.filter(row => matchesFilters(row, url.searchParams))
       const order = url.searchParams.get('order')
       if (order) {
@@ -1527,6 +1529,34 @@ async function main() {
       const again = await createAccountsRoute(apiRequest('/api/users/from-executives', { method: 'POST', body: { confirm: true } }))
       const againBody = await again.json()
       check('POST otra vez: no crea nada (idempotente)', again.status === 200 && againBody.created === 0 && tables.users.length === fakeUsers().length + 2)
+    }
+
+    // Dueño, 2026-10-31 (docs/specs/2026-10-31-menu-volver-opmap-cruce-reps.md): el cruce con el REPS es de
+    // administración, como importar del REPS: solo reps:manage (admin y data_manager)
+    print('\n11. Cruce REPS (GET /api/hospitals/reps/summary): solo el administrador y el gestor de datos')
+    {
+      const LIDER_ID = '55555555-5555-4555-8555-555555555555'
+      const DATOS_ID = '66666666-6666-4666-8666-666666666666'
+      const usuarios = [
+        ...fakeUsers(),
+        { id: LIDER_ID, email: 'lider@test.local', full_name: 'Líder', role: 'line_leader', active: true, password: 'hash-lider' },
+        { id: DATOS_ID, email: 'datos@test.local', full_name: 'Datos', role: 'data_manager', active: true, password: 'hash-datos' },
+      ]
+      const pedir = async (userId: string, password: string) => {
+        const fake = fakeSupabase({ users: usuarios.map(usuario => ({ ...usuario })), hospitals: [] })
+        fetchHandler = fake.handler
+        const response = await repsSummaryRoute(apiRequest('/api/hospitals/reps/summary', { userId, password }))
+        return { response, fake }
+      }
+      const viewer = await pedir(VIEWER_ID, 'hash-viewer')
+      check('viewer (ve las IPS, sin reps:manage): 403 y solo lee la sesión', viewer.response.status === 403 && sameSet(viewer.fake.touched(), ['users']), String(viewer.response.status))
+      const lider = await pedir(LIDER_ID, 'hash-lider')
+      check('líder de negocio: 403 y solo lee la sesión', lider.response.status === 403 && sameSet(lider.fake.touched(), ['users']), String(lider.response.status))
+      const datos = await pedir(DATOS_ID, 'hash-datos')
+      const datosBody = await datos.response.json()
+      check('gestor de datos (data_manager): 200 con los conteos del cruce', datos.response.status === 200 && datosBody.counts?.total === 0 && datos.fake.touched().includes('hospitals'), `${datos.response.status} ${JSON.stringify(datosBody).slice(0, 200)}`)
+      const admin = await pedir(ADMIN_ID, 'hash-admin')
+      check('administrador: 200', admin.response.status === 200, String(admin.response.status))
     }
   } finally {
     fetchHandler = null
