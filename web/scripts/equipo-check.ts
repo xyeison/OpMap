@@ -193,6 +193,8 @@ console.log('\n3. dondeEsta y rastroDelDia')
     igual(d(dondeEsta({ ...base, visitas: [], citas: [c1130] })), { caso: 'planeado', fuente: 'planeado', hora: '11:30', sede: 'Clínica Norte', municipio: 'Bogotá', hace: null, marcas: [] })
   )
   check('cita a las 13:00 (fuera de la ventana) → sin_nada', dondeEsta({ ...base, visitas: [], citas: [c1300] }).caso === 'sin_nada')
+  const deAhora = (hora: string) => dondeEsta({ ...base, visitas: [], citas: [cita({ id: `c-${hora}`, fecha: FECHA, hora, estado: 'pendiente' })] }).caso
+  check('la ventana de ahora (11:15) es de 30 min antes a 60 después: 10:40 fuera, 10:50 dentro, 12:10 dentro, 12:20 fuera (revisión 2026-10-31)', deAhora('10:40') === 'sin_nada' && deAhora('10:50') === 'planeado' && deAhora('12:10') === 'planeado' && deAhora('12:20') === 'sin_nada', { a1040: deAhora('10:40'), a1050: deAhora('10:50'), a1210: deAhora('12:10'), a1220: deAhora('12:20') })
   check('una cita de ahora cerrada (hecha o cancelada) no ubica', dondeEsta({ ...base, visitas: [], citas: [{ ...c1130, estado: 'cancelada' }] }).caso === 'sin_nada')
   check('las marcas de la visita que ubica salen', igual(dondeEsta({ ...base, visitas: [{ ...v1040, marcas: ['lejos_de_ips', 'precision_baja'] }], citas: [] }).marcas, ['lejos_de_ips', 'precision_baja']))
   check('otro día (no hoy): la última presencial de ese día, sin "hace"', (() => { const u = dondeEsta({ ...base, fecha: '2026-10-19', ahora: AHORA, visitas: [visita({ id: 'v9', checkedInAt: '2026-10-19T20:00:00Z' })], citas: [] }); return u.caso === 'reportado' && u.haceMin === null && u.hora === '15:00' })())
@@ -275,8 +277,8 @@ console.log('\n4. rendimiento del periodo')
   check('Ana: canceladas 1 (cliente), programadas 1 (la del 28), sin cerrar 1 (la del 19), no se hizo 0', ana?.canceladas === 1 && igual(ana.canceladasPorMotivo, { cliente: 1 }) && ana.programadas === 1 && ana.sinCerrar === 1 && ana.noSeHizo === 0)
   check('Ana: cumplimiento del plan 1 de 3 (hecha, cancelada, vencida sin cerrar; la futura no cuenta)', igual(ana?.cumplimientoPlan, { programadas: 3, cumplidas: 1, ratio: 1 / 3 }), ana?.cumplimientoPlan)
   check(
-    'Ana: anticipación con las 4 citas (7, 1, 9, 0): mediana 4, con tiempo 50 % (7 y 9), mismo día 25 %; 3 visitas sin cita = no planeadas',
-    ana?.anticipacion.medianaDias === 4 && ana.anticipacion.pctConTiempo === 50 && ana.anticipacion.pctMismoDia === 25 && ana.anticipacion.noPlaneadas === 3,
+    'Ana: anticipación con las 4 citas (7, 1, 9, 0): mediana 4 (solo citas); los porcentajes van sobre citas + no planeadas (7): con tiempo 2/7 = 29 %, mismo día 1/7 = 14 %; 3 visitas sin cita = no planeadas',
+    ana?.anticipacion.medianaDias === 4 && ana.anticipacion.pctConTiempo === 29 && ana.anticipacion.pctMismoDia === 14 && ana.anticipacion.noPlaneadas === 3,
     ana?.anticipacion
   )
   check('Ana: 3 médicos distintos y 2 ciudades (la telefónica no tiene ciudad)', ana?.medicosDistintos === 3 && ana.ciudadesDistintas === 2)
@@ -290,6 +292,15 @@ console.log('\n4. rendimiento del periodo')
   check('la líder de Sustitutos ve de Paola solo la visita como Ejecutiva (1), no la de Trauma como líder', soloSofia.porPersona.find(f => f.persona.userId === 'u-paola')?.hechas === 1 && soloSofia.equipo.hechas === 1)
   const fuera = rendimiento({ personas: TODAS, alcance, visitas: [visita({ id: 'f1', checkedInAt: '2026-09-30T14:00:00Z' })], citas: [], desde: DESDE, hasta: HASTA, hoy: HOY, ahora: AHORA, diasHabilesSinVisitas: new Map(), cuotas: new Map() })
   check('una visita fuera del periodo no cuenta', fuera.equipo.hechas === 0)
+  // Una cadena que pasa del periodo: cita del 18 no se hizo, movida al 3 de noviembre (pendiente): aún no cuenta (revisión 2026-10-31)
+  const cX = cita({ id: 'cX', fecha: '2026-10-18', estado: 'no_realizada', motivoCodigo: 'cliente' })
+  const cY = cita({ id: 'cY', fecha: '2026-11-03', estado: 'pendiente', vieneDe: 'cX', createdAt: '2026-10-18T20:00:00Z' })
+  const cadena = rendimiento({ personas: TODAS, alcance, visitas: [], citas: [cX, cY], desde: DESDE, hasta: HASTA, hoy: HOY, ahora: AHORA, diasHabilesSinVisitas: new Map(), cuotas: new Map() })
+  const anaCadena = cadena.porPersona.find(f => f.persona.userId === 'u-ana')
+  check('la cadena cuya última cita (fuera del periodo) es futura y pendiente no cuenta en el cumplimiento; el "no se hizo" del periodo sí se cuenta', igual(anaCadena?.cumplimientoPlan, { programadas: 0, cumplidas: 0, ratio: null }) && anaCadena?.noSeHizo === 1 && anaCadena.programadas === 0, anaCadena && { plan: anaCadena.cumplimientoPlan, noSeHizo: anaCadena.noSeHizo })
+  const cZ = cita({ id: 'cZ', fecha: '2026-11-03', estado: 'hecha', vieneDe: 'cX', visitaId: 'v-z', createdAt: '2026-10-18T20:00:00Z' })
+  const cadenaHecha = rendimiento({ personas: TODAS, alcance, visitas: [], citas: [cX, cZ], desde: DESDE, hasta: HASTA, hoy: '2026-11-05', ahora: new Date('2026-11-05T16:00:00Z'), diasHabilesSinVisitas: new Map(), cuotas: new Map() })
+  check('si la cadena se cerró después del periodo (hecha el 3 de noviembre), en octubre cuenta una vez y cumplida', igual(cadenaHecha.porPersona.find(f => f.persona.userId === 'u-ana')?.cumplimientoPlan, { programadas: 1, cumplidas: 1, ratio: 1 }))
 }
 
 // ---------------------------------------------------------------------------------------------

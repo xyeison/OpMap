@@ -31,6 +31,7 @@ import {
 import { CLAVE_EQUIPO_RENDIMIENTO, guardarUltimo, leerUltimo } from '../../../lib/equipo-cache'
 import { aApiError, type ApiError } from '../../../lib/errores'
 import { hoyBogota } from '../../../lib/fechas'
+import { useSesion } from '../../../lib/sesion'
 import type { CifrasItem, EquipoPersonaRendimientoResponse, EquipoPersonasResponse, EquipoRendimientoResponse, FilaRendimientoItem, PasoRastroItem } from '../../../lib/tipos'
 import { Aviso, Barra, Boton, Cargando, Chip, Fila, Insignia, Pantalla, Seccion, Tarjeta, Texto, Titulo, Vacio } from '../../../lib/ui'
 
@@ -124,6 +125,8 @@ function Detalle({ id, desde, hasta }: { id: string; desde: string; hasta: strin
 
 export default function Rendimiento() {
   const router = useRouter()
+  const { perfil } = useSesion()
+  const uid = perfil?.usuario.id ?? ''
   const { persona } = useLocalSearchParams<{ persona?: string }>()
   const hoy = hoyBogota()
   const [tipo, setTipo] = useState<TipoPeriodo>('mes')
@@ -149,13 +152,13 @@ export default function Rendimiento() {
       if (!vigente()) return
       setDatos(nuevos)
       setVistoAt(null)
-      void guardarUltimo(CLAVE_EQUIPO_RENDIMIENTO, clave, nuevos)
+      void guardarUltimo(CLAVE_EQUIPO_RENDIMIENTO, uid, clave, nuevos)
     } catch (e) {
       if (!vigente()) return
       const err = aApiError(e)
       setError(err)
       if (esSinSenal(err.tipo)) {
-        const ultimo = await leerUltimo<EquipoRendimientoResponse>(CLAVE_EQUIPO_RENDIMIENTO)
+        const ultimo = await leerUltimo<EquipoRendimientoResponse>(CLAVE_EQUIPO_RENDIMIENTO, uid)
         if (vigente() && ultimo) {
           setDatos(ultimo.datos)
           setVistoAt(ultimo.visto_at)
@@ -167,7 +170,7 @@ export default function Rendimiento() {
         setRefrescando(false)
       }
     }
-  }, [])
+  }, [uid])
 
   useEffect(() => {
     if (catalogo) return
@@ -191,6 +194,9 @@ export default function Rendimiento() {
   }
 
   const filas = datos ? ordenFilas(filtrarPersonas(datos.por_persona, papel, linea)) : []
+  // Sin señal, lo que se ve es lo guardado: su periodo, no el elegido
+  const desdeVisto = vistoAt && datos ? datos.desde : desde
+  const hastaVisto = vistoAt && datos ? datos.hasta : hasta
   return (
     <Pantalla
       alRefrescar={() => {
@@ -204,7 +210,7 @@ export default function Rendimiento() {
           <Chip key={p.valor} texto={p.texto} activo={tipo === p.valor} alPresionar={() => setTipo(p.valor)} deshabilitado={sinSenal} />
         ))}
       </ScrollView>
-      <Texto suave peque>{`${fechaCortita(desde)} a ${fechaCortita(hasta)}${datos?.mes_completo ? ' · mes completo: con cuota' : ''}`}</Texto>
+      <Texto suave peque>{`${fechaCortita(desdeVisto)} a ${fechaCortita(hastaVisto)}${datos?.mes_completo ? ' · mes completo: con cuota' : ''}`}</Texto>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
         {FILTROS_PAPEL.map(f => (
           <Chip key={f.valor} texto={f.texto} activo={papel === f.valor} alPresionar={() => setPapel(f.valor)} deshabilitado={sinSenal} />
@@ -225,7 +231,7 @@ export default function Rendimiento() {
           {error.message}
         </Aviso>
       ) : null}
-      {vistoAt ? <Aviso tono="alerta">{`Sin señal: lo último guardado. ${textoVisto(vistoAt)}.`}</Aviso> : null}
+      {vistoAt ? <Aviso tono="alerta">{`Sin señal: lo último guardado (${fechaCortita(desdeVisto)} a ${fechaCortita(hastaVisto)}). ${textoVisto(vistoAt)}.`}</Aviso> : null}
 
       {datos ? (
         <View style={{ gap: 12 }}>

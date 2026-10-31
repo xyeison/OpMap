@@ -14,10 +14,13 @@ import { CLAVE_EQUIPO_HOY, guardarUltimo, leerUltimo } from '../../lib/equipo-ca
 import { aApiError, type ApiError } from '../../lib/errores'
 import { fechaLarga, hoyBogota, sumarDias } from '../../lib/fechas'
 import type { EquipoHoyResponse, EquipoPersonasResponse } from '../../lib/tipos'
+import { useSesion } from '../../lib/sesion'
 import { Aviso, Boton, BotonIcono, Cargando, Chip, Insignia, Pantalla, Seccion, Tarjeta, Texto, Vacio } from '../../lib/ui'
 
 export default function Equipo() {
   const router = useRouter()
+  const { perfil } = useSesion()
+  const uid = perfil?.usuario.id ?? ''
   const hoy = hoyBogota()
   const [fecha, setFecha] = useState(hoy)
   const [papel, setPapel] = useState<FiltroPapel>('todas')
@@ -42,7 +45,7 @@ export default function Equipo() {
         setDatos(nuevos)
         setVistoAt(null)
         setError(null)
-        void guardarUltimo(CLAVE_EQUIPO_HOY, fechaPedida, nuevos)
+        void guardarUltimo(CLAVE_EQUIPO_HOY, uid, fechaPedida, nuevos)
       }
     } catch (e) {
       if (!vigente()) return
@@ -50,7 +53,7 @@ export default function Equipo() {
       setError(err)
       // Sin señal: lo último guardado, con "Visto hace"; y no se deja cambiar de día
       if (esSinSenal(err.tipo)) {
-        const ultimo = await leerUltimo<EquipoHoyResponse>(CLAVE_EQUIPO_HOY)
+        const ultimo = await leerUltimo<EquipoHoyResponse>(CLAVE_EQUIPO_HOY, uid)
         if (vigente() && ultimo) {
           setDatos(ultimo.datos)
           setVistoAt(ultimo.visto_at)
@@ -62,7 +65,7 @@ export default function Equipo() {
         setRefrescando(false)
       }
     }
-  }, [])
+  }, [uid])
 
   useEffect(() => {
     if (catalogo) return

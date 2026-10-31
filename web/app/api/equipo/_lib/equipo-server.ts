@@ -41,7 +41,11 @@ export interface ContextoEquipo {
   alcanceConInactivas: AlcanceEquipo
   /** Catálogo de líneas activas: id → nombre. */
   lineas: Map<string, string>
+  /** Las líneas activas que lidera quien pregunta (una líder); vacío para los demás. */
+  lidera: string[]
 }
+
+const VE_A_TODOS = new Set(['admin', 'commercial_director'])
 
 export type EquipoResult = { ok: true; contexto: ContextoEquipo } | { ok: false; response: NextResponse }
 
@@ -97,7 +101,10 @@ export async function cargarPersonasEquipo(): Promise<{ personas: PersonaEquipo[
     const e = ejecutivaDe.get(u.id) ?? null
     const lineasEc = e ? vinculos.filter(v => v.executive_id === e.id && activasPorId.has(v.line_id)).map(v => v.line_id).sort() : []
     const lineasLider = lineas.filter(l => l.active && l.leader_user_id === u.id).map(l => l.id).sort()
-    if (lineasEc.length === 0 && lineasLider.length === 0) continue
+    // Sin líneas: no es persona de campo… salvo quien ya no está (traspaso: la baja borra sus executive_lines, revisión
+    // 2026-10-31): entra inactiva, para "ya no está" en Rendimiento
+    const yaNoEsta = u.active !== true || (e !== null && e.status !== 'active')
+    if (lineasEc.length === 0 && lineasLider.length === 0 && !(e && yaNoEsta)) continue
     const zona = e?.base_kam_id ? zonaPorId.get(e.base_kam_id) : undefined
     personas.push({
       userId: u.id,
@@ -130,6 +137,7 @@ export async function requireEquipo(request: Request, contexto: string): Promise
         alcance: personasVisibles(auth.user, personas, lidera),
         alcanceConInactivas: personasVisibles(auth.user, personas.map(p => ({ ...p, activa: true })), lidera),
         lineas: new Map(lineas.filter(l => l.active).map(l => [l.id, l.name])),
+        lidera,
       },
     }
   } catch (error) {
@@ -138,16 +146,23 @@ export async function requireEquipo(request: Request, contexto: string): Promise
   }
 }
 
+/** El papel con que la ve quien pregunta: solo como Ejecutiva (Paola para la líder de Sustitutos) → 'ejecutivo'. */
+export function papelVisible(p: PersonaEquipo, alcance: AlcanceEquipo): PersonaEquipo['papel'] {
+  return alcance.soloComoEjecutivo.has(p.userId) ? 'ejecutivo' : p.papel
+}
+
 export function personaItem(p: PersonaEquipo, alcance: AlcanceEquipo, lineas: Map<string, string>): PersonaEquipoItem {
   const nombreDe = (id: string) => lineas.get(id) ?? 'Línea'
+  const solo = alcance.soloComoEjecutivo.has(p.userId)
+  // Solo como Ejecutiva: ni su papel de líder ni sus líneas de líder (A2: las líderes no se ven entre ellas)
   const items = [
     ...p.lineasEc.map(id => ({ id, nombre: nombreDe(id), como: 'ejecutivo' as const })),
-    ...p.lineasLider.filter(id => !p.lineasEc.includes(id)).map(id => ({ id, nombre: nombreDe(id), como: 'lider' as const })),
+    ...(solo ? [] : p.lineasLider.filter(id => !p.lineasEc.includes(id)).map(id => ({ id, nombre: nombreDe(id), como: 'lider' as const }))),
   ].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }))
   return {
     user_id: p.userId,
     nombre: p.nombre,
-    papel: p.papel,
+    papel: papelVisible(p, alcance),
     executive_id: p.executiveId,
     zona: p.zona,
     lineas: items,
@@ -243,7 +258,19 @@ export async function visitasYCitasEquipo(userIds: readonly string[], desde: str
   const cargadas = new Set(citasRango.map(c => c.id))
   const faltan = citasRango.map(c => c.viene_de).filter((x): x is string => !!x && !cargadas.has(x))
   const origenes = await leerPorIds<CitaFilaMinima>(faltan, (trozo, from, to) => supabaseAdmin.from('visitas_agenda').select(COLUMNAS_CITA_EQUIPO).in('id', trozo).order('id').range(from, to))
+  // …y las sucesoras (otra fecha) de fuera del rango, siguiendo la cadena: una cita del 28 movida al 3 del mes siguiente
+  // decide el cumplimiento de su cadena (revisión 2026-10-31)
   const citas = [...citasRango, ...origenes]
+  let frontera = citas.map(c => c.id)
+  for (let vuelta = 0; vuelta < 10 && frontera.length > 0; vuelta++) {
+    const conocidas = new Set(citas.map(c => c.id))
+    const sucesoras = await leerPorIds<CitaFilaMinima>(frontera, (trozo, from, to) =>
+      supabaseAdmin.from('visitas_agenda').select(COLUMNAS_CITA_EQUIPO).in('viene_de', trozo).neq('estado', 'eliminada').order('id').range(from, to)
+    )
+    const nuevas = sucesoras.filter(c => !conocidas.has(c.id))
+    citas.push(...nuevas)
+    frontera = nuevas.map(c => c.id)
+  }
   const lineasDeVisita = await leerPorIds<{ visit_id: string; line_id: string }>(
     visitas.map(v => v.id),
     (trozo, from, to) => supabaseAdmin.from('visit_lines').select('visit_id, line_id').in('visit_id', trozo).order('line_id').range(from, to)
@@ -480,14 +507,32 @@ export async function rendimientoEquipo(
   instante: Date,
   filtros: FiltrosRendimiento
 ): Promise<{ equipo: Cifras; porPersona: FilaRendimiento[]; visitas: VisitaEquipo[]; citas: CitaEquipo[] }> {
-  const { alcanceConInactivas, personas, lineas } = contexto
+  const { alcanceConInactivas, personas, lineas, lidera, user } = contexto
   const llevaLinea = (p: PersonaEquipo) => !filtros.linea || p.lineasEc.includes(filtros.linea) || p.lineasLider.includes(filtros.linea)
-  const delPapel = (p: PersonaEquipo) => !filtros.papel || p.papel === 'lider_y_ejecutivo' || p.papel === filtros.papel
-  const candidatas = alcanceConInactivas.personas.filter(p => llevaLinea(p) && delPapel(p) && (!filtros.userId || p.userId === filtros.userId))
-  const alcance: AlcanceEquipo = { personas: candidatas.filter(p => p.activa), soloComoEjecutivo: alcanceConInactivas.soloComoEjecutivo }
-  const ids = candidatas.map(p => p.userId)
-  const [{ visitas: todas, citas }, especiales] = await Promise.all([visitasYCitasEquipo(ids, desde, hasta), diasEspeciales(candidatas, desde, hasta)])
+  const delPapel = (p: PersonaEquipo) => {
+    const papel = papelVisible(p, alcanceConInactivas)
+    return !filtros.papel || papel === 'lider_y_ejecutivo' || papel === filtros.papel
+  }
+  const deLaPersona = (p: PersonaEquipo) => !filtros.userId || p.userId === filtros.userId
+  const visiblesHoy = alcanceConInactivas.personas.filter(p => llevaLinea(p) && delPapel(p) && deLaPersona(p))
+  // Quien ya no está (traspaso: sin líneas hoy): la dirección y el administrador a todas; una líder, a los Ejecutivos
+  // cuyas visitas del periodo impulsaron alguna de sus líneas (se decide después de leer las visitas)
+  const yaVisibles = new Set(visiblesHoy.map(p => p.userId))
+  const posiblesTraspasadas = personas.filter(
+    p => !p.activa && !yaVisibles.has(p.userId) && deLaPersona(p) && (filtros.papel === 'lider' ? false : true) && (VE_A_TODOS.has(user.role) || (user.role === 'line_leader' && p.executiveId !== null))
+  )
+  const ids = [...visiblesHoy, ...posiblesTraspasadas].map(p => p.userId)
+  const [{ visitas: todas, citas }, especiales] = await Promise.all([visitasYCitasEquipo(ids, desde, hasta), diasEspeciales([...visiblesHoy, ...posiblesTraspasadas], desde, hasta)])
   const visitas = filtros.linea ? todas.filter(v => v.lineas.includes(filtros.linea as string)) : todas
+  const traspasadas = posiblesTraspasadas.filter(p => {
+    const suyas = visitas.filter(v => v.userId === p.userId && v.executiveId !== null)
+    if (user.role === 'line_leader') return suyas.some(v => v.lineas.some(l => lidera.includes(l)))
+    return suyas.length > 0 || citas.some(c => c.userId === p.userId)
+  })
+  // Las personas tal cual están (alcanceConInactivas las trae con activa forzada): así `rendimiento` marca "ya no está"
+  const originales = new Map(personas.map(p => [p.userId, p]))
+  const candidatas = [...visiblesHoy, ...traspasadas].map(p => originales.get(p.userId) ?? p)
+  const alcance: AlcanceEquipo = { personas: candidatas.filter(p => p.activa), soloComoEjecutivo: alcanceConInactivas.soloComoEjecutivo }
   const mes = esMesCompleto(desde, hasta) ? desde.slice(0, 7) : null
   const visibles = soloEc(visitas, alcance)
   const [cuotas, dias] = await Promise.all([
@@ -497,7 +542,7 @@ export async function rendimientoEquipo(
     ),
   ])
   const resultado = rendimiento({
-    personas: personas.filter(p => candidatas.some(c => c.userId === p.userId)),
+    personas: candidatas,
     alcance,
     visitas,
     citas,
@@ -509,5 +554,5 @@ export async function rendimientoEquipo(
     cuotas: new Map(cuotas),
   })
   void lineas
-  return { ...resultado, visitas: visibles, citas: soloEc(citas, alcance) }
+  return { ...resultado, visitas: visibles.filter(v => candidatas.some(p => p.userId === v.userId)), citas: soloEc(citas, alcance).filter(c => candidatas.some(p => p.userId === c.userId)) }
 }

@@ -84,6 +84,7 @@ const ANA = id('00000000', 6)
 const BERTA = id('00000000', 7)
 const VIEWER = id('00000000', 8)
 const CARLA = id('00000000', 9) // inactiva
+const DIANA = id('00000000', 10) // traspasada el 10 de octubre: inactiva y SIN executive_lines (el traspaso las borra)
 const TRAUMA = id('10000000', 1)
 const SUSTITUTOS = id('10000000', 2)
 const DEPORTIVA = id('10000000', 3)
@@ -97,6 +98,7 @@ const E_ANA = id('30000000', 2)
 const E_BERTA = id('30000000', 3)
 const E_CARLA = id('30000000', 4)
 const E_VACANTE = id('30000000', 5)
+const E_DIANA = id('30000000', 6)
 const C1 = id('40000000', 1)
 const S1 = id('50000000', 1)
 const S2 = id('50000000', 2)
@@ -179,6 +181,7 @@ function datos(): Tablas {
       usuario(BERTA, 'sales_manager', 'Berta'),
       usuario(VIEWER, 'viewer', 'Viewer'),
       usuario(CARLA, 'sales_manager', 'Carla', false),
+      usuario(DIANA, 'sales_manager', 'Diana', false),
     ],
     business_lines: [
       { id: TRAUMA, code: 'trauma', name: 'Trauma', leader_user_id: PAOLA, active: true },
@@ -198,6 +201,7 @@ function datos(): Tablas {
       { id: E_BERTA, full_name: 'Berta Ejecutiva', status: 'active', user_id: BERTA, base_kam_id: K_CUC, started_at: null, left_at: null },
       { id: E_CARLA, full_name: 'Carla Ejecutiva', status: 'inactive', user_id: CARLA, base_kam_id: K_BOG, started_at: null, left_at: '2026-10-10' },
       { id: E_VACANTE, full_name: 'Vacante · Cali', status: 'placeholder', user_id: null, base_kam_id: K_BOG, started_at: null, left_at: null },
+      { id: E_DIANA, full_name: 'Diana Ejecutiva', status: 'inactive', user_id: DIANA, base_kam_id: K_CUC, started_at: null, left_at: '2026-10-10' },
     ],
     executive_lines: [
       { executive_id: E_PAOLA, line_id: SUSTITUTOS },
@@ -235,6 +239,8 @@ function datos(): Tablas {
       visita({ id: id('70000000', 6), user_id: PAOLA, executive_id: null, checked_in_at: '2026-10-20T14:00:00Z', sede_id: S2, medico_id: M2 }),
       // Carla (inactiva): una del 2 de octubre
       visita({ id: id('70000000', 7), user_id: CARLA, executive_id: E_CARLA, checked_in_at: '2026-10-02T14:00:00Z', kam_id: K_BOG }),
+      // Diana (traspasada, sin líneas hoy): una de Trauma del 3 de octubre
+      visita({ id: id('70000000', 8), user_id: DIANA, executive_id: E_DIANA, checked_in_at: '2026-10-03T14:00:00Z', kam_id: K_CUC }),
     ],
     visit_lines: [
       { visit_id: id('70000000', 1), line_id: OSTEO },
@@ -244,6 +250,7 @@ function datos(): Tablas {
       { visit_id: id('70000000', 5), line_id: SUSTITUTOS },
       { visit_id: id('70000000', 6), line_id: TRAUMA },
       { visit_id: id('70000000', 7), line_id: OSTEO },
+      { visit_id: id('70000000', 8), line_id: TRAUMA },
     ],
     visitas_agenda: [
       citaFila({ id: id('80000000', 1), user_id: ANA, executive_id: E_ANA, fecha: '2026-10-20', hora: '10:30', estado: 'hecha', visita_id: id('70000000', 2), created_at: '2026-10-13T15:00:00Z' }),
@@ -252,6 +259,8 @@ function datos(): Tablas {
       citaFila({ id: id('80000000', 4), user_id: ANA, executive_id: E_ANA, fecha: '2026-10-23', hora: '09:00', estado: 'pendiente', created_at: '2026-10-10T15:00:00Z' }),
       citaFila({ id: id('80000000', 5), user_id: PAOLA, executive_id: null, fecha: '2026-10-20', hora: '14:00', estado: 'pendiente', medico_id: M2, sede_id: S2 }),
       citaFila({ id: id('80000000', 6), user_id: ANA, executive_id: E_ANA, fecha: '2026-10-20', hora: '16:00', estado: 'eliminada', eliminada_at: '2026-10-19T15:00:00Z' }),
+      citaFila({ id: id('80000000', 7), user_id: ANA, executive_id: E_ANA, fecha: '2026-10-08', hora: '09:00', estado: 'no_realizada', motivo_codigo: 'cliente', no_realizada_at: '2026-10-08T20:00:00Z', created_at: '2026-10-01T15:00:00Z' }),
+      citaFila({ id: id('80000000', 8), user_id: ANA, executive_id: E_ANA, fecha: '2026-11-03', hora: '09:00', estado: 'pendiente', viene_de: id('80000000', 7), created_at: '2026-10-08T21:00:00Z' }),
     ],
     dias_libres: [{ id: id('90000000', 1), executive_id: E_BERTA, fecha: '2026-10-20', fraccion: 1, motivo: 'vacaciones', estado: 'aprobado' }],
     calendario: [{ id: id('a0000000', 1), fecha: '2026-10-12', alcance: 'nacional', municipality_id: null, tipo: 'no_habil', nombre: 'Día de la raza', origen: 'calculado', anulado_at: null }],
@@ -301,7 +310,7 @@ async function main() {
     check('Paola (líder de Trauma) ve a Paola y Berta', paola.status === 200 && igual(nombres(paola), ['Berta', 'Paola']), nombres(paola))
     const sofia = await pedir(personas, '/api/equipo/personas', SOFIA)
     const paolaParaSofia = sofia.body?.personas?.find((p: any) => p.user_id === PAOLA)
-    check('Sofía (líder de Sustitutos) ve a Sofía, Berta y Paola solo como Ejecutiva', sofia.status === 200 && igual(nombres(sofia), ['Berta', 'Paola', 'Sofía']) && paolaParaSofia?.solo_como_ejecutivo === true, { nombres: nombres(sofia), paola: paolaParaSofia })
+    check('Sofía (líder de Sustitutos) ve a Sofía, Berta y Paola solo como Ejecutiva: papel ejecutivo y solo Sustitutos', sofia.status === 200 && igual(nombres(sofia), ['Berta', 'Paola', 'Sofía']) && paolaParaSofia?.solo_como_ejecutivo === true && paolaParaSofia.papel === 'ejecutivo' && igual(paolaParaSofia.lineas.map((l: any) => `${l.nombre}:${l.como}`), ['Sustitutos óseos:ejecutivo']), { nombres: nombres(sofia), paola: paolaParaSofia })
     const lucia = await pedir(personas, '/api/equipo/personas', LUCIA)
     check('Lucía (sin Ejecutivos en su línea) se ve solo a sí misma', igual(nombres(lucia), ['Lucía']))
     check('nada privado en personas', sinPrivado(laura.text))
@@ -353,34 +362,36 @@ async function main() {
   {
     const mes = await pedir(rendimiento, '/api/equipo/rendimiento?desde=2026-10-01&hasta=2026-10-31', LAURA)
     const fila = (r: { body: any }, uid: string) => r.body?.por_persona?.find((f: any) => f.persona.user_id === uid)
-    check('forma, mes completo y una fila por persona visible más Carla (ya no está, con una visita del 2)', mes.status === 200 && ok('equipoRendimiento', mes.body) && mes.body.mes_completo === true && mes.body.por_persona.length === 6 && fila(mes, CARLA)?.ya_no_esta === true && fila(mes, CARLA).hechas === 1, { status: mes.status, body: mes.body?.por_persona?.map((f: any) => [f.persona.nombre, f.ya_no_esta, f.hechas]) })
+    check('forma, mes completo y una fila por persona visible más Carla y Diana (ya no están, con una visita cada una; Diana traspasada sin líneas hoy)', mes.status === 200 && ok('equipoRendimiento', mes.body) && mes.body.mes_completo === true && mes.body.por_persona.length === 7 && fila(mes, CARLA)?.ya_no_esta === true && fila(mes, CARLA).hechas === 1 && fila(mes, DIANA)?.ya_no_esta === true && fila(mes, DIANA).hechas === 1, { status: mes.status, body: mes.body?.por_persona?.map((f: any) => [f.persona.nombre, f.ya_no_esta, f.hechas]) })
     const ana = fila(mes, ANA)
-    check('Ana: 2 hechas, por línea Osteosíntesis 2 y Columna 1 (la suma supera las hechas), cumplimiento 1 de 1 (la cita pendiente de hoy aún no cuenta), 1 programada, 2 no planeadas… 1', ana?.hechas === 2 && igual(ana.por_linea, { lineas: [{ line_id: OSTEO, nombre: 'Osteosíntesis', hechas: 2 }, { line_id: COLUMNA, nombre: 'Columna', hechas: 1 }], suma_supera_hechas: true }) && igual(ana.cumplimiento_plan, { programadas: 1, cumplidas: 1, ratio: 1 }) && ana.programadas === 3 && ana.anticipacion.no_planeadas === 1, ana)
-    check('orden: Ana (1) primero y luego las sin cumplimiento por nombre', igual(mes.body.por_persona.map((f: any) => f.persona.nombre), ['Ana', 'Berta', 'Carla', 'Lucía', 'Paola', 'Sofía']), mes.body.por_persona.map((f: any) => f.persona.nombre))
+    check('Ana: 2 hechas, por línea Osteosíntesis 2 y Columna 1 (la suma supera las hechas), cumplimiento 1 de 1 (la cita pendiente de hoy aún no cuenta y la cadena del 8 movida al 3 de noviembre tampoco), 3 programadas, 1 no se hizo, 1 no planeada', ana?.hechas === 2 && igual(ana.por_linea, { lineas: [{ line_id: OSTEO, nombre: 'Osteosíntesis', hechas: 2 }, { line_id: COLUMNA, nombre: 'Columna', hechas: 1 }], suma_supera_hechas: true }) && igual(ana.cumplimiento_plan, { programadas: 1, cumplidas: 1, ratio: 1 }) && ana.programadas === 3 && ana.no_se_hizo === 1 && ana.anticipacion.no_planeadas === 1, ana)
+    check('orden: Ana (1) primero y luego las sin cumplimiento por nombre', igual(mes.body.por_persona.map((f: any) => f.persona.nombre), ['Ana', 'Berta', 'Carla', 'Diana', 'Lucía', 'Paola', 'Sofía']), mes.body.por_persona.map((f: any) => f.persona.nombre))
     check('la cuota sin la configuración de F2 en la base queda en null (y en el log), sin tumbar la ruta', ana?.cuota === null && moduleLogs.some(l => l.includes('cuota')))
     check('días hábiles sin visitas de Ana: del 1 al 19 de octubre, lunes a viernes (13 días), sin el festivo del 12 ni el 20 (hoy no cierra) y con visita el 20 → 12', ana?.dias_habiles_sin_visitas === 12, ana?.dias_habiles_sin_visitas)
-    check('equipo: 5 hechas (Ana 2, Paola 2, Carla 1), médicos distintos 2, por línea Osteosíntesis 3', mes.body.equipo.hechas === 5 && mes.body.equipo.medicos_distintos === 2 && mes.body.equipo.por_linea.lineas.find((l: any) => l.line_id === OSTEO)?.hechas === 3, mes.body.equipo)
+    check('equipo: 6 hechas (Ana 2, Paola 2, Carla 1, Diana 1), médicos distintos 2, por línea Osteosíntesis 3 y Trauma 2', mes.body.equipo.hechas === 6 && mes.body.equipo.medicos_distintos === 2 && mes.body.equipo.por_linea.lineas.find((l: any) => l.line_id === OSTEO)?.hechas === 3 && mes.body.equipo.por_linea.lineas.find((l: any) => l.line_id === TRAUMA)?.hechas === 2, mes.body.equipo)
     const quincena = await pedir(rendimiento, '/api/equipo/rendimiento?desde=2026-09-25&hasta=2026-10-09', LAURA)
     check('25 sep a 9 oct: mes_completo false, cuota null en todas y Carla con su visita del 2', quincena.status === 200 && quincena.body.mes_completo === false && quincena.body.por_persona.every((f: any) => f.cuota === null) && fila(quincena, CARLA)?.hechas === 1)
     const columna = await pedir(rendimiento, `/api/equipo/rendimiento?desde=2026-10-01&hasta=2026-10-31&linea=${COLUMNA}`, LAURA)
     check('?linea=Columna: solo quien lleva Columna (Ana) y sus hechas solo con esa línea (1)', columna.status === 200 && igual(columna.body.por_persona.map((f: any) => f.persona.nombre), ['Ana']) && fila(columna, ANA)?.hechas === 1, columna.body?.por_persona?.map((f: any) => [f.persona.nombre, f.hechas]))
     const lideres = await pedir(rendimiento, '/api/equipo/rendimiento?desde=2026-10-01&hasta=2026-10-31&papel=lider', LAURA)
     check('?papel=lider: Lucía, Paola y Sofía', igual(lideres.body?.por_persona?.map((f: any) => f.persona.nombre), ['Lucía', 'Paola', 'Sofía']), lideres.body?.por_persona?.map((f: any) => f.persona.nombre))
+    const lideresSofia = await pedir(rendimiento, '/api/equipo/rendimiento?desde=2026-10-01&hasta=2026-10-31&papel=lider', SOFIA)
+    check('?papel=lider para Sofía: solo Sofía (a Paola la ve como Ejecutiva, no como líder)', igual(lideresSofia.body?.por_persona?.map((f: any) => f.persona.nombre), ['Sofía']), lideresSofia.body?.por_persona?.map((f: any) => f.persona.nombre))
     const largo = await pedir(rendimiento, '/api/equipo/rendimiento?desde=2026-07-01&hasta=2026-10-02', LAURA)
     const alReves = await pedir(rendimiento, '/api/equipo/rendimiento?desde=2026-10-31&hasta=2026-10-01', LAURA)
     const sinFechas = await pedir(rendimiento, '/api/equipo/rendimiento', LAURA)
     check('94 días, hasta < desde o sin fechas → 400', largo.status === 400 && alReves.status === 400 && sinFechas.status === 400, { largo: largo.status, alReves: alReves.status, sinFechas: sinFechas.status })
     const paola = await pedir(rendimiento, '/api/equipo/rendimiento?desde=2026-10-01&hasta=2026-10-31', PAOLA)
-    check('Paola (líder de Trauma): Paola con sus 2 (líder y Ejecutiva) y Berta', igual(paola.body?.por_persona?.map((f: any) => [f.persona.nombre, f.hechas]), [['Berta', 0], ['Paola', 2]]), paola.body?.por_persona?.map((f: any) => [f.persona.nombre, f.hechas]))
+    check('Paola (líder de Trauma): Paola con sus 2 (líder y Ejecutiva), Berta y Diana (traspasada, con una visita de Trauma: ya no está)', igual(paola.body?.por_persona?.map((f: any) => [f.persona.nombre, f.hechas, f.ya_no_esta]), [['Berta', 0, false], ['Diana', 1, true], ['Paola', 2, false]]), paola.body?.por_persona?.map((f: any) => [f.persona.nombre, f.hechas, f.ya_no_esta]))
     const sofia = await pedir(rendimiento, '/api/equipo/rendimiento?desde=2026-10-01&hasta=2026-10-31', SOFIA)
-    check('Sofía (líder de Sustitutos): Paola solo con su visita como Ejecutiva (1)', fila(sofia, PAOLA)?.hechas === 1 && fila(sofia, PAOLA).persona.solo_como_ejecutivo === true, fila(sofia, PAOLA))
+    check('Sofía (líder de Sustitutos): Paola solo con su visita como Ejecutiva (1), como Ejecutiva (papel y solo sus líneas de Ejecutiva); Diana (sin visitas de Sustitutos) no sale', fila(sofia, PAOLA)?.hechas === 1 && fila(sofia, PAOLA).persona.solo_como_ejecutivo === true && fila(sofia, PAOLA).persona.papel === 'ejecutivo' && igual(fila(sofia, PAOLA).persona.lineas.map((l: any) => l.como), ['ejecutivo']) && !fila(sofia, DIANA), { paola: fila(sofia, PAOLA)?.persona, diana: fila(sofia, DIANA) })
     check('nada privado en rendimiento', sinPrivado(mes.text) && sinPrivado(sofia.text))
   }
 
   print('\n6. GET /api/equipo/persona/[id]/rendimiento: el detalle de una persona')
   {
     const ana = await pedir(personaRendimiento, `/api/equipo/persona/${ANA}/rendimiento?desde=2026-10-01&hasta=2026-10-31`, LAURA, ANA)
-    check('forma: fila, visitas y citas del periodo, en orden', ana.status === 200 && ok('equipoPersonaRendimiento', ana.body) && ana.body.fila.persona.user_id === ANA && ana.body.visitas.length === 2 && ana.body.citas.length === 4 && ana.body.visitas[0].hora === '07:50' && ana.body.citas[3].fecha === '2026-10-23', { status: ana.status, visitas: ana.body?.visitas?.map((v: any) => v.hora), citas: ana.body?.citas?.map((c: any) => `${c.fecha} ${c.estado}`) })
+    check('forma: fila, visitas y citas del periodo, en orden (la del 3 de noviembre no entra en la lista)', ana.status === 200 && ok('equipoPersonaRendimiento', ana.body) && ana.body.fila.persona.user_id === ANA && ana.body.visitas.length === 2 && ana.body.citas.length === 5 && ana.body.visitas[0].hora === '07:50' && ana.body.citas[0].fecha === '2026-10-08' && ana.body.citas[4].fecha === '2026-10-23', { status: ana.status, visitas: ana.body?.visitas?.map((v: any) => v.hora), citas: ana.body?.citas?.map((c: any) => `${c.fecha} ${c.estado}`) })
     const paolaSofia = await pedir(personaRendimiento, `/api/equipo/persona/${PAOLA}/rendimiento?desde=2026-10-01&hasta=2026-10-31`, SOFIA, PAOLA)
     check('Paola para Sofía: solo la visita como Ejecutiva y ninguna cita como líder', paolaSofia.status === 200 && paolaSofia.body.visitas.length === 1 && paolaSofia.body.citas.length === 0)
     const carla = await pedir(personaRendimiento, `/api/equipo/persona/${CARLA}/rendimiento?desde=2026-10-01&hasta=2026-10-31`, LAURA, CARLA)

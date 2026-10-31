@@ -171,6 +171,24 @@ export function cadenasDeCitas(citas: readonly CitaEquipo[]): CitaEquipo[][] {
   })
 }
 
+/**
+ * Cumplimiento del plan de un periodo: las cadenas que tocan el periodo (alguna cita en [desde, hasta]), cada una por su
+ * última cita REAL aunque esa quede fuera del periodo (una cita del 28 movida al 3 del mes siguiente aún no cuenta;
+ * cerrada después del periodo, cuenta con ese resultado). `citas` trae las del periodo más sus orígenes y sucesoras.
+ */
+export function cumplimientoDelPlanEnPeriodo(citas: readonly CitaEquipo[], desde: string, hasta: string, hoy: string): CumplimientoPlan {
+  let programadas = 0
+  let cumplidas = 0
+  for (const cadena of cadenasDeCitas(citas)) {
+    if (!cadena.some(c => c.fecha >= desde && c.fecha <= hasta)) continue
+    const ultima = cadena[cadena.length - 1]
+    if (ultima.fecha > hoy || (ultima.fecha === hoy && ultima.estado === 'pendiente')) continue
+    programadas++
+    if (ultima.estado === 'hecha') cumplidas++
+  }
+  return { programadas, cumplidas, ratio: programadas === 0 ? null : cumplidas / programadas }
+}
+
 export interface CumplimientoPlan {
   programadas: number
   cumplidas: number
@@ -269,7 +287,8 @@ export function dondeEsta(entrada: {
       .filter(c => c.fecha === fecha && c.estado === 'pendiente' && c.hora !== null)
       .filter(c => {
         const m = minutosDe(c.hora as string)
-        return m >= minutosAhora - VENTANA_CITA_DE_AHORA.despuesMin && m <= minutosAhora + VENTANA_CITA_DE_AHORA.antesMin
+        // Como citaDeAhora en la app: la hora de la cita entre 30 min antes y 60 min después de ahora
+        return m >= minutosAhora - VENTANA_CITA_DE_AHORA.antesMin && m <= minutosAhora + VENTANA_CITA_DE_AHORA.despuesMin
       })
       .sort((a, b) => ordenHora(a.hora, b.hora))[0]
     if (deAhora) return { caso: 'planeado', fuente: 'planeado', hora: deAhora.hora, sedeNombre: deAhora.sedeNombre, municipioNombre: deAhora.municipioNombre, haceMin: null, marcas: [] }
@@ -430,7 +449,7 @@ const mediana = (valores: readonly number[]): number | null => {
 const porcentaje = (parte: number, total: number): number | null => (total === 0 ? null : Math.round((parte / total) * 100))
 
 /** Las cifras de un conjunto de visitas y citas (de una persona o de todo el equipo). */
-function cifrasDe(visitas: readonly VisitaEquipo[], citas: readonly CitaEquipo[], hoy: string, ahora: Date): Cifras {
+function cifrasDe(visitas: readonly VisitaEquipo[], citas: readonly CitaEquipo[], cumplimiento: { plan: CumplimientoPlan; ahora: Date }): Cifras {
   const noEfectivasPorMotivo: Record<string, number> = {}
   const noSeHizoPorMotivo: Record<string, number> = {}
   const canceladasPorMotivo: Record<string, number> = {}
@@ -455,6 +474,7 @@ function cifrasDe(visitas: readonly VisitaEquipo[], citas: readonly CitaEquipo[]
   for (const c of citas) {
     if (c.estado === 'eliminada') continue
     anticipaciones.push(anticipacionDias(c))
+    // (el estado visible de una pendiente se decide con `ahora`, que llega en cumplimiento.ahora)
     if (c.estado === 'no_realizada') {
       noSeHizo++
       sumar(noSeHizoPorMotivo, c.motivoCodigo)
@@ -462,10 +482,11 @@ function cifrasDe(visitas: readonly VisitaEquipo[], citas: readonly CitaEquipo[]
       canceladas++
       sumar(canceladasPorMotivo, c.motivoCodigo)
     } else if (c.estado === 'pendiente') {
-      if (estadoVisible(c, ahora) === 'programada') programadas++
+      if (estadoVisible(c, cumplimiento.ahora) === 'programada') programadas++
       else sinCerrar++
     }
   }
+  const noPlaneadas = visitas.filter(v => !v.agendaId).length
   const lineas = [...porLinea.entries()].map(([lineId, hechas]) => ({ lineId, hechas })).sort((a, b) => b.hechas - a.hechas || a.lineId.localeCompare(b.lineId))
   const sumaLineas = lineas.reduce((s, l) => s + l.hechas, 0)
   return {
@@ -480,12 +501,13 @@ function cifrasDe(visitas: readonly VisitaEquipo[], citas: readonly CitaEquipo[]
     sinCerrar,
     programadas,
     telefonicas,
-    cumplimientoPlan: cumplimientoDelPlan(citas, hoy),
+    cumplimientoPlan: cumplimiento.plan,
     anticipacion: {
+      // Lo reportado sin cita es "no planeado": entra en los porcentajes y no en la mediana (spec)
       medianaDias: mediana(anticipaciones),
-      pctConTiempo: porcentaje(anticipaciones.filter(d => d >= DIAS_CON_TIEMPO).length, anticipaciones.length),
-      pctMismoDia: porcentaje(anticipaciones.filter(d => d === 0).length, anticipaciones.length),
-      noPlaneadas: visitas.filter(v => !v.agendaId).length,
+      pctConTiempo: porcentaje(anticipaciones.filter(d => d >= DIAS_CON_TIEMPO).length, anticipaciones.length + noPlaneadas),
+      pctMismoDia: porcentaje(anticipaciones.filter(d => d === 0).length, anticipaciones.length + noPlaneadas),
+      noPlaneadas,
     },
     medicosDistintos: medicos.size,
     ciudadesDistintas: ciudades.size,
@@ -524,8 +546,11 @@ export function rendimiento(entrada: {
 }): { equipo: Cifras; porPersona: FilaRendimiento[] } {
   const enPeriodo = (fecha: string) => fecha >= entrada.desde && fecha <= entrada.hasta
   const visitas = soloComoEjecutivo(entrada.visitas.filter(v => enPeriodo(v.fecha)), entrada.alcance)
-  const citas = soloComoEjecutivo(entrada.citas.filter(c => enPeriodo(c.fecha) && c.estado !== 'eliminada'), entrada.alcance)
+  // `entrada.citas` puede traer orígenes y sucesoras de fuera del periodo: cuentan solo para el cumplimiento del plan
+  const citasTodas = soloComoEjecutivo(entrada.citas.filter(c => c.estado !== 'eliminada'), entrada.alcance)
+  const citas = citasTodas.filter(c => enPeriodo(c.fecha))
   const conFilas = new Set([...visitas.map(v => v.userId), ...citas.map(c => c.userId)])
+  const cumplimientoDe = (filtro: (c: CitaEquipo) => boolean) => ({ plan: cumplimientoDelPlanEnPeriodo(citasTodas.filter(filtro), entrada.desde, entrada.hasta, entrada.hoy), ahora: entrada.ahora })
   const visibles = new Set(entrada.alcance.personas.map(p => p.userId))
   const incluidas = entrada.personas.filter(p => visibles.has(p.userId) || (!p.activa && conFilas.has(p.userId)))
   const porPersona = incluidas
@@ -533,7 +558,7 @@ export function rendimiento(entrada: {
       const suyas = visitas.filter(v => v.userId === persona.userId)
       const citasSuyas = citas.filter(c => c.userId === persona.userId)
       return {
-        ...cifrasDe(suyas, citasSuyas, entrada.hoy, entrada.ahora),
+        ...cifrasDe(suyas, citasSuyas, cumplimientoDe(c => c.userId === persona.userId)),
         persona,
         yaNoEsta: !persona.activa && conFilas.has(persona.userId),
         diasHabilesSinVisitas: entrada.diasHabilesSinVisitas.get(persona.userId) ?? null,
@@ -542,6 +567,6 @@ export function rendimiento(entrada: {
     })
     .sort(ordenFilas)
   const ids = new Set(incluidas.map(p => p.userId))
-  const equipo = cifrasDe(visitas.filter(v => ids.has(v.userId)), citas.filter(c => ids.has(c.userId)), entrada.hoy, entrada.ahora)
+  const equipo = cifrasDe(visitas.filter(v => ids.has(v.userId)), citas.filter(c => ids.has(c.userId)), cumplimientoDe(c => ids.has(c.userId)))
   return { equipo, porPersona }
 }

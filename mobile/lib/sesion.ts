@@ -16,6 +16,7 @@
 import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Platform } from 'react-native'
 import * as api from './api'
+import { olvidarEquipoGuardado } from './equipo-cache'
 import { alCambiarTokenEnOtraPestana, borrarClave, borrarToken, guardarJson, guardarToken, leerJson, leerToken } from './almacen'
 import { olvidarContextoGuardado } from './contexto-guardado'
 import { olvidarContextoEnMemoria } from './contexto-memoria'
@@ -106,6 +107,8 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
     if (!opciones.conservar) {
       await borrarClave(CLAVE_PERFIL)
       await olvidarContextoGuardado()
+      // Equipo (2026-10-31): lo último guardado de Equipo tampoco queda para quien entre después
+      await olvidarEquipoGuardado()
     }
     if (!montado.current) return
     setPerfil(null)
