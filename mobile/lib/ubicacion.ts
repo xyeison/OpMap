@@ -5,7 +5,8 @@
  * La lógica (tiempos, respaldo con la última conocida, los dos pasos de Reportar) está en lib/ubicacion-pasos.ts.
  */
 import * as Location from 'expo-location'
-import { registroDeRapidas, ubicacionEnDosPasos, ubicacionFinal, type FuentesUbicacion, type Lectura, type ResultadoUbicacion, type UbicacionEnDosPasos } from './ubicacion-pasos'
+import { Platform } from 'react-native'
+import { TIEMPO_PRECISA_MS, registroDeRapidas, ubicacionEnDosPasos, ubicacionFinal, type FuentesUbicacion, type Lectura, type ResultadoUbicacion, type UbicacionEnDosPasos } from './ubicacion-pasos'
 
 export {
   MENSAJE_SIN_PERMISO_UBICACION,
@@ -19,7 +20,81 @@ function aLectura(posicion: Location.LocationObject): Lectura {
   return { lat: posicion.coords.latitude, lng: posicion.coords.longitude, precision: posicion.coords.accuracy, timestamp: posicion.timestamp }
 }
 
-const fuentes: FuentesUbicacion = {
+// --- Navegador (PWA en /campo, 2026-10-30) ---------------------------------------------------------------------------
+// expo-location en la web pide el permiso con navigator.permissions.query('geolocation') y, si el estado es "prompt",
+// con un getCurrentPosition SIN tiempo máximo: en Safari y Chrome de iPhone eso falla ("No se pudo tomar la ubicación")
+// o se queda "Tomando tu ubicación…" para siempre. Aquí la web habla con navigator.geolocation directo: el permiso lo
+// pide la primera lectura (como cualquier página), todo lleva tiempo máximo y la última lectura buena se recuerda.
+type Geo = { getCurrentPosition: (ok: (p: GeolocationPosition) => void, error?: (e: GeolocationPositionError) => void, opciones?: PositionOptions) => void; watchPosition: (ok: (p: GeolocationPosition) => void, error?: (e: GeolocationPositionError) => void, opciones?: PositionOptions) => number; clearWatch: (id: number) => void }
+const geolocalizacion = (): Geo | null => {
+  if (Platform.OS !== 'web') return null
+  const nav = (globalThis as unknown as { navigator?: { geolocation?: Geo } }).navigator
+  return nav?.geolocation ?? null
+}
+
+function lecturaWeb(posicion: GeolocationPosition): Lectura {
+  return { lat: posicion.coords.latitude, lng: posicion.coords.longitude, precision: posicion.coords.accuracy, timestamp: posicion.timestamp }
+}
+
+/** Fuentes para el navegador. `ultimaBuena` recuerda la última lectura (el navegador no da "última conocida"). */
+function fuentesDelNavegador(geo: Geo): FuentesUbicacion {
+  let ultimaBuena: Lectura | null = null
+  const leer = (opciones: PositionOptions): Promise<Lectura> =>
+    new Promise((resolve, reject) => {
+      geo.getCurrentPosition(
+        posicion => {
+          ultimaBuena = lecturaWeb(posicion)
+          resolve(ultimaBuena)
+        },
+        error => reject(error),
+        opciones
+      )
+    })
+  return {
+    // Sin el permiso concedido de antemano no se puede saber (Safari no responde a permissions.query de forma fiable):
+    // solo se corta si el navegador dice "denegado"; si no, la primera lectura muestra el aviso del navegador.
+    permiso: async () => {
+      try {
+        const permisos = (globalThis as unknown as { navigator?: { permissions?: { query: (d: { name: string }) => Promise<{ state: string }> } } }).navigator?.permissions
+        if (!permisos?.query) return true
+        const estado = await permisos.query({ name: 'geolocation' })
+        return estado.state !== 'denied'
+      } catch {
+        return true
+      }
+    },
+    precisa: () => leer({ enableHighAccuracy: true, timeout: TIEMPO_PRECISA_MS, maximumAge: 0 }),
+    rapida: () => leer({ enableHighAccuracy: false, timeout: 10_000, maximumAge: 60_000 }),
+    ultima: async edadMaximaMs => {
+      if (ultimaBuena && Date.now() - (ultimaBuena.timestamp ?? 0) <= edadMaximaMs) return ultimaBuena
+      try {
+        // Lo que el navegador tenga en caché; sin caché, falla enseguida (tiempo corto) y no se espera.
+        return await leer({ enableHighAccuracy: false, timeout: 1_500, maximumAge: edadMaximaMs })
+      } catch {
+        return null
+      }
+    },
+    observar: alLeer => {
+      let activa = true
+      const id = geo.watchPosition(
+        posicion => {
+          if (!activa) return
+          ultimaBuena = lecturaWeb(posicion)
+          alLeer(ultimaBuena)
+        },
+        () => undefined,
+        { enableHighAccuracy: true, timeout: TIEMPO_PRECISA_MS, maximumAge: 0 }
+      )
+      return () => {
+        activa = false
+        geo.clearWatch(id)
+      }
+    },
+    rapidasPropias: registroDeRapidas(),
+  }
+}
+
+const fuentesDelTelefono: FuentesUbicacion = {
   permiso: async () => {
     const permiso = await Location.getForegroundPermissionsAsync()
     return permiso.granted || (permiso.canAskAgain && (await Location.requestForegroundPermissionsAsync()).granted)
@@ -52,6 +127,9 @@ const fuentes: FuentesUbicacion = {
   // Uno solo para toda la app: Hoy y Reportar toman lecturas rápidas; la final y Nueva sede no las usan de respaldo.
   rapidasPropias: registroDeRapidas(),
 }
+
+const geo = geolocalizacion()
+const fuentes: FuentesUbicacion = geo ? fuentesDelNavegador(geo) : fuentesDelTelefono
 
 /**
  * Pide permiso (si hace falta) y toma la ubicación con alta precisión. Si no llega a tiempo, usa la última
