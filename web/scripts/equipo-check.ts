@@ -134,6 +134,9 @@ console.log('\n2. anticipación, cadenas de "otra fecha" y cumplimiento del plan
   const H = cita({ id: 'H', fecha: '2026-10-10', estado: 'no_realizada' })
   const I = cita({ id: 'I', fecha: '2026-10-28', estado: 'pendiente', vieneDe: 'H' })
   check('una cadena cuya última cita es futura y pendiente aún no cuenta', igual(cumplimientoDelPlan([H, I], '2026-10-20'), { programadas: 0, cumplidas: 0, ratio: null }))
+  const J = cita({ id: 'J', fecha: '2026-10-20', estado: 'pendiente' })
+  const K = cita({ id: 'K', fecha: '2026-10-20', estado: 'no_realizada' })
+  check('una cita pendiente de HOY aún no cuenta (se puede reportar); una cerrada hoy sí', igual(cumplimientoDelPlan([J], '2026-10-20'), { programadas: 0, cumplidas: 0, ratio: null }) && igual(cumplimientoDelPlan([K], '2026-10-20'), { programadas: 1, cumplidas: 0, ratio: 0 }))
 }
 
 type VisitaParcial = Partial<VisitaEquipo> & Pick<VisitaEquipo, 'id' | 'checkedInAt'>

@@ -917,6 +917,8 @@ async function main() {
       equipoPersonas: 'personas lineas',
       equipoHoy: 'fecha texto_fijo resumen personas',
       equipoPersonaDia: 'fecha persona donde rastro siguiente',
+      equipoRendimiento: 'desde hasta mes_completo equipo por_persona',
+      equipoPersonaRendimiento: 'desde hasta mes_completo fila visitas citas',
     }
     for (const forma of Object.keys(CLAVES_API) as (keyof typeof CLAVES_API)[]) {
       const app = [...CLAVES_API[forma]].sort().join(' ')

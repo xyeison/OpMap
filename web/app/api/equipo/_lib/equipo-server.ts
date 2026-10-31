@@ -359,3 +359,155 @@ export function pasoItem(p: PasoRastro, fecha: string, lineas: Map<string, strin
     cita_id: p.citaId,
   }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Rendimiento del periodo
+// ---------------------------------------------------------------------------------------------
+
+import { calcularCuotaDetallada, personasPorId } from '@/app/api/config-visitas/_lib/visitas-server'
+import { confirmacionDeSedes, leerVisitas } from '@/app/api/me/_lib/reporte-server'
+import { cumplimientoMes, type CuotaResumenItem, type CifrasItem, type FilaRendimientoItem } from '@/lib/reporte-visitas'
+import { visitaSumaALaCuota } from '@/lib/persona-campo'
+import { esMesCompleto, rendimiento, soloComoEjecutivo as soloEc, type Cifras, type CuotaResumen, type FilaRendimiento } from '@/lib/equipo'
+import { limitesMes, sumarDias } from '@/lib/visits-rules'
+
+/**
+ * La cuota del mes de una persona con Ejecutivo Comercial: la MISMA cuenta de GET /api/me/numeros (calcularCuotaDetallada
+ * + cumplimientoMes con las visitas que suman a la cuota). Si la configuración no está (una base sin F2) → null, y queda
+ * en el log. Nunca devuelve las visitas: solo las cifras.
+ */
+export async function cuotaDelMes(persona: PersonaEquipo, mes: string, hoy: string): Promise<CuotaResumen | null> {
+  if (!persona.executiveId) return null
+  try {
+    const { desde, hasta } = limitesMes(mes)
+    const ejecutivas = await personasPorId([persona.executiveId])
+    const ejecutiva = ejecutivas.get(persona.executiveId)
+    if (!ejecutiva) return null
+    const [detalle, visitas] = await Promise.all([calcularCuotaDetallada(ejecutiva, mes, hoy), leerVisitas(persona.userId, desde, hasta)])
+    const deLaCuota = visitas.filter(visita => visitaSumaALaCuota({ executiveId: persona.executiveId }, visita))
+    const confirmadas = await confirmacionDeSedes(deLaCuota.map(visita => visita.sede_id))
+    const resultado = cumplimientoMes({
+      visitas: deLaCuota.map(visita => ({
+        fecha: visita.visit_date,
+        tipo: visita.tipo,
+        subtipo_id: visita.subtipo_id,
+        efectiva: Boolean(visita.efectiva),
+        modalidad: visita.modalidad,
+        out_of_territory: Boolean(visita.out_of_territory),
+        sede_confirmada: visita.sede_id ? confirmadas.get(visita.sede_id) : undefined,
+      })),
+      conteo: detalle.conteo,
+      general: detalle.general,
+      cuota: detalle.cuota,
+      dias: detalle.porDia.medica.map(dia => ({ fecha: dia.fecha, habil: dia.habil, libre: dia.libre })),
+      hoy: sumarDias(hoy, -1),
+    })
+    const tipo = (t: { cuota: number; hechas: number; cumplimiento: number | null }) => ({ cuota: t.cuota, hechas: t.hechas, cumplimiento: t.cumplimiento })
+    return { medica: tipo(resultado.medica), institucional: tipo(resultado.institucional) }
+  } catch (error) {
+    console.error('Equipo: no se pudo calcular la cuota de una persona:', error instanceof Error ? error.message : error)
+    return null
+  }
+}
+
+const esFinDeSemana = (fecha: string): boolean => {
+  const dia = new Date(`${fecha}T12:00:00Z`).getUTCDay()
+  return dia === 0 || dia === 6
+}
+
+/**
+ * Días hábiles YA CERRADOS del periodo (hasta ayer) sin ninguna visita: de lunes a viernes, sin festivo (nacional, de
+ * empresa o de su ciudad) ni día libre aprobado de día completo. La misma regla para todos (una líder no tiene cuota).
+ */
+export function diasHabilesSinVisitas(entrada: {
+  persona: PersonaEquipo
+  desde: string
+  hasta: string
+  hoy: string
+  visitas: readonly VisitaEquipo[]
+  libres: ReadonlySet<string>
+  festivos: ReadonlySet<string>
+}): number {
+  const conVisita = new Set(entrada.visitas.filter(v => v.userId === entrada.persona.userId).map(v => v.fecha))
+  const ultimo = entrada.hasta < entrada.hoy ? entrada.hasta : sumarDias(entrada.hoy, -1)
+  let sin = 0
+  for (let fecha = entrada.desde; fecha <= ultimo; fecha = sumarDias(fecha, 1)) {
+    if (esFinDeSemana(fecha) || entrada.festivos.has(fecha) || entrada.libres.has(fecha) || conVisita.has(fecha)) continue
+    sin++
+  }
+  return sin
+}
+
+export function cifrasItem(c: Cifras, lineas: Map<string, string>): CifrasItem {
+  return {
+    hechas: c.hechas,
+    efectivas: c.efectivas,
+    no_efectivas: c.noEfectivas,
+    no_efectivas_por_motivo: c.noEfectivasPorMotivo,
+    no_se_hizo: c.noSeHizo,
+    no_se_hizo_por_motivo: c.noSeHizoPorMotivo,
+    canceladas: c.canceladas,
+    canceladas_por_motivo: c.canceladasPorMotivo,
+    sin_cerrar: c.sinCerrar,
+    programadas: c.programadas,
+    telefonicas: c.telefonicas,
+    cumplimiento_plan: c.cumplimientoPlan,
+    anticipacion: { mediana_dias: c.anticipacion.medianaDias, pct_con_tiempo: c.anticipacion.pctConTiempo, pct_mismo_dia: c.anticipacion.pctMismoDia, no_planeadas: c.anticipacion.noPlaneadas },
+    medicos_distintos: c.medicosDistintos,
+    ciudades_distintas: c.ciudadesDistintas,
+    por_linea: { lineas: c.porLinea.lineas.map(l => ({ line_id: l.lineId, nombre: lineas.get(l.lineId) ?? 'Línea', hechas: l.hechas })), suma_supera_hechas: c.porLinea.sumaSuperaHechas },
+  }
+}
+
+export function filaItem(f: FilaRendimiento, alcance: AlcanceEquipo, lineas: Map<string, string>): FilaRendimientoItem {
+  const cuota: CuotaResumenItem | null = f.cuota
+  return { ...cifrasItem(f, lineas), persona: personaItem(f.persona, alcance, lineas), ya_no_esta: f.yaNoEsta, dias_habiles_sin_visitas: f.diasHabilesSinVisitas, cuota }
+}
+
+export interface FiltrosRendimiento {
+  linea: string | null
+  papel: 'lider' | 'ejecutivo' | null
+  /** Solo esta persona (persona/[id]/rendimiento). */
+  userId?: string
+}
+
+/** El rendimiento del periodo de quien pregunta, ya en la forma de la API; también las visitas y citas reducidas (para el detalle). */
+export async function rendimientoEquipo(
+  contexto: ContextoEquipo,
+  desde: string,
+  hasta: string,
+  hoy: string,
+  instante: Date,
+  filtros: FiltrosRendimiento
+): Promise<{ equipo: Cifras; porPersona: FilaRendimiento[]; visitas: VisitaEquipo[]; citas: CitaEquipo[] }> {
+  const { alcanceConInactivas, personas, lineas } = contexto
+  const llevaLinea = (p: PersonaEquipo) => !filtros.linea || p.lineasEc.includes(filtros.linea) || p.lineasLider.includes(filtros.linea)
+  const delPapel = (p: PersonaEquipo) => !filtros.papel || p.papel === 'lider_y_ejecutivo' || p.papel === filtros.papel
+  const candidatas = alcanceConInactivas.personas.filter(p => llevaLinea(p) && delPapel(p) && (!filtros.userId || p.userId === filtros.userId))
+  const alcance: AlcanceEquipo = { personas: candidatas.filter(p => p.activa), soloComoEjecutivo: alcanceConInactivas.soloComoEjecutivo }
+  const ids = candidatas.map(p => p.userId)
+  const [{ visitas: todas, citas }, especiales] = await Promise.all([visitasYCitasEquipo(ids, desde, hasta), diasEspeciales(candidatas, desde, hasta)])
+  const visitas = filtros.linea ? todas.filter(v => v.lineas.includes(filtros.linea as string)) : todas
+  const mes = esMesCompleto(desde, hasta) ? desde.slice(0, 7) : null
+  const visibles = soloEc(visitas, alcance)
+  const [cuotas, dias] = await Promise.all([
+    Promise.all(candidatas.map(async p => [p.userId, mes && p.activa ? await cuotaDelMes(p, mes, hoy) : null] as const)),
+    Promise.resolve(
+      candidatas.map(p => [p.userId, diasHabilesSinVisitas({ persona: p, desde, hasta, hoy, visitas: visibles, libres: especiales.libres.get(p.userId) ?? new Set(), festivos: especiales.festivos.get(p.userId) ?? new Set() })] as const)
+    ),
+  ])
+  const resultado = rendimiento({
+    personas: personas.filter(p => candidatas.some(c => c.userId === p.userId)),
+    alcance,
+    visitas,
+    citas,
+    desde,
+    hasta,
+    hoy,
+    ahora: instante,
+    diasHabilesSinVisitas: new Map(dias.map(([id, n]) => [id, n])),
+    cuotas: new Map(cuotas),
+  })
+  void lineas
+  return { ...resultado, visitas: visibles, citas: soloEc(citas, alcance) }
+}

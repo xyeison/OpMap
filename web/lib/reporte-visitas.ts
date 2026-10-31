@@ -2551,3 +2551,54 @@ export interface EquipoPersonaDiaResponse {
   /** Lo de ese día que falta y los dos días que vienen (citas pendientes). */
   siguiente: PasoRastroItem[]
 }
+
+export interface CifrasItem {
+  hechas: number
+  efectivas: number
+  no_efectivas: number
+  no_efectivas_por_motivo: Record<string, number>
+  no_se_hizo: number
+  no_se_hizo_por_motivo: Record<string, number>
+  canceladas: number
+  canceladas_por_motivo: Record<string, number>
+  sin_cerrar: number
+  programadas: number
+  telefonicas: number
+  cumplimiento_plan: { programadas: number; cumplidas: number; ratio: number | null }
+  anticipacion: { mediana_dias: number | null; pct_con_tiempo: number | null; pct_mismo_dia: number | null; no_planeadas: number }
+  medicos_distintos: number
+  ciudades_distintas: number
+  por_linea: { lineas: Array<{ line_id: string; nombre: string; hechas: number }>; suma_supera_hechas: boolean }
+}
+
+export interface CuotaResumenItem {
+  medica: { cuota: number; hechas: number; cumplimiento: number | null }
+  institucional: { cuota: number; hechas: number; cumplimiento: number | null }
+}
+
+export interface FilaRendimientoItem extends CifrasItem {
+  persona: PersonaEquipoItem
+  /** Tuvo filas en el periodo y hoy ya no está (inactiva o traspasada). */
+  ya_no_esta: boolean
+  /** Días hábiles ya cerrados del periodo sin ninguna visita; null si no se calcula. */
+  dias_habiles_sin_visitas: number | null
+  /** Solo con Ejecutivo Comercial y periodo de un mes completo (la misma cuenta de /api/me/numeros). */
+  cuota: CuotaResumenItem | null
+}
+
+export interface EquipoRendimientoResponse {
+  desde: string
+  hasta: string
+  mes_completo: boolean
+  equipo: CifrasItem
+  por_persona: FilaRendimientoItem[]
+}
+
+export interface EquipoPersonaRendimientoResponse {
+  desde: string
+  hasta: string
+  mes_completo: boolean
+  fila: FilaRendimientoItem
+  visitas: PasoRastroItem[]
+  citas: PasoRastroItem[]
+}

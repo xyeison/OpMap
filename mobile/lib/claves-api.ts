@@ -11,7 +11,9 @@ import type {
   AgendaResponse,
   EquipoHoyResponse,
   EquipoPersonaDiaResponse,
+  EquipoPersonaRendimientoResponse,
   EquipoPersonasResponse,
+  EquipoRendimientoResponse,
   CamposDictadoResponse,
   CitaCancelar,
   CitaCerrar,
@@ -144,6 +146,8 @@ export const CLAVES_API = {
   equipoPersonas: exactas<EquipoPersonasResponse>()(['personas', 'lineas']),
   equipoHoy: exactas<EquipoHoyResponse>()(['fecha', 'texto_fijo', 'resumen', 'personas']),
   equipoPersonaDia: exactas<EquipoPersonaDiaResponse>()(['fecha', 'persona', 'donde', 'rastro', 'siguiente']),
+  equipoRendimiento: exactas<EquipoRendimientoResponse>()(['desde', 'hasta', 'mes_completo', 'equipo', 'por_persona']),
+  equipoPersonaRendimiento: exactas<EquipoPersonaRendimientoResponse>()(['desde', 'hasta', 'mes_completo', 'fila', 'visitas', 'citas']),
 } as const
 
 export type FormaApi = keyof typeof CLAVES_API

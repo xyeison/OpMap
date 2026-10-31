@@ -178,15 +178,16 @@ export interface CumplimientoPlan {
 }
 
 /**
- * Cumplimiento del plan: cadenas cuya última cita tiene fecha ≤ hoy; cumplidas = última `hecha`. No se hizo, cancelada
- * y pendiente vencida cuentan en el denominador. Una cadena cuya última cita es futura aún no cuenta.
+ * Cumplimiento del plan: cadenas cuya última cita ya se decidió: de un día anterior, o de hoy y cerrada. cumplidas =
+ * última `hecha`. No se hizo, cancelada y pendiente vencida (de un día anterior) cuentan en el denominador. Una cadena
+ * cuya última cita es futura, o pendiente de hoy (aún se puede reportar), no cuenta todavía.
  */
 export function cumplimientoDelPlan(citas: readonly CitaEquipo[], hoy: string): CumplimientoPlan {
   let programadas = 0
   let cumplidas = 0
   for (const cadena of cadenasDeCitas(citas)) {
     const ultima = cadena[cadena.length - 1]
-    if (ultima.fecha > hoy) continue
+    if (ultima.fecha > hoy || (ultima.fecha === hoy && ultima.estado === 'pendiente')) continue
     programadas++
     if (ultima.estado === 'hecha') cumplidas++
   }

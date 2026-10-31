@@ -52,6 +52,8 @@ import { tieneClaves, type FormaApi } from '../../mobile/lib/claves-api'
 import { GET as personas } from '../app/api/equipo/personas/route'
 import { GET as hoy } from '../app/api/equipo/hoy/route'
 import { GET as personaDia } from '../app/api/equipo/persona/[id]/route'
+import { GET as rendimiento } from '../app/api/equipo/rendimiento/route'
+import { GET as personaRendimiento } from '../app/api/equipo/persona/[id]/rendimiento/route'
 import { TEXTO_FIJO_EQUIPO } from '../lib/reporte-visitas'
 
 const print = (line = '') => process.stdout.write(`${line}\n`)
@@ -345,6 +347,48 @@ async function main() {
     const carla = await pedir(personaDia, `/api/equipo/persona/${CARLA}?fecha=2026-10-02`, LAURA, CARLA)
     check('fuera del alcance → 404 (Lucía para Paola, un id inexistente y Carla inactiva para la dirección)', luciaParaPaola.status === 404 && nadie.status === 404 && carla.status === 404, { lucia: luciaParaPaola.status, nadie: nadie.status, carla: carla.status })
     check('nada privado en el día de una persona', sinPrivado(ana.text) && sinPrivado(paolaSofia.text))
+  }
+
+  print('\n5. GET /api/equipo/rendimiento: cifras del periodo')
+  {
+    const mes = await pedir(rendimiento, '/api/equipo/rendimiento?desde=2026-10-01&hasta=2026-10-31', LAURA)
+    const fila = (r: { body: any }, uid: string) => r.body?.por_persona?.find((f: any) => f.persona.user_id === uid)
+    check('forma, mes completo y una fila por persona visible más Carla (ya no está, con una visita del 2)', mes.status === 200 && ok('equipoRendimiento', mes.body) && mes.body.mes_completo === true && mes.body.por_persona.length === 6 && fila(mes, CARLA)?.ya_no_esta === true && fila(mes, CARLA).hechas === 1, { status: mes.status, body: mes.body?.por_persona?.map((f: any) => [f.persona.nombre, f.ya_no_esta, f.hechas]) })
+    const ana = fila(mes, ANA)
+    check('Ana: 2 hechas, por línea Osteosíntesis 2 y Columna 1 (la suma supera las hechas), cumplimiento 1 de 1 (la cita pendiente de hoy aún no cuenta), 1 programada, 2 no planeadas… 1', ana?.hechas === 2 && igual(ana.por_linea, { lineas: [{ line_id: OSTEO, nombre: 'Osteosíntesis', hechas: 2 }, { line_id: COLUMNA, nombre: 'Columna', hechas: 1 }], suma_supera_hechas: true }) && igual(ana.cumplimiento_plan, { programadas: 1, cumplidas: 1, ratio: 1 }) && ana.programadas === 3 && ana.anticipacion.no_planeadas === 1, ana)
+    check('orden: Ana (1) primero y luego las sin cumplimiento por nombre', igual(mes.body.por_persona.map((f: any) => f.persona.nombre), ['Ana', 'Berta', 'Carla', 'Lucía', 'Paola', 'Sofía']), mes.body.por_persona.map((f: any) => f.persona.nombre))
+    check('la cuota sin la configuración de F2 en la base queda en null (y en el log), sin tumbar la ruta', ana?.cuota === null && moduleLogs.some(l => l.includes('cuota')))
+    check('días hábiles sin visitas de Ana: del 1 al 19 de octubre, lunes a viernes (13 días), sin el festivo del 12 ni el 20 (hoy no cierra) y con visita el 20 → 12', ana?.dias_habiles_sin_visitas === 12, ana?.dias_habiles_sin_visitas)
+    check('equipo: 5 hechas (Ana 2, Paola 2, Carla 1), médicos distintos 2, por línea Osteosíntesis 3', mes.body.equipo.hechas === 5 && mes.body.equipo.medicos_distintos === 2 && mes.body.equipo.por_linea.lineas.find((l: any) => l.line_id === OSTEO)?.hechas === 3, mes.body.equipo)
+    const quincena = await pedir(rendimiento, '/api/equipo/rendimiento?desde=2026-09-25&hasta=2026-10-09', LAURA)
+    check('25 sep a 9 oct: mes_completo false, cuota null en todas y Carla con su visita del 2', quincena.status === 200 && quincena.body.mes_completo === false && quincena.body.por_persona.every((f: any) => f.cuota === null) && fila(quincena, CARLA)?.hechas === 1)
+    const columna = await pedir(rendimiento, `/api/equipo/rendimiento?desde=2026-10-01&hasta=2026-10-31&linea=${COLUMNA}`, LAURA)
+    check('?linea=Columna: solo quien lleva Columna (Ana) y sus hechas solo con esa línea (1)', columna.status === 200 && igual(columna.body.por_persona.map((f: any) => f.persona.nombre), ['Ana']) && fila(columna, ANA)?.hechas === 1, columna.body?.por_persona?.map((f: any) => [f.persona.nombre, f.hechas]))
+    const lideres = await pedir(rendimiento, '/api/equipo/rendimiento?desde=2026-10-01&hasta=2026-10-31&papel=lider', LAURA)
+    check('?papel=lider: Lucía, Paola y Sofía', igual(lideres.body?.por_persona?.map((f: any) => f.persona.nombre), ['Lucía', 'Paola', 'Sofía']), lideres.body?.por_persona?.map((f: any) => f.persona.nombre))
+    const largo = await pedir(rendimiento, '/api/equipo/rendimiento?desde=2026-07-01&hasta=2026-10-02', LAURA)
+    const alReves = await pedir(rendimiento, '/api/equipo/rendimiento?desde=2026-10-31&hasta=2026-10-01', LAURA)
+    const sinFechas = await pedir(rendimiento, '/api/equipo/rendimiento', LAURA)
+    check('94 días, hasta < desde o sin fechas → 400', largo.status === 400 && alReves.status === 400 && sinFechas.status === 400, { largo: largo.status, alReves: alReves.status, sinFechas: sinFechas.status })
+    const paola = await pedir(rendimiento, '/api/equipo/rendimiento?desde=2026-10-01&hasta=2026-10-31', PAOLA)
+    check('Paola (líder de Trauma): Paola con sus 2 (líder y Ejecutiva) y Berta', igual(paola.body?.por_persona?.map((f: any) => [f.persona.nombre, f.hechas]), [['Berta', 0], ['Paola', 2]]), paola.body?.por_persona?.map((f: any) => [f.persona.nombre, f.hechas]))
+    const sofia = await pedir(rendimiento, '/api/equipo/rendimiento?desde=2026-10-01&hasta=2026-10-31', SOFIA)
+    check('Sofía (líder de Sustitutos): Paola solo con su visita como Ejecutiva (1)', fila(sofia, PAOLA)?.hechas === 1 && fila(sofia, PAOLA).persona.solo_como_ejecutivo === true, fila(sofia, PAOLA))
+    check('nada privado en rendimiento', sinPrivado(mes.text) && sinPrivado(sofia.text))
+  }
+
+  print('\n6. GET /api/equipo/persona/[id]/rendimiento: el detalle de una persona')
+  {
+    const ana = await pedir(personaRendimiento, `/api/equipo/persona/${ANA}/rendimiento?desde=2026-10-01&hasta=2026-10-31`, LAURA, ANA)
+    check('forma: fila, visitas y citas del periodo, en orden', ana.status === 200 && ok('equipoPersonaRendimiento', ana.body) && ana.body.fila.persona.user_id === ANA && ana.body.visitas.length === 2 && ana.body.citas.length === 4 && ana.body.visitas[0].hora === '07:50' && ana.body.citas[3].fecha === '2026-10-23', { status: ana.status, visitas: ana.body?.visitas?.map((v: any) => v.hora), citas: ana.body?.citas?.map((c: any) => `${c.fecha} ${c.estado}`) })
+    const paolaSofia = await pedir(personaRendimiento, `/api/equipo/persona/${PAOLA}/rendimiento?desde=2026-10-01&hasta=2026-10-31`, SOFIA, PAOLA)
+    check('Paola para Sofía: solo la visita como Ejecutiva y ninguna cita como líder', paolaSofia.status === 200 && paolaSofia.body.visitas.length === 1 && paolaSofia.body.citas.length === 0)
+    const carla = await pedir(personaRendimiento, `/api/equipo/persona/${CARLA}/rendimiento?desde=2026-10-01&hasta=2026-10-31`, LAURA, CARLA)
+    check('Carla (ya no está) sí tiene detalle para la dirección, marcada', carla.status === 200 && carla.body.fila.ya_no_esta === true && carla.body.visitas.length === 1)
+    const luciaParaPaola = await pedir(personaRendimiento, `/api/equipo/persona/${LUCIA}/rendimiento?desde=2026-10-01&hasta=2026-10-31`, PAOLA, LUCIA)
+    const sinFechas = await pedir(personaRendimiento, `/api/equipo/persona/${ANA}/rendimiento`, LAURA, ANA)
+    check('fuera del alcance → 404; sin fechas → 400', luciaParaPaola.status === 404 && sinFechas.status === 400, { lucia: luciaParaPaola.status, sinFechas: sinFechas.status })
+    check('nada privado en el detalle', sinPrivado(ana.text) && sinPrivado(carla.text))
   }
 
   check('nada salió a la red salvo al Supabase falso', fake.externas.length === 0, fake.externas)
