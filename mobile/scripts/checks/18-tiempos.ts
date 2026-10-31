@@ -22,7 +22,7 @@ import {
   versionContexto,
   type MotivoInvalidacion,
 } from '../../lib/contexto-memoria'
-import { lineaRegistroApi, rutaPatron } from '../../lib/http'
+import { esPreviewDeVercel, lineaRegistroApi, rutaPatron } from '../../lib/http'
 import {
   CLAVE_SALIDA_PENDIENTE,
   TIEMPO_ME_FONDO_MS,
@@ -361,11 +361,15 @@ export async function pruebas(t: Probador): Promise<void> {
         /peticion<LoginMovilResponse>\('\/api\/auth\/sesion-app', \{ metodo: 'POST', sinToken: true, conCookie: true, timeoutMs: TIEMPO_ME_MS \}\)/.test(apiWeb)
     )
     t.check(
-      "api.ts: en el navegador las peticiones van SIN la cookie de la web ('omit'), salvo el login, sesion-app y el logout (conCookie); en el teléfono, como siempre",
-      /function credencialesWeb\(conCookie: boolean\)[\s\S]{0,160}if \(Platform\.OS !== 'web'\) return \{\}[\s\S]{0,80}credentials: conCookie \? 'same-origin' : 'omit'/.test(apiWeb) &&
+      "api.ts: en el navegador las peticiones van SIN la cookie de la web ('omit'), salvo el login, sesion-app y el logout (conCookie) y salvo en un preview de Vercel (su protección exige su cookie; revisión 2026-10-31); en el teléfono, como siempre",
+      /function credencialesWeb\(conCookie: boolean\)[\s\S]{0,160}if \(Platform\.OS !== 'web'\) return \{\}[\s\S]{0,240}credentials: conCookie \|\| esPreviewDeVercel\(globalThis\.location\?\.hostname\) \? 'same-origin' : 'omit'/.test(apiWeb) &&
         /signal: control\.signal, \.\.\.credencialesWeb\(conCookie\)/.test(apiWeb) &&
         (apiWeb.match(/conCookie: true/g) ?? []).length === 3 &&
         /peticion\('\/api\/auth\/logout', \{ metodo: 'POST', timeoutMs: 5_000, conCookie: true \}\)/.test(apiWeb)
+    )
+    t.check(
+      'esPreviewDeVercel: un preview de rama (-git-…vercel.app) sí; producción (op-map-umber.vercel.app), localhost y sin hostname no',
+      esPreviewDeVercel('op-map-git-feat-equipo-en-la-app-xyeisons-projects.vercel.app') && esPreviewDeVercel('op-map-abc123-xyeisons-projects.vercel.app') && !esPreviewDeVercel('op-map-umber.vercel.app') && !esPreviewDeVercel('localhost') && !esPreviewDeVercel('192.168.1.10') && !esPreviewDeVercel(undefined) && !esPreviewDeVercel(null)
     )
     t.check(
       'api.logout dice si el servidor respondió (true) o no (false, sin señal)',

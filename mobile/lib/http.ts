@@ -57,6 +57,23 @@ export function nombreServidor(base: string): string {
 }
 
 /** ¿Es un servidor de desarrollo (http o localhost)? Ajustes lo avisa. */
+/**
+ * ¿La app corre en un preview de Vercel (una rama: `op-map-git-<rama>-…vercel.app` o un despliegue suelto)? Esos
+ * despliegues van "Protected by Vercel Authentication": cada petición necesita la cookie de Vercel, así que ahí la app
+ * manda las cookies del origen (revisión 2026-10-31: sin ellas /api/* respondía 401 y la app decía "sesión vencida").
+ * Producción (URL_PRODUCCION) no está protegida y sigue sin la cookie de la web.
+ */
+export function esPreviewDeVercel(hostname: string | null | undefined): boolean {
+  if (!hostname) return false
+  const h = hostname.toLowerCase()
+  if (!h.endsWith('.vercel.app')) return false
+  try {
+    return h !== new URL(URL_PRODUCCION).hostname.toLowerCase()
+  } catch {
+    return true
+  }
+}
+
 export function esServidorDesarrollo(base: string): boolean {
   const url = normalizarBase(base)
   return url.startsWith('http://') || /localhost|127\.0\.0\.1|192\.168\.|10\.\d+\./.test(url)

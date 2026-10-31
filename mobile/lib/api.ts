@@ -18,6 +18,7 @@ import {
   TIEMPO_PROPONER_MS,
   TIEMPO_TRANSCRIBIR_MS,
   construirUrl,
+  esPreviewDeVercel,
   jsonSeguro,
   lineaRegistroApi,
   normalizarBase,
@@ -28,6 +29,11 @@ import { parteAudio } from './subida-audio'
 import { cuerpoCancelar, cuerpoMotivo } from './agenda-ciclo'
 import { TIEMPO_ME_MS, clienteDeLogin } from './sesion-reglas'
 import type {
+  EquipoHoyResponse,
+  EquipoPersonaDiaResponse,
+  EquipoPersonaRendimientoResponse,
+  EquipoPersonasResponse,
+  EquipoRendimientoResponse,
   AgendaResponse,
   CamposDictadoResponse,
   CitaCreate,
@@ -144,7 +150,8 @@ function registrarPeticion(datos: DatosRegistroApi): void {
 /** En el navegador, con o sin la cookie de la web (OpcionesPeticion.conCookie); en el teléfono, como siempre. */
 function credencialesWeb(conCookie: boolean): { credentials?: RequestCredentials } {
   if (Platform.OS !== 'web') return {}
-  return { credentials: conCookie ? 'same-origin' : 'omit' }
+  // Preview de Vercel: con sus cookies (su protección lo exige; ver esPreviewDeVercel). Producción: sin la de la web.
+  return { credentials: conCookie || esPreviewDeVercel(globalThis.location?.hostname) ? 'same-origin' : 'omit' }
 }
 
 export async function peticion<T>(ruta: string, opciones: OpcionesPeticion = {}): Promise<T> {
@@ -430,6 +437,28 @@ export function numeros(mes?: string): Promise<NumerosResponse> {
 
 export function cuota(mes?: string): Promise<CuotaResponse> {
   return peticion<CuotaResponse>('/api/me/cuota', { query: { mes } })
+}
+
+// --- Equipo (2026-10-31): dónde está mi gente y cómo rinde ------------------------------------------------
+
+export function equipoPersonas(): Promise<EquipoPersonasResponse> {
+  return peticion<EquipoPersonasResponse>('/api/equipo/personas')
+}
+
+export function equipoHoy(fecha?: string): Promise<EquipoHoyResponse> {
+  return peticion<EquipoHoyResponse>('/api/equipo/hoy', { query: { fecha } })
+}
+
+export function equipoPersonaDia(id: string, fecha?: string): Promise<EquipoPersonaDiaResponse> {
+  return peticion<EquipoPersonaDiaResponse>(`/api/equipo/persona/${encodeURIComponent(id)}`, { query: { fecha } })
+}
+
+export function equipoRendimiento(desde: string, hasta: string, linea?: string | null, papel?: 'lider' | 'ejecutivo' | null): Promise<EquipoRendimientoResponse> {
+  return peticion<EquipoRendimientoResponse>('/api/equipo/rendimiento', { query: { desde, hasta, linea: linea ?? undefined, papel: papel ?? undefined } })
+}
+
+export function equipoPersonaRendimiento(id: string, desde: string, hasta: string): Promise<EquipoPersonaRendimientoResponse> {
+  return peticion<EquipoPersonaRendimientoResponse>(`/api/equipo/persona/${encodeURIComponent(id)}/rendimiento`, { query: { desde, hasta } })
 }
 
 // --- Días libres (F2) ----------------------------------------------------------------------------------------
