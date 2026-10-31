@@ -1451,7 +1451,7 @@ seccion('10f. Dictado por campo (decisión 9): reparto normalizado, prompt y con
 
 const USUARIO_ANA = '11111111-1111-4111-8111-111111111111'
 const USUARIO_VIEWER = '22222222-2222-4222-8222-222222222222'
-// sesion-app (revisión 2026-10-30): solo las líderes (campo:app); el administrador y una líder inactiva no
+// sesion-app: quien usa la app de campo (campo:app: líderes y, desde el 2026-10-31, Ejecutivos Comerciales); el administrador y una líder inactiva no
 const USUARIO_LIDER = '44444444-4444-4444-8444-444444444444'
 const USUARIO_ADMIN = '55555555-5555-4555-8555-555555555555'
 const USUARIO_INACTIVA = '66666666-6666-4666-8666-666666666666'
@@ -1627,8 +1627,8 @@ async function sesion() {
     const deEjecutivo = await puenteDe(cookieAna)
     const deAdmin = await puenteDe(cookieDe(USUARIO_ADMIN, 'hash-admin'))
     check(
-      'sesion-app solo para quien usa la app de campo (campo:app): un Ejecutivo Comercial o el administrador → 403 sin token (entran con su contraseña)',
-      deEjecutivo.status === 403 && deAdmin.status === 403 && deEjecutivo.body?.token === undefined && deAdmin.body?.token === undefined,
+      'sesion-app para quien usa la app de campo (campo:app): un Ejecutivo Comercial → 200 con el token de su cookie (2026-10-31); el administrador → 403 sin token (hasta "Equipo")',
+      deEjecutivo.status === 200 && deEjecutivo.body?.token === tokenDe(USUARIO_ANA) && deEjecutivo.body?.usuario?.role === 'sales_manager' && deAdmin.status === 403 && deAdmin.body?.token === undefined,
       { ejecutivo: deEjecutivo.status, admin: deAdmin.status }
     )
     const inactiva = await puenteDe(cookieDe(USUARIO_INACTIVA, 'hash-inactiva'))

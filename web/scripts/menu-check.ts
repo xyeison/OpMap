@@ -83,7 +83,8 @@ const INTELIGENCIA = ['/inteligencia', '/inteligencia?tab=secop']
 console.log('1. Menú exacto por rol (orden del dueño, 2026-10-29)')
 const ESPERADO: Record<Role, string[]> = {
   admin: ORDEN.filter(href => href !== '/campo/agenda'),
-  sales_manager: ['/map', '/hospitals', ...TERCEROS, '/executives', '/lideres', '/calendario', '/kams', '/lines', '/contracts', '/configuracion'],
+  // Agendamiento (dueño, 2026-10-31): los Ejecutivos Comerciales vuelven a la app
+  sales_manager: ['/campo/agenda', '/map', '/hospitals', ...TERCEROS, '/executives', '/lideres', '/calendario', '/kams', '/lines', '/contracts', '/configuracion'],
   // Agendamiento (dueño, 2026-10-30): primero, la agenda de la líder en la app de campo
   line_leader: ['/campo/agenda', '/map', '/hospitals', ...TERCEROS, '/executives', '/lideres', '/calendario', '/kams', '/lines', ...INTELIGENCIA, '/contracts', '/configuracion'],
   commercial_director: ['/map', '/hospitals', ...TERCEROS, '/providers', '/executives', '/lideres', '/calendario', '/kams', '/lines', ...INTELIGENCIA, '/contracts', '/visits', '/configuracion'],
@@ -98,15 +99,17 @@ for (const rol of ROLES) {
 }
 eq('sin rol: menú vacío', getNavigationMenu(undefined), [])
 check('ESPERADO cubre todos los roles', ROLES.every(rol => rol in ESPERADO) && Object.keys(ESPERADO).length === ROLES.length)
-// La app de campo es solo para las líderes (2026-10-30): solo ellas tienen campo:app y su "Agendamiento"
+// La app de campo es de las líderes y, desde el 2026-10-31, también de los Ejecutivos Comerciales (sales_manager):
+// los dos tienen campo:app y su "Agendamiento"
 eq(
-  'Agendamiento: "Agendamiento" → /campo/agenda, sin grupo y primero, solo para quien tiene campo:app (line_leader)',
+  'Agendamiento: "Agendamiento" → /campo/agenda, sin grupo y primero, solo para quien tiene campo:app (sales_manager y line_leader)',
   ROLES.filter(rol => getNavigationMenu(rol).some(item => item.href.startsWith('/campo'))),
-  ['line_leader']
+  ROLES.filter(rol => rol === 'sales_manager' || rol === 'line_leader')
 )
 eq('Agendamiento de la líder', getNavigationMenu('line_leader')[0], { name: 'Agendamiento', href: '/campo/agenda', icon: 'calendar' })
+eq('Agendamiento del Ejecutivo Comercial', getNavigationMenu('sales_manager')[0], { name: 'Agendamiento', href: '/campo/agenda', icon: 'calendar' })
 // (hasPermission da todo al admin; el menú sale de la lista de cada rol: el admin no lidera líneas y no lo ve)
-eq('campo:app está solo en la lista de line_leader', ROLES.filter(rol => (rolePermissions[rol] ?? []).includes('campo:app')), ['line_leader'])
+eq('campo:app está solo en las listas de sales_manager y line_leader', ROLES.filter(rol => (rolePermissions[rol] ?? []).includes('campo:app')), ROLES.filter(rol => rol === 'sales_manager' || rol === 'line_leader'))
 const navegacion = readFileSync(path.join(__dirname, '..', 'components', 'NavigationWithPermissions.tsx'), 'utf8')
 check(
   'el menú abre /campo como página completa (<a>, no Link de Next: la app de campo no es una página de Next)',
