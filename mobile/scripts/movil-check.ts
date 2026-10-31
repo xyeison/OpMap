@@ -1187,8 +1187,8 @@ async function main() {
         /<link rel="apple-touch-icon" href="\/campo\/apple-touch-icon\.png" \/>/.test(plantilla) &&
         /<div id="root"><\/div>/.test(plantilla) &&
         manifiesto.name === 'VG Visitas' &&
-        manifiesto.start_url === '/campo/' &&
-        manifiesto.scope === '/campo/' &&
+        manifiesto.start_url === '/campo' &&
+        manifiesto.scope === '/campo' &&
         manifiesto.display === 'standalone' &&
         ['public/apple-touch-icon.png', 'public/icono-192.png', 'public/icono-512.png'].every(archivo => existsSync(path.join(raiz, archivo))),
       { baseUrl: experimentos.baseUrl, output: web.output, manifiesto }
