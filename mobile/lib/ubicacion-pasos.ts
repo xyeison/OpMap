@@ -50,6 +50,24 @@ export interface ResultadoUbicacion {
 export const MENSAJE_SIN_PERMISO_UBICACION =
   'La app no tiene permiso de ubicación. Actívalo en los ajustes del teléfono para ver las sedes cercanas y reportar presencial.'
 export const MENSAJE_SIN_UBICACION = 'No se pudo tomar la ubicación. Sal a un lugar abierto o revisa que el GPS esté encendido.'
+/**
+ * El navegador negó la ubicación para este sitio (revisión en iPhone, 2026-10-31: Safari recuerda "No permitir" y no
+ * vuelve a preguntar, aunque la ubicación esté activa en Ajustes). Se dice dónde se cambia, en Safari y en Chrome.
+ */
+export const MENSAJE_SIN_PERMISO_NAVEGADOR =
+  'El navegador tiene bloqueada la ubicación para este sitio. En Safari: toca «aA» (o el icono a la izquierda de la dirección) › Ajustes del sitio web › Ubicación › Permitir; y en Ajustes del iPhone › Safari › Ubicación, "Preguntar" o "Permitir". En Chrome: Ajustes del iPhone › Chrome › Ubicación. Luego vuelve a intentar.'
+
+/** Por qué falló una lectura del navegador o del teléfono (GeolocationPositionError: 1 permiso, 2 no disponible, 3 tiempo). */
+export type MotivoFalloUbicacion = 'permiso' | 'no_disponible' | 'tiempo' | 'otro'
+
+/** El error del navegador (GeolocationPositionError.code) como motivo; null si no es uno de esos. */
+export function motivoDeErrorDelNavegador(error: unknown): MotivoFalloUbicacion | null {
+  const codigo = typeof error === 'object' && error !== null ? (error as { code?: unknown }).code : undefined
+  if (codigo === 1) return 'permiso'
+  if (codigo === 2) return 'no_disponible'
+  if (codigo === 3) return 'tiempo'
+  return null
+}
 
 /** Edad máxima de la última posición conocida (respaldo de la final y, en Reportar, la primera que se muestra). */
 export const EDAD_MAXIMA_ULTIMA_MS = 120_000
@@ -88,7 +106,11 @@ export interface FuentesUbicacion {
    * Lecturas de alta precisión EN VIVO (watchPosition) mientras dure la final: la app las recoge hasta 20 s y se queda
    * con la más precisa (mejorLectura). Devuelve cómo dejar de observar. Sin esto, la final es la primera lectura precisa.
    */
-  observar?: (alLeer: (lectura: Lectura) => void) => () => void
+  observar?: (alLeer: (lectura: Lectura) => void, alFallar?: (error: unknown) => void) => () => void
+  /** Clasifica el error de una lectura (precisa u observada). Sin esto, todo fallo es "otro" (se espera el tiempo máximo). */
+  motivoDeError?: (error: unknown) => MotivoFalloUbicacion | null
+  /** Qué decir cuando el permiso está negado (el navegador explica dónde se cambia). Sin esto, MENSAJE_SIN_PERMISO_UBICACION. */
+  mensajeSinPermiso?: string
   /**
    * Las lecturas rápidas que tomó la propia app (ver registroDeRapidas). La lectura rápida queda en el caché del
    * sistema como "última conocida"; sin este registro, la final y "Crear sede aquí" la tomarían como respaldo cuando la
@@ -175,11 +197,13 @@ export function mejorLectura(lecturas: readonly Lectura[]): Lectura | null {
 
 /**
  * Recoge lecturas de alta precisión hasta `timeoutMs` (la observación en vivo y la lectura puntual) y devuelve la más
- * precisa; corta antes si una llega a PRECISION_SUFICIENTE_M. null si ninguna llegó a tiempo. Nunca lanza.
+ * precisa; corta antes si una llega a PRECISION_SUFICIENTE_M. Si una lectura falla por permiso negado, corta en el acto
+ * (no hay nada que esperar) y lo dice en `fallo`; otros fallos se anotan y se sigue esperando. Nunca lanza.
  */
-export function recogerMejorLectura(fuentes: FuentesUbicacion, timeoutMs: number): Promise<Lectura | null> {
+export function recogerLecturas(fuentes: FuentesUbicacion, timeoutMs: number): Promise<{ lectura: Lectura | null; fallo: MotivoFalloUbicacion | null }> {
   return new Promise(resolve => {
     const lecturas: Lectura[] = []
+    let fallo: MotivoFalloUbicacion | null = null
     let terminado = false
     let dejarDeObservar: () => void = () => undefined
     const terminar = () => {
@@ -191,7 +215,7 @@ export function recogerMejorLectura(fuentes: FuentesUbicacion, timeoutMs: number
       } catch {
         // nada
       }
-      resolve(mejorLectura(lecturas))
+      resolve({ lectura: mejorLectura(lecturas), fallo })
     }
     const recibir = (lectura: Lectura) => {
       if (terminado || !lectura || !esPunto(lectura.lat, lectura.lng)) return
@@ -199,14 +223,38 @@ export function recogerMejorLectura(fuentes: FuentesUbicacion, timeoutMs: number
       const precision = lectura.precision
       if (precision !== null && precision !== undefined && Number.isFinite(precision) && precision <= PRECISION_SUFICIENTE_M) terminar()
     }
+    const fallar = (error: unknown) => {
+      if (terminado) return
+      const motivo = fuentes.motivoDeError?.(error) ?? 'otro'
+      if (!fallo || motivo === 'permiso') fallo = motivo
+      if (motivo === 'permiso') terminar()
+    }
     const temporizador = setTimeout(terminar, timeoutMs)
     try {
-      if (fuentes.observar) dejarDeObservar = fuentes.observar(recibir)
+      if (fuentes.observar) dejarDeObservar = fuentes.observar(recibir, fallar)
     } catch {
       dejarDeObservar = () => undefined
     }
-    fuentes.precisa().then(recibir, () => undefined)
+    fuentes.precisa().then(recibir, fallar)
   })
+}
+
+/** La lectura más precisa recogida hasta `timeoutMs` (ver recogerLecturas); null si ninguna llegó a tiempo. */
+export async function recogerMejorLectura(fuentes: FuentesUbicacion, timeoutMs: number): Promise<Lectura | null> {
+  return (await recogerLecturas(fuentes, timeoutMs)).lectura
+}
+
+/** Sin observación en vivo: la lectura puntual con tiempo máximo, anotando por qué falló si falló. */
+async function precisaConTiempo(fuentes: FuentesUbicacion, timeoutMs: number): Promise<{ lectura: Lectura | null; fallo: MotivoFalloUbicacion | null }> {
+  let fallo: MotivoFalloUbicacion | null = null
+  const lectura = await conTiempo(
+    fuentes.precisa().catch(error => {
+      fallo = fuentes.motivoDeError?.(error) ?? 'otro'
+      throw error
+    }),
+    timeoutMs
+  )
+  return { lectura, fallo }
 }
 
 /**
@@ -221,10 +269,12 @@ export async function ubicacionFinal(
   const timeoutMs = opciones.timeoutMs ?? TIEMPO_PRECISA_MS
   try {
     const concedido = await (opciones.permiso ?? fuentes.permiso())
-    if (!concedido) return { ubicacion: null, error: MENSAJE_SIN_PERMISO_UBICACION }
-    const lectura = fuentes.observar ? await recogerMejorLectura(fuentes, timeoutMs) : await conTiempo(fuentes.precisa(), timeoutMs)
+    if (!concedido) return { ubicacion: null, error: fuentes.mensajeSinPermiso ?? MENSAJE_SIN_PERMISO_UBICACION }
+    const { lectura, fallo } = fuentes.observar ? await recogerLecturas(fuentes, timeoutMs) : await precisaConTiempo(fuentes, timeoutMs)
     const nueva = aUbicacion(lectura, false, (fuentes.ahora ?? Date.now)())
     if (nueva) return { ubicacion: nueva, error: null }
+    // Permiso negado: no sirve ni la última conocida (el navegador tampoco la daría) y se dice dónde se cambia.
+    if (fallo === 'permiso') return { ubicacion: null, error: fuentes.mensajeSinPermiso ?? MENSAJE_SIN_PERMISO_UBICACION }
     const ultima = await ultimaReciente(fuentes, { sinRapidasPropias: true })
     if (ultima) return { ubicacion: ultima, error: null }
     return { ubicacion: null, error: MENSAJE_SIN_UBICACION }

@@ -6,9 +6,21 @@
  */
 import * as Location from 'expo-location'
 import { Platform } from 'react-native'
-import { TIEMPO_PRECISA_MS, registroDeRapidas, ubicacionEnDosPasos, ubicacionFinal, type FuentesUbicacion, type Lectura, type ResultadoUbicacion, type UbicacionEnDosPasos } from './ubicacion-pasos'
+import {
+  MENSAJE_SIN_PERMISO_NAVEGADOR,
+  TIEMPO_PRECISA_MS,
+  motivoDeErrorDelNavegador,
+  registroDeRapidas,
+  ubicacionEnDosPasos,
+  ubicacionFinal,
+  type FuentesUbicacion,
+  type Lectura,
+  type ResultadoUbicacion,
+  type UbicacionEnDosPasos,
+} from './ubicacion-pasos'
 
 export {
+  MENSAJE_SIN_PERMISO_NAVEGADOR,
   MENSAJE_SIN_PERMISO_UBICACION,
   MENSAJE_SIN_UBICACION,
   type ResultadoUbicacion,
@@ -74,7 +86,7 @@ function fuentesDelNavegador(geo: Geo): FuentesUbicacion {
         return null
       }
     },
-    observar: alLeer => {
+    observar: (alLeer, alFallar) => {
       let activa = true
       const id = geo.watchPosition(
         posicion => {
@@ -82,7 +94,9 @@ function fuentesDelNavegador(geo: Geo): FuentesUbicacion {
           ultimaBuena = lecturaWeb(posicion)
           alLeer(ultimaBuena)
         },
-        () => undefined,
+        error => {
+          if (activa) alFallar?.(error)
+        },
         { enableHighAccuracy: true, timeout: TIEMPO_PRECISA_MS, maximumAge: 0 }
       )
       return () => {
@@ -90,6 +104,10 @@ function fuentesDelNavegador(geo: Geo): FuentesUbicacion {
         geo.clearWatch(id)
       }
     },
+    // GeolocationPositionError: 1 PERMISSION_DENIED, 2 POSITION_UNAVAILABLE, 3 TIMEOUT. Con 1 se corta en el acto y se
+    // dice dónde se cambia el permiso (Safari recuerda "No permitir" y no vuelve a preguntar).
+    motivoDeError: motivoDeErrorDelNavegador,
+    mensajeSinPermiso: MENSAJE_SIN_PERMISO_NAVEGADOR,
     rapidasPropias: registroDeRapidas(),
   }
 }

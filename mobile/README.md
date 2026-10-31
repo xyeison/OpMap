@@ -97,7 +97,13 @@ Con la rama publicada (preview de Vercel o producción) y la app instalada desde
    la franja ofrece "Actualizar"; la visita pendiente sube y, después, "Actualizar" recarga la app. La visita sigue
    enviada y nada se perdió.
 8. **GPS**: en una IPS con coordenadas, la tarjeta dice "en sitio" con la precisión (±N m); a más de 300 m, "lejos de la
-   IPS: queda marcada" y se puede guardar igual. Con el GPS apagado, "sin ubicación" y se guarda igual.
+   IPS: queda marcada" y se puede guardar igual. Con el GPS apagado, "sin ubicación" y se guarda igual. En una pestaña
+   de Safari o Chrome (no instalada), si el sitio quedó con la ubicación bloqueada la app lo dice en el acto con los
+   pasos para permitirla (Safari: «aA» › Ajustes del sitio web › Ubicación; Chrome: Ajustes del iPhone › Chrome);
+   "sal a un lugar abierto" es solo para GPS apagado o sin señal de satélite.
+10. **Qué versión corre**: Ajustes › Versión muestra el commit con que se armó la app en la web (`1.0.0 (navegador) ·
+    94d8e86`). Si no es el último de master, la franja debe ofrecer "Actualizar" (o cerrar todas las pestañas del sitio y
+    volver a abrir).
 9. **Incógnito**: abrir `/campo` en una pestaña de incógnito: la app avisa que lo guardado puede perderse.
 
 ## Verificación

@@ -30,6 +30,17 @@ const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 // Sin la variable: la app usa el origen de la página. CI=1: expo sin preguntas ni colores.
 const entorno = { ...process.env, CI: '1' }
 delete entorno.EXPO_PUBLIC_API_URL
+// El commit con que se arma (Vercel lo da; en local, git): Ajustes de la app lo muestra junto a la versión, para saber
+// qué versión corre un teléfono (el service worker guarda la anterior hasta "Actualizar").
+entorno.EXPO_PUBLIC_BUILD = (process.env.VERCEL_GIT_COMMIT_SHA || commitLocal() || '').slice(0, 7)
+
+function commitLocal() {
+  try {
+    return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: web, encoding: 'utf8' }).trim()
+  } catch {
+    return ''
+  }
+}
 
 // Vercel restaura mobile/node_modules de la caché del despliegue anterior: si el package.json trae una dependencia nueva
 // (idb, expo-image-picker…), expo no la encuentra. Se instala cuando falta expo O cuando falta cualquier dependencia.
