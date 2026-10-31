@@ -8,6 +8,8 @@
  *      empresa activa (manda users.empresa_activa_id, luego el claim, luego VG), los papeles de esa empresa y el
  *      papel más alto como role; sin papeles → 'user' sin empresa; sin la tabla papeles → users.role sin 500;
  *      cambiarEmpresaActiva escribe la columna solo si la persona tiene papel activo en esa empresa.
+ *   B. Permisos: requirePermission y requireAnyPermission deciden por la SUMA de los papeles de la empresa activa
+ *      (Paola: líder + ejecutiva concede campo:app y visits:report y niega executives:lines), mismos 401 y 403 de antes.
  *
  * El patrón del Supabase falso viene de scripts/lineas-permitidas-api-check.ts.
  * Uso (desde web/): npx tsx scripts/empresas-api-check.ts   Código de salida 1 si algo falla.
@@ -17,6 +19,7 @@ import { NextRequest } from 'next/server'
 import { passwordVersion, SESSION_COOKIE_NAME, signSession, verifySession } from '../lib/session'
 import { getUserFromRequest } from '../lib/auth-server'
 import { cambiarEmpresaActiva } from '../lib/empresas'
+import { requireAnyPermission, requirePermission } from '../lib/require-role'
 import { EMPRESA_MEDIX_ID, EMPRESA_VG_ID } from '../lib/empresas-reglas'
 
 for (const key of [
@@ -249,6 +252,7 @@ const PAOLA = '00000000-0000-4000-8000-000000000001' // line_leader de Trauma y 
 const LIZETH = '00000000-0000-4000-8000-000000000002' // line_leader en Medix, sales_manager en VG; empresa activa Medix
 const FOCO1 = '00000000-0000-4000-8000-000000000003' // sales_manager en VG, line_leader en Medix INACTIVO
 const SIN_PAPELES = '00000000-0000-4000-8000-000000000004' // activa, sin ningún papel
+const MIXTO = '00000000-0000-4000-8000-000000000005' // sales_manager + hr en VG: daysoff:approve solo lo da hr, y el más alto es sales_manager
 
 const L_TRAUMA = '10000000-0000-4000-8000-000000000005'
 const KAM_BAQ = '20000000-0000-4000-8000-000000000001'
@@ -259,6 +263,8 @@ const P_LIZETH_MEDIX = '40000000-0000-4000-8000-000000000003'
 const P_LIZETH_VG = '40000000-0000-4000-8000-000000000004'
 const P_FOCO1_VG = '40000000-0000-4000-8000-000000000005'
 const P_FOCO1_MEDIX = '40000000-0000-4000-8000-000000000006'
+const P_MIXTO_GERENTE = '40000000-0000-4000-8000-000000000007'
+const P_MIXTO_RRHH = '40000000-0000-4000-8000-000000000008'
 
 function usuario(id: string, role: string, nombre: string, empresa_activa_id: string | null = null): Fila {
   return { id, email: `${id.slice(-4)}@prueba.test`, full_name: nombre, role, active: true, password: `hash-${id}`, empresa_activa_id }
@@ -279,6 +285,7 @@ function datosIniciales(): Tablas {
       usuario(LIZETH, 'sales_manager', 'Lizeth', EMPRESA_MEDIX_ID),
       usuario(FOCO1, 'sales_manager', 'Foco uno'),
       usuario(SIN_PAPELES, 'viewer', 'Sin papeles'),
+      usuario(MIXTO, 'sales_manager', 'Mixto'),
     ],
     empresas: [empresa(EMPRESA_VG_ID, 'vg', 'VG Medical S.A.S.', 'VG Medical'), empresa(EMPRESA_MEDIX_ID, 'medix', 'Medix', 'Medix')],
     papeles: [
@@ -288,6 +295,8 @@ function datosIniciales(): Tablas {
       papel(P_LIZETH_VG, LIZETH, EMPRESA_VG_ID, 'sales_manager'),
       papel(P_FOCO1_VG, FOCO1, EMPRESA_VG_ID, 'sales_manager'),
       papel(P_FOCO1_MEDIX, FOCO1, EMPRESA_MEDIX_ID, 'line_leader', L_TRAUMA, false),
+      papel(P_MIXTO_GERENTE, MIXTO, EMPRESA_VG_ID, 'sales_manager'),
+      papel(P_MIXTO_RRHH, MIXTO, EMPRESA_VG_ID, 'hr'),
     ],
     papel_zonas: [{ papel_id: P_PAOLA_LIDER, kam_id: KAM_BAQ }],
   }
@@ -418,6 +427,82 @@ async function main() {
     eq("una empresa que no existe → 'sin_papel'", await cambiarEmpresaActiva(PAOLA, randomUUID()), 'sin_papel')
     check('no escribe nada', fake.writes(marca2).length === 0, fake.writes(marca2))
     eq('la columna de Paola sigue null', tablas.users.find(u => u.id === PAOLA)?.empresa_activa_id, null)
+  }
+
+  print('\nB. Permisos')
+
+  async function cuerpoDe(response: Response): Promise<unknown> {
+    return response.json().catch(() => null)
+  }
+
+  print('\n  requirePermission: Paola (line_leader de Trauma + sales_manager en VG)')
+  {
+    const campo = await requirePermission(peticion(PAOLA), 'campo:app')
+    check('campo:app (de la líder) se concede', campo.ok, campo.ok ? undefined : campo.response.status)
+    eq('y la sesión que devuelve es la de Paola', campo.ok ? campo.user.id : null, PAOLA)
+    const reporta = await requirePermission(peticion(PAOLA), 'visits:report')
+    check('visits:report se concede', reporta.ok, reporta.ok ? undefined : reporta.response.status)
+    const lineas = await requirePermission(peticion(PAOLA), 'executives:lines')
+    check('executives:lines se niega', !lineas.ok)
+    if (!lineas.ok) {
+      eq('con 403', lineas.response.status, 403)
+      eq('y el cuerpo de siempre', await cuerpoDe(lineas.response), { error: 'Acceso denegado' })
+    }
+  }
+
+  print('\n  requirePermission: la suma de papeles (Mixto: sales_manager + hr; el más alto es sales_manager)')
+  {
+    const aprueba = await requirePermission(peticion(MIXTO), 'daysoff:approve')
+    check('daysoff:approve solo lo da el papel de RR. HH. y se concede', aprueba.ok, aprueba.ok ? undefined : aprueba.response.status)
+    eq("y su role sigue siendo el más alto: 'sales_manager'", aprueba.ok ? aprueba.user.role : null, 'sales_manager')
+    const todos = await requireAnyPermission(peticion(MIXTO), ['calendar:manage', 'hospitals:edit'])
+    check('requireAnyPermission también suma (calendar:manage de hr)', todos.ok, todos.ok ? undefined : todos.response.status)
+    const nada = await requirePermission(peticion(MIXTO), 'hospitals:edit')
+    check('y lo que ningún papel da se niega', !nada.ok)
+  }
+
+  print('\n  requirePermission: sin sesión y sin papeles')
+  {
+    const sinCookie = await requirePermission(new NextRequest('http://localhost:3000/api/auth/me'), 'map:view')
+    check('sin cookie → no ok', !sinCookie.ok)
+    if (!sinCookie.ok) {
+      eq('con 401', sinCookie.response.status, 401)
+      eq('y el cuerpo de siempre', await cuerpoDe(sinCookie.response), { error: 'No autorizado' })
+    }
+    const sinPapeles = await requirePermission(peticion(SIN_PAPELES), 'map:view')
+    check('una persona activa sin papeles no tiene ni map:view', !sinPapeles.ok)
+    if (!sinPapeles.ok) eq('→ 403', sinPapeles.response.status, 403)
+  }
+
+  print('\n  requireAnyPermission')
+  {
+    const gerente = await requireAnyPermission(peticion(FOCO1), ['intelligence:view', 'secop:procesos'])
+    check('solo sales_manager: secop:procesos basta', gerente.ok, gerente.ok ? undefined : gerente.response.status)
+    const gerenteSolo = await requireAnyPermission(peticion(FOCO1), ['intelligence:view'])
+    check('solo sales_manager: intelligence:view solo, se niega', !gerenteSolo.ok)
+    if (!gerenteSolo.ok) eq('→ 403', gerenteSolo.response.status, 403)
+    const lider = await requireAnyPermission(peticion(PAOLA), ['executives:lines', 'campo:app'])
+    check('Paola: concede si alguno de la lista lo tiene (campo:app)', lider.ok, lider.ok ? undefined : lider.response.status)
+    const ninguno = await requireAnyPermission(peticion(PAOLA), ['executives:lines', 'users:manage'])
+    check('Paola: ninguno de la lista → no ok', !ninguno.ok)
+    if (!ninguno.ok) eq('→ 403', ninguno.response.status, 403)
+    const vacia = await requireAnyPermission(peticion(PAOLA), [])
+    check('lista vacía: siempre se niega', !vacia.ok)
+    if (!vacia.ok) eq('→ 403', vacia.response.status, 403)
+    const sinSesion = await requireAnyPermission(new NextRequest('http://localhost:3000/api/auth/me'), ['map:view'])
+    check('sin sesión: 401', !sinSesion.ok && sinSesion.response.status === 401)
+  }
+
+  print('\n  Solo cuentan los papeles de la empresa ACTIVA (Lizeth: Medix activa = líder; VG = ejecutiva)')
+  {
+    // Lizeth quedó en VG por la prueba de cambiarEmpresaActiva; se la devuelve a Medix para esta comprobación
+    await cambiarEmpresaActiva(LIZETH, EMPRESA_MEDIX_ID)
+    const enMedix = await requirePermission(peticion(LIZETH), 'campo:app')
+    check('en Medix (líder) tiene campo:app', enMedix.ok, enMedix.ok ? undefined : enMedix.response.status)
+    await cambiarEmpresaActiva(LIZETH, EMPRESA_VG_ID)
+    const enVg = await requirePermission(peticion(LIZETH), 'campo:app')
+    check('en VG (solo ejecutiva) ya no tiene campo:app', !enVg.ok)
+    if (!enVg.ok) eq('→ 403', enVg.response.status, 403)
   }
 
   print('\nGenerales')

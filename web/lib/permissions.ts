@@ -1,5 +1,7 @@
 // Sistema de permisos para OpMap
 
+import { ORDEN_PAPELES } from './empresas-reglas'
+
 export type Role =
   | 'admin'
   | 'sales_manager'
@@ -468,6 +470,40 @@ export function bloquesDeInicio(items: readonly NavigationItem[]): Array<{ grupo
     else grupos.push({ grupo: item.grupo, items: [item] })
   }
   return [...(sueltas.length > 0 ? [{ grupo: null, items: sueltas }] : []), ...grupos]
+}
+
+// Menú y rutas de una persona con varios papeles en la empresa activa (empresas, capa 1): la UNIÓN de lo que da cada
+// papel. Se recorre del papel más alto al más bajo (ORDEN_PAPELES) y un href ya agregado no se repite; el grupo de una
+// opción es el de su primera aparición. ORDEN_PAPELES vive en empresas-reglas, que importa este archivo: el ciclo es
+// inofensivo porque la constante solo se lee al llamar estas funciones, nunca al cargar los módulos.
+function enOrdenDePapeles(papeles: readonly { papel: Role }[]): Role[] {
+  const presentes = new Set(papeles.map(p => p.papel))
+  return ORDEN_PAPELES.filter(papel => presentes.has(papel))
+}
+
+export function menuDePapeles(papeles: readonly { papel: Role }[]): NavigationItem[] {
+  const vistos = new Set<string>()
+  const menu: NavigationItem[] = []
+  for (const papel of enOrdenDePapeles(papeles)) {
+    for (const item of getNavigationMenu(papel)) {
+      if (vistos.has(item.href)) continue
+      vistos.add(item.href)
+      // Una opción de un grupo que ya está en el menú se junta con las de su grupo (agruparMenu solo une opciones
+      // contiguas: sin esto, "Terceros" o "Inteligencia de Mercado" saldrían dos veces con dos papeles)
+      const ultimaDelGrupo = item.grupo ? menu.map(m => m.grupo).lastIndexOf(item.grupo) : -1
+      if (ultimaDelGrupo === -1) menu.push(item)
+      else menu.splice(ultimaDelGrupo + 1, 0, item)
+    }
+  }
+  return menu
+}
+
+export function rutasDePapeles(papeles: readonly { papel: Role }[]): string[] {
+  const rutas = new Set<string>()
+  for (const papel of enOrdenDePapeles(papeles)) {
+    for (const ruta of getAllowedRoutes(papel)) rutas.add(ruta)
+  }
+  return rutas.size > 0 ? Array.from(rutas) : ['/login']
 }
 
 // Función para obtener el título del rol en español

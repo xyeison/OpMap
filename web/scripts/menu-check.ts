@@ -24,8 +24,10 @@ import {
   getHomeRoute,
   getNavigationMenu,
   hasPermission,
+  menuDePapeles,
   opcionActiva,
   rolePermissions,
+  rutasDePapeles,
   seccionesConfiguracion,
   type Role,
   RUTA_INICIO,
@@ -434,6 +436,46 @@ console.log('9. El armazón con el diseño de la app: menú en acordeón y tema 
     'el armazón usa los papeles de la app (bg-fondo, bg-superficie, bg-acento text-sobre-acento, text-texto-suave) y no los grises fijos de antes',
     /bg-fondo/.test(navegacion) && /bg-superficie/.test(navegacion) && /bg-acento text-sobre-acento/.test(navegacion) && /text-texto-suave/.test(navegacion) && !/bg-gray-900|text-gray-700|bg-white/.test(navegacion)
   )
+}
+
+// ---------------------------------------------------------------------------------------------
+console.log('10. Menú y rutas como suma de papeles (empresas, capa 1)')
+{
+  const lider = menuDePapeles([{ papel: 'line_leader' }, { papel: 'sales_manager' }])
+  const hrefsLider = lider.map(item => item.href)
+  check('líder + ejecutivo: tiene Agendamiento (de la líder)', lider.some(item => item.name === 'Agendamiento' && item.href === '/campo/agenda'), hrefsLider)
+  check(
+    'líder + ejecutivo: tiene todo lo del ejecutivo',
+    getNavigationMenu('sales_manager').every(item => hrefsLider.includes(item.href)),
+    hrefsLider
+  )
+  check(
+    'líder + ejecutivo: tiene todo lo de la líder',
+    getNavigationMenu('line_leader').every(item => hrefsLider.includes(item.href)),
+    hrefsLider
+  )
+  eq('líder + ejecutivo: ningún href repetido', new Set(hrefsLider).size, hrefsLider.length)
+  eq('el orden no importa: el papel más alto va primero', menuDePapeles([{ papel: 'sales_manager' }, { papel: 'line_leader' }]), lider)
+  eq('un solo papel = su menú de siempre', menuDePapeles([{ papel: 'admin' }]), getNavigationMenu('admin'))
+  eq('dos veces el mismo papel = una vez', menuDePapeles([{ papel: 'hr' }, { papel: 'hr' }]), getNavigationMenu('hr'))
+  eq('sin papeles: menú vacío', menuDePapeles([]), [])
+  // agruparMenu solo une opciones contiguas: con dos papeles cualquiera, ningún grupo debe salir dos veces
+  const repetidos: string[] = []
+  for (const a of ROLES) {
+    for (const b of ROLES) {
+      if (a >= b) continue
+      const titulos = agruparMenu(menuDePapeles([{ papel: a }, { papel: b }])).map(s => s.grupo).filter(Boolean)
+      if (new Set(titulos).size !== titulos.length) repetidos.push(`${a}+${b}`)
+    }
+  }
+  eq('con dos papeles cualesquiera, ningún grupo del menú sale dos veces', repetidos, [])
+
+  eq('rutasDePapeles([]) = [/login]', rutasDePapeles([]), ['/login'])
+  check('rutasDePapeles([hr]) incluye /inicio', rutasDePapeles([{ papel: 'hr' }]).includes('/inicio'), rutasDePapeles([{ papel: 'hr' }]))
+  eq('un solo papel = sus rutas de siempre', rutasDePapeles([{ papel: 'sales_manager' }]), getAllowedRoutes('sales_manager'))
+  const rutas = rutasDePapeles([{ papel: 'line_leader' }, { papel: 'sales_manager' }])
+  check('líder + ejecutivo: rutas de ambos', [...getAllowedRoutes('line_leader'), ...getAllowedRoutes('sales_manager')].every(r => rutas.includes(r)), rutas)
+  eq('líder + ejecutivo: rutas sin repetir', new Set(rutas).size, rutas.length)
 }
 
 // ---------------------------------------------------------------------------------------------

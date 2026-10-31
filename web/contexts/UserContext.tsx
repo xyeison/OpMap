@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 import type { Role } from '@/lib/permissions'
+import type { Empresa, PapelActivo } from '@/lib/empresas-reglas'
 import { marcarSalidaPendienteAppCampo, olvidarSesionAppCampo } from '@/lib/app-campo'
 
 interface User {
@@ -9,6 +10,25 @@ interface User {
   email: string
   full_name: string
   role: Role
+  // Empresa activa, las empresas donde tiene papel y SUS papeles en la activa (capa 1 de empresas)
+  empresa: Empresa | null
+  empresas: Empresa[]
+  papeles: PapelActivo[]
+}
+
+// Lo que mandan /api/auth/me y /api/auth/login (o lo guardado de antes, sin estos campos) → el User del cliente. Si no
+// llegan papeles pero sí el rol, el cliente sigue como siempre con un papel sintético de ese rol.
+export function usuarioDeRespuesta(crudo: Partial<User> & Pick<User, 'id' | 'email' | 'full_name' | 'role'>): User {
+  const papeles =
+    Array.isArray(crudo.papeles) ? crudo.papeles
+    : crudo.role ? [{ id: 'rol', empresa_id: '', papel: crudo.role, line_id: null, kam_ids: [] } satisfies PapelActivo]
+    : []
+  return {
+    ...crudo,
+    empresa: crudo.empresa ?? null,
+    empresas: Array.isArray(crudo.empresas) ? crudo.empresas : [],
+    papeles,
+  }
 }
 
 interface UserContextType {
@@ -36,7 +56,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       const cachedUser = localStorage.getItem('opmap_user')
       if (cachedUser) {
         try {
-          const parsedUser = JSON.parse(cachedUser)
+          const parsedUser = usuarioDeRespuesta(JSON.parse(cachedUser))
           console.log('UserContext - Usuario en caché:', parsedUser)
           setUser(parsedUser)
         } catch (e) {
@@ -54,9 +74,10 @@ export function UserProvider({ children }: { children: ReactNode }) {
       
       if (response.ok) {
         const data = await response.json()
-        console.log('UserContext - Usuario validado:', data.user)
-        setUser(data.user)
-        localStorage.setItem('opmap_user', JSON.stringify(data.user))
+        const validado = usuarioDeRespuesta(data.user)
+        console.log('UserContext - Usuario validado:', validado)
+        setUser(validado)
+        localStorage.setItem('opmap_user', JSON.stringify(validado))
       } else {
         // Si no hay sesión válida, limpiar localStorage
         console.log('UserContext - No hay sesión válida, status:', response.status)
@@ -88,7 +109,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
       })
 
       if (response.ok) {
-        const { user } = await response.json()
+        const { user: crudo } = await response.json()
+        const user = usuarioDeRespuesta(crudo)
         setUser(user)
         localStorage.setItem('opmap_user', JSON.stringify(user))
         // Un solo ingreso (2026-10-30): la app de campo toma esta sesión la próxima vez que se abra
