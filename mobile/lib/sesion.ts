@@ -50,6 +50,8 @@ export interface Perfil {
    * null o sin el dato: no se sabe.
    */
   sinPersona?: string | null
+  /** Equipo (2026-10-31): el rol supervisa (team:view). null o sin el dato: un servidor anterior. */
+  supervisa?: boolean | null
   /**
    * Qué servidor respondió la última vez GET /api/auth/me (servidorDeMe): 'sin_f1a' si no manda la persona (sin la
    * 0850: la app no ofrece "No se hizo", Eliminar, "Agendar otra fecha" ni "¿Qué pasó con esto?"). Sin el dato: no se
@@ -127,6 +129,7 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
           ejecutiva: respuesta.ejecutiva,
           persona: personaDeMe(respuesta, guardado?.persona),
           sinPersona: respuesta.sin_persona ?? null,
+          supervisa: respuesta.supervisa ?? null,
           servidor: servidorDeMe(respuesta),
           expira_at: guardado?.expira_at ?? expiraDelToken(token),
         }
@@ -280,6 +283,7 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
           ejecutiva: respuesta.ejecutiva,
           persona: personaDeMe(respuesta, base.persona),
           sinPersona: respuesta.sin_persona ?? null,
+          supervisa: respuesta.supervisa ?? null,
           servidor: servidorDeMe(respuesta),
         }
         await guardarJson(CLAVE_PERFIL, nuevo).catch(() => undefined)

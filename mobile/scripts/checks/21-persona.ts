@@ -72,6 +72,7 @@ import {
   eligeComo,
   entraALasPestanas,
   estadoPersona,
+  muestraMiEquipo,
   lineasDeBusqueda,
   medicoDelPapel,
   medicosDelPapel,
@@ -224,6 +225,20 @@ export async function pruebas(t: Probador): Promise<void> {
         estadoPersona({ role: 'sales_manager', persona: null, sinPersona: null }) === 'sin_lineas' &&
         estadoPersona({ role: 'line_leader', persona: LUCIA, sinPersona: MENSAJE_SIN_LINEAS }) === 'campo' &&
         estadoPersona({ role: 'commercial_director', persona: null, sinPersona: MENSAJE_SIN_LINEAS }) === 'direccion'
+    )
+    check(
+      'Equipo (2026-10-31): quien supervisa sin persona (la dirección, el administrador sin líneas) entra a Equipo; con persona y supervisa, entra a sus pestañas y ve "Mi equipo"; sin el dato, como antes',
+      estadoPersona({ role: 'commercial_director', persona: null, supervisa: true }) === 'supervisa' &&
+        estadoPersona({ role: 'admin', persona: null, sinPersona: MENSAJE_SIN_LINEAS, supervisa: true }) === 'supervisa' &&
+        entraALasPestanas('supervisa') &&
+        estadoPersona({ role: 'line_leader', persona: LUCIA, supervisa: true }) === 'campo' &&
+        muestraMiEquipo({ estado: 'campo', supervisa: true }) &&
+        !muestraMiEquipo({ estado: 'campo', supervisa: false }) &&
+        !muestraMiEquipo({ estado: 'supervisa', supervisa: true }) &&
+        estadoPersona({ role: 'commercial_director', persona: null }) === 'direccion' &&
+        estadoPersona({ role: 'commercial_director', persona: null, supervisa: null }) === 'direccion' &&
+        estadoPersona({ role: 'sales_manager', persona: CARMEN, supervisa: false }) === 'campo' &&
+        estadoPersona({ role: 'admin', persona: null, sinPersona: MENSAJE_SIN_LINEAS, supervisa: false }) === 'fuera'
     )
     check(
       'avisoFuera: la dirección ve el mensaje de la web; quien queda fuera, el porqué del servidor (o "sin líneas"); los dos con para quién es la app (líderes y Ejecutivos Comerciales)',
@@ -648,7 +663,7 @@ export async function pruebas(t: Probador): Promise<void> {
     const layout = leer('mobile/app/(app)/_layout.tsx')
     check(
       'la dirección comercial y quien el servidor dejó fuera (sin_persona) ven su aviso y no entran a las pestañas (antes de dibujar las Tabs)',
-      /const quien = estadoPersona\(\{ role: perfil\?\.usuario\.role, persona: perfil\?\.persona, sinPersona: perfil\?\.sinPersona, sinConfirmar \}\)/.test(layout) &&
+      /const quien = estadoPersona\(\{ role: perfil\?\.usuario\.role, persona: perfil\?\.persona, sinPersona: perfil\?\.sinPersona, sinConfirmar, supervisa: perfil\?\.supervisa \}\)/.test(layout) &&
         /if \(!entraALasPestanas\(quien\)\) return <FueraDeLaApp \{\.\.\.avisoFuera\(quien, perfil\?\.sinPersona\)\} \/>/.test(layout) &&
         layout.indexOf('return <FueraDeLaApp') < layout.indexOf('<Tabs') &&
         /<Aviso tono="info" titulo=\{titulo\}>/.test(layout) &&

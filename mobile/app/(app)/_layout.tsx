@@ -27,7 +27,7 @@ import { SafeAreaInsetsContext, useSafeAreaInsets } from 'react-native-safe-area
 import { EstadoCola } from '../../components/EstadoCola'
 import { Logo } from '../../components/Logo'
 import { Icono } from '../../lib/iconos'
-import { OCULTAS, PESTANAS, SIN_ENCABEZADO } from '../../lib/navegacion'
+import { OCULTAS, SIN_ENCABEZADO, TODAS_LAS_PESTANAS, pestanasDe } from '../../lib/navegacion'
 import { avisoFuera, entraALasPestanas, estadoPersona } from '../../lib/persona'
 import { useSesion } from '../../lib/sesion'
 import { BarraDeEstado } from '../../lib/tema-preferencia'
@@ -153,8 +153,10 @@ export default function AppLayout() {
   const insets = useSafeAreaInsets()
   if (estado === 'cargando') return <Cargando texto="Abriendo VG Visitas…" />
   if (estado !== 'con_sesion') return <Redirect href="/login" />
-  const quien = estadoPersona({ role: perfil?.usuario.role, persona: perfil?.persona, sinPersona: perfil?.sinPersona, sinConfirmar })
+  const quien = estadoPersona({ role: perfil?.usuario.role, persona: perfil?.persona, sinPersona: perfil?.sinPersona, sinConfirmar, supervisa: perfil?.supervisa })
   if (!entraALasPestanas(quien)) return <FueraDeLaApp {...avisoFuera(quien, perfil?.sinPersona)} />
+  // Equipo (2026-10-31): quien supervisa sin persona ve Equipo · Ajustes; las demás, sus cinco (las otras, href: null)
+  const visibles = pestanasDe(quien)
 
   return (
     <View style={{ flex: 1, backgroundColor: c.fondo }}>
@@ -194,11 +196,12 @@ export default function AppLayout() {
           tabBarAllowFontScaling: false,
         }}
       >
-        {PESTANAS.map(p => (
+        {TODAS_LAS_PESTANAS.map(p => (
           <Tabs.Screen
             key={p.ruta}
             name={p.ruta}
             options={{
+              href: visibles.includes(p.ruta) ? undefined : null,
               title: p.titulo,
               headerTitle: p.encabezado ?? p.titulo,
               headerShown: !SIN_ENCABEZADO.includes(p.ruta),

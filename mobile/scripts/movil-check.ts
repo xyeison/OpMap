@@ -194,6 +194,7 @@ import { pruebas as pruebasTema } from './checks/22-tema'
 import { pruebas as pruebasSedeDelMedico } from './checks/23-sede-del-medico'
 import { pruebas as pruebasRango } from './checks/24-rango'
 import { pruebas as pruebasInicioOpMap } from './checks/25-inicio-opmap'
+import { pruebas as pruebasEquipo } from './checks/26-equipo'
 
 // Este archivo corre en Node (tsx), pero el programa de tipos es el de la app (sin @types/node, que chocaría con los
 // tipos de React Native): fs y path con lo mínimo que se usa aquí.
@@ -1955,6 +1956,7 @@ async function main() {
     await pruebasSedeDelMedico(probador)
     await pruebasRango(probador)
     await pruebasInicioOpMap(probador)
+    await pruebasEquipo(probador)
   }
 
   console.log(`\n${total - fallas}/${total} pruebas pasaron`)

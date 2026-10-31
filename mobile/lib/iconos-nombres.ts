@@ -27,6 +27,8 @@ export type NombreIcono =
   | 'agregar'
   // 2026-10-31: el botón "OpMap" de la franja de estado (vuelve al inicio de módulos de OpMap).
   | 'inicio'
+  // 2026-10-31: la pestaña Equipo (dónde está mi gente).
+  | 'equipo'
 
 export interface GlifosIcono {
   /** Glifo de Ionicons para lo activo o elegido. */
@@ -55,6 +57,7 @@ export const GLIFOS_ICONOS: Readonly<Record<NombreIcono, GlifosIcono>> = {
   compromiso: glifos('clipboard'),
   agregar: glifos('add'),
   inicio: glifos('home'),
+  equipo: glifos('people'),
 }
 
 /** Glifo de Ionicons de un ícono: relleno si está activo, contorno si no. */

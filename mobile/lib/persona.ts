@@ -49,19 +49,25 @@ export const ETIQUETA_COMO: Record<ComoPersona, string> = { ejecutivo: 'Como Eje
  * - 'campo': persona de campo (líder, Ejecutivo Comercial o los dos, como Paola).
  * - 'fuera': el servidor confirmó que no hay persona y dijo por qué (MeResponse.sin_persona: sin líneas…): no entra a
  *   las pestañas y lo ve (avisoFuera).
+ * - 'supervisa': sin persona de campo pero con team:view (MeResponse.supervisa: la dirección, el administrador sin líneas;
+ *   Equipo, 2026-10-31): entra solo a Equipo y Ajustes.
  * - 'sin_lineas': el servidor confirmó que no tiene líneas, sin decir por qué (un servidor anterior): entra y Hoy lo dice.
  * - 'sin_saber': todavía no se sabe (login recién hecho, perfil de antes de F1b, sin señal, servidor sin la 0850).
  */
-export type EstadoPersona = 'campo' | 'direccion' | 'fuera' | 'sin_lineas' | 'sin_saber'
+export type EstadoPersona = 'campo' | 'supervisa' | 'direccion' | 'fuera' | 'sin_lineas' | 'sin_saber'
 
 export function estadoPersona(o: {
   role: string | null | undefined
   persona: PersonaMovil | null | undefined
   sinPersona?: string | null
   sinConfirmar?: boolean
+  /** MeResponse.supervisa (team:view); null o sin el dato: un servidor anterior a Equipo. */
+  supervisa?: boolean | null
 }): EstadoPersona {
-  if (o.role === 'commercial_director') return 'direccion'
+  // La dirección no agenda ni reporta (A1): con team:view entra a Equipo; con un servidor anterior, el aviso de antes
+  if (o.role === 'commercial_director') return o.supervisa === true ? 'supervisa' : 'direccion'
   if (o.persona) return 'campo'
+  if (o.supervisa === true) return 'supervisa'
   if (o.persona === null && !o.sinConfirmar) return o.sinPersona?.trim() ? 'fuera' : 'sin_lineas'
   return 'sin_saber'
 }
@@ -72,6 +78,11 @@ export function estadoPersona(o: {
  */
 export function entraALasPestanas(estado: EstadoPersona): boolean {
   return estado !== 'direccion' && estado !== 'fuera'
+}
+
+/** La tarjeta "Mi equipo" (en Hoy y en Ajustes): persona de campo que además supervisa (una líder). */
+export function muestraMiEquipo(o: { estado: EstadoPersona; supervisa?: boolean | null }): boolean {
+  return o.estado === 'campo' && o.supervisa === true
 }
 
 /** El aviso de quien no entra a las pestañas: la dirección comercial (A1) o el porqué del servidor (sin_persona). */
