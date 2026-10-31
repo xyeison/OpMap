@@ -10,7 +10,8 @@
   debajo de empleado está calendario"): Agendamiento (la líder), Mapa, Calendario, Zonas (`/kams`) y Líneas, y después
   los grupos Terceros, Empleados, Inteligencia de Mercado y Configuración. Cada rol tiene las mismas opciones; solo
   cambió el orden. "Agendamiento" abre la app de campo en la misma pestaña; ahí, la franja de arriba lleva "OpMap" para
-  volver con el menú (solo en el navegador: en el teléfono y en la app instalada no va).
+  volver con el menú (en una pestaña del navegador y con señal; en la app instalada va en Ajustes y en el teléfono no
+  va). Desde Reportar y los formularios pregunta antes de salir: lo escrito ahí aún no está guardado.
 - **Por grupos** (dueño, 2026-10-29, `docs/specs/2026-10-29-menu-por-grupos.md`): Mapa; **Terceros** (título): IPS,
   Cuentas clave (`/terceros`), Médicos, Aseguradoras y Proveedores; **Empleados**: Ejecutivos Comerciales y Líderes de
   negocio; Calendario, Zonas (`/kams`) y Líneas (desde el 2026-10-31, antes de los grupos); **Inteligencia de Mercado**: ADRES, Compras públicas

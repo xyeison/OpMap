@@ -9,7 +9,7 @@
  */
 import { usarMotorHaptico, vibrarAviso, vibrarExito, vibrarSuave, type ToqueHaptico } from '../../lib/haptica'
 import { GLIFOS_ICONOS, type NombreIcono } from '../../lib/iconos-nombres'
-import { MAX_LETRAS_PESTANA, OCULTAS, PESTANAS, RUTA_OPMAP, letras, mostrarIrAOpMap } from '../../lib/navegacion'
+import { MAX_LETRAS_PESTANA, OCULTAS, PESTANAS, RUTA_OPMAP, dondeIrAOpMap, letras, preguntaAntesDeIrAOpMap, rutaDeSegmentos } from '../../lib/navegacion'
 import { ALTO_TOQUE_MIN, COLORES_CLAROS, COLORES_OSCUROS, TAMANO, contraste, type Colores } from '../../lib/paleta'
 import type { Probador } from './probador'
 
@@ -258,21 +258,58 @@ export async function pruebas(t: Probador): Promise<void> {
   // -------------------------------------------------------------------------
   // Volver a OpMap (dueño, 2026-10-31, docs/specs/2026-10-31-menu-volver-opmap-cruce-reps.md): abierta desde
   // "Agendamiento" en una pestaña del navegador, la franja de arriba lleva "OpMap" para volver a la web con su menú. En
-  // el teléfono (Expo) y en la app instalada desde el ícono de inicio, no: ahí es la app.
+  // la app instalada desde el ícono de inicio va en Ajustes ("Ir a OpMap", del 2026-10-30) y en el teléfono (Expo), en
+  // ninguna parte: ahí es la app. Sin señal, en ninguna: la web de OpMap no abre sin señal (revisión 2026-10-31).
   // -------------------------------------------------------------------------
-  t.check('mostrarIrAOpMap: en una pestaña del navegador (correInstalada() === false), sí', mostrarIrAOpMap(false) === true)
-  t.check('mostrarIrAOpMap: en el teléfono (null) y en la app instalada (true), no', mostrarIrAOpMap(null) === false && mostrarIrAOpMap(true) === false)
+  t.check('dondeIrAOpMap: en una pestaña del navegador (correInstalada() === false) con señal, en la franja', dondeIrAOpMap(false, true) === 'franja')
+  t.check('dondeIrAOpMap: en la app instalada (true) con señal, en Ajustes', dondeIrAOpMap(true, true) === 'ajustes')
+  t.check(
+    'dondeIrAOpMap: en el teléfono (null), en ninguna parte; sin señal, tampoco (ni en la franja ni en Ajustes)',
+    [dondeIrAOpMap(null, true), dondeIrAOpMap(null, false), dondeIrAOpMap(false, false), dondeIrAOpMap(true, false)].every(d => d === null)
+  )
   t.check("RUTA_OPMAP es '/' (el inicio de OpMap, que lleva a cada quien a su página)", RUTA_OPMAP === '/', RUTA_OPMAP)
   const irAOpMap = cuerpoDeFuncion(leer('lib/pwa.ts'), 'irAOpMap')
   t.check('pwa.ts: irAOpMap() abre RUTA_OPMAP en la misma pestaña (location.assign) y en el teléfono no hace nada', /ventana\(\)\?\.location\?\.assign\?\.\(RUTA_OPMAP\)/.test(irAOpMap), irAOpMap)
-  const franja = cuerpoDeFuncion(leer('components/EstadoCola.tsx'), 'EstadoCola')
-  const condicionOpMap = /\{mostrarIrAOpMap\(correInstalada\(\)\) \? \(/.exec(franja)
-  const botonOpMap = condicionOpMap ? bloque(franja, condicionOpMap.index + condicionOpMap[0].length - 1) : ''
-  t.check('franja: el botón "OpMap" sale solo con mostrarIrAOpMap(correInstalada())', botonOpMap !== '', franja.slice(0, 200))
+  // Lo escrito en Reportar y en los formularios (las pantallas con "Volver") vive en memoria hasta guardarlo: salir a
+  // OpMap lo pierde, así que desde ellas "OpMap" pregunta antes (revisión 2026-10-31). Hoy, Agenda (adonde llega
+  // "Agendamiento"), Números, Ajustes y "Agregar a inicio" salen sin preguntar.
+  const conBorrador = ['reportar', 'agenda/nueva', 'visita/[id]', 'medico/nuevo', 'sede/nueva', 'contacto/nuevo', 'dias-libres']
   t.check(
-    'franja: el botón dice "OpMap" con el ícono "atras", se anuncia "Volver a OpMap" y llama a irAOpMap',
-    />OpMap</.test(botonOpMap) && /<Icono nombre="atras"/.test(botonOpMap) && /accessibilityLabel="Volver a OpMap"/.test(botonOpMap) && /onPress=\{\(\) => irAOpMap\(\)\}/.test(botonOpMap),
+    'preguntaAntesDeIrAOpMap: Reportar, Agendar, Visita, Nuevo médico, Nueva sede, Nuevo contacto y Días libres preguntan',
+    conBorrador.every(preguntaAntesDeIrAOpMap),
+    conBorrador.filter(r => !preguntaAntesDeIrAOpMap(r))
+  )
+  t.check(
+    'preguntaAntesDeIrAOpMap: Hoy, Agenda, Números, Ajustes y "Agregar a inicio" salen sin preguntar',
+    ['hoy', 'agenda', 'numeros', 'ajustes', 'instalar'].every(r => !preguntaAntesDeIrAOpMap(r))
+  )
+  t.check(
+    'una pantalla nueva con "Volver" pregunta mientras no se marque de solo lectura (hoy solo lo es "Agregar a inicio")',
+    OCULTAS.every(o => preguntaAntesDeIrAOpMap(o.ruta) === (o.ruta !== 'instalar')),
+    OCULTAS.map(o => `${o.ruta}: ${preguntaAntesDeIrAOpMap(o.ruta)}`)
+  )
+  t.check(
+    'rutaDeSegmentos: la ruta de useSegments() sin los grupos de expo-router, con el nombre de PESTANAS y OCULTAS',
+    rutaDeSegmentos(['(app)', 'visita', '[id]']) === 'visita/[id]' &&
+      rutaDeSegmentos(['(app)', 'agenda', 'nueva']) === 'agenda/nueva' &&
+      rutaDeSegmentos(['(app)', 'reportar']) === 'reportar' &&
+      rutaDeSegmentos([]) === ''
+  )
+  const franja = cuerpoDeFuncion(leer('components/EstadoCola.tsx'), 'EstadoCola')
+  const condicionOpMap = /\{dondeIrAOpMap\(correInstalada\(\), enLinea\) === 'franja' \? \(/.exec(franja)
+  const botonOpMap = condicionOpMap ? bloque(franja, condicionOpMap.index + condicionOpMap[0].length - 1) : ''
+  t.check("franja: el botón \"OpMap\" sale solo con dondeIrAOpMap(correInstalada(), enLinea) === 'franja'", botonOpMap !== '', franja.slice(0, 200))
+  t.check(
+    'franja: el botón dice "OpMap" con el ícono "atras", se anuncia "Volver a OpMap" y llama a volverAOpMap',
+    />OpMap</.test(botonOpMap) && /<Icono nombre="atras"/.test(botonOpMap) && /accessibilityLabel="Volver a OpMap"/.test(botonOpMap) && /onPress=\{\(\) => void volverAOpMap\(\)\}/.test(botonOpMap),
     botonOpMap
+  )
+  const volverAOpMap = cuerpoDeFuncion(franja, 'volverAOpMap')
+  t.check(
+    'franja: volverAOpMap pregunta (confirmar) solo si preguntaAntesDeIrAOpMap de la pantalla abierta (useSegments) y sale con irAOpMap si dice que sí',
+    /const segmentos = useSegments\(\)/.test(franja) &&
+      /if \(preguntaAntesDeIrAOpMap\(rutaDeSegmentos\(segmentos\)\) && !\(await confirmar\('¿Volver a OpMap\?', '[^']+', 'Volver a OpMap'\)\)\) return\s*irAOpMap\(\)\s*$/.test(volverAOpMap.slice(1, -1).trim() + '\n'),
+    volverAOpMap
   )
   t.check('franja: el botón va con el color del texto de la franja (borde y letra), sin colores escritos a mano', /borderColor:\s*texto\b/.test(botonOpMap) && /\bcolor:\s*texto\b/.test(botonOpMap) && !/'#[0-9a-f]{3,8}'/i.test(botonOpMap), botonOpMap)
   // Este botón solo sale en la web, y ahí react-native-web no aplica hitSlop: el Pressable mismo mide 44 de alto (la

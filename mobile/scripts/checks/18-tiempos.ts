@@ -401,7 +401,13 @@ export async function pruebas(t: Probador): Promise<void> {
         /ventana\.addEventListener\('storage', alCambiar\)/.test(almacenWeb)
     )
     const ajustes = leer('app/(app)/ajustes.tsx')
-    t.check('Ajustes: "Ir a OpMap" solo en el navegador (vuelve a la web sin escribir la dirección)', /Platform\.OS === 'web'[\s\S]{0,400}Ir a OpMap/.test(ajustes))
+    // Revisión 2026-10-31: en una pestaña del navegador "OpMap" va en la franja de arriba (components/EstadoCola.tsx); en
+    // Ajustes queda solo para la app instalada (una sola vez), con la misma regla y la misma salida, y sin señal no va.
+    t.check(
+      'Ajustes: "Ir a OpMap" solo en la app instalada y con señal (dondeIrAOpMap === \'ajustes\'), con irAOpMap(), sin la dirección escrita a mano',
+      /\{dondeIrAOpMap\(correInstalada\(\), enLinea\) === 'ajustes' \? \(\s*<Boton titulo="Ir a OpMap" variante="secundario" alPresionar=\{\(\) => irAOpMap\(\)\} \/>\s*\) : null\}/.test(ajustes) &&
+        !/location\?\.assign/.test(ajustes)
+    )
 
     const sesion = leer('lib/sesion.ts')
     const abrir = sesion.slice(sesion.indexOf('const abrir = useCallback('), sesion.indexOf('// Al abrir la app.'))

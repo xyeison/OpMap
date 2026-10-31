@@ -39,6 +39,8 @@ export interface PantallaOculta {
   ruta: string
   /** Título del encabezado (la pantalla abre con "Volver"). */
   encabezado: string
+  /** Solo se lee (nada escrito que perder): "OpMap" sale de ella sin preguntar. Las demás son formularios. */
+  soloLectura?: true
 }
 
 /** Pantallas del grupo sin pestaña propia (`href: null`): se abren desde otra pantalla y vuelven con "Volver". */
@@ -50,7 +52,7 @@ export const OCULTAS: readonly PantallaOculta[] = [
   { ruta: 'sede/nueva', encabezado: 'Nueva sede' },
   { ruta: 'contacto/nuevo', encabezado: 'Nuevo contacto' },
   // App sin señal (2026-10-30): cómo agregarla a la pantalla de inicio (Android e iPhone).
-  { ruta: 'instalar', encabezado: 'Agregar a inicio' },
+  { ruta: 'instalar', encabezado: 'Agregar a inicio', soloLectura: true },
 ]
 
 /**
@@ -63,12 +65,32 @@ export const SIN_ENCABEZADO: readonly Pestana['ruta'][] = ['hoy', 'reportar']
 export const RUTA_OPMAP = '/'
 
 /**
- * ¿Va el botón "OpMap" en la franja de arriba (components/EstadoCola.tsx)? Solo en una pestaña del navegador, adonde se
- * llega desde "Agendamiento" de OpMap y donde, sin él, se perdía el menú (dueño, 2026-10-31). En el teléfono
- * (correInstalada() da null) y en la app instalada desde el ícono de inicio (true), no: ahí es la app.
+ * Dónde va la salida a OpMap. En una pestaña del navegador (correInstalada() da false), adonde se llega desde
+ * "Agendamiento" de OpMap y donde sin ella se perdía el menú, en la franja de arriba (components/EstadoCola.tsx; dueño,
+ * 2026-10-31). En la app instalada desde el ícono de inicio (true), en Ajustes ("Ir a OpMap", del 2026-10-30). Así sale
+ * una sola vez. En el teléfono (null), en ninguna parte: ahí es la app. Sin señal, en ninguna: la web de OpMap no tiene
+ * service worker y el navegador mostraría su página de error (revisión 2026-10-31).
  */
-export function mostrarIrAOpMap(instalada: boolean | null): boolean {
-  return instalada === false
+export function dondeIrAOpMap(instalada: boolean | null, enLinea: boolean): 'franja' | 'ajustes' | null {
+  if (instalada === null || !enLinea) return null
+  return instalada ? 'ajustes' : 'franja'
+}
+
+/**
+ * ¿Pregunta "OpMap" antes de salir de esta pantalla (la ruta de PESTANAS u OCULTAS)? Sí en Reportar y en las que abren
+ * con "Volver" (formularios): lo escrito vive en memoria hasta guardarlo y salir a OpMap lo pierde (revisión
+ * 2026-10-31; lo pendiente por subir no, vive en IndexedDB). Hoy, Agenda, Números, Ajustes y las de solo lectura salen sin
+ * preguntar.
+ */
+export function preguntaAntesDeIrAOpMap(ruta: string): boolean {
+  if (ruta === 'reportar') return true
+  const oculta = OCULTAS.find(o => o.ruta === ruta)
+  return oculta !== undefined && !oculta.soloLectura
+}
+
+/** La ruta de useSegments() de expo-router sin los grupos ("(app)"), con el nombre que llevan PESTANAS y OCULTAS. */
+export function rutaDeSegmentos(segmentos: readonly string[]): string {
+  return segmentos.filter(s => !s.startsWith('(')).join('/')
 }
 
 /** Letras de un nombre (cuenta "ú" como una sola). */
