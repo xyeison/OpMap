@@ -52,7 +52,8 @@
  *     toques" (como antes, cuando cada llegada pedía el contexto). Así no se dicta para perder el audio.
  *   - La cita tocada en Hoy que quedó pendiente se ve (con "Reportar esa cita" y "Olvidarla") y NO arranca sola al
  *     terminar un envío: no borra lo recién confirmado ni "Agendar esa reunión".
- *   - "Descartar" pide confirmación.
+ *   - "Descartar" pide confirmación. Si era la última tarjeta y no hay confirmadas, vuelve a la lista con lo elegido
+ *     (faseAlDescartar) y lo dictado se olvida con ella.
  *
  * Estilo Uber (2026-10-15): sin encabezado; mientras se elige, el croquis arriba (tu punto, las sedes y el radio de la
  * cita o la sede elegida, components/Croquis.tsx) y la hoja con "¿Dónde estás?"; con tarjetas, "Revisa la visita".
@@ -94,6 +95,7 @@ import {
   cuerpoDesdeBorrador,
   debeReiniciarReporte,
   descartarYaConfirmadas,
+  faseAlDescartar,
   hayEleccion,
   interpretarRechazo,
   resumenBorrador,
@@ -913,6 +915,14 @@ export default function Reportar() {
     const si = await confirmar('¿Descartar esta visita?', 'Se borra lo que tiene esta tarjeta y no se guarda nada.', 'Descartar', true)
     if (!si) return
     setBorradores(prev => prev.filter(b => b.clave !== clave))
+    // Lo del momento del toque vale: la pregunta es modal y otra tarjeta en envío sigue abierta o queda confirmada.
+    if (faseAlDescartar({ clave, tarjetas: borradores, confirmadas: resultados.length }) === 'lista') {
+      // Lo dictado se va con la tarjeta: si no, reaparecería (y se podría "Corregir hablando") en la próxima por toques.
+      setTranscript(null)
+      setAvisoVoz(null)
+      setErrorVoz(null)
+      setFase('lista')
+    }
   }
 
   /** "Agendar esa reunión": con quién va en memoria (fijarPedidoAgendar), la fecha en la URL (rutaAgendar). */
