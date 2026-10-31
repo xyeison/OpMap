@@ -9,10 +9,12 @@
  * los grupos Terceros (IPS, Cuentas clave, Médicos, Aseguradoras, Proveedores), Empleados (Ejecutivos Comerciales,
  * Líderes de negocio), Inteligencia de Mercado (ADRES, Compras públicas, Contratos, Cumplimiento) y Configuración (Mi
  * Empresa, Usuarios, Visita VMO y Parámetros, al final). Médicos, Aseguradoras y Líderes de negocio abren
- * "Próximamente". Municipios sigue dentro de Parámetros (territories:view); Regiones (/zones) se quitó. "/" lleva al
- * Mapa; sin mapa, a Calendario. El REPS (importar y cruce) es solo del administrador y del gestor de datos (sección 10).
- * Los permisos de cada rol NO cambian, salvo zones:view y zones:edit, que salieron el 2026-10-14 con las Regiones
- * (spec docs/specs/2026-10-14-quitar-regiones.md): sección 8.
+ * "Próximamente". Municipios sigue dentro de Parámetros (territories:view); Regiones (/zones) se quitó. "/" y el
+ * logotipo llevan a /inicio, la cuadrícula de módulos del rol (dueño, 2026-10-31,
+ * docs/decisiones/2026-10-31-inicio-de-modulos-tipo-iphone.md). El REPS (importar y cruce) es solo del administrador y
+ * del gestor de datos (sección 10). Los permisos de cada rol NO cambian, salvo zones:view y zones:edit, que salieron el
+ * 2026-10-14 con las Regiones (spec docs/specs/2026-10-14-quitar-regiones.md): sección 8; y reps:manage, nuevo el
+ * 2026-10-31 para esos dos perfiles: sección 10.
  *
  * Uso (desde web/): npx tsx scripts/menu-check.ts   (va dentro de npm run test)
  * Código de salida 1 si alguna prueba falla.

@@ -118,6 +118,7 @@ import {
   type Retorno,
 } from '../../lib/retorno'
 import { useSesion } from '../../lib/sesion'
+import { useSinGuardar } from '../../lib/sin-guardar'
 import { avisoDelPie, pedidoAgendarDe, resumenParaPie } from '../../lib/tarjeta-resumen'
 import { marcar } from '../../lib/tiempos'
 import type { CitaItem, ContactoContexto, ContextoResponse, SedeBusquedaItem, VisitaItem, VisitasResponse } from '../../lib/tipos'
@@ -325,6 +326,10 @@ export default function Reportar() {
   // de la final al confirmar y la recarga del contexto: EstadoDelReporte de lib/ubicacion-pasos.ts).
   const ultimo = useRef({ contexto, puntoContexto, extras, punto, catalogo, sinSenal, llegada, fase, borradores: borradores.length, tarjetas: borradores, sedeElegida, cita })
   ultimo.current = { contexto, puntoContexto, extras, punto, catalogo, sinSenal, llegada, fase, borradores: borradores.length, tarjetas: borradores, sedeElegida, cita }
+
+  // Reportar sigue montada en las otras pestañas: con tarjetas sin confirmar o un dictado en curso, "OpMap" pregunta
+  // antes de salir aunque se toque desde Hoy (lib/sin-guardar.ts). Ubicando no cuenta: no hay nada escrito.
+  useSinGuardar('reportar', borradores.length > 0 || fase === 'grabando' || fase === 'transcribiendo' || fase === 'proponiendo')
 
   /** Las visitas de hoy para los topes: las del servidor más las de la cola de hoy (sin repetir client_id). */
   const visitasHoy = useMemo<VisitaHoyTope[]>(() => {

@@ -12,7 +12,8 @@
   cambió el orden. "Agendamiento" abre la app de campo en la misma pestaña; ahí, la franja de arriba lleva "OpMap", que
   vuelve al inicio de módulos (`mobile/lib/opmap-enlace.ts`: en una pestaña, en la misma; instalada, en otra; sin señal
   solo avisa; en el teléfono no va). Es la única salida (Ajustes ya no lleva "Ir a OpMap"). Desde Reportar y los
-  formularios pregunta antes de salir en la misma pestaña: lo escrito ahí aún no está guardado.
+  formularios pregunta antes de salir en la misma pestaña: lo escrito ahí aún no está guardado. Desde otra pantalla
+  también pregunta si Reportar quedó detrás con tarjetas sin confirmar o un dictado en curso.
 - **Por grupos** (dueño, 2026-10-29, `docs/specs/2026-10-29-menu-por-grupos.md`): Mapa; **Terceros** (título): IPS,
   Cuentas clave (`/terceros`), Médicos, Aseguradoras y Proveedores; **Empleados**: Ejecutivos Comerciales y Líderes de
   negocio; Calendario, Zonas (`/kams`) y Líneas (desde el 2026-10-31, antes de los grupos); **Inteligencia de Mercado**: ADRES, Compras públicas

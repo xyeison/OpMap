@@ -152,7 +152,8 @@ nada llama a Google.
   página de inicio), y la app de campo lleva en su franja de estado el botón "OpMap" que vuelve a `/inicio`
   (`mobile/lib/opmap-enlace.ts`: misma pestaña; instalada, otra pestaña; sin señal, solo avisa). Es la única salida a
   OpMap de la app (Ajustes ya no lleva "Ir a OpMap"), y si va a salir en la misma pestaña desde Reportar o un formulario
-  pregunta antes, porque lo escrito ahí vive en memoria (`preguntaAntesDeIrAOpMap`,
+  pregunta antes, porque lo escrito ahí vive en memoria; también desde otra pantalla si Reportar quedó detrás con
+  tarjetas sin confirmar o un dictado en curso (`preguntaAntesDeIrAOpMap`, `mobile/lib/sin-guardar.ts`,
   `docs/specs/2026-10-31-menu-volver-opmap-cruce-reps.md`).
 - **La app de campo trabaja sin señal y el servidor MARCA, no rechaza** (dueño, 2026-10-30,
   `docs/decisiones/2026-10-30-campo-sin-senal-marcas-en-vez-de-rechazos.md`, spec `docs/specs/2026-10-30-campo-sin-senal-pwa.md`):

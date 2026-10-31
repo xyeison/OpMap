@@ -7,7 +7,8 @@
  * 2026-10-31 (dueño): a la izquierda, el botón "OpMap" vuelve al inicio de módulos de OpMap (lib/opmap-enlace.ts): misma
  * pestaña en el navegador, otra pestaña si la app está instalada, y sin señal solo avisa. En el teléfono compilado no sale.
  * Si va a salir en esta misma pestaña desde Reportar o un formulario, pregunta antes: lo escrito ahí vive en memoria y se
- * perdería (lib/navegacion.ts, preguntaAntesDeIrAOpMap).
+ * perdería (lib/navegacion.ts, preguntaAntesDeIrAOpMap). También pregunta desde otra pantalla si Reportar, que sigue
+ * montada detrás, tiene tarjetas sin confirmar o un dictado en curso (lib/sin-guardar.ts).
  */
 import { useSegments } from 'expo-router'
 import { useEffect, useState } from 'react'
@@ -20,6 +21,7 @@ import { detalleFranja, textoEstadoConexion } from '../lib/estado-cola'
 import { preguntaAntesDeIrAOpMap, rutaDeSegmentos } from '../lib/navegacion'
 import { alHaberVersionNueva, aplicarVersionNueva, correInstalada, esNavegador } from '../lib/pwa'
 import { useSesion } from '../lib/sesion'
+import { haySinGuardar } from '../lib/sin-guardar'
 import { ALTO_TOQUE_MIN, confirmar, useColores, useFuente } from '../lib/ui'
 
 export function EstadoCola() {
@@ -49,9 +51,10 @@ export function EstadoCola() {
     // La pestaña nueva se abre ANTES de preguntar: después de esperar una respuesta el navegador la bloquearía.
     const abierta = destino.nuevaPestana && w.open ? w.open(destino.url, '_blank') : null
     if (abierta) return
-    // En esta misma pestaña, lo escrito en Reportar o en un formulario (en memoria hasta guardarlo) se perdería: ahí
-    // pregunta antes. Lo pendiente por subir no se pierde (IndexedDB).
-    if (preguntaAntesDeIrAOpMap(rutaDeSegmentos(segmentos)) && !(await confirmar('¿Volver a OpMap?', 'Lo que no hayas guardado en esta pantalla se pierde.', 'Volver a OpMap'))) return
+    // En esta misma pestaña, lo escrito en Reportar o en un formulario (en memoria hasta guardarlo) se perdería: pregunta
+    // antes desde ellos, y desde cualquier pantalla si Reportar quedó detrás con algo abierto (haySinGuardar). Lo
+    // pendiente por subir no se pierde (IndexedDB).
+    if ((haySinGuardar() || preguntaAntesDeIrAOpMap(rutaDeSegmentos(segmentos))) && !(await confirmar('¿Volver a OpMap?', 'Lo que no hayas guardado se pierde.', 'Volver a OpMap'))) return
     w.location?.assign(destino.url)
   }
 

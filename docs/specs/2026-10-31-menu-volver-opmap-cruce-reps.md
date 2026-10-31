@@ -27,6 +27,8 @@ El dueño, al probar el diseño nuevo (2026-10-31):
    app del teléfono (Expo) no sale. Es la única salida: Ajustes ya no lleva "Ir a OpMap". Lo pendiente por subir no se
    pierde al salir (sigue en el teléfono y se sube como siempre); lo escrito y aún sin guardar en Reportar o en un
    formulario sí, así que, si va a salir en la misma pestaña desde esas pantallas, pregunta antes ("¿Volver a OpMap?").
+   Reportar es una pestaña y sigue abierta detrás de Hoy con sus tarjetas: si tiene tarjetas sin confirmar o un dictado
+   en curso, pregunta también desde cualquier otra pantalla.
 3. **Cruce REPS:** el botón, la página `/hospitals/reps` y sus datos (`GET /api/hospitals/reps/summary`) son solo del
    administrador y del gestor de datos, como "Importar del REPS". Los demás no ven el botón; si escriben la dirección, la
    página dice que es de administración, y la API responde 403.
@@ -43,6 +45,9 @@ El dueño, al probar el diseño nuevo (2026-10-31):
       antes de salir en la misma pestaña; desde Hoy, Agenda, Números y Ajustes sale sin preguntar. Sin señal solo avisa,
       sin preguntar. En la app instalada la otra pestaña se abre antes de preguntar (después de esperar una respuesta el
       navegador la bloquearía) y, si abrió, no pregunta: la app sigue abierta con lo escrito.
+- [ ] Con tarjetas sin confirmar o un dictado en curso (grabando, transcribiendo o armando la propuesta) en Reportar,
+      "OpMap" pregunta también desde Hoy, Agenda, Números o Ajustes (`mobile/lib/sin-guardar.ts`). Mientras solo ubica,
+      no: no hay nada escrito.
 - [ ] Permiso nuevo `reps:manage` (REPS: importar y cruce): solo admin y data_manager.
 - [ ] En `/hospitals`, "Cruce REPS" e "Importar del REPS" salen solo con `reps:manage`; `/hospitals/reps` y
       `/hospitals/import` lo piden; `GET /api/hospitals/reps/summary` responde 403 sin él (viewer y líder) y deja pasar al
@@ -77,7 +82,8 @@ El dueño, al probar el diseño nuevo (2026-10-31):
   (la ruta real contra el Supabase falso: 403 sin el permiso, pasa con él).
 - `mobile/lib/navegacion.ts` (puros): `preguntaAntesDeIrAOpMap(ruta: string): boolean` y
   `rutaDeSegmentos(segmentos): string`; `mobile/components/EstadoCola.tsx`: la pregunta dentro del `irAOpMap` de #72
-  (con `useSegments`); `mobile/app/(app)/ajustes.tsx`: sin "Ir a OpMap". Pruebas en
+  (con `useSegments`); `mobile/app/(app)/ajustes.tsx`: sin "Ir a OpMap". `mobile/lib/sin-guardar.ts`:
+  `marcarSinGuardar(pantalla, hay)`, `haySinGuardar()` y `useSinGuardar(pantalla, hay)`, que Reportar usa. Pruebas en
   `mobile/scripts/checks/15-navegacion.ts` (y la de #72 en `25-inicio-opmap.ts`, ajustada a la pregunta).
 - `web/docs/ROLES_AND_PERMISSIONS.md` y `CLAUDE.md` (una línea del menú y otra del REPS).
 
@@ -96,6 +102,18 @@ la misma franja, y el dueño lo dejó como decisión en CLAUDE.md. Para no tener
 "Ir a OpMap" de Ajustes (con #72 se veía dos veces también en la app instalada). Se quitaron `RUTA_OPMAP`,
 `dondeIrAOpMap` y `irAOpMap()` de `pwa.ts`, que ya nadie usaba. El botón de #72 mide 32 px de alto, como "Subir ahora" y
 "Actualizar" a su lado (este PR había hecho el suyo de 44): los tres juntos quedan para la etapa de diseño de la app.
+
+## Segunda revisión (2026-10-31, después de mezclar #72)
+
+El revisor encontró que la pregunta dependía solo de la pantalla a la vista: Reportar es una pestaña y sigue abierta
+detrás de Hoy con sus tarjetas (al volver antes de 10 minutos siguen ahí), así que desde Hoy se salía sin preguntar y se
+perdían. Corregido: Reportar marca lo que tiene sin guardar (tarjetas sin confirmar o un dictado en curso) y "OpMap"
+pregunta desde cualquier pantalla mientras esté marcado; el texto dice "Lo que no hayas guardado se pierde." (ya no "en
+esta pantalla"). Pasados los 10 minutos también pregunta, aunque al volver Reportar ya las descartaría: una pregunta de
+más antes que una tarjeta perdida. Los formularios con "Volver" no lo necesitan: se cierran al salir de ellos (`SoloEnFoco`). Quedan aparte,
+por ser menores: la nota escrita en Días libres antes de enviarla y el motivo escrito en Hoy o Agenda al cerrar una
+cita, que tampoco preguntan. También se añadió la prueba de que el botón corre `irAOpMap` y se corrigió el comentario
+de `web/scripts/menu-check.ts` ("/" lleva a `/inicio`; permiso nuevo `reps:manage`).
 
 ## Verificación final
 
