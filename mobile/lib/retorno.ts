@@ -5,6 +5,7 @@
  */
 import type { Punto } from './geo'
 import type { FormularioCita, MedicoOpcion, SedeOpcion } from './propuesta'
+import type { SedeDeCita } from './sede-del-medico'
 import type { ContactoContexto, VisitaCreate } from './tipos'
 
 export type Retorno =
@@ -30,10 +31,18 @@ export const CLAVE_RETORNO_AGENDAR = 'agendar'
 
 export const VIGENCIA_VUELTA_AGENDAR_MS = 30 * 60_000
 
-let vueltaAgendar: { formulario: FormularioCita; medicoId: string | null; desde: number } | null = null
+export interface VueltaAgendar {
+  formulario: FormularioCita
+  /** Nuevo médico: el que quedó (creado, o el que ya estaba con ese documento). */
+  medicoId: string | null
+  /** Nueva sede (spec 2026-10-30-agendar-sede-del-medico): la creada, para vincularla al médico del formulario y elegirla. */
+  sede: SedeDeCita | null
+}
+
+let vueltaAgendar: (VueltaAgendar & { desde: number }) | null = null
 
 export function guardarAgendarAntesDeCrear(formulario: FormularioCita, ahora: number = Date.now()): void {
-  vueltaAgendar = { formulario, medicoId: null, desde: ahora }
+  vueltaAgendar = { formulario, medicoId: null, sede: null, desde: ahora }
 }
 
 /** Nuevo médico, pedido desde Agendar: el médico que quedó (creado o el que ya estaba). Sin vuelta guardada, nada. */
@@ -41,12 +50,23 @@ export function medicoParaAgendar(medicoId: string): void {
   if (vueltaAgendar) vueltaAgendar = { ...vueltaAgendar, medicoId }
 }
 
-/** Al montarse Agendar: lo que llevaba y el médico, una sola vez (después, null). Vencida, null. */
-export function tomarVueltaAgendar(ahora: number = Date.now()): { formulario: FormularioCita; medicoId: string | null } | null {
+/**
+ * Nueva sede, pedida desde Agendar: la sede creada (Agendar la vincula al médico y la elige). Sin vuelta guardada
+ * (pasaron más de VIGENCIA_VUELTA_AGENDAR_MS en Nueva sede), devuelve false: la sede existe pero nadie la va a
+ * vincular, y Nueva sede lo dice.
+ */
+export function sedeParaAgendar(sede: SedeDeCita): boolean {
+  if (!vueltaAgendar) return false
+  vueltaAgendar = { ...vueltaAgendar, sede }
+  return true
+}
+
+/** Al montarse Agendar: lo que llevaba, el médico y la sede, una sola vez (después, null). Vencida, null. */
+export function tomarVueltaAgendar(ahora: number = Date.now()): VueltaAgendar | null {
   const vuelta = vueltaAgendar
   vueltaAgendar = null
   if (!vuelta || ahora - vuelta.desde > VIGENCIA_VUELTA_AGENDAR_MS) return null
-  return { formulario: vuelta.formulario, medicoId: vuelta.medicoId }
+  return { formulario: vuelta.formulario, medicoId: vuelta.medicoId, sede: vuelta.sede }
 }
 
 const oyentes = new Set<Oyente>()
@@ -91,6 +111,11 @@ export interface PedidoCreacion {
   nombre?: string | null
   /** Nuevo contacto: la cuenta de la tarjeta (y su sede, si ya se eligió). */
   cuenta?: { id: string; nombre: string } | null
+  /**
+   * Nueva sede pedida desde Agendar (clave CLAVE_RETORNO_AGENDAR): el médico que atiende ahí. Con él la ubicación es
+   * opcional (no se está en el sitio) y la sede vuelve por la vuelta de Agendar (sedeParaAgendar), no por el aviso.
+   */
+  medico?: { id: string; nombre: string } | null
   sede_id?: string | null
   /** Municipio por defecto (DANE de 5 dígitos): el de la zona de la persona. */
   municipio?: string | null

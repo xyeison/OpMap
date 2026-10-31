@@ -68,7 +68,7 @@ import type {
   MedicoVerificarRespuesta,
   PaginaTerceros,
   SedeBusquedaItem,
-  SedeCreateGps,
+  SedeCreateApp,
   SedeCreateResponse,
 } from './tipos'
 
@@ -515,8 +515,8 @@ export async function crearCuenta(datos: CuentaCreate): Promise<CuentaCreateResp
   return respuesta
 }
 
-/** Crea una sede con el GPS del sitio (origen 'gps_app'). */
-export async function crearSede(datos: SedeCreateGps): Promise<SedeCreateResponse> {
+/** Crea una sede con el GPS del sitio (origen 'gps_app') o, desde Agendar, sin ubicación ("por confirmar"). */
+export async function crearSede(datos: SedeCreateApp): Promise<SedeCreateResponse> {
   const respuesta = await peticion<SedeCreateResponse>('/api/terceros/sedes', { metodo: 'POST', cuerpo: datos })
   invalidarContexto('terceros')
   return respuesta

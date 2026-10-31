@@ -479,7 +479,8 @@ export async function pruebas(t: Probador): Promise<void> {
       'Agendar: al montarse toma su vuelta (lo que llevaba) y, con el contexto, elige al médico que quedó; si no es de sus líneas de líder, lo dice',
       /const \[vuelta\] = useState\(\(\) => tomarVueltaAgendar\(\)\)/.test(nueva) &&
         /useState<FormularioCita>\(\(\) => vuelta\?\.formulario \?\?/.test(nueva) &&
-        /if \(!contexto \|\| !vuelta\?\.medicoId \|\| vueltaAplicada\.current\) return\s*vueltaAplicada\.current = true\s*void ponerMedicoCreado\(vuelta\.medicoId, contexto\)/.test(nueva) &&
+        // Desde la spec 2026-10-30-agendar-sede-del-medico la vuelta también puede traer una sede (23-sede-del-medico).
+        /if \(!contexto \|\| vueltaAplicada\.current\) return\s*if \(vuelta\?\.medicoId\) \{\s*vueltaAplicada\.current = true\s*void ponerMedicoCreado\(vuelta\.medicoId, contexto\)/.test(nueva) &&
         /medicosDelPapel\(ctx\.mis_medicos, persona, como\)\.find\(m => m\.id === id\)/.test(nueva) &&
         /aún no es de tus líneas de líder/.test(nueva)
     )

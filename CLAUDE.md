@@ -130,7 +130,10 @@ nada llama a Google.
   - se crea desde la búsqueda que no encontró a nadie; "Nuevo médico" arriba solo si la lista cabe en una página;
   - el que crea una líder queda de sus líneas de líder (`medico_lineas`);
   - el contacto lleva teléfono y/o correo y no se repite entre los activos de la cuenta (409 con `existente`);
-  - la visita institucional exige contacto.
+  - la visita institucional exige contacto;
+  - desde Agendar, el selector "Sede" del médico busca una sede en OpMap y la vincula (rol `atiende`), o la crea con la
+    ubicación OPCIONAL (sin ella nace "por confirmar", sin coordenadas inventadas; `lib/sede-del-medico.ts`,
+    `docs/specs/2026-10-30-agendar-sede-del-medico.md`). "Es su consultorio" sigue solo en Nuevo médico.
 
   Migración 0950 (rollback 9960) APLICADA el 2026-10-30 con autorización del dueño; borró con respaldo los médicos de
   prueba "otro".
