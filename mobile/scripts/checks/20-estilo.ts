@@ -9,7 +9,10 @@ import {
   ALTO_CROQUIS_BAJO,
   ALTO_ETIQUETA_CROQUIS,
   BORDE_ETIQUETA,
+  BORDE_YO_LEJOS,
   altoCroquis,
+  etiquetaYoDelPlan,
+  puntoAlBorde,
   cajaNombreSede,
   descripcionCroquis,
   etiquetaSedeArriba,
@@ -200,8 +203,19 @@ export async function pruebas(t: Probador): Promise<void> {
   t.check('croquis: la sede del foco va primero (para el nombre encima)', plan?.sedes[0]?.id === 'porto' && plan.sedes[0].foco)
   t.check('croquis: el halo de tu punto es tu precisión a escala, nunca menos de 14 pt', !!plan?.yo && plan.yo.halo >= 14)
 
+  // Dueño, 2026-10-31 ("me voy a reportar OINSAMED y sale Portoazul porque vivo cerca de Portoazul"): la sede pedida
+  // manda aunque quede lejos; el croquis se centra en ella y tu punto va al borde. Sin pedida, sigue la más cercana.
   const lejos = planCroquis({ yo: YO, sedes: [LEJOS, PORTO], foco: 'reina', radioM: 100, ...caja })
-  t.check('croquis: la sede pedida muy lejos (6,6 km, otra ciudad) no se dibuja; el foco pasa a la más cercana', lejos?.foco?.id === 'porto' && !lejos.sedes.some(s => s.id === 'reina'), lejos?.foco)
+  t.check('croquis: la sede pedida muy lejos (6,6 km) SIGUE siendo el foco, con su radio, centrada', lejos?.foco?.id === 'reina' && !!lejos.radio && Math.abs(lejos.radio.x - caja.ancho / 2) < 1 && Math.abs(lejos.radio.y - caja.alto / 2) < 1, lejos?.foco)
+  t.check('croquis: con la pedida lejos tu punto va pegado al borde (enBorde), dentro del dibujo', !!lejos?.yo && lejos.yo.enBorde && lejos.yo.x >= BORDE_YO_LEJOS - 1e-6 && lejos.yo.x <= caja.ancho - BORDE_YO_LEJOS + 1e-6 && lejos.yo.y >= BORDE_YO_LEJOS - 1e-6 && lejos.yo.y <= caja.alto - BORDE_YO_LEJOS + 1e-6 && (Math.abs(lejos.yo.x - BORDE_YO_LEJOS) < 1e-6 || Math.abs(lejos.yo.x - (caja.ancho - BORDE_YO_LEJOS)) < 1e-6 || Math.abs(lejos.yo.y - BORDE_YO_LEJOS) < 1e-6 || Math.abs(lejos.yo.y - (caja.alto - BORDE_YO_LEJOS)) < 1e-6), lejos?.yo)
+  t.check('croquis: tu punto al borde queda en la dirección real (Reina Catalina al este-sur de ti → tu punto al oeste y arriba de la sede)', !!lejos?.yo && !!lejos.radio && lejos.yo.x < lejos.radio.x && lejos.yo.y < lejos.radio.y)
+  t.check('croquis: con la pedida lejos la etiqueta dice la distancia real ("Estás a 6,6 km"); cerca, la de la pantalla', etiquetaYoDelPlan(lejos, 'Estás aquí · ±12 m', textoDistancia) === `Estás a ${textoDistancia(haversineM(YO, { lat: LEJOS.lat as number, lng: LEJOS.lng as number }))}` && etiquetaYoDelPlan(plan, 'Estás aquí · ±12 m', textoDistancia) === 'Estás aquí · ±12 m' && plan?.yo?.enBorde === false)
+  const sinPedida = planCroquis({ yo: YO, sedes: [LEJOS, PORTO], foco: null, radioM: 100, ...caja })
+  t.check('croquis: sin sede pedida el foco es la más cercana a ti y la lejana no se dibuja', sinPedida?.foco?.id === 'porto' && !sinPedida.sedes.some(s => s.id === 'reina'), sinPedida?.foco)
+  const pedidaSinCoordenadas = planCroquis({ yo: YO, sedes: [PORTO, SIN], foco: 'sin', radioM: 100, ...caja })
+  t.check('croquis: la sede pedida sin coordenadas → sin foco ni radio (no se dibuja el radio de otra)', !!pedidaSinCoordenadas && pedidaSinCoordenadas.foco === null && pedidaSinCoordenadas.radio === null && !!pedidaSinCoordenadas.yo, pedidaSinCoordenadas?.foco)
+  const bordeCentro = puntoAlBorde({ x: 195, y: 85 }, { x: 395, y: 85 }, { ancho: 390, alto: 170, margen: 22 })
+  t.check('puntoAlBorde: hacia el este sale por el borde derecho a 22 pt', Math.abs(bordeCentro.x - 368) < 1e-6 && Math.abs(bordeCentro.y - 85) < 1e-6, bordeCentro)
   const sinYo = planCroquis({ yo: null, sedes: [PORTO], foco: 'porto', radioM: 100, ...caja })
   t.check('croquis: sin tu punto se centra en la sede del foco (sin distancia ni "dentro")', !!sinYo?.radio && Math.abs(sinYo.radio.x - caja.ancho / 2) < 1 && Math.abs(sinYo.radio.y - caja.alto / 2) < 1 && sinYo.yo === null && sinYo.foco?.distanciaM === null && sinYo.foco?.dentro === null)
   const solo = planCroquis({ yo: { ...YO, precision: 3 }, sedes: [], foco: null, radioM: 100, ...caja })
@@ -220,6 +234,26 @@ export async function pruebas(t: Probador): Promise<void> {
   const LOGO_HOY = { x: 16, y: 8, ancho: 106, alto: 40 }
   const cosLat = Math.cos((PORTO.lat * Math.PI) / 180)
   const aMetros = (este: number, norte: number) => ({ lat: PORTO.lat + norte / 111_320, lng: PORTO.lng + este / (111_320 * cosLat), precision: 12 })
+  t.check('puntoAlBorde: si ya cabe, se queda donde está; con márgenes por lado, respeta el de arriba', (() => { const d = puntoAlBorde({ x: 195, y: 85 }, { x: 250, y: 90 }, { ancho: 390, alto: 170, margen: 22 }); const a = puntoAlBorde({ x: 195, y: 85 }, { x: 195, y: -100 }, { ancho: 390, alto: 170, margen: { arriba: 58, abajo: 22, izquierda: 22, derecha: 22 } }); return Math.abs(d.x - 250) < 1e-6 && Math.abs(d.y - 90) < 1e-6 && Math.abs(a.y - 58) < 1e-6 })())
+  // Revisor 2026-10-31: "lejos" se decide por si tu punto cabe a la escala máxima, no por los metros. En vertical caben
+  // menos (±1.500 m del centro con el croquis de 170): a 2,9 km al norte tu punto ya no cabe → al borde.
+  const norte29 = planCroquis({ yo: aMetros(0, 2900), sedes: [PORTO], foco: 'porto', radioM: 300, ...caja })
+  t.check('croquis: la sede a 2,9 km al sur (menos de 3 km) ya no cabe en vertical → tu punto al borde de arriba', !!norte29?.yo && norte29.yo.enBorde && Math.abs(norte29.yo.y - BORDE_YO_LEJOS) < 1e-6 && Math.abs(norte29.yo.x - caja.ancho / 2) < 1, norte29?.yo)
+  const este29 = planCroquis({ yo: aMetros(2900, 0), sedes: [PORTO], foco: 'porto', radioM: 300, ...caja })
+  t.check('croquis: la sede a 2,9 km al oeste cabe en horizontal (390 pt) → tu punto dentro, sin borde', !!este29?.yo && !este29.yo.enBorde && este29.yo.x > BORDE_YO_LEJOS && este29.yo.x < caja.ancho - BORDE_YO_LEJOS, este29?.yo)
+  // Revisor 2026-10-31: tu punto al borde no se mete debajo de la pastilla de rango ni del logotipo.
+  const PASTILLA = { x: caja.ancho - 16 - 190, y: 8, ancho: 190, alto: 28 }
+  const noreste = planCroquis({ yo: aMetros(4000, 5000), sedes: [PORTO], foco: 'porto', radioM: 300, ...caja, evitar: [PASTILLA] })
+  const tapa = (p: { x: number; y: number } | null | undefined, c: CajaCroquis) => !!p && p.x + 8 > c.x && p.x - 8 < c.x + c.ancho && p.y + 8 > c.y && p.y - 8 < c.y + c.alto
+  t.check('croquis: estando al noreste con la pastilla arriba a la derecha, tu punto al borde no queda debajo de ella', !!noreste?.yo && noreste.yo.enBorde && !tapa(noreste.yo, PASTILLA) && noreste.yo.x > caja.ancho / 2 && noreste.yo.y < caja.alto / 2, noreste?.yo)
+  const sinPastilla = planCroquis({ yo: aMetros(4000, 5000), sedes: [PORTO], foco: 'porto', radioM: 300, ...caja })
+  t.check('croquis: sin nada encima, el mismo caso va al borde de arriba (22 pt)', !!sinPastilla?.yo && Math.abs(sinPastilla.yo.y - BORDE_YO_LEJOS) < 1e-6)
+  const noroesteLejos = planCroquis({ yo: aMetros(-5000, 4000), sedes: [PORTO], foco: 'porto', radioM: 300, ...caja, evitar: [LOGO_HOY] })
+  t.check('croquis (Hoy): estando al noroeste con el logotipo arriba a la izquierda, tu punto no queda debajo de él', !!noroesteLejos?.yo && noroesteLejos.yo.enBorde && !tapa(noroesteLejos.yo, LOGO_HOY), noroesteLejos?.yo)
+  // Revisor 2026-10-31: en el croquis de 120 pt, con la sede centrada (lejos) y tú al sur, el nombre encima chocaba
+  // con la pastilla; ahora va debajo.
+  const bajo = planCroquis({ yo: aMetros(0, -5000), sedes: [PORTO], foco: 'porto', radioM: 300, ancho: caja.ancho, alto: 120, evitar: [PASTILLA] })
+  t.check('croquis de 120: el nombre de la sede va DEBAJO si arriba choca con la pastilla; sin pastilla, encima', !!bajo && etiquetaSedeArriba(bajo, 180, [PASTILLA], caja.ancho) === false && etiquetaSedeArriba(bajo, 180, [], caja.ancho) === true && (cajaNombreSede(bajo, caja.ancho, 180, [PASTILLA])?.y ?? 0) > 120 / 2)
   const cajaYo = (p: { x: number; y: number }, w = ANCHO_YO) => ({ x: p.x, y: p.y, ancho: w, alto: ALTO_ETIQUETA_CROQUIS })
   const tapan = (a: CajaCroquis, b: CajaCroquis | null) => !!b && Math.min(a.x + a.ancho, b.x + b.ancho) - Math.max(a.x, b.x) > 2 && Math.min(a.y + a.alto, b.y + b.alto) - Math.max(a.y, b.y) > 2
   for (const [donde, este, norte] of [
@@ -268,8 +302,8 @@ export async function pruebas(t: Probador): Promise<void> {
   t.check('"Estás aquí" (barrido de 3.168 posiciones): siempre entera dentro del croquis', salidas.length === 0, salidas.slice(0, 5))
   t.check('"Estás aquí" (barrido, croquis de 170): no tapa el logotipo ni el nombre de la sede si tu punto no está debajo de ellos', tapados.length === 0, tapados.slice(0, 5))
   t.check(
-    'Croquis.tsx usa posicionEtiquetaYo (con el logotipo y el nombre de la sede medidos) y mueve la etiqueta con translateX, no con left/right según el lado',
-    /posicionEtiquetaYo\(plan, \{ ancho, alto, anchoEtiqueta: anchoYo \?\? anchoEstimado\(etiquetaYo\), evitar: \[cajaLogo, cajaNombreSede\(/.test(croquisTsx) && /transform: \[\{ translateX: posicionYo\.x \}\]/.test(croquisTsx) && !/ancho - plan\.yo\.x \+ 16/.test(croquisTsx)
+    'Croquis.tsx usa posicionEtiquetaYo (con el logotipo, la pastilla de la derecha y el nombre de la sede medidos) y mueve la etiqueta con translateX, no con left/right según el lado',
+    /posicionEtiquetaYo\(plan, \{ ancho, alto, anchoEtiqueta: anchoYo \?\? anchoEstimado\(etiqueta\), evitar: \[\.\.\.encima, cajaNombreSede\(plan, ancho, anchoNombre \?\? ANCHO_NOMBRE_SEDE, encima\)\]/.test(croquisTsx) && /const encima = \[cajaLogo, cajaDerecha\]/.test(croquisTsx) && /planCroquis\(\{ yo, sedes, foco, radioM, ancho, alto, evitar: encima \}\)/.test(croquisTsx) && /transform: \[\{ translateX: posicionYo\.x \}\]/.test(croquisTsx) && !/ancho - plan\.yo\.x \+ 16/.test(croquisTsx)
   )
   t.check('croquis: 170 pt de alto; 120 en pantallas de menos de 700 pt (iPhone SE u 8: 667)', altoCroquis(844) === 170 && altoCroquis(700) === 170 && altoCroquis(667) === 120 && altoCroquis(0) === 170)
   t.check('Reportar no agranda el croquis al elegir (el alto lo da altoCroquis): "Hablar" y "Por toques" a la vista', !/alto=\{eligio/.test(leer('app/(app)/reportar.tsx')) && /const alto = altoPedido \?\? altoCroquis\(altoVentana\)/.test(croquisTsx))
