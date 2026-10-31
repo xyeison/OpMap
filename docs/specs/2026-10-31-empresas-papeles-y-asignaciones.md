@@ -1,6 +1,7 @@
 # Spec: empresas, papeles por empresa y asignaciones por Zona y línea  (2026-10-31)
 
-**Estado**: borrador para aprobación del dueño. Conversación del 2026-10-31. Enfoque elegido por el dueño: por capas,
+**Estado**: borrador para aprobación del dueño, con las tres preguntas abiertas ya respondidas por él el 2026-10-31.
+Conversación del 2026-10-31. Enfoque elegido por el dueño: por capas,
 con compatibilidad (ver "Enfoques considerados"). Es el PRIMERO de tres proyectos: después vienen la marca por empresa
 (ícono y colores en la web y la app) y la página de Ejecutivos Comerciales rehecha al estilo de la app.
 
@@ -101,8 +102,8 @@ Nombres en español como el resto de las tablas de visitas; en inglés solo lo q
   servidor los escribe cada vez que cambian los papeles (`users.role` = el papel más alto de la persona en VG, o `user`
   si no tiene ninguno en VG; `leader_user_id` = el líder de esa línea en VG). Ningún código nuevo los lee; el que
   todavía los lee se migra PR a PR. Se borran en la capa 4, cuando nada los use.
-- **Un solo líder por línea y empresa** (PENDIENTE del dueño; ver "Preguntas abiertas"): `UNIQUE (empresa_id, line_id)
-  WHERE papel = 'line_leader'`. Hoy la línea tiene un solo `leader_user_id` y en Odoo hay un "Líder Nacional" por línea.
+- **Líder por línea y empresa**: uno nacional (sin Zonas) o varios con Zonas disjuntas (`papel_zonas`); ver la decisión
+  2 de abajo. La caché `leader_user_id` toma el líder nacional de VG, o NULL si solo hay líderes por Zona.
 - La 0960 se detiene (RAISE) si algún usuario activo con `role = 'line_leader'` no lidera ninguna línea: el dueño le
   pone línea o lo cambia de rol antes. Igual si una fila de `executive_lines` no tiene zona base.
 - Dar el papel `sales_manager` en `/users` a una persona enlazada con una fila de `executives` crea su
@@ -191,20 +192,37 @@ Capa 2
       otras Zonas; dar una línea que no está en la empresa activa = 400.
 - [ ] Traspasar pasa las asignaciones de la Zona y la empresa; la vacante nueva las recibe.
 Capa 3
+- [ ] Linda con (Bucaramanga, Sustitutos) y (Cúcuta, Reemplazo): en una sede de Cúcuta Reportar ofrece solo Reemplazo y
+      el servidor rechaza Sustitutos con "línea ajena"; en una sede de Bucaramanga, al revés; sus visitantes de
+      Sustitutos no se cierran al quitarle Sustitutos en Cúcuta si lo conserva en Bucaramanga, y sí al quitárselo en
+      las dos.
+- [ ] La Zona de una visita de VMO en un municipio de Cúcuta, de una persona con Cúcuta asignada, es Cúcuta; en un
+      municipio que no cae en ninguna de sus Zonas, su Zona de residencia.
+- [ ] Dos papeles `line_leader` de la misma línea y empresa sin Zonas = rechazado; con Zonas disjuntas = aceptado; con
+      una Zona en común = rechazado.
 - [ ] Reportar "como Medix" solo ofrece líneas de Medix; una visita registrada "como VG" no aparece en el mapa de calor
       "como Medix"; `lineasParaReportar` de Paola en VG = Trauma (líder) ∪ sus asignaciones (ejecutiva).
 - [ ] `/api/auth/me` de quien solo es Ejecutivo Comercial en la empresa activa sigue dando `sin_persona` (regla del
       2026-10-30), aunque sea líder en otra empresa.
 
-## Preguntas abiertas (solo el dueño)
-1. **Visitantes al perder una línea en UNA Zona**: hoy, al quitarle una línea a una persona, se terminan sus visitantes
-   de esa línea (disparador de la 0820). Con asignaciones por Zona, si Linda pierde Sustitutos en Cúcuta pero lo
-   conserva en Bucaramanga, ¿se terminan sus visitantes de esa línea en los municipios de Cúcuta, o solo cuando pierda
-   la línea en TODAS sus Zonas? (`medico_visitantes` lleva municipio, no Zona.)
-2. **Un líder por línea y empresa**, ¿o puede haber dos a la vez?
-3. **Zona de la visita de quien tiene varias Zonas**: la decisión del 2026-10-29 dice "la Zona de la visita sigue a la de
-   la persona" (su zona base). Con Linda en Bucaramanga y Cúcuta, ¿sus visitas de VMO en Cúcuta se pintan en Cúcuta
-   (la Zona asignada donde cae el municipio de la visita) o siguen en Bucaramanga?
+## Decisiones del dueño del 2026-10-31 (eran las preguntas abiertas)
+1. **Perder una línea en UNA Zona no cierra visitantes**: "ella en Cúcuta no podría ni programar ni visitar marcando esa
+   línea y listo, no tendría la opción". Es decir: la regla vive en el momento de agendar y reportar, no en la ficha del
+   médico. Reportar y Agendar solo ofrecen una línea si la persona tiene la asignación (Zona, línea) en la Zona donde
+   cae el municipio de la sede o del médico (capa 3); el servidor lo rechaza con el mensaje de "línea ajena". Los
+   visitantes de esa línea se cierran solo cuando la persona pierde la línea en TODAS sus Zonas de esa empresa (es lo
+   que hace hoy el disparador de la 0820, movido a `asignaciones` en la 0970) o con la baja.
+2. **Un líder por línea y empresa hoy, preparados para dos mañana dividiendo por Zonas**: `papeles` admite varios
+   `line_leader` de la misma línea y empresa SOLO si cada uno tiene Zonas (`papel_zonas`: `papel_id`, `kam_id`) y no se
+   solapan; sin Zonas, el líder es nacional y único (restricción por disparador en la 0960). `papel_zonas` nace en la
+   0960 y se edita en `/users` desde la capa 1, sin pantalla especial. Lo que una líder "ve de su línea" (Zonas, mapa,
+   visitas, histórico de líderes) se limita a sus Zonas cuando las tiene: va en la capa 3; hasta entonces solo existe
+   el líder nacional.
+3. **La visita se pinta en la Zona donde se hizo**: "las visitas de Linda en Cúcuta se deben pintar en Cúcuta". La Zona
+   de una visita (`visits.kam_id`, de VMO o de la app) es la Zona asignada de la persona, en esa empresa, cuyo territorio
+   actual contiene el municipio de la visita; si ninguna la contiene, su Zona de residencia. Reemplaza en eso la regla
+   del 2026-10-29 ("la Zona de la visita sigue a la de la persona"); se anota en la decisión de esta spec. Capa 3
+   (importador de VMO, `visitas_registrar` y `agenda_crear`).
 
 ## Fuera de alcance
 - Marca por empresa (logo, colores, ícono de la app que cambia): proyecto 2, con su spec y su migración (columnas de
