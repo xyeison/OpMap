@@ -78,38 +78,60 @@ Nombres en español como el resto de las tablas de visitas; en inglés solo lo q
   `business_lines.leader_user_id` en VG (si el usuario era `line_leader`, esas filas lo reemplazan).
 - `executive_empresas`: `executive_id` → `executives`, `empresa_id` → `empresas`, `activo`; PK las dos. "A qué empresas
   pertenece la persona del equipo comercial" (también las vacantes). Semilla: todas en VG. Reemplaza
-  `executives.company` (texto), que queda sin uso.
+  `executives.company` (texto), que deja de leerse desde el servidor en la capa 1 y de escribirse en la capa 2 (la
+  función de traspaso aún la copia hasta la 0970).
 - `asignaciones`: `id`, `executive_id` → `executives`, `kam_id` → `kams`, `line_id` → `business_lines`, `empresa_id` →
   `empresas`, `created_by`, `created_at`. Único: (`executive_id`, `kam_id`, `line_id`, `empresa_id`). Una restricción
   (disparador) exige que (`line_id`, `empresa_id`) esté en `linea_empresas` y (`executive_id`, `empresa_id`) en
   `executive_empresas`. Semilla: por cada fila de `executive_lines`, una asignación en la zona base de la persona y en
   VG. Reemplaza `executive_lines` y `executive_allowed_lines`.
 - `executives.base_kam_id` se queda como **Zona de residencia** (donde vive; es lo que Odoo llama lugar de trabajo y lo
-  que ordena la lista). Ya no decide qué lleva: eso lo dicen las asignaciones.
+  que ordena la lista). Ya no decide qué lleva: eso lo dicen las asignaciones. Qué Zona lleva la visita de quien tiene
+  varias es la pregunta abierta 3.
 - `coverage` y `coverage_overrides`: ganan `empresa_id` (NOT NULL; relleno VG) y el único de `coverage` pasa a
   (`empresa_id`, `line_id`, `kam_id`). `territory_snapshots`: gana `empresa_id`.
 - `visits`, `visitas_agenda`, `medico_visitantes`: ganan `empresa_id` (NOT NULL; relleno VG). `visit_lines` no cambia.
+- Todas las columnas `empresa_id` nuevas llevan `DEFAULT` = el id fijo de VG (uuid constante en la semilla), porque las
+  funciones de la base y el importador de VMO no mandan empresa hasta las capas 2 y 3. El `DEFAULT` se quita en la capa 4.
 - `odoo_enlaces`: `empresa_id`, `tabla` (nombre de la tabla de OpMap), `fila_id` (uuid), `modelo` (de Odoo, p. ej.
   `hr.employee`, `res.users`, `res.partner`, `product.category`, `hr.work.location`), `odoo_id` (entero), `created_at`.
   Únicos: (`empresa_id`, `tabla`, `fila_id`) y (`empresa_id`, `modelo`, `odoo_id`). Semilla: `executives.odoo_employee_id`
   → (`vg`, `executives`, id, `hr.employee`, odoo_employee_id). `executives.odoo_employee_id` queda sin uso.
 - `business_lines.leader_user_id` y `users.role` quedan en la tabla **como caché derivada** durante la transición: el
-  servidor los escribe cada vez que cambian los papeles (`users.role` = el papel más alto de la persona en VG;
-  `leader_user_id` = el líder de esa línea en VG, o NULL si hay varios). Ningún código nuevo los lee; el que todavía
-  los lee se migra PR a PR. Se borran en una migración posterior, cuando nada los use.
+  servidor los escribe cada vez que cambian los papeles (`users.role` = el papel más alto de la persona en VG, o `user`
+  si no tiene ninguno en VG; `leader_user_id` = el líder de esa línea en VG). Ningún código nuevo los lee; el que
+  todavía los lee se migra PR a PR. Se borran en la capa 4, cuando nada los use.
+- **Un solo líder por línea y empresa** (PENDIENTE del dueño; ver "Preguntas abiertas"): `UNIQUE (empresa_id, line_id)
+  WHERE papel = 'line_leader'`. Hoy la línea tiene un solo `leader_user_id` y en Odoo hay un "Líder Nacional" por línea.
+- La 0960 se detiene (RAISE) si algún usuario activo con `role = 'line_leader'` no lidera ninguna línea: el dueño le
+  pone línea o lo cambia de rol antes. Igual si una fila de `executive_lines` no tiene zona base.
+- Dar el papel `sales_manager` en `/users` a una persona enlazada con una fila de `executives` crea su
+  `executive_empresas` en esa empresa; quitárselo borra sus asignaciones en esa empresa (la pantalla avisa cuántas y
+  cuántos visitantes terminan). Las vacantes no tienen usuario: su `executive_empresas` se maneja desde Ejecutivos
+  Comerciales ("Agregar vacante" pide la empresa; por defecto, la activa).
 
 Orden de "papel más alto" para la caché y para los textos: `admin` > `commercial_director` > `line_leader` >
 `sales_manager` > `contract_manager` > `data_manager` > `hr` > `viewer` > `user`.
 
 ## Sesión y permisos (lo decidido)
-- El token de sesión gana el claim `emp` (id de la empresa activa). Sin `emp` (tokens de hoy) el servidor toma la única
-  empresa de la persona o la primera por `codigo`; así nadie tiene que volver a entrar.
+- La empresa activa es **por persona**, no por dispositivo: `users.empresa_activa_id` → `empresas` (NULL = la única o
+  la primera por `codigo`). Así la web y `/campo` en el mismo navegador, y el teléfono, están siempre "como" la misma
+  empresa, y "la última usada" es simplemente esa columna. El token de sesión gana el claim `emp` solo como caché: el
+  servidor lo compara con la columna y, si difieren, manda la columna. Sin `emp` (tokens de hoy) vale la columna; así
+  nadie tiene que volver a entrar.
 - `SessionUser` gana `empresa` (`{ id, codigo, nombre_corto }`), `papeles` (los activos en esa empresa) y `permisos`
   (unión de `rolePermissions[papel]` de cada papel). `role` se conserva como el papel más alto en esa empresa, para el
   código que aún lo lee. `requirePermission`, `requireAnyPermission` y `hasPermission` deciden con `permisos`.
-- `POST /api/auth/empresa` cambia la empresa activa (solo a una donde la persona tenga papel activo) y vuelve a firmar la
-  cookie o devuelve el token nuevo a la app. `GET /api/auth/me` devuelve `empresa`, `empresas` (las que puede elegir) y
-  `papeles`.
+- `POST /api/auth/empresa` cambia la empresa activa (solo a una donde la persona tenga papel activo): escribe
+  `users.empresa_activa_id` y vuelve a firmar la cookie o devuelve el token nuevo a la app. `GET /api/auth/me` devuelve
+  `empresa`, `empresas` (las que puede elegir) y `papeles`. La app, sin señal, no puede cambiar de empresa (el selector
+  avisa).
+- Cada visita y cita que sube la app lleva su `empresa_id` en la carga (la que estaba activa al capturarla); el servidor
+  valida que la persona tenga papel activo allí y la guarda con ESA empresa, no con la del token al subir. Así la cola
+  sin señal no cambia de empresa por cambiarla después en Ajustes.
+- `users:manage` y editar papeles de cualquier empresa son del Administrador en cualquiera de sus empresas (es la única
+  forma de crear el primer papel de una empresa nueva). La semilla pone a cada `admin` y `commercial_director` de hoy una
+  fila por CADA empresa activa (VG y Medix), como se acordó en la conversación.
 - La app de campo: "solo líderes" pasa a ser "quien tiene un papel `line_leader` activo en la empresa activa";
   `lineasParaReportar` sale de los papeles (líder) y de las asignaciones (Ejecutivo Comercial) de esa empresa.
 - Las líneas de una líder (`medico_lineas` al crear un médico) son las de sus papeles `line_leader` en la empresa activa.
@@ -125,17 +147,27 @@ Orden de "papel más alto" para la caché y para los textos: `admin` > `commerci
 **Capa 1 – Modelo y sesión.** Migración 0960 (rollback 9961) con todas las tablas y semillas de arriba; `empresa` y
 `papeles` en la sesión; `permisos` como unión; `POST /api/auth/empresa`; nombre corto de la empresa en la barra de OpMap
 y en la franja de estado de la app; `/users` muestra y edita papeles por empresa (en lugar del rol único) y escribe la
-caché. Las semillas dejan a todos exactamente como hoy. **Antes de aplicar la 0960 el dueño registra en `/users` los
-papeles de Paola, Lizeth y Katherine**; mientras tanto, siguen como hoy.
+caché; Líneas edita en qué empresas está cada línea (`linea_empresas`), para que una persona pueda ser líder en Medix
+desde esta capa. Las semillas dejan a todos exactamente como hoy. **Después de aplicar la 0960** el dueño registra en
+`/users` el segundo papel de Paola (Ejecutivo Comercial en VG) y, cuando haya cargado las líneas de Medix en Líneas, los
+papeles de Lizeth y Katherine en Medix; mientras tanto siguen como hoy.
 
-**Capa 2 – Asignaciones y cobertura.** El motor (`lib/coverage.ts`) y Zonas (`/kams`, `PUT/DELETE
-/api/executives/[id]/lineas/[lineId]`) pasan a `asignaciones` con `kam_id` explícito y `empresa_id` de la sesión; el
-recálculo guarda `coverage.empresa_id`. Traspaso ("Traspasar", "Contratar") mueve asignaciones y `executive_empresas`.
-`executive_lines` y `executive_allowed_lines` dejan de leerse. El anexo de territorio lleva la empresa.
+**Capa 2 – Asignaciones y cobertura.** Migración 0970 (rollback 9962): reescribe `ejecutivas_traspasar` (lee y mueve
+`asignaciones` y `executive_empresas` en vez de `executive_lines` y `executives.company`) y crea sobre `asignaciones` el
+disparador que termina `medico_visitantes` (hoy `executive_lines_termina_visitantes` de la 0820; ver la regla de abajo).
+El motor (`lib/coverage.ts`) y Zonas (`/kams`, `PUT/DELETE /api/executives/[id]/lineas/[lineId]`) pasan a `asignaciones`
+con `kam_id` explícito y `empresa_id` de la sesión; el recálculo guarda `coverage.empresa_id`. Traspaso ("Traspasar",
+"Contratar") mueve asignaciones y `executive_empresas`. `executive_lines` y `executive_allowed_lines` dejan de leerse
+desde el servidor. El anexo de territorio lleva la empresa.
 
-**Capa 3 – Líneas y campo por empresa.** Líneas edita en qué empresas está cada línea; el mapa por línea, Reportar,
-Agendar y `/api/me/*` filtran por la empresa activa; visitas y citas nuevas guardan `empresa_id`; el mapa de calor y los
-reportes filtran por empresa; `medico_visitantes` por empresa.
+**Capa 3 – Campo y visitas por empresa.** Migración 0980 (rollback 9963): reescribe las funciones de la base que hoy
+leen `executive_lines`, `business_lines.leader_user_id` y `users.role` (`persona_lineas`, `persona_de_campo`,
+`ejecutivo_de_la_visita`, `medico_de_lineas`, `visitas_registrar`, `agenda_crear`, `terceros_crear_medico`) para que lean
+`papeles` y `asignaciones` de la empresa que reciben. El mapa por línea, Reportar, Agendar y `/api/me/*` filtran por la
+empresa activa; visitas y citas nuevas guardan `empresa_id`; el mapa de calor y los reportes filtran por empresa;
+`medico_visitantes` por empresa. Hasta esta capa, las funciones viejas siguen funcionando porque la caché de `users.role`
+y `leader_user_id` y las filas de `executive_lines` siguen ahí (la capa 2 deja de LEERLAS desde el servidor, pero Zonas
+sigue ESCRIBIÉNDOLAS, una fila por persona y línea, hasta la capa 4).
 
 **Capa 4 – Limpieza.** Migración que borra `users.role`, `business_lines.leader_user_id`, `executive_lines`,
 `executive_allowed_lines`, `executives.company` y `executives.odoo_employee_id` (con respaldo), cuando ninguna ruta los lea.
@@ -164,6 +196,16 @@ Capa 3
 - [ ] `/api/auth/me` de quien solo es Ejecutivo Comercial en la empresa activa sigue dando `sin_persona` (regla del
       2026-10-30), aunque sea líder en otra empresa.
 
+## Preguntas abiertas (solo el dueño)
+1. **Visitantes al perder una línea en UNA Zona**: hoy, al quitarle una línea a una persona, se terminan sus visitantes
+   de esa línea (disparador de la 0820). Con asignaciones por Zona, si Linda pierde Sustitutos en Cúcuta pero lo
+   conserva en Bucaramanga, ¿se terminan sus visitantes de esa línea en los municipios de Cúcuta, o solo cuando pierda
+   la línea en TODAS sus Zonas? (`medico_visitantes` lleva municipio, no Zona.)
+2. **Un líder por línea y empresa**, ¿o puede haber dos a la vez?
+3. **Zona de la visita de quien tiene varias Zonas**: la decisión del 2026-10-29 dice "la Zona de la visita sigue a la de
+   la persona" (su zona base). Con Linda en Bucaramanga y Cúcuta, ¿sus visitas de VMO en Cúcuta se pintan en Cúcuta
+   (la Zona asignada donde cae el municipio de la visita) o siguen en Bucaramanga?
+
 ## Fuera de alcance
 - Marca por empresa (logo, colores, ícono de la app que cambia): proyecto 2, con su spec y su migración (columnas de
   `empresas`).
@@ -175,9 +217,10 @@ Capa 3
   El dueño puede cambiarlo en una decisión aparte.
 
 ## Impacto
-- Datos / migración: sí, 0960 (`2026-10-31_0960_empresas_papeles_asignaciones.sql`) con rollback 9961; se aplica solo con
-  autorización del dueño y en la ventana del despliegue de la capa 1. Las capas 2 y 3 no necesitan migración; la capa 4
-  tiene la suya.
+- Datos / migración: sí. Capa 1: 0960 (`2026-10-31_0960_empresas_papeles_asignaciones.sql`, rollback 9961). Capa 2:
+  0970 (traspaso y disparador de asignaciones, rollback 9962). Capa 3: 0980 (funciones de la base por empresa, rollback
+  9963). Capa 4: la de limpieza. Cada una se aplica solo con autorización del dueño y en la ventana del despliegue de su
+  capa.
 - Costo Google Maps: 0. La cobertura se recalcula con la caché de tiempos.
 - Estética del mapa: no cambia. El mapa por línea filtra por la empresa activa (capa 3).
 - Permisos / roles: los nombres de los papeles son los mismos roles de hoy. La única diferencia observable: una persona
