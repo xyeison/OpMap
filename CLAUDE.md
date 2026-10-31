@@ -135,7 +135,8 @@ nada llama a Google.
   `public/campo` (no se versiona). Llama a la API de su mismo origen. `/campo` es pública como página (`esAppDeCampo`
   de `lib/app-campo.ts`). Sin tiendas: cada push a master la publica. Las líderes la abren con "Agendamiento" en el menú de
   OpMap (permiso `campo:app`), con un solo ingreso: login `campo-web` y `POST /api/auth/sesion-app`
-  (`docs/specs/2026-10-30-agendamiento-lider-un-ingreso.md`).
+  (`docs/specs/2026-10-30-agendamiento-lider-un-ingreso.md`). En un preview de Vercel (protegido con su cookie) la app manda las cookies del
+  origen (`esPreviewDeVercel`, 2026-10-31); sin eso `/api/*` daba 401 y la app decía "sesión vencida". En producción, sin la cookie de la web.
 - **Médicos y contactos sin duplicados** (dueño, 2026-10-30, `docs/decisiones/2026-10-30-medicos-y-contactos-sin-duplicados.md`):
   - el médico se crea y se corrige solo con CC o CE, en `/medicos`, Reportar y Agendar (una sola tabla web+app);
   - se crea desde la búsqueda que no encontró a nadie; "Nuevo médico" arriba solo si la lista cabe en una página;

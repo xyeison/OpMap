@@ -18,6 +18,7 @@ import {
   TIEMPO_PROPONER_MS,
   TIEMPO_TRANSCRIBIR_MS,
   construirUrl,
+  esPreviewDeVercel,
   jsonSeguro,
   lineaRegistroApi,
   normalizarBase,
@@ -149,7 +150,8 @@ function registrarPeticion(datos: DatosRegistroApi): void {
 /** En el navegador, con o sin la cookie de la web (OpcionesPeticion.conCookie); en el teléfono, como siempre. */
 function credencialesWeb(conCookie: boolean): { credentials?: RequestCredentials } {
   if (Platform.OS !== 'web') return {}
-  return { credentials: conCookie ? 'same-origin' : 'omit' }
+  // Preview de Vercel: con sus cookies (su protección lo exige; ver esPreviewDeVercel). Producción: sin la de la web.
+  return { credentials: conCookie || esPreviewDeVercel(globalThis.location?.hostname) ? 'same-origin' : 'omit' }
 }
 
 export async function peticion<T>(ruta: string, opciones: OpcionesPeticion = {}): Promise<T> {
