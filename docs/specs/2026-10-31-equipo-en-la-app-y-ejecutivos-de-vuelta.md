@@ -17,6 +17,12 @@ El dueño, el 2026-10-31:
   es algo transitorio para ver el mapa de calor de donde los ahora visitan con VMO mientras logramos que esta app
   funcione. Los supervisores quieren saber dónde están sus supervisados y su rendimiento."
 - Entre "Equipo dentro de la app" y "Equipo como página web", eligió la app: "VAMOS CON A".
+- Sobre un Ejecutivo que lleva líneas de dos líderes: cada líder "puede ver toda la info del Ejecutivo X", y además
+  cuántas visitas fueron de cada línea: "Ejecutivo X visita 99 para A y 1 visita para línea B. Aquí el líder va a
+  levantar la mano y pedir ajustes. Eso debe ser visto."
+- Sobre OpMap y la app de campo: "es lo mismo… hablemos ya de una app y punto". Son una sola app: quien entra en
+  OpMap entra en Equipo o en su agenda sin volver a escribir la contraseña, sea líder, Ejecutivo, dirección o
+  administrador.
 
 Esto cambia dos reglas anteriores:
 - **A1 (2026-10-15)** se conserva en lo que dice de reportar: la dirección no agenda ni reporta. Lo de "vigila desde la
@@ -48,6 +54,9 @@ Esto cambia dos reglas anteriores:
   Comerciales activos con usuario.
 - Una líder se ve a sí misma y a los Ejecutivos Comerciales activos de sus líneas. No ve a las otras líderes (A2).
   A Paola la líder de Sustitutos óseos la ve solo como Ejecutiva: lo que Paola hace como líder no se le muestra.
+- De un Ejecutivo que lleva líneas de dos líderes, cada una ve **todo** lo que hace (todas sus visitas y citas, de
+  cualquier línea) y, aparte, **cuántas fueron de cada línea** (dueño, 2026-10-31): así la líder B ve "100 visitas:
+  99 impulsando A, 1 impulsando B" y pide ajustes. Una visita que impulsó A y B cuenta para las dos líneas.
 - Los Ejecutivos Comerciales no tienen Equipo.
 - Las vacantes no salen. La dirección y el administrador tampoco salen como "personas" (no reportan).
 
@@ -60,8 +69,11 @@ Esto cambia dos reglas anteriores:
   `team:view`. La app no decide por el nombre del rol: si no hay persona de campo pero `supervisa`, entra a Equipo; si
   no hay ni lo uno ni lo otro, ve el aviso de hoy ("Tu usuario no tiene líneas para reportar").
 - En OpMap web, el menú de la dirección, el administrador y la líder lleva **"Equipo"** (abre `/campo/equipo` como
-  página completa, con el ingreso único). En `/inicio` aparece como cuadro, porque sale del mismo menú. El ingreso único
-  (`POST /api/auth/sesion-app`) acepta roles con `campo:app` o con `team:view`.
+  página completa). En `/inicio` aparece como cuadro, porque sale del mismo menú.
+- **Una sola app, un solo ingreso** (dueño, 2026-10-31): quien ya entró en OpMap abre "Equipo" o "Agendamiento" sin
+  escribir la contraseña, cualquiera que sea su rol. `POST /api/auth/sesion-app` acepta a todo rol con `campo:app` o
+  `team:view`. Esto deja sin efecto la revisión del 2026-10-30 que negaba el ingreso único a la dirección y al
+  administrador; queda anotado en la decisión.
 
 **Pantalla Equipo › Hoy, "¿Dónde está mi gente?"** (todo sale de lo reportado y agendado; nunca de la ubicación del
 teléfono en vivo, C5):
@@ -77,10 +89,15 @@ teléfono en vivo, C5):
   3. Una cita entre 30 min antes y 60 min después de ahora: "Planeado 11:00 · <sede>, <municipio>".
   4. "Sin reportes ni plan hoy".
   Las telefónicas no ubican a la persona. Cada dato dice su fuente: Reportado o Planeado.
+- **Marcas del servidor** (0940): si la visita que ubica a la persona tiene marcas, la tarjeta y el rastro las muestran
+  con palabras ("Lejos de la sede", "Sin GPS", "GPS impreciso", "Hora del teléfono rara", "Médico por validar").
+  Son el veredicto del servidor, no el punto: nunca salen la distancia, la precisión ni las coordenadas del teléfono.
+  (Decisión de Claude: una ubicación que el servidor marcó como dudosa no se muestra como segura.)
 - Tocar la tarjeta abre el día de la persona: el rastro por hora (tipo, con quién —médico o cuenta—, sede y municipio,
   estado: Hecha, No efectiva con su motivo, No se hizo con su motivo, Cancelada, Programada, Atrasada o Sin cerrar;
-  "planeada hace N días" o "no planeada"; "viene de la cita del <fecha>" si es otra fecha), y "Siguiente": lo de hoy
-  que falta y los dos días que vienen. Nunca la transcripción, ni la foto, ni el documento del médico, ni el GPS.
+  "planeada hace N días" o "no planeada"; "viene de la cita del <fecha>" si es otra fecha; las líneas que impulsó;
+  el médico no listado con el nombre que escribió la persona), y "Siguiente": lo de hoy que falta y los dos días que
+  vienen. Nunca la transcripción, ni la foto, ni el documento del médico, ni el GPS.
 - La pantalla se relee cada 5 minutos mientras está a la vista.
 
 **Pantalla Equipo › Rendimiento:**
@@ -90,14 +107,30 @@ teléfono en vivo, C5):
   a quien va atrás):
   - Hechas (efectivas y no efectivas, con los motivos de las no efectivas), No se hizo (por motivo), Canceladas (por
     motivo), Sin cerrar, Programadas y Telefónicas.
-  - Cumplimiento del plan = hechas ÷ programadas hasta hoy. "Otra fecha" no duplica: la cadena cuenta una vez, con el
-    resultado de la última.
+  - Cumplimiento del plan = citas cumplidas ÷ citas programadas hasta hoy, contando cada cadena de "otra fecha" UNA
+    vez por su última cita (decisión de Claude, precisada el 2026-10-31):
+    - una cadena entra en el denominador si su última cita tiene fecha ≤ hoy (si la última es futura y pendiente, la
+      cadena aún no cuenta);
+    - entra en el numerador si esa última cita está `hecha`;
+    - `no_realizada`, `cancelada` y pendiente vencida ("sin cerrar") cuentan en el denominador y no en el numerador;
+    - las visitas reportadas sin cita no entran en esta cifra (van en "no planeadas" de Anticipación).
   - Anticipación: mediana de días, % planeadas con 7 días o más (A5) y % del mismo día. Lo reportado sin cita es "no
     planeado": entra en los porcentajes y no en la mediana.
+  - **Por línea** (dueño, 2026-10-31): cuántas hechas impulsaron cada línea de la persona, en la fila y en el detalle
+    ("99 Trauma · 1 Sustitutos óseos"). Una visita con dos líneas cuenta en las dos; la suma por línea puede superar
+    las hechas, y se dice.
   - Médicos distintos y Ciudades distintas (municipios de las presenciales hechas). Para el equipo, los distintos de
     todos, sin sumar personas.
-  - Días hábiles sin visitas.
-  - Solo para los Ejecutivos Comerciales: cuota del mes y cumplimiento (la misma cuenta de `/api/me/numeros`).
+  - Días hábiles sin visitas: con el calendario de la ciudad de la Zona para un Ejecutivo Comercial; para una líder sin
+    Ejecutivo, solo con los festivos nacionales y los días de empresa (no tiene ciudad ni días libres). (Decisión de
+    Claude.)
+  - Solo para los Ejecutivos Comerciales y **solo cuando el periodo es un mes calendario completo**: cuota del mes y
+    cumplimiento (la misma cuenta de `/api/me/numeros`). En semana, 15 días o rango libre la columna no se muestra.
+    (Decisión de Claude: la cuota se calcula por mes.)
+- **Quien ya no está**: Rendimiento parte de las visitas y citas del periodo, no de los activos de hoy. Una persona que
+  reportó en el periodo y hoy está inactiva o fue traspasada sale en su fila marcada "ya no está" y suma a las
+  tarjetas del equipo. Hoy solo muestra a los activos. (Decisión de Claude: los totales de un mes tienen que ser
+  verdad.)
 - Tocar la fila abre el detalle de la persona en ese periodo, con las mismas cifras y la lista de sus visitas y citas.
 - Las eliminadas por error no aparecen en ninguna parte (A7).
 
@@ -143,13 +176,17 @@ Entrega 2:
       Comercial no ve a nadie (`scripts/equipo-check.ts`).
 - [ ] `dondeEsta` toma el primer caso en el orden de arriba; una telefónica no ubica; pasadas 3 h cambia el texto
       (`equipo-check.ts`).
-- [ ] Rendimiento: cumplimiento del plan con la cadena "otra fecha" contada una vez; anticipación con mediana y
-      porcentajes; médicos y ciudades distintos sin sumar personas; eliminadas fuera (`equipo-check.ts`).
+- [ ] Rendimiento: cumplimiento del plan con la cadena "otra fecha" contada una vez por su última cita, y una última
+      cita futura fuera del denominador; anticipación con mediana y porcentajes; médicos y ciudades distintos sin sumar
+      personas; hechas por línea con la visita de dos líneas contada en las dos; quien ya no está sale marcado;
+      cuota solo en mes completo; eliminadas fuera (`equipo-check.ts`).
+- [ ] Las marcas de la visita salen como palabras y nunca `distance_m`, `gps_accuracy_m` ni `lat/lng` del teléfono
+      (`equipo-api-check.ts`).
 - [ ] Las visitas de VMO no entran en ninguna cifra (`equipo-check.ts`).
 - [ ] `/api/equipo/*`: 403 sin `team:view`; una persona no visible → 404; nunca salen `transcript`, `gps_accuracy_m`,
       el documento del médico ni las coordenadas del teléfono (`scripts/equipo-api-check.ts`, con Supabase falso).
-- [ ] `/api/auth/me` trae `supervisa` según `team:view`; `sesion-app` acepta `team:view` (`reporte-api-check.ts`,
-      `campo-web-check.ts`).
+- [ ] `/api/auth/me` trae `supervisa` según `team:view`; `sesion-app` da token a todo rol con `campo:app` o
+      `team:view`, y sigue dando 401 sin cookie y 403 desde otro origen (`reporte-api-check.ts`, `campo-web-check.ts`).
 - [ ] El menú de admin, dirección y líder lleva "Equipo" → `/campo/equipo`; el del Ejecutivo Comercial no
       (`menu-check.ts`).
 - [ ] En la app: la dirección y el administrador entran a Equipo y Ajustes; la líder tiene "Mi equipo" en Hoy y en
@@ -174,7 +211,7 @@ Entrega 2:
 - Permisos / roles:
   - nuevo `team:view` para `admin`, `commercial_director` y `line_leader`;
   - `campo:app` también para `sales_manager` (el rol del Ejecutivo Comercial);
-  - `sesion-app` acepta `campo:app` o `team:view`;
+  - `sesion-app` acepta `campo:app` o `team:view` (una sola app, un solo ingreso: dueño, 2026-10-31);
   - `web/docs/ROLES_AND_PERMISSIONS.md` se actualiza.
 - Privacidad: Equipo nunca devuelve transcripciones, fotos, documentos de médicos ni la precisión o el punto del
   teléfono; solo sede y municipio.
@@ -207,7 +244,8 @@ Entrega 2 (`feat/equipo-en-la-app`):
   en `hoy.tsx` y enlace en `ajustes.tsx`; `mobile/lib/equipo.ts` (puro: textos de `dondeEsta`, "hace N min", orden).
 - Pruebas: `web/scripts/equipo-check.ts`, `equipo-api-check.ts`, `menu-check.ts`, `reporte-api-check.ts`,
   `campo-web-check.ts`; `mobile/scripts/checks/26-equipo.ts`, `15-navegacion.ts`, `21-persona.ts`.
-- Docs: `docs/decisiones/2026-10-31-equipo-en-la-app.md`, `docs/fases/fase8-...` (sección F4), `CLAUDE.md`,
+- Docs: `docs/decisiones/2026-10-31-equipo-en-la-app.md` (incluye "una sola app, un solo ingreso" y "cada líder ve
+  todo el Ejecutivo y cuánto por línea"), `docs/fases/fase8-...` (sección F4), `CLAUDE.md`,
   `web/docs/ROLES_AND_PERMISSIONS.md`.
 
 ## Verificación final
