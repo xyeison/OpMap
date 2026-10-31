@@ -34,9 +34,11 @@ nada llama a Google.
 
 ## Flujo de trabajo
 
-1. Trabajo mediano o grande (varios archivos, migración, regla de negocio): primero spec corta en
-   `docs/specs/<fecha>-<tema>.md` (plantilla en `docs/specs/TEMPLATE.md`) y plan; luego implementar.
-   Un arreglo de una línea no necesita spec.
+1. Antes de programar un trabajo mediano o grande (varios archivos, migración, regla de negocio):
+   - `brainstorming` con el dueño. Su resultado es la spec corta en `docs/specs/<fecha>-<tema>.md` (plantilla
+     `docs/specs/TEMPLATE.md`), que el dueño aprueba.
+   - Con la spec aprobada, `writing-plans`: el plan va en `docs/planes/<fecha>-<tema>.md` y no se aprueba aparte.
+   - Sin brainstorming ni plan: arreglos de una línea, textos o docs. Preguntas o consultas: ninguna skill de proceso.
 2. Rama por cambio (`feat/…`, `fix/…`, `chore/…`) desde `master`; nunca commits directos a `master`.
 3. PR a `master` con la plantilla; CI (`.github/workflows/ci.yml`) debe estar en verde. `/entregar` hace
    commit + push + PR.
@@ -44,11 +46,22 @@ nada llama a Google.
    `https://op-map-git-<rama-con-guiones>-xyeisons-projects.vercel.app` (pide login de Vercel).
 5. Commits en español, prefijo convencional (`feat(ips): …`, `fix(mapa): …`), cuerpo con el porqué.
 6. Decisiones del dueño que cambian reglas de negocio: anotar en `docs/decisiones/` (plantilla ahí).
-7. Antes de `/entregar` un cambio mediano o grande: subagente `revisor` (`.claude/agents/revisor.md`) sobre
-   el diff y la spec; corregir solo lo que afecte corrección o reglas.
-8. Método de trabajo: skills de Superpowers copiadas en `.claude/skills/` (brainstorming, writing-plans,
-   test-driven-development, systematic-debugging, verification-before-completion, requesting-code-review…;
-   `docs/superpowers.md`). Este archivo manda sobre ellas: PR con `/entregar`, no merge local.
+7. Al implementar y antes de entregar:
+   - `test-driven-development`: primero la prueba que falla, en `web/scripts/*-check.ts` (o `mobile/scripts/checks/`).
+   - El plan se ejecuta con `executing-plans`. `subagent-driven-development` solo si el dueño lo pide, porque cuesta
+     más tokens.
+   - Ante un error o una prueba que falla, `systematic-debugging` antes de proponer cualquier arreglo.
+   - Antes de decir "listo", `verification-before-completion`: `npm run check` con la salida pegada.
+   - Antes de `/entregar` un cambio mediano o grande, el subagente `revisor` (`.claude/agents/revisor.md`) sobre el
+     diff y la spec. Es el `requesting-code-review` de este repo: no se duplica. Se corrige solo lo que afecte
+     corrección o reglas.
+8. Este archivo manda sobre las skills de Superpowers (`.claude/skills/`; tabla paso → skill → cuándo no en
+   `docs/superpowers.md`):
+   - PR con `/entregar`, nunca el merge local de `finishing-a-development-branch`.
+   - Rama por cambio desde `master` en la carpeta principal. Worktree solo si otra sesión trabaja a la vez en el repo
+     o el dueño lo pide.
+   - Specs en `docs/specs/` y planes en `docs/planes/`, no en `docs/superpowers/`.
+   - Nunca llamadas a Google Maps sin autorización.
 
 ## Reglas que no se deducen del código (IMPORTANTE)
 

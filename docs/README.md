@@ -17,6 +17,8 @@
 | `ips-pendientes.md` | Cola de IPS pendientes y acción masiva | Al tocar `api/hospitals/*`, `pending-assignment.ts` |
 | `arquitectura-y-scripts.md` | Scripts Python, estructura de carpetas, archivos clave | Al usar los scripts Python o buscar un archivo |
 | `historico-resultados.md` | Cifras de 2025 y colores originales | Solo como referencia histórica |
-| `specs/` | Una spec por cambio mediano/grande (plantilla `TEMPLATE.md`) | Antes de implementar |
+| `specs/` | Una spec por cambio mediano/grande (plantilla `TEMPLATE.md`); la escribe `brainstorming` | Antes de implementar |
+| `planes/` | El plan de cada spec aprobada (`<fecha>-<tema>.md`), de `writing-plans`; no se aprueba aparte | Al implementar |
+| `superpowers.md` | Superpowers en OpMap: instalación, tabla paso → skill → cuándo no, precedencia, actualizar | Al empezar o al dudar qué skill usar |
 | `decisiones/` | Decisiones del dueño que cambian reglas | Al dudar de una regla |
 | `archive/` | Notas antiguas de `web/` (2025), sin vigencia | Casi nunca |

@@ -58,6 +58,31 @@ Lo que faltaba frente a las buenas prácticas:
 6. **Revisión adversaria** antes de cerrar PRs grandes: `/code-review` o un subagente que compare el
    diff contra la spec y reporte solo huecos de corrección.
 
+## Superpowers (desde 2026-10-30)
+
+El 2026-10-30 el dueño pidió que el método de trabajo use Superpowers (obra/superpowers 7.0.1, copiado en
+`.claude/skills/`; ver `docs/superpowers.md`). Donde difiera de "El flujo, paso a paso", manda esto. Por qué:
+
+- **Aclarar antes de construir.** `brainstorming` convierte el pedido en la spec que el dueño aprueba. Claude
+  construye lo que el dueño quiere, no lo que cree que quiere.
+- **Pruebas primero y causa raíz.** `test-driven-development` y `systematic-debugging` evitan los arreglos a ciegas.
+  Las reglas de negocio quedan probadas en `web/scripts/*-check.ts`.
+- **Evidencia antes de "listo".** `verification-before-completion` es el mismo `npm run check` con su salida que ya
+  pedía este repo.
+
+El orden: brainstorming → spec → plan (`docs/planes/`, sin aprobación aparte) → pruebas primero con `executing-plans`
+→ `npm run check` → `revisor` → `/entregar`.
+
+Lo que Superpowers haría distinto y aquí no:
+- **Merge local** (`finishing-a-development-branch`): aquí se entrega por PR con `/entregar`, porque el merge a
+  `master` publica en producción.
+- **Worktree siempre**: aquí solo cuando otra sesión trabaja a la vez. Dos sesiones en la misma carpeta se pisan al
+  cambiar de rama; una sola, no.
+- **Subagentes por defecto**: aquí solo bajo pedido, porque cuestan más tokens.
+- **Carpetas `docs/superpowers/`**: aquí `docs/specs/` y `docs/planes/`.
+
+La tabla paso → skill → cuándo no está en `docs/superpowers.md`, y `CLAUDE.md` manda sobre las skills.
+
 ## Linear Agents: veredicto
 
 Linear for Agents (linear.app/agents) convierte a los agentes en "miembros" del espacio de trabajo: se
