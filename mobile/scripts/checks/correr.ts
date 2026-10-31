@@ -18,6 +18,7 @@ const ARCHIVOS: Record<string, () => Promise<{ pruebas: ArchivoDePruebas }>> = {
   '22-sin-senal': () => import('./22-sin-senal'),
   '22-tema': () => import('./22-tema'),
   '23-sede-del-medico': () => import('./23-sede-del-medico'),
+  '24-rango': () => import('./24-rango'),
 }
 
 async function main() {
