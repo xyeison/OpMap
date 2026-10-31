@@ -9,6 +9,9 @@ import type { CasoUbicacion, EstadoPaso, MarcaVisita, PapelEquipo, PasoRastroIte
 export const TEXTO_FIJO_EQUIPO = 'Lo que cada persona reporta o agenda. La app no sigue la ubicación.'
 /** Equipo › Hoy se relee cada 5 minutos mientras está a la vista (lee reportes, no pide ubicación). */
 export const RELEER_CADA_MS = 5 * 60 * 1000
+/** Claves del almacén con lo último cargado (sin señal se muestra con "Visto hace"; lib/equipo-cache.ts). */
+export const CLAVE_EQUIPO_HOY = 'opmap.equipo.hoy.v1'
+export const CLAVE_EQUIPO_RENDIMIENTO = 'opmap.equipo.rendimiento.v1'
 
 /** Las marcas del servidor (0940), con palabras: son su veredicto, nunca la distancia ni la precisión. */
 export const ETIQUETA_MARCA: Record<MarcaVisita, string> = {
@@ -125,4 +128,89 @@ export function textoPaso(p: PasoRastroItem): { titulo: string; detalle: string;
   if (p.viene_de_fecha) partes.push(`viene de la cita del ${fechaCortita(p.viene_de_fecha)}`)
   const estado = p.motivo && (p.estado === 'no_efectiva' || p.estado === 'no_realizada' || p.estado === 'cancelada') ? `${ETIQUETA_ESTADO[p.estado]} · ${p.motivo}` : ETIQUETA_ESTADO[p.estado]
   return { titulo, detalle: partes.join(' · '), estado }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Rendimiento: periodos, orden y "visto hace"
+// ---------------------------------------------------------------------------------------------
+
+export type TipoPeriodo = 'semana' | 'quincena' | 'mes' | 'mes_anterior' | 'tres_meses'
+export const PERIODOS: ReadonlyArray<{ valor: TipoPeriodo; texto: string }> = [
+  { valor: 'semana', texto: 'Esta semana' },
+  { valor: 'quincena', texto: '15 días' },
+  { valor: 'mes', texto: 'Este mes' },
+  { valor: 'mes_anterior', texto: 'Mes anterior' },
+  { valor: 'tres_meses', texto: '3 meses' },
+]
+
+const DIA_MS = 24 * 60 * 60 * 1000
+const aUtc = (fecha: string) => Date.parse(`${fecha}T00:00:00Z`)
+const iso = (ms: number) => new Date(ms).toISOString().slice(0, 10)
+const ultimoDiaDelMes = (anio: number, mes1a12: number) => new Date(Date.UTC(anio, mes1a12, 0)).getUTCDate()
+
+/**
+ * El periodo de Rendimiento (el servidor acepta hasta 93 días): semana = lunes a domingo de hoy; quincena = 15 días hasta
+ * hoy; mes = el calendario completo (solo así hay cuota); mes anterior; 3 meses = los últimos 92 días hasta hoy.
+ */
+export function periodo(tipo: TipoPeriodo, hoy: string): { desde: string; hasta: string } {
+  const ms = aUtc(hoy)
+  const anio = Number(hoy.slice(0, 4))
+  const mes = Number(hoy.slice(5, 7))
+  if (tipo === 'semana') {
+    const dia = new Date(ms).getUTCDay() // 0 domingo
+    const lunes = ms - ((dia + 6) % 7) * DIA_MS
+    return { desde: iso(lunes), hasta: iso(lunes + 6 * DIA_MS) }
+  }
+  if (tipo === 'quincena') return { desde: iso(ms - 14 * DIA_MS), hasta: hoy }
+  if (tipo === 'tres_meses') return { desde: iso(ms - 92 * DIA_MS), hasta: hoy }
+  if (tipo === 'mes_anterior') {
+    const a = mes === 1 ? anio - 1 : anio
+    const m = mes === 1 ? 12 : mes - 1
+    const mm = String(m).padStart(2, '0')
+    return { desde: `${a}-${mm}-01`, hasta: `${a}-${mm}-${String(ultimoDiaDelMes(a, m)).padStart(2, '0')}` }
+  }
+  return { desde: `${hoy.slice(0, 7)}-01`, hasta: `${hoy.slice(0, 7)}-${String(ultimoDiaDelMes(anio, mes)).padStart(2, '0')}` }
+}
+
+/** "Visto hace 3 min" (lo último guardado, sin señal). */
+export function textoVisto(vistoAt: string, ahora: Date = new Date()): string {
+  const min = Math.max(0, Math.round((ahora.getTime() - Date.parse(vistoAt)) / 60000))
+  return min === 0 ? 'Visto ahora' : `Visto ${textoHace(min)}`
+}
+
+/** Filas por cumplimiento del plan ascendente (quien va atrás primero), null al final, y por nombre. */
+export function ordenFilas<T extends { persona: { nombre: string }; cumplimiento_plan: { ratio: number | null } }>(filas: readonly T[]): T[] {
+  return [...filas].sort((a, b) => {
+    const ra = a.cumplimiento_plan.ratio
+    const rb = b.cumplimiento_plan.ratio
+    if (ra !== rb) {
+      if (ra === null) return 1
+      if (rb === null) return -1
+      return ra - rb
+    }
+    return a.persona.nombre.localeCompare(b.persona.nombre, 'es')
+  })
+}
+
+/** "3 de 4 (75 %)", "—" sin plan. */
+export function textoCumplimiento(c: { programadas: number; cumplidas: number; ratio: number | null }): string {
+  return c.ratio === null ? '—' : `${c.cumplidas} de ${c.programadas} (${Math.round(c.ratio * 100)} %)`
+}
+
+/** "Osteosíntesis 4 · Columna 1". */
+export function textoPorLinea(porLinea: { lineas: Array<{ nombre: string; hechas: number }> }): string {
+  return porLinea.lineas.map(l => `${l.nombre} ${l.hechas}`).join(' · ')
+}
+
+/** "cliente 2 · prioridad 1". */
+export function textoMotivos(motivos: Record<string, number>): string {
+  return Object.entries(motivos)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'es'))
+    .map(([motivo, n]) => `${motivo} ${n}`)
+    .join(' · ')
+}
+
+/** ¿Falló por falta de señal o tiempo (y vale mostrar lo último guardado)? */
+export function esSinSenal(tipo: string): boolean {
+  return tipo === 'red' || tipo === 'tiempo'
 }

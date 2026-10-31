@@ -17,7 +17,7 @@ import { URL_API } from '../../lib/api'
 import { useCola } from '../../lib/cola-contexto'
 import { esServidorDesarrollo, nombreServidor } from '../../lib/http'
 import { Icono } from '../../lib/iconos'
-import { muestraDiasLibres, papelesDePersona } from '../../lib/persona'
+import { estadoPersona, muestraDiasLibres, muestraMiEquipo, papelesDePersona } from '../../lib/persona'
 import { plural, tituloRol } from '../../lib/reglas'
 import { useSesion } from '../../lib/sesion'
 import type { PreferenciaTema } from '../../lib/tema'
@@ -81,6 +81,22 @@ export default function Ajustes() {
         )}
         {sinConfirmar ? <Texto suave peque>Sin conexión: estos datos son los guardados en el teléfono.</Texto> : null}
       </Tarjeta>
+
+      {/* Equipo (2026-10-31): la líder que supervisa llega a Equipo desde aquí (y desde Hoy) */}
+      {muestraMiEquipo({ estado: estadoPersona({ role: perfil?.usuario.role, persona: perfil?.persona, sinPersona: perfil?.sinPersona, sinConfirmar, supervisa: perfil?.supervisa }), supervisa: perfil?.supervisa }) ? (
+        <Tarjeta alPresionar={() => router.push('/equipo')} etiquetaAccesible="Mi equipo: dónde están y cómo rinden los Ejecutivos Comerciales de tus líneas">
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: ALTO_TOQUE_MIN }}>
+            <Icono nombre="equipo" tamano={26} />
+            <View style={{ flex: 1, gap: 2 }}>
+              <Subtitulo>Mi equipo</Subtitulo>
+              <Texto suave peque>
+                Dónde están y cómo rinden los Ejecutivos Comerciales de tus líneas.
+              </Texto>
+            </View>
+            <Icono nombre="adelante" tamano={22} color={c.textoSuave} />
+          </View>
+        </Tarjeta>
+      ) : null}
 
       {conDiasLibres ? (
         <Tarjeta alPresionar={() => router.push('/dias-libres')} etiquetaAccesible="Mis días libres: registrar uno o ver los que tienes">

@@ -5,17 +5,22 @@
  *   npx tsx scripts/checks/correr.ts 26-equipo
  */
 import {
+  CLAVE_EQUIPO_HOY,
+  CLAVE_EQUIPO_RENDIMIENTO,
   ETIQUETA_MARCA,
   ETIQUETA_PAPEL,
   RELEER_CADA_MS,
   TEXTO_FIJO_EQUIPO,
   filtrarPersonas,
+  ordenFilas,
+  periodo,
   textoHace,
+  textoVisto,
   textoPaso,
   textoResumen,
   textoUbicacion,
 } from '../../lib/equipo'
-import type { PasoRastroItem, PersonaEquipoItem, UbicacionItem } from '../../lib/tipos'
+import type { FilaRendimientoItem, PasoRastroItem, PersonaEquipoItem, UbicacionItem } from '../../lib/tipos'
 import type { Probador } from './probador'
 
 interface FsMinimo {
@@ -98,4 +103,28 @@ export async function pruebas(t: Probador): Promise<void> {
   t.check('equipo.tsx: selector de día sin futuro, botón "Rendimiento" y las marcas como insignias con palabras', /fecha >= hoy/.test(hoyEquipo) && /\/equipo\/rendimiento/.test(hoyEquipo) && /ETIQUETA_MARCA\[/.test(hoyEquipo))
   const dia = leer('app/(app)/equipo/persona/[id].tsx')
   t.check('[id].tsx: lee id y fecha de la ruta, pide api.equipoPersonaDia, muestra dónde está, el rastro (textoPaso) y "Siguiente"', /useLocalSearchParams/.test(dia) && /api\.equipoPersonaDia\(/.test(dia) && /textoUbicacion\(/.test(dia) && /textoPaso\(/.test(dia) && /Siguiente/.test(dia) && /Rastro/.test(dia))
+
+  t.seccion('26d. Rendimiento, "Mi equipo" y sin señal')
+  t.check('periodo: semana = lunes a domingo de hoy (martes 20 oct 2026 → 19 a 25); quincena = 15 días hasta hoy; mes = el calendario completo', JSON.stringify(periodo('semana', '2026-10-20')) === JSON.stringify({ desde: '2026-10-19', hasta: '2026-10-25' }) && JSON.stringify(periodo('quincena', '2026-10-20')) === JSON.stringify({ desde: '2026-10-06', hasta: '2026-10-20' }) && JSON.stringify(periodo('mes', '2026-10-20')) === JSON.stringify({ desde: '2026-10-01', hasta: '2026-10-31' }) && JSON.stringify(periodo('mes', '2026-02-10')) === JSON.stringify({ desde: '2026-02-01', hasta: '2026-02-28' }), { semana: periodo('semana', '2026-10-20'), quincena: periodo('quincena', '2026-10-20') })
+  t.check('periodo: un domingo (25 oct) sigue en la semana del 19', JSON.stringify(periodo('semana', '2026-10-25')) === JSON.stringify({ desde: '2026-10-19', hasta: '2026-10-25' }))
+  const ahora = new Date('2026-10-20T16:15:00Z')
+  t.check('textoVisto: "Visto hace 3 min", "Visto hace 2 h", "Visto hace 1 h 5 min", "Visto ahora"', textoVisto('2026-10-20T16:12:00Z', ahora) === 'Visto hace 3 min' && textoVisto('2026-10-20T14:15:00Z', ahora) === 'Visto hace 2 h' && textoVisto('2026-10-20T15:10:00Z', ahora) === 'Visto hace 1 h 5 min' && textoVisto('2026-10-20T16:15:00Z', ahora) === 'Visto ahora')
+  const fila = (nombre: string, ratio: number | null): FilaRendimientoItem => ({
+    persona: { user_id: nombre, nombre, papel: 'ejecutivo', executive_id: null, zona: null, lineas: [], solo_como_ejecutivo: false, activa: true },
+    ya_no_esta: false,
+    dias_habiles_sin_visitas: null,
+    cuota: null,
+    hechas: 0, efectivas: 0, no_efectivas: 0, no_efectivas_por_motivo: {}, no_se_hizo: 0, no_se_hizo_por_motivo: {}, canceladas: 0, canceladas_por_motivo: {}, sin_cerrar: 0, programadas: 0, telefonicas: 0,
+    cumplimiento_plan: { programadas: ratio === null ? 0 : 4, cumplidas: ratio === null ? 0 : Math.round(ratio * 4), ratio },
+    anticipacion: { mediana_dias: null, pct_con_tiempo: null, pct_mismo_dia: null, no_planeadas: 0 },
+    medicos_distintos: 0, ciudades_distintas: 0, por_linea: { lineas: [], suma_supera_hechas: false },
+  })
+  t.check('ordenFilas: cumplimiento ascendente, null al final, y por nombre', ordenFilas([fila('Zoe', null), fila('Ana', 1), fila('Beto', 0.25), fila('Carla', null), fila('Dina', 0.25)]).map(f => f.persona.nombre).join() === 'Beto,Dina,Ana,Carla,Zoe')
+  t.check('claves de la caché: opmap.equipo.hoy.v1 y opmap.equipo.rendimiento.v1', CLAVE_EQUIPO_HOY === 'opmap.equipo.hoy.v1' && CLAVE_EQUIPO_RENDIMIENTO === 'opmap.equipo.rendimiento.v1')
+  const rend = leer('app/(app)/equipo/rendimiento.tsx')
+  t.check('rendimiento.tsx: periodos semana, quincena, mes y rango; pide api.equipoRendimiento; ordena con ordenFilas; la cuota solo si mes_completo; "Ya no está"; el detalle de una persona con api.equipoPersonaRendimiento', /periodo\(/.test(rend) && /api\.equipoRendimiento\(/.test(rend) && /ordenFilas\(/.test(rend) && /mes_completo/.test(rend) && /Ya no está/.test(rend) && /api\.equipoPersonaRendimiento\(/.test(rend) && /por_linea/.test(rend) && /suma_supera_hechas/.test(rend))
+  t.check('rendimiento.tsx y equipo.tsx: sin señal muestran lo último guardado con "Visto hace" (leerUltimo, guardarUltimo, textoVisto) y no dejan cambiar de periodo ni de día', /leerUltimo(<[^>]+>)?\(/.test(rend) && /guardarUltimo\(/.test(rend) && /textoVisto\(/.test(rend) && /leerUltimo(<[^>]+>)?\(/.test(leer('app/(app)/equipo.tsx')) && /guardarUltimo\(/.test(leer('app/(app)/equipo.tsx')) && /textoVisto\(/.test(leer('app/(app)/equipo.tsx')) && /deshabilitado=\{[^}]*sinSenal/.test(leer('app/(app)/equipo.tsx')))
+  const hoyTsx = leer('app/(app)/hoy.tsx')
+  const ajustes = leer('app/(app)/ajustes.tsx')
+  t.check('hoy.tsx y ajustes.tsx: la tarjeta "Mi equipo" solo con muestraMiEquipo (una líder que supervisa) y abre /equipo', /muestraMiEquipo\(/.test(hoyTsx) && /Mi equipo/.test(hoyTsx) && /router\.push\('\/equipo'\)/.test(hoyTsx) && /muestraMiEquipo\(/.test(ajustes) && /Mi equipo/.test(ajustes) && /router\.push\('\/equipo'\)/.test(ajustes))
 }

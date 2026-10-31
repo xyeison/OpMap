@@ -9,7 +9,8 @@ import { useFocusEffect, useRouter } from 'expo-router'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ScrollView, View } from 'react-native'
 import * as api from '../../lib/api'
-import { ETIQUETA_MARCA, ETIQUETA_PAPEL, FILTROS_PAPEL, MARCAS_VISIBLES, RELEER_CADA_MS, TEXTO_FIJO_EQUIPO, filtrarPersonas, textoResumen, textoUbicacion, type FiltroPapel } from '../../lib/equipo'
+import { ETIQUETA_MARCA, ETIQUETA_PAPEL, FILTROS_PAPEL, MARCAS_VISIBLES, RELEER_CADA_MS, TEXTO_FIJO_EQUIPO, esSinSenal, filtrarPersonas, textoResumen, textoUbicacion, textoVisto, type FiltroPapel } from '../../lib/equipo'
+import { CLAVE_EQUIPO_HOY, guardarUltimo, leerUltimo } from '../../lib/equipo-cache'
 import { aApiError, type ApiError } from '../../lib/errores'
 import { fechaLarga, hoyBogota, sumarDias } from '../../lib/fechas'
 import type { EquipoHoyResponse, EquipoPersonasResponse } from '../../lib/tipos'
@@ -24,6 +25,8 @@ export default function Equipo() {
   const [catalogo, setCatalogo] = useState<EquipoPersonasResponse | null>(null)
   const [datos, setDatos] = useState<EquipoHoyResponse | null>(null)
   const [error, setError] = useState<ApiError | null>(null)
+  /** Sin señal: cuándo se guardó lo que se ve (null: en vivo). */
+  const [vistoAt, setVistoAt] = useState<string | null>(null)
   const [cargando, setCargando] = useState(true)
   const [refrescando, setRefrescando] = useState(false)
   /** Cada pedido lleva su número: solo el último cuenta (pasar rápido de día no deja lo de otro). */
@@ -37,11 +40,22 @@ export default function Equipo() {
       const nuevos = await api.equipoHoy(fechaPedida)
       if (vigente()) {
         setDatos(nuevos)
+        setVistoAt(null)
         setError(null)
+        void guardarUltimo(CLAVE_EQUIPO_HOY, fechaPedida, nuevos)
       }
     } catch (e) {
       if (!vigente()) return
-      setError(aApiError(e))
+      const err = aApiError(e)
+      setError(err)
+      // Sin señal: lo último guardado, con "Visto hace"; y no se deja cambiar de día
+      if (esSinSenal(err.tipo)) {
+        const ultimo = await leerUltimo<EquipoHoyResponse>(CLAVE_EQUIPO_HOY)
+        if (vigente() && ultimo) {
+          setDatos(ultimo.datos)
+          setVistoAt(ultimo.visto_at)
+        }
+      }
     } finally {
       if (vigente()) {
         setCargando(false)
@@ -70,7 +84,8 @@ export default function Equipo() {
     setFecha(nueva)
   }
 
-  const otroDia = datos !== null && datos.fecha !== fecha
+  const sinSenal = error !== null && esSinSenal(error.tipo)
+  const otroDia = datos !== null && datos.fecha !== fecha && !vistoAt
   const filas = datos ? filtrarPersonas(datos.personas, papel, linea) : []
 
   return (
@@ -84,13 +99,13 @@ export default function Equipo() {
       <Texto suave peque>{TEXTO_FIJO_EQUIPO}</Texto>
 
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-        <BotonIcono icono="atras" etiqueta="Día anterior" alPresionar={() => cambiarDia(-1)} />
+        <BotonIcono icono="atras" etiqueta="Día anterior" alPresionar={() => cambiarDia(-1)} deshabilitado={sinSenal} />
         <View style={{ flex: 1 }}>
           <Texto negrita centro estilo={{ fontSize: 17 }}>
             {fecha === hoy ? 'Hoy' : fechaLarga(fecha)}
           </Texto>
         </View>
-        <BotonIcono icono="adelante" etiqueta="Día siguiente" alPresionar={() => cambiarDia(1)} deshabilitado={fecha >= hoy} />
+        <BotonIcono icono="adelante" etiqueta="Día siguiente" alPresionar={() => cambiarDia(1)} deshabilitado={fecha >= hoy || sinSenal} />
       </View>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
@@ -113,6 +128,8 @@ export default function Equipo() {
           {error.message}
         </Aviso>
       ) : null}
+
+      {vistoAt ? <Aviso tono="alerta">{`Sin señal: lo último guardado${datos && datos.fecha !== fecha ? ` (del ${datos.fecha})` : ''}. ${textoVisto(vistoAt)}.`}</Aviso> : null}
 
       {datos ? (
         <View style={{ gap: 12, opacity: otroDia ? 0.35 : 1 }} pointerEvents={otroDia ? 'none' : 'auto'}>
