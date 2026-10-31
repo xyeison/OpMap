@@ -64,8 +64,8 @@ export function esRutaApi(url: string): boolean {
 }
 
 /**
- * ¿La sesión de la petición es el token de la app (portador en /api/ y sin la cookie de la web)? Con la app de campo
- * solo para líderes (dueño, 2026-10-30), lo de Ejecutivo Comercial se cierra para la app y no para la web.
+ * ¿La sesión de la petición es el token de la app (portador en /api/ y sin la cookie de la web)? Lo usa la app como
+ * contrato ("la app sigue siendo la app" aunque otra persona haya entrado en OpMap en otra pestaña).
  */
 export function sesionDeLaApp(request: Request): boolean {
   return !readCookie(request, SESSION_COOKIE_NAME) && esRutaApi(request.url) && readBearer(request) !== null

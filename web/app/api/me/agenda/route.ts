@@ -20,7 +20,6 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 import { agendaQuerySchema, citaCreateSchema } from '@/lib/reporte-visitas-schemas'
 import { mensajeFechaCita, mensajeHoraCita, rangoConsultaAgenda, type AgendaResponse, type CitaResponse } from '@/lib/reporte-visitas'
 import { hoyBogota } from '@/lib/visits-rules'
-import { appSoloLideres, comoDeLaApp } from '@/lib/persona-campo'
 import { ahora, requirePersonaDeCampo } from '../../config-visitas/_lib/visitas-server'
 import { armarCitaItems, cargarCitaItem, errorReporte, jsonbCita, leerCitas, respuestaErrorAgenda } from '../_lib/reporte-server'
 import { medirRuta } from '../_lib/tiempos'
@@ -67,9 +66,8 @@ export async function POST(request: NextRequest) {
     const parsed = citaCreateSchema.safeParse(await readJson(request))
     if (!parsed.success) return jsonError(zodMessage(parsed.error), 400, { errores: erroresDeZod(parsed.error.issues) })
     const datos = parsed.data
-    // App solo para líderes (dueño, 2026-10-30): como líder siempre; "Como Ejecutivo Comercial" → 403 (va por VMO).
-    const como = comoDeLaApp(datos.como, appSoloLideres(process.env))
-    if (!como.ok) return jsonError(como.error, 403, { errores: [{ campo: 'como', mensaje: como.error }] })
+    // "Como qué" (C12): el que llegó, o null y decide la base (Paola, con los dos papeles, lo elige en la app).
+    const como = datos.como ?? null
 
     const instante = ahora()
     const hoy = hoyBogota(instante)
@@ -83,7 +81,7 @@ export async function POST(request: NextRequest) {
     try {
       // La persona la saca la base de p_user (persona_de_campo); "como qué", de `como` (C12; con la app solo para
       // líderes, siempre 'lider').
-      const { data, error } = await t.fase('rpc', () => supabaseAdmin.rpc('agenda_crear', { p: { ...jsonbCita(datos), como: como.como }, p_user: auth.user.id }))
+      const { data, error } = await t.fase('rpc', () => supabaseAdmin.rpc('agenda_crear', { p: { ...jsonbCita(datos), como }, p_user: auth.user.id }))
       if (error) {
         const traducido = respuestaErrorAgenda(error, 'Los datos de la cita no son válidos')
         if (traducido) return traducido
