@@ -142,7 +142,7 @@ app/                      pantallas (expo-router)
   (app)/reportar.tsx      dictar o reportar por toques
   (app)/visita/[id].tsx   ver, corregir o anular (mismo día)
   (app)/medico/nuevo.tsx  crear médico completo
-  (app)/sede/nueva.tsx    crear sede con el GPS del sitio
+  (app)/sede/nueva.tsx    crear sede con el GPS del sitio (desde Agendar, ubicación opcional: "por confirmar")
   (app)/dias-libres.tsx   registrar, ver y anular días libres
   (app)/numeros.tsx       cuota y cumplimiento del mes
   (app)/ajustes.tsx       quién soy, servidor, versión, cerrar sesión
@@ -156,7 +156,7 @@ lib/
   propuesta.ts            de la propuesta o los toques a la visita: catálogo, tarjetas, validación, cuerpo, corregir
   terceros.ts             listas y reglas de F1 (documento del médico, código del REPS)
   grabacion.ts, audio.ts  reglas de la grabación y borrado del audio
-  retorno.ts              ida y vuelta con Nuevo médico / Nueva sede (en memoria, nunca en la URL)
+  retorno.ts              ida y vuelta con Nuevo médico / Nueva sede (en memoria, nunca en la URL; la vuelta a Agendar lleva médico y sede)
   api.ts, http.ts         cliente HTTP (portador, tiempos máximos, 401 → cerrar sesión)
   errores.ts              errores { error } legibles
   sesion.ts, token.ts     sesión del teléfono

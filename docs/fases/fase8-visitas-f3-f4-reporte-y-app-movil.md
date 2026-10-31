@@ -247,6 +247,14 @@ business_lines, PRIMARY KEY)`, RLS sin políticas, solo service_role.
     el que ya está);
   - Agendar ofrece "Crear médico" (el mismo Nuevo médico, solo CC o CE) y lo elige al volver. El de una líder ya es
     de sus líneas (`medico_lineas`, 0950).
+  - Agendar con una sede que el médico aún no tiene (dueño, 2026-10-30, spec
+    `docs/specs/2026-10-30-agendar-sede-del-medico.md`): el selector "Sede" del médico ofrece "Buscar en OpMap"
+    (`GET /api/terceros/sedes?q=`); tocar una sede la vincula con rol `atiende` (`POST /api/terceros/medicos/[id]/sedes`,
+    `terceros:create`) y la elige; si la búsqueda no encontró nada, "Crear la sede" abre la misma Nueva sede de Reportar
+    con la **ubicación opcional** (no se está en el sitio): sin ella va sin origen ni coordenadas y nace "por confirmar"
+    (`lib/sede-del-medico.ts`, `cuerpoSedeNueva`); al volver, la sede va por la vuelta de Agendar (`sedeParaAgendar`),
+    que la vincula y la elige. Sin señal, vincular o crear avisa con el error de la API y no encola nada. "Es su
+    consultorio" sigue solo en Nuevo médico (necesita el documento). Pruebas: `scripts/checks/23-sede-del-medico.ts`.
 
 ## API (todas con `requirePermission('visits:report')` salvo auth; `getSupabaseAdmin`; errores `{ error }`; 503 si falta la migración)
 

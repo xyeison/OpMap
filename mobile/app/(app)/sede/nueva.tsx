@@ -7,6 +7,11 @@
  *
  * Spec 2026-10-15: la ubicación se muestra como "Ubicación tomada · ±12 m" (sin coordenadas), cada error va junto a su
  * campo y "Crear sede" queda fijo al pie (Pantalla.pie), a la vista aunque el formulario sea largo.
+ *
+ * Pedida desde Agendar (CLAVE_RETORNO_AGENDAR con el médico; spec 2026-10-30-agendar-sede-del-medico): no se está en
+ * el sitio, así que la ubicación es opcional (se toma solo con el botón); sin ella la sede va sin coordenadas y nace
+ * "por confirmar" (lib/sede-del-medico.ts, cuerpoSedeNueva). Agendar no está montado para oír el aviso: la sede queda
+ * en su vuelta (sedeParaAgendar) y Agendar la vincula al médico y la elige al montarse.
  */
 import { useRouter } from 'expo-router'
 import { useEffect, useState } from 'react'
@@ -17,7 +22,8 @@ import * as api from '../../../lib/api'
 import { ApiError, mensajeDeError } from '../../../lib/errores'
 import { SoloEnFoco } from '../../../lib/montaje'
 import { textoUbicacionTomada } from '../../../lib/pantallas'
-import { avisarRetorno, leerPedido } from '../../../lib/retorno'
+import { CLAVE_RETORNO_AGENDAR, avisarRetorno, leerPedido, sedeParaAgendar } from '../../../lib/retorno'
+import { MENSAJE_SEDE_CREADA_SIN_VUELTA, MENSAJE_SEDE_SIN_UBICACION, cuerpoSedeNueva } from '../../../lib/sede-del-medico'
 import { etiquetaClaseCuenta, limpiarNombre, validarRepsCode } from '../../../lib/terceros'
 import type { CuentaListItem } from '../../../lib/tipos'
 import { pedirUbicacion, type Ubicacion } from '../../../lib/ubicacion'
@@ -48,14 +54,18 @@ function NuevaSede() {
     }
   }
 
-  const [nombre, setNombre] = useState('')
+  /** Pedida desde Agendar: la sede de un médico, lejos del sitio (ubicación opcional; vuelve por la vuelta de Agendar). */
+  const desdeAgendar = pedido?.clave === CLAVE_RETORNO_AGENDAR
+  const medico = desdeAgendar ? (pedido?.medico ?? null) : null
+
+  const [nombre, setNombre] = useState(desdeAgendar ? limpiarNombre(pedido?.nombre ?? '') : '')
   const [cuentas, setCuentas] = useState<CuentaOpcion[]>(cuentasCercanas)
   const [cuentaId, setCuentaId] = useState<string | null>(null)
   const [municipio, setMunicipio] = useState<string | null>(pedido?.municipio ? pedido.municipio.slice(0, 5) : null)
   const [reps, setReps] = useState('')
   const [ubicacion, setUbicacion] = useState<Ubicacion | null>(null)
   const [errorUbicacion, setErrorUbicacion] = useState<string | null>(null)
-  const [ubicando, setUbicando] = useState(true)
+  const [ubicando, setUbicando] = useState(!desdeAgendar)
   const [error, setError] = useState<string | null>(null)
   /** Se tocó "Crear sede": desde ahí cada campo dice lo que le falta. */
   const [intentado, setIntentado] = useState(false)
@@ -69,8 +79,10 @@ function NuevaSede() {
     setUbicando(false)
   }
 
+  // Desde Reportar la ubicación se toma sola (se está en el sitio); desde Agendar solo con el botón.
   useEffect(() => {
-    void ubicar()
+    if (!desdeAgendar) void ubicar()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const codigo = validarRepsCode(reps)
@@ -81,7 +93,7 @@ function NuevaSede() {
     nombre: nombreLimpio.length < 2 ? 'Escribe el nombre de la sede' : null,
     cuenta: !cuentaId || !cuenta ? 'Elige la cuenta de la sede' : null,
     municipio: !municipio ? 'Elige el municipio de la sede' : null,
-    ubicacion: !ubicacion ? 'Hace falta la ubicación del teléfono: la sede se crea con el GPS de aquí' : null,
+    ubicacion: !ubicacion && !desdeAgendar ? 'Hace falta la ubicación del teléfono: la sede se crea con el GPS de aquí' : null,
   }
   const hayFaltas = Boolean(faltas.nombre || faltas.cuenta || faltas.municipio || faltas.ubicacion) || !codigo.ok
   // Al pie, junto al botón: el error del servidor o, si falta algo, que se revise lo marcado.
@@ -90,37 +102,45 @@ function NuevaSede() {
   const crear = async () => {
     setIntentado(true)
     setError(null)
-    if (hayFaltas || !codigo.ok || !cuentaId || !cuenta || !municipio || !ubicacion) return
+    if (hayFaltas || !codigo.ok || !cuentaId || !cuenta || !municipio || (!ubicacion && !desdeAgendar)) return
     setCreando(true)
     try {
-      const respuesta = await api.crearSede({
-        cuenta_id: cuentaId,
-        nombre: nombreLimpio,
-        municipality_id: municipio,
-        reps_code: codigo.valor,
-        origen: 'gps_app',
-        lat: ubicacion.lat,
-        lng: ubicacion.lng,
-        gps_accuracy_m: ubicacion.precision,
-      })
+      const respuesta = await api.crearSede(
+        cuerpoSedeNueva({
+          cuenta_id: cuentaId,
+          nombre: nombreLimpio,
+          municipality_id: municipio,
+          reps_code: codigo.valor,
+          ubicacion: ubicacion ? { lat: ubicacion.lat, lng: ubicacion.lng, precision: ubicacion.precision } : null,
+        })
+      )
       const sede = respuesta.sede
-      avisarRetorno({
-        tipo: 'sede',
-        clave: pedido?.clave ?? null,
-        sede: {
-          id: sede.id,
-          nombre: sede.nombre,
-          cuenta_id: sede.cuenta_id,
-          cuenta_nombre: cuenta.nombre,
-          cuenta_clase: cuenta.clase,
-          lat: sede.lat === null ? ubicacion.lat : Number(sede.lat),
-          lng: sede.lng === null ? ubicacion.lng : Number(sede.lng),
-          distancia_m: 0,
-          ubicacion_confirmada: sede.ubicacion_confirmada,
-        },
-      })
+      if (desdeAgendar) {
+        // Agendar no está montado (SoloEnFoco): la sede va a su vuelta, y Reportar no debe enterarse. Si la vuelta ya
+        // venció (más de 30 minutos aquí), la sede existe pero nadie la va a vincular: se dice y no se sale.
+        if (!sedeParaAgendar({ id: sede.id, nombre: sede.nombre, cuenta_nombre: cuenta.nombre })) {
+          setError(MENSAJE_SEDE_CREADA_SIN_VUELTA)
+          return
+        }
+      } else {
+        avisarRetorno({
+          tipo: 'sede',
+          clave: pedido?.clave ?? null,
+          sede: {
+            id: sede.id,
+            nombre: sede.nombre,
+            cuenta_id: sede.cuenta_id,
+            cuenta_nombre: cuenta.nombre,
+            cuenta_clase: cuenta.clase,
+            lat: sede.lat === null ? (ubicacion?.lat ?? null) : Number(sede.lat),
+            lng: sede.lng === null ? (ubicacion?.lng ?? null) : Number(sede.lng),
+            distancia_m: ubicacion ? 0 : null,
+            ubicacion_confirmada: sede.ubicacion_confirmada,
+          },
+        })
+      }
       if (router.canGoBack()) router.back()
-      else router.replace('/reportar')
+      else router.replace(desdeAgendar ? '/agenda/nueva' : '/reportar')
     } catch (lanzado) {
       const existente = lanzado instanceof ApiError && lanzado.status === 409 ? (lanzado.cuerpo as { existente?: { nombre?: string } } | null)?.existente : undefined
       setError(existente?.nombre ? `Ese código de habilitación ya es de la sede "${existente.nombre}": búscala en vez de crearla.` : mensajeDeError(lanzado))
@@ -138,19 +158,27 @@ function NuevaSede() {
         </>
       }
     >
-      <Texto suave>La sede se crea con la ubicación de este teléfono: hazlo estando en el sitio.</Texto>
+      {desdeAgendar ? (
+        <Texto suave>{medico ? `Queda como sede donde atiende ${medico.nombre}.` : 'Queda como sede del médico de la cita.'}</Texto>
+      ) : (
+        <Texto suave>La sede se crea con la ubicación de este teléfono: hazlo estando en el sitio.</Texto>
+      )}
 
       <Tarjeta estilo={{ gap: 6 }}>
-        <Texto negrita>Ubicación del sitio</Texto>
+        <Texto negrita>{desdeAgendar ? 'Ubicación (opcional)' : 'Ubicación del sitio'}</Texto>
         {ubicando ? (
           <Texto suave>Tomando la ubicación…</Texto>
         ) : ubicacion ? (
           <Texto>{textoUbicacionTomada(ubicacion.precision, ubicacion.aproximada)}</Texto>
+        ) : desdeAgendar && !errorUbicacion ? (
+          <Texto suave>{MENSAJE_SEDE_SIN_UBICACION}</Texto>
         ) : (
           <Aviso tono="alerta">{errorUbicacion ?? 'Sin ubicación'}</Aviso>
         )}
         {intentado && faltas.ubicacion && !ubicando ? <ErrorCampo texto={faltas.ubicacion} /> : null}
-        {!ubicando ? <Boton titulo="Volver a tomar la ubicación" variante="texto" alPresionar={() => void ubicar()} /> : null}
+        {!ubicando ? (
+          <Boton titulo={ubicacion ? 'Volver a tomar la ubicación' : desdeAgendar ? 'Estoy en la sede: tomar la ubicación' : 'Volver a tomar la ubicación'} variante="texto" alPresionar={() => void ubicar()} />
+        ) : null}
       </Tarjeta>
 
       <Campo

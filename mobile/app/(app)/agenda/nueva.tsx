@@ -76,7 +76,7 @@ import { textoOtraFechaDe } from '../../../lib/agenda-ciclo'
 import * as api from '../../../lib/api'
 import { mesDe } from '../../../lib/calendario'
 import { contextoReciente, FRESCURA_DATOS_FIJOS_MS, invalidarContexto } from '../../../lib/contexto-memoria'
-import { aApiError, mensajeDeError, type ApiError } from '../../../lib/errores'
+import { ApiError, aApiError, mensajeDeError } from '../../../lib/errores'
 import { esFechaIso, hoyBogota } from '../../../lib/fechas'
 import { vibrarAviso, vibrarExito } from '../../../lib/haptica'
 import { SoloEnFoco } from '../../../lib/montaje'
@@ -94,6 +94,7 @@ import {
 import { cambiarFormularioCita, errorDe, formularioCitaVacio, horaDeCita, sedesDeCuentaBuscada, type FormularioCita } from '../../../lib/propuesta'
 import { conQuienCita } from '../../../lib/reglas'
 import { CLAVE_RETORNO_AGENDAR, fijarPedido, guardarAgendarAntesDeCrear, tomarVueltaAgendar } from '../../../lib/retorno'
+import { detalleCrearSede, mensajeSedeCreadaSinVincular, sedesConVinculadas, type SedeDeCita } from '../../../lib/sede-del-medico'
 import { useSesion } from '../../../lib/sesion'
 import { etiquetaClaseCuenta, etiquetaEspecialidad } from '../../../lib/terceros'
 import {
@@ -106,6 +107,7 @@ import {
   type DiaLibreItem,
   type ErrorVisita,
   type MedicoPublico,
+  type SedeBusquedaItem,
   type TipoVisita,
 } from '../../../lib/tipos'
 import { Aviso, Boton, Campo, Cargando, Chip, Grupo, Pantalla, Subtitulo, Tarjeta, Texto, useColores } from '../../../lib/ui'
@@ -215,9 +217,12 @@ function NuevaCita({ fechaPedida, horaPedida, pedido }: { fechaPedida?: string; 
         }
       : {}),
   }))
-  /** La hora la puso la app (no la URL ni la persona): al cambiar de día se busca otra libre. */
-  const [horaAuto, setHoraAuto] = useState(typeof horaDeUrl !== 'string')
+  /** La hora la puso la app (no la URL ni la persona): al cambiar de día se busca otra libre. Con vuelta, es la que llevaba. */
+  const [horaAuto, setHoraAuto] = useState(typeof horaDeUrl !== 'string' && !vuelta)
   const [buscados, setBuscados] = useState<MedicoCita[]>([])
+  /** Sedes vinculadas a un médico en esta pantalla (spec 2026-10-30-agendar-sede-del-medico), por médico. */
+  const [vinculadas, setVinculadas] = useState<Record<string, SedeDeCita[]>>({})
+  const [errorSede, setErrorSede] = useState<string | null>(null)
   const [cuenta, setCuenta] = useState<CuentaCita | null>(null)
   const [errorCuenta, setErrorCuenta] = useState<string | null>(null)
   const [avisoPedido, setAvisoPedido] = useState<string | null>(null)
@@ -259,8 +264,11 @@ function NuevaCita({ fechaPedida, horaPedida, pedido }: { fechaPedida?: string; 
         // Ejecutivo Comercial.
         if (eligeComo(quien) && !siguiente.como) siguiente = { ...siguiente, como: origen?.como ?? comoPorDefecto(quien) }
         // Abre con una hora ya elegida: la de la URL, o la primera franja libre (de la fecha pedida o, sin fecha, desde
-        // mañana: la de hoy contaría como no agendada).
-        if (!fechaDeUrl) {
+        // mañana: la de hoy contaría como no agendada). Volviendo de Nuevo médico o Nueva sede, la fecha y la hora son
+        // las que llevaba (vuelta.formulario): no se tocan.
+        if (vuelta) {
+          // nada: conserva lo que llevaba
+        } else if (!fechaDeUrl) {
           const primera = primeraFranjaLibre(fechaInicialAgendar(hoy), ventana.hasta, citasVentana, marcasVentana)
           if (primera && typeof horaDeUrl !== 'string') siguiente = { ...siguiente, fecha: primera.fecha, hora: primera.hora }
         } else if (typeof horaDeUrl !== 'string') {
@@ -322,14 +330,18 @@ function NuevaCita({ fechaPedida, horaPedida, pedido }: { fechaPedida?: string; 
       id: m.id,
       nombre: m.nombre,
       detalle: m.especialidades.map(etiquetaEspecialidad).join(', ') || null,
-      sedes: m.sedes.map(s => ({ id: s.id, nombre: s.nombre, cuenta_nombre: s.cuenta_nombre })),
+      // Más las sedes que se le vincularon aquí (el contexto en memoria aún no las trae).
+      sedes: sedesConVinculadas(
+        m.sedes.map(s => ({ id: s.id, nombre: s.nombre, cuenta_nombre: s.cuenta_nombre })),
+        vinculadas[m.id]
+      ),
       propio: true,
       lineas: m.lineas,
     }))
     return [...propios, ...buscados.filter(b => !propios.some(p => p.id === b.id) && medicoDelPapel(b.lineas, persona, papel))]
   }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const medicos = useMemo<MedicoCita[]>(() => ofrecidos(como), [contexto, buscados, persona, como])
+  const medicos = useMemo<MedicoCita[]>(() => ofrecidos(como), [contexto, buscados, vinculadas, persona, como])
   /** Los de sus médicos que se ofrecen con este papel (un resultado del buscador que ya es suyo se ofrece igual). */
   const idsPropios = useMemo(() => new Set(medicos.filter(m => m.propio).map(m => m.id)), [medicos])
   /** Los resultados del buscador que se ofrecen con este papel. */
@@ -423,6 +435,68 @@ function NuevaCita({ fechaPedida, horaPedida, pedido }: { fechaPedida?: string; 
   }
 
   /**
+   * Una sede donde el médico atiende y que aún no tiene (dueño, 2026-10-30; spec 2026-10-30-agendar-sede-del-medico):
+   * se vincula con rol "atiende" (POST /api/terceros/medicos/[id]/sedes) y queda elegida. Un médico suyo recibe la sede
+   * en `vinculadas` (el contexto en memoria no la trae); uno del buscador se vuelve a poner con lo que devolvió el
+   * servidor. Ya vinculada (409: el contexto en memoria tenía hasta 10 minutos) cuenta como vinculada. Si la API falla
+   * (sin señal, sin permiso), el mensaje va junto al buscador (y, al volver de Nueva sede, bajo "¿Con quién?") y no
+   * cambia nada.
+   */
+  const vincularSede = async (medicoId: string, sede: SedeDeCita): Promise<{ ok: true } | { ok: false; error: string }> => {
+    setErrorSede(null)
+    try {
+      const { medico: actualizado } = await api.vincularSedeMedico(medicoId, { sede_id: sede.id, rol: 'atiende' })
+      const sedes: SedeDeCita[] = actualizado.sedes.map(s => ({ id: s.id, nombre: s.nombre, cuenta_nombre: s.cuenta_nombre ?? null }))
+      if (idsPropios.has(medicoId)) setVinculadas(prev => ({ ...prev, [medicoId]: sedes }))
+      else setBuscados(prev => [...prev.filter(b => b.id !== medicoId), medicoDeBusqueda(actualizado, hoy)])
+      cambiar({ medico_id: medicoId, sede_id: sede.id })
+      return { ok: true }
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) {
+        // Ya la tenía: queda entre sus sedes (por si la lista en memoria no la traía) y elegida.
+        setVinculadas(prev => ({ ...prev, [medicoId]: sedesConVinculadas(prev[medicoId] ?? [], [sede]) }))
+        cambiar({ medico_id: medicoId, sede_id: sede.id })
+        return { ok: true }
+      }
+      const error = mensajeDeError(e)
+      setErrorSede(error)
+      return { ok: false, error }
+    }
+  }
+
+  /**
+   * La sede que quedó en Nueva sede: se vincula al médico del formulario y queda elegida. Un médico que venía del
+   * buscador ya no está en la lista (Agendar se montó de cero): se vuelve a traer antes, para no perderlo si el vínculo
+   * falla. Si falla, se dice bajo "¿Con quién?" (el buscador de sedes no está abierto): la sede existe, el vínculo no.
+   */
+  const ponerSedeCreada = async (medicoId: string, sede: SedeDeCita, ctx: ContextoResponse) => {
+    setAvisoPedido(null)
+    let nombre: string | null = medicosDelPapel(ctx.mis_medicos, persona, como).find(m => m.id === medicoId)?.nombre ?? null
+    if (!nombre) {
+      try {
+        const { medico: publico } = await api.medico(medicoId)
+        setBuscados(prev => [...prev.filter(b => b.id !== medicoId), medicoDeBusqueda(publico, hoy)])
+        nombre = publico.nombre
+      } catch {
+        // Sin el médico en la lista el vínculo igual se intenta; si también falla, el aviso de abajo lo dice.
+      }
+    }
+    const resultado = await vincularSede(medicoId, sede)
+    if (!resultado.ok) setAvisoPedido(mensajeSedeCreadaSinVincular(nombre, resultado.error))
+  }
+
+  /**
+   * "Crear la sede": la búsqueda de sedes de OpMap no encontró nada. Es la misma Nueva sede de Reportar, con lo buscado
+   * como nombre y la ubicación opcional (no se está en el sitio). Agendar se desmonta al ir: deja su formulario en la
+   * vuelta y al volver vincula al médico la sede que quedó y la elige (efecto de abajo).
+   */
+  const crearSede = (nombre: string, quien: MedicoCita) => {
+    guardarAgendarAntesDeCrear(formulario)
+    fijarPedido({ clave: CLAVE_RETORNO_AGENDAR, nombre, medico: { id: quien.id, nombre: quien.nombre }, municipio: contexto?.ejecutiva?.municipio ?? null, sedes: [] })
+    router.push('/sede/nueva')
+  }
+
+  /**
    * El médico que quedó en Nuevo médico (creado, o el que ya estaba con ese documento): si está entre los suyos del
    * contexto recién traído (el que crea una líder ya es de sus líneas, 0950), se elige; si no, se trae como uno de OpMap
    * (agregarMedico no elige, como líder, al que no es de sus líneas: entonces se dice).
@@ -446,9 +520,14 @@ function NuevaCita({ fechaPedida, horaPedida, pedido }: { fechaPedida?: string; 
   }
   const vueltaAplicada = useRef(false)
   useEffect(() => {
-    if (!contexto || !vuelta?.medicoId || vueltaAplicada.current) return
-    vueltaAplicada.current = true
-    void ponerMedicoCreado(vuelta.medicoId, contexto)
+    if (!contexto || vueltaAplicada.current) return
+    if (vuelta?.medicoId) {
+      vueltaAplicada.current = true
+      void ponerMedicoCreado(vuelta.medicoId, contexto)
+    } else if (vuelta?.sede && vuelta.formulario.medico_id) {
+      vueltaAplicada.current = true
+      void ponerSedeCreada(vuelta.formulario.medico_id, vuelta.sede, contexto)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contexto])
 
@@ -756,8 +835,39 @@ function NuevaCita({ fechaPedida, horaPedida, pedido }: { fechaPedida?: string; 
             }))}
             alElegir={id => cambiar({ sede_id: id })}
             error={error('sede_id')}
-            vacio={formulario.tipo === 'medica' ? 'Este médico no tiene sedes en OpMap.' : 'Esta cuenta no tiene sedes activas.'}
+            vacio={
+              formulario.tipo === 'medica'
+                ? 'Este médico no tiene sedes en OpMap: escribe arriba el nombre de la sede donde atiende para buscarla; si no está, ahí mismo la creas.'
+                : 'Esta cuenta no tiene sedes activas.'
+            }
             abiertoInicial={!formulario.sede_id && sedesOpciones.length > 1}
+            buscarFuera={
+              formulario.tipo === 'medica' && medico
+                ? {
+                    donde: 'OpMap',
+                    // Una sede donde atiende y que aún no tiene: se vincula al tocarla; si no está, "Crear la sede".
+                    resultados: (consulta, cerrar) => (
+                      <Buscador<SedeBusquedaItem>
+                        etiqueta="Sedes en OpMap"
+                        consulta={consulta}
+                        buscar={async q => (await api.buscarSedes(q)).items}
+                        clave={item => item.id}
+                        titulo={item => item.nombre}
+                        detalle={item => [item.cuenta_nombre !== item.nombre ? item.cuenta_nombre : null, item.ciudad].filter(Boolean).join(' · ') || null}
+                        textoElegir="Atiende aquí"
+                        sinResultados="No encontré sedes con ese nombre en OpMap."
+                        siNoHay={buscado => <Boton titulo="Crear la sede" detalle={detalleCrearSede(buscado, medico.nombre)} variante="secundario" alPresionar={() => crearSede(buscado, medico)} />}
+                        alElegir={item =>
+                          void vincularSede(medico.id, { id: item.id, nombre: item.nombre, cuenta_nombre: item.cuenta_nombre }).then(resultado => {
+                            if (resultado.ok) cerrar()
+                          })
+                        }
+                        pie={errorSede ? <Aviso tono="peligro">{errorSede}</Aviso> : undefined}
+                      />
+                    ),
+                  }
+                : undefined
+            }
           />
         ) : origen ? (
           <Texto suave peque>{`Sede: ${origen.sede.nombre}`}</Texto>

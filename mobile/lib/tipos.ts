@@ -940,6 +940,19 @@ export interface SedeCreateGps {
   gps_accuracy_m: number | null
 }
 
+/**
+ * La misma sede sin la ubicación del teléfono (pedida desde Agendar, lejos del sitio; spec
+ * 2026-10-30-agendar-sede-del-medico): sin origen ni coordenadas, el servidor la guarda como manual, "por confirmar".
+ */
+export interface SedeCreateSinUbicacion {
+  cuenta_id: string
+  nombre: string
+  municipality_id: string
+  reps_code: string | null
+}
+
+export type SedeCreateApp = SedeCreateGps | SedeCreateSinUbicacion
+
 /** POST /api/terceros/sedes → 201 (409 con { existente } si el código de habilitación ya es de otra sede). */
 export interface SedeCreateResponse {
   id: string
