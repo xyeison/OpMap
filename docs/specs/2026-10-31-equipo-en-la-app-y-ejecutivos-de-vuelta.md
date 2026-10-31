@@ -1,6 +1,6 @@
 # Spec: "Equipo" en la app y los Ejecutivos Comerciales de vuelta  (2026-10-31)
 
-**Estado**: borrador para aprobación del dueño (brainstorming del 2026-10-31). Dos entregas, dos PR.
+**Estado**: aprobada por el dueño el 2026-10-31 ("Si"). Dos entregas, dos PR.
 
 ## Problema
 
