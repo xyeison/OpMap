@@ -3,15 +3,16 @@
  * con la hora, con quién, la sede, la distancia y si está dentro del radio presencial. Tocar una la deja elegida: la
  * visita sale ya armada con esa cita (tipo, médico o cuenta y subtipo, sede y agenda_id). Sin ubicación, por hora.
  *
- * Estilo Uber (2026-10-15): filas con separador fino (la hora a la izquierda, la distancia a la derecha); la elegida
- * va aparte, con borde negro y "✓".
+ * Estilo Uber (2026-10-15): la hora a la izquierda, la distancia a la derecha; la elegida va aparte, con borde negro y
+ * "✓". Desde el 2026-10-31 (dueño: "no es claro cuál es la opción que se puede tocar") cada cita es una TARJETA con
+ * borde y "›", no una fila con separador.
  */
 import { Pressable, View } from 'react-native'
 import { textoDistancia } from '../../lib/geo'
 import { citaAtrasada } from '../../lib/pantallas'
 import { conQuienCita, cuentaDistinta, sinCortes, textoHoraCita } from '../../lib/reglas'
 import { ETIQUETA_TIPO_VISITA, type CitaItem } from '../../lib/tipos'
-import { FilaLista, Grupo, Insignia, TAMANO, Texto, Vacio, useColores } from '../../lib/ui'
+import { Grupo, IconoUi, Insignia, TAMANO, Tarjeta, Texto, Vacio, useColores } from '../../lib/ui'
 
 interface Props {
   /** Ya ordenadas (citasParaReportar). */
@@ -27,8 +28,8 @@ export function ListaCitas({ citas, radioM, elegida, alElegir, vacio = 'No tiene
   if (citas.length === 0) return <Vacio texto={vacio} />
   const ahora = new Date()
   return (
-    <View>
-      {citas.map((cita, i) => {
+    <View style={{ gap: 8 }}>
+      {citas.map(cita => {
         const activa = cita.id === elegida
         const con = conQuienCita(cita)
         const cuenta = cita.tipo === 'medica' ? cuentaDistinta(cita.sede.nombre, cita.sede.cuenta_nombre) : null
@@ -105,9 +106,10 @@ export function ListaCitas({ citas, radioM, elegida, alElegir, vacio = 'No tiene
           )
         }
         return (
-          <FilaLista key={cita.id} primera={i === 0} alPresionar={() => alElegir(cita.id)} etiquetaAccesible={etiqueta}>
-            {contenido}
-          </FilaLista>
+          <Tarjeta key={cita.id} alPresionar={() => alElegir(cita.id)} etiquetaAccesible={etiqueta} estilo={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14 }}>
+            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>{contenido}</View>
+            <IconoUi nombre="adelante" color={c.textoSuave} tamano={18} />
+          </Tarjeta>
         )
       })}
     </View>
