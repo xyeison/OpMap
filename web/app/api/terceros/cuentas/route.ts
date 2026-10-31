@@ -8,7 +8,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requirePermission } from '@/lib/require-role'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { jsonError, readJson, zodMessage } from '@/app/api/kams/_lib/kam-shared'
-import { busquedaCuentasSchema, cuentaCreateSchema } from '@/lib/terceros-schemas'
+import { geocodificarDireccion, textoGeocodificacion, type ResultadoGeocodificacion } from '@/lib/google-geocode'
+import { MENSAJE_DIRECCION_CONSULTORIO, busquedaCuentasSchema, cuentaCreateSchema, faltaDireccionDeConsultorio } from '@/lib/terceros-schemas'
 import { ocultarIdentificacionCuenta } from '@/lib/terceros'
 import { listarCuentas } from '../_lib/listas'
 import {
@@ -18,7 +19,7 @@ import {
   cuentaPorIdentificacion,
   errorInterno,
   esViolacionUnica,
-  nombreMunicipio,
+  municipioParaUbicar,
   puedeAdministrar,
   respuestaRepsRepetido,
   sedePorRepsCode,
@@ -74,9 +75,28 @@ export async function POST(request: NextRequest) {
     }
 
     const sede = input.sede
+    // Después del 409 (una cuenta que ya existe se reutiliza sin escribir nada): el consultorio nuevo lleva su dirección.
+    if (faltaDireccionDeConsultorio(input)) return jsonError(MENSAJE_DIRECCION_CONSULTORIO, 400)
     if (sede.reps_code && (await sedePorRepsCode(sede.reps_code))) return respuestaRepsRepetido(sede.reps_code)
-    const municipio = await nombreMunicipio(sede.municipality_id)
-    if (!municipio) return jsonError(MUNICIPIO_NO_EXISTE, 400)
+    const datosMunicipio = await municipioParaUbicar(sede.municipality_id)
+    if (!datosMunicipio) return jsonError(MUNICIPIO_NO_EXISTE, 400)
+    const municipio = datosMunicipio.nombre
+
+    // El consultorio de un médico (dueño, 2026-10-31; docs/decisiones/2026-10-31-consultorio-por-direccion.md): sin el
+    // GPS del sitio, su dirección se geocodifica con Google (una petición, 0,005 USD) y las coordenadas se guardan SOLO
+    // con certeza; si no, queda "sin ubicar" con su dirección. Con GPS no se llama a Google. Nunca se inventa un punto.
+    let geocodificacion: ResultadoGeocodificacion | null = null
+    let lat = sede.lat ?? null
+    let lng = sede.lng ?? null
+    if (input.clase === 'consultorio' && lat === null && lng === null && sede.direccion) {
+      geocodificacion = await geocodificarDireccion({ direccion: sede.direccion, municipio, departamento: datosMunicipio.departamento, centro: datosMunicipio.centro })
+      if (geocodificacion.ubicada) {
+        lat = geocodificacion.lat
+        lng = geocodificacion.lng
+      } else {
+        console.info(`[terceros] consultorio sin ubicar por dirección: ${geocodificacion.motivo}${geocodificacion.detalle ? ` (${geocodificacion.detalle})` : ''}`)
+      }
+    }
 
     const { data: cuentaData, error: cuentaError } = await supabaseAdmin
       .from('cuentas')
@@ -114,8 +134,8 @@ export async function POST(request: NextRequest) {
         direccion: sede.direccion ?? null,
         municipality_id: sede.municipality_id,
         ciudad: sede.ciudad ?? municipio,
-        lat: sede.lat ?? null,
-        lng: sede.lng ?? null,
+        lat,
+        lng,
         ubicacion_confirmada: false,
         origen: 'manual',
         created_by: user.id,
@@ -136,7 +156,18 @@ export async function POST(request: NextRequest) {
       cuentaData[0] as { tipo_identificacion: string; numero_identificacion: string | null },
       puedeAdministrar(user)
     )
-    return NextResponse.json({ id: cuenta.id, cuenta: creada, sede: sedeData[0] }, { status: 201 })
+    return NextResponse.json(
+      {
+        id: cuenta.id,
+        cuenta: creada,
+        sede: sedeData[0],
+        // Solo cuando se intentó ubicar por dirección (consultorio sin GPS): qué pasó, para decírselo a quien lo creó.
+        ...(geocodificacion
+          ? { geocodificacion: { ubicada: geocodificacion.ubicada, motivo: geocodificacion.ubicada ? null : geocodificacion.motivo, texto: textoGeocodificacion(geocodificacion) } }
+          : {}),
+      },
+      { status: 201 }
+    )
   } catch (error) {
     return errorInterno('POST /api/terceros/cuentas', error, 'Error al crear la cuenta')
   }

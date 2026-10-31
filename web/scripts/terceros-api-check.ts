@@ -477,9 +477,10 @@ function datosIniciales(): Tablas {
       user(LIDER_ID, 'line_leader', 'Lider'),
       user(DIRECTORA_ID, 'commercial_director', 'Directora'),
     ],
+    departments: [{ code: '68', name: 'Santander' }],
     municipalities: [
-      { code: '68001', name: 'Bucaramanga', department_code: '68' },
-      { code: '11001', name: 'Bogotá D.C.', department_code: '11' },
+      { code: '68001', name: 'Bucaramanga', department_code: '68', lat: 7.119349, lng: -73.122742 },
+      { code: '11001', name: 'Bogotá D.C.', department_code: '11', lat: 4.60971, lng: -74.08175 },
       { code: '05001', name: 'Medellín', department_code: '05' },
     ],
     business_lines: [
@@ -775,7 +776,7 @@ async function main() {
           apiRequest('/api/terceros/cuentas', {
             method: 'POST',
             userId: VENTAS_ID,
-            body: { nombre: 'Otra más', clase: 'consultorio', tipo_identificacion: 'CC', numero_identificacion: '5551234', sede: { municipality_id: '68001', reps_code: '680010000001' } },
+            body: { nombre: 'Otra más', clase: 'consultorio', tipo_identificacion: 'CC', numero_identificacion: '5551234', sede: { municipality_id: '68001', reps_code: '680010000001', direccion: 'Calle 1 # 2-3' } },
           })
         )
       )
@@ -784,6 +785,82 @@ async function main() {
         repsRepetido.status === 409 && repsRepetido.body.existente?.id === SEDE_CLINICA_1 && !tablas.cuentas.some(cuenta => cuenta.numero_identificacion === '5551234'),
         repsRepetido
       )
+
+      // El consultorio se crea con su dirección y se ubica con Google solo con certeza (decisión 2026-10-31).
+      const consultorioSinDireccion = await leer(
+        await crearCuenta(
+          apiRequest('/api/terceros/cuentas', {
+            method: 'POST',
+            userId: LIDER_ID,
+            body: { nombre: 'Consultorio Sin Dirección', clase: 'consultorio', tipo_identificacion: 'CC', numero_identificacion: '70011001', sede: { municipality_id: '68001' } },
+          })
+        )
+      )
+      check('consultorio SIN dirección (y sin GPS) → 400 "Escribe la dirección del consultorio"', consultorioSinDireccion.status === 400 && /dirección del consultorio/.test(consultorioSinDireccion.body.error ?? ''), consultorioSinDireccion)
+      const clinicaSinDireccion = await leer(
+        await crearCuenta(
+          apiRequest('/api/terceros/cuentas', {
+            method: 'POST',
+            userId: LIDER_ID,
+            body: { nombre: 'Clínica sin dirección', clase: 'clinica', tipo_identificacion: 'NIT', numero_identificacion: '900777001', sede: { municipality_id: '68001' } },
+          })
+        )
+      )
+      check('en otra clase la dirección sigue opcional (201)', clinicaSinDireccion.status === 201, clinicaSinDireccion)
+
+      const llamadasGoogle: string[] = []
+      let respuestaGoogle: unknown = { status: 'ZERO_RESULTS', results: [] }
+      const handlerSupabase = fetchHandler
+      fetchHandler = async (input, init) => {
+        const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url)
+        if (url.hostname === 'maps.googleapis.com') {
+          llamadasGoogle.push(url.toString())
+          return new Response(JSON.stringify(respuestaGoogle), { status: 200, headers: { 'content-type': 'application/json' } })
+        }
+        return handlerSupabase!(input, init)
+      }
+      const crearConsultorio = async (numero: string, sede: Record<string, unknown>) =>
+        leer(
+          await crearCuenta(
+            apiRequest('/api/terceros/cuentas', {
+              method: 'POST',
+              userId: LIDER_ID,
+              body: { nombre: `Consultorio ${numero}`, clase: 'consultorio', tipo_identificacion: 'CC', numero_identificacion: numero, sede: { municipality_id: '68001', direccion: 'Cra 27 # 45-12', ...sede } },
+            })
+          )
+        )
+      // GOOGLE_ROUTES_DISABLED=true (como arriba): se crea igual, sin ubicar, y no sale ninguna petición
+      const apagado = await crearConsultorio('70011002', {})
+      const sedeApagado = tablas.sedes.find(s => s.cuenta_id === apagado.body?.id)
+      check(
+        'consultorio con dirección y Google deshabilitado → 201, sede sin coordenadas, con su dirección, geocodificacion.ubicada=false motivo "deshabilitado" y ninguna petición',
+        apagado.status === 201 && sedeApagado?.lat === null && sedeApagado?.direccion === 'Cra 27 # 45-12' && apagado.body.geocodificacion?.ubicada === false && apagado.body.geocodificacion?.motivo === 'deshabilitado' && typeof apagado.body.geocodificacion?.texto === 'string' && llamadasGoogle.length === 0,
+        { status: apagado.status, geocodificacion: apagado.body?.geocodificacion, sede: sedeApagado }
+      )
+      process.env.GOOGLE_ROUTES_DISABLED = 'false'
+      process.env.GOOGLE_MAPS_API_KEY = 'clave-de-prueba'
+      respuestaGoogle = { status: 'OK', results: [{ geometry: { location: { lat: 7.1234567, lng: -73.1234567 }, location_type: 'ROOFTOP' }, formatted_address: 'Cra. 27 #45-12, Bucaramanga' }] }
+      const ubicado = await crearConsultorio('70011003', {})
+      const sedeUbicado = tablas.sedes.find(s => s.cuenta_id === ubicado.body?.id)
+      check(
+        'Google ROOFTOP a 1 km del centro → 201 con lat/lng de Google (6 decimales), origen manual, ubicación SIN confirmar, ubicada=true; una sola petición con dirección, municipio y departamento',
+        ubicado.status === 201 && sedeUbicado?.lat === 7.123457 && sedeUbicado?.lng === -73.123457 && sedeUbicado?.origen === 'manual' && sedeUbicado?.ubicacion_confirmada === false && ubicado.body.geocodificacion?.ubicada === true && llamadasGoogle.length === 1 && /address=Cra\+27/.test(llamadasGoogle[0]) && /Cra 27 # 45-12, Bucaramanga, Santander, Colombia/.test(decodeURIComponent(llamadasGoogle[0]).replace(/\+/g, ' ')) && /components=country%3ACO/.test(llamadasGoogle[0]),
+        { status: ubicado.status, geocodificacion: ubicado.body?.geocodificacion, sede: sedeUbicado, url: llamadasGoogle[0]?.replace(/key=[^&]+/, 'key=…') }
+      )
+      respuestaGoogle = { status: 'OK', results: [{ geometry: { location: { lat: 7.12, lng: -73.12 }, location_type: 'APPROXIMATE' } }] }
+      const aproximado = await crearConsultorio('70011004', {})
+      const sedeAproximado = tablas.sedes.find(s => s.cuenta_id === aproximado.body?.id)
+      check('Google APPROXIMATE → se crea sin coordenadas, ubicada=false motivo sin_certeza (nunca un punto aproximado)', aproximado.status === 201 && sedeAproximado?.lat === null && aproximado.body.geocodificacion?.motivo === 'sin_certeza', { geocodificacion: aproximado.body?.geocodificacion, sede: sedeAproximado })
+      respuestaGoogle = { status: 'OK', results: [{ geometry: { location: { lat: 4.65, lng: -74.1 }, location_type: 'ROOFTOP' } }] }
+      const lejos = await crearConsultorio('70011005', {})
+      check('Google ROOFTOP pero en Bogotá (a 300 km de Bucaramanga) → sin coordenadas, motivo lejos', lejos.status === 201 && tablas.sedes.find(s => s.cuenta_id === lejos.body?.id)?.lat === null && lejos.body.geocodificacion?.motivo === 'lejos', lejos.body?.geocodificacion)
+      const antesGps = llamadasGoogle.length
+      const conGps = await crearConsultorio('70011006', { lat: 7.111111, lng: -73.111111 })
+      const sedeGps = tablas.sedes.find(s => s.cuenta_id === conGps.body?.id)
+      check('con GPS del sitio y dirección → se guarda el GPS, sin geocodificacion en la respuesta y SIN petición a Google', conGps.status === 201 && sedeGps?.lat === 7.111111 && sedeGps?.direccion === 'Cra 27 # 45-12' && conGps.body.geocodificacion === undefined && llamadasGoogle.length === antesGps, { geocodificacion: conGps.body?.geocodificacion, sede: sedeGps })
+      process.env.GOOGLE_ROUTES_DISABLED = 'true'
+      delete process.env.GOOGLE_MAPS_API_KEY
+      fetchHandler = handlerSupabase
 
       const detalle = await leer(await verCuenta(apiRequest(`/api/terceros/cuentas/${CONSULTORIO}`, { userId: VIEWER_ID }), params(CONSULTORIO)))
       check(

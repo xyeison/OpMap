@@ -59,6 +59,7 @@ import {
   sedeUpdateSchema,
   visitanteCreateSchema,
   visitanteUpdateSchema,
+  faltaDireccionDeConsultorio,
 } from '../lib/terceros-schemas'
 import { getAllowedRoutes, getNavigationMenu, hasPermission, type Permission, type Role } from '../lib/permissions'
 
@@ -410,14 +411,19 @@ invalido(
   cuentaCreateSchema.safeParse({ ...cuentaBase, sede: { municipality_id: '25175', reps_code: '25175000010' } }),
   '12 dígitos'
 )
+// El consultorio se crea con su dirección (decisión 2026-10-31): la exige la API después del 409, no el esquema (los
+// formularios validan con el esquema antes de enviar y taparían el "usar la cuenta que ya existe").
+eq('el esquema NO exige la dirección del consultorio (la exige la API después del 409)', cuentaCreateSchema.safeParse({ ...cuentaBase, clase: 'consultorio', tipo_identificacion: 'CC', numero_identificacion: '79123456' }).success, true)
+eq('faltaDireccionDeConsultorio: consultorio sin dirección (o en blanco) sí; con dirección no; otra clase nunca', faltaDireccionDeConsultorio({ clase: 'consultorio', sede: {} }) && faltaDireccionDeConsultorio({ clase: 'consultorio', sede: { direccion: '  ' } }) && !faltaDireccionDeConsultorio({ clase: 'consultorio', sede: { direccion: 'Calle 1' } }) && !faltaDireccionDeConsultorio({ clase: 'clinica', sede: {} }), true)
 const consultorioCc = valido(
-  'consultorio con cédula',
+  'consultorio con cédula (y su dirección)',
   cuentaCreateSchema.safeParse({
     ...cuentaBase,
     clase: 'consultorio',
     tipo_identificacion: 'CC',
     numero_identificacion: '79.123.456',
     codigo_prestador: '11001 23456',
+    sede: { municipality_id: '25175', direccion: 'Calle 1 # 2-3, consultorio 304' },
   })
 )
 eq('cédula normalizada', consultorioCc?.numero_identificacion, '79123456')

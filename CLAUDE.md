@@ -64,7 +64,9 @@ nada llama a Google.
 - **Bogotá en 4 sectores** (dueño, 2026-10-28, `docs/decisiones/2026-10-28-bogota-4-sectores.md`): Zonas "Bogotá Norte, Occidente, Sur y Oriente"; dentro de Bogotá cada IPS va a la Zona del sector (corredor) de su localidad (`CORREDOR_DE_LOCALIDAD`), sin minutos, antes del territorio base y después de las forzadas. **Hacia afuera** compite como UNA ciudad: mejor tiempo entre sus celdas, tope único `bogota_config.max_travel_minutes` (no el `max_travel_time` de cada celda; 380 min, 6 h 20, desde el 2026-10-28: `docs/decisiones/2026-10-28-bogota-tope-380.md`) y la celda la decide el corredor del municipio (`bogota_corredores` + `bogota_config.grupos`), no los minutos (`docs/algoritmo-asignacion.md`). Vale para las IPS y, desde el 2026-10-28, también para los municipios sin IPS (`lib/municipality-coverage.ts`, `docs/decisiones/2026-10-28-municipios-por-corredor-de-bogota.md`). Guardar la configuración no recalcula.
 - **Municipios sin IPS** se reparten por tiempo REAL de carretera (Google, driving). Nunca por línea
   recta. Sin ruta → `no_road` (nadie); sobre el tope de la zona → `out_of_reach` (nadie).
-- **Google Maps cuesta dinero** (0,005 USD/elemento). Solo llama `web/lib/google-distance.ts` y los flujos
+- **Google Maps cuesta dinero** (0,005 USD/elemento). Solo llaman `web/lib/google-distance.ts` (rutas) y
+  `web/lib/google-geocode.ts` (la dirección del consultorio de un médico al crearlo, una petición de 0,005 USD, dueño
+  2026-10-31: `docs/decisiones/2026-10-31-consultorio-por-direccion.md`), y los flujos
   documentados (`process-pending`, `ensure-routes`, `scripts/fase2b-municipios.ts --run`,
   `scripts/tiempos-bogota-refrescar.ts --run` y `scripts/zona-punto-base-tiempos.ts --run`, que REEMPLAZAN tiempos
   guardados). Cualquier
@@ -171,7 +173,10 @@ nada llama a Google.
 - **Una IPS = una sede del REPS** (`hospitals.reps_code`, código de habilitación de 12 dígitos), no un NIT.
   `hospitals.nit` es GENERADA desde `code` (no se escribe); el sufijo de `code` no es DV ni número de sede.
 - **Coordenadas de sedes nuevas**: solo Google Maps por nombre y con certeza; nunca la dirección del REPS.
-  Sin certeza → "sin ubicar" (pendiente D4: spec, dry-run y autorización de gasto antes).
+  Sin certeza → "sin ubicar" (pendiente D4: spec, dry-run y autorización de gasto antes). Excepción (dueño,
+  2026-10-31): el **consultorio** de un médico se crea con la dirección que escribe la líder (obligatoria) y se ubica
+  con ella solo con certeza (`ROOFTOP`/`RANGE_INTERPOLATED`, sin `partial_match`, a menos de 40 km del centro del
+  municipio); con el GPS del sitio no se llama a Google; nace sin confirmar (`google-geocode.ts`).
 - Vincular sede, importar servicios/capacidad o cargar giros NO recalcula ni llama a Google.
 - **Giro ADRES por NIT**: entre sedes activas del mismo NIT se reparte por camas (nunca se suma dos veces).
   Solo régimen subsidiado, publicado hasta junio-2025. El script se identifica con su User-Agent; no evadir

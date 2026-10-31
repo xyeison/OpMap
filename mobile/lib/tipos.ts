@@ -965,7 +965,8 @@ export interface CuentaCreate {
   clase: ClaseCuenta
   tipo_identificacion: TipoIdCuenta
   numero_identificacion: string
-  sede: { nombre: string; municipality_id: string; lat: number | null; lng: number | null }
+  /** `direccion`: obligatoria en el consultorio (dueño, 2026-10-31): sin GPS, el servidor la ubica con Google solo con certeza. */
+  sede: { nombre: string; municipality_id: string; lat: number | null; lng: number | null; direccion?: string | null }
 }
 
 /** POST /api/terceros/cuentas → 201 (409 con { existente: { id, nombre } } si la identificación ya existe). */
@@ -973,6 +974,8 @@ export interface CuentaCreateResponse {
   id: string
   cuenta: { id: string; nombre: string; clase: ClaseCuenta }
   sede: SedeCreada
+  /** Solo si el servidor intentó ubicar el consultorio por su dirección: si quedó ubicado y el texto para la persona. */
+  geocodificacion?: { ubicada: boolean; motivo: string | null; texto: string }
 }
 
 /** GET /api/terceros/cuentas/[id] (lo que usa la app: sus sedes). */

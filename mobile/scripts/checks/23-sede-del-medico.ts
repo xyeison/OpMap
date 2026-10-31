@@ -195,4 +195,23 @@ export async function pruebas(t: Probador): Promise<void> {
         /Queda como sede donde atiende \$\{medico\.nombre\}/.test(sede)
     )
   }
+
+  seccion('23e. Nuevo médico: el consultorio se crea con su dirección (decisión 2026-10-31) y se dice si quedó ubicado')
+  {
+    const nuevoMedico = leer('mobile/app/(app)/medico/nuevo.tsx')
+    check(
+      '"Crear consultorio" manda la dirección en sede.direccion sin frenar en la app (la exige el servidor DESPUÉS del 409: un consultorio que ya existe se reutiliza sin escribirla); el GPS del sitio sigue mandando cuando lo hay',
+      /const direccion = limpiarNombre\(direccionConsultorio\) \|\| null/.test(nuevoMedico) &&
+        !/direccion\.length < 5/.test(nuevoMedico) &&
+        /sede: \{ nombre: nombreConsultorio, municipality_id: municipio, lat: punto\?\.lat \?\? null, lng: punto\?\.lng \?\? null, direccion \}/.test(nuevoMedico)
+    )
+    const campoDireccion = bloqueJsx(nuevoMedico, 'Campo', 'etiqueta="Dirección del consultorio"')
+    check(
+      'el campo "Dirección del consultorio" va antes del botón y explica que con ella se ubica; la respuesta del servidor (geocodificacion.texto) se muestra',
+      campoDireccion.length > 0 && /Con ella se ubica el consultorio/.test(campoDireccion) &&
+        /if \(respuesta\.geocodificacion\) setAvisoConsultorio\(respuesta\.geocodificacion\.texto\)/.test(nuevoMedico) &&
+        /\{avisoConsultorio \? <Aviso tono="info">\{avisoConsultorio\}<\/Aviso> : null\}/.test(nuevoMedico) &&
+        !/sin ubicación \(no estás en el sitio\)/.test(nuevoMedico)
+    )
+  }
 }

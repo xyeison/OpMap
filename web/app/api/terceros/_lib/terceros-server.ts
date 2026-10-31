@@ -186,6 +186,36 @@ export async function nombreMunicipio(codigo: string): Promise<string | null> {
 
 export const MUNICIPIO_NO_EXISTE = 'El municipio elegido no existe'
 
+export interface MunicipioParaUbicar {
+  nombre: string
+  departamento: string | null
+  centro: { lat: number; lng: number } | null
+}
+
+/**
+ * Lo que la geocodificación del consultorio necesita del municipio (decisión 2026-10-31): nombre, departamento (si se
+ * encuentra) y centro (para descartar un resultado en otra parte). null si el código no existe.
+ */
+export async function municipioParaUbicar(codigo: string): Promise<MunicipioParaUbicar | null> {
+  const { data, error } = await supabaseAdmin.from('municipalities').select('code, name, department_code, lat, lng').eq('code', codigo).limit(1)
+  if (error) throw error
+  const fila = data && data.length > 0 ? (data[0] as { code: string; name: string | null; department_code: string | null; lat: number | string | null; lng: number | string | null }) : null
+  if (!fila) return null
+  const lat = fila.lat === null || fila.lat === undefined ? NaN : Number(fila.lat)
+  const lng = fila.lng === null || fila.lng === undefined ? NaN : Number(fila.lng)
+  let departamento: string | null = null
+  if (fila.department_code) {
+    try {
+      const { data: deptos } = await supabaseAdmin.from('departments').select('code, name').eq('code', fila.department_code).limit(1)
+      const depto = deptos && deptos.length > 0 ? (deptos[0] as { name?: string | null }) : null
+      departamento = depto?.name ?? null
+    } catch {
+      departamento = null
+    }
+  }
+  return { nombre: fila.name ?? fila.code, departamento, centro: Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null }
+}
+
 // ---------------------------------------------------------------------------------------------
 // Errores
 // ---------------------------------------------------------------------------------------------

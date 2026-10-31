@@ -329,6 +329,17 @@ export const cuentaCreateSchema = cuerpo({
     sede: { ...datos.sede, nombre: datos.sede.nombre ?? datos.nombre },
   }))
 
+/**
+ * El consultorio de un médico se crea con su dirección (dueño, 2026-10-31): la exige POST /api/terceros/cuentas DESPUÉS
+ * de revisar si la cuenta ya existe (409), para que un consultorio que ya está se pueda reutilizar sin escribirla. No va
+ * en el esquema: los formularios validan con él antes de enviar y taparían ese 409.
+ */
+export const MENSAJE_DIRECCION_CONSULTORIO = 'Escribe la dirección del consultorio'
+
+export function faltaDireccionDeConsultorio(datos: { clase: string; sede: { direccion?: string | null } }): boolean {
+  return datos.clase === 'consultorio' && !(datos.sede.direccion ?? '').trim()
+}
+
 export type CuentaCreate = z.infer<typeof cuentaCreateSchema>
 
 /**

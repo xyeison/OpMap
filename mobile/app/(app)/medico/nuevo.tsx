@@ -67,6 +67,8 @@ function NuevoMedico() {
   const [paso, setPaso] = useState<'documento' | 'datos'>('documento')
   const [especialidades, setEspecialidades] = useState<EspecialidadMedico[]>([])
   const [sedes, setSedes] = useState<SedeElegida[]>([])
+  const [direccionConsultorio, setDireccionConsultorio] = useState('')
+  const [avisoConsultorio, setAvisoConsultorio] = useState<string | null>(null)
   /** Error del servidor (o de una acción) que no es de un campo: va al pie, junto al botón. */
   const [error, setError] = useState<string | null>(null)
   /** Se tocó "Verificar" o "Crear médico": desde ahí cada campo dice lo que le falta. */
@@ -128,10 +130,19 @@ function NuevoMedico() {
   const agregarSede = (sede: Omit<SedeElegida, 'rol'>, rol: RolMedicoSede = 'atiende') =>
     setSedes(prev => (prev.some(s => s.sede_id === sede.sede_id) ? prev : [...prev, { ...sede, rol }]))
 
+  /**
+   * "Crear consultorio" (dueño, 2026-10-31: "debería pedir la dirección y determinar esa georeferenciación"): la
+   * dirección es obligatoria (la exige el servidor tras el 409); sin el GPS del sitio, el servidor la ubica con Google
+   * solo con certeza y responde qué pasó (geocodificacion.texto), que se muestra. Con GPS, el GPS manda.
+   */
   const crearConsultorio = async () => {
     if (!documento.ok || !municipio) return setError('Primero el documento y la ciudad del médico')
+    // La dirección la exige el servidor DESPUÉS de revisar si la cuenta ya existe (409): así un consultorio que ya está se
+    // reutiliza sin escribirla; si es nuevo y falta, el servidor responde "Escribe la dirección del consultorio".
+    const direccion = limpiarNombre(direccionConsultorio) || null
     setOcupado(true)
     setError(null)
+    setAvisoConsultorio(null)
     const nombreConsultorio = `Consultorio ${nombreLimpio}`.slice(0, 200)
     try {
       // El consultorio queda con el punto que vale (la final de Reportar, que se espera si aún no llega), nunca con la
@@ -142,9 +153,10 @@ function NuevoMedico() {
         clase: 'consultorio',
         tipo_identificacion: tipoIdCuentaDeMedico(tipo),
         numero_identificacion: documento.valor,
-        sede: { nombre: nombreConsultorio, municipality_id: municipio, lat: punto?.lat ?? null, lng: punto?.lng ?? null },
+        sede: { nombre: nombreConsultorio, municipality_id: municipio, lat: punto?.lat ?? null, lng: punto?.lng ?? null, direccion },
       })
       agregarSede({ sede_id: respuesta.sede.id, nombre: respuesta.sede.nombre, cuenta_nombre: respuesta.cuenta.nombre, distancia_m: punto ? 0 : null }, 'consultorio')
+      if (respuesta.geocodificacion) setAvisoConsultorio(respuesta.geocodificacion.texto)
     } catch (lanzado) {
       // Ya hay una cuenta con esa identificación: se usa su sede principal como consultorio.
       const existente = lanzado instanceof ApiError && lanzado.status === 409 ? (lanzado.cuerpo as { existente?: { id?: string } } | null)?.existente : undefined
@@ -358,9 +370,18 @@ function NuevoMedico() {
             textoElegir="Atiende aquí"
             alElegir={item => agregarSede({ sede_id: item.id, nombre: item.nombre, cuenta_nombre: item.cuenta_nombre, distancia_m: null })}
           />
+          <Campo
+            etiqueta="Dirección del consultorio"
+            valor={direccionConsultorio}
+            alCambiar={setDireccionConsultorio}
+            placeholder="Calle 45 # 27-12, consultorio 304"
+            maxLength={300}
+            ayuda={pedido?.punto || pedido?.puntoFinal ? 'Se guarda con el GPS de aquí.' : 'Con ella se ubica el consultorio (si la dirección se encuentra con certeza).'}
+          />
+          {avisoConsultorio ? <Aviso tono="info">{avisoConsultorio}</Aviso> : null}
           <Boton
             titulo="Crear consultorio"
-            detalle={pedido?.punto || pedido?.puntoFinal ? 'Cuenta consultorio del médico con el GPS de aquí' : 'Cuenta consultorio del médico, sin ubicación (no estás en el sitio)'}
+            detalle={pedido?.punto || pedido?.puntoFinal ? 'Cuenta consultorio del médico con el GPS de aquí' : 'Cuenta consultorio del médico, ubicado por su dirección'}
             variante="secundario"
             cargando={ocupado}
             alPresionar={() => void crearConsultorio()}
