@@ -115,12 +115,12 @@ nada llama a Google.
   solo fecha, líder, ciudad, tipo, estado, cuántos contactos y si había observación (ningún texto libre: ni nombres de
   médicos, ni observaciones, ni el tipo escrito a mano) y reemplaza el histórico (`lideres_historico`, migración 0920
   APLICADA el 2026-10-29; su DELETE lleva WHERE por pg-safeupdate de PostgREST).
-- **La app de campo es SOLO para las líderes** (dueño, 2026-10-30, `docs/decisiones/2026-10-30-app-de-campo-solo-lideres.md`):
-  los Ejecutivos Comerciales siguen reportando en VMO. Quien solo es Ejecutivo Comercial no entra: `/api/auth/me` →
-  `sin_persona` y `/api/me/*` → 403 (cuota y días libres, solo desde la app: en la web siguen). Paola entra solo como
-  líder. La regla está en el servidor
-  (`appSoloLideres` de `lib/persona-campo.ts`); `APP_CAMPO_EJECUTIVOS=true` la apaga (las pruebas de F3 y F4; en
-  producción no se pone).
+- **La app de campo es de las líderes Y de los Ejecutivos Comerciales** (dueño, 2026-10-31,
+  `docs/decisiones/2026-10-31-ejecutivos-comerciales-vuelven-a-la-app.md`; reemplaza la regla del 2026-10-30 que la
+  dejaba solo para las líderes): agendan, reportan, cuota y días libres; Paola con sus dos papeles; `campo:app` también
+  para `sales_manager`. La base decide quién reporta (`persona_de_campo`); no hay llave de entorno. El Excel de VMO
+  (`/visits`) sigue, TRANSITORIO, solo para el mapa de calor, hasta que el dueño lo apague. La dirección sigue sin
+  reportar (A1); "Equipo" para vigilar llega en la Entrega 2 de `docs/specs/2026-10-31-equipo-en-la-app-y-ejecutivos-de-vuelta.md`.
 - **La app de campo también es web** (dueño, 2026-10-30, `docs/decisiones/2026-10-30-app-de-campo-en-la-web.md`): la
   misma app de `mobile/` se publica en `/campo` de OpMap. `npm run build` la arma con `scripts/construir-campo.mjs` en
   `public/campo` (no se versiona). Llama a la API de su mismo origen. `/campo` es pública como página (`esAppDeCampo`

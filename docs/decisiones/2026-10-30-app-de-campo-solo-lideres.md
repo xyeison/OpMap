@@ -1,5 +1,9 @@
 # 2026-10-30 – La app de campo es solo para las líderes: los Ejecutivos Comerciales siguen en VMO y el Excel de las líderes ya no se sube
 
+> **Reemplazada el 2026-10-31** en lo de la app solo para las líderes por
+> `2026-10-31-ejecutivos-comerciales-vuelven-a-la-app.md`: los Ejecutivos Comerciales vuelven a reportar en la app y la
+> llave `APP_CAMPO_EJECUTIVOS` desaparece. Lo del Excel "Tracker Líderes" (punto 3) sigue vigente. Queda como histórico.
+
 **Contexto**:
 - El 2026-10-29 el dueño pidió "una herramienta que sea utilizada por las líderes para que les reporten esto a la
   directora comercial" y añadió que "las visitas médicas van a seguir siendo reportadas por VMO hasta que tengamos la

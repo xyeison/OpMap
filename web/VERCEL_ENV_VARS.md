@@ -45,12 +45,6 @@ Para que la aplicación funcione correctamente en Vercel, necesitas configurar l
      required…"). Valor: el ID del workspace, con forma `wrkspc_…` (Claude Console → Settings → Workspaces → columna ID).
    - Si trae otra cosa (por ejemplo la llave pegada por error) no se envía y el log lo avisa sin mostrar el valor.
 
-7. **APP_CAMPO_EJECUTIVOS** (opcional; en producción NO se pone)
-   - Sin ella, la app de campo es solo para las líderes. Así lo decidió el dueño el 2026-10-30: los Ejecutivos
-     Comerciales siguen en VMO (`docs/decisiones/2026-10-30-app-de-campo-solo-lideres.md`).
-   - Con `true`, los Ejecutivos Comerciales vuelven a entrar a la app como antes. Es para el día en que la app reemplace a
-     VMO, y solo con la autorización del dueño.
-
 ## Cómo configurar en Vercel
 
 1. Ve a tu proyecto en [Vercel Dashboard](https://vercel.com/dashboard)

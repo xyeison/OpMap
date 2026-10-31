@@ -848,18 +848,10 @@ denegado" sin `visits:report`; 403 "La dirección comercial no agenda ni reporta
 usuario no tiene líneas para reportar"; 503 "…falta aplicar la migración 0850…" si la base no la tiene. `dias-libres*` y
 `cuota` siguen siendo del Ejecutivo Comercial (`requireEjecutiva`) hasta F3.
 
-**App solo para las líderes** (dueño, 2026-10-30, `docs/decisiones/2026-10-30-app-de-campo-solo-lideres.md`):
-- Quien solo es Ejecutivo Comercial recibe 403 "Las visitas de los Ejecutivos Comerciales se registran en VMO" en todas
-  las rutas de la persona de campo.
-- Paola recibe la persona solo como líder: `rol: 'lider'`, solo sus líneas de líder, sin Ejecutivo Comercial, sin zona y
-  sin cuota. Una línea que lidera y que también es de su Ejecutivo Comercial no cuenta como de líder (la base haría de
-  Ejecutiva esa visita).
-- `/api/me/cuota` y `/api/me/dias-libres*` (de un Ejecutivo Comercial) responden 403 con ese mensaje desde la app (token
-  de portador). Con la cookie de la web siguen como antes (`/calendario`).
-- `POST /api/me/agenda` y `…/otra-fecha` mandan `como: 'lider'` a la base; con `como: 'ejecutivo'` responden 403 con el
-  mismo mensaje, en `errores: [{ campo: 'como' }]`.
-- Con `APP_CAMPO_EJECUTIVOS=true` en el servidor, todo vuelve a la tabla de abajo tal cual. Las pruebas de F3 y F4 lo
-  usan; la sección 16 de `reporte-api-check.ts` prueba la regla.
+**App solo para las líderes** (dueño, 2026-10-30): regla **reemplazada el 2026-10-31**
+(`docs/decisiones/2026-10-31-ejecutivos-comerciales-vuelven-a-la-app.md`): los Ejecutivos Comerciales usan la app y la
+tabla de abajo vale tal cual, sin llave de entorno. Lo que sigue cerrado: la dirección comercial (A1) y quien no tiene
+líneas.
 
 | Ruta | Cambio |
 | --- | --- |
