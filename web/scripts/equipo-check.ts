@@ -12,7 +12,9 @@ import {
   cadenasDeCitas,
   cumplimientoDelPlan,
   dondeEsta,
+  esMesCompleto,
   personasVisibles,
+  rendimiento,
   rastroDelDia,
   resumenPorCiudad,
   soloComoEjecutivo,
@@ -227,6 +229,64 @@ console.log('\n3. dondeEsta y rastroDelDia')
     { caso: 'dia_libre', fuente: null, hora: null, sedeNombre: null, municipioNombre: null, haceMin: null, marcas: [] },
   ]
   check('resumenPorCiudad: Cartagena 2, Bogotá 1 (más personas primero) y sin nada 1 (el día libre no cuenta como sin nada)', igual(resumenPorCiudad(ubicaciones), { ciudades: [{ nombre: 'Cartagena', personas: 2 }, { nombre: 'Bogotá', personas: 1 }], sinNada: 1 }), resumenPorCiudad(ubicaciones))
+}
+
+console.log('\n4. rendimiento del periodo')
+{
+  check('esMesCompleto: octubre sí; 25 sep a 9 oct no; febrero de 2026 (no bisiesto) sí; 1 a 30 de octubre no', esMesCompleto('2026-10-01', '2026-10-31') && !esMesCompleto('2026-09-25', '2026-10-09') && esMesCompleto('2026-02-01', '2026-02-28') && !esMesCompleto('2026-10-01', '2026-10-30'))
+  const DESDE = '2026-10-01'
+  const HASTA = '2026-10-31'
+  const HOY = '2026-10-20'
+  const AHORA = new Date('2026-10-20T16:15:00Z')
+  const visitasAna = [
+    visita({ id: 'a1', checkedInAt: '2026-10-05T14:00:00Z', lineas: ['l-osteo'], agendaId: 'ca1', agendada: true, medicoId: 'm-1', municipioNombre: 'Bogotá' }),
+    visita({ id: 'a2', checkedInAt: '2026-10-12T14:00:00Z', lineas: ['l-osteo'], medicoId: 'm-2', municipioId: '25754', municipioNombre: 'Soacha' }),
+    visita({ id: 'a3', checkedInAt: '2026-10-15T14:00:00Z', lineas: ['l-osteo', 'l-columna'], efectiva: false, motivoCodigo: 'sin_tiempo', medicoId: 'm-1', municipioNombre: 'Bogotá' }),
+    visita({ id: 'a4', checkedInAt: '2026-10-16T14:00:00Z', modalidad: 'telefonica', lineas: ['l-osteo'], medicoId: 'm-3', sedeNombre: null, municipioId: null, municipioNombre: null }),
+  ]
+  const citasAna = [
+    cita({ id: 'ca1', fecha: '2026-10-05', estado: 'hecha', visitaId: 'a1', createdAt: '2026-09-28T15:00:00Z' }),
+    cita({ id: 'ca2', fecha: '2026-10-10', estado: 'cancelada', motivoCodigo: 'cliente', createdAt: '2026-10-09T15:00:00Z' }),
+    cita({ id: 'ca3', fecha: '2026-10-28', estado: 'pendiente', createdAt: '2026-10-19T15:00:00Z' }),
+    cita({ id: 'ca4', fecha: '2026-10-19', estado: 'pendiente', createdAt: '2026-10-19T12:00:00Z' }),
+  ]
+  const visitaCarla = visita({ id: 'k1', checkedInAt: '2026-10-02T14:00:00Z', userId: 'u-carla', executiveId: 'e-carla', medicoId: 'm-1', municipioNombre: 'Bogotá' })
+  const alcance = personasVisibles(LAURA, TODAS, [])
+  const r = rendimiento({
+    personas: TODAS,
+    alcance,
+    visitas: [...visitasAna, visitaCarla],
+    citas: citasAna,
+    desde: DESDE,
+    hasta: HASTA,
+    hoy: HOY,
+    ahora: AHORA,
+    diasHabilesSinVisitas: new Map([['u-ana', 9]]),
+    cuotas: new Map([['u-ana', { medica: { cuota: 40, hechas: 3, cumplimiento: 0.075 }, institucional: { cuota: 0, hechas: 0, cumplimiento: null } }]]),
+  })
+  const ana = r.porPersona.find(f => f.persona.userId === 'u-ana')
+  const berta = r.porPersona.find(f => f.persona.userId === 'u-berta')
+  const carla = r.porPersona.find(f => f.persona.userId === 'u-carla')
+  check('Ana: 4 hechas (3 efectivas, 1 no efectiva por sin_tiempo), 1 telefónica', ana?.hechas === 4 && ana.efectivas === 3 && ana.noEfectivas === 1 && igual(ana.noEfectivasPorMotivo, { sin_tiempo: 1 }) && ana.telefonicas === 1, ana)
+  check('Ana por línea: Osteosíntesis 4 y Columna 1, y la suma supera las hechas', igual(ana?.porLinea, { lineas: [{ lineId: 'l-osteo', hechas: 4 }, { lineId: 'l-columna', hechas: 1 }], sumaSuperaHechas: true }), ana?.porLinea)
+  check('Ana: canceladas 1 (cliente), programadas 1 (la del 28), sin cerrar 1 (la del 19), no se hizo 0', ana?.canceladas === 1 && igual(ana.canceladasPorMotivo, { cliente: 1 }) && ana.programadas === 1 && ana.sinCerrar === 1 && ana.noSeHizo === 0)
+  check('Ana: cumplimiento del plan 1 de 3 (hecha, cancelada, vencida sin cerrar; la futura no cuenta)', igual(ana?.cumplimientoPlan, { programadas: 3, cumplidas: 1, ratio: 1 / 3 }), ana?.cumplimientoPlan)
+  check(
+    'Ana: anticipación con las 4 citas (7, 1, 9, 0): mediana 4, con tiempo 50 % (7 y 9), mismo día 25 %; 3 visitas sin cita = no planeadas',
+    ana?.anticipacion.medianaDias === 4 && ana.anticipacion.pctConTiempo === 50 && ana.anticipacion.pctMismoDia === 25 && ana.anticipacion.noPlaneadas === 3,
+    ana?.anticipacion
+  )
+  check('Ana: 3 médicos distintos y 2 ciudades (la telefónica no tiene ciudad)', ana?.medicosDistintos === 3 && ana.ciudadesDistintas === 2)
+  check('Ana: días hábiles sin visitas y cuota copiados del mapa', ana?.diasHabilesSinVisitas === 9 && ana.cuota?.medica.cuota === 40)
+  check('Berta sin nada: ceros, ratio null, cuota null, días hábiles null, no "ya no está"', berta?.hechas === 0 && berta.cumplimientoPlan.ratio === null && berta.cuota === null && berta.diasHabilesSinVisitas === null && berta.yaNoEsta === false, berta)
+  check('Carla (inactiva, con una visita en el periodo) sale marcada "ya no está"', carla?.hechas === 1 && carla.yaNoEsta === true)
+  check('orden: Ana (0,33) antes que Berta y las demás (null), y entre las null por nombre', igual(r.porPersona.map(f => f.persona.nombre), ['Ana', 'Berta', 'Carla', 'Lucía', 'Paola', 'Sofía']), r.porPersona.map(f => f.persona.nombre))
+  check('equipo: hechas 5, médicos distintos 3 (m-1 de Ana y Carla cuenta una vez), ciudades 2, por línea Osteosíntesis 5', r.equipo.hechas === 5 && r.equipo.medicosDistintos === 3 && r.equipo.ciudadesDistintas === 2 && r.equipo.porLinea.lineas.find(l => l.lineId === 'l-osteo')?.hechas === 5, r.equipo)
+  check('equipo: cumplimiento del plan 1 de 3 y anticipación mediana 4', igual(r.equipo.cumplimientoPlan, { programadas: 3, cumplidas: 1, ratio: 1 / 3 }) && r.equipo.anticipacion.medianaDias === 4)
+  const soloSofia = rendimiento({ personas: TODAS, alcance: personasVisibles({ id: 'u-sofia', role: 'line_leader' }, TODAS, [SUSTITUTOS]), visitas: [visita({ id: 'p1', checkedInAt: '2026-10-05T14:00:00Z', userId: 'u-paola', executiveId: null, lineas: [TRAUMA] }), visita({ id: 'p2', checkedInAt: '2026-10-06T14:00:00Z', userId: 'u-paola', executiveId: 'e-paola', lineas: [SUSTITUTOS] })], citas: [], desde: DESDE, hasta: HASTA, hoy: HOY, ahora: AHORA, diasHabilesSinVisitas: new Map(), cuotas: new Map() })
+  check('la líder de Sustitutos ve de Paola solo la visita como Ejecutiva (1), no la de Trauma como líder', soloSofia.porPersona.find(f => f.persona.userId === 'u-paola')?.hechas === 1 && soloSofia.equipo.hechas === 1)
+  const fuera = rendimiento({ personas: TODAS, alcance, visitas: [visita({ id: 'f1', checkedInAt: '2026-09-30T14:00:00Z' })], citas: [], desde: DESDE, hasta: HASTA, hoy: HOY, ahora: AHORA, diasHabilesSinVisitas: new Map(), cuotas: new Map() })
+  check('una visita fuera del periodo no cuenta', fuera.equipo.hechas === 0)
 }
 
 // ---------------------------------------------------------------------------------------------

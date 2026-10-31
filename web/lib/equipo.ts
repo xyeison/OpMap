@@ -368,3 +368,180 @@ export function resumenPorCiudad(ubicaciones: readonly Ubicacion[]): { ciudades:
   const ciudades = [...porCiudad.entries()].map(([nombre, personas]) => ({ nombre, personas })).sort((a, b) => b.personas - a.personas || a.nombre.localeCompare(b.nombre, 'es'))
   return { ciudades, sinNada }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Rendimiento del periodo
+// ---------------------------------------------------------------------------------------------
+
+/** Una cita planeada "con tiempo": 7 días o más de anticipación (A5). */
+export const DIAS_CON_TIEMPO = 7
+
+/** ¿El periodo es exactamente un mes calendario (del 1 al último día)? Solo entonces se muestra la cuota. */
+export function esMesCompleto(desde: string, hasta: string): boolean {
+  if (desde.slice(0, 7) !== hasta.slice(0, 7) || desde.slice(8) !== '01') return false
+  const [anio, mes] = desde.split('-').map(Number)
+  const ultimo = new Date(Date.UTC(anio, mes, 0)).getUTCDate()
+  return Number(hasta.slice(8)) === ultimo
+}
+
+export interface Cifras {
+  hechas: number
+  efectivas: number
+  noEfectivas: number
+  noEfectivasPorMotivo: Record<string, number>
+  noSeHizo: number
+  noSeHizoPorMotivo: Record<string, number>
+  canceladas: number
+  canceladasPorMotivo: Record<string, number>
+  sinCerrar: number
+  programadas: number
+  telefonicas: number
+  cumplimientoPlan: CumplimientoPlan
+  anticipacion: { medianaDias: number | null; pctConTiempo: number | null; pctMismoDia: number | null; noPlaneadas: number }
+  medicosDistintos: number
+  ciudadesDistintas: number
+  porLinea: { lineas: Array<{ lineId: string; hechas: number }>; sumaSuperaHechas: boolean }
+}
+
+export interface CuotaResumen {
+  medica: { cuota: number; hechas: number; cumplimiento: number | null }
+  institucional: { cuota: number; hechas: number; cumplimiento: number | null }
+}
+
+export interface FilaRendimiento extends Cifras {
+  persona: PersonaEquipo
+  /** Tuvo filas en el periodo y hoy está inactiva o traspasada. */
+  yaNoEsta: boolean
+  diasHabilesSinVisitas: number | null
+  /** Solo con Ejecutivo Comercial y periodo de un mes completo (lo calcula el servidor). */
+  cuota: CuotaResumen | null
+}
+
+const sumar = (mapa: Record<string, number>, clave: string | null | undefined, porDefecto = 'sin_motivo') => {
+  const k = clave ?? porDefecto
+  mapa[k] = (mapa[k] ?? 0) + 1
+}
+const mediana = (valores: readonly number[]): number | null => {
+  if (valores.length === 0) return null
+  const v = [...valores].sort((a, b) => a - b)
+  const m = Math.floor(v.length / 2)
+  return v.length % 2 === 1 ? v[m] : (v[m - 1] + v[m]) / 2
+}
+const porcentaje = (parte: number, total: number): number | null => (total === 0 ? null : Math.round((parte / total) * 100))
+
+/** Las cifras de un conjunto de visitas y citas (de una persona o de todo el equipo). */
+function cifrasDe(visitas: readonly VisitaEquipo[], citas: readonly CitaEquipo[], hoy: string, ahora: Date): Cifras {
+  const noEfectivasPorMotivo: Record<string, number> = {}
+  const noSeHizoPorMotivo: Record<string, number> = {}
+  const canceladasPorMotivo: Record<string, number> = {}
+  let efectivas = 0
+  let telefonicas = 0
+  const medicos = new Set<string>()
+  const ciudades = new Set<string>()
+  const porLinea = new Map<string, number>()
+  for (const v of visitas) {
+    if (v.efectiva) efectivas++
+    else sumar(noEfectivasPorMotivo, v.motivoCodigo ?? v.failureReason)
+    if (v.modalidad === 'telefonica') telefonicas++
+    if (v.efectiva && v.medicoId) medicos.add(v.medicoId)
+    if (v.modalidad === 'presencial' && v.municipioId) ciudades.add(v.municipioId)
+    for (const linea of v.lineas) porLinea.set(linea, (porLinea.get(linea) ?? 0) + 1)
+  }
+  let noSeHizo = 0
+  let canceladas = 0
+  let sinCerrar = 0
+  let programadas = 0
+  const anticipaciones: number[] = []
+  for (const c of citas) {
+    if (c.estado === 'eliminada') continue
+    anticipaciones.push(anticipacionDias(c))
+    if (c.estado === 'no_realizada') {
+      noSeHizo++
+      sumar(noSeHizoPorMotivo, c.motivoCodigo)
+    } else if (c.estado === 'cancelada') {
+      canceladas++
+      sumar(canceladasPorMotivo, c.motivoCodigo)
+    } else if (c.estado === 'pendiente') {
+      if (estadoVisible(c, ahora) === 'programada') programadas++
+      else sinCerrar++
+    }
+  }
+  const lineas = [...porLinea.entries()].map(([lineId, hechas]) => ({ lineId, hechas })).sort((a, b) => b.hechas - a.hechas || a.lineId.localeCompare(b.lineId))
+  const sumaLineas = lineas.reduce((s, l) => s + l.hechas, 0)
+  return {
+    hechas: visitas.length,
+    efectivas,
+    noEfectivas: visitas.length - efectivas,
+    noEfectivasPorMotivo,
+    noSeHizo,
+    noSeHizoPorMotivo,
+    canceladas,
+    canceladasPorMotivo,
+    sinCerrar,
+    programadas,
+    telefonicas,
+    cumplimientoPlan: cumplimientoDelPlan(citas, hoy),
+    anticipacion: {
+      medianaDias: mediana(anticipaciones),
+      pctConTiempo: porcentaje(anticipaciones.filter(d => d >= DIAS_CON_TIEMPO).length, anticipaciones.length),
+      pctMismoDia: porcentaje(anticipaciones.filter(d => d === 0).length, anticipaciones.length),
+      noPlaneadas: visitas.filter(v => !v.agendaId).length,
+    },
+    medicosDistintos: medicos.size,
+    ciudadesDistintas: ciudades.size,
+    porLinea: { lineas, sumaSuperaHechas: sumaLineas > visitas.length },
+  }
+}
+
+const ordenFilas = (a: FilaRendimiento, b: FilaRendimiento): number => {
+  const ra = a.cumplimientoPlan.ratio
+  const rb = b.cumplimientoPlan.ratio
+  if (ra !== rb) {
+    if (ra === null) return 1
+    if (rb === null) return -1
+    return ra - rb
+  }
+  return a.persona.nombre.localeCompare(b.persona.nombre, 'es')
+}
+
+/**
+ * Rendimiento del periodo: una fila por persona visible (con ceros si no tuvo nada) y por quien ya no está pero tuvo
+ * filas en el periodo (`yaNoEsta`); las tarjetas del equipo suman las filas de todas, con médicos y ciudades DISTINTOS
+ * (no la suma). Quien se ve solo como Ejecutiva aporta solo sus filas con executive_id. Las filas de fuera del periodo
+ * no cuentan. Orden: cumplimiento del plan ascendente (null al final), luego nombre.
+ */
+export function rendimiento(entrada: {
+  personas: readonly PersonaEquipo[]
+  alcance: AlcanceEquipo
+  visitas: readonly VisitaEquipo[]
+  citas: readonly CitaEquipo[]
+  desde: string
+  hasta: string
+  hoy: string
+  ahora: Date
+  diasHabilesSinVisitas: ReadonlyMap<string, number | null>
+  cuotas: ReadonlyMap<string, CuotaResumen | null>
+}): { equipo: Cifras; porPersona: FilaRendimiento[] } {
+  const enPeriodo = (fecha: string) => fecha >= entrada.desde && fecha <= entrada.hasta
+  const visitas = soloComoEjecutivo(entrada.visitas.filter(v => enPeriodo(v.fecha)), entrada.alcance)
+  const citas = soloComoEjecutivo(entrada.citas.filter(c => enPeriodo(c.fecha) && c.estado !== 'eliminada'), entrada.alcance)
+  const conFilas = new Set([...visitas.map(v => v.userId), ...citas.map(c => c.userId)])
+  const visibles = new Set(entrada.alcance.personas.map(p => p.userId))
+  const incluidas = entrada.personas.filter(p => visibles.has(p.userId) || (!p.activa && conFilas.has(p.userId)))
+  const porPersona = incluidas
+    .map(persona => {
+      const suyas = visitas.filter(v => v.userId === persona.userId)
+      const citasSuyas = citas.filter(c => c.userId === persona.userId)
+      return {
+        ...cifrasDe(suyas, citasSuyas, entrada.hoy, entrada.ahora),
+        persona,
+        yaNoEsta: !persona.activa && conFilas.has(persona.userId),
+        diasHabilesSinVisitas: entrada.diasHabilesSinVisitas.get(persona.userId) ?? null,
+        cuota: entrada.cuotas.get(persona.userId) ?? null,
+      }
+    })
+    .sort(ordenFilas)
+  const ids = new Set(incluidas.map(p => p.userId))
+  const equipo = cifrasDe(visitas.filter(v => ids.has(v.userId)), citas.filter(c => ids.has(c.userId)), entrada.hoy, entrada.ahora)
+  return { equipo, porPersona }
+}
