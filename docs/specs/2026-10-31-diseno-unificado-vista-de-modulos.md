@@ -33,6 +33,8 @@ tal cual". "/" abre ese inicio (no el Mapa). Odoo queda descartado (pensado para
   misma pestaña; instalada, en otra pestaña del navegador; sin señal, avisa y no sale; en el teléfono compilado no sale
   (`lib/opmap-enlace.ts`).
 - Dentro de OpMap, Agendamiento se abre igual que hoy (página completa) pero ya con vuelta.
+- Sin menú hamburguesa ni menú fijo (dueño, 2026-10-31, "quita en dos"): la barra lleva "OpMap" y el nombre de la
+  página; la bolita con la inicial abre el panel con quién es, el Tema y "Cerrar sesión".
 
 **Etapa 2b – Un solo armazón en el celular**: barra de abajo por módulo en las páginas rehechas, encabezado común;
 escritorio con secciones como pestañas; el acordeón queda como cajón.

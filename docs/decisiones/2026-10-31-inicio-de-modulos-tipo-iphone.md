@@ -11,7 +11,10 @@ o tipo Odoo, que están los cuadritos de los módulos con unos íconos, así tal
   Calendario, Zonas, Líneas) van primero, sin título; cada grupo (Terceros, Empleados, Inteligencia de Mercado,
   Configuración) con el suyo. Las mismas opciones, el mismo orden y los mismos permisos que el menú
   (`bloquesDeInicio` sobre `getNavigationMenu`). El Mapa ya no es la página de inicio: es el primer cuadro.
-- El menú en acordeón (etapa 1) se queda como cajón "☰" para saltar sin pasar por el inicio.
+- **Sin menú hamburguesa ni menú fijo** (dueño, 2026-10-31, al ver /inicio: "¿para qué dejar la hamburguesa?" →
+  "quita en dos", celular y escritorio): la barra de arriba queda con "OpMap" (vuelve a `/inicio`) y el nombre de la
+  página; la bolita con la inicial abre un panel con quién es, el Tema (Claro, Oscuro, Automático) y "Cerrar sesión".
+  Para pasar de un módulo a otro se vuelve al inicio, como en el iPhone. El acordeón de la etapa 1 queda sin efecto.
 - La app de campo lleva en su franja de estado el botón **"OpMap"** que vuelve a `/inicio`: en el navegador, en la misma
   pestaña (mismo ingreso); instalada en el teléfono, en otra pestaña del navegador (la app no se cierra ni pierde su
   cola); sin señal, solo avisa ("OpMap necesita señal. Tus pendientes siguen aquí…"). En el teléfono compilado o en Expo
