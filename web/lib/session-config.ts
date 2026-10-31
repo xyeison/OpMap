@@ -25,7 +25,7 @@ const CLOCK_SKEW_SECONDS = 300
 
 const MIN_SECRET_LENGTH = 32
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export const BASE64URL_RE = /^[A-Za-z0-9_-]+$/
 
@@ -40,6 +40,9 @@ export interface SessionPayload {
   pv: string
   iat: number
   exp: number
+  // Empresa activa al firmar (uuid). Solo una caché: manda users.empresa_activa_id (lib/empresas.ts). Los tokens
+  // firmados antes de las empresas no lo traen y siguen valiendo.
+  emp: string | null
 }
 
 let devFallbackWarned = false
@@ -95,7 +98,7 @@ export function parseSessionPayload(json: string, nowSeconds: number): SessionPa
   }
 
   if (!data || typeof data !== 'object') return null
-  const { uid, pv, iat, exp } = data as Record<string, unknown>
+  const { uid, pv, iat, exp, emp } = data as Record<string, unknown>
 
   if (typeof uid !== 'string' || !UUID_RE.test(uid)) return null
   if (typeof pv !== 'string' || !PASSWORD_VERSION_RE.test(pv)) return null
@@ -109,5 +112,6 @@ export function parseSessionPayload(json: string, nowSeconds: number): SessionPa
   // Nunca aceptar una vigencia mayor que la configurada
   if (exp - iat > SESSION_MAX_AGE_SECONDS) return null
 
-  return { uid, pv, iat, exp }
+  // emp es opcional: si falta o no es un uuid se ignora (la empresa la decide la base, no el token)
+  return { uid, pv, iat, exp, emp: typeof emp === 'string' && UUID_RE.test(emp) ? emp : null }
 }

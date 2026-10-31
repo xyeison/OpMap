@@ -4,20 +4,32 @@
 // app móvil ("Authorization: Bearer <token>", el mismo token firmado; decisión 1 de
 // docs/fases/fase8-visitas-f3-f4-reporte-y-app-movil.md). Verifica firma y expiración, carga el
 // usuario activo desde public.users con el cliente service_role y comprueba el claim pv contra su
-// contraseña actual (si la contraseña cambió, la sesión y el token del teléfono quedan revocados).
+// contraseña actual (si la contraseña cambió, la sesión y el token del teléfono quedan revocados). Luego carga sus
+// papeles y su empresa activa (lib/empresas.ts; sin la 0960, users.role es el único papel).
 import { getSupabaseAdmin } from './supabase-admin'
+import { cargarPapelesDeUsuario, sesionDesdePapeles } from './empresas'
 import { SESSION_COOKIE_NAME, passwordVersion, passwordVersionMatches, verifySession } from './session'
 import { zoneDisplayName } from './zone-names'
 import type { Role } from './permissions'
 import type { EjecutivaMovil } from './reporte-visitas'
+import type { Empresa, PapelActivo } from './empresas-reglas'
 
 export interface SessionUser {
   id: string
   email: string
   full_name: string
-  role: Role
   active: boolean
+  /** papelMasAlto(papeles): caché para el código que aún lee un solo rol. */
+  role: Role
+  /** La empresa activa; null sin papeles o sin la 0960. */
+  empresa: Empresa | null
+  /** Empresas donde tiene algún papel activo, por código. */
+  empresas: Empresa[]
+  /** Solo los papeles de la empresa activa. */
+  papeles: PapelActivo[]
 }
+
+type SesionBase = Pick<SessionUser, 'id' | 'email' | 'full_name' | 'active' | 'role'>
 
 /**
  * Lee una cookie de la cabecera Cookie (sirve para Request y NextRequest).
@@ -92,9 +104,10 @@ export async function getUserFromRequest(request: Request): Promise<SessionUser 
     const session = verifySession(token)
     if (!session) return null
 
+    // '*' y no una lista: users.empresa_activa_id solo existe con la 0960, y pedirla por nombre antes daría 42703
     const { data, error } = await getSupabaseAdmin()
       .from('users')
-      .select('id, email, full_name, role, active, password')
+      .select('*')
       .eq('id', session.uid)
       .eq('active', true)
       .maybeSingle()
@@ -110,8 +123,10 @@ export async function getUserFromRequest(request: Request): Promise<SessionUser 
     if (typeof password !== 'string' || !password) return null
     if (!passwordVersionMatches(passwordVersion(password), session.pv)) return null
 
-    // Nunca devolver la contraseña
-    return user as SessionUser
+    // Papeles y empresa activa. Sin la columna users.empresa_activa_id la 0960 no está aplicada: ni se piden los
+    // papeles (users.role es el único). sesionDesdePapeles copia solo los campos de la sesión: nunca la contraseña.
+    const cargado = 'empresa_activa_id' in user ? await cargarPapelesDeUsuario(user.id) : 'sin_tabla'
+    return sesionDesdePapeles(user as SesionBase, cargado, session.emp)
   } catch (error) {
     // Incluye la falta de SESSION_SECRET o de SUPABASE_SERVICE_ROLE_KEY en producción (fail closed)
     console.error('Error obteniendo el usuario de la petición:', error)

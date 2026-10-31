@@ -1,5 +1,5 @@
 // Sesión firmada con HMAC-SHA256 (runtime Node: rutas API y server components).
-// Formato del token: base64url(JSON{uid,pv,iat,exp}) + "." + base64url(HMAC-SHA256(primera parte)).
+// Formato del token: base64url(JSON{uid,pv,iat,exp[,emp]}) + "." + base64url(HMAC-SHA256(primera parte)).
 // La verificación equivalente para el middleware (Edge runtime) está en lib/session-edge.ts
 // (esa NO valida pv; el pv lo valida getUserFromRequest en lib/auth-server.ts).
 import { createHmac, timingSafeEqual } from 'crypto'
@@ -9,6 +9,7 @@ import {
   SESSION_COOKIE_NAME,
   SESSION_MAX_AGE_SECONDS,
   SESSION_TOKEN_MAX_LENGTH,
+  UUID_RE,
   getSessionSecret,
   parseSessionPayload,
 } from './session-config'
@@ -46,23 +47,25 @@ export function passwordVersionMatches(expected: string, given: string): boolean
 
 /**
  * Firma una sesión para el usuario indicado. `pv` es passwordVersion(users.password) con el
- * hash definitivo (después de la migración perezosa a bcrypt, si la hubo).
+ * hash definitivo (después de la migración perezosa a bcrypt, si la hubo). `emp` es la empresa activa
+ * (caché; manda users.empresa_activa_id): solo entra al payload si es un uuid.
  * Lanza si falta SESSION_SECRET en producción.
  */
-export function signSession(uid: string, pv: string): string {
+export function signSession(uid: string, pv: string, emp?: string | null): string {
   const secret = getSessionSecret()
   const iat = Math.floor(Date.now() / 1000)
-  const payload = { uid, pv, iat, exp: iat + SESSION_MAX_AGE_SECONDS }
+  const payload: Record<string, unknown> = { uid, pv, iat, exp: iat + SESSION_MAX_AGE_SECONDS }
+  if (typeof emp === 'string' && UUID_RE.test(emp)) payload.emp = emp
   const body = toBase64Url(JSON.stringify(payload))
   return `${body}.${sign(body, secret)}`
 }
 
 /**
  * Verifica firma (comparación en tiempo constante) y expiración.
- * Devuelve { uid, pv } o null; quien llama debe comparar pv con el de la BD.
+ * Devuelve { uid, pv, emp } o null (emp null si el token no lo trae); quien llama debe comparar pv con el de la BD.
  * Lanza si falta SESSION_SECRET en producción (fail closed).
  */
-export function verifySession(token: string | null | undefined): { uid: string; pv: string } | null {
+export function verifySession(token: string | null | undefined): { uid: string; pv: string; emp: string | null } | null {
   if (!token || token.length > SESSION_TOKEN_MAX_LENGTH) return null
 
   const secret = getSessionSecret()
@@ -78,7 +81,7 @@ export function verifySession(token: string | null | undefined): { uid: string; 
 
   const json = Buffer.from(body, 'base64url').toString('utf8')
   const payload = parseSessionPayload(json, Math.floor(Date.now() / 1000))
-  return payload ? { uid: payload.uid, pv: payload.pv } : null
+  return payload ? { uid: payload.uid, pv: payload.pv, emp: payload.emp } : null
 }
 
 /**
