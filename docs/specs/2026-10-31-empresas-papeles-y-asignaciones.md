@@ -1,0 +1,210 @@
+# Spec: empresas, papeles por empresa y asignaciones por Zona y línea  (2026-10-31)
+
+**Estado**: borrador para aprobación del dueño. Conversación del 2026-10-31. Enfoque elegido por el dueño: por capas,
+con compatibilidad (ver "Enfoques considerados"). Es el PRIMERO de tres proyectos: después vienen la marca por empresa
+(ícono y colores en la web y la app) y la página de Ejecutivos Comerciales rehecha al estilo de la app.
+
+## Problema
+Hoy quien entra (`users`) tiene UN rol, y la persona del equipo comercial (`executives`) tiene UNA zona base, sus líneas
+"de la persona" (`executive_lines`) y una empresa que es texto libre (`company`, por defecto "VG Medical"). Eso no
+representa lo que el dueño describió el 2026-10-31:
+
+- Una persona puede pertenecer a **varias empresas** (Lizeth y Katherine son de Medix) y al entrar está "como" una:
+  "logeado en el momento como VG o como Medix".
+- **El perfil cambia según la empresa y la línea**: "Lizeth puede ser líder en una empresa y ejecutiva en otra"; "Paola
+  puede ser Ejecutiva Comercial en Sustitutos Óseos pero líder en Trauma".
+- **Una línea puede estar en varias empresas**: "La línea A puede estar para la empresa X y Z, pero la línea B solo en la
+  empresa X y la C solo en la Z".
+- **Las líneas se llevan por Zona**: "un comercial puede estar asignado a la zona A y zona B. En la zona A tiene la línea
+  X y en la B tiene la línea X y J". Es el caso de Linda Ossa (Bucaramanga y Cúcuta), resuelto hoy a mano.
+- Las Zonas y los médicos, cuentas y sedes son **compartidos** entre empresas ("para beneficiarnos de una sola base");
+  las visitas son **de cada empresa**.
+- Todo "a futuro debe vincularse con Odoo", de a poco: "queremos empezar ya para ir mejorando la app y vamos conectando".
+
+## Lo que vimos en Odoo (VG, 2026-10-31, solo lectura)
+- Un Odoo por empresa: el de VG tiene UNA compañía (`res.company` 1, VG Medical SAS). Medix es otra base de Odoo (no se
+  pudo mirar: el conector no estaba autorizado). Luego el enlace a Odoo es **por empresa** y una persona tiene un id en
+  cada Odoo.
+- Personas: `hr.employee` con `user_id` (`res.users`), cargo (`job_id`: "Ejecutiva Comercial" ×8; "Líder Nacional de
+  Trauma / Columna / Sustitutos Óseos / Reemplazos Articulares / Deportiva", una cada uno), jefe (Laura) y lugar de
+  trabajo (`hr.work.location`: Barranquilla, Cali, Valledupar, Montería, Cúcuta, Eje Cafetero, Pasto, Medellín,
+  Bucaramanga, Bogotá…, los nombres de nuestras Zonas). Cada empleado tiene UN cargo: Paola solo figura como líder.
+- Médicos: `res.partner` con `health_professional`, cédula en `vat`, tipo de documento, especialidad y "vendedor"
+  (`user_id`, la ejecutiva que lo atiende); 3.180 filas. IPS: `res.partner` con `health_provider_institution`.
+- Líneas de negocio: no existen en Odoo; lo más cercano son categorías de producto (Trauma, Reemplazos, Sustitutos Óseos,
+  PerOssal, 4DryField, SpineWay). Las líneas siguen siendo de OpMap.
+
+## Resultado esperado
+1. **Empresas** existen como dato: hoy VG Medical y Medix; mañana más, sin tocar código.
+2. **Papeles por empresa**: una persona es una fila, con un solo correo y clave. Lo que puede hacer sale de sus papeles:
+   cada papel es "persona · empresa · papel · (línea)". Ejemplos reales:
+   - Paola · VG · Líder de negocio · Trauma, y Paola · VG · Ejecutivo Comercial.
+   - Lizeth · Medix · Líder de negocio · (una línea de Medix), y Lizeth · VG · Ejecutivo Comercial.
+   - El dueño y Laura: Administrador y Director comercial, respectivamente, una fila por empresa.
+3. **Empresa activa en la sesión**: al entrar, la persona queda "como" una empresa (si solo tiene una, esa; si tiene
+   varias, la última usada o la primera). Puede cambiarla desde el menú de OpMap y desde Ajustes de la app sin volver a
+   escribir la clave. Lo que ve y puede hacer es la **suma de sus papeles en esa empresa**. La marca (ícono, colores)
+   NO cambia todavía: va en el proyecto 2; por ahora la barra muestra el nombre corto de la empresa activa al lado del
+   nombre de la persona.
+4. **Líneas por empresa**: cada línea dice en qué empresas existe. La sesión "como Medix" solo ofrece líneas de Medix en
+   Zonas, Líneas, el mapa por línea, Reportar y Agendar.
+5. **Asignaciones por persona, Zona y línea** (lo de Linda Ossa): en Zonas se le da una línea a una persona o vacante EN
+   esa Zona, viva allí o no. La misma persona puede tener líneas distintas en Zonas distintas. La cobertura se calcula
+   desde esas asignaciones: "local" donde tiene la asignación, "alcance" por carretera desde cada Zona asignada, igual
+   que hoy desde la zona base. Las "líneas permitidas" (`executive_allowed_lines`) desaparecen: la lista de asignaciones
+   ya dice qué lleva cada quien.
+6. **Visitas por empresa**: la visita y la cita nacen con la empresa activa de la sesión. Cada empresa ve solo sus
+   visitas; el mapa de calor y los reportes filtran por la empresa activa.
+7. **Compartido**: Zonas (`kams`), tiempos de carretera, médicos, cuentas, sedes, contactos e IPS siguen siendo una sola
+   base para todas las empresas.
+8. **Enlaces a Odoo**: toda fila que algún día vivirá en Odoo (empresa, persona, usuario, médico, cuenta, sede, línea,
+   Zona) puede guardar su id en el Odoo de cada empresa. En este proyecto se guardan los que ya tenemos
+   (`executives.odoo_employee_id` → id de `hr.employee` en el Odoo de VG). No se sincroniza nada todavía.
+9. **Nada visible cambia de golpe**: la app y la web siguen funcionando igual para quien tiene una sola empresa y un solo
+   papel (hoy, todos menos Paola, Lizeth y Katherine).
+
+## Modelo (lo decidido)
+Nombres en español como el resto de las tablas de visitas; en inglés solo lo que ya existe.
+
+- `empresas`: `id`, `codigo` (único, corto: `vg`, `medix`), `nombre` ("VG Medical SAS"), `nombre_corto` ("VG",
+  "Medix"), `nit`, `activa`, `odoo_url` (NULL hoy), `created_at`. Semilla: VG Medical y Medix.
+- `linea_empresas`: `line_id` → `business_lines`, `empresa_id` → `empresas`; PK las dos. Semilla: las 6 líneas de hoy en
+  VG. Las de Medix las carga el dueño en Líneas (no se inventan).
+- `papeles`: `id`, `user_id` → `users`, `empresa_id` → `empresas`, `papel` (los mismos valores que `users.role` hoy:
+  `admin`, `commercial_director`, `line_leader`, `sales_manager`, `contract_manager`, `data_manager`, `viewer`, `hr`,
+  `user`), `line_id` → `business_lines` (NOT NULL solo si `papel = 'line_leader'`, y esa línea debe estar en esa empresa),
+  `activo`, `created_by`, `created_at`. Único: (`user_id`, `empresa_id`, `papel`, `line_id` con NULL tratado como
+  vacío). Semilla: una fila por usuario activo con su `users.role` en VG; una fila `line_leader` por
+  `business_lines.leader_user_id` en VG (si el usuario era `line_leader`, esas filas lo reemplazan).
+- `executive_empresas`: `executive_id` → `executives`, `empresa_id` → `empresas`, `activo`; PK las dos. "A qué empresas
+  pertenece la persona del equipo comercial" (también las vacantes). Semilla: todas en VG. Reemplaza
+  `executives.company` (texto), que queda sin uso.
+- `asignaciones`: `id`, `executive_id` → `executives`, `kam_id` → `kams`, `line_id` → `business_lines`, `empresa_id` →
+  `empresas`, `created_by`, `created_at`. Único: (`executive_id`, `kam_id`, `line_id`, `empresa_id`). Una restricción
+  (disparador) exige que (`line_id`, `empresa_id`) esté en `linea_empresas` y (`executive_id`, `empresa_id`) en
+  `executive_empresas`. Semilla: por cada fila de `executive_lines`, una asignación en la zona base de la persona y en
+  VG. Reemplaza `executive_lines` y `executive_allowed_lines`.
+- `executives.base_kam_id` se queda como **Zona de residencia** (donde vive; es lo que Odoo llama lugar de trabajo y lo
+  que ordena la lista). Ya no decide qué lleva: eso lo dicen las asignaciones.
+- `coverage` y `coverage_overrides`: ganan `empresa_id` (NOT NULL; relleno VG) y el único de `coverage` pasa a
+  (`empresa_id`, `line_id`, `kam_id`). `territory_snapshots`: gana `empresa_id`.
+- `visits`, `visitas_agenda`, `medico_visitantes`: ganan `empresa_id` (NOT NULL; relleno VG). `visit_lines` no cambia.
+- `odoo_enlaces`: `empresa_id`, `tabla` (nombre de la tabla de OpMap), `fila_id` (uuid), `modelo` (de Odoo, p. ej.
+  `hr.employee`, `res.users`, `res.partner`, `product.category`, `hr.work.location`), `odoo_id` (entero), `created_at`.
+  Únicos: (`empresa_id`, `tabla`, `fila_id`) y (`empresa_id`, `modelo`, `odoo_id`). Semilla: `executives.odoo_employee_id`
+  → (`vg`, `executives`, id, `hr.employee`, odoo_employee_id). `executives.odoo_employee_id` queda sin uso.
+- `business_lines.leader_user_id` y `users.role` quedan en la tabla **como caché derivada** durante la transición: el
+  servidor los escribe cada vez que cambian los papeles (`users.role` = el papel más alto de la persona en VG;
+  `leader_user_id` = el líder de esa línea en VG, o NULL si hay varios). Ningún código nuevo los lee; el que todavía
+  los lee se migra PR a PR. Se borran en una migración posterior, cuando nada los use.
+
+Orden de "papel más alto" para la caché y para los textos: `admin` > `commercial_director` > `line_leader` >
+`sales_manager` > `contract_manager` > `data_manager` > `hr` > `viewer` > `user`.
+
+## Sesión y permisos (lo decidido)
+- El token de sesión gana el claim `emp` (id de la empresa activa). Sin `emp` (tokens de hoy) el servidor toma la única
+  empresa de la persona o la primera por `codigo`; así nadie tiene que volver a entrar.
+- `SessionUser` gana `empresa` (`{ id, codigo, nombre_corto }`), `papeles` (los activos en esa empresa) y `permisos`
+  (unión de `rolePermissions[papel]` de cada papel). `role` se conserva como el papel más alto en esa empresa, para el
+  código que aún lo lee. `requirePermission`, `requireAnyPermission` y `hasPermission` deciden con `permisos`.
+- `POST /api/auth/empresa` cambia la empresa activa (solo a una donde la persona tenga papel activo) y vuelve a firmar la
+  cookie o devuelve el token nuevo a la app. `GET /api/auth/me` devuelve `empresa`, `empresas` (las que puede elegir) y
+  `papeles`.
+- La app de campo: "solo líderes" pasa a ser "quien tiene un papel `line_leader` activo en la empresa activa";
+  `lineasParaReportar` sale de los papeles (líder) y de las asignaciones (Ejecutivo Comercial) de esa empresa.
+- Las líneas de una líder (`medico_lineas` al crear un médico) son las de sus papeles `line_leader` en la empresa activa.
+
+## Enfoques considerados
+1. **Por capas, con compatibilidad** (elegido por el dueño): tablas nuevas; las columnas viejas se mantienen como caché
+   derivada mientras cada página pasa al modelo nuevo, un PR por capa; nada se rompe de golpe y cada capa se prueba.
+2. **De una vez**: una migración reemplaza rol, zona base y líneas y un solo PR reescribe permisos, Zonas, Ejecutivos,
+   app de campo y pruebas. Más corto en calendario, PR enorme, sin vuelta atrás fácil. Descartado.
+3. **Una base por empresa**: descartada, no permite compartir médicos ni Zonas.
+
+## Capas (un PR cada una, en este orden)
+**Capa 1 – Modelo y sesión.** Migración 0960 (rollback 9961) con todas las tablas y semillas de arriba; `empresa` y
+`papeles` en la sesión; `permisos` como unión; `POST /api/auth/empresa`; nombre corto de la empresa en la barra de OpMap
+y en la franja de estado de la app; `/users` muestra y edita papeles por empresa (en lugar del rol único) y escribe la
+caché. Las semillas dejan a todos exactamente como hoy. **Antes de aplicar la 0960 el dueño registra en `/users` los
+papeles de Paola, Lizeth y Katherine**; mientras tanto, siguen como hoy.
+
+**Capa 2 – Asignaciones y cobertura.** El motor (`lib/coverage.ts`) y Zonas (`/kams`, `PUT/DELETE
+/api/executives/[id]/lineas/[lineId]`) pasan a `asignaciones` con `kam_id` explícito y `empresa_id` de la sesión; el
+recálculo guarda `coverage.empresa_id`. Traspaso ("Traspasar", "Contratar") mueve asignaciones y `executive_empresas`.
+`executive_lines` y `executive_allowed_lines` dejan de leerse. El anexo de territorio lleva la empresa.
+
+**Capa 3 – Líneas y campo por empresa.** Líneas edita en qué empresas está cada línea; el mapa por línea, Reportar,
+Agendar y `/api/me/*` filtran por la empresa activa; visitas y citas nuevas guardan `empresa_id`; el mapa de calor y los
+reportes filtran por empresa; `medico_visitantes` por empresa.
+
+**Capa 4 – Limpieza.** Migración que borra `users.role`, `business_lines.leader_user_id`, `executive_lines`,
+`executive_allowed_lines`, `executives.company` y `executives.odoo_employee_id` (con respaldo), cuando ninguna ruta los lea.
+
+## Criterios de aceptación (pruebas puras, `web/scripts/*-check.ts`)
+Capa 1
+- [ ] `permisosDePapeles([{admin}])` = los de admin; `[{line_leader, Trauma}, {sales_manager}]` = la unión; la lista
+      vacía = sin permisos. `papelMasAlto` sigue el orden de arriba.
+- [ ] `empresaActivaDe(token sin emp, empresas [vg])` = vg; con `[vg, medix]` = vg (primera por código); con `emp = medix`
+      y papel activo allí = medix; con `emp` donde no tiene papel = 403 al cambiar y la primera al leer.
+- [ ] `requirePermission` con papeles `[line_leader]` niega `executives:lines` y concede `campo:app`; con
+      `[line_leader, sales_manager]` concede `visits:report`.
+- [ ] `/api/auth/me` de una persona con dos empresas trae `empresas` con las dos y `empresa` con la activa.
+- [ ] Las semillas (función pura sobre filas de ejemplo): un usuario `line_leader` que lidera dos líneas produce dos
+      filas `line_leader`, no una `line_leader` sin línea; `users.role` derivado de los papeles devuelve el de hoy para
+      cada usuario de la semilla.
+Capa 2
+- [ ] `computeCoverage` con asignaciones: persona con (A, X) y (B, X y J): local en A para X, local en B para X y J, nada
+      de J en A; el alcance de J sale desde B; sin asignación en ninguna Zona, no cubre nada aunque tenga zona base.
+- [ ] Dar una línea en Zonas a una persona que no vive en la Zona crea la asignación en ESA Zona; quitarla no toca sus
+      otras Zonas; dar una línea que no está en la empresa activa = 400.
+- [ ] Traspasar pasa las asignaciones de la Zona y la empresa; la vacante nueva las recibe.
+Capa 3
+- [ ] Reportar "como Medix" solo ofrece líneas de Medix; una visita registrada "como VG" no aparece en el mapa de calor
+      "como Medix"; `lineasParaReportar` de Paola en VG = Trauma (líder) ∪ sus asignaciones (ejecutiva).
+- [ ] `/api/auth/me` de quien solo es Ejecutivo Comercial en la empresa activa sigue dando `sin_persona` (regla del
+      2026-10-30), aunque sea líder en otra empresa.
+
+## Fuera de alcance
+- Marca por empresa (logo, colores, ícono de la app que cambia): proyecto 2, con su spec y su migración (columnas de
+  `empresas`).
+- Rehacer la página de Ejecutivos Comerciales (encabezado y tarjetas tipo Uber): proyecto 3.
+- Sincronizar algo con Odoo (leer o escribir): solo quedan los enlaces.
+- Visitas de VMO (`source = 'vmo_import'`): se marcan VG en la semilla; si VMO distingue empresa, se verá en el importador
+  después.
+- Que una empresa vea las visitas de otra al mismo médico: no, por decisión de esta spec (cada empresa ve las suyas).
+  El dueño puede cambiarlo en una decisión aparte.
+
+## Impacto
+- Datos / migración: sí, 0960 (`2026-10-31_0960_empresas_papeles_asignaciones.sql`) con rollback 9961; se aplica solo con
+  autorización del dueño y en la ventana del despliegue de la capa 1. Las capas 2 y 3 no necesitan migración; la capa 4
+  tiene la suya.
+- Costo Google Maps: 0. La cobertura se recalcula con la caché de tiempos.
+- Estética del mapa: no cambia. El mapa por línea filtra por la empresa activa (capa 3).
+- Permisos / roles: los nombres de los papeles son los mismos roles de hoy. La única diferencia observable: una persona
+  puede tener varios a la vez y distintos por empresa. `users:manage` (admin) edita papeles.
+- Regla de negocio nueva: `docs/decisiones/2026-10-31-empresas-papeles-y-asignaciones.md` (se escribe al aprobar).
+
+## Plan (archivos e interfaces)
+Capa 1: `database/migrations/2026-10-31_0960_*.sql` y `9961_*_rollback.sql`; `web/lib/session.ts` (claim `emp`),
+`web/lib/auth-server.ts` (`SessionUser.empresa/papeles/permisos`), `web/lib/permissions.ts` (`permisosDePapeles`,
+`papelMasAlto`, `hasPermission` sobre permisos), `web/lib/require-role.ts`, `web/lib/empresas.ts` (nuevo: leer empresas y
+papeles de una persona, elegir la activa, escribir la caché de `users.role` y `leader_user_id`), `web/app/api/auth/me`,
+`web/app/api/auth/empresa` (nuevo), `web/app/api/users/*` y `web/app/users/page.tsx` (papeles por empresa),
+`web/components/NavigationWithPermissions.tsx` (empresa activa y cambio), `mobile/` (Ajustes: empresa activa; franja de
+estado: nombre corto), `docs/base-de-datos.md`. Pruebas: `scripts/empresas-check.ts` y `empresas-api-check.ts`.
+Capa 2: `web/lib/coverage.ts`, `web/app/kams/*`, `web/app/api/executives/**`, `web/lib/traspaso*.ts`, `lib/territory.ts`;
+pruebas `cobertura-simulacion-check`, `zonas-api-check`, `lineas-api-check`, `traspaso*-check` ajustadas.
+Capa 3: `web/lib/persona-campo.ts`, `web/app/api/me/**`, `web/app/api/visits/**`, `web/app/lines/*`, `lib/map-*`;
+pruebas `persona-campo-check`, `visits*-check`, `mapa-*-check`.
+
+## Lo que queda al constructor
+Nombres exactos de columnas y disparadores dentro de lo de arriba; cómo se presenta el cambio de empresa en el menú y en
+Ajustes (un selector solo cuando hay más de una); textos de error; orden de los papeles en `/users`; si la caché de
+`users.role` se escribe desde `lib/empresas.ts` o desde un disparador en la base (recomendado: servidor, como el resto
+del repo, que no usa disparadores para reglas de negocio salvo los de visitas).
+
+## Verificación final
+`npm run check` en `web/` y `mobile/` en cada capa. Capa 1: capturas de `/users` con los papeles de Paola, del menú con
+la empresa activa y del cambio de empresa en la app; una persona con un solo papel ve exactamente lo de hoy. Capa 2:
+`npm run fase2:check` (solo lectura) y el caso de Linda Ossa en Zonas. Capa 3: Reportar "como Medix" con una línea de
+prueba de Medix y el mapa de calor filtrado.
