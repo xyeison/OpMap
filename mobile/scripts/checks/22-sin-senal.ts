@@ -341,6 +341,19 @@ export async function pruebas(t: Probador): Promise<void> {
   // -------------------------------------------------------------------------------------------
   t.seccion('22d. Ubicación: hasta 20 s y la lectura más precisa')
   {
+    // Revisión en iPhone (2026-10-30): en el navegador, expo-location pedía el permiso con permissions.query y un
+    // getCurrentPosition sin tiempo máximo (Safari fallaba; Chrome se quedaba "Tomando tu ubicación…"). La web habla
+    // con navigator.geolocation directo y todo lleva tiempo máximo.
+    const ubicacionTs = leer('lib/ubicacion.ts')
+    t.check(
+      'en el navegador la ubicación va por navigator.geolocation directo (fuentesDelNavegador), con tiempo máximo en cada lectura y sin depender de permissions.query',
+      /const fuentes: FuentesUbicacion = geo \? fuentesDelNavegador\(geo\) : fuentesDelTelefono/.test(ubicacionTs) &&
+        /precisa: \(\) => leer\(\{ enableHighAccuracy: true, timeout: TIEMPO_PRECISA_MS, maximumAge: 0 \}\)/.test(ubicacionTs) &&
+        /rapida: \(\) => leer\(\{ enableHighAccuracy: false, timeout: 10_000/.test(ubicacionTs) &&
+        /timeout: 1_500, maximumAge: edadMaximaMs/.test(ubicacionTs) &&
+        /geo\.watchPosition\(/.test(ubicacionTs) && /geo\.clearWatch\(id\)/.test(ubicacionTs) &&
+        /return estado\.state !== 'denied'/.test(ubicacionTs) && /catch \{\s*return true\s*\}/.test(ubicacionTs)
+    )
     t.check('la final espera hasta 20 s y corta con ±15 m o mejor', TIEMPO_PRECISA_MS === 20_000 && PRECISION_SUFICIENTE_M === 15)
     const lectura = (p: number | null, t0 = 0): Lectura => ({ lat: 4.6, lng: -74.08, precision: p, timestamp: 1_000_000 + t0 })
     t.check('mejorLectura: la de menor precisión; sin precisión es la peor; a igual precisión la más reciente', mejorLectura([lectura(40), lectura(8), lectura(null)])?.precision === 8 && mejorLectura([lectura(null)])?.precision === null && mejorLectura([lectura(8, 1), lectura(8, 2)])?.timestamp === 1_000_002 && mejorLectura([]) === null)
