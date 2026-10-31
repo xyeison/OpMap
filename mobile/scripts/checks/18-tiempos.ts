@@ -400,8 +400,6 @@ export async function pruebas(t: Probador): Promise<void> {
         /if \(evento\.key !== null && evento\.key !== CLAVE_TOKEN\) return\s*const anterior = memoriaToken\.releer\(\)\s*oyente\(/.test(almacenWeb) &&
         /ventana\.addEventListener\('storage', alCambiar\)/.test(almacenWeb)
     )
-    const ajustes = leer('app/(app)/ajustes.tsx')
-    t.check('Ajustes: "Ir a OpMap" solo en el navegador (vuelve a la web sin escribir la dirección)', /Platform\.OS === 'web'[\s\S]{0,400}Ir a OpMap/.test(ajustes))
 
     const sesion = leer('lib/sesion.ts')
     const abrir = sesion.slice(sesion.indexOf('const abrir = useCallback('), sesion.indexOf('// Al abrir la app.'))

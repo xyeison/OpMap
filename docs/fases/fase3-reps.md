@@ -89,7 +89,7 @@ San Vicente de Paul Rionegro registrada en Medellín).
   anterior quedan con `hospital_id = NULL`, las ya importadas de la sede nueva pasan a la IPS y se
   recalculan `service_flags`, `reps_services_count`, `quirofanos`, `reps_beds` y `reps_updated_at`
   (`afterRepsLinkChange` en `app/api/_lib/reps.ts`). Si falla, avisa de que hay que reimportar.
-- `GET /api/hospitals/reps/summary` (`hospitals:view`): conteos, corte, pendientes con motivo y
+- `GET /api/hospitals/reps/summary` (`reps:manage`: admin y data_manager desde el 2026-10-31): conteos, corte, pendientes con motivo y
   sugerida, vinculadas con sede en otro municipio y huérfanas.
 - `GET /api/hospitals/reps/sedes?q=&municipio=&limit=` (`hospitals:view`): buscador por código de
   habilitación (12), código de prestador (10), NIT (5–9) o palabras del nombre (sede o prestador).
@@ -106,7 +106,7 @@ San Vicente de Paul Rionegro registrada en Medellín).
   ambigua o sin cruce: lista de sedes del mismo NIT (sugerida preseleccionada), buscador por nombre /
   NIT / código (por defecto en el municipio de la IPS) y botón "Vincular". Vinculada: "Cambiar sede" y
   "Desvincular". Editar requiere `hospitals:edit`.
-- **`/hospitals/reps` "Cruce REPS"** (`hospitals:view`, enlace en la cabecera de /hospitals): tarjetas
+- **`/hospitals/reps` "Cruce REPS"** (`reps:manage` desde el 2026-10-31: el REPS es de administración; enlace en la cabecera de /hospitals): tarjetas
   por estado (filtran la tabla), tabla de pendientes con motivo, sugerida y enlace a la ficha, y lista de
   vinculadas para revisar.
 

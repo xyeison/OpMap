@@ -6,7 +6,11 @@
  *
  * 2026-10-31 (dueño): a la izquierda, el botón "OpMap" vuelve al inicio de módulos de OpMap (lib/opmap-enlace.ts): misma
  * pestaña en el navegador, otra pestaña si la app está instalada, y sin señal solo avisa. En el teléfono compilado no sale.
+ * Si va a salir en esta misma pestaña desde Reportar o un formulario, pregunta antes: lo escrito ahí vive en memoria y se
+ * perdería (lib/navegacion.ts, preguntaAntesDeIrAOpMap). También pregunta desde otra pantalla si Reportar, que sigue
+ * montada detrás, tiene tarjetas sin confirmar o un dictado en curso (lib/sin-guardar.ts).
  */
+import { useSegments } from 'expo-router'
 import { useEffect, useState } from 'react'
 import { Pressable, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -14,9 +18,11 @@ import { useCola } from '../lib/cola-contexto'
 import { Icono } from '../lib/iconos'
 import { MENSAJE_OPMAP_SIN_SENAL, destinoOpMap } from '../lib/opmap-enlace'
 import { detalleFranja, textoEstadoConexion } from '../lib/estado-cola'
+import { preguntaAntesDeIrAOpMap, rutaDeSegmentos } from '../lib/navegacion'
 import { alHaberVersionNueva, aplicarVersionNueva, correInstalada, esNavegador } from '../lib/pwa'
 import { useSesion } from '../lib/sesion'
-import { ALTO_TOQUE_MIN, useColores, useFuente } from '../lib/ui'
+import { haySinGuardar } from '../lib/sin-guardar'
+import { ALTO_TOQUE_MIN, confirmar, useColores, useFuente } from '../lib/ui'
 
 export function EstadoCola() {
   const c = useColores()
@@ -24,6 +30,7 @@ export function EstadoCola() {
   const insets = useSafeAreaInsets()
   const { resumen, resumenFotos, enviando, enLinea, subirAhora } = useCola()
   const { vencida } = useSesion()
+  const segmentos = useSegments()
   const [versionNueva, setVersionNueva] = useState(false)
   useEffect(() => alHaberVersionNueva(setVersionNueva), [])
   const [avisoOpMap, setAvisoOpMap] = useState<string | null>(null)
@@ -33,7 +40,7 @@ export function EstadoCola() {
     return () => clearTimeout(t)
   }, [avisoOpMap])
   const destino = destinoOpMap({ navegador: esNavegador(), instalada: correInstalada(), enLinea })
-  const irAOpMap = () => {
+  const irAOpMap = async () => {
     if (destino.modo === 'sin_senal') {
       setAvisoOpMap(MENSAJE_OPMAP_SIN_SENAL)
       return
@@ -41,8 +48,14 @@ export function EstadoCola() {
     if (destino.modo !== 'ir') return
     const w = globalThis as unknown as { open?: (url: string, destino: string) => unknown; location?: { assign: (url: string) => void } }
     // Instalada: otra pestaña; si el navegador la bloquea (window.open devuelve null), en esta misma (revisor 2026-10-31).
+    // La pestaña nueva se abre ANTES de preguntar: después de esperar una respuesta el navegador la bloquearía.
     const abierta = destino.nuevaPestana && w.open ? w.open(destino.url, '_blank') : null
-    if (!abierta) w.location?.assign(destino.url)
+    if (abierta) return
+    // En esta misma pestaña, lo escrito en Reportar o en un formulario (en memoria hasta guardarlo) se perdería: pregunta
+    // antes desde ellos, y desde cualquier pantalla si Reportar quedó detrás con algo abierto (haySinGuardar). Lo
+    // pendiente por subir no se pierde (IndexedDB).
+    if ((haySinGuardar() || preguntaAntesDeIrAOpMap(rutaDeSegmentos(segmentos))) && !(await confirmar('¿Volver a OpMap?', 'Lo que no hayas guardado se pierde.', 'Volver a OpMap'))) return
+    w.location?.assign(destino.url)
   }
 
   const pendientes = resumen.pendientes

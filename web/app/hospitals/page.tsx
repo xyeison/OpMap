@@ -29,8 +29,9 @@ export default function HospitalsPage() {
   const [ipsFilter, setIpsFilter] = useState<IpsServiceFilter>(EMPTY_IPS_FILTER)
   const [minBedsText, setMinBedsText] = useState('')
   const [maxBedsText, setMaxBedsText] = useState('')
-  const { role } = usePermissions()
-  const canImportReps = role === 'admin' || role === 'data_manager'
+  const { can } = usePermissions()
+  // El REPS es de administración (dueño, 2026-10-31): "Cruce REPS" e "Importar del REPS", solo admin y data_manager
+  const puedeReps = can('reps:manage')
   const [hospitalsWithKam, setHospitalsWithKam] = useState<any[]>([])
   const [showAddModal, setShowAddModal] = useState(false)
   const [newHospital, setNewHospital] = useState({
@@ -271,21 +272,23 @@ export default function HospitalsPage() {
           <p className="text-gray-600 mt-2">Gestión de instituciones prestadoras de salud</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-        {/* Fase 3: cruce de las IPS con sus sedes del REPS (código de habilitación) */}
-        <Link
-          href="/hospitals/reps"
-          className="px-5 py-3 bg-white text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all duration-200 font-medium whitespace-nowrap"
-        >
-          Cruce REPS
-        </Link>
-        {/* Fase 3: servicios habilitados y capacidad instalada del REPS (solo admin y data_manager) */}
-        {canImportReps && (
-          <Link
-            href="/hospitals/import"
-            className="px-5 py-3 bg-white text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all duration-200 font-medium whitespace-nowrap"
-          >
-            Importar del REPS
-          </Link>
+        {/* Fase 3, solo admin y data_manager: el cruce de las IPS con sus sedes del REPS (código de habilitación) y
+            los servicios habilitados y la capacidad instalada */}
+        {puedeReps && (
+          <>
+            <Link
+              href="/hospitals/reps"
+              className="px-5 py-3 bg-white text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all duration-200 font-medium whitespace-nowrap"
+            >
+              Cruce REPS
+            </Link>
+            <Link
+              href="/hospitals/import"
+              className="px-5 py-3 bg-white text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all duration-200 font-medium whitespace-nowrap"
+            >
+              Importar del REPS
+            </Link>
+          </>
         )}
         <PermissionGuard permission="hospitals:edit">
           <button 
@@ -430,7 +433,7 @@ export default function HospitalsPage() {
               {!ipsServiceAvailable.any && (
                 <p className="w-full text-xs text-gray-500">
                   Los filtros por servicio se activan cuando se importen los servicios habilitados del REPS
-                  {canImportReps ? (
+                  {puedeReps ? (
                     <>
                       {' '}(
                       <Link href="/hospitals/import" className="underline hover:text-gray-900">

@@ -9,8 +9,9 @@
  */
 import { usarMotorHaptico, vibrarAviso, vibrarExito, vibrarSuave, type ToqueHaptico } from '../../lib/haptica'
 import { GLIFOS_ICONOS, type NombreIcono } from '../../lib/iconos-nombres'
-import { MAX_LETRAS_PESTANA, OCULTAS, PESTANAS, letras } from '../../lib/navegacion'
+import { MAX_LETRAS_PESTANA, OCULTAS, PESTANAS, letras, preguntaAntesDeIrAOpMap, rutaDeSegmentos } from '../../lib/navegacion'
 import { ALTO_TOQUE_MIN, COLORES_CLAROS, COLORES_OSCUROS, TAMANO, contraste, type Colores } from '../../lib/paleta'
+import { haySinGuardar, marcarSinGuardar } from '../../lib/sin-guardar'
 import type { Probador } from './probador'
 
 // Corre en Node (tsx) con el programa de tipos de la app (sin @types/node): fs y path con lo mínimo que se usa.
@@ -254,6 +255,97 @@ export async function pruebas(t: Probador): Promise<void> {
 
   const app = JSON.parse(leer('app.json')) as { expo: { android?: { softwareKeyboardLayoutMode?: string } } }
   t.check("app.json: android.softwareKeyboardLayoutMode 'resize'", app.expo.android?.softwareKeyboardLayoutMode === 'resize')
+
+  // -------------------------------------------------------------------------
+  // Volver a OpMap (dueño, 2026-10-31, docs/specs/2026-10-31-menu-volver-opmap-cruce-reps.md): el botón "OpMap" de la
+  // franja de arriba es el del inicio de módulos (lib/opmap-enlace.ts, probado en 25-inicio-opmap.ts) y va una sola vez:
+  // Ajustes ya no lleva "Ir a OpMap". Lo que se le suma aquí: lo escrito en Reportar y en los formularios (las pantallas
+  // con "Volver") vive en memoria hasta guardarlo y salir en la misma pestaña lo pierde, así que desde ellas pregunta
+  // antes (revisión 2026-10-31). Reportar es una pestaña y sigue montada con sus tarjetas al pasar a Hoy: mientras
+  // tenga algo sin guardar lo marca (lib/sin-guardar.ts) y "OpMap" pregunta desde cualquier pantalla (segunda revisión
+  // del 2026-10-31). Sin eso, Hoy, Agenda (adonde llega "Agendamiento"), Números, Ajustes y "Agregar a inicio" salen
+  // sin preguntar.
+  // -------------------------------------------------------------------------
+  const nadaMarcado = !haySinGuardar()
+  marcarSinGuardar('reportar', true)
+  const conReportar = haySinGuardar()
+  marcarSinGuardar('reportar', true)
+  marcarSinGuardar('agenda/nueva', true)
+  marcarSinGuardar('reportar', false)
+  const quedaLaOtra = haySinGuardar()
+  marcarSinGuardar('agenda/nueva', false)
+  t.check(
+    'haySinGuardar: sí mientras alguna pantalla lo marque; cada pantalla cuenta una vez (marcarla dos veces y desmarcarla una la quita)',
+    nadaMarcado && conReportar && quedaLaOtra && !haySinGuardar(),
+    { nadaMarcado, conReportar, quedaLaOtra, alFinal: haySinGuardar() }
+  )
+  const usoSinGuardar = cuerpoDeFuncion(leer('lib/sin-guardar.ts'), 'useSinGuardar')
+  t.check(
+    'useSinGuardar: marca según `hay` y desmarca al cambiar o al desmontarse la pantalla (efecto con [pantalla, hay])',
+    /useEffect\(\(\) => \{\s*marcarSinGuardar\(pantalla, hay\)\s*return \(\) => marcarSinGuardar\(pantalla, false\)\s*\}, \[pantalla, hay\]\)/.test(usoSinGuardar),
+    usoSinGuardar
+  )
+  t.check(
+    'Reportar marca "sin guardar" mientras tenga tarjetas sin confirmar o un dictado en curso (ubicando no: no hay nada escrito)',
+    /useSinGuardar\('reportar', borradores\.length > 0 \|\| fase === 'grabando' \|\| fase === 'transcribiendo' \|\| fase === 'proponiendo'\)/.test(
+      cuerpoDeFuncion(leer('app/(app)/reportar.tsx'), 'Reportar')
+    )
+  )
+  const conBorrador = ['reportar', 'agenda/nueva', 'visita/[id]', 'medico/nuevo', 'sede/nueva', 'contacto/nuevo', 'dias-libres']
+  t.check(
+    'preguntaAntesDeIrAOpMap: Reportar, Agendar, Visita, Nuevo médico, Nueva sede, Nuevo contacto y Días libres preguntan',
+    conBorrador.every(preguntaAntesDeIrAOpMap),
+    conBorrador.filter(r => !preguntaAntesDeIrAOpMap(r))
+  )
+  t.check(
+    'preguntaAntesDeIrAOpMap: Hoy, Agenda, Números, Ajustes y "Agregar a inicio" salen sin preguntar',
+    ['hoy', 'agenda', 'numeros', 'ajustes', 'instalar'].every(r => !preguntaAntesDeIrAOpMap(r))
+  )
+  t.check(
+    'una pantalla nueva con "Volver" pregunta mientras no se marque de solo lectura (hoy solo lo es "Agregar a inicio")',
+    OCULTAS.every(o => preguntaAntesDeIrAOpMap(o.ruta) === (o.ruta !== 'instalar')),
+    OCULTAS.map(o => `${o.ruta}: ${preguntaAntesDeIrAOpMap(o.ruta)}`)
+  )
+  t.check(
+    'rutaDeSegmentos: la ruta de useSegments() sin los grupos de expo-router, con el nombre de PESTANAS y OCULTAS',
+    rutaDeSegmentos(['(app)', 'visita', '[id]']) === 'visita/[id]' &&
+      rutaDeSegmentos(['(app)', 'agenda', 'nueva']) === 'agenda/nueva' &&
+      rutaDeSegmentos(['(app)', 'reportar']) === 'reportar' &&
+      rutaDeSegmentos([]) === ''
+  )
+  const franja = cuerpoDeFuncion(leer('components/EstadoCola.tsx'), 'EstadoCola')
+  const firmaIr = /const irAOpMap = async \(\) => /.exec(franja)
+  const irAOpMap = firmaIr ? bloque(franja, firmaIr.index + firmaIr[0].length, '{', '}') : ''
+  const avisaSinSenal = irAOpMap.indexOf('setAvisoOpMap(MENSAJE_OPMAP_SIN_SENAL)')
+  const abreOtraPestana = irAOpMap.indexOf("w.open(destino.url, '_blank')")
+  const firmaPregunta =
+    /if \(\(haySinGuardar\(\) \|\| preguntaAntesDeIrAOpMap\(rutaDeSegmentos\(segmentos\)\)\) && !\(await confirmar\('¿Volver a OpMap\?', '([^']+)', 'Volver a OpMap'\)\)\) return\b/.exec(irAOpMap)
+  const pregunta = firmaPregunta ? firmaPregunta.index : -1
+  const saleEnEsta = irAOpMap.indexOf('w.location?.assign(destino.url)')
+  t.check(
+    'franja: "OpMap" pregunta (confirmar) si alguna pantalla tiene algo sin guardar (haySinGuardar) o la abierta lo pide (preguntaAntesDeIrAOpMap con useSegments), y sale en esta pestaña solo si dice que sí',
+    /const segmentos = useSegments\(\)/.test(franja) && pregunta >= 0 && saleEnEsta > pregunta,
+    irAOpMap || franja.slice(0, 300)
+  )
+  t.check(
+    'franja: la pregunta no habla de "esta pantalla" (lo sin guardar puede estar en Reportar, detrás de Hoy)',
+    firmaPregunta !== null && !/esta pantalla/i.test(firmaPregunta[1]),
+    firmaPregunta?.[1]
+  )
+  t.check(
+    'franja: sin señal solo avisa (no pregunta); instalada abre la otra pestaña ANTES de preguntar (después el navegador la bloquearía) y, si abrió, no pregunta',
+    avisaSinSenal >= 0 && abreOtraPestana > avisaSinSenal && pregunta > abreOtraPestana && /if \(abierta\) return\b/.test(irAOpMap.slice(abreOtraPestana, pregunta)),
+    irAOpMap
+  )
+  t.check('Ajustes ya no lleva "Ir a OpMap": la salida a OpMap va una sola vez, en la franja (dueño: sin duplicar)', !/Ir a OpMap/.test(leer('app/(app)/ajustes.tsx')))
+  const condicionOpMap = /\{destino\.modo !== 'oculto' \? \(/.exec(franja)
+  const botonOpMap = condicionOpMap ? bloque(franja, condicionOpMap.index + condicionOpMap[0].length - 1) : ''
+  const puntoDeEstado = franja.indexOf('width: 8, height: 8')
+  t.check(
+    'franja: "OpMap" va primero, a la izquierda del estado (como "Volver"), y al tocarlo corre irAOpMap (la que pregunta)',
+    botonOpMap !== '' && puntoDeEstado > 0 && franja.indexOf(botonOpMap) < puntoDeEstado && /onPress=\{irAOpMap\}/.test(botonOpMap),
+    botonOpMap
+  )
 
   // -------------------------------------------------------------------------
   // Vibración (lib/haptica.ts)

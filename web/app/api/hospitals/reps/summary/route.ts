@@ -4,7 +4,8 @@ import { requirePermission } from '@/lib/require-role'
 import { fetchAllRows, serverError } from '../../../_lib/api-error'
 import { evaluateHospitals, HOSPITAL_REPS_SELECT, latestRepsCut, type HospitalRepsRow } from '../../../_lib/reps'
 
-// Fase 3 · GET /api/hospitals/reps/summary (hospitals:view): página "Cruce REPS".
+// Fase 3 · GET /api/hospitals/reps/summary (reps:manage: admin y data_manager; dueño, 2026-10-31, el REPS es de
+// administración): página "Cruce REPS".
 // Conteos por estado del cruce, corte del REPS cargado, IPS ambiguas / sin cruce / sin evaluar (con el
 // motivo y la sede sugerida, evaluados en vivo) y vinculadas cuya sede está en otro municipio.
 
@@ -12,7 +13,7 @@ import { evaluateHospitals, HOSPITAL_REPS_SELECT, latestRepsCut, type HospitalRe
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
-  const auth = await requirePermission(request, 'hospitals:view')
+  const auth = await requirePermission(request, 'reps:manage')
   if (!auth.ok) return auth.response
 
   try {

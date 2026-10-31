@@ -117,7 +117,8 @@ el siguiente `--apply`, o se vinculan a mano.
 
 | Ruta | Permiso | Para qué |
 | --- | --- | --- |
-| `GET /api/hospitals/reps/summary`, `GET /api/hospitals/reps/sedes` | `hospitals:view` | Conteos del cruce y buscador de sedes |
+| `GET /api/hospitals/reps/summary` | `reps:manage` (admin y data_manager, desde el 2026-10-31) | Conteos del cruce (página "Cruce REPS") |
+| `GET /api/hospitals/reps/sedes` | `hospitals:view` | Buscador de sedes (sección "Sede REPS" de la ficha) |
 | `GET` y `PATCH /api/hospitals/[id]/reps-link` | `hospitals:view` / `hospitals:edit` | Ver candidatas; vincular o desvincular (con `hospital_history`) |
 | `POST /api/hospitals/import/preview`, `/apply` | `hospitals:edit` + rol admin o data_manager | Simulación y aplicación del importador |
 | `GET /api/hospitals/[id]/reps-services` | `hospitals:view` | Servicios y capacidad para la ficha |

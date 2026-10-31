@@ -39,6 +39,8 @@ export interface PantallaOculta {
   ruta: string
   /** Título del encabezado (la pantalla abre con "Volver"). */
   encabezado: string
+  /** Solo se lee (nada escrito que perder): "OpMap" sale de ella sin preguntar. Las demás son formularios. */
+  soloLectura?: true
 }
 
 /** Pantallas del grupo sin pestaña propia (`href: null`): se abren desde otra pantalla y vuelven con "Volver". */
@@ -50,7 +52,7 @@ export const OCULTAS: readonly PantallaOculta[] = [
   { ruta: 'sede/nueva', encabezado: 'Nueva sede' },
   { ruta: 'contacto/nuevo', encabezado: 'Nuevo contacto' },
   // App sin señal (2026-10-30): cómo agregarla a la pantalla de inicio (Android e iPhone).
-  { ruta: 'instalar', encabezado: 'Agregar a inicio' },
+  { ruta: 'instalar', encabezado: 'Agregar a inicio', soloLectura: true },
 ]
 
 /**
@@ -58,6 +60,23 @@ export const OCULTAS: readonly PantallaOculta[] = [
  * en la hoja blanca que sube sobre él ("Hola, Carmen", "¿Dónde estás?").
  */
 export const SIN_ENCABEZADO: readonly Pestana['ruta'][] = ['hoy', 'reportar']
+
+/**
+ * ¿Pregunta "OpMap" (la franja de arriba, components/EstadoCola.tsx) antes de salir en esta misma pestaña desde esta
+ * pantalla (la ruta de PESTANAS u OCULTAS)? Sí en Reportar y en las que abren con "Volver" (formularios): lo escrito vive
+ * en memoria hasta guardarlo y salir a OpMap lo pierde (revisión 2026-10-31; lo pendiente por subir no, vive en
+ * IndexedDB). Hoy, Agenda, Números, Ajustes y las de solo lectura salen sin preguntar.
+ */
+export function preguntaAntesDeIrAOpMap(ruta: string): boolean {
+  if (ruta === 'reportar') return true
+  const oculta = OCULTAS.find(o => o.ruta === ruta)
+  return oculta !== undefined && !oculta.soloLectura
+}
+
+/** La ruta de useSegments() de expo-router sin los grupos ("(app)"), con el nombre que llevan PESTANAS y OCULTAS. */
+export function rutaDeSegmentos(segmentos: readonly string[]): string {
+  return segmentos.filter(s => !s.startsWith('(')).join('/')
+}
 
 /** Letras de un nombre (cuenta "ú" como una sola). */
 export function letras(texto: string): number {

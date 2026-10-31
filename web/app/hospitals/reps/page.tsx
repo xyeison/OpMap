@@ -1,14 +1,15 @@
 'use client'
 
 // Fase 3 · "Cruce REPS": cuántas IPS están vinculadas a su sede del REPS (código de habilitación) y cuáles
-// quedan ambiguas o sin cruce, con enlace a la ficha para vincularlas a mano. Permiso hospitals:view.
-// Datos: GET /api/hospitals/reps/summary.
+// quedan ambiguas o sin cruce, con enlace a la ficha para vincularlas a mano. Permiso reps:manage (admin y
+// data_manager; dueño, 2026-10-31: el REPS es de administración). Datos: GET /api/hospitals/reps/summary.
 
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
+import { usePermissions } from '@/hooks/usePermissions'
 
 interface PendingRow {
   id: string
@@ -68,9 +69,12 @@ function StatCard({ label, value, hint, active, onClick }: { label: string; valu
 export default function RepsCrossPage() {
   const [filter, setFilter] = useState<Filter>('all')
   const [search, setSearch] = useState('')
+  const { can } = usePermissions()
 
   const { data, isLoading, error } = useQuery<Summary>({
     queryKey: ['hospitals-reps-summary'],
+    // Sin reps:manage la API responde 403: ni se pide
+    enabled: can('reps:manage'),
     queryFn: async () => {
       const response = await fetch('/api/hospitals/reps/summary')
       const body = await response.json().catch(() => null)
@@ -103,8 +107,12 @@ export default function RepsCrossPage() {
   return (
     <ProtectedRoute>
       <PermissionGuard
-        permission="hospitals:view"
-        fallback={<div className="container mx-auto p-6 text-gray-600">No tienes permiso para ver las IPS.</div>}
+        permission="reps:manage"
+        fallback={
+          <div className="container mx-auto p-6 text-gray-600">
+            El cruce con el REPS es de administración: lo ven el administrador y el gestor de datos.
+          </div>
+        }
       >
         <div className="container mx-auto p-4 sm:p-6">
           <div className="mb-8">

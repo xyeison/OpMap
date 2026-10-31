@@ -4,11 +4,19 @@
 > (`scripts/menu-check.ts`, `scripts/visits-check.ts`, `scripts/terceros-check.ts`). Las secciones "Roles
 > Definidos" y la matriz de abajo son históricas; el menú vigente es el de "Menú de la web".
 
-## Menú de la web (dueño, 2026-10-14; por grupos desde el 2026-10-29)
+## Menú de la web (dueño, 2026-10-14; por grupos desde el 2026-10-29; sueltas primero desde el 2026-10-31)
 
+- **Sueltas primero** (dueño, 2026-10-31, `docs/specs/2026-10-31-menu-volver-opmap-cruce-reps.md`: "pareciera que
+  debajo de empleado está calendario"): Agendamiento (la líder), Mapa, Calendario, Zonas (`/kams`) y Líneas, y después
+  los grupos Terceros, Empleados, Inteligencia de Mercado y Configuración. Cada rol tiene las mismas opciones; solo
+  cambió el orden. "Agendamiento" abre la app de campo en la misma pestaña; ahí, la franja de arriba lleva "OpMap", que
+  vuelve al inicio de módulos (`mobile/lib/opmap-enlace.ts`: en una pestaña, en la misma; instalada, en otra; sin señal
+  solo avisa; en el teléfono no va). Es la única salida (Ajustes ya no lleva "Ir a OpMap"). Desde Reportar y los
+  formularios pregunta antes de salir en la misma pestaña: lo escrito ahí aún no está guardado. Desde otra pantalla
+  también pregunta si Reportar quedó detrás con tarjetas sin confirmar o un dictado en curso.
 - **Por grupos** (dueño, 2026-10-29, `docs/specs/2026-10-29-menu-por-grupos.md`): Mapa; **Terceros** (título): IPS,
   Cuentas clave (`/terceros`), Médicos, Aseguradoras y Proveedores; **Empleados**: Ejecutivos Comerciales y Líderes de
-  negocio; Calendario, Zonas (`/kams`) y Líneas; **Inteligencia de Mercado**: ADRES, Compras públicas
+  negocio; Calendario, Zonas (`/kams`) y Líneas (desde el 2026-10-31, antes de los grupos); **Inteligencia de Mercado**: ADRES, Compras públicas
   (`/inteligencia?tab=secop`), Contratos y Cumplimiento; **Configuración**: Mi Empresa, Usuarios, Visita VMO
   (`/visits`) y Parámetros (`/configuracion`). Médicos, Aseguradoras y Líderes de negocio abren "Próximamente". Desde el
   2026-10-31 el inicio es `/inicio`, la cuadrícula de módulos del rol tipo iPhone (`bloquesDeInicio`: las sueltas
@@ -234,6 +242,19 @@ la leyenda del mapa, para no confundirla con la vacante por contratar (`executiv
 muestra como **"Reservada"** cuando lleva la línea y como **"Ocupada"** cuando la lleva una persona activa. La API
 rechaza con 409 dar una línea que la dirección no permitió para esa persona ("Líneas permitidas", tabla
 `executive_allowed_lines`, migración 0860; sin filas = sin restricción).
+
+### REPS: importar y cruce (`web/lib/permissions.ts`; spec `docs/specs/2026-10-31-menu-volver-opmap-cruce-reps.md`)
+
+Dueño, 2026-10-31: el REPS es de administración ("hay gestión que hace solamente la parte administrativa y le aparece a
+un líder. Por ejemplo, cruce de reps").
+
+| Permiso | Para qué | Roles |
+|---------|----------|-------|
+| `reps:manage` | Botones "Cruce REPS" e "Importar del REPS" en `/hospitals`; páginas `/hospitals/reps` y `/hospitals/import` (sin el permiso dicen que es de administración); `GET /api/hospitals/reps/summary` (403 sin él) | admin, data_manager |
+
+Qué no cambia: las rutas de importación (`/api/hospitals/import/*`) siguen con `requireRepsImportUser` (`hospitals:edit`
+y rol admin o data_manager), y la sección "Sede REPS" de la ficha de una IPS sigue con `hospitals:view` para ver
+(`GET /api/hospitals/reps/sedes`) y `hospitals:edit` para vincular a mano.
 
 ## Navegación por Rol
 

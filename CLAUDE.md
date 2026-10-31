@@ -54,7 +54,8 @@ nada llama a Google.
 
 - **Terminología en la UI**: persona → "Ejecutivo Comercial", territorio → "Zona", hospital → "IPS" (dueño, 2026-10-29;
   la ruta `/hospitals` y la tabla `hospitals` no cambian). El menú va por grupos (Terceros, Empleados, Inteligencia de
-  Mercado, Configuración: `docs/specs/2026-10-29-menu-por-grupos.md`). Las Regiones (tabla `zones`)
+  Mercado, Configuración: `docs/specs/2026-10-29-menu-por-grupos.md`), con las opciones sueltas (Agendamiento, Mapa,
+  Calendario, Zonas, Líneas) antes de los grupos (2026-10-31, `docs/specs/2026-10-31-menu-volver-opmap-cruce-reps.md`). Las Regiones (tabla `zones`)
   se quitaron de la interfaz el 2026-10-14; la tabla queda sin uso. Nunca "KAM" en texto visible. En código siguen
   `kams`, `kam_id`, rutas `/kams`.
 - **Modelo**: cada fila de `kams` es una ZONA (ciudad base = `area_id`), no una persona. Personas =
@@ -149,7 +150,11 @@ nada llama a Google.
   Desde el 2026-10-31 (dueño, `docs/decisiones/2026-10-31-inicio-de-modulos-tipo-iphone.md`) "/" y el logotipo abren
   `/inicio`, la cuadrícula de módulos del rol tipo iPhone (`bloquesDeInicio`; el Mapa es el primer cuadro, ya no la
   página de inicio), y la app de campo lleva en su franja de estado el botón "OpMap" que vuelve a `/inicio`
-  (`mobile/lib/opmap-enlace.ts`: misma pestaña; instalada, otra pestaña; sin señal, solo avisa).
+  (`mobile/lib/opmap-enlace.ts`: misma pestaña; instalada, otra pestaña; sin señal, solo avisa). Es la única salida a
+  OpMap de la app (Ajustes ya no lleva "Ir a OpMap"), y si va a salir en la misma pestaña desde Reportar o un formulario
+  pregunta antes, porque lo escrito ahí vive en memoria; también desde otra pantalla si Reportar quedó detrás con
+  tarjetas sin confirmar o un dictado en curso (`preguntaAntesDeIrAOpMap`, `mobile/lib/sin-guardar.ts`,
+  `docs/specs/2026-10-31-menu-volver-opmap-cruce-reps.md`).
 - **La app de campo trabaja sin señal y el servidor MARCA, no rechaza** (dueño, 2026-10-30,
   `docs/decisiones/2026-10-30-campo-sin-senal-marcas-en-vez-de-rechazos.md`, spec `docs/specs/2026-10-30-campo-sin-senal-pwa.md`):
   la visita siempre se guarda (otro día, lejos de la IPS, sin GPS, precisión baja, IPS sin coordenadas, hora del
@@ -185,7 +190,8 @@ nada llama a Google.
 - **Giro ADRES por NIT**: entre sedes activas del mismo NIT se reparte por camas (nunca se suma dos veces).
   Solo régimen subsidiado, publicado hasta junio-2025. El script se identifica con su User-Agent; no evadir
   el firewall de la ADRES.
-- Importar del REPS: solo `admin`/`data_manager`, PDF solo con texto (sin OCR); solo se guardan sedes con
+- Importar del REPS y "Cruce REPS": solo `admin`/`data_manager` (permiso `reps:manage` en las páginas y en
+  `GET /api/hospitals/reps/summary`, dueño 2026-10-31), PDF solo con texto (sin OCR); solo se guardan sedes con
   cruce. Permiso `intelligence:view` para `/inteligencia`.
 
 ## Dónde está el detalle (leer solo cuando toque)
