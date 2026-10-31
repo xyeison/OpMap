@@ -25,6 +25,8 @@ export type NombreIcono =
   | 'alerta'
   | 'compromiso'
   | 'agregar'
+  // 2026-10-31: el botón "OpMap" de la franja de estado (vuelve al inicio de módulos de OpMap).
+  | 'inicio'
 
 export interface GlifosIcono {
   /** Glifo de Ionicons para lo activo o elegido. */
@@ -52,6 +54,7 @@ export const GLIFOS_ICONOS: Readonly<Record<NombreIcono, GlifosIcono>> = {
   alerta: glifos('alert-circle'),
   compromiso: glifos('clipboard'),
   agregar: glifos('add'),
+  inicio: glifos('home'),
 }
 
 /** Glifo de Ionicons de un ícono: relleno si está activo, contorno si no. */

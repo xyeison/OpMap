@@ -189,7 +189,7 @@ export async function pruebas(t: Probador): Promise<void> {
   const nombres = Object.keys(GLIFOS_ICONOS) as NombreIcono[]
   const faltanTodos = nombres.flatMap(n => [GLIFOS_ICONOS[n].relleno, GLIFOS_ICONOS[n].contorno]).filter(g => !(g in glifos))
   // Estilo Uber (2026-10-15): 14 + compromiso y agregar (la revisión quitó ubicación y buscar, que no se usaban).
-  t.check('íconos: los 16 nombres tienen relleno y contorno en ese glyphmap', nombres.length === 16 && faltanTodos.length === 0, { nombres: nombres.length, faltanTodos })
+  t.check('íconos: los 17 nombres tienen relleno y contorno en ese glyphmap', nombres.length === 17 && faltanTodos.length === 0, { nombres: nombres.length, faltanTodos })
   t.check('íconos: cada pestaña tiene un ícono distinto', new Set(PESTANAS.map(p => GLIFOS_ICONOS[p.icono].relleno)).size === PESTANAS.length)
 
   // -------------------------------------------------------------------------

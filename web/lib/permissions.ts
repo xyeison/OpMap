@@ -316,8 +316,8 @@ export function getAllowedRoutes(role: Role | undefined): string[] {
   const routes: string[] = []
   const permissions = rolePermissions[role] || []
   
-  // Siempre permitir logout y perfil
-  routes.push('/logout', '/profile')
+  // Siempre permitir logout y perfil, y el inicio de módulos (dueño, 2026-10-31: la cuadrícula tipo iPhone del rol)
+  routes.push('/logout', '/profile', RUTA_INICIO)
   
   // Mapear permisos a rutas. Sin dashboard (dueño, 2026-10-14): "/" solo lleva a getHomeRoute; dashboard:view
   // sigue en los roles pero ya no abre nada. Sin /zones: las Regiones se quitaron de la web el 2026-10-14 (la tabla
@@ -440,13 +440,34 @@ export function opcionActiva(items: readonly NavigationItem[], pathname: string 
   return (conPestana ?? sinPestana ?? deLaRuta[0]).href
 }
 
+/** El inicio de módulos (app/inicio/page.tsx). */
+export const RUTA_INICIO = '/inicio'
+
 /**
- * Página de inicio del rol: "/" (y el logo de OpMap) llevan al Mapa si el rol lo tiene; si no, a Calendario (recursos
- * humanos); si no, a la primera opción de su menú. null si el rol no tiene ninguna opción.
+ * Página de inicio del rol: "/" (y el logo de OpMap) llevan a /inicio, la cuadrícula de módulos del rol tipo iPhone
+ * (dueño, 2026-10-31, docs/decisiones/2026-10-31-inicio-de-modulos-tipo-iphone.md; antes iba al Mapa). null si el rol
+ * no tiene ninguna opción.
  */
 export function getHomeRoute(role: Role | undefined): string | null {
-  const rutas = getNavigationMenu(role).map(item => item.href)
-  return rutas.find(ruta => ruta === '/map') ?? rutas.find(ruta => ruta === '/calendario') ?? rutas[0] ?? null
+  return getNavigationMenu(role).length > 0 ? RUTA_INICIO : null
+}
+
+/**
+ * Los bloques de la cuadrícula de /inicio: las mismas opciones del menú. Las sueltas (Agendamiento, Mapa, Calendario,
+ * Zonas, Líneas) van TODAS primero, en un bloque sin título y en su orden (revisor 2026-10-31: en el menú Calendario,
+ * Zonas y Líneas van después de Terceros y Empleados, y en la cuadrícula parecerían de Empleados); después cada grupo
+ * (Terceros, Empleados, Inteligencia de Mercado, Configuración) en el orden del menú, con su título.
+ */
+export function bloquesDeInicio(items: readonly NavigationItem[]): Array<{ grupo: string | null; items: NavigationItem[] }> {
+  const sueltas = items.filter(item => !item.grupo)
+  const grupos: Array<{ grupo: string; items: NavigationItem[] }> = []
+  for (const item of items) {
+    if (!item.grupo) continue
+    const bloque = grupos.find(b => b.grupo === item.grupo)
+    if (bloque) bloque.items.push(item)
+    else grupos.push({ grupo: item.grupo, items: [item] })
+  }
+  return [...(sueltas.length > 0 ? [{ grupo: null, items: sueltas }] : []), ...grupos]
 }
 
 // Función para obtener el título del rol en español
