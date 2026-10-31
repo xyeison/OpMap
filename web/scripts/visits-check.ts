@@ -76,6 +76,7 @@ import {
   type PlanCambio,
   type Vigencia,
 } from '../lib/visits-rules'
+import { festivosColombia as festivosDeLaApp } from '../../mobile/lib/festivos'
 import {
   anularSchema,
   calendarioDiaCreateSchema,
@@ -222,6 +223,15 @@ for (let anio = 2020; anio <= 2100; anio++) {
 check('2020 a 2100: siempre 18, todos del año y los trasladados en lunes', todosBien)
 const f2038 = festivosColombia(2038).filter(f => f.fecha === '2038-07-05').map(f => f.nombre)
 eq('2038: Sagrado Corazón y San Pedro caen el mismo lunes (la lista trae los dos, como la SQL)', f2038, ['Sagrado Corazón de Jesús', 'San Pedro y San Pablo'])
+// La app de campo calcula los mismos festivos sin señal, para avisar si la próxima reunión cae en uno (dueño, 2026-10-31;
+// revisor: que esa copia no se separe de esta). mobile/lib/festivos.ts es puro: solo importa mobile/lib/fechas.ts.
+let primeraDiferenciaApp: { anio: number; web: string[]; app: string[] } | null = null
+for (let anio = 1900; anio <= 2200 && !primeraDiferenciaApp; anio++) {
+  const web = festivosColombia(anio).map(f => `${f.fecha} ${f.nombre}`)
+  const app = festivosDeLaApp(anio).map(f => `${f.fecha} ${f.nombre}`)
+  if (web.join('|') !== app.join('|')) primeraDiferenciaApp = { anio, web, app }
+}
+check('la app de campo (mobile/lib/festivos.ts) calcula los mismos festivos que la web, de 1900 a 2200', primeraDiferenciaApp === null, primeraDiferenciaApp)
 
 /** Filas nacionales de calendario, como las carga calendario_cargar_festivos. */
 const nacionales = (...anios: number[]): DiaCalendarioEntrada[] =>

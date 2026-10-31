@@ -193,6 +193,16 @@ export async function pruebas(t: Probador): Promise<void> {
   check('filasResumen: resultado, líneas y compromisos en palabras', valor('resultado') === 'Efectiva' && valor('lineas') === 'Osteosíntesis, Columna' && valor('compromisos') === 'Enviar la ficha técnica', filas)
   check('filasResumen: la conclusión va en 3 líneas como mucho', filas.find(f => f.campo === 'conclusion')?.lineas === 3)
   check('filasResumen: próxima reunión en palabras ("jueves 22 de octubre")', valor('proxima') === 'jueves 22 de octubre', valor('proxima'))
+  // Dueño, 2026-10-31: "si el lunes es festivo, él debería advertir eso" (spec 2026-10-31-aviso-festivo-proxima-reunion).
+  const filaProxima = (fecha: string) => filasResumen({ ...buena, next_step_date: fecha }, catalogo, { punto: TEL, ahora }).find(f => f.campo === 'proxima')
+  check(
+    'filasResumen: la próxima reunión en festivo o domingo lleva el aviso; un jueves, ninguno',
+    filaProxima('2026-11-02')?.valor === 'lunes 2 de noviembre' &&
+      filaProxima('2026-11-02')?.aviso === 'Es festivo (Todos los Santos): revisa la fecha.' &&
+      filaProxima('2026-11-01')?.aviso === 'Es domingo: revisa la fecha.' &&
+      filas.find(f => f.campo === 'proxima')?.aviso === undefined,
+    filaProxima('2026-11-02')
+  )
   const vacia = filasResumen({ ...buena, compromisos: '', next_step_date: '', conclusion: '', lineas: [] }, catalogo, { punto: TEL, ahora })
   check(
     'filasResumen: una fila vacía no aparece, salvo la conclusión',
@@ -512,6 +522,21 @@ export async function pruebas(t: Probador): Promise<void> {
     /<CalendarioMes valor=\{[^}]*\} alCambiar=\{fecha => alCambiar\(\{ next_step_date: fecha \}\)\} hoy=\{hoy\} desde=\{hoy\}/.test(camposTs) &&
       !/AAAA-MM-DD\)/.test(camposTs) &&
       ["'Mañana'", "'En 1 semana'", "'En 15 días'", "'En 1 mes'", '"Sin fecha"'].every(atajo => camposTs.includes(atajo))
+  )
+  // Spec 2026-10-31: el aviso de festivo o domingo, una vez por vista: bajo la fecha en el campo y en la fila cerrada.
+  check(
+    'CamposVisita: bajo la fecha elegida va el aviso de festivo o domingo (avisoDiaNoLaborable) en color de alerta; con error, solo el error',
+    /const avisoProxima = avisoDiaNoLaborable\(proxima\)/.test(camposTs) &&
+      /\{avisoProxima \? \(\s*<Texto peque color=\{c\.alerta\}>\s*\{avisoProxima\}/.test(camposTs) &&
+      // Revisor 2026-10-31: el aviso va DENTRO de la rama de la fecha (con error, solo el error), no solo después en el texto.
+      entre(camposTs, "{error('next_step_date') ? (", ') : esFechaIso(proxima) ? (').includes("{error('next_step_date')}") &&
+      !entre(camposTs, "{error('next_step_date') ? (", ') : esFechaIso(proxima) ? (').includes('avisoProxima') &&
+      entre(camposTs, ') : esFechaIso(proxima) ? (', '</>').includes('{avisoProxima ? (')
+  )
+  check(
+    'TarjetaBorrador: la fila cerrada del resumen pinta su aviso en color de alerta (abierta lo dice el campo) y lo incluye en la etiqueta accesible',
+    /\{fila\.aviso && !abierta \? \(\s*<Texto peque color=\{c\.alerta\}>\s*\{fila\.aviso\}/.test(tarjetaTs) &&
+      /accessibilityLabel=\{`\$\{fila\.etiqueta\}: \$\{fila\.valor\}\.\$\{fila\.aviso \? ` \$\{fila\.aviso\}` : ''\} /.test(tarjetaTs)
   )
   check(
     'puedeAgendarProxima: de hoy en adelante, sin tope (0850, A4; antes hasta hoy + 30)',

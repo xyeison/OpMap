@@ -7,7 +7,7 @@
  *
  * Spec 2026-10-15 (paquete 2): la próxima reunión se elige con los atajos o en el calendario (CalendarioMes, "Otra
  * fecha"), no escribiendo AAAA-MM-DD. Con `solo` se pintan únicamente esos campos (la tarjeta en resumen corrige uno a
- * la vez).
+ * la vez). Si la fecha cae en festivo o domingo, debajo va el aviso (lib/festivos.ts, spec 2026-10-31).
  *
  * App sin señal (2026-10-30): el motivo de la no efectiva se elige de la lista cerrada (`motivos`, 0940; "Otro" admite
  * texto); sin lista (servidor anterior), texto libre como antes. La foto opcional va con `foto` y `alCambiarFoto`
@@ -17,6 +17,7 @@ import { useRef, useState } from 'react'
 import { View } from 'react-native'
 import { CalendarioMes } from '../agenda/CalendarioMes'
 import { esFechaIso, fechaLarga, hoyBogota, sumarDias } from '../../lib/fechas'
+import { avisoDiaNoLaborable } from '../../lib/festivos'
 import { MAX_COMPROMISOS, MAX_CONCLUSION, MAX_FAILURE_REASON, MOTIVO_OTRO, textoResultadoDictado, unirCamposDictados, type FotoBorrador } from '../../lib/propuesta'
 import type { CamposDictadoResponse, LineaEjecutiva, MotivoNoEfectiva, TipoVisita } from '../../lib/tipos'
 import { Campo, Chip, Grupo, Texto, useColores } from '../../lib/ui'
@@ -76,6 +77,8 @@ export function CamposVisita({ valores, lineas, alCambiar, errorDe, dictado, sol
   ]
   const proxima = valores.next_step_date.trim()
   const esAtajo = atajos.some(atajo => atajo.fecha === proxima)
+  // Dueño, 2026-10-31: si cae en festivo o domingo, se avisa (no se bloquea), venga del dictado, de un atajo o del calendario.
+  const avisoProxima = avisoDiaNoLaborable(proxima)
   // El calendario se abre con "Otra fecha" (o si la fecha puesta no es de un atajo, p. ej. la dictada).
   const [verCalendario, setVerCalendario] = useState(() => !!proxima && !esAtajo)
   const error = (campo: string) => (errorDe ? errorDe(campo) : null)
@@ -202,9 +205,16 @@ export function CamposVisita({ valores, lineas, alCambiar, errorDe, dictado, sol
               {error('next_step_date')}
             </Texto>
           ) : esFechaIso(proxima) ? (
-            <Texto peque suave>
-              {`Próxima reunión: ${textoFecha(proxima)}`}
-            </Texto>
+            <>
+              <Texto peque suave>
+                {`Próxima reunión: ${textoFecha(proxima)}`}
+              </Texto>
+              {avisoProxima ? (
+                <Texto peque color={c.alerta}>
+                  {avisoProxima}
+                </Texto>
+              ) : null}
+            </>
           ) : null}
         </View>
       ) : null}

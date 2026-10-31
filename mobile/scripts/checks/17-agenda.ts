@@ -4,7 +4,8 @@
  * cuerpoCitaConHora), textos de Agendar, pedido para Agendar y las pantallas de la agenda.
  * F1b (actividades de campo): el choque es un error con el texto del servidor (errorChoque, ya no avisoChoque), sin
  * tope hacia adelante (ventanaInicialAgendar, rangoPorCargar) y "otra fecha" (pedidoOtraFecha, cuerpoOtraFecha). Lo
- * demás de F1b (persona, ciclo de vida, textos) está en 21-persona.ts.
+ * demás de F1b (persona, ciclo de vida, textos) está en 21-persona.ts. 17j: los festivos de Colombia y el aviso de la
+ * próxima reunión en festivo o domingo (lib/festivos.ts, spec 2026-10-31).
  *
  * Corren en Node, sin React Native ni red (las que revisan una pantalla leen su archivo y miran cada cosa dentro de su
  * bloque: el <Selector …/> del médico, la llamada, la función). Este solo, desde mobile/:
@@ -73,6 +74,7 @@ import {
 } from '../../lib/calendario'
 import { tieneClaves } from '../../lib/claves-api'
 import { diasEntre, sumarDias, sumarMeses } from '../../lib/fechas'
+import { avisoDiaNoLaborable, festivoDe, festivosColombia, pascua } from '../../lib/festivos'
 import { MENSAJE_CITA_PASADA, MENSAJE_HORA_CITA, formularioCitaVacio, type FormularioCita } from '../../lib/propuesta'
 import { VIGENCIA_VUELTA_AGENDAR_MS, guardarAgendarAntesDeCrear, medicoParaAgendar, tomarVueltaAgendar } from '../../lib/retorno'
 import type { CitaItem, DiaLibreItem } from '../../lib/tipos'
@@ -688,6 +690,54 @@ export async function pruebas(t: Probador): Promise<void> {
     check(
       'Mi agenda: "Cancelaste…" sale junto al día (después del título del día), "Hoy" en el calendario y el aviso del día libre con citas',
       agenda.indexOf('{mensaje ? <Aviso') > agenda.indexOf('{tituloDiaAgenda(dia, hoy)}') && /\n\s+conHoy\n/.test(agenda) && /pendientesEnLibre > 0 \?/.test(agenda)
+    )
+  }
+
+  // -------------------------------------------------------------------------
+  t.seccion('17j. Festivos de Colombia y el aviso de la próxima reunión (lib/festivos.ts, spec 2026-10-31)')
+  {
+    // Las filas nacionales de la tabla calendario de producción (consulta del 2026-10-31, por fecha y nombre): la app
+    // calcula los mismos 18 por año, con los mismos nombres.
+    const PRODUCCION: Record<number, string> = {
+      2026: '2026-01-01 Año Nuevo | 2026-01-12 Día de los Reyes Magos | 2026-03-23 Día de San José | 2026-04-02 Jueves Santo | 2026-04-03 Viernes Santo | 2026-05-01 Día del Trabajo | 2026-05-18 Ascensión del Señor | 2026-06-08 Corpus Christi | 2026-06-15 Sagrado Corazón de Jesús | 2026-06-29 San Pedro y San Pablo | 2026-07-20 Día de la Independencia | 2026-08-07 Batalla de Boyacá | 2026-08-17 Asunción de la Virgen | 2026-10-12 Día de la Raza | 2026-11-02 Todos los Santos | 2026-11-16 Independencia de Cartagena | 2026-12-08 Inmaculada Concepción | 2026-12-25 Navidad',
+      2027: '2027-01-01 Año Nuevo | 2027-01-11 Día de los Reyes Magos | 2027-03-22 Día de San José | 2027-03-25 Jueves Santo | 2027-03-26 Viernes Santo | 2027-05-01 Día del Trabajo | 2027-05-10 Ascensión del Señor | 2027-05-31 Corpus Christi | 2027-06-07 Sagrado Corazón de Jesús | 2027-07-05 San Pedro y San Pablo | 2027-07-20 Día de la Independencia | 2027-08-07 Batalla de Boyacá | 2027-08-16 Asunción de la Virgen | 2027-10-18 Día de la Raza | 2027-11-01 Todos los Santos | 2027-11-15 Independencia de Cartagena | 2027-12-08 Inmaculada Concepción | 2027-12-25 Navidad',
+    }
+    for (const anio of [2026, 2027]) {
+      const calculados = festivosColombia(anio).map(f => `${f.fecha} ${f.nombre}`).join(' | ')
+      check(`festivosColombia(${anio}): los 18 de la tabla calendario de producción`, calculados === PRODUCCION[anio], calculados)
+    }
+    check(
+      'pascua: domingos de Pascua conocidos (2024-03-31, 2025-04-20, 2026-04-05, 2038-04-25)',
+      pascua(2024) === '2024-03-31' && pascua(2025) === '2025-04-20' && pascua(2026) === '2026-04-05' && pascua(2038) === '2038-04-25'
+    )
+    check(
+      'festivoDe: el nombre si es festivo (Independencia de Cartagena pasa al lunes 16); si no, null',
+      festivoDe('2026-11-16') === 'Independencia de Cartagena' && festivoDe('2026-11-11') === null && festivoDe('') === null && festivoDe('2026-02-30') === null
+    )
+    check('festivoDe: 2038 trae dos festivos el mismo lunes (5 de julio): es festivo', festivoDe('2038-07-05') !== null)
+    // Dueño, 2026-10-31: "si el lunes es festivo, él debería advertir eso". El 2 de noviembre de 2026 es el "próximo lunes"
+    // de ese sábado.
+    check('avisoDiaNoLaborable: el lunes 2 de noviembre de 2026 es festivo', avisoDiaNoLaborable('2026-11-02') === 'Es festivo (Todos los Santos): revisa la fecha.', avisoDiaNoLaborable('2026-11-02'))
+    check('avisoDiaNoLaborable: domingo', avisoDiaNoLaborable('2026-11-01') === 'Es domingo: revisa la fecha.', avisoDiaNoLaborable('2026-11-01'))
+    check('avisoDiaNoLaborable: un festivo en domingo dice el festivo (1 de mayo de 2022)', avisoDiaNoLaborable('2022-05-01') === 'Es festivo (Día del Trabajo): revisa la fecha.')
+    check(
+      'avisoDiaNoLaborable: martes, sábado (no avisa: hay reuniones el sábado), vacía o no válida → null',
+      avisoDiaNoLaborable('2026-11-03') === null && avisoDiaNoLaborable('2026-11-07') === null && avisoDiaNoLaborable('') === null && avisoDiaNoLaborable('2026-13-01') === null
+    )
+    // Revisor 2026-10-31: que "el sábado no avisa" nunca tape un festivo que cae en sábado.
+    check('avisoDiaNoLaborable: un festivo en sábado avisa como festivo (1 de mayo de 2027)', avisoDiaNoLaborable('2027-05-01') === 'Es festivo (Día del Trabajo): revisa la fecha.', avisoDiaNoLaborable('2027-05-01'))
+    // Revisor 2026-10-31: se llama al pintar la tarjeta; con una fecha que esFechaIso acepta (año de 3 cifras) no puede romper.
+    const noFalla = (f: () => unknown) => {
+      try {
+        f()
+        return true
+      } catch {
+        return false
+      }
+    }
+    check(
+      'festivoDe y avisoDiaNoLaborable no fallan con un año de menos de 4 cifras (0999-11-02)',
+      noFalla(() => festivoDe('0999-11-02')) && noFalla(() => avisoDiaNoLaborable('0999-11-02')) && noFalla(() => festivosColombia(999))
     )
   }
 }

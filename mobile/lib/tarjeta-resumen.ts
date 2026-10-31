@@ -6,8 +6,8 @@
  *   presencial dentro del radio o telefónica válida) abre en resumen; lo dudoso abre completa con `atencion` (qué
  *   campo y por qué) arriba. La de toques abre siempre completa.
  * - filasResumen: lo que muestra el resumen, en orden: con quién, sede y si está dentro del radio, resultado, líneas,
- *   conclusión (en 3 líneas), compromisos y próxima reunión en palabras. Cada fila se toca para corregir solo ese
- *   campo. Una fila vacía no aparece, salvo la conclusión.
+ *   conclusión (en 3 líneas), compromisos y próxima reunión en palabras (con su aviso si cae en festivo o domingo,
+ *   spec 2026-10-31). Cada fila se toca para corregir solo ese campo. Una fila vacía no aparece, salvo la conclusión.
  * - textoPieConfirmar: el botón del pie fijo ("Confirmar visita 1 de 2"). Cada tarjeta se sigue confirmando con su
  *   propio toque y con las mismas validaciones (validarBorrador).
  * - resumenParaPie y avisoDelPie (revisión 2026-10-15): encima del botón, qué se confirma ("Efectiva · PerOssal y
@@ -15,6 +15,7 @@
  *   válida (efectiva, con las líneas del médico): sin esto se confirmaba de un toque sin ver resultado ni conclusión.
  */
 import { esFechaIso, fechaLarga } from './fechas'
+import { avisoDiaNoLaborable } from './festivos'
 import { textoDistancia, type Punto } from './geo'
 import type { PedidoAgendar } from './agenda'
 import { cuentasDelCatalogo, distanciaASede, nombreSede, validarBorrador, type Borrador, type Catalogo, type EntradaValidacion, type Rechazo } from './propuesta'
@@ -87,6 +88,8 @@ export interface FilaResumen {
   valor: string
   /** Líneas que se muestran como mucho (la conclusión, 3). */
   lineas?: number
+  /** Lo que se avisa debajo del valor: la próxima reunión en festivo o domingo (spec 2026-10-31). */
+  aviso?: string
 }
 
 /** Con quién: el médico (o el nombre que se dijo), o la cuenta, el subtipo y el contacto. */
@@ -131,7 +134,10 @@ export function filasResumen(borrador: Borrador, catalogo: Catalogo, opciones: {
   const compromisos = borrador.compromisos.trim()
   if (compromisos) filas.push({ campo: 'compromisos', etiqueta: 'Compromisos', valor: compromisos, lineas: 3 })
   const proxima = borrador.next_step_date.trim()
-  if (proxima && esFechaIso(proxima)) filas.push({ campo: 'proxima', etiqueta: 'Próxima reunión', valor: fechaLarga(proxima, opciones.ahora) })
+  if (proxima && esFechaIso(proxima)) {
+    const aviso = avisoDiaNoLaborable(proxima)
+    filas.push({ campo: 'proxima', etiqueta: 'Próxima reunión', valor: fechaLarga(proxima, opciones.ahora), ...(aviso ? { aviso } : {}) })
+  }
   return filas
 }
 

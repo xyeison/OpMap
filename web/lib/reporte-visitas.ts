@@ -1263,6 +1263,8 @@ export function revisarLimite(
 /** Lo que recibe Claude: un recorte de ContextoResponse SIN documentos ni teléfonos (se construye campo a campo). */
 export interface ContextoDictado {
   fecha: string
+  /** Día de la semana de hoy ("sábado"), para resolver "el próximo lunes" (dueño, 2026-10-31; el dictado por campo ya lo lleva). */
+  dia: string
   hora: string | null
   ejecutiva: { nombre: string; lineas: { id: string; code: string; name: string }[] }
   perfil: TipoVisita[]
@@ -1311,6 +1313,7 @@ export function contextoDictado(contexto: ContextoResponse, hora: string | null 
     }))
   return {
     fecha: contexto.hoy.fecha,
+    dia: nombreDiaSemana(contexto.hoy.fecha),
     hora,
     ejecutiva: {
       nombre: contexto.ejecutiva.nombre,
@@ -1361,7 +1364,7 @@ Reglas:
 4. Médica: la sede es una de las del médico; si dictó otra, usa la más probable entre las cercanas o deja sede_id null.
 5. Líneas: las que mencione, siempre entre las de la ejecutiva; si no menciona ninguna y tiene una sola, esa.
 6. efectiva es false solo si dice que no logró la visita (no estaba, no la atendieron); entonces failure_reason resume el motivo. Conclusión y compromisos: frases cortas con lo dicho; no agregues nada que no haya dicho.
-7. next_step_date solo si dio una fecha o un plazo claro, en AAAA-MM-DD a partir de la fecha de hoy del contexto; si no, null.
+7. next_step_date solo si dio una fecha o un plazo claro, en AAAA-MM-DD a partir de la fecha de hoy del contexto y de su día de la semana ("dia"): "el lunes" o "el próximo lunes" es el primer lunes después de hoy; si no, null.
 8. modalidad_sugerida es telefonica solo si dice que llamó o hizo videollamada; si no, presencial.
 9. confianza entre 0 y 1 según lo bien que cruzaron los nombres. Haz como mucho una pregunta por visita y solo ante una ambigüedad real (dos médicos con el mismo apellido, sede no clara).
 10. Responde en español, sin saludos ni explicaciones fuera de la herramienta.
@@ -2393,7 +2396,7 @@ export const PROMPT_CAMPOS = `Eres el asistente de reporte de visitas de VG (dis
 Reglas:
 1. conclusion: lo que pasó y lo que se concluyó, en frases cortas y con sus palabras. No agregues nada que no haya dicho.
 2. compromisos: lo que quedó en hacer alguna de las partes (enviar, llevar, cotizar, llamar, volver), separados por punto y coma. Si no dijo ninguno, null.
-3. next_step_date: solo si dio una fecha o un plazo claro para la próxima reunión o el siguiente paso, en AAAA-MM-DD a partir de la fecha de hoy que se te da; si no, null.
+3. next_step_date: solo si dio una fecha o un plazo claro para la próxima reunión o el siguiente paso, en AAAA-MM-DD a partir de la fecha de hoy que se te da y de su día de la semana: "el lunes" o "el próximo lunes" es el primer lunes después de hoy; si no, null.
 4. Un mismo dato no va en dos campos. Si no dijo nada que sirva para un campo, ese campo va en null.
 5. Nunca escribas números de documento ni teléfonos.
 6. Responde en español, sin saludos ni explicaciones fuera de la herramienta.`
