@@ -50,7 +50,7 @@ el Supabase falso de `scripts/lineas-permitidas-api-check.ts`; app Expo en `mobi
 
 ---
 
-### Tarea 1: reglas puras de empresas y papeles
+### Task 1: reglas puras de empresas y papeles
 
 **Archivos:**
 - Crear: `web/lib/empresas-reglas.ts`
@@ -118,7 +118,7 @@ el Supabase falso de `scripts/lineas-permitidas-api-check.ts`; app Expo en `mobi
 
 ---
 
-### Tarea 2: migración 0960 y su rollback
+### Task 2: migración 0960 y su rollback
 
 **Archivos:**
 - Crear: `database/migrations/2026-10-31_0960_empresas_papeles_asignaciones.sql`
@@ -176,7 +176,7 @@ el Supabase falso de `scripts/lineas-permitidas-api-check.ts`; app Expo en `mobi
 
 ---
 
-### Tarea 3: sesión con empresa activa y papeles
+### Task 3: sesión con empresa activa y papeles
 
 **Archivos:**
 - Modificar: `web/lib/session.ts` (`signSession`, `verifySession`, `parseSessionPayload`)
@@ -239,7 +239,7 @@ el Supabase falso de `scripts/lineas-permitidas-api-check.ts`; app Expo en `mobi
 
 ---
 
-### Tarea 4: permisos como suma de papeles (servidor y cliente)
+### Task 4: permisos como suma de papeles (servidor y cliente)
 
 **Archivos:**
 - Modificar: `web/lib/permissions.ts` (añadir `menuDePapeles`, `rutasDePapeles`)
@@ -275,7 +275,7 @@ el Supabase falso de `scripts/lineas-permitidas-api-check.ts`; app Expo en `mobi
 
 ---
 
-### Tarea 5: rutas de sesión: `me`, login, cambiar de empresa, listar empresas
+### Task 5: rutas de sesión: `me`, login, cambiar de empresa, listar empresas
 
 **Archivos:**
 - Modificar: `web/app/api/auth/me/route.ts`, `web/app/api/auth/login/route.ts`, `web/app/api/auth/sesion-app/route.ts`
@@ -314,7 +314,7 @@ el Supabase falso de `scripts/lineas-permitidas-api-check.ts`; app Expo en `mobi
 
 ---
 
-### Tarea 6: la empresa activa en el menú de OpMap
+### Task 6: la empresa activa en el menú de OpMap
 
 **Archivos:**
 - Modificar: `web/components/NavigationWithPermissions.tsx` (bloque del usuario: líneas 210-218 hoy)
@@ -338,7 +338,7 @@ el Supabase falso de `scripts/lineas-permitidas-api-check.ts`; app Expo en `mobi
 
 ---
 
-### Tarea 7: papeles por empresa en la API de usuarios
+### Task 7: papeles por empresa en la API de usuarios
 
 **Archivos:**
 - Modificar: `web/lib/empresas.ts` (`reemplazarPapeles`, `afectadosDeQuitarEjecutivo`, `escribirCacheDeUsuario`, `escribirCacheDeLinea`)
@@ -397,7 +397,7 @@ el Supabase falso de `scripts/lineas-permitidas-api-check.ts`; app Expo en `mobi
 
 ---
 
-### Tarea 8: `/users` edita papeles por empresa
+### Task 8: `/users` edita papeles por empresa
 
 **Archivos:**
 - Modificar: `web/app/users/page.tsx`
@@ -422,7 +422,7 @@ el Supabase falso de `scripts/lineas-permitidas-api-check.ts`; app Expo en `mobi
 
 ---
 
-### Tarea 9: líneas por empresa
+### Task 9: líneas por empresa
 
 **Archivos:**
 - Modificar: `web/app/api/business-lines/_lib/line-shared.ts` (`loadBusinessLines` trae `empresas`),
@@ -448,7 +448,7 @@ el Supabase falso de `scripts/lineas-permitidas-api-check.ts`; app Expo en `mobi
 
 ---
 
-### Tarea 10: la app de campo muestra y cambia la empresa activa
+### Task 10: la app de campo muestra y cambia la empresa activa
 
 **Archivos:**
 - Modificar: `mobile/lib/tipos.ts` (`EmpresaMovil`; `UsuarioMovil` y `MeResponse.user` ganan `empresa`, `empresas`, `papeles`)
@@ -487,7 +487,7 @@ el Supabase falso de `scripts/lineas-permitidas-api-check.ts`; app Expo en `mobi
 
 ---
 
-### Tarea 11: documentación y cierre de la capa
+### Task 11: documentación y cierre de la capa
 
 **Archivos:**
 - Modificar: `CLAUDE.md` (una viñeta nueva en "Reglas que no se deducen del código": empresas, papeles por empresa,
