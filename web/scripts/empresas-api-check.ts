@@ -15,8 +15,9 @@
  *   C. Rutas de sesión: GET /api/auth/me trae la empresa activa, las empresas y los papeles (sin papeles: 'user' y
  *      ninguna empresa); POST /api/auth/empresa cambia la empresa activa (escribe la columna y refirma la cookie, o
  *      devuelve el token nuevo a la app, sin alargar la sesión; 403 sin papel allí, 400 con un cuerpo inválido, 401
- *      sin sesión); sesion-app pasa a la app un token con la empresa activa; GET /api/empresas lista las activas por
- *      código (sin la 0960, ninguna).
+ *      sin sesión); sesion-app pasa a la app un token con la empresa activa (nunca a quien es administrador o
+ *      dirección en alguna empresa); el login firma el token con emp; GET /api/empresas lista las activas por código
+ *      (sin la 0960, ninguna).
  *
  * El patrón del Supabase falso viene de scripts/lineas-permitidas-api-check.ts.
  * Uso (desde web/): npx tsx scripts/empresas-api-check.ts   Código de salida 1 si algo falla.
@@ -34,6 +35,7 @@ import { GET as meGet } from '../app/api/auth/me/route'
 import { POST as empresaPost } from '../app/api/auth/empresa/route'
 import { GET as empresasGet } from '../app/api/empresas/route'
 import { POST as sesionAppPost } from '../app/api/auth/sesion-app/route'
+import { POST as loginPost } from '../app/api/auth/login/route'
 
 for (const key of [
   'GOOGLE_MAPS_API_KEY',
@@ -267,6 +269,8 @@ const FOCO1 = '00000000-0000-4000-8000-000000000003' // sales_manager en VG, lin
 const SIN_PAPELES = '00000000-0000-4000-8000-000000000004' // activa, sin ningún papel
 const MIXTO = '00000000-0000-4000-8000-000000000005' // sales_manager + hr en VG: daysoff:approve solo lo da hr, y el más alto es sales_manager
 const GERENTE_VIEWER = '00000000-0000-4000-8000-000000000006' // sales_manager + viewer en VG: map:all-lines solo lo da viewer
+const ADMIN_LIDER = '00000000-0000-4000-8000-000000000007' // admin + line_leader, los dos en VG
+const LIDER_DIRECTORA_MEDIX = '00000000-0000-4000-8000-000000000008' // line_leader en VG (activa) y commercial_director en Medix
 
 const L_TRAUMA = '10000000-0000-4000-8000-000000000005'
 const KAM_BAQ = '20000000-0000-4000-8000-000000000001'
@@ -281,6 +285,10 @@ const P_MIXTO_GERENTE = '40000000-0000-4000-8000-000000000007'
 const P_MIXTO_RRHH = '40000000-0000-4000-8000-000000000008'
 const P_GV_GERENTE = '40000000-0000-4000-8000-000000000009'
 const P_GV_VIEWER = '40000000-0000-4000-8000-00000000000a'
+const P_AL_ADMIN = '40000000-0000-4000-8000-00000000000b'
+const P_AL_LIDER = '40000000-0000-4000-8000-00000000000c'
+const P_LD_LIDER = '40000000-0000-4000-8000-00000000000d'
+const P_LD_DIRECTORA = '40000000-0000-4000-8000-00000000000e'
 
 function usuario(id: string, role: string, nombre: string, empresa_activa_id: string | null = null): Fila {
   return { id, email: `${id.slice(-4)}@prueba.test`, full_name: nombre, role, active: true, password: `hash-${id}`, empresa_activa_id }
@@ -303,6 +311,8 @@ function datosIniciales(): Tablas {
       usuario(SIN_PAPELES, 'viewer', 'Sin papeles'),
       usuario(MIXTO, 'sales_manager', 'Mixto'),
       usuario(GERENTE_VIEWER, 'sales_manager', 'Gerente y visor'),
+      usuario(ADMIN_LIDER, 'admin', 'Admin y líder'),
+      usuario(LIDER_DIRECTORA_MEDIX, 'line_leader', 'Líder en VG, directora en Medix', EMPRESA_VG_ID),
     ],
     empresas: [empresa(EMPRESA_VG_ID, 'vg', 'VG Medical S.A.S.', 'VG Medical'), empresa(EMPRESA_MEDIX_ID, 'medix', 'Medix', 'Medix')],
     papeles: [
@@ -316,6 +326,10 @@ function datosIniciales(): Tablas {
       papel(P_MIXTO_RRHH, MIXTO, EMPRESA_VG_ID, 'hr'),
       papel(P_GV_GERENTE, GERENTE_VIEWER, EMPRESA_VG_ID, 'sales_manager'),
       papel(P_GV_VIEWER, GERENTE_VIEWER, EMPRESA_VG_ID, 'viewer'),
+      papel(P_AL_ADMIN, ADMIN_LIDER, EMPRESA_VG_ID, 'admin'),
+      papel(P_AL_LIDER, ADMIN_LIDER, EMPRESA_VG_ID, 'line_leader', L_TRAUMA),
+      papel(P_LD_LIDER, LIDER_DIRECTORA_MEDIX, EMPRESA_VG_ID, 'line_leader', L_TRAUMA),
+      papel(P_LD_DIRECTORA, LIDER_DIRECTORA_MEDIX, EMPRESA_MEDIX_ID, 'commercial_director'),
     ],
     papel_zonas: [{ papel_id: P_PAOLA_LIDER, kam_id: KAM_BAQ }],
     // Lo que leen las rutas de la prueba "después de la puerta" (días libres y /api/me/lines)
@@ -681,6 +695,42 @@ async function main() {
     eq('con la cookie que ya trae emp = VG → el MISMO token', ((await cuerpoDe(await pedir(conEmp))) as { token?: string }).token, conEmp)
     const gerente = await pedir(signSession(FOCO1, passwordVersion(`hash-${FOCO1}`)))
     eq('un gerente a secas (sin papel de líder) → 403', gerente.status, 403)
+
+    // La cookie del administrador o de la dirección nunca se vuelve un token legible, aunque también sea líder
+    const adminLider = await pedir(signSession(ADMIN_LIDER, passwordVersion(`hash-${ADMIN_LIDER}`)))
+    const cuerpoAdmin = (await cuerpoDe(adminLider)) as { token?: string; error?: string }
+    eq('admin + líder en la misma empresa → 403 { error: Acceso denegado }', [adminLider.status, cuerpoAdmin], [403, { error: 'Acceso denegado' }])
+    check('y sin token', cuerpoAdmin.token === undefined, cuerpoAdmin)
+    const liderDirectora = await pedir(signSession(LIDER_DIRECTORA_MEDIX, passwordVersion(`hash-${LIDER_DIRECTORA_MEDIX}`)))
+    const cuerpoLD = (await cuerpoDe(liderDirectora)) as { token?: string }
+    eq('líder en VG (activa) y directora comercial en Medix → 403 (cuenta CUALQUIER empresa)', liderDirectora.status, 403)
+    check('y sin token', cuerpoLD.token === undefined, cuerpoLD)
+  }
+
+  print('\n  POST /api/auth/login: el token lleva emp = la empresa activa')
+  {
+    // Las contraseñas de prueba son texto plano heredado: el login las migra a bcrypt (y cambia el pv). Se restaura al final.
+    const fila = tablas.users.find(u => u.id === LIZETH)!
+    const original = fila.password
+    fila.empresa_activa_id = EMPRESA_MEDIX_ID
+    const entrar = (cliente?: string) =>
+      loginPost(new NextRequest('http://localhost:3000/api/auth/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-real-ip': '10.96.0.1' },
+        body: JSON.stringify({ email: fila.email, password: `hash-${LIZETH}`, ...(cliente ? { cliente } : {}) }),
+      }))
+    try {
+      const web = await entrar()
+      eq('login web de Lizeth → 200', web.status, 200)
+      eq('el token de la cookie trae emp = Medix (la columna)', verifySession(cookieDe(web))?.emp, EMPRESA_MEDIX_ID)
+      const movil = await entrar('movil')
+      const cuerpoMovil = (await cuerpoDe(movil)) as { token?: string; usuario?: { empresa?: { codigo: string } | null } }
+      eq('login móvil de Lizeth → 200', movil.status, 200)
+      eq('verifySession(body.token).emp = Medix', verifySession(cuerpoMovil.token)?.emp, EMPRESA_MEDIX_ID)
+      eq("y usuario.empresa 'medix'", cuerpoMovil.usuario?.empresa?.codigo, 'medix')
+    } finally {
+      fila.password = original
+    }
   }
 
   print('\n  GET /api/empresas')
