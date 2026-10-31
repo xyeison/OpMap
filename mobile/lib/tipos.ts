@@ -113,6 +113,8 @@ export interface MeResponse {
    * Opcional: un servidor anterior no lo manda.
    */
   sin_persona?: string | null
+  /** Equipo (2026-10-31): el rol tiene team:view (dirección, administrador, líder): la app le da la pestaña Equipo. */
+  supervisa: boolean
 }
 
 // ---------------------------------------------------------------------------------------------

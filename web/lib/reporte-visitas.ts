@@ -1910,6 +1910,8 @@ export interface MeResponse {
    * su rol) o si la base falló. (Los Ejecutivos Comerciales usan la app desde el 2026-10-31.)
    */
   sin_persona: string | null
+  /** Equipo (2026-10-31): el rol tiene team:view (dirección, administrador, líder): la app le da la pestaña Equipo. */
+  supervisa: boolean
 }
 
 /** Respuesta de error de toda la API: { error } y, en la pre-validación de visitas, los errores por campo. */
