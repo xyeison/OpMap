@@ -10,13 +10,15 @@
   Cuentas clave (`/terceros`), Médicos, Aseguradoras y Proveedores; **Empleados**: Ejecutivos Comerciales y Líderes de
   negocio; Calendario, Zonas (`/kams`) y Líneas; **Inteligencia de Mercado**: ADRES, Compras públicas
   (`/inteligencia?tab=secop`), Contratos y Cumplimiento; **Configuración**: Mi Empresa, Usuarios, Visita VMO
-  (`/visits`) y Parámetros (`/configuracion`). Médicos, Aseguradoras y Líderes de negocio abren "Próximamente". El
-  inicio es el Mapa; sin mapa, Calendario. "Hospital" se dice "IPS" en toda la interfaz. Lo de abajo describe el menú
-  del 2026-10-14 (el orden quedó superado).
+  (`/visits`) y Parámetros (`/configuracion`). Médicos, Aseguradoras y Líderes de negocio abren "Próximamente". Desde el
+  2026-10-31 el inicio es `/inicio`, la cuadrícula de módulos del rol tipo iPhone (`bloquesDeInicio`: las sueltas
+  primero, luego cada grupo; `docs/decisiones/2026-10-31-inicio-de-modulos-tipo-iphone.md`); el Mapa es el primer
+  cuadro. "Hospital" se dice "IPS" en toda la interfaz. Lo de abajo describe el menú del 2026-10-14 (el orden quedó
+  superado).
 - **Sin Dashboard**: los indicadores (cobertura, oportunidades, hospitales, totales) no tenían sentido por ahora y
-  se generarán después. `"/"` ya no muestra tablero: lleva a la **página de inicio** del rol (`getHomeRoute`), que
-  es la primera opción de su menú: `/map` para todo rol con `map:view`; `/calendario` para `hr`. El logo "OpMap"
-  lleva al mismo sitio. El login sigue mandando a `?next=` o, sin él, a `"/"` y de ahí al inicio.
+  se generarán después. `"/"` ya no muestra tablero: lleva a la **página de inicio** del rol (`getHomeRoute`): desde el
+  2026-10-31, `/inicio` para todo rol con alguna opción del menú (antes `/map`, y `/calendario` para `hr`). El logo
+  "OpMap" lleva al mismo sitio. El login sigue mandando a `?next=` o, sin él, a `"/"` y de ahí al inicio.
   `dashboard:view` sigue en los roles pero ya no abre nada; `/api/dashboard/stats` se quitó.
 - **Orden** (`getNavigationMenu`; cada opción solo con su permiso): Mapa, Hospitales, Terceros, Calendario, Zonas
   (`/kams`), Líneas, Ejecutivos Comerciales, Inteligencia, Contratos, Mi Empresa, Cumplimiento, Proveedores,

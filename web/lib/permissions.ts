@@ -453,18 +453,21 @@ export function getHomeRoute(role: Role | undefined): string | null {
 }
 
 /**
- * Los bloques de la cuadrícula de /inicio: las mismas opciones y el mismo orden del menú; las opciones sueltas seguidas
- * (Agendamiento, Mapa, Calendario, Zonas, Líneas) van juntas en un bloque sin título y cada grupo (Terceros, Empleados,
- * Inteligencia de Mercado, Configuración) en el suyo, con su título.
+ * Los bloques de la cuadrícula de /inicio: las mismas opciones del menú. Las sueltas (Agendamiento, Mapa, Calendario,
+ * Zonas, Líneas) van TODAS primero, en un bloque sin título y en su orden (revisor 2026-10-31: en el menú Calendario,
+ * Zonas y Líneas van después de Terceros y Empleados, y en la cuadrícula parecerían de Empleados); después cada grupo
+ * (Terceros, Empleados, Inteligencia de Mercado, Configuración) en el orden del menú, con su título.
  */
 export function bloquesDeInicio(items: readonly NavigationItem[]): Array<{ grupo: string | null; items: NavigationItem[] }> {
-  const bloques: Array<{ grupo: string | null; items: NavigationItem[] }> = []
-  for (const seccion of agruparMenu(items)) {
-    const ultimo = bloques[bloques.length - 1]
-    if (seccion.grupo === null && ultimo && ultimo.grupo === null) ultimo.items.push(...seccion.items)
-    else bloques.push({ grupo: seccion.grupo, items: [...seccion.items] })
+  const sueltas = items.filter(item => !item.grupo)
+  const grupos: Array<{ grupo: string; items: NavigationItem[] }> = []
+  for (const item of items) {
+    if (!item.grupo) continue
+    const bloque = grupos.find(b => b.grupo === item.grupo)
+    if (bloque) bloque.items.push(item)
+    else grupos.push({ grupo: item.grupo, items: [item] })
   }
-  return bloques
+  return [...(sueltas.length > 0 ? [{ grupo: null, items: sueltas }] : []), ...grupos]
 }
 
 // Función para obtener el título del rol en español

@@ -42,12 +42,13 @@ escritorio con secciones como pestañas; el acordeón queda como cajón.
 ## Criterios de aceptación de la etapa 2a (pruebas)
 - [x] `getHomeRoute` da `/inicio` para todo rol con alguna opción (también recursos humanos) y null sin opciones;
       `/inicio` es ruta permitida de todos (`menu-check`, sección 4).
-- [x] `bloquesDeInicio` trae las mismas opciones y el mismo orden que el menú; las sueltas seguidas en un solo bloque
-      sin título y cada grupo una vez; admin: sueltas (Mapa primero) y luego Terceros; líder: Agendamiento primero.
+- [x] `bloquesDeInicio` trae las mismas opciones que el menú; TODAS las sueltas primero, en un solo bloque sin título y
+      en su orden (admin: Mapa, Calendario, Zonas, Líneas); luego cada grupo una vez, en el orden del menú; líder:
+      Agendamiento primero.
 - [x] `app/inicio/page.tsx` sigue el tema, usa `bloquesDeInicio`, abre Agendamiento como página completa (`<a>`), sin
       "KAM", "Vacante" ni "panel".
 - [x] App: `destinoOpMap` → oculto fuera del navegador; `/inicio` misma pestaña; instalada → otra pestaña; sin señal →
-      solo aviso. `EstadoCola.tsx` pinta el botón con el ícono "inicio" y no toca la cola (`25-inicio-opmap`).
+      solo aviso. `EstadoCola.tsx` pinta el botón con el ícono "inicio" (solo el ícono cuando "Subir ahora" o "Actualizar" van al lado), cae a la misma pestaña si el navegador bloquea la nueva, y no toca la cola (`25-inicio-opmap`).
 - [ ] Capturas en claro y oscuro, celular y escritorio: `/inicio`, Agendamiento con el botón (prueba del dueño).
 
 ## Fuera de alcance

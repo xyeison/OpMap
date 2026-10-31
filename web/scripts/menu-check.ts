@@ -201,17 +201,21 @@ for (const rol of ROLES) {
   else eq(`${rol}: sin opciones, sin inicio`, inicio, null)
   check(`${rol}: /inicio es una ruta permitida`, getAllowedRoutes(rol).includes(RUTA_INICIO))
   const bloques = bloquesDeInicio(getNavigationMenu(rol))
-  eq(`${rol}: los bloques del inicio traen las mismas opciones y el mismo orden que el menú`, bloques.flatMap(b => b.items.map(i => i.href)), hrefs(rol))
+  const menu = getNavigationMenu(rol)
+  eq(`${rol}: los bloques del inicio traen las mismas opciones que el menú (sin perder ni repetir)`, [...bloques.flatMap(b => b.items.map(i => i.href))].sort(), [...hrefs(rol)].sort())
+  const sueltas = menu.filter(i => !i.grupo).map(i => i.href)
   check(
-    `${rol}: las sueltas seguidas van en un solo bloque sin título y cada grupo en el suyo, una vez`,
-    bloques.every((b, i) => i === 0 || !(b.grupo === null && bloques[i - 1].grupo === null)) && new Set(bloques.filter(b => b.grupo).map(b => b.grupo)).size === bloques.filter(b => b.grupo).length,
-    bloques.map(b => b.grupo)
+    `${rol}: TODAS las sueltas van primero, en un solo bloque sin título y en su orden; luego cada grupo una vez, en el orden del menú`,
+    (sueltas.length === 0 ? bloques.every(b => b.grupo !== null) : bloques[0]?.grupo === null && JSON.stringify(bloques[0].items.map(i => i.href)) === JSON.stringify(sueltas) && bloques.slice(1).every(b => b.grupo !== null)) &&
+      JSON.stringify(bloques.filter(b => b.grupo).map(b => b.grupo)) === JSON.stringify([...new Set(menu.filter(i => i.grupo).map(i => i.grupo))]) &&
+      bloques.filter(b => b.grupo).every(b => JSON.stringify(b.items.map(i => i.href)) === JSON.stringify(menu.filter(i => i.grupo === b.grupo).map(i => i.href))),
+    bloques.map(b => [b.grupo, b.items.map(i => i.name)])
   )
 }
 eq('sin rol: sin inicio', getHomeRoute(undefined), null)
 eq('recursos humanos (sin mapa): también /inicio', getHomeRoute('hr'), RUTA_INICIO)
 eq('admin: primero el bloque de las sueltas (Mapa de primero) y luego Terceros', bloquesDeInicio(getNavigationMenu('admin')).slice(0, 2).map(b => b.grupo), [null, 'Terceros'])
-eq('admin: el bloque de las sueltas empieza por el Mapa', bloquesDeInicio(getNavigationMenu('admin'))[0]?.items[0]?.href, '/map')
+eq('admin: el bloque de las sueltas es Mapa, Calendario, Zonas y Líneas (aunque en el menú Calendario vaya después de Empleados)', bloquesDeInicio(getNavigationMenu('admin'))[0]?.items.map(i => i.name), ['Mapa', 'Calendario', 'Zonas', 'Líneas'])
 eq('líder: Agendamiento es el primer módulo del inicio', bloquesDeInicio(getNavigationMenu('line_leader'))[0]?.items[0]?.href, '/campo/agenda')
 const inicioPagina = readFileSync(path.join(__dirname, '..', 'app', 'inicio', 'page.tsx'), 'utf8')
 check(

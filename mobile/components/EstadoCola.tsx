@@ -40,8 +40,9 @@ export function EstadoCola() {
     }
     if (destino.modo !== 'ir') return
     const w = globalThis as unknown as { open?: (url: string, destino: string) => unknown; location?: { assign: (url: string) => void } }
-    if (destino.nuevaPestana && w.open) w.open(destino.url, '_blank')
-    else w.location?.assign(destino.url)
+    // Instalada: otra pestaña; si el navegador la bloquea (window.open devuelve null), en esta misma (revisor 2026-10-31).
+    const abierta = destino.nuevaPestana && w.open ? w.open(destino.url, '_blank') : null
+    if (!abierta) w.location?.assign(destino.url)
   }
 
   const pendientes = resumen.pendientes
@@ -51,20 +52,22 @@ export function EstadoCola() {
   const texto = !enLinea ? c.alerta : hayPendientes ? c.info : c.textoSuave
   const estado = textoEstadoConexion(enLinea)
   const detalle = detalleFranja({ enLinea, vencida, visitas: pendientes, fotos })
+  const soloIcono = hayPendientes || (versionNueva && esNavegador())
 
   return (
     <View style={{ backgroundColor: fondo, paddingTop: insets.top > 0 ? insets.top : 6, paddingBottom: 6, paddingHorizontal: 14, gap: 4 }}>
     <View accessibilityRole="summary" accessibilityLabel={`${estado}. ${detalle}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: ALTO_TOQUE_MIN }}>
       {destino.modo !== 'oculto' ? (
+        // Con "Subir ahora" o "Actualizar" al lado, solo el ícono: en 360 px no caben los tres con texto (revisor 2026-10-31).
         <Pressable
           accessibilityRole="link"
           accessibilityLabel="OpMap: volver al inicio de módulos"
           accessibilityHint={destino.modo === 'sin_senal' ? MENSAJE_OPMAP_SIN_SENAL : undefined}
           onPress={irAOpMap}
-          style={({ pressed }) => ({ minHeight: 32, paddingLeft: 8, paddingRight: 10, borderRadius: 16, borderWidth: 1, borderColor: c.bordeFuerte, backgroundColor: c.superficie, flexDirection: 'row', alignItems: 'center', gap: 4, opacity: pressed ? 0.6 : destino.modo === 'sin_senal' ? 0.55 : 1 })}
+          style={({ pressed }) => ({ minHeight: 32, minWidth: 32, paddingLeft: 8, paddingRight: soloIcono ? 8 : 10, borderRadius: 16, borderWidth: 1, borderColor: c.bordeFuerte, backgroundColor: c.superficie, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, opacity: pressed ? 0.6 : destino.modo === 'sin_senal' ? 0.55 : 1 })}
         >
           <Icono nombre="inicio" activo tamano={16} color={c.texto} />
-          <Text style={[{ color: c.texto, fontSize: 13 }, fuente('negrita')]}>OpMap</Text>
+          {soloIcono ? null : <Text style={[{ color: c.texto, fontSize: 13 }, fuente('negrita')]}>OpMap</Text>}
         </Pressable>
       ) : null}
       <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: texto }} />
