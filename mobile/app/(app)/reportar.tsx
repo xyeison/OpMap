@@ -1330,7 +1330,8 @@ export default function Reportar() {
             <View style={{ gap: 10 }}>
               <Texto suave>{`${plural(resultados.length, 'visita confirmada', 'visitas confirmadas')}.`}</Texto>
               <Boton titulo="Volver a Hoy" grande alPresionar={() => router.replace('/hoy')} />
-              <Boton titulo="Reportar otra llegada" variante="secundario" alPresionar={() => void iniciar(null)} />
+              {/* Dueño, 2026-10-31: "otra visita", no "otra llegada" (vocabulario interno); sirve en esta sede o en otra. */}
+              <Boton titulo="Reportar otra visita" detalle="En esta sede o en otra" variante="secundario" alPresionar={() => void iniciar(null)} />
             </View>
           ) : null}
         </View>
