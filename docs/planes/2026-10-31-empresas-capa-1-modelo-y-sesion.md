@@ -507,3 +507,35 @@ el Supabase falso de `scripts/lineas-permitidas-api-check.ts`; app Expo en `mobi
   ```
   Luego `/entregar` (PR a `master` con la plantilla; la 0960 se aplica en la ventana del despliegue, con autorización
   del dueño, y DESPUÉS él registra en `/users` el segundo papel de Paola).
+
+---
+
+### Task 12: barrido de `hasPermission(user.role, …)` → `tienePermiso(user.papeles, …)` (añadida tras la revisión de la tarea 4; se ejecuta antes de la 5)
+
+**Archivos:**
+- Modificar (los 24 sitios que la revisión de la tarea 4 encontró; verificar con `grep -rn "hasPermission(user.role\|hasPermission(auth.user.role\|hasPermission(usuario.role" web/app web/lib`):
+  `web/app/api/dias-libres/route.ts`, `web/app/api/calendario/route.ts`, `web/app/api/config-visitas/_lib/visitas-server.ts`,
+  `web/app/api/map/data/route.ts`, `web/app/api/kams/zonas/route.ts`, `web/lib/coverage.ts`, `web/lib/territory.ts`,
+  `web/app/api/auth/me/route.ts`, y cualquier otro que el grep encuentre.
+- Modificar: `web/scripts/empresas-api-check.ts` (sección B, dos pruebas más)
+
+**Interfaces:**
+- Consume: `tienePermiso(papeles, permiso)` de `web/lib/empresas-reglas.ts`; `SessionUser.papeles`.
+- Produce: nada nuevo. Donde una función recibe `user: CoverageUser` u otro tipo propio con `role`, el tipo gana
+  `papeles: readonly { papel: Role }[]` y la decisión pasa a `tienePermiso(user.papeles, …)`; `role` se conserva en el
+  tipo para lo que no es un permiso (p. ej. textos).
+
+- [ ] **Paso 1: pruebas que fallan** en la sección B: un usuario `sales_manager` + `hr` en VG recibe de
+      `GET /api/dias-libres` la vista completa (`verTodos` true, o el equivalente que la ruta expone) y de
+      `GET /api/map/data` lo que da `map:all-lines` solo si alguno de sus papeles lo tiene (con `sales_manager` + `viewer`
+      sí; con `sales_manager` solo, no).
+- [ ] **Paso 2: correr y ver que fallan.**
+- [ ] **Paso 3: reemplazar** cada `hasPermission(<usuario>.role, X)` por `tienePermiso(<usuario>.papeles, X)`; donde
+      el objeto no es un `SessionUser`, propagar `papeles` desde el `SessionUser` que lo origina. Con un solo papel el
+      resultado es idéntico a hoy.
+- [ ] **Paso 4: correr y ver que pasan**; `npm run check`.
+- [ ] **Paso 5: commit.**
+  ```bash
+  git add web/app web/lib web/scripts/empresas-api-check.ts
+  git commit -m "feat(permisos): las rutas deciden con la suma de papeles, no con el papel más alto"
+  ```
