@@ -34,6 +34,9 @@ export default function Ajustes() {
   const { preferencia, elegir } = useTemaApp()
   const [saliendo, setSaliendo] = useState(false)
   const version = Constants.expoConfig?.version ?? '—'
+  // El commit con que se armó la app en la web (scripts/construir-campo.mjs): para saber qué versión corre el teléfono
+  // (el service worker guarda la anterior hasta "Actualizar").
+  const build = process.env.EXPO_PUBLIC_BUILD ?? null
   const papeles = papelesDePersona(perfil?.persona, perfil?.ejecutiva?.zona)
   const conDiasLibres = muestraDiasLibres({ persona: perfil?.persona, ejecutiva: perfil?.ejecutiva })
 
@@ -121,7 +124,7 @@ export default function Ajustes() {
       <Tarjeta>
         <Subtitulo>App</Subtitulo>
         <Fila etiqueta="Servidor" valor={nombreServidor(URL_API)} />
-        <Fila etiqueta="Versión" valor={`${version}${Platform.OS === 'web' ? ' (navegador)' : ''}`} />
+        <Fila etiqueta="Versión" valor={`${version}${Platform.OS === 'web' ? ' (navegador)' : ''}${build ? ` · ${build}` : ''}`} />
         <Fila etiqueta="Conexión" valor={enLinea ? 'En línea' : 'Sin conexión'} />
         <Fila etiqueta="Visitas por subir" valor={String(resumen.pendientes)} />
         <Fila etiqueta="Fotos por subir" valor={String(resumenFotos.pendientes)} />

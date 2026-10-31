@@ -66,7 +66,18 @@ import { almacenamientoDudoso } from '../../lib/pwa-reglas'
 import { arranqueDeSesion } from '../../lib/sesion-reglas'
 import { detalleFranja, textoEstadoConexion, textoPendientes } from '../../lib/estado-cola'
 import { DIAS_MAX_ATRAS, ETIQUETA_MARCA, PRECISION_BAJA_M, type ContextoResponse, type VisitaCreate } from '../../lib/tipos'
-import { PRECISION_SUFICIENTE_M, TIEMPO_PRECISA_MS, mejorLectura, recogerMejorLectura, ubicacionFinal, type FuentesUbicacion, type Lectura } from '../../lib/ubicacion-pasos'
+import {
+  MENSAJE_SIN_PERMISO_NAVEGADOR,
+  MENSAJE_SIN_UBICACION,
+  PRECISION_SUFICIENTE_M,
+  TIEMPO_PRECISA_MS,
+  mejorLectura,
+  motivoDeErrorDelNavegador,
+  recogerMejorLectura,
+  ubicacionFinal,
+  type FuentesUbicacion,
+  type Lectura,
+} from '../../lib/ubicacion-pasos'
 import type { Probador } from './probador'
 
 // Corre en Node (tsx) con el programa de tipos de la app (sin @types/node): fs y path con lo mínimo.
@@ -374,6 +385,31 @@ export async function pruebas(t: Probador): Promise<void> {
     const final = await ubicacionFinal(fuentes([{ ms: 5, l: lectura(70) }, { ms: 15, l: lectura(20) }]), { timeoutMs: 50 })
     t.check('ubicacionFinal con observación: la más precisa, con 6 decimales y precisión entera', final.ubicacion?.precision === 20 && final.ubicacion?.aproximada === false)
     t.check('sin lecturas en vivo pero con la puntual: la puntual', (await recogerMejorLectura(fuentes([], Promise.resolve(lectura(11))), 50))?.precision === 11)
+
+    // Revisión en iPhone (2026-10-31): Safari recuerda "No permitir" para el sitio y no vuelve a preguntar; antes la app
+    // esperaba los 20 s y decía "sal a un lugar abierto". Con permiso negado se corta en el acto y se dice dónde se cambia.
+    const negado = { code: 1, message: 'User denied Geolocation' }
+    const conMotivo = (precisa: Promise<Lectura>, extra: Partial<FuentesUbicacion> = {}): FuentesUbicacion => ({
+      ...fuentes([], precisa),
+      motivoDeError: motivoDeErrorDelNavegador,
+      mensajeSinPermiso: MENSAJE_SIN_PERMISO_NAVEGADOR,
+      ...extra,
+    })
+    t.check('motivoDeErrorDelNavegador: 1 permiso, 2 no disponible, 3 tiempo, otra cosa null', motivoDeErrorDelNavegador(negado) === 'permiso' && motivoDeErrorDelNavegador({ code: 2 }) === 'no_disponible' && motivoDeErrorDelNavegador({ code: 3 }) === 'tiempo' && motivoDeErrorDelNavegador(new Error('x')) === null && motivoDeErrorDelNavegador(null) === null)
+    const desde = Date.now()
+    const sinPermiso = await ubicacionFinal(conMotivo(Promise.reject(negado)), { timeoutMs: 2_000 })
+    t.check('permiso negado por el navegador (code 1): corta en el acto (sin esperar los 20 s) con el mensaje de Safari y Chrome', sinPermiso.ubicacion === null && sinPermiso.error === MENSAJE_SIN_PERMISO_NAVEGADOR && Date.now() - desde < 500, sinPermiso)
+    t.check('el mensaje dice cómo permitirla en Safari («aA» › Ajustes del sitio web) y en Chrome', /Safari/.test(MENSAJE_SIN_PERMISO_NAVEGADOR) && /aA/.test(MENSAJE_SIN_PERMISO_NAVEGADOR) && /Chrome/.test(MENSAJE_SIN_PERMISO_NAVEGADOR) && /Ajustes del sitio web/.test(MENSAJE_SIN_PERMISO_NAVEGADOR))
+    const negadoEnVivo = await ubicacionFinal(conMotivo(new Promise(() => undefined), { observar: (_alLeer, alFallar) => { setTimeout(() => alFallar?.(negado), 5); return () => undefined } }), { timeoutMs: 2_000 })
+    t.check('también si lo niega la observación en vivo (watchPosition)', negadoEnVivo.error === MENSAJE_SIN_PERMISO_NAVEGADOR)
+    const sinSenal = await ubicacionFinal(conMotivo(Promise.reject({ code: 2 })), { timeoutMs: 40 })
+    t.check('GPS no disponible (code 2) o tiempo agotado: sigue esperando y dice "sal a un lugar abierto" (no el de permiso)', sinSenal.error === MENSAJE_SIN_UBICACION)
+    const sinObservar = await ubicacionFinal({ ...conMotivo(Promise.reject(negado)), observar: undefined }, { timeoutMs: 2_000 })
+    t.check('sin observación en vivo (solo la lectura puntual), el permiso negado también se dice', sinObservar.error === MENSAJE_SIN_PERMISO_NAVEGADOR)
+    const ubicacionTs2 = leer('lib/ubicacion.ts')
+    t.check('la fuente del navegador clasifica el error (motivoDeError) y pasa el fallo de watchPosition (alFallar)', /motivoDeError: motivoDeErrorDelNavegador/.test(ubicacionTs2) && /mensajeSinPermiso: MENSAJE_SIN_PERMISO_NAVEGADOR/.test(ubicacionTs2) && /if \(activa\) alFallar\?\.\(error\)/.test(ubicacionTs2))
+    const ajustesTsx = leer('app/(app)/ajustes.tsx')
+    t.check('Ajustes muestra el commit con que se armó la app en la web (EXPO_PUBLIC_BUILD) junto a la versión', /process\.env\.EXPO_PUBLIC_BUILD/.test(ajustesTsx) && /\$\{build \? ` · \$\{build\}` : ''\}/.test(ajustesTsx))
   }
 
   // -------------------------------------------------------------------------------------------
