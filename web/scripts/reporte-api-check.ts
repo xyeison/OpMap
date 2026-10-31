@@ -126,7 +126,6 @@ import {
   MENSAJE_COMO_NO_VALIDO,
   MENSAJE_DIRECCION_NO_REPORTA,
   MENSAJE_EJECUTIVA_AJENA,
-  MENSAJE_EJECUTIVO_EN_VMO,
   MENSAJE_MEDICO_AJENO,
   MENSAJE_SIN_LINEAS,
   ejecutivoDeLaCita,
@@ -319,9 +318,7 @@ const FAKE_SUPABASE_URL = 'http://supabase.test'
 process.env.NEXT_PUBLIC_SUPABASE_URL = FAKE_SUPABASE_URL
 process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-de-prueba'
 process.env.SESSION_SECRET = 'secreto-de-prueba-reporte-api-check-0123456789abcdefghijklmnopqrstuvwxyz'
-// Las secciones 1 a 15 prueban la app con los Ejecutivos Comerciales adentro (F3, F4 y F1a). La 16 la prueba solo para
-// las líderes, como en producción (dueño, 2026-10-30: sin esta variable).
-process.env.APP_CAMPO_EJECUTIVOS = 'true'
+// Los Ejecutivos Comerciales usan la app (dueño, 2026-10-31): todas las secciones prueban con ellos adentro.
 
 // ---------------------------------------------------------------------------
 // Reloj falso (martes 13 de octubre de 2026, 10:42 en Bogotá)
@@ -3448,81 +3445,77 @@ async function main() {
       const zonas = await pedir(zonasSinVisitar, '/api/visits/unvisited-zones?year=2026&month=10', { userId: ADMIN_ID })
       check('GET /api/visits/unvisited-zones: una visita como líder junto al Hospital del sur no lo marca como visitado', zonas.status === 200 && zonas.body.unvisitedHospitalsList.some((h: { id: string }) => h.id === H_LEJOS), zonas.body)
 
-      print('\n16. App de campo solo para líderes (dueño, 2026-10-30): quien solo es Ejecutivo Comercial va por VMO; Paola, solo como líder')
-      delete process.env.APP_CAMPO_EJECUTIVOS
-      try {
+      print('\n16. Los Ejecutivos Comerciales usan la app (dueño, 2026-10-31; reemplaza la regla del 2026-10-30)')
+      {
         const meDe = async (userId: string) => leer(await verMe(new NextRequest('http://localhost:3000/api/auth/me', { headers: { authorization: `Bearer ${tokenDe(userId)}` } })))
+        const lineasDe = (persona: { lineas: W.LineaPersona[] } | null | undefined) => (persona?.lineas ?? []).map(l => `${l.id}:${l.como}`).sort().join()
         const meAna = await meDe(VENTAS_ID)
         check(
-          `Ana (solo Ejecutiva Comercial): GET /api/auth/me → persona null y sin_persona "${MENSAJE_EJECUTIVO_EN_VMO}" (la app no entra a las pestañas)`,
-          meAna.status === 200 && ok('me', meAna.body) && meAna.body.persona === null && meAna.body.sin_persona === MENSAJE_EJECUTIVO_EN_VMO && meAna.body.ejecutiva?.id === EJEC_A,
+          'Ana (solo Ejecutiva Comercial): GET /api/auth/me → persona de Ejecutiva (rol ejecutivo, sus líneas "como ejecutivo"), sin_persona null y su Ejecutivo Comercial',
+          meAna.status === 200 && ok('me', meAna.body) && meAna.body.persona?.rol === 'ejecutivo' && lineasDe(meAna.body.persona) === [`${L1}:ejecutivo`, `${L2}:ejecutivo`].sort().join() && meAna.body.sin_persona === null && meAna.body.ejecutiva?.id === EJEC_A,
           meAna.body
         )
+        // Un médico nuevo de Ana (los de antes ya tienen visita hoy) y un día en que no está libre (el 20 lo tiene libre)
+        const M_ANA2 = 'f1f1f1f1-0000-4000-8000-000000000019'
+        tablas.medicos.push({ id: M_ANA2, nombre: 'Dr. De Ana Dos', especialidades: ['ortopedia'], municipality_id: '68001', tipo_documento: 'CC', numero_documento: '777019222', telefono: null, email: null, activo: true })
+        tablas.medico_sedes.push({ medico_id: M_ANA2, sede_id: S1, rol: 'atiende', principal: true })
+        tablas.medico_visitantes.push({ id: randomUUID(), medico_id: M_ANA2, executive_id: EJEC_A, line_id: L1, desde: '2026-01-15', hasta: null })
         const antesAna = { visitas: visitasApp().length, citas: tablas.visitas_agenda.length }
         const ctxAna = await pedir(verContexto, '/api/me/contexto', { portador: true, userId: VENTAS_ID })
-        const visitaAna = await visitaDe(VENTAS_ID, cuerpoVisita())
-        const citaAna = await agendaDe(VENTAS_ID, { fecha: MANANA, hora: '15:00', tipo: 'medica', medico_id: M1, sede_id: S1 })
+        const visitaAna = await visitaDe(VENTAS_ID, cuerpoVisita({ medico_id: M_ANA2 }))
+        const citaAna = await agendaDe(VENTAS_ID, { fecha: '2026-10-15', hora: '15:00', tipo: 'medica', medico_id: M_ANA2, sede_id: S1 })
         check(
-          `Ana: contexto, reportar y agendar → 403 "${MENSAJE_EJECUTIVO_EN_VMO}"; nada guardado`,
-          [ctxAna, visitaAna, citaAna].every(r => r.status === 403 && r.body?.error === MENSAJE_EJECUTIVO_EN_VMO) && visitasApp().length === antesAna.visitas && tablas.visitas_agenda.length === antesAna.citas,
-          { ctx: ctxAna.body, visita: visitaAna.body, cita: citaAna.body }
+          'Ana desde la app: contexto 200, reportar 201 y agendar 201 como Ejecutiva Comercial (todo guardado)',
+          ctxAna.status === 200 && visitaAna.status === 201 && citaAna.status === 201 && citaAna.body.cita.como === 'ejecutivo' && visitasApp().length === antesAna.visitas + 1 && tablas.visitas_agenda.length === antesAna.citas + 1,
+          { ctx: ctxAna.status, visita: visitaAna.body, cita: citaAna.body }
         )
 
         const mePaola = await meDe(PAOLA_ID)
         check(
-          'Paola: GET /api/auth/me → persona solo de líder (rol lider, solo trauma "como líder") y sin_persona null',
-          mePaola.status === 200 && ok('me', mePaola.body) && mePaola.body.persona?.rol === 'lider' && JSON.stringify(mePaola.body.persona.lineas) === JSON.stringify([{ id: L_TRA, nombre: 'Trauma', como: 'lider' }]) && mePaola.body.sin_persona === null,
+          'Paola: GET /api/auth/me → los dos papeles (rol lider_y_ejecutivo): trauma "como líder" y sustitutos "como ejecutivo"; sin_persona null',
+          mePaola.status === 200 && ok('me', mePaola.body) && mePaola.body.persona?.rol === 'lider_y_ejecutivo' && lineasDe(mePaola.body.persona) === [`${L_TRA}:lider`, `${L_SUS}:ejecutivo`].sort().join() && mePaola.body.sin_persona === null,
           mePaola.body
         )
-        const ctxSolo = await pedir(verContexto, '/api/me/contexto', { portador: true, userId: PAOLA_ID })
-        const cs = ctxSolo.body as W.ContextoResponse
+        const ctxDos = await pedir(verContexto, '/api/me/contexto', { portador: true, userId: PAOLA_ID })
+        const cd = ctxDos.body as W.ContextoResponse
         check(
-          'Paola: contexto como líder: sin Ejecutivo Comercial ni zona, solo trauma, solo su médico de trauma y sin meta',
-          ctxSolo.status === 200 && ok('contexto', cs) && cs.persona?.rol === 'lider' && cs.persona.executive_id === null && cs.persona.lineas.map(l => `${l.id}:${l.como}`).join() === `${L_TRA}:lider` && cs.ejecutiva.zona === null && cs.ejecutiva.lineas.map(l => l.id).join() === L_TRA && cs.mis_medicos.map(m => m.id).join() === M_TRA && cs.hoy.meta.medica === 0 && cs.hoy.meta.institucional === 0,
-          cs && { persona: cs.persona, ejecutiva: cs.ejecutiva, medicos: cs.mis_medicos.map(m => m.id), meta: cs.hoy?.meta }
+          'Paola: contexto con los dos papeles: su Ejecutivo Comercial, su zona y los médicos de las dos líneas',
+          ctxDos.status === 200 && ok('contexto', cd) && cd.persona?.rol === 'lider_y_ejecutivo' && cd.persona.executive_id === EJEC_P && cd.ejecutiva.zona !== null && cd.mis_medicos.some(m => m.id === M_TRA) && cd.mis_medicos.some(m => m.id === M_SUS),
+          cd && { persona: cd.persona, ejecutiva: cd.ejecutiva, medicos: cd.mis_medicos.map(m => m.id) }
         )
-        const numerosSolo = await pedir(verNumeros, '/api/me/numeros?mes=2026-10', { portador: true, userId: PAOLA_ID })
-        check('Paola: Mis números sin cuota (null), como una líder', numerosSolo.status === 200 && ok('numeros', numerosSolo.body) && numerosSolo.body.cuota === null, numerosSolo.body)
-        const antesSolo = visitasApp().length
-        const sustitutosSolo = await visitaDe(PAOLA_ID, cuerpoVisita({ medico_id: M_SUS, lineas: [L_SUS] }))
+        // "Como qué" (C12): sin `como`, la base decide (como Ejecutiva si lo tiene); la app manda el que Paola eligió
+        const citaSinComo = await agendaDe(PAOLA_ID, { fecha: '2026-10-16', hora: '16:00', tipo: 'medica', medico_id: M_SUS, sede_id: S1 })
+        const rpcSinComo = fake.rpcs.filter(r => r.nombre === 'agenda_crear').at(-1)
         check(
-          `Paola: reportar con su línea de Ejecutiva (sustitutos) → 400 con "${MENSAJE_LINEAS_AJENAS}" en "lineas"; nada guardado`,
-          sustitutosSolo.status === 400 && (sustitutosSolo.body?.errores ?? []).some((e: W.ErrorVisita) => e.campo === 'lineas' && e.mensaje === MENSAJE_LINEAS_AJENAS) && visitasApp().length === antesSolo,
-          sustitutosSolo.body
+          'Paola: agendar sin "como" → la API manda como null y la base la agenda como Ejecutiva Comercial (C12)',
+          citaSinComo.status === 201 && rpcSinComo?.args.p.como === null && citaSinComo.body.cita.como === 'ejecutivo' && filaCita(citaSinComo.body.cita.id)?.executive_id === EJEC_P,
+          { cita: citaSinComo.body, args: rpcSinComo?.args }
         )
-        // Otro día: el 14 ya tiene la cita de trauma de la sección 15 (una por médico y día).
-        const citaSinComo = await agendaDe(PAOLA_ID, { fecha: '2026-10-16', hora: '16:00', tipo: 'medica', medico_id: M_TRA, sede_id: S1 })
-        const rpcCrear = fake.rpcs.filter(r => r.nombre === 'agenda_crear').at(-1)
+        const citaComoLider = await agendaDe(PAOLA_ID, { fecha: '2026-10-16', hora: '17:00', tipo: 'medica', medico_id: M_TRA, sede_id: S1, como: 'lider' })
+        const citaComoEc = await agendaDe(PAOLA_ID, { fecha: '2026-10-17', hora: '17:00', tipo: 'medica', medico_id: M_SUS, sede_id: S1, como: 'ejecutivo' })
+        const rpcComoEc = fake.rpcs.filter(r => r.nombre === 'agenda_crear').at(-1)
         check(
-          'Paola: agendar sin "como" → como líder: la API se lo pide así a la base (que si no la agendaría como Ejecutiva)',
-          citaSinComo.status === 201 && citaSinComo.body.cita.como === 'lider' && filaCita(citaSinComo.body.cita.id)?.executive_id === null && rpcCrear?.args.p.como === 'lider',
-          { cita: citaSinComo.body, args: rpcCrear?.args }
+          'Paola: "Como líder" → 201 sin Ejecutivo Comercial; "Como Ejecutivo Comercial" → 201 con él (la API pasa el como tal cual)',
+          citaComoLider.status === 201 && citaComoLider.body.cita.como === 'lider' && filaCita(citaComoLider.body.cita.id)?.executive_id === null && citaComoEc.status === 201 && citaComoEc.body.cita.como === 'ejecutivo' && rpcComoEc?.args.p.como === 'ejecutivo',
+          { lider: citaComoLider.body, ejecutivo: citaComoEc.body }
         )
-        const antesCitas = tablas.visitas_agenda.length
-        const citaComoEc = await agendaDe(PAOLA_ID, { fecha: MANANA, hora: '17:00', tipo: 'medica', medico_id: M_SUS, sede_id: S1, como: 'ejecutivo' })
-        check(
-          `Paola: agendar "Como Ejecutivo Comercial" → 403 "${MENSAJE_EJECUTIVO_EN_VMO}" (con el error en "como"); nada guardado`,
-          citaComoEc.status === 403 && citaComoEc.body?.error === MENSAJE_EJECUTIVO_EN_VMO && citaComoEc.body?.errores?.[0]?.campo === 'como' && tablas.visitas_agenda.length === antesCitas,
-          citaComoEc.body
-        )
-        const idSinComo = citaSinComo.body?.cita?.id as string
-        const cancelada = await pedir(cancelarCita, `/api/me/agenda/${idSinComo}/cancelar`, { method: 'POST', body: CUERPO_MOTIVO_APP, id: idSinComo, portador: true, userId: PAOLA_ID })
-        const otraComoEc = await pedir(otraFechaCita, `/api/me/agenda/${idSinComo}/otra-fecha`, { method: 'POST', body: { ...CUERPO_OTRA_FECHA_APP, como: 'ejecutivo' }, id: idSinComo, portador: true, userId: PAOLA_ID })
-        const otraSolo = await pedir(otraFechaCita, `/api/me/agenda/${idSinComo}/otra-fecha`, { method: 'POST', body: CUERPO_OTRA_FECHA_APP, id: idSinComo, portador: true, userId: PAOLA_ID })
+        const idComoEc = citaComoEc.body?.cita?.id as string
+        const cancelada = await pedir(cancelarCita, `/api/me/agenda/${idComoEc}/cancelar`, { method: 'POST', body: CUERPO_MOTIVO_APP, id: idComoEc, portador: true, userId: PAOLA_ID })
+        const otraComoEc = await pedir(otraFechaCita, `/api/me/agenda/${idComoEc}/otra-fecha`, { method: 'POST', body: { ...CUERPO_OTRA_FECHA_APP, como: 'ejecutivo' }, id: idComoEc, portador: true, userId: PAOLA_ID })
         const rpcOtra = fake.rpcs.filter(r => r.nombre === 'agenda_otra_fecha').at(-1)
         check(
-          `Paola: otra fecha "Como Ejecutivo Comercial" → 403 "${MENSAJE_EJECUTIVO_EN_VMO}"; con el cuerpo de la app (como null) → 201 y la base recibe como lider`,
-          cancelada.status === 200 && otraComoEc.status === 403 && otraComoEc.body?.error === MENSAJE_EJECUTIVO_EN_VMO && otraSolo.status === 201 && otraSolo.body.cita.como === 'lider' && rpcOtra?.args.p.como === 'lider',
-          { cancelada: cancelada.body, otraComoEc: otraComoEc.body, otraSolo: otraSolo.body, args: rpcOtra?.args }
+          'Paola: otra fecha "Como Ejecutivo Comercial" → 201 y la base recibe como ejecutivo',
+          cancelada.status === 200 && otraComoEc.status === 201 && otraComoEc.body.cita.como === 'ejecutivo' && rpcOtra?.args.p.como === 'ejecutivo',
+          { cancelada: cancelada.body, otra: otraComoEc.body, args: rpcOtra?.args }
         )
 
-        // Cuota y días libres (requireEjecutiva): desde la app (portador) se cierran; desde la web (cookie) siguen, en /calendario
+        // Cuota y días libres (requireEjecutiva): desde la app (portador) igual que desde la web (cookie)
         const cuotaAppAna = await pedir(verCuota, '/api/me/cuota', { portador: true, userId: VENTAS_ID })
         const diasAppPaola = await pedir(misDiasLibres, '/api/me/dias-libres', { portador: true, userId: PAOLA_ID })
         const cuotaWebAna = await pedir(verCuota, '/api/me/cuota', { userId: VENTAS_ID })
         check(
-          `cuota y días libres desde la app (portador) → 403 "${MENSAJE_EJECUTIVO_EN_VMO}" (Ana y Paola); desde la web (cookie), Ana sigue viendo su cuota`,
-          cuotaAppAna.status === 403 && cuotaAppAna.body?.error === MENSAJE_EJECUTIVO_EN_VMO && diasAppPaola.status === 403 && diasAppPaola.body?.error === MENSAJE_EJECUTIVO_EN_VMO && cuotaWebAna.status === 200,
+          'cuota y días libres desde la app (portador) → 200 (Ana y Paola), igual que desde la web (cookie)',
+          cuotaAppAna.status === 200 && cuotaAppAna.body?.ejecutiva?.id === EJEC_A && diasAppPaola.status === 200 && cuotaWebAna.status === 200,
           { cuotaApp: cuotaAppAna.body, diasApp: diasAppPaola.body, cuotaWeb: cuotaWebAna.status }
         )
 
@@ -3534,22 +3527,22 @@ async function main() {
         const traumaSolo = await visitaDe(PAOLA_ID, cuerpoVisita({ medico_id: M_TRA2, lineas: [L_TRA] }))
         const filaTraumaSolo = porId(traumaSolo.body?.visita?.id)
         check(
-          'Paola: reportar trauma → 201 como líder: sin Ejecutivo Comercial ni zona, y el jsonb a la base con executive_id null',
-          traumaSolo.status === 201 && filaTraumaSolo?.executive_id === null && filaTraumaSolo?.kam_id === null && fake.rpcs.filter(r => r.nombre === 'visitas_registrar').at(-1)?.args.p.executive_id === null,
-          { body: traumaSolo.body, fila: filaTraumaSolo }
+          'Paola: reportar trauma → 201 como líder: la base la guarda sin Ejecutivo Comercial ni zona (el jsonb lleva su Ejecutivo Comercial, como siempre con los dos papeles: la base decide por las líneas)',
+          traumaSolo.status === 201 && filaTraumaSolo?.executive_id === null && filaTraumaSolo?.kam_id === null && fake.rpcs.filter(r => r.nombre === 'visitas_registrar').at(-1)?.args.p.executive_id === EJEC_P,
+          { fila: filaTraumaSolo && { executive_id: filaTraumaSolo.executive_id, kam_id: filaTraumaSolo.kam_id }, status: traumaSolo.status }
         )
 
-        // Una línea que lidera y que también es de su Ejecutivo Comercial no cuenta como de líder (la base la haría de
-        // Ejecutiva): si es la única que lidera, queda fuera como Ejecutivo Comercial
+        // El "cruce": una línea que lidera y que también es de su Ejecutivo Comercial sigue en los dos papeles; la app la
+        // ofrece "como ejecutivo" (la base haría de Ejecutiva esa visita)
         const cruce = { executive_id: EJEC_P, line_id: L_TRA }
         tablas.executive_lines.push(cruce)
         const meCruce = await meDe(PAOLA_ID)
         tablas.executive_lines.splice(tablas.executive_lines.indexOf(cruce), 1)
         const meSinCruce = await meDe(PAOLA_ID)
         check(
-          `Paola con trauma también en su Ejecutivo Comercial → persona null y sin_persona "${MENSAJE_EJECUTIVO_EN_VMO}"; sin el cruce, otra vez líder de trauma`,
-          meCruce.body?.persona === null && meCruce.body?.sin_persona === MENSAJE_EJECUTIVO_EN_VMO && meSinCruce.body?.persona?.rol === 'lider' && meSinCruce.body.persona.lineas.map((l: W.LineaPersona) => l.id).join() === L_TRA,
-          { cruce: meCruce.body, sinCruce: meSinCruce.body?.persona }
+          'Paola con trauma también en su Ejecutivo Comercial → sigue con los dos papeles y trauma va "como ejecutivo"; sin el cruce, trauma "como líder"',
+          meCruce.body?.persona?.rol === 'lider_y_ejecutivo' && lineasDe(meCruce.body.persona) === [`${L_TRA}:ejecutivo`, `${L_SUS}:ejecutivo`].sort().join() && lineasDe(meSinCruce.body?.persona) === [`${L_TRA}:lider`, `${L_SUS}:ejecutivo`].sort().join(),
+          { cruce: meCruce.body?.persona, sinCruce: meSinCruce.body?.persona }
         )
 
         // 0950 (dueño, 2026-10-30): el médico que crea una líder es de sus líneas desde ya: lo agenda enseguida
@@ -3588,8 +3581,6 @@ async function main() {
           meLuciaSolo.body?.persona?.rol === 'lider' && meLuciaSolo.body.sin_persona === null && meAdminSolo.body?.persona === null && meAdminSolo.body.sin_persona === MENSAJE_SIN_LINEAS && meDirectoraSolo.body?.persona === null && meDirectoraSolo.body.sin_persona === null,
           { lucia: meLuciaSolo.body, admin: meAdminSolo.body, directora: meDirectoraSolo.body }
         )
-      } finally {
-        process.env.APP_CAMPO_EJECUTIVOS = 'true'
       }
     }
 
