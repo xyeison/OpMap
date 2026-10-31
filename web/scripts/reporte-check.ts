@@ -822,6 +822,14 @@ seccion('7. Voz: vocabularioVG, PROMPT_PROPUESTA, contextoDictado, normalizarPro
   check('contextoDictado: fecha, hora, ejecutiva con líneas, sedes, médicos, contactos y subtipos', dictado.fecha === HOY && dictado.hora === '10:42' && dictado.ejecutiva.lineas.length === 2 && dictado.sedes.length === 2 && dictado.medicos.length === 1 && dictado.contactos.length === 1 && dictado.subtipos.length === 2)
   check('contextoDictado NUNCA deja documentos ni teléfonos aunque vengan en la entrada', !dictadoTexto.includes('1234567') && !dictadoTexto.includes('documento') && !dictadoTexto.includes('telefono') && !dictadoTexto.includes('3001234567'))
   check('contextoDictado: la sede trae cuenta y distancia; el médico sus sedes', dictado.sedes[0].cuenta === 'Clínica X' && dictado.sedes[0].distancia_m === 120 && dictado.medicos[0].sedes[0].id === SEDE1)
+  // Dueño, 2026-10-31 ("la próxima reunión es el próximo lunes"): el dictado completo recibe el día de hoy, como el de campo.
+  check('contextoDictado: el día de la semana de hoy (dia: "martes") y la regla 7 de PROMPT_PROPUESTA lo nombra', dictado.dia === 'martes' && /next_step_date[^\n]*"dia"/.test(PROMPT_PROPUESTA))
+  // Revisor 2026-10-31: por campo y completo, la misma frase da la misma fecha.
+  const reglaLunes = /"el lunes" o "el próximo lunes" es el primer lunes después de hoy/
+  check(
+    '"el lunes" o "el próximo lunes" = el primer lunes después de hoy, en la regla de next_step_date de PROMPT_PROPUESTA y de PROMPT_CAMPOS',
+    [PROMPT_PROPUESTA, PROMPT_CAMPOS].every(prompt => prompt.split('\n').some(linea => linea.includes('next_step_date') && reglaLunes.test(linea)))
+  )
 
   const crudaBase = (extra: Partial<PropuestaCruda['visitas'][number]> & Record<string, unknown> = {}): PropuestaCruda['visitas'][number] => ({
     tipo: 'medica',

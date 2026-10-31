@@ -748,7 +748,7 @@ function FilaDelResumen({ fila, abierta, alPresionar, children }: { fila: FilaRe
     <View style={{ borderBottomWidth: 1, borderBottomColor: c.borde }}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${fila.etiqueta}: ${fila.valor}. ${abierta ? 'Toca para cerrar' : 'Toca para corregir'}`}
+        accessibilityLabel={`${fila.etiqueta}: ${fila.valor}.${fila.aviso ? ` ${fila.aviso}` : ''} ${abierta ? 'Toca para cerrar' : 'Toca para corregir'}`}
         accessibilityState={{ expanded: abierta }}
         onPress={alPresionar}
         style={({ pressed }) => ({ minHeight: ALTO_TOQUE_MIN, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 10, opacity: pressed ? 0.7 : 1 })}
@@ -761,6 +761,12 @@ function FilaDelResumen({ fila, abierta, alPresionar, children }: { fila: FilaRe
               {fila.valor}
             </Texto>
           )}
+          {/* La próxima reunión en festivo o domingo (spec 2026-10-31); abierta, el aviso va bajo el campo. */}
+          {fila.aviso && !abierta ? (
+            <Texto peque color={c.alerta}>
+              {fila.aviso}
+            </Texto>
+          ) : null}
         </View>
         <Text style={[{ color: c.texto, fontSize: 14, lineHeight: 20 }, fuente('negrita')]}>{abierta ? 'Cerrar' : 'Cambiar'}</Text>
       </Pressable>
