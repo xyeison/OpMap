@@ -316,8 +316,8 @@ export function getAllowedRoutes(role: Role | undefined): string[] {
   const routes: string[] = []
   const permissions = rolePermissions[role] || []
   
-  // Siempre permitir logout y perfil
-  routes.push('/logout', '/profile')
+  // Siempre permitir logout y perfil, y el inicio de módulos (dueño, 2026-10-31: la cuadrícula tipo iPhone del rol)
+  routes.push('/logout', '/profile', RUTA_INICIO)
   
   // Mapear permisos a rutas. Sin dashboard (dueño, 2026-10-14): "/" solo lleva a getHomeRoute; dashboard:view
   // sigue en los roles pero ya no abre nada. Sin /zones: las Regiones se quitaron de la web el 2026-10-14 (la tabla
@@ -440,13 +440,31 @@ export function opcionActiva(items: readonly NavigationItem[], pathname: string 
   return (conPestana ?? sinPestana ?? deLaRuta[0]).href
 }
 
+/** El inicio de módulos (app/inicio/page.tsx). */
+export const RUTA_INICIO = '/inicio'
+
 /**
- * Página de inicio del rol: "/" (y el logo de OpMap) llevan al Mapa si el rol lo tiene; si no, a Calendario (recursos
- * humanos); si no, a la primera opción de su menú. null si el rol no tiene ninguna opción.
+ * Página de inicio del rol: "/" (y el logo de OpMap) llevan a /inicio, la cuadrícula de módulos del rol tipo iPhone
+ * (dueño, 2026-10-31, docs/decisiones/2026-10-31-inicio-de-modulos-tipo-iphone.md; antes iba al Mapa). null si el rol
+ * no tiene ninguna opción.
  */
 export function getHomeRoute(role: Role | undefined): string | null {
-  const rutas = getNavigationMenu(role).map(item => item.href)
-  return rutas.find(ruta => ruta === '/map') ?? rutas.find(ruta => ruta === '/calendario') ?? rutas[0] ?? null
+  return getNavigationMenu(role).length > 0 ? RUTA_INICIO : null
+}
+
+/**
+ * Los bloques de la cuadrícula de /inicio: las mismas opciones y el mismo orden del menú; las opciones sueltas seguidas
+ * (Agendamiento, Mapa, Calendario, Zonas, Líneas) van juntas en un bloque sin título y cada grupo (Terceros, Empleados,
+ * Inteligencia de Mercado, Configuración) en el suyo, con su título.
+ */
+export function bloquesDeInicio(items: readonly NavigationItem[]): Array<{ grupo: string | null; items: NavigationItem[] }> {
+  const bloques: Array<{ grupo: string | null; items: NavigationItem[] }> = []
+  for (const seccion of agruparMenu(items)) {
+    const ultimo = bloques[bloques.length - 1]
+    if (seccion.grupo === null && ultimo && ultimo.grupo === null) ultimo.items.push(...seccion.items)
+    else bloques.push({ grupo: seccion.grupo, items: [...seccion.items] })
+  }
+  return bloques
 }
 
 // Función para obtener el título del rol en español

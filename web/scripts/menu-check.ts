@@ -28,6 +28,8 @@ import {
   rolePermissions,
   seccionesConfiguracion,
   type Role,
+  RUTA_INICIO,
+  bloquesDeInicio,
 } from '../lib/permissions'
 import { alternarGrupo, gruposAbiertosAlEntrar, opcionDeLaPagina } from '../lib/menu-acordeon'
 
@@ -192,16 +194,31 @@ eq('activa en una ruta fuera del menú: ninguna', opcionActiva(menuAdmin, '/hosp
 eq('viewer en /inteligencia?tab=secop: Compras públicas', opcionActiva(getNavigationMenu('viewer'), '/inteligencia', '?tab=secop'), '/inteligencia?tab=secop')
 
 // ---------------------------------------------------------------------------------------------
-console.log('4. Página de inicio ("/" y el logo)')
+console.log('4. Página de inicio ("/" y el logo): /inicio, la cuadrícula de módulos tipo iPhone (dueño, 2026-10-31)')
 for (const rol of ROLES) {
   const inicio = getHomeRoute(rol)
-  if (hasPermission(rol, 'map:view')) eq(`${rol}: inicio en /map`, inicio, '/map')
-  const esperado = hrefs(rol).find(href => href === '/map') ?? hrefs(rol).find(href => href === '/calendario') ?? hrefs(rol)[0] ?? null
-  check(`${rol}: el inicio es el Mapa; sin mapa, Calendario; si no, la primera opción`, inicio === esperado, { inicio, menu: hrefs(rol) })
-  check(`${rol}: el inicio es una ruta permitida`, inicio !== null && getAllowedRoutes(rol).includes(inicio), inicio)
+  if (hrefs(rol).length > 0) eq(`${rol}: inicio en /inicio`, inicio, RUTA_INICIO)
+  else eq(`${rol}: sin opciones, sin inicio`, inicio, null)
+  check(`${rol}: /inicio es una ruta permitida`, getAllowedRoutes(rol).includes(RUTA_INICIO))
+  const bloques = bloquesDeInicio(getNavigationMenu(rol))
+  eq(`${rol}: los bloques del inicio traen las mismas opciones y el mismo orden que el menú`, bloques.flatMap(b => b.items.map(i => i.href)), hrefs(rol))
+  check(
+    `${rol}: las sueltas seguidas van en un solo bloque sin título y cada grupo en el suyo, una vez`,
+    bloques.every((b, i) => i === 0 || !(b.grupo === null && bloques[i - 1].grupo === null)) && new Set(bloques.filter(b => b.grupo).map(b => b.grupo)).size === bloques.filter(b => b.grupo).length,
+    bloques.map(b => b.grupo)
+  )
 }
-eq('recursos humanos (sin mapa): inicio en /calendario', getHomeRoute('hr'), '/calendario')
 eq('sin rol: sin inicio', getHomeRoute(undefined), null)
+eq('recursos humanos (sin mapa): también /inicio', getHomeRoute('hr'), RUTA_INICIO)
+eq('admin: primero el bloque de las sueltas (Mapa de primero) y luego Terceros', bloquesDeInicio(getNavigationMenu('admin')).slice(0, 2).map(b => b.grupo), [null, 'Terceros'])
+eq('admin: el bloque de las sueltas empieza por el Mapa', bloquesDeInicio(getNavigationMenu('admin'))[0]?.items[0]?.href, '/map')
+eq('líder: Agendamiento es el primer módulo del inicio', bloquesDeInicio(getNavigationMenu('line_leader'))[0]?.items[0]?.href, '/campo/agenda')
+const inicioPagina = readFileSync(path.join(__dirname, '..', 'app', 'inicio', 'page.tsx'), 'utf8')
+check(
+  '/inicio: página rehecha (data-sigue-tema), cuadrícula por bloquesDeInicio, Agendamiento como página completa (<a>) y sin "KAM", "Vacante" ni "panel"',
+  /data-sigue-tema/.test(inicioPagina) && /bloquesDeInicio\(navigationMenu\)/.test(inicioPagina) && /esAppDeCampo\(item\.href\)/.test(inicioPagina) && /grid-cols-3/.test(inicioPagina) && !/KAM|Vacante|panel/i.test(inicioPagina)
+)
+check('el logo de OpMap (NavigationWithPermissions) y "/" llevan a getHomeRoute, que ahora es /inicio', /const inicio = getHomeRoute\(role\)/.test(readFileSync(path.join(__dirname, '..', 'components', 'NavigationWithPermissions.tsx'), 'utf8')) && /getHomeRoute\(role\)/.test(readFileSync(path.join(__dirname, '..', 'app', 'page.tsx'), 'utf8')))
 
 // ---------------------------------------------------------------------------------------------
 console.log('5. Rutas permitidas')
