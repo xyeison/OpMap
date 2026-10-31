@@ -97,7 +97,10 @@ Con la rama publicada (preview de Vercel o producción) y la app instalada desde
    la franja ofrece "Actualizar"; la visita pendiente sube y, después, "Actualizar" recarga la app. La visita sigue
    enviada y nada se perdió.
 8. **GPS**: en una IPS con coordenadas, la tarjeta dice "en sitio" con la precisión (±N m); a más de 300 m, "lejos de la
-   IPS: queda marcada" y se puede guardar igual. Con el GPS apagado, "sin ubicación" y se guarda igual. En una pestaña
+   IPS: queda marcada" y se puede guardar igual. Con el GPS apagado, "sin ubicación" y se guarda igual. El croquis de
+   arriba (también en "Revisa la visita") dibuja la sede de la cita o la elegida con su círculo y tu punto, y la pastilla
+   de la derecha dice "En rango" (verde) o "Fuera de rango · 4,8 km" (roja); con la sede lejos, tu punto va pegado al
+   borde con "Estás a 4,8 km" (nunca el círculo de otra sede más cercana). En una pestaña
    de Safari o Chrome (no instalada), si el sitio quedó con la ubicación bloqueada la app lo dice en el acto con los
    pasos para permitirla (Safari: «aA» › Ajustes del sitio web › Ubicación; Chrome: Ajustes del iPhone › Chrome);
    "sal a un lugar abierto" es solo para GPS apagado o sin señal de satélite.

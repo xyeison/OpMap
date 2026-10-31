@@ -34,6 +34,8 @@ export interface EntradaCroquis {
   minimoM?: number
   /** Lo más que se ve en el lado corto (m): una sede lejana no se dibuja (se queda la tuya y su radio). */
   maximoM?: number
+  /** Lo que va encima del croquis (el logotipo de Hoy, la pastilla de rango): tu punto al borde no se mete debajo. */
+  evitar?: readonly (CajaCroquis | null)[]
 }
 
 export interface MarcaSede {
@@ -47,7 +49,12 @@ export interface MarcaSede {
 export interface PlanCroquis {
   /** Metros que vale un punto (pt) del croquis. */
   metrosPorPunto: number
-  yo: { x: number; y: number; halo: number } | null
+  /**
+   * Tu punto. `enBorde`: la sede pedida queda más lejos de lo que cabe, así que el croquis se centró en ella y tu
+   * punto va pegado al borde, en la dirección en que estás (dueño, 2026-10-31: la sede de la cita manda, no la más
+   * cercana a tu casa).
+   */
+  yo: { x: number; y: number; halo: number; enBorde: boolean } | null
   /** Sedes dentro del croquis (la del foco siempre, si tiene coordenadas). */
   sedes: MarcaSede[]
   /** El radio presencial alrededor de la sede del foco. */
@@ -63,6 +70,8 @@ export const MAXIMO_CROQUIS_M = 3000
 export const HALO_MINIMO = 14
 /** Sedes que se dibujan como mucho (además de la del foco). */
 export const MAX_SEDES_CROQUIS = 12
+/** A cuánto del borde se pega tu punto cuando la sede pedida queda lejos (pt; el punto mide 16 y su halo 14 de radio). */
+export const BORDE_YO_LEJOS = 22
 /** Alto del croquis (pt, debajo de la hora y la batería) y el que lleva en pantallas de menos de 700 pt de alto. */
 export const ALTO_CROQUIS = 170
 export const ALTO_CROQUIS_BAJO = 120
@@ -90,14 +99,56 @@ function conCoordenadas(sede: SedeCroquis): sede is SedeCroquis & Punto {
   return esPunto(sede.lat, sede.lng)
 }
 
+/** Márgenes de cada lado (pt). */
+export interface Margenes {
+  arriba: number
+  abajo: number
+  izquierda: number
+  derecha: number
+}
+
+/**
+ * Donde la recta del centro `desde` hacia `hacia` corta el rectángulo que dejan los márgenes (un número: el mismo en
+ * los cuatro lados). Si `hacia` ya está dentro, devuelve `hacia`.
+ */
+export function puntoAlBorde(desde: { x: number; y: number }, hacia: { x: number; y: number }, medidas: { ancho: number; alto: number; margen: number | Margenes }): { x: number; y: number } {
+  const { ancho, alto } = medidas
+  const m: Margenes = typeof medidas.margen === 'number' ? { arriba: medidas.margen, abajo: medidas.margen, izquierda: medidas.margen, derecha: medidas.margen } : medidas.margen
+  const dx = hacia.x - desde.x
+  const dy = hacia.y - desde.y
+  if (Math.abs(dx) < 1e-9 && Math.abs(dy) < 1e-9) return { x: desde.x, y: Math.max(m.arriba, Math.min(alto - m.abajo, desde.y)) }
+  const tx = dx > 0 ? (ancho - m.derecha - desde.x) / dx : dx < 0 ? (m.izquierda - desde.x) / dx : Infinity
+  const ty = dy > 0 ? (alto - m.abajo - desde.y) / dy : dy < 0 ? (m.arriba - desde.y) / dy : Infinity
+  const t = Math.max(0, Math.min(1, tx, ty))
+  return { x: desde.x + dx * t, y: desde.y + dy * t }
+}
+
+
 /**
  * Dónde va cada cosa. Centro y escala: lo que entra es tu punto (con su precisión) y el círculo del radio de la sede
  * del foco; el lado corto ve entre `minimoM` y `maximoM`. Sin tu punto, se centra en la sede del foco; sin nada con
  * coordenadas, null (no hay croquis que dibujar).
+ *
+ * La sede PEDIDA manda (dueño, 2026-10-31: "me voy a reportar OINSAMED y sale Portoazul porque vivo cerca de
+ * Portoazul"): si está entre las ubicadas es el foco aunque quede lejos; si a la escala máxima tu punto no cabe en el
+ * dibujo (revisor 2026-10-31: por si cabe, no por los metros; en vertical caben menos), el croquis se centra en ella con
+ * su radio y tu punto se pega al borde (`yo.enBorde`), sin meterse debajo de lo que va encima (`evitar`). Si se pidió
+ * una sede que no tiene coordenadas, no hay foco (nada de dibujar el radio de otra). Solo sin sede pedida el foco es la
+ * más cercana a ti, si se ve.
  */
 export function planCroquis(entrada: EntradaCroquis): PlanCroquis | null {
   const { ancho, alto } = entrada
   if (!(ancho > 0) || !(alto > 0)) return null
+  const normal = armarCroquis(entrada, false)
+  if (!normal) return null
+  // Con la sede pedida y tu punto fuera del dibujo (o casi), se vuelve a armar centrado en la sede, contigo al borde.
+  const cabe = (p: { x: number; y: number }) => p.x >= BORDE_YO_LEJOS && p.x <= ancho - BORDE_YO_LEJOS && p.y >= BORDE_YO_LEJOS && p.y <= alto - BORDE_YO_LEJOS
+  if (entrada.foco && normal.foco && normal.yo && !cabe(normal.yo)) return armarCroquis(entrada, true)
+  return normal
+}
+
+function armarCroquis(entrada: EntradaCroquis, lejos: boolean): PlanCroquis | null {
+  const { ancho, alto } = entrada
   const margen = entrada.margen ?? MARGEN_CROQUIS
   const minimoM = entrada.minimoM ?? MINIMO_CROQUIS_M
   const maximoM = entrada.maximoM ?? MAXIMO_CROQUIS_M
@@ -107,17 +158,19 @@ export function planCroquis(entrada: EntradaCroquis): PlanCroquis | null {
   const ubicadas = entrada.sedes.filter(conCoordenadas).filter((sede, i, todas) => todas.findIndex(otra => otra.id === sede.id) === i)
   const pedida = entrada.foco ? (ubicadas.find(s => s.id === entrada.foco) ?? null) : null
   const cercana = yo && ubicadas.length > 0 ? [...ubicadas].sort((a, b) => haversineM(yo, a) - haversineM(yo, b))[0] : null
-  // La pedida si queda dentro de lo que se ve (sin tu punto, siempre); si no, la más cercana a ti, con la misma condición.
   const seVe = (sede: Punto) => !yo || haversineM(yo, sede) <= maximoM
-  const foco = pedida && seVe(pedida) ? pedida : cercana && seVe(cercana) ? cercana : null
-  const origen: Punto | null = yo ?? foco ?? null
+  // La pedida siempre; sin pedida, la más cercana a ti si queda dentro de lo que se ve (sin tu punto, siempre).
+  const foco = entrada.foco ? pedida : cercana && seVe(cercana) ? cercana : null
+  if (lejos && (!yo || !foco)) return null
+  const origen: Punto | null = lejos ? foco : (yo ?? foco ?? null)
   if (!origen) return null
+  const yoM = yo ? metrosDesde(origen, yo) : null
 
-  // Caja (en metros desde el origen) de lo que tiene que entrar.
+  // Caja (en metros desde el origen) de lo que tiene que entrar (tu punto no, cuando va al borde).
   const cajas: { x0: number; x1: number; y0: number; y1: number }[] = []
-  if (yo) {
-    const p = Math.max(10, Number.isFinite(yo.precision ?? NaN) ? (yo.precision as number) : 10)
-    cajas.push({ x0: -p, x1: p, y0: -p, y1: p })
+  if (yoM && !lejos) {
+    const p = Math.max(10, Number.isFinite(yo?.precision ?? NaN) ? (yo?.precision as number) : 10)
+    cajas.push({ x0: yoM.x - p, x1: yoM.x + p, y0: yoM.y - p, y1: yoM.y + p })
   }
   if (foco) {
     const f = metrosDesde(origen, foco)
@@ -149,14 +202,26 @@ export function planCroquis(entrada: EntradaCroquis): PlanCroquis | null {
   sedes.sort((a, b) => Number(b.foco) - Number(a.foco) || Math.hypot(a.x - ancho / 2, a.y - alto / 2) - Math.hypot(b.x - ancho / 2, b.y - alto / 2))
   const recortadas = sedes.slice(0, MAX_SEDES_CROQUIS + (foco ? 1 : 0))
 
-  const planYo = yo
-    ? (() => {
-        const p = aPantalla({ x: 0, y: 0 })
-        const precision = Number.isFinite(yo.precision ?? NaN) ? (yo.precision as number) : 0
-        return { x: p.x, y: p.y, halo: Math.max(HALO_MINIMO, precision / metrosPorPunto) }
-      })()
-    : null
   const planFoco = foco ? aPantalla(metrosDesde(origen, foco)) : null
+  const planYo =
+    yo && yoM
+      ? (() => {
+          const p = aPantalla(yoM)
+          const precision = Number.isFinite(yo.precision ?? NaN) ? (yo.precision as number) : 0
+          const halo = Math.max(HALO_MINIMO, precision / metrosPorPunto)
+          if (lejos && planFoco) {
+            const cajas = (entrada.evitar ?? []).filter((c): c is CajaCroquis => c !== null)
+            let borde = puntoAlBorde(planFoco, p, { ancho, alto, margen: BORDE_YO_LEJOS })
+            // Debajo del logotipo o de la pastilla no: se baja el margen de arriba hasta debajo de lo que tape.
+            if (puntoTapado(borde, cajas)) {
+              const arriba = Math.max(...cajas.map(c => c.y + c.alto)) + 8 + BORDE_YO_LEJOS
+              borde = puntoAlBorde(planFoco, p, { ancho, alto, margen: { arriba: Math.min(arriba, alto - BORDE_YO_LEJOS), abajo: BORDE_YO_LEJOS, izquierda: BORDE_YO_LEJOS, derecha: BORDE_YO_LEJOS } })
+            }
+            return { x: borde.x, y: borde.y, halo: HALO_MINIMO, enBorde: true }
+          }
+          return { x: p.x, y: p.y, halo, enBorde: false }
+        })()
+      : null
   const distanciaM = foco && yo ? haversineM(yo, foco) : null
 
   return {
@@ -166,6 +231,15 @@ export function planCroquis(entrada: EntradaCroquis): PlanCroquis | null {
     radio: planFoco && radioM ? { x: planFoco.x, y: planFoco.y, r: radioM / metrosPorPunto } : null,
     foco: foco ? { id: foco.id, nombre: foco.nombre, distanciaM, dentro: distanciaM !== null && radioM !== null ? distanciaM <= radioM : null } : null,
   }
+}
+
+/**
+ * Lo que dice la etiqueta de tu punto: la que pasó la pantalla ("Estás aquí · ±12 m") o, con tu punto pegado al borde
+ * porque la sede pedida queda lejos, "Estás a 4,8 km" (la distancia real a esa sede).
+ */
+export function etiquetaYoDelPlan(plan: PlanCroquis | null, etiqueta: string | null, textoDistancia: (m: number) => string): string | null {
+  if (plan?.yo?.enBorde && plan.foco && plan.foco.distanciaM !== null) return `Estás a ${textoDistancia(plan.foco.distanciaM)}`
+  return etiqueta
 }
 
 /** ¿La etiqueta "Estás aquí" va a la izquierda de tu punto? Sí si la sede del foco queda a tu derecha (no se tapan). */
@@ -201,18 +275,27 @@ const solape = (a: CajaCroquis, b: CajaCroquis) =>
   Math.max(0, Math.min(a.x + a.ancho, b.x + b.ancho) - Math.max(a.x, b.x) - TOLERANCIA_ROCE) *
   Math.max(0, Math.min(a.y + a.alto, b.y + b.alto) - Math.max(a.y, b.y) - TOLERANCIA_ROCE)
 
+/** ¿Tu punto (16 pt más `aire`) en `p` se mete en alguna de las cajas? */
+function puntoTapado(p: { x: number; y: number }, cajas: readonly CajaCroquis[], aire = 4): boolean {
+  const mio: CajaCroquis = { x: p.x - 8 - aire, y: p.y - 8 - aire, ancho: 16 + 2 * aire, alto: 16 + 2 * aire }
+  return cajas.some(caja => solape(mio, caja) > 0)
+}
+
 /** Borde izquierdo de la caja (de ANCHO_NOMBRE_SEDE) donde va centrado el nombre de una sede en `x`: no se sale. */
 export function izquierdaNombreSede(x: number, ancho: number): number {
   return entre(x - ANCHO_NOMBRE_SEDE / 2, BORDE_ETIQUETA, ancho - ANCHO_NOMBRE_SEDE - BORDE_ETIQUETA)
 }
 
-/** Dónde queda la pastilla con el nombre de la sede del foco (de `anchoPastilla`, centrada en su caja); null sin foco. */
-export function cajaNombreSede(plan: PlanCroquis, ancho: number, anchoPastilla = ANCHO_NOMBRE_SEDE): CajaCroquis | null {
+/**
+ * Dónde queda la pastilla con el nombre de la sede del foco (de `anchoPastilla`, centrada en su caja); null sin foco.
+ * `evitar`: lo que va encima del croquis (logotipo, pastilla de rango), para mandar el nombre debajo si arriba choca.
+ */
+export function cajaNombreSede(plan: PlanCroquis, ancho: number, anchoPastilla = ANCHO_NOMBRE_SEDE, evitar: readonly (CajaCroquis | null)[] = []): CajaCroquis | null {
   const foco = plan.sedes.find(s => s.foco)
   if (!foco) return null
   const w = Math.min(anchoPastilla, ANCHO_NOMBRE_SEDE)
   const centro = izquierdaNombreSede(foco.x, ancho) + ANCHO_NOMBRE_SEDE / 2
-  const y = etiquetaSedeArriba(plan) ? foco.y - SEPARACION_ETIQUETA - ALTO_ETIQUETA_CROQUIS : foco.y + SEPARACION_ETIQUETA
+  const y = etiquetaSedeArriba(plan, w, evitar, ancho) ? foco.y - SEPARACION_ETIQUETA - ALTO_ETIQUETA_CROQUIS : foco.y + SEPARACION_ETIQUETA
   return { x: centro - w / 2, y, ancho: w, alto: ALTO_ETIQUETA_CROQUIS }
 }
 
@@ -261,14 +344,21 @@ export function posicionEtiquetaYo(
 }
 
 /**
- * ¿El nombre de la sede del foco va encima de su marca o debajo? Encima, salvo que ahí tape tu punto (o se salga por
- * arriba); entonces debajo.
+ * ¿El nombre de la sede del foco va encima de su marca o debajo? Encima, salvo que ahí tape tu punto, se salga por
+ * arriba o choque con lo que va encima del croquis (`evitar`: el logotipo de Hoy, la pastilla de rango; revisor
+ * 2026-10-31: en el croquis de 120 pt la pastilla tapaba el nombre de la sede centrada); entonces debajo.
  */
-export function etiquetaSedeArriba(plan: PlanCroquis, anchoEtiqueta = 180): boolean {
+export function etiquetaSedeArriba(plan: PlanCroquis, anchoEtiqueta = 180, evitar: readonly (CajaCroquis | null)[] = [], ancho?: number): boolean {
   const foco = plan.sedes.find(s => s.foco)
   if (!foco) return true
   const arriba = { y0: foco.y - SEPARACION_ETIQUETA - ALTO_ETIQUETA_CROQUIS - 6, y1: foco.y - 6 }
   if (arriba.y0 < 0) return false
+  if (ancho !== undefined) {
+    const w = Math.min(anchoEtiqueta, ANCHO_NOMBRE_SEDE)
+    const centro = izquierdaNombreSede(foco.x, ancho) + ANCHO_NOMBRE_SEDE / 2
+    const caja: CajaCroquis = { x: centro - w / 2, y: foco.y - SEPARACION_ETIQUETA - ALTO_ETIQUETA_CROQUIS, ancho: w, alto: ALTO_ETIQUETA_CROQUIS }
+    if (evitar.some(c => c !== null && solape(caja, c) > 0)) return false
+  }
   if (!plan.yo) return true
   const tapaTuPunto = Math.abs(plan.yo.x - foco.x) < anchoEtiqueta / 2 + 10 && plan.yo.y + 10 > arriba.y0 && plan.yo.y - 10 < arriba.y1
   return !tapaTuPunto

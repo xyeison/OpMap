@@ -60,7 +60,7 @@
 import { useFocusEffect, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, View } from 'react-native'
-import { Croquis } from '../../components/Croquis'
+import { Croquis, PastillaRango } from '../../components/Croquis'
 import { Buscador } from '../../components/reporte/Buscador'
 import { Grabador, pedirPermisoMicrofono } from '../../components/reporte/Grabador'
 import { ListaCitas } from '../../components/reporte/ListaCitas'
@@ -75,6 +75,7 @@ import { FRESCURA_PINTAR_MS, contextoReciente } from '../../lib/contexto-memoria
 import { aApiError, esNoDisponible, esTransitorio, mensajeDeError, type ApiError } from '../../lib/errores'
 import { fechaLarga, horaBogota, hoyBogota, isoBogota } from '../../lib/fechas'
 import { textoDistancia, textoPrecision, type Punto } from '../../lib/geo'
+import { estadoDeRango, rangoDeSede } from '../../lib/rango-sede'
 import { segundosDe } from '../../lib/grabacion'
 import { vibrarAviso, vibrarExito } from '../../lib/haptica'
 import { Icono } from '../../lib/iconos'
@@ -103,6 +104,7 @@ import {
   type MedicoOpcion,
   type SedeOpcion,
   type VisitaHoyTope,
+  distanciaASede,
 } from '../../lib/propuesta'
 import { conQuienCita, cuentaDistinta, plural, sinCortes, textoHoraCita } from '../../lib/reglas'
 import {
@@ -1016,6 +1018,25 @@ export default function Reportar() {
   const totalVisitas = yaConfirmadas + borradores.length
   /** La primera tarjeta abierta se confirma desde el pie fijo (visible sin desplazar); las demás, con su propio botón. */
   const primeraAbierta = fase === 'tarjetas' ? (borradores[0] ?? null) : null
+  /**
+   * El croquis (dueño, 2026-10-31): mientras se elige Y con tarjetas ("Revisa la visita"). Su sede: la de la cita o la
+   * elegida; con tarjetas, la de la primera abierta (si la cambias en la tarjeta, el croquis la sigue). Con tarjetas
+   * entran también las sedes de los médicos (la de la tarjeta puede ser una de ellas).
+   */
+  const conCroquis = fase === 'lista' || (fase === 'tarjetas' && borradores.length > 0)
+  const sedeDelCroquis = fase === 'tarjetas' ? (primeraAbierta?.sede_id ?? null) : (cita?.sede.id ?? sede?.id ?? null)
+  const sedesDelCroquis = [...catalogo.sedes, ...citasHoy.map(c => c.sede), ...(fase === 'tarjetas' ? catalogo.medicos.flatMap(m => m.sedes.map(s => ({ id: s.id, nombre: s.nombre, lat: s.lat ?? null, lng: s.lng ?? null }))) : [])]
+  /** La pastilla "En rango / Fuera de rango" (lib/rango-sede.ts): la misma cuenta que el servidor, solo avisa. */
+  const rango =
+    fase === 'tarjetas' && primeraAbierta
+      ? (() => {
+          if (!primeraAbierta.sede_id) return null
+          const distancia = distanciaASede(primeraAbierta, catalogo, punto)
+          return estadoDeRango({ punto, distanciaM: distancia.distancia_m, conocida: distancia.conocida, radioM, telefonica: primeraAbierta.modalidad === 'telefonica' })
+        })()
+      : fase === 'lista'
+        ? rangoDeSede(cita?.sede ?? sede ?? null, punto, radioM)
+        : null
   // El pie dice qué se confirma y, si falta algo o el servidor la rechazó, lo dice ahí (la tarjeta puede estar fuera de la
   // vista y la vibración no se siente en todos lados).
   const estadoPrimera = primeraAbierta ? estadoDe(primeraAbierta.clave) : null
@@ -1064,17 +1085,19 @@ export default function Reportar() {
 
   return (
     <Pantalla pie={pie}>
-      {/* Estilo Uber: mientras se elige, el croquis arriba (tu punto, las sedes y el radio de la elegida) y la hoja. */}
-      {fase === 'lista' ? (
+      {/* Estilo Uber: mientras se elige y al revisar, el croquis arriba (tu punto, las sedes, el radio de la sede que se
+          reporta y la pastilla "En rango / Fuera de rango") y la hoja. */}
+      {conCroquis ? (
         <Croquis
           yo={punto}
-          sedes={[...catalogo.sedes, ...citasHoy.map(c => c.sede)]}
-          foco={cita?.sede.id ?? sede?.id ?? null}
+          sedes={sedesDelCroquis}
+          foco={sedeDelCroquis}
           radioM={radioM}
           etiquetaYo={punto ? `Estás aquí${punto.precision != null ? ` · ${textoPrecision(punto.precision)}` : ''}` : null}
+          arribaDerecha={rango ? <PastillaRango tono={rango.tono} texto={rango.texto} /> : undefined}
         />
       ) : null}
-      {fase === 'lista' ? <BordeHoja /> : null}
+      {conCroquis ? <BordeHoja /> : null}
       {fase === 'tarjetas' && borradores.length > 0 ? <Titulo>{borradores.length > 1 ? 'Revisa las visitas' : 'Revisa la visita'}</Titulo> : null}
 
       {/* 1. Dónde estás (con tarjetas abiertas, en una línea: la tarjeta va primero) */}
