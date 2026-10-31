@@ -17,9 +17,7 @@ import { URL_API } from '../../lib/api'
 import { useCola } from '../../lib/cola-contexto'
 import { esServidorDesarrollo, nombreServidor } from '../../lib/http'
 import { Icono } from '../../lib/iconos'
-import { dondeIrAOpMap } from '../../lib/navegacion'
 import { muestraDiasLibres, papelesDePersona } from '../../lib/persona'
-import { correInstalada, irAOpMap } from '../../lib/pwa'
 import { plural, tituloRol } from '../../lib/reglas'
 import { useSesion } from '../../lib/sesion'
 import type { PreferenciaTema } from '../../lib/tema'
@@ -136,12 +134,6 @@ export default function Ajustes() {
         </Texto>
       </Tarjeta>
 
-      {/* En el navegador la app vive dentro de OpMap (/campo, 2026-10-30): volver a la web sin escribir la dirección. Aquí
-          solo en la app instalada: en una pestaña va en la franja de arriba, y sin señal en ninguna parte (OpMap no abre
-          sin señal; lib/navegacion.ts dondeIrAOpMap, revisión 2026-10-31). */}
-      {dondeIrAOpMap(correInstalada(), enLinea) === 'ajustes' ? (
-        <Boton titulo="Ir a OpMap" variante="secundario" alPresionar={() => irAOpMap()} />
-      ) : null}
       <Boton titulo="Cerrar sesión" variante="peligro" cargando={saliendo} alPresionar={() => void cerrarSesion()} />
     </Pantalla>
   )

@@ -127,9 +127,7 @@ nada llama a Google.
   `public/campo` (no se versiona). Llama a la API de su mismo origen. `/campo` es pública como página (`esAppDeCampo`
   de `lib/app-campo.ts`). Sin tiendas: cada push a master la publica. Las líderes la abren con "Agendamiento" en el menú de
   OpMap (permiso `campo:app`), con un solo ingreso: login `campo-web` y `POST /api/auth/sesion-app`
-  (`docs/specs/2026-10-30-agendamiento-lider-un-ingreso.md`). En una pestaña del navegador y con señal la franja de
-  arriba lleva "OpMap" para volver con el menú; desde Reportar y los formularios pregunta antes, porque lo escrito ahí
-  vive en memoria (2026-10-31; `dondeIrAOpMap`: en la app instalada va en Ajustes, en el teléfono no va).
+  (`docs/specs/2026-10-30-agendamiento-lider-un-ingreso.md`).
 - **Médicos y contactos sin duplicados** (dueño, 2026-10-30, `docs/decisiones/2026-10-30-medicos-y-contactos-sin-duplicados.md`):
   - el médico se crea y se corrige solo con CC o CE, en `/medicos`, Reportar y Agendar (una sola tabla web+app);
   - se crea desde la búsqueda que no encontró a nadie; "Nuevo médico" arriba solo si la lista cabe en una página;
@@ -149,6 +147,13 @@ nada llama a Google.
   todas las opciones del rol, en acordeón por grupo. Las páginas aún no rehechas siguen en claro (`<main data-tema="claro">`);
   la rehecha lleva `data-sigue-tema`. En el Mapa solo cambia la barra de arriba: su leyenda, filtros y buscador conservan
   la letra de antes (Inter) hasta que el dueño autorice cambiarlos (`docs/mapa-estetica.md`).
+  Desde el 2026-10-31 (dueño, `docs/decisiones/2026-10-31-inicio-de-modulos-tipo-iphone.md`) "/" y el logotipo abren
+  `/inicio`, la cuadrícula de módulos del rol tipo iPhone (`bloquesDeInicio`; el Mapa es el primer cuadro, ya no la
+  página de inicio), y la app de campo lleva en su franja de estado el botón "OpMap" que vuelve a `/inicio`
+  (`mobile/lib/opmap-enlace.ts`: misma pestaña; instalada, otra pestaña; sin señal, solo avisa). Es la única salida a
+  OpMap de la app (Ajustes ya no lleva "Ir a OpMap"), y si va a salir en la misma pestaña desde Reportar o un formulario
+  pregunta antes, porque lo escrito ahí vive en memoria (`preguntaAntesDeIrAOpMap`,
+  `docs/specs/2026-10-31-menu-volver-opmap-cruce-reps.md`).
 - **La app de campo trabaja sin señal y el servidor MARCA, no rechaza** (dueño, 2026-10-30,
   `docs/decisiones/2026-10-30-campo-sin-senal-marcas-en-vez-de-rechazos.md`, spec `docs/specs/2026-10-30-campo-sin-senal-pwa.md`):
   la visita siempre se guarda (otro día, lejos de la IPS, sin GPS, precisión baja, IPS sin coordenadas, hora del

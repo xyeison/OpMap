@@ -216,3 +216,12 @@ ejecutiva o darla de baja, sus asignaciones vigentes de esa línea se terminan s
 pues ya no está") y lo suyo se pasa a otra persona con el traspaso en un paso: ver
 [`docs/decisiones/2026-10-12-traspaso-de-ejecutivas.md`](../decisiones/2026-10-12-traspaso-de-ejecutivas.md) y la spec
 `docs/specs/2026-10-12-traspaso-ejecutivo-comercial.md` (migración 0820, escrita y sin aplicar).
+
+## Datos de prueba en Barranquilla (2026-10-31)
+
+`web/scripts/datos-prueba-barranquilla.ts` crea (y con `--borrar` quita) datos de PRUEBA para la app de campo, pedidos
+por el dueño el 2026-10-31: 10 médicos marcados "(prueba)" (CC 9000001xx, `notas` con la marca del script) que atienden
+en IPS reales de Barranquilla y Puerto Colombia, tres con consultorio (coordenadas de prueba a unos 150 m de una clínica
+real, `ubicacion_confirmada = false`), todos creados por la líder de Medicina deportiva y de su línea (`medico_lineas`),
+y 11 contactos de IPS con correo `@prueba.opmap.local`. Sin `--run` solo muestra la vista previa; volver a correrlo no
+duplica. Cargado en producción el 2026-10-31.

@@ -1,14 +1,15 @@
 /**
  * Paso 1 de Reportar: las sedes a menos de 1 km (también en el croquis de arriba), la más cercana arriba, con su
  * distancia y si está dentro del radio para la visita presencial. Tocar una la deja elegida para las visitas que se
- * reporten. Estilo Uber (2026-10-15): filas con separador fino; la elegida, con borde negro y "✓".
+ * reporten. Estilo Uber (2026-10-15); la elegida, con borde negro y "✓". Desde el 2026-10-31 (dueño: "no es claro cuál
+ * es la opción que se puede tocar") cada sede es una TARJETA con borde y "›", no una fila con separador.
  */
 import { Pressable, View } from 'react-native'
 import { sinCortes } from '../../lib/reglas'
 import { textoDistancia } from '../../lib/geo'
 import type { SedeOpcion } from '../../lib/propuesta'
 import { etiquetaClaseCuenta } from '../../lib/terceros'
-import { FilaLista, Grupo, Insignia, TAMANO, Texto, Vacio, useColores } from '../../lib/ui'
+import { Grupo, IconoUi, Insignia, TAMANO, Tarjeta, Texto, Vacio, useColores } from '../../lib/ui'
 
 interface Props {
   sedes: readonly SedeOpcion[]
@@ -25,8 +26,8 @@ export function ListaSedes({ sedes, radioM, elegida, alElegir, max = 12, vacio =
   const ordenadas = [...sedes].sort((a, b) => (a.distancia_m ?? Infinity) - (b.distancia_m ?? Infinity)).slice(0, max)
   if (ordenadas.length === 0) return <Vacio texto={vacio} />
   return (
-    <View>
-      {ordenadas.map((sede, i) => {
+    <View style={{ gap: 8 }}>
+      {ordenadas.map(sede => {
         const dentro = sede.distancia_m !== null && sede.distancia_m <= radioM
         const activa = sede.id === elegida
         const etiqueta = `${sede.nombre}${sede.distancia_m !== null ? `, a ${textoDistancia(sede.distancia_m)}` : ''}`
@@ -66,9 +67,10 @@ export function ListaSedes({ sedes, radioM, elegida, alElegir, max = 12, vacio =
           )
         }
         return (
-          <FilaLista key={sede.id} primera={i === 0} alPresionar={() => alElegir(sede.id)} etiquetaAccesible={etiqueta}>
-            {contenido}
-          </FilaLista>
+          <Tarjeta key={sede.id} alPresionar={() => alElegir(sede.id)} etiquetaAccesible={etiqueta} estilo={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14 }}>
+            <View style={{ flex: 1 }}>{contenido}</View>
+            <IconoUi nombre="adelante" color={c.textoSuave} tamano={18} />
+          </Tarjeta>
         )
       })}
     </View>

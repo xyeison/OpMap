@@ -12,10 +12,8 @@
  * - Almacenamiento persistente: navigator.storage.persist() al entrar; si el navegador lo niega o no existe, Hoy avisa.
  * - Modo incógnito / almacenamiento no fiable: no se puede detectar con certeza; se avisa si persist() dice que no o si
  *   IndexedDB no abre. Y se detecta si la app corre instalada (display-mode: standalone) para ofrecer "Agregar a inicio".
- * - Volver a OpMap (dueño, 2026-10-31): en una pestaña del navegador la franja de arriba lleva "OpMap" (irAOpMap).
  */
 import { Platform } from 'react-native'
-import { RUTA_OPMAP } from './navegacion'
 import { ETIQUETA_SYNC } from './pwa-reglas'
 
 export { ETIQUETA_SYNC, almacenamientoDudoso } from './pwa-reglas'
@@ -27,7 +25,7 @@ type Ventana = {
     standalone?: boolean
   }
   matchMedia?: (consulta: string) => { matches: boolean }
-  location?: { reload: () => void; assign?: (url: string) => void }
+  location?: { reload: () => void }
   __campoSW?: { versionNueva: boolean; oyentes: ((hay: boolean) => void)[] }
   SyncManager?: unknown
 }
@@ -102,14 +100,6 @@ export function correInstalada(): boolean | null {
   } catch {
     return false
   }
-}
-
-/**
- * Vuelve a OpMap (la web, con su menú) en la misma pestaña; en el teléfono no hace nada. Salir no pierde lo pendiente:
- * vive en IndexedDB y se sube al volver a abrir la app.
- */
-export function irAOpMap(): void {
-  ventana()?.location?.assign?.(RUTA_OPMAP)
 }
 
 /** iPhone o iPad (Safari): la instalación es desde "Compartir"; no hay Background Sync. */

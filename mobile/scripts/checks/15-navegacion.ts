@@ -9,7 +9,7 @@
  */
 import { usarMotorHaptico, vibrarAviso, vibrarExito, vibrarSuave, type ToqueHaptico } from '../../lib/haptica'
 import { GLIFOS_ICONOS, type NombreIcono } from '../../lib/iconos-nombres'
-import { MAX_LETRAS_PESTANA, OCULTAS, PESTANAS, RUTA_OPMAP, dondeIrAOpMap, letras, preguntaAntesDeIrAOpMap, rutaDeSegmentos } from '../../lib/navegacion'
+import { MAX_LETRAS_PESTANA, OCULTAS, PESTANAS, letras, preguntaAntesDeIrAOpMap, rutaDeSegmentos } from '../../lib/navegacion'
 import { ALTO_TOQUE_MIN, COLORES_CLAROS, COLORES_OSCUROS, TAMANO, contraste, type Colores } from '../../lib/paleta'
 import type { Probador } from './probador'
 
@@ -189,7 +189,7 @@ export async function pruebas(t: Probador): Promise<void> {
   const nombres = Object.keys(GLIFOS_ICONOS) as NombreIcono[]
   const faltanTodos = nombres.flatMap(n => [GLIFOS_ICONOS[n].relleno, GLIFOS_ICONOS[n].contorno]).filter(g => !(g in glifos))
   // Estilo Uber (2026-10-15): 14 + compromiso y agregar (la revisión quitó ubicación y buscar, que no se usaban).
-  t.check('íconos: los 16 nombres tienen relleno y contorno en ese glyphmap', nombres.length === 16 && faltanTodos.length === 0, { nombres: nombres.length, faltanTodos })
+  t.check('íconos: los 17 nombres tienen relleno y contorno en ese glyphmap', nombres.length === 17 && faltanTodos.length === 0, { nombres: nombres.length, faltanTodos })
   t.check('íconos: cada pestaña tiene un ícono distinto', new Set(PESTANAS.map(p => GLIFOS_ICONOS[p.icono].relleno)).size === PESTANAS.length)
 
   // -------------------------------------------------------------------------
@@ -256,23 +256,13 @@ export async function pruebas(t: Probador): Promise<void> {
   t.check("app.json: android.softwareKeyboardLayoutMode 'resize'", app.expo.android?.softwareKeyboardLayoutMode === 'resize')
 
   // -------------------------------------------------------------------------
-  // Volver a OpMap (dueño, 2026-10-31, docs/specs/2026-10-31-menu-volver-opmap-cruce-reps.md): abierta desde
-  // "Agendamiento" en una pestaña del navegador, la franja de arriba lleva "OpMap" para volver a la web con su menú. En
-  // la app instalada desde el ícono de inicio va en Ajustes ("Ir a OpMap", del 2026-10-30) y en el teléfono (Expo), en
-  // ninguna parte: ahí es la app. Sin señal, en ninguna: la web de OpMap no abre sin señal (revisión 2026-10-31).
+  // Volver a OpMap (dueño, 2026-10-31, docs/specs/2026-10-31-menu-volver-opmap-cruce-reps.md): el botón "OpMap" de la
+  // franja de arriba es el del inicio de módulos (lib/opmap-enlace.ts, probado en 25-inicio-opmap.ts) y va una sola vez:
+  // Ajustes ya no lleva "Ir a OpMap". Lo que se le suma aquí: lo escrito en Reportar y en los formularios (las pantallas
+  // con "Volver") vive en memoria hasta guardarlo y salir en la misma pestaña lo pierde, así que desde ellas pregunta
+  // antes (revisión 2026-10-31). Hoy, Agenda (adonde llega "Agendamiento"), Números, Ajustes y "Agregar a inicio" salen
+  // sin preguntar.
   // -------------------------------------------------------------------------
-  t.check('dondeIrAOpMap: en una pestaña del navegador (correInstalada() === false) con señal, en la franja', dondeIrAOpMap(false, true) === 'franja')
-  t.check('dondeIrAOpMap: en la app instalada (true) con señal, en Ajustes', dondeIrAOpMap(true, true) === 'ajustes')
-  t.check(
-    'dondeIrAOpMap: en el teléfono (null), en ninguna parte; sin señal, tampoco (ni en la franja ni en Ajustes)',
-    [dondeIrAOpMap(null, true), dondeIrAOpMap(null, false), dondeIrAOpMap(false, false), dondeIrAOpMap(true, false)].every(d => d === null)
-  )
-  t.check("RUTA_OPMAP es '/' (el inicio de OpMap, que lleva a cada quien a su página)", RUTA_OPMAP === '/', RUTA_OPMAP)
-  const irAOpMap = cuerpoDeFuncion(leer('lib/pwa.ts'), 'irAOpMap')
-  t.check('pwa.ts: irAOpMap() abre RUTA_OPMAP en la misma pestaña (location.assign) y en el teléfono no hace nada', /ventana\(\)\?\.location\?\.assign\?\.\(RUTA_OPMAP\)/.test(irAOpMap), irAOpMap)
-  // Lo escrito en Reportar y en los formularios (las pantallas con "Volver") vive en memoria hasta guardarlo: salir a
-  // OpMap lo pierde, así que desde ellas "OpMap" pregunta antes (revisión 2026-10-31). Hoy, Agenda (adonde llega
-  // "Agendamiento"), Números, Ajustes y "Agregar a inicio" salen sin preguntar.
   const conBorrador = ['reportar', 'agenda/nueva', 'visita/[id]', 'medico/nuevo', 'sede/nueva', 'contacto/nuevo', 'dias-libres']
   t.check(
     'preguntaAntesDeIrAOpMap: Reportar, Agendar, Visita, Nuevo médico, Nueva sede, Nuevo contacto y Días libres preguntan',
@@ -296,27 +286,25 @@ export async function pruebas(t: Probador): Promise<void> {
       rutaDeSegmentos([]) === ''
   )
   const franja = cuerpoDeFuncion(leer('components/EstadoCola.tsx'), 'EstadoCola')
-  const condicionOpMap = /\{dondeIrAOpMap\(correInstalada\(\), enLinea\) === 'franja' \? \(/.exec(franja)
+  const firmaIr = /const irAOpMap = async \(\) => /.exec(franja)
+  const irAOpMap = firmaIr ? bloque(franja, firmaIr.index + firmaIr[0].length, '{', '}') : ''
+  const avisaSinSenal = irAOpMap.indexOf('setAvisoOpMap(MENSAJE_OPMAP_SIN_SENAL)')
+  const abreOtraPestana = irAOpMap.indexOf("w.open(destino.url, '_blank')")
+  const pregunta = irAOpMap.search(/if \(preguntaAntesDeIrAOpMap\(rutaDeSegmentos\(segmentos\)\) && !\(await confirmar\('¿Volver a OpMap\?', '[^']+', 'Volver a OpMap'\)\)\) return\b/)
+  const saleEnEsta = irAOpMap.indexOf('w.location?.assign(destino.url)')
+  t.check(
+    'franja: "OpMap" pregunta (confirmar) solo si preguntaAntesDeIrAOpMap de la pantalla abierta (useSegments), y sale en esta pestaña solo si dice que sí',
+    /const segmentos = useSegments\(\)/.test(franja) && pregunta >= 0 && saleEnEsta > pregunta,
+    irAOpMap || franja.slice(0, 300)
+  )
+  t.check(
+    'franja: sin señal solo avisa (no pregunta); instalada abre la otra pestaña ANTES de preguntar (después el navegador la bloquearía) y, si abrió, no pregunta',
+    avisaSinSenal >= 0 && abreOtraPestana > avisaSinSenal && pregunta > abreOtraPestana && /if \(abierta\) return\b/.test(irAOpMap.slice(abreOtraPestana, pregunta)),
+    irAOpMap
+  )
+  t.check('Ajustes ya no lleva "Ir a OpMap": la salida a OpMap va una sola vez, en la franja (dueño: sin duplicar)', !/Ir a OpMap/.test(leer('app/(app)/ajustes.tsx')))
+  const condicionOpMap = /\{destino\.modo !== 'oculto' \? \(/.exec(franja)
   const botonOpMap = condicionOpMap ? bloque(franja, condicionOpMap.index + condicionOpMap[0].length - 1) : ''
-  t.check("franja: el botón \"OpMap\" sale solo con dondeIrAOpMap(correInstalada(), enLinea) === 'franja'", botonOpMap !== '', franja.slice(0, 200))
-  t.check(
-    'franja: el botón dice "OpMap" con el ícono "atras", se anuncia "Volver a OpMap" y llama a volverAOpMap',
-    />OpMap</.test(botonOpMap) && /<Icono nombre="atras"/.test(botonOpMap) && /accessibilityLabel="Volver a OpMap"/.test(botonOpMap) && /onPress=\{\(\) => void volverAOpMap\(\)\}/.test(botonOpMap),
-    botonOpMap
-  )
-  const volverAOpMap = cuerpoDeFuncion(franja, 'volverAOpMap')
-  t.check(
-    'franja: volverAOpMap pregunta (confirmar) solo si preguntaAntesDeIrAOpMap de la pantalla abierta (useSegments) y sale con irAOpMap si dice que sí',
-    /const segmentos = useSegments\(\)/.test(franja) &&
-      /if \(preguntaAntesDeIrAOpMap\(rutaDeSegmentos\(segmentos\)\) && !\(await confirmar\('¿Volver a OpMap\?', '[^']+', 'Volver a OpMap'\)\)\) return\s*irAOpMap\(\)\s*$/.test(volverAOpMap.slice(1, -1).trim() + '\n'),
-    volverAOpMap
-  )
-  t.check('franja: el botón va con el color del texto de la franja (borde y letra), sin colores escritos a mano', /borderColor:\s*texto\b/.test(botonOpMap) && /\bcolor:\s*texto\b/.test(botonOpMap) && !/'#[0-9a-f]{3,8}'/i.test(botonOpMap), botonOpMap)
-  // Este botón solo sale en la web, y ahí react-native-web no aplica hitSlop: el Pressable mismo mide 44 de alto (la
-  // píldora de adentro, 32) y el margen negativo usa el relleno de la franja (6 arriba y 6 abajo) para que no crezca.
-  const toqueOpMap = minHeightTocable(botonOpMap)
-  t.check(`franja: el Pressable de "OpMap" mide al menos ${ALTO_TOQUE_MIN} de alto por sí mismo (en la web no hay hitSlop)`, toqueOpMap.ok && !/hitSlop\s*=/.test(botonOpMap), toqueOpMap)
-  t.check('franja: el toque de "OpMap" no agranda la franja (marginVertical: -6, lo que mide su relleno)', /marginVertical:\s*-6\b/.test(botonOpMap) && /paddingBottom:\s*6\b/.test(franja), botonOpMap)
   const puntoDeEstado = franja.indexOf('width: 8, height: 8')
   t.check('franja: "OpMap" va primero, a la izquierda del estado (como "Volver")', botonOpMap !== '' && puntoDeEstado > 0 && franja.indexOf(botonOpMap) < puntoDeEstado)
 

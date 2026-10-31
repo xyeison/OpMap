@@ -9,20 +9,23 @@
 - **Sueltas primero** (dueño, 2026-10-31, `docs/specs/2026-10-31-menu-volver-opmap-cruce-reps.md`: "pareciera que
   debajo de empleado está calendario"): Agendamiento (la líder), Mapa, Calendario, Zonas (`/kams`) y Líneas, y después
   los grupos Terceros, Empleados, Inteligencia de Mercado y Configuración. Cada rol tiene las mismas opciones; solo
-  cambió el orden. "Agendamiento" abre la app de campo en la misma pestaña; ahí, la franja de arriba lleva "OpMap" para
-  volver con el menú (en una pestaña del navegador y con señal; en la app instalada va en Ajustes y en el teléfono no
-  va). Desde Reportar y los formularios pregunta antes de salir: lo escrito ahí aún no está guardado.
+  cambió el orden. "Agendamiento" abre la app de campo en la misma pestaña; ahí, la franja de arriba lleva "OpMap", que
+  vuelve al inicio de módulos (`mobile/lib/opmap-enlace.ts`: en una pestaña, en la misma; instalada, en otra; sin señal
+  solo avisa; en el teléfono no va). Es la única salida (Ajustes ya no lleva "Ir a OpMap"). Desde Reportar y los
+  formularios pregunta antes de salir en la misma pestaña: lo escrito ahí aún no está guardado.
 - **Por grupos** (dueño, 2026-10-29, `docs/specs/2026-10-29-menu-por-grupos.md`): Mapa; **Terceros** (título): IPS,
   Cuentas clave (`/terceros`), Médicos, Aseguradoras y Proveedores; **Empleados**: Ejecutivos Comerciales y Líderes de
   negocio; Calendario, Zonas (`/kams`) y Líneas (desde el 2026-10-31, antes de los grupos); **Inteligencia de Mercado**: ADRES, Compras públicas
   (`/inteligencia?tab=secop`), Contratos y Cumplimiento; **Configuración**: Mi Empresa, Usuarios, Visita VMO
-  (`/visits`) y Parámetros (`/configuracion`). Médicos, Aseguradoras y Líderes de negocio abren "Próximamente". El
-  inicio es el Mapa; sin mapa, Calendario. "Hospital" se dice "IPS" en toda la interfaz. Lo de abajo describe el menú
-  del 2026-10-14 (el orden quedó superado).
+  (`/visits`) y Parámetros (`/configuracion`). Médicos, Aseguradoras y Líderes de negocio abren "Próximamente". Desde el
+  2026-10-31 el inicio es `/inicio`, la cuadrícula de módulos del rol tipo iPhone (`bloquesDeInicio`: las sueltas
+  primero, luego cada grupo; `docs/decisiones/2026-10-31-inicio-de-modulos-tipo-iphone.md`); el Mapa es el primer
+  cuadro. "Hospital" se dice "IPS" en toda la interfaz. Lo de abajo describe el menú del 2026-10-14 (el orden quedó
+  superado).
 - **Sin Dashboard**: los indicadores (cobertura, oportunidades, hospitales, totales) no tenían sentido por ahora y
-  se generarán después. `"/"` ya no muestra tablero: lleva a la **página de inicio** del rol (`getHomeRoute`), que
-  es la primera opción de su menú: `/map` para todo rol con `map:view`; `/calendario` para `hr`. El logo "OpMap"
-  lleva al mismo sitio. El login sigue mandando a `?next=` o, sin él, a `"/"` y de ahí al inicio.
+  se generarán después. `"/"` ya no muestra tablero: lleva a la **página de inicio** del rol (`getHomeRoute`): desde el
+  2026-10-31, `/inicio` para todo rol con alguna opción del menú (antes `/map`, y `/calendario` para `hr`). El logo
+  "OpMap" lleva al mismo sitio. El login sigue mandando a `?next=` o, sin él, a `"/"` y de ahí al inicio.
   `dashboard:view` sigue en los roles pero ya no abre nada; `/api/dashboard/stats` se quitó.
 - **Orden** (`getNavigationMenu`; cada opción solo con su permiso): Mapa, Hospitales, Terceros, Calendario, Zonas
   (`/kams`), Líneas, Ejecutivos Comerciales, Inteligencia, Contratos, Mi Empresa, Cumplimiento, Proveedores,

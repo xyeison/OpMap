@@ -282,8 +282,8 @@ function OpcionMenu({ item, activa, onElegir }: { item: NavigationItem; activa: 
   )
 }
 
-// Función helper para obtener iconos según la ruta (sin ?tab=)
-function getIconForRoute(href: string) {
+// Función helper para obtener iconos según la ruta (sin ?tab=). También la usa /inicio (la cuadrícula de módulos).
+export function getIconForRoute(href: string) {
   const icons: { [key: string]: React.FC<{ className?: string }> } = {
     '/map': MapIcon,
     '/hospitals': HospitalIcon,

@@ -8,6 +8,9 @@
  *
  * Revisión 2026-10-15: "Estás aquí" ya no se sale del croquis ni tapa el logotipo (posicionEtiquetaYo) y el croquis
  * mide 120 pt en pantallas de menos de 700 (altoCroquis); Reportar ya no lo agranda al elegir.
+ *
+ * 2026-10-31 (dueño): arriba a la derecha va la pastilla "En rango / Fuera de rango" (PastillaRango, lib/rango-sede.ts)
+ * y, cuando la sede pedida queda lejos, tu punto va pegado al borde con "Estás a 4,8 km" (etiquetaYoDelPlan).
  */
 import { useState, type ReactNode } from 'react'
 import { Text, View, useWindowDimensions } from 'react-native'
@@ -21,6 +24,7 @@ import {
   cajaNombreSede,
   descripcionCroquis,
   etiquetaSedeArriba,
+  etiquetaYoDelPlan,
   izquierdaNombreSede,
   planCroquis,
   posicionEtiquetaYo,
@@ -43,6 +47,8 @@ interface Props {
   etiquetaYo?: string | null
   /** Encima del croquis, arriba a la izquierda (el logotipo en Hoy). */
   arribaIzquierda?: ReactNode
+  /** Encima del croquis, arriba a la derecha (la pastilla "En rango / Fuera de rango" en Reportar). */
+  arribaDerecha?: ReactNode
 }
 
 /** Manzanas decorativas: 70 × 50 cada 80 × 60, corridas como en los artboards. */
@@ -54,8 +60,10 @@ const BAJO_LA_HOJA = 20
 const anchoEstimado = (texto: string) => Math.ceil(texto.length * 7.4) + 20
 /** El logotipo de arriba a la izquierda (left 16, top 8) antes de medirlo: la pastilla de Hoy (82 + 2 × 12) × 40. */
 const LOGO_ESTIMADO = { ancho: 106, alto: 40 }
+/** La pastilla de arriba a la derecha (right 16, top 8) antes de medirla: "Fuera de rango · 4,8 km". */
+const DERECHA_ESTIMADA = { ancho: 160, alto: ALTO_ETIQUETA_CROQUIS }
 
-export function Croquis({ yo, sedes, foco, radioM, alto: altoPedido, etiquetaYo, arribaIzquierda }: Props) {
+export function Croquis({ yo, sedes, foco, radioM, alto: altoPedido, etiquetaYo, arribaIzquierda, arribaDerecha }: Props) {
   const c = useColores()
   const fuente = useFuente()
   const oscuro = useEsquema() === 'dark'
@@ -67,18 +75,25 @@ export function Croquis({ yo, sedes, foco, radioM, alto: altoPedido, etiquetaYo,
   const [anchoYo, setAnchoYo] = useState<number | null>(null)
   const [anchoNombre, setAnchoNombre] = useState<number | null>(null)
   const [logo, setLogo] = useState<{ ancho: number; alto: number } | null>(null)
+  const [derecha, setDerecha] = useState<{ ancho: number; alto: number } | null>(null)
   const alto = altoPedido ?? altoCroquis(altoVentana)
   const arriba = insets.top
   const altoTotal = arriba + alto + BAJO_LA_HOJA
   // El dibujo útil: debajo de la hora y encima de la hoja.
-  const plan = planCroquis({ yo, sedes, foco, radioM, ancho, alto })
-  const desplazar = (y: number) => y + arriba
-  const sedeArriba = plan ? etiquetaSedeArriba(plan) : true
-  // "Estás aquí": dentro del croquis y sin tapar la sede, su nombre ni el logotipo (lib/croquis.ts).
+  // Lo que va encima del croquis (el logotipo de Hoy, la pastilla de rango): tu punto al borde, el nombre de la sede y
+  // "Estás aquí" lo esquivan (lib/croquis.ts).
   const cajaLogo = arribaIzquierda ? { x: 16, y: 8, ...(logo ?? LOGO_ESTIMADO) } : null
+  const medidaDerecha = derecha ?? DERECHA_ESTIMADA
+  const cajaDerecha = arribaDerecha ? { x: ancho - 16 - medidaDerecha.ancho, y: 8, ...medidaDerecha } : null
+  const encima = [cajaLogo, cajaDerecha]
+  const plan = planCroquis({ yo, sedes, foco, radioM, ancho, alto, evitar: encima })
+  const desplazar = (y: number) => y + arriba
+  const sedeArriba = plan ? etiquetaSedeArriba(plan, anchoNombre ?? ANCHO_NOMBRE_SEDE, encima, ancho) : true
+  // Con la sede pedida lejos, tu punto va al borde y la etiqueta dice la distancia real ("Estás a 4,8 km").
+  const etiqueta = etiquetaYoDelPlan(plan, etiquetaYo ?? null, textoDistancia)
   const posicionYo =
-    plan && etiquetaYo
-      ? posicionEtiquetaYo(plan, { ancho, alto, anchoEtiqueta: anchoYo ?? anchoEstimado(etiquetaYo), evitar: [cajaLogo, cajaNombreSede(plan, ancho, anchoNombre ?? ANCHO_NOMBRE_SEDE)] })
+    plan && etiqueta
+      ? posicionEtiquetaYo(plan, { ancho, alto, anchoEtiqueta: anchoYo ?? anchoEstimado(etiqueta), evitar: [...encima, cajaNombreSede(plan, ancho, anchoNombre ?? ANCHO_NOMBRE_SEDE, encima)] })
       : null
 
   const manzanas: ReactNode[] = []
@@ -209,7 +224,7 @@ export function Croquis({ yo, sedes, foco, radioM, alto: altoPedido, etiquetaYo,
       {/* "Estás aquí · ±12 m" junto a tu punto (del lado que no tapa la sede) o, si ahí no cabe, encima, debajo o en
           diagonal. Se mueve con translateX y no con left: así su ancho es el natural (onLayout) y no el que le deja el
           borde. */}
-      {posicionYo && etiquetaYo ? (
+      {posicionYo && etiqueta ? (
         <View
           onLayout={e => setAnchoYo(e.nativeEvent.layout.width)}
           style={{
@@ -226,7 +241,7 @@ export function Croquis({ yo, sedes, foco, radioM, alto: altoPedido, etiquetaYo,
           }}
         >
           <Text numberOfLines={1} maxFontSizeMultiplier={1.2} style={[{ color: c.sobreAcento, fontSize: 13, lineHeight: 16 }, fuente('negrita')]}>
-            {etiquetaYo}
+            {etiqueta}
           </Text>
         </View>
       ) : null}
@@ -236,6 +251,35 @@ export function Croquis({ yo, sedes, foco, radioM, alto: altoPedido, etiquetaYo,
           {arribaIzquierda}
         </View>
       ) : null}
+
+      {arribaDerecha ? (
+        <View onLayout={e => setDerecha({ ancho: e.nativeEvent.layout.width, alto: e.nativeEvent.layout.height })} style={{ position: 'absolute', top: arriba + 8, right: 16 }}>
+          {arribaDerecha}
+        </View>
+      ) : null}
+    </View>
+  )
+}
+
+/**
+ * La bolita con su texto, sobre el croquis (dueño, 2026-10-31): verde "En rango", roja "Fuera de rango · 4,8 km",
+ * gris "Sin ubicación" o "Sede sin ubicación". Qué decir lo decide lib/rango-sede.ts.
+ */
+export function PastillaRango({ tono, texto }: { tono: 'exito' | 'peligro' | 'neutro'; texto: string }) {
+  const c = useColores()
+  const fuente = useFuente()
+  const color = tono === 'exito' ? c.exito : tono === 'peligro' ? c.peligro : c.textoSuave
+  return (
+    <View
+      accessible
+      accessibilityRole="text"
+      accessibilityLabel={texto}
+      style={{ flexDirection: 'row', alignItems: 'center', gap: 7, height: ALTO_ETIQUETA_CROQUIS, paddingHorizontal: 10, borderRadius: 6, backgroundColor: c.superficie, boxShadow: SOMBRA.flotante }}
+    >
+      <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: color }} />
+      <Text numberOfLines={1} maxFontSizeMultiplier={1.2} style={[{ color: c.texto, fontSize: 13, lineHeight: 16 }, fuente('negrita')]}>
+        {texto}
+      </Text>
     </View>
   )
 }

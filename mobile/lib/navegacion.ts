@@ -61,26 +61,11 @@ export const OCULTAS: readonly PantallaOculta[] = [
  */
 export const SIN_ENCABEZADO: readonly Pestana['ruta'][] = ['hoy', 'reportar']
 
-/** Inicio de OpMap (la web, en el mismo origen que /campo): lleva a cada quien a su página (a la líder, al Mapa). */
-export const RUTA_OPMAP = '/'
-
 /**
- * Dónde va la salida a OpMap. En una pestaña del navegador (correInstalada() da false), adonde se llega desde
- * "Agendamiento" de OpMap y donde sin ella se perdía el menú, en la franja de arriba (components/EstadoCola.tsx; dueño,
- * 2026-10-31). En la app instalada desde el ícono de inicio (true), en Ajustes ("Ir a OpMap", del 2026-10-30). Así sale
- * una sola vez. En el teléfono (null), en ninguna parte: ahí es la app. Sin señal, en ninguna: la web de OpMap no tiene
- * service worker y el navegador mostraría su página de error (revisión 2026-10-31).
- */
-export function dondeIrAOpMap(instalada: boolean | null, enLinea: boolean): 'franja' | 'ajustes' | null {
-  if (instalada === null || !enLinea) return null
-  return instalada ? 'ajustes' : 'franja'
-}
-
-/**
- * ¿Pregunta "OpMap" antes de salir de esta pantalla (la ruta de PESTANAS u OCULTAS)? Sí en Reportar y en las que abren
- * con "Volver" (formularios): lo escrito vive en memoria hasta guardarlo y salir a OpMap lo pierde (revisión
- * 2026-10-31; lo pendiente por subir no, vive en IndexedDB). Hoy, Agenda, Números, Ajustes y las de solo lectura salen sin
- * preguntar.
+ * ¿Pregunta "OpMap" (la franja de arriba, components/EstadoCola.tsx) antes de salir en esta misma pestaña desde esta
+ * pantalla (la ruta de PESTANAS u OCULTAS)? Sí en Reportar y en las que abren con "Volver" (formularios): lo escrito vive
+ * en memoria hasta guardarlo y salir a OpMap lo pierde (revisión 2026-10-31; lo pendiente por subir no, vive en
+ * IndexedDB). Hoy, Agenda, Números, Ajustes y las de solo lectura salen sin preguntar.
  */
 export function preguntaAntesDeIrAOpMap(ruta: string): boolean {
   if (ruta === 'reportar') return true

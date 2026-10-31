@@ -1,8 +1,8 @@
 'use client'
 
 // "/" ya no tiene dashboard (dueño, 2026-10-14: los indicadores de cobertura, oportunidades y hospitales no tienen
-// sentido por ahora; se generarán después). Lleva a la página de inicio del rol: la primera opción de su menú
-// (getHomeRoute), que para quien tiene map:view es /map. Recalcular asignaciones y Calcular rutas, que vivían aquí,
+// sentido por ahora; se generarán después). Lleva a la página de inicio del rol (getHomeRoute): desde el 2026-10-31,
+// /inicio, la cuadrícula de módulos tipo iPhone (antes, el Mapa). Recalcular asignaciones y Calcular rutas, que vivían aquí,
 // están en Configuración → Asignación. El login sigue mandando a "?next=" o, sin él, a "/" y de aquí al inicio.
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
