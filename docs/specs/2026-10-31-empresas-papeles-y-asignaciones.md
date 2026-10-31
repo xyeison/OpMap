@@ -1,7 +1,8 @@
 # Spec: empresas, papeles por empresa y asignaciones por Zona y línea  (2026-10-31)
 
-**Estado**: borrador para aprobación del dueño, con las tres preguntas abiertas ya respondidas por él el 2026-10-31.
-Conversación del 2026-10-31. Enfoque elegido por el dueño: por capas,
+**Estado**: aprobada por el dueño el 2026-10-31 ("Ok dale"), con las tres preguntas abiertas respondidas por él ese
+día. Decisión: `docs/decisiones/2026-10-31-empresas-papeles-y-asignaciones.md`. Plan de la capa 1:
+`docs/planes/2026-10-31-empresas-capa-1-modelo-y-sesion.md`. Enfoque elegido por el dueño: por capas,
 con compatibilidad (ver "Enfoques considerados"). Es el PRIMERO de tres proyectos: después vienen la marca por empresa
 (ícono y colores en la web y la app) y la página de Ejecutivos Comerciales rehecha al estilo de la app.
 
@@ -243,7 +244,7 @@ Capa 3
 - Estética del mapa: no cambia. El mapa por línea filtra por la empresa activa (capa 3).
 - Permisos / roles: los nombres de los papeles son los mismos roles de hoy. La única diferencia observable: una persona
   puede tener varios a la vez y distintos por empresa. `users:manage` (admin) edita papeles.
-- Regla de negocio nueva: `docs/decisiones/2026-10-31-empresas-papeles-y-asignaciones.md` (se escribe al aprobar).
+- Regla de negocio nueva: `docs/decisiones/2026-10-31-empresas-papeles-y-asignaciones.md`.
 
 ## Plan (archivos e interfaces)
 Capa 1: `database/migrations/2026-10-31_0960_*.sql` y `9961_*_rollback.sql`; `web/lib/session.ts` (claim `emp`),
