@@ -2,7 +2,8 @@
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 import type { Role } from '@/lib/permissions'
-import type { Empresa, PapelActivo } from '@/lib/empresas-reglas'
+import type { PapelActivo } from '@/lib/empresas-reglas'
+import type { EmpresaMovil } from '@/lib/reporte-visitas'
 import { marcarSalidaPendienteAppCampo, olvidarSesionAppCampo } from '@/lib/app-campo'
 
 interface User {
@@ -11,8 +12,8 @@ interface User {
   full_name: string
   role: Role
   // Empresa activa, las empresas donde tiene papel y SUS papeles en la activa (capa 1 de empresas)
-  empresa: Empresa | null
-  empresas: Empresa[]
+  empresa: EmpresaMovil | null
+  empresas: EmpresaMovil[]
   papeles: PapelActivo[]
 }
 

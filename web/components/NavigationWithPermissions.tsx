@@ -6,6 +6,8 @@ import { usePathname, useSearchParams } from 'next/navigation'
 import { useUser } from '@/contexts/UserContext'
 import { usePermissions } from '@/hooks/usePermissions'
 import { useTema } from '@/hooks/useTema'
+import SelectorEmpresa from '@/components/SelectorEmpresa'
+import { tituloDePapeles } from '@/lib/empresas-reglas'
 import { esAppDeCampo } from '@/lib/app-campo'
 import { alternarGrupo, gruposAbiertosAlEntrar, opcionDeLaPagina } from '@/lib/menu-acordeon'
 import { agruparMenu, getHomeRoute, getRoleTitle, opcionActiva, type NavigationItem } from '@/lib/permissions'
@@ -19,7 +21,7 @@ import { useMapHeaderTitle } from '@/components/mapHeaderStore'
 // izquierda y el contenido se corre. En el Mapa la barra conserva su alto (48 px en el celular): el mapa no cambia.
 export default function NavigationWithPermissions() {
   const { user, logout } = useUser()
-  const { role, navigationMenu, loading } = usePermissions()
+  const { role, papeles, empresa, empresas, navigationMenu, loading } = usePermissions()
   const { preferencia, elegir } = useTema()
   const [isOpen, setIsOpen] = useState(false)
   // ?tab= de la página abierta: distingue ADRES de Compras públicas (las dos en /inteligencia)
@@ -214,7 +216,10 @@ export default function NavigationWithPermissions() {
               </div>
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-bold text-texto">{user.full_name}</div>
-                <div className="truncate text-xs text-texto-suave">{role && getRoleTitle(role)}</div>
+                <div className="truncate text-xs text-texto-suave">
+                  {papeles.length > 0 ? tituloDePapeles(papeles) : role && getRoleTitle(role)}
+                </div>
+                <SelectorEmpresa empresa={empresa} empresas={empresas} />
               </div>
             </div>
             <button
