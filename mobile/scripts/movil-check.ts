@@ -913,6 +913,10 @@ async function main() {
       citaOtraFecha: 'fecha hora sede_id nota como',
       citaEliminada: 'cita_id',
       campos: 'conclusion compromisos next_step_date',
+      // Equipo (2026-10-31)
+      equipoPersonas: 'personas lineas',
+      equipoHoy: 'fecha texto_fijo resumen personas',
+      equipoPersonaDia: 'fecha persona donde rastro siguiente',
     }
     for (const forma of Object.keys(CLAVES_API) as (keyof typeof CLAVES_API)[]) {
       const app = [...CLAVES_API[forma]].sort().join(' ')

@@ -14,14 +14,14 @@
  */
 import type { EstadoCita, EstadoVisible, MotivoCierre } from './agenda-ciclo'
 import { estadoVisible } from './agenda-ciclo'
-import { fechaBogota, type MarcaVisita, type Modalidad } from './reporte-visitas'
+import { fechaBogota, type CasoUbicacion, type MarcaVisita, type Modalidad, type PapelEquipo } from './reporte-visitas'
 import type { TipoVisita } from './visits-rules'
 
 // ---------------------------------------------------------------------------------------------
 // Tipos
 // ---------------------------------------------------------------------------------------------
 
-export type PapelEquipo = 'lider' | 'ejecutivo' | 'lider_y_ejecutivo'
+export type { PapelEquipo, CasoUbicacion }
 
 /** Una persona de campo vista por Equipo (lo arma el servidor con users, executives, executive_lines y business_lines). */
 export interface PersonaEquipo {
@@ -210,7 +210,6 @@ export function horaBogota(iso: string): string {
 const minutosDe = (hora: string): number => Number(hora.slice(0, 2)) * 60 + Number(hora.slice(3, 5))
 const ordenHora = (a: string | null, b: string | null): number => (a === b ? 0 : a === null ? 1 : b === null ? -1 : a.localeCompare(b))
 
-export type CasoUbicacion = 'dia_libre' | 'festivo' | 'reportado' | 'reportado_hace_rato' | 'planeado' | 'sin_nada'
 
 export interface Ubicacion {
   caso: CasoUbicacion
@@ -286,7 +285,7 @@ export interface PasoRastro {
   sedeNombre: string | null
   municipioNombre: string | null
   /** De la cita (programada, atrasada, sin_cerrar, no_realizada, cancelada) o de la visita (hecha, no_efectiva). */
-  estado: EstadoVisible | 'no_efectiva'
+  estado: Exclude<EstadoVisible, 'eliminada'> | 'no_efectiva'
   /** Motivo de la no efectiva, del "no se hizo" o de la cancelación. */
   motivo: string | null
   /** Días de anticipación de la cita; null si la visita no tenía cita (no planeada). */
@@ -315,7 +314,7 @@ export function rastroDelDia(entrada: { fecha: string; ahora: Date; visitas: rea
     const v = c.visitaId ? visitasPorId.get(c.visitaId) : undefined
     if (v) visitasUsadas.add(v.id)
     const origen = c.vieneDe ? porId.get(c.vieneDe) : undefined
-    const estado: PasoRastro['estado'] = v ? (v.efectiva ? 'hecha' : 'no_efectiva') : estadoVisible(c, entrada.ahora)
+    const estado = (v ? (v.efectiva ? 'hecha' : 'no_efectiva') : estadoVisible(c, entrada.ahora)) as PasoRastro['estado']
     pasos.push({
       hora: c.hora ?? (v ? horaBogota(v.checkedInAt) : null),
       tipo: c.tipo,

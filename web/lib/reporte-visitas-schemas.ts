@@ -668,3 +668,10 @@ export const camposSchema: z.ZodType<CamposCrudos, z.ZodTypeDef, unknown> = z.ob
   compromisos: textoONulo(MAX_COMPROMISOS),
   next_step_date: textoONulo(10),
 })
+
+// ---------------------------------------------------------------------------------------------
+// Equipo (2026-10-31)
+// ---------------------------------------------------------------------------------------------
+
+/** GET /api/equipo/hoy?fecha= y /api/equipo/persona/[id]?fecha= (sin fecha: hoy). */
+export const equipoDiaQuerySchema = cuerpo({ fecha: fechaOpcional })

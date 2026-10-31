@@ -1007,3 +1007,71 @@ export interface LugarItem {
   id: string
   name: string
 }
+
+// ---------------------------------------------------------------------------------------------
+// Equipo (Entrega 2, 2026-10-31): GET /api/equipo/{personas,hoy,persona/[id]}. Copia de web/lib/reporte-visitas.ts.
+// ---------------------------------------------------------------------------------------------
+
+export type PapelEquipo = 'lider' | 'ejecutivo' | 'lider_y_ejecutivo'
+export type CasoUbicacion = 'dia_libre' | 'festivo' | 'reportado' | 'reportado_hace_rato' | 'planeado' | 'sin_nada'
+export type EstadoPaso = 'programada' | 'atrasada' | 'sin_cerrar' | 'no_realizada' | 'cancelada' | 'hecha' | 'no_efectiva'
+
+export interface PersonaEquipoItem {
+  user_id: string
+  nombre: string
+  papel: PapelEquipo
+  executive_id: string | null
+  zona: string | null
+  lineas: LineaPersona[]
+  /** Quien pregunta la ve solo como Ejecutiva Comercial. */
+  solo_como_ejecutivo: boolean
+  activa: boolean
+}
+
+export interface EquipoPersonasResponse {
+  personas: PersonaEquipoItem[]
+  lineas: Array<{ id: string; nombre: string }>
+}
+
+export interface UbicacionItem {
+  caso: CasoUbicacion
+  fuente: 'reportado' | 'planeado' | null
+  hora: string | null
+  sede: string | null
+  municipio: string | null
+  hace_min: number | null
+  marcas: MarcaVisita[]
+}
+
+export interface EquipoHoyResponse {
+  fecha: string
+  texto_fijo: string
+  resumen: { ciudades: Array<{ nombre: string; personas: number }>; sin_nada: number }
+  personas: Array<{ persona: PersonaEquipoItem; donde: UbicacionItem }>
+}
+
+export interface PasoRastroItem {
+  fecha: string
+  hora: string | null
+  tipo: TipoVisita
+  modalidad: Modalidad | null
+  con_quien: string | null
+  sede: string | null
+  municipio: string | null
+  estado: EstadoPaso
+  motivo: string | null
+  anticipacion_dias: number | null
+  viene_de_fecha: string | null
+  lineas: string[]
+  marcas: MarcaVisita[]
+  visita_id: string | null
+  cita_id: string | null
+}
+
+export interface EquipoPersonaDiaResponse {
+  fecha: string
+  persona: PersonaEquipoItem
+  donde: UbicacionItem
+  rastro: PasoRastroItem[]
+  siguiente: PasoRastroItem[]
+}
