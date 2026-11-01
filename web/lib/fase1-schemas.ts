@@ -39,6 +39,12 @@ export const businessLineUpdateSchema = z
     leader_user_id: uuidSchema.nullable().optional(),
     max_reach_minutes: maxReachSchema.optional(),
     active: z.boolean({ invalid_type_error: 'Estado no válido' }).optional(),
+    // Capa 1 de empresas: reemplaza las empresas de la línea (sin repetidos, en minúsculas)
+    empresa_ids: z
+      .array(uuidSchema.transform(id => id.toLowerCase()), { invalid_type_error: 'empresa_ids debe ser una lista' })
+      .min(1, 'Una línea debe estar en al menos una empresa')
+      .transform(ids => Array.from(new Set(ids)))
+      .optional(),
   })
   .refine(data => Object.keys(data).length > 0, { message: 'No hay campos para actualizar' })
 

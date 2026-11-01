@@ -27,6 +27,10 @@
  *      GET /api/users trae papeles; POST /api/users con role crea el papel en VG; PUT /api/users/[id] con role pasa por
  *      los papeles de VG (y protege al último administrador); POST /api/executives da la empresa a la vacante nueva;
  *      sin users:manage → 403; sin la 0960, las rutas viejas siguen y la de papeles responde 503.
+ *   E. Líneas por empresa: GET /api/business-lines trae empresas (por código; [] sin la 0960, sin 500); PATCH con
+ *      empresa_ids reemplaza linea_empresas (agrega y quita); [] → 400, empresa desconocida o inactiva → 400; quitar una
+ *      empresa donde la línea tiene líder activo (papel line_leader) o asignaciones → 409 y nada escrito; sin
+ *      lines:edit → 403; sin la 0960, empresa_ids → 503 y los demás campos siguen.
  *
  * El patrón del Supabase falso viene de scripts/lineas-permitidas-api-check.ts.
  * Uso (desde web/): npx tsx scripts/empresas-api-check.ts   Código de salida 1 si algo falla.
@@ -49,6 +53,8 @@ import { GET as usersGet, POST as usersPost } from '../app/api/users/route'
 import { PUT as userPut } from '../app/api/users/[id]/route'
 import { PUT as papelesPut } from '../app/api/users/[id]/papeles/route'
 import { POST as executivesPost } from '../app/api/executives/route'
+import { GET as lineasGet } from '../app/api/business-lines/route'
+import { PATCH as lineaPatch } from '../app/api/business-lines/[id]/route'
 import {
   MENSAJE_LIDER_NACIONAL_UNICO,
   MENSAJE_LIDER_ZONAS_SOLAPADAS,
@@ -131,6 +137,7 @@ const POSTGREST_CONTROL_PARAMS = new Set(['select', 'order', 'limit', 'offset', 
 /** Llaves primarias de las tablas N:M, para devolver 23505 en un insert repetido sin upsert. */
 const CLAVES: Record<string, string[]> = {
   papel_zonas: ['papel_id', 'kam_id'],
+  linea_empresas: ['line_id', 'empresa_id'],
 }
 /** Tablas con columna id que el falso rellena si el insert no la trae. */
 const CON_ID = new Set(['users', 'empresas', 'papeles', 'executives', 'coverage'])
@@ -1158,6 +1165,170 @@ async function main() {
     fetchHandler = fake.handler
   }
   check('ninguna petición salió del Supabase falso de usuarios', fakeD.external.length === 0, fakeD.external)
+  fetchHandler = fake.handler
+
+  print('\nE. Líneas por empresa')
+
+  const E_ADMIN = '00000000-0000-4000-8000-0000000000e1' // admin en VG
+  const E_PAOLA = '00000000-0000-4000-8000-0000000000e2' // line_leader de Trauma en VG
+  const E_GERENTE = '00000000-0000-4000-8000-0000000000e3' // sales_manager: lines:view, sin lines:edit
+  const L_E_TRAUMA = '10000000-0000-4000-8000-0000000000e1' // en VG (con líder activo y asignaciones)
+  const L_E_COLUMNA = '10000000-0000-4000-8000-0000000000e2' // en VG y Medix; sin líder en Medix
+  const L_E_RODILLA = '10000000-0000-4000-8000-0000000000e3' // en VG; con una asignación en VG
+  const E_EMPRESA_INACTIVA = '00000000-0000-4000-8000-0000000000ee'
+  const E_KAM = '20000000-0000-4000-8000-0000000000e1'
+  const E_EJEC = '30000000-0000-4000-8000-0000000000e1'
+  const datosLineas = (): Tablas => ({
+    users: [usuario(E_ADMIN, 'admin', 'Admin E'), usuario(E_PAOLA, 'line_leader', 'Paola E'), usuario(E_GERENTE, 'sales_manager', 'Gerente E')],
+    empresas: [
+      empresa(EMPRESA_VG_ID, 'vg', 'VG Medical S.A.S.', 'VG Medical'),
+      empresa(EMPRESA_MEDIX_ID, 'medix', 'Medix', 'Medix'),
+      { ...empresa(E_EMPRESA_INACTIVA, 'vieja', 'Vieja S.A.', 'Vieja'), activa: false },
+    ],
+    papeles: [
+      papel('50000000-0000-4000-8000-0000000000e1', E_ADMIN, EMPRESA_VG_ID, 'admin'),
+      papel('50000000-0000-4000-8000-0000000000e2', E_PAOLA, EMPRESA_VG_ID, 'line_leader', L_E_TRAUMA),
+      papel('50000000-0000-4000-8000-0000000000e3', E_GERENTE, EMPRESA_VG_ID, 'sales_manager'),
+      // Un líder INACTIVO de Columna en VG no impide quitar la empresa
+      papel('50000000-0000-4000-8000-0000000000e4', E_PAOLA, EMPRESA_VG_ID, 'line_leader', L_E_COLUMNA, false),
+    ],
+    papel_zonas: [],
+    linea_empresas: [
+      { line_id: L_E_TRAUMA, empresa_id: EMPRESA_VG_ID },
+      { line_id: L_E_COLUMNA, empresa_id: EMPRESA_VG_ID },
+      { line_id: L_E_COLUMNA, empresa_id: EMPRESA_MEDIX_ID },
+      { line_id: L_E_RODILLA, empresa_id: EMPRESA_VG_ID },
+    ],
+    business_lines: [
+      { id: L_E_TRAUMA, code: 'trauma', name: 'Trauma', leader_user_id: E_PAOLA, max_reach_minutes: 300, sort_order: 1, active: true },
+      { id: L_E_COLUMNA, code: 'columna', name: 'Columna', leader_user_id: null, max_reach_minutes: 300, sort_order: 2, active: true },
+      { id: L_E_RODILLA, code: 'rodilla', name: 'Rodilla', leader_user_id: null, max_reach_minutes: 300, sort_order: 3, active: true },
+    ],
+    line_zones: [],
+    asignaciones: [{ id: 'ae1', executive_id: E_EJEC, kam_id: E_KAM, line_id: L_E_RODILLA, empresa_id: EMPRESA_VG_ID, created_by: null }],
+  })
+  const tablasE = datosLineas()
+  const fakeE = fakeSupabase(tablasE)
+  fetchHandler = fakeE.handler
+  type LineaE = { id: string; name: string; empresas: { id: string; codigo: string; nombre_corto: string }[] }
+  const empresasDeLinea = (lineId: string) => tablasE.linea_empresas.filter(f => f.line_id === lineId).map(f => f.empresa_id).sort()
+  const patchLinea = (quien: string | undefined, id: string, cuerpo: unknown) =>
+    lineaPatch(aRuta(`/api/business-lines/${id}`, { userId: quien, cuerpo, metodo: 'PATCH' }), { params: { id } })
+
+  print('\n  GET /api/business-lines: cada línea trae sus empresas, por código')
+  {
+    const r = await lineasGet(aRuta('/api/business-lines', { userId: E_GERENTE }))
+    const cuerpo = (await cuerpoDe(r)) as { lines?: LineaE[] }
+    eq('200', r.status, 200)
+    eq('Columna: medix y vg (orden por código), con id y nombre_corto', cuerpo.lines?.find(l => l.id === L_E_COLUMNA)?.empresas, [
+      { id: EMPRESA_MEDIX_ID, codigo: 'medix', nombre_corto: 'Medix' },
+      { id: EMPRESA_VG_ID, codigo: 'vg', nombre_corto: 'VG Medical' },
+    ])
+    eq('Trauma: solo vg', cuerpo.lines?.find(l => l.id === L_E_TRAUMA)?.empresas.map(e => e.codigo), ['vg'])
+  }
+
+  print('\n  PATCH empresa_ids: agrega Medix a Trauma')
+  {
+    const r = await patchLinea(E_ADMIN, L_E_TRAUMA, { empresa_ids: [EMPRESA_VG_ID, EMPRESA_MEDIX_ID, EMPRESA_MEDIX_ID.toUpperCase()] })
+    const cuerpo = (await cuerpoDe(r)) as { line?: LineaE; error?: string }
+    eq('200', r.status, 200)
+    eq('la respuesta trae las dos, por código', cuerpo.line?.empresas.map(e => e.codigo), ['medix', 'vg'])
+    eq('linea_empresas de Trauma: vg y medix (sin duplicar)', empresasDeLinea(L_E_TRAUMA), [EMPRESA_VG_ID, EMPRESA_MEDIX_ID].sort())
+    const get = (await cuerpoDe(await lineasGet(aRuta('/api/business-lines', { userId: E_ADMIN })))) as { lines?: LineaE[] }
+    eq('y GET muestra las dos', get.lines?.find(l => l.id === L_E_TRAUMA)?.empresas.map(e => e.codigo), ['medix', 'vg'])
+  }
+
+  print('\n  PATCH empresa_ids: quita Medix a Columna (su líder en VG está inactivo; en Medix no hay nadie)')
+  {
+    const r = await patchLinea(E_ADMIN, L_E_COLUMNA, { empresa_ids: [EMPRESA_VG_ID] })
+    eq('200', r.status, 200)
+    eq('linea_empresas de Columna: solo vg', empresasDeLinea(L_E_COLUMNA), [EMPRESA_VG_ID])
+  }
+
+  print('\n  Foco 5: quitar VG a Trauma con Paola de líder activa → 409 y nada escrito')
+  {
+    const antes = JSON.stringify(tablasE.linea_empresas)
+    const marca = fakeE.requests.length
+    const r = await patchLinea(E_ADMIN, L_E_TRAUMA, { empresa_ids: [EMPRESA_MEDIX_ID] })
+    const cuerpo = (await cuerpoDe(r)) as { error?: string }
+    eq("409 'Esa línea tiene líder o asignaciones en VG Medical'", [r.status, cuerpo.error], [409, 'Esa línea tiene líder o asignaciones en VG Medical'])
+    check('linea_empresas intacta y ninguna escritura', JSON.stringify(tablasE.linea_empresas) === antes && fakeE.writes(marca).length === 0, fakeE.writes(marca))
+  }
+
+  print('\n  Quitar VG a Rodilla, que solo tiene una asignación en VG → 409')
+  {
+    const antes = JSON.stringify(tablasE.linea_empresas)
+    const marca = fakeE.requests.length
+    const r = await patchLinea(E_ADMIN, L_E_RODILLA, { empresa_ids: [EMPRESA_MEDIX_ID] })
+    const cuerpo = (await cuerpoDe(r)) as { error?: string }
+    eq('409 con el nombre de la empresa', [r.status, cuerpo.error], [409, 'Esa línea tiene líder o asignaciones en VG Medical'])
+    check('nada escrito', JSON.stringify(tablasE.linea_empresas) === antes && fakeE.writes(marca).length === 0, fakeE.writes(marca))
+  }
+
+  print('\n  Cuerpos no válidos: nada se escribe')
+  {
+    const antes = JSON.stringify(tablasE.linea_empresas)
+    const marca = fakeE.requests.length
+    const vacia = await patchLinea(E_ADMIN, L_E_TRAUMA, { empresa_ids: [] })
+    eq("[] → 400 'Una línea debe estar en al menos una empresa'", [vacia.status, ((await cuerpoDe(vacia)) as { error?: string }).error], [400, 'Una línea debe estar en al menos una empresa'])
+    const desconocida = await patchLinea(E_ADMIN, L_E_TRAUMA, { empresa_ids: [EMPRESA_VG_ID, '00000000-0000-4000-8000-0000000000ff'] })
+    eq("empresa desconocida → 400 'Empresa no válida'", [desconocida.status, ((await cuerpoDe(desconocida)) as { error?: string }).error], [400, 'Empresa no válida'])
+    const inactiva = await patchLinea(E_ADMIN, L_E_TRAUMA, { empresa_ids: [EMPRESA_VG_ID, E_EMPRESA_INACTIVA] })
+    eq("empresa inactiva → 400 'Empresa no válida'", [inactiva.status, ((await cuerpoDe(inactiva)) as { error?: string }).error], [400, 'Empresa no válida'])
+    const noUuid = await patchLinea(E_ADMIN, L_E_TRAUMA, { empresa_ids: ['vg'] })
+    eq('un id que no es uuid → 400', noUuid.status, 400)
+    check('nada escrito', JSON.stringify(tablasE.linea_empresas) === antes && fakeE.writes(marca).length === 0, fakeE.writes(marca))
+  }
+
+  print('\n  Permisos: sin lines:edit → 403 y nada escrito')
+  {
+    const antes = JSON.stringify(tablasE.linea_empresas)
+    const marca = fakeE.requests.length
+    const r = await patchLinea(E_GERENTE, L_E_COLUMNA, { empresa_ids: [EMPRESA_VG_ID, EMPRESA_MEDIX_ID] })
+    eq('sales_manager → 403', r.status, 403)
+    const sin = await patchLinea(undefined, L_E_COLUMNA, { empresa_ids: [EMPRESA_VG_ID, EMPRESA_MEDIX_ID] })
+    eq('sin sesión → 401', sin.status, 401)
+    check('nada escrito', JSON.stringify(tablasE.linea_empresas) === antes && fakeE.writes(marca).length === 0, fakeE.writes(marca))
+  }
+
+  print('\n  PATCH sin empresa_ids: el resto sigue como antes')
+  {
+    const marca = fakeE.requests.length
+    const r = await patchLinea(E_ADMIN, L_E_COLUMNA, { max_reach_minutes: 240 })
+    const cuerpo = (await cuerpoDe(r)) as { line?: LineaE & { max_reach_minutes: number } }
+    eq('200 y alcance 240', [r.status, cuerpo.line?.max_reach_minutes], [200, 240])
+    check('no toca linea_empresas', !fakeE.writes(marca).some(w => w.table === 'linea_empresas'), fakeE.writes(marca))
+  }
+
+  print('\n  Sin la 0960 (no existe linea_empresas): GET con empresas [] y sin 500; empresa_ids → 503; lo demás sigue')
+  {
+    const antes: Tablas = {
+      users: [usuario(E_ADMIN, 'admin', 'Admin E')],
+      business_lines: [{ id: L_E_COLUMNA, code: 'columna', name: 'Columna', leader_user_id: null, max_reach_minutes: 300, sort_order: 2, active: true }],
+      line_zones: [],
+    }
+    const { empresa_activa_id: _x, ...adminViejo } = usuario(E_ADMIN, 'admin', 'Admin E')
+    antes.users = [adminViejo]
+    const fakeAntes = fakeSupabase(antes)
+    fetchHandler = fakeAntes.handler
+    const logs = moduleLogs.length
+
+    const get = await lineasGet(aRuta('/api/business-lines', { userId: E_ADMIN }))
+    const cuerpo = (await cuerpoDe(get)) as { lines?: LineaE[] }
+    eq('GET → 200 y empresas []', [get.status, cuerpo.lines?.map(l => l.empresas)], [200, [[]]])
+
+    const marca = fakeAntes.requests.length
+    const r = await patchLinea(E_ADMIN, L_E_COLUMNA, { empresa_ids: [EMPRESA_VG_ID] })
+    eq("empresa_ids → 503 'Falta aplicar la migración 0960'", [r.status, ((await cuerpoDe(r)) as { error?: string }).error], [503, 'Falta aplicar la migración 0960'])
+    check('nada escrito', fakeAntes.writes(marca).length === 0, fakeAntes.writes(marca))
+
+    const otro = await patchLinea(E_ADMIN, L_E_COLUMNA, { name: 'Columna vertebral' })
+    const cuerpoOtro = (await cuerpoDe(otro)) as { line?: LineaE }
+    eq('el nombre sigue pudiéndose cambiar → 200 y empresas []', [otro.status, cuerpoOtro.line?.name, cuerpoOtro.line?.empresas], [200, 'Columna vertebral', []])
+    check('sin console.error', moduleLogs.length === logs, moduleLogs.slice(logs))
+    fetchHandler = fake.handler
+  }
+  check('ninguna petición salió del Supabase falso de líneas', fakeE.external.length === 0, fakeE.external)
   fetchHandler = fake.handler
 
   print('\nGenerales')

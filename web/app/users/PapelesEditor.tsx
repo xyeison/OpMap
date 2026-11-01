@@ -14,6 +14,8 @@ export interface LineaOpcion {
   id: string
   name: string
   active: boolean
+  /** Empresas donde está la línea (GET /api/business-lines). Vacía o ausente = sin la migración 0960: se ofrece en todas. */
+  empresas?: { id: string }[]
 }
 
 export interface ZonaOpcion {
@@ -145,7 +147,12 @@ function BloqueDeEmpresa({
             {esLider && (
               <div className="ml-7 mt-2 space-y-2">
                 {borrador.lideres.map(fila => {
-                  const opciones = lineas.filter(l => l.active || l.id === fila.line_id)
+                  // Solo las líneas de esta empresa (sin datos de empresas, como antes de la 0960, se ofrecen todas)
+                  const opciones = lineas.filter(l => {
+                    if (l.id === fila.line_id) return true // la ya elegida siempre se ve
+                    const enEstaEmpresa = !l.empresas || l.empresas.length === 0 || l.empresas.some(e => e.id === empresa.id)
+                    return l.active && enEstaEmpresa
+                  })
                   const zonasLibres = zonas.filter(z => !fila.kam_ids.includes(z.id))
                   return (
                     <div key={fila.clave} className="rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-2">

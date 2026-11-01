@@ -39,7 +39,7 @@ interface ErrorPostgrest {
 }
 
 /** PostgREST: tabla inexistente (42P01) o fuera de la caché de esquema (PGRST205); columna inexistente (42703). */
-function faltaLa0960(error: ErrorPostgrest | null): boolean {
+export function faltaLa0960(error: ErrorPostgrest | null): boolean {
   return error?.code === '42P01' || error?.code === 'PGRST205' || error?.code === '42703'
 }
 

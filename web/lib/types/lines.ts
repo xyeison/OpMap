@@ -2,6 +2,8 @@
 // Modelo: ZONA (cada fila de kams, ciudad base = area_id; en la UI se llama "Zona"),
 // PERSONA (executives) y LÍNEA (business_lines). En código los identificadores siguen siendo kam_id/kams.
 
+import type { EmpresaMovil } from '../reporte-visitas'
+
 export type ExecutiveStatus = 'active' | 'placeholder' | 'inactive'
 
 export const EXECUTIVE_STATUSES: readonly ExecutiveStatus[] = ['active', 'placeholder', 'inactive'] as const
@@ -81,6 +83,8 @@ export interface BusinessLine {
   active: boolean
   sort_order: number
   zones: LineZone[]
+  /** Empresas donde está la línea (linea_empresas), por código. [] mientras la migración 0960 no esté aplicada. */
+  empresas: EmpresaMovil[]
 }
 
 export interface BusinessLinesResponse {
@@ -135,6 +139,8 @@ export interface BusinessLineUpdateInput {
   leader_user_id?: string | null
   max_reach_minutes?: number
   active?: boolean
+  /** Reemplaza las empresas de la línea; al menos una. */
+  empresa_ids?: string[]
 }
 
 export interface LineZonesInput {

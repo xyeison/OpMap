@@ -6,6 +6,7 @@ import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
 import { usePermissions } from '@/hooks/usePermissions'
 import type { BusinessLine, LineZone } from '@/lib/types/lines'
+import type { EmpresaMovil } from '@/lib/reporte-visitas'
 import CoveragePanel from './CoveragePanel'
 import TerritoryPanel from '@/components/TerritoryPanel'
 import { parseMyLines, type MyLine } from './coverage-shared'
@@ -352,6 +353,7 @@ function LinesContent() {
                 <tr className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
                   <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Línea</th>
                   <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Líder</th>
+                  <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Empresas</th>
                   <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Alcance máximo</th>
                   <th className="px-6 py-4 text-center text-xs font-bold text-gray-700 uppercase tracking-wider">Zonas con equipo</th>
                   <th className="px-6 py-4 text-center text-xs font-bold text-gray-700 uppercase tracking-wider">Estado</th>
@@ -371,6 +373,13 @@ function LinesContent() {
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-900">
                         {line.leader_name || <span className="text-gray-400">Sin líder asignado</span>}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-900">
+                        {line.empresas && line.empresas.length > 0 ? (
+                          line.empresas.map(empresa => empresa.nombre_corto).join(', ')
+                        ) : (
+                          <span className="text-gray-400">—</span>
+                        )}
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-900">
                         {line.max_reach_minutes} min
@@ -541,7 +550,12 @@ function LinesContent() {
       )}
 
       {editingLine && (
-        <LineEditModal line={editingLine} onClose={() => setEditingLine(null)} onSaved={handleLineSaved} />
+        <LineEditModal
+          line={editingLine}
+          puedeEditarEmpresas={myLines === null || canSeeAll}
+          onClose={() => setEditingLine(null)}
+          onSaved={handleLineSaved}
+        />
       )}
     </div>
   )
@@ -553,16 +567,41 @@ function LinesContent() {
 
 interface LineEditModalProps {
   line: BusinessLine
+  /** Solo el administrador y la dirección comercial cambian las empresas de una línea (la API lo vuelve a validar). */
+  puedeEditarEmpresas: boolean
   onClose: () => void
   onSaved: (line: BusinessLine) => void
 }
 
-function LineEditModal({ line, onClose, onSaved }: LineEditModalProps) {
+function LineEditModal({ line, puedeEditarEmpresas, onClose, onSaved }: LineEditModalProps) {
   const [name, setName] = useState(line.name)
   const [maxReach, setMaxReach] = useState(String(line.max_reach_minutes))
   const [active, setActive] = useState(line.active)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  // Empresas (GET /api/empresas, las activas): una casilla por empresa. Sin la migración 0960 la lista viene vacía y no se muestra.
+  const idsIniciales = useMemo(() => (line.empresas ?? []).map(empresa => empresa.id), [line.empresas])
+  const [empresas, setEmpresas] = useState<EmpresaMovil[]>([])
+  const [empresaIds, setEmpresaIds] = useState<string[]>(idsIniciales)
+
+  useEffect(() => {
+    if (!puedeEditarEmpresas) return
+    let cancelado = false
+    fetch('/api/empresas')
+      .then(response => (response.ok ? response.json() : null))
+      .then(data => {
+        if (!cancelado && data && Array.isArray(data.empresas)) setEmpresas(data.empresas as EmpresaMovil[])
+      })
+      .catch(() => {
+        // Sin la lista simplemente no se ofrecen las casillas; lo demás de la línea se edita igual
+      })
+    return () => {
+      cancelado = true
+    }
+  }, [puedeEditarEmpresas])
+
+  const alternarEmpresa = (id: string) =>
+    setEmpresaIds(previos => (previos.includes(id) ? previos.filter(otro => otro !== id) : [...previos, id]))
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -580,10 +619,19 @@ function LineEditModal({ line, onClose, onSaved }: LineEditModalProps) {
     }
 
     // Solo se envían los campos que cambiaron
-    const body: { name?: string; max_reach_minutes?: number; active?: boolean } = {}
+    if (empresas.length > 0 && empresaIds.length === 0) {
+      setError('Una línea debe estar en al menos una empresa')
+      return
+    }
+
+    const body: { name?: string; max_reach_minutes?: number; active?: boolean; empresa_ids?: string[] } = {}
     if (trimmedName !== line.name) body.name = trimmedName
     if (minutes !== line.max_reach_minutes) body.max_reach_minutes = minutes
     if (active !== line.active) body.active = active
+    const cambioEmpresas =
+      empresas.length > 0 &&
+      (empresaIds.length !== idsIniciales.length || empresaIds.some(id => !idsIniciales.includes(id)))
+    if (cambioEmpresas) body.empresa_ids = empresaIds
     if (Object.keys(body).length === 0) {
       onClose()
       return
@@ -603,7 +651,12 @@ function LineEditModal({ line, onClose, onSaved }: LineEditModalProps) {
       }
       // Se conserva la matriz cargada si el servidor no la devuelve
       const saved = data.line as BusinessLine
-      onSaved({ ...line, ...saved, zones: Array.isArray(saved.zones) ? saved.zones : line.zones })
+      onSaved({
+        ...line,
+        ...saved,
+        zones: Array.isArray(saved.zones) ? saved.zones : line.zones,
+        empresas: Array.isArray(saved.empresas) ? saved.empresas : line.empresas,
+      })
     } catch (err: unknown) {
       console.error('Error guardando la línea:', err)
       setError(err instanceof Error ? err.message : 'Error al guardar la línea')
@@ -659,6 +712,28 @@ function LineEditModal({ line, onClose, onSaved }: LineEditModalProps) {
             <span className="block text-sm font-medium text-gray-700 mb-1">Líder</span>
             <p className="text-sm text-gray-900">{line.leader_name || 'Sin líder asignado'}</p>
           </div>
+
+          {puedeEditarEmpresas && empresas.length > 0 && (
+            <fieldset>
+              <legend className="block text-sm font-medium text-gray-700 mb-1">Empresas</legend>
+              <div className="space-y-2">
+                {empresas.map(empresa => (
+                  <label key={empresa.id} className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={empresaIds.includes(empresa.id)}
+                      onChange={() => alternarEmpresa(empresa.id)}
+                      className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-700"
+                    />
+                    <span className="text-sm text-gray-700">{empresa.nombre_corto}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                Para quitar una empresa, la línea no puede tener allí líder de negocio ni asignaciones.
+              </p>
+            </fieldset>
+          )}
 
           <label className="flex items-center gap-3 cursor-pointer">
             <input

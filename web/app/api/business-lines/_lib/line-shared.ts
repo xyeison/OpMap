@@ -1,5 +1,7 @@
 // Utilidades de servidor para /api/business-lines/** (carpeta "_lib": Next.js no la expone como ruta).
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { empresaMovil, faltaLa0960, listarEmpresas } from '@/lib/empresas'
+import type { EmpresaMovil } from '@/lib/reporte-visitas'
 import type { BusinessLine, BusinessLineRow, LineZone, LineZoneRow } from '@/lib/types/lines'
 
 const LINE_COLUMNS = 'id, code, name, leader_user_id, max_reach_minutes, active, sort_order'
@@ -62,6 +64,27 @@ export async function loadBusinessLines(onlyId?: string): Promise<BusinessLine[]
     }
   }
 
+  // Empresas de cada línea (linea_empresas, migración 0960). Sin la tabla (previews de Vercel) ninguna, sin error.
+  const empresasPorLinea = new Map<string, EmpresaMovil[]>()
+  const { data: vinculos, error: vinculosError } = await supabaseAdmin
+    .from('linea_empresas')
+    .select('line_id, empresa_id')
+    .in('line_id', lineIds)
+    .range(0, 9999)
+  if (vinculosError && !faltaLa0960(vinculosError)) throw vinculosError
+  if (!vinculosError) {
+    const porCodigo = (await listarEmpresas()).map(empresaMovil)
+    const porId = new Map(porCodigo.map(empresa => [empresa.id, empresa]))
+    for (const vinculo of (vinculos || []) as Array<{ line_id: string; empresa_id: string }>) {
+      const empresa = porId.get(vinculo.empresa_id)
+      if (!empresa) continue // empresa inactiva: no se muestra
+      const lista = empresasPorLinea.get(vinculo.line_id) || []
+      lista.push(empresa)
+      empresasPorLinea.set(vinculo.line_id, lista)
+    }
+    for (const lista of Array.from(empresasPorLinea.values())) lista.sort((a, b) => a.codigo.localeCompare(b.codigo))
+  }
+
   return lines.map(line => ({
     id: line.id,
     code: line.code,
@@ -72,6 +95,7 @@ export async function loadBusinessLines(onlyId?: string): Promise<BusinessLine[]
     active: line.active,
     sort_order: line.sort_order,
     zones: zonesByLine.get(line.id) || [],
+    empresas: empresasPorLinea.get(line.id) || [],
   }))
 }
 
