@@ -17,7 +17,9 @@
 --   5. Borra odoo_enlaces, asignaciones, executive_empresas, papel_zonas, papeles, linea_empresas y empresas, con sus
 --      disparadores y funciones.
 -- NO toca users.role, business_lines.leader_user_id, executive_lines, executive_allowed_lines, executives.company ni
---   executives.odoo_employee_id: siguen siendo la verdad de antes (la capa 1 los mantiene como caché).
+--   executives.odoo_employee_id. Ojo: users.role y leader_user_id NO son "la verdad de antes", sino la última caché
+--   escrita por el servidor mientras la 0960 estuvo aplicada (el papel más alto en VG y la líder nacional de VG); tras
+--   el rollback vuelven a ser lo que la app lee. executive_lines siguió siendo la verdad de las líneas en Zonas de VG.
 -- Transaccional: todo o nada. Re-ejecutable: sí (IF EXISTS; sin la 0960 solo avisa ceros). Costo Google: 0.
 -- Después: NOTIFY pgrst, 'reload schema'; (va al final del archivo).
 -- =====================================================================================

@@ -46,8 +46,20 @@
 -- Precondiciones (RAISE y no se aplica nada): faltan tablas (users, business_lines, executives, executive_lines, kams,
 --   coverage, coverage_overrides, territory_snapshots, visits, visitas_agenda, medico_visitantes); y, solo si se van a
 --   sembrar (tablas vacías o sin crear): algún usuario activo con role fuera de los 9; algún usuario activo
---   'line_leader' que no lidera ninguna línea (se dice cuántos: el dueño le pone línea o le cambia el rol antes); alguna
+--   'line_leader' que no lidera ninguna línea (se dice cuántos: cambiarle el rol en /users antes de este despliegue o
+--   poner business_lines.leader_user_id por SQL con autorización del dueño; en Líneas no hay selector de líder); alguna
 --   fila de executive_lines de una persona sin base_kam_id.
+--
+-- Consulta de SOLO LECTURA que el dueño corre ANTES de aplicar (no escribe nada):
+--   SELECT u.id, u.full_name, u.role, string_agg(bl.name, ', ' ORDER BY bl.name) AS lidera
+--   FROM public.users u
+--   LEFT JOIN public.business_lines bl ON bl.leader_user_id = u.id
+--   WHERE u.active IS TRUE AND (u.role = 'line_leader' OR bl.id IS NOT NULL)
+--   GROUP BY u.id, u.full_name, u.role
+--   ORDER BY u.role, u.full_name;
+--   · role = 'line_leader' y lidera NULL → la 0960 se detiene (precondición de arriba).
+--   · role <> 'line_leader' y lidera algo → recibe ADEMÁS el papel line_leader de esas líneas (si es director comercial,
+--     verá también "Agendamiento"); la 0960 lo avisa con un NOTICE que dice cuántos y sus ids.
 --
 -- Transaccional: todo o nada. Re-ejecutable: sí (IF NOT EXISTS / CREATE OR REPLACE / DROP TRIGGER IF EXISTS + CREATE;
 --   semillas solo sobre tablas vacías y con ON CONFLICT DO NOTHING). Costo Google: 0. No recalcula cobertura ni
@@ -97,7 +109,7 @@ BEGIN
       AND NOT EXISTS (SELECT 1 FROM public.business_lines bl WHERE bl.leader_user_id = u.id);
     IF v_sin_linea > 0 THEN
       RAISE EXCEPTION '0960: hay % líder(es) de negocio activo(s) sin línea (users.role = line_leader y ninguna business_lines.leader_user_id lo apunta)', v_sin_linea
-        USING HINT = 'El dueño le pone línea en Líneas o le cambia el rol en /users; luego se vuelve a correr la 0960.';
+        USING HINT = 'Cambiarle el rol en /users antes de este despliegue o poner business_lines.leader_user_id por SQL con autorización del dueño (en Líneas no hay selector de líder); luego se vuelve a correr la 0960.';
     END IF;
   END IF;
 
@@ -431,6 +443,7 @@ DECLARE
   v_medix  constant uuid := 'a0000000-0000-4000-8000-000000000002'::uuid;
   v_n      bigint;
   v_espera bigint;
+  v_ids    text;
 BEGIN
   -- 10.1 linea_empresas: todas las líneas en VG
   IF EXISTS (SELECT 1 FROM public.linea_empresas) THEN
@@ -486,6 +499,18 @@ BEGIN
         LIMIT 1);
     IF v_n > 0 THEN
       RAISE NOTICE '0960: AVISO: para % usuario(s) activo(s) el papel más alto en VG no es su users.role de hoy (lideran una línea sin ser line_leader); el servidor reescribirá esa caché cuando se editen sus papeles', v_n;
+    END IF;
+
+    -- Y SIEMPRE (cambie o no su papel más alto): todo usuario activo que no es line_leader y figura como leader_user_id
+    -- recibe también el papel line_leader de esa línea; un director comercial verá además "Agendamiento". Cuántos e ids.
+    SELECT count(DISTINCT u.id), string_agg(DISTINCT u.id::text, ', ')
+      INTO v_n, v_ids
+    FROM public.users u
+    JOIN public.business_lines bl ON bl.leader_user_id = u.id
+    WHERE u.active IS TRUE
+      AND u.role <> 'line_leader';
+    IF v_n > 0 THEN
+      RAISE NOTICE '0960: AVISO: % usuario(s) activo(s) que no son line_leader figuran como leader_user_id y reciben también el papel line_leader de esa línea (un director comercial verá además "Agendamiento"): %', v_n, v_ids;
     END IF;
   END IF;
 
