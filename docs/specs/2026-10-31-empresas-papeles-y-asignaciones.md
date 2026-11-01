@@ -203,8 +203,9 @@ Capa 1
 - [x] `/api/auth/me` de una persona con dos empresas trae `empresas` con las dos y `empresa` con la activa.
 - [x] Las semillas (función pura `papelesDeSemilla` sobre filas de ejemplo): un usuario `line_leader` que lidera dos
       líneas produce dos filas `line_leader`, no una `line_leader` sin línea.
-- [ ] `users.role` derivado de los papeles (`cacheRolDe`) devuelve el de hoy para cada usuario de la semilla: hay pruebas
-      de `cacheRolDe` y de la semilla por separado, no la ida y vuelta de los dos; queda para la revisión.
+- [x] `users.role` derivado de los papeles (`cacheRolDe`) devuelve el de hoy para cada usuario de la semilla (ida y
+      vuelta en `scripts/empresas-check.ts` 1.8), salvo el caso documentado: quien lidera una línea sin ser `line_leader`
+      recibe además `line_leader` y su caché sube si ese papel es más alto que su rol.
 Capa 2
 - [ ] `computeCoverage` con asignaciones: persona con (A, X) y (B, X y J): local en A para X, local en B para X y J, nada
       de J en A; el alcance de J sale desde B; sin asignación en ninguna Zona, no cubre nada aunque tenga zona base.

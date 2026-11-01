@@ -79,7 +79,7 @@ export function tienePermiso(papeles: readonly { papel: Role }[], permiso: Permi
  * los papeles): con una lista de papeles suma; con un solo papel (o ninguno) decide como hasPermission.
  */
 export function tienePermisoDe(quien: Role | undefined | readonly { papel: Role }[], permiso: Permission): boolean {
-  return typeof quien === 'object' ? tienePermiso(quien, permiso) : hasPermission(quien, permiso)
+  return Array.isArray(quien) ? tienePermiso(quien, permiso) : hasPermission(quien as Role | undefined, permiso)
 }
 
 /**

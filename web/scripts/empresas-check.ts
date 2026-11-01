@@ -20,11 +20,12 @@ import {
   papelMasAlto,
   papelesDeSemilla,
   tienePermiso,
+  tienePermisoDe,
   tituloDePapeles,
   validarLiderDeLinea,
   type Empresa,
 } from '../lib/empresas-reglas'
-import { getRoleTitle, type Role } from '../lib/permissions'
+import { getRoleTitle, hasPermission, rolePermissions, type Permission, type Role } from '../lib/permissions'
 
 let passed = 0
 let failed = 0
@@ -235,6 +236,76 @@ eq(
 eq('el título de la líder es Líder de negocio', getRoleTitle('line_leader'), 'Líder de negocio')
 eq('sin repetir', tituloDePapeles([p('line_leader'), p('line_leader')]), 'Líder de negocio')
 eq('un solo papel', tituloDePapeles([p('admin')]), 'Administrador')
+
+console.log('\n1.8 Ida y vuelta: semilla → cacheRolDe = el role de hoy')
+{
+  // Filas de ejemplo como las de producción: admin, director, líder con dos líneas, ejecutiva, viewer, hr, un inactivo
+  // y una ejecutiva (sales_manager) que figura como leader_user_id de una línea (el caso documentado)
+  const usuarios = [
+    user('admin1', 'admin'),
+    user('dir1', 'commercial_director'),
+    user('lider1', 'line_leader'),
+    user('ejec1', 'sales_manager'),
+    user('ver1', 'viewer'),
+    user('hr1', 'hr'),
+    user('inact1', 'contract_manager', false),
+    user('ejecLider', 'sales_manager'),
+  ]
+  const lineas = [
+    { id: 'L1', leader_user_id: 'lider1' },
+    { id: 'L2', leader_user_id: 'lider1' },
+    { id: 'L3', leader_user_id: 'ejecLider' },
+    { id: 'L4', leader_user_id: null },
+  ]
+  const r = papelesDeSemilla(usuarios, lineas)
+  check('la semilla de ejemplo se puede sembrar', r.ok, r)
+  const filas = filasDe(r)
+  const cacheDe = (id: string) => cacheRolDe(filas.filter(f => f.user_id === id && f.empresa_id === EMPRESA_VG_ID))
+  for (const u of usuarios.filter(x => x.active && x.id !== 'ejecLider')) {
+    eq(`${u.id} (${u.role}): cacheRolDe de sus filas de VG = su role de hoy`, cacheDe(u.id), u.role)
+  }
+  eq('el inactivo no recibe filas (su role se queda como está)', filas.filter(f => f.user_id === 'inact1').length, 0)
+  // Caso documentado: quien lidera una línea sin ser line_leader recibe ADEMÁS line_leader de esa línea, y como
+  // line_leader está por encima de sales_manager su caché sube de 'sales_manager' a 'line_leader'
+  eq(
+    'ejecLider recibe sales_manager y line_leader (L3) en VG',
+    filas.filter(f => f.user_id === 'ejecLider').map(f => `${f.papel}|${f.line_id ?? ''}`).sort(),
+    ['line_leader|L3', 'sales_manager|']
+  )
+  eq('ejecLider: su caché SUBE a line_leader (más alto que sales_manager)', cacheDe('ejecLider'), 'line_leader')
+  check(
+    'line_leader está por encima de sales_manager en ORDEN_PAPELES',
+    ORDEN_PAPELES.indexOf('line_leader') < ORDEN_PAPELES.indexOf('sales_manager')
+  )
+  // El director que lidera una línea recibe también line_leader, pero su caché no cambia (director es más alto)
+  const conDirLider = papelesDeSemilla(usuarios, [...lineas, { id: 'L5', leader_user_id: 'dir1' }])
+  eq(
+    'director que lidera una línea: su caché sigue siendo commercial_director',
+    cacheRolDe(filasDe(conDirLider).filter(f => f.user_id === 'dir1' && f.empresa_id === EMPRESA_VG_ID)),
+    'commercial_director'
+  )
+}
+
+console.log('\n1.9 tienePermisoDe = hasPermission (un papel) y suma (lista)')
+{
+  const roles = Object.keys(rolePermissions) as Role[]
+  const permisos = Array.from(new Set(Object.values(rolePermissions).flat())) as Permission[]
+  let iguales = 0
+  const distintos: string[] = []
+  for (const r of roles) {
+    for (const permiso of permisos) {
+      const esperado = hasPermission(r, permiso)
+      if (tienePermisoDe(r, permiso) !== esperado) distintos.push(`${r}:${permiso} (rol)`)
+      else iguales++
+      if (tienePermisoDe([{ papel: r }], permiso) !== esperado) distintos.push(`${r}:${permiso} (lista)`)
+      else iguales++
+    }
+  }
+  check(`para cada rol y permiso, rol y [{papel: rol}] deciden como hasPermission (${iguales} casos)`, distintos.length === 0, distintos.slice(0, 5))
+  check('[] no concede nada (map:view)', tienePermisoDe([], 'map:view') === false)
+  check('[] no concede ningún permiso', permisos.every(pm => tienePermisoDe([], pm) === false))
+  check('undefined → como hasPermission(undefined)', tienePermisoDe(undefined, 'map:view') === hasPermission(undefined, 'map:view'))
+}
 
 // ---------------------------------------------------------------------------------------------
 console.log(`\n${passed} pruebas bien, ${failed} con falla`)
