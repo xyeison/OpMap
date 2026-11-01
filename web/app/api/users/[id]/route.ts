@@ -61,10 +61,38 @@ async function rolComoPapelesDeVG(userId: string, role: PapelEntrada['papel'], c
   return reemplazarPapeles({ userId, empresaId: EMPRESA_VG_ID, papeles, creadoPor })
 }
 
+/**
+ * Al reactivar a alguien que no tiene NINGUNA fila de papeles (estaba inactivo cuando se sembró la 0960, que solo
+ * siembra a los activos), se le crea su papel en VG con su users.role (vía reemplazarPapeles, que escribe las cachés).
+ * Un líder de negocio recibe el papel de cada línea que figura liderar (leader_user_id), como en la semilla; sin
+ * ninguna, nada. null si no hay que crear nada.
+ */
+async function papelDeVGAlReactivar(userId: string, creadoPor: string) {
+  const supabase = getSupabaseAdmin()
+  const { data: filas, error } = await supabase.from('papeles').select('id').eq('user_id', userId).limit(1)
+  if (error) throw error
+  if ((filas || []).length > 0) return null
+  const { data: usuario, error: usuarioError } = await supabase.from('users').select('role').eq('id', userId).maybeSingle()
+  if (usuarioError) throw usuarioError
+  if (!usuario) return null
+  const role = usuario.role as PapelEntrada['papel']
+  let papeles: PapelEntrada[]
+  if (role === 'line_leader') {
+    const { data: lineas, error: lineasError } = await supabase.from('business_lines').select('id').eq('leader_user_id', userId)
+    if (lineasError) throw lineasError
+    papeles = ((lineas || []) as { id: string }[]).map(l => ({ papel: 'line_leader' as const, line_id: l.id }))
+    if (papeles.length === 0) return null
+  } else {
+    papeles = [{ papel: role }]
+  }
+  return reemplazarPapeles({ userId, empresaId: EMPRESA_VG_ID, papeles, creadoPor })
+}
+
 // PUT - Actualizar usuario (solo admin: permiso users:manage). Con la 0960, role ya no se escribe directo: pasa a ser
 // el papel de la persona en VG (reemplazarPapeles; para la página vieja de /users hasta la tarea 8 de la capa 1):
 // 'line_leader' conserva sus papeles de líder en VG (sin ninguno, 400: falta la línea); otro rol reemplaza todos sus
-// papeles de VG por ese. users.role queda como caché. Sin la 0960, como antes.
+// papeles de VG por ese. users.role queda como caché. Reactivar (active: true) a quien no tiene ninguna fila de papeles
+// le crea la de VG con su users.role (papelDeVGAlReactivar). Sin la 0960, como antes.
 export async function PUT(
   request: NextRequest,
   { params }: { params: { id: string } }
@@ -150,6 +178,10 @@ export async function PUT(
       const resultado = await rolComoPapelesDeVG(id, role, currentUser.id)
       if (!resultado.ok) return NextResponse.json({ error: resultado.error }, { status: resultado.status })
       coberturaRecalculada = resultado.cobertura_recalculada
+    }
+    if (!sinTabla && role === undefined && updates.active === true) {
+      const resultado = await papelDeVGAlReactivar(id, currentUser.id)
+      if (resultado && !resultado.ok) return NextResponse.json({ error: resultado.error }, { status: resultado.status })
     }
 
     const { data: updatedUser, error } =

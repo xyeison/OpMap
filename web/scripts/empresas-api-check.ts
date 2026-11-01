@@ -810,6 +810,8 @@ async function main() {
   const D_FOCO4 = '00000000-0000-4000-8000-0000000000d5' // sales_manager en VG, SIN fila en executives
   const D_DIRECTORA = '00000000-0000-4000-8000-0000000000d6' // commercial_director en VG: executives:edit, no users:manage
   const D_TARDE = '00000000-0000-4000-8000-0000000000d7' // sales_manager en VG con una línea dada DESPUÉS de la semilla
+  const D_DORMIDO = '00000000-0000-4000-8000-0000000000d8' // inactivo, 'hr', SIN ninguna fila de papeles (no se sembró)
+  const D_DORMIDO_CON = '00000000-0000-4000-8000-0000000000d9' // inactivo, 'viewer', con una fila de papeles inactiva
   const L_COLUMNA = '10000000-0000-4000-8000-000000000006' // en VG y en Medix (Trauma solo en VG)
   const KAM_BOG = '20000000-0000-4000-8000-000000000002'
   const X_EJEC = '30000000-0000-4000-8000-000000000001'
@@ -840,6 +842,8 @@ async function main() {
       usuario(D_FOCO4, 'sales_manager', 'Sin ficha'),
       usuario(D_DIRECTORA, 'commercial_director', 'Directora'),
       usuario(D_TARDE, 'sales_manager', 'Línea tardía'),
+      { ...usuario(D_DORMIDO, 'hr', 'Dormido'), active: false },
+      { ...usuario(D_DORMIDO_CON, 'viewer', 'Dormido con papel'), active: false },
     ],
     empresas: [empresa(EMPRESA_VG_ID, 'vg', 'VG Medical S.A.S.', 'VG Medical'), empresa(EMPRESA_MEDIX_ID, 'medix', 'Medix', 'Medix')],
     papeles: [
@@ -849,6 +853,7 @@ async function main() {
       papel(D_P_FOCO4, D_FOCO4, EMPRESA_VG_ID, 'sales_manager'),
       papel(D_P_DIRECTORA, D_DIRECTORA, EMPRESA_VG_ID, 'commercial_director'),
       papel(D_P_TARDE, D_TARDE, EMPRESA_VG_ID, 'sales_manager'),
+      papel('40000000-0000-4000-8000-0000000000d9', D_DORMIDO_CON, EMPRESA_VG_ID, 'viewer', null, false),
     ],
     papel_zonas: [],
     linea_empresas: [
@@ -1201,6 +1206,21 @@ async function main() {
     const ultimo = await cambiar(D_ADMIN, { role: 'viewer' })
     eq('quitarle el papel de administrador al único administrador → 400', ultimo.status, 400)
     eq('y sigue admin', [papelesActivosDe(D_ADMIN).map(p => p.papel), rolDe(D_ADMIN)], [['admin'], 'admin'])
+  }
+
+  print('\n  PUT /api/users/[id] con active: true: quien no tiene ninguna fila de papeles recibe la de VG con su role')
+  {
+    const reactivar = (id: string) => userPut(aRuta(`/api/users/${id}`, { userId: D_ADMIN, cuerpo: { active: true }, metodo: 'PUT' }), { params: { id } })
+    const r = await reactivar(D_DORMIDO)
+    eq('200 y queda activo', [r.status, tablasD.users.find(u => u.id === D_DORMIDO)?.active], [200, true])
+    eq('se le crea el papel hr en VG, activo',
+      tablasD.papeles.filter(p => p.user_id === D_DORMIDO).map(p => [p.empresa_id === EMPRESA_VG_ID ? 'vg' : 'medix', p.papel, p.activo]), [['vg', 'hr', true]])
+    eq("users.role (caché) sigue 'hr'", rolDe(D_DORMIDO), 'hr')
+
+    const marca = fakeD.requests.length
+    const conFila = await reactivar(D_DORMIDO_CON)
+    eq('quien ya tiene alguna fila de papeles (aunque inactiva) → 200 y activo', [conFila.status, tablasD.users.find(u => u.id === D_DORMIDO_CON)?.active], [200, true])
+    check('y no se le escribe ningún papel', !fakeD.writes(marca).some(w => w.table === 'papeles'), fakeD.writes(marca).map(w => `${w.method} ${w.table}`))
   }
 
   print('\n  Sin users:manage → 403 (la dirección comercial no administra usuarios)')
