@@ -67,9 +67,10 @@ Decisión `docs/decisiones/2026-10-31-empresas-papeles-y-asignaciones.md`, spec
   Los nombres de los papeles son los roles de siempre (`admin`, `commercial_director`, `line_leader`, `sales_manager`,
   `contract_manager`, `data_manager`, `viewer`, `hr`, `user`). Una persona tiene un solo correo y una sola clave, y
   puede tener varios papeles, distintos por empresa (Paola: líder de Trauma y Ejecutivo Comercial en VG).
-- **Lo que puede hacer es la suma**: `permisos` = la unión de `rolePermissions[papel]` de cada papel activo en la
-  empresa activa (`permisosDePapeles`). `requirePermission`, `requireAnyPermission` y `hasPermission` deciden con esa
-  unión (`tienePermiso(user.papeles, permiso)`). Una líder que además es Ejecutivo Comercial tiene los permisos de las
+- **Lo que puede hacer es la suma**: la unión de `rolePermissions[papel]` de cada papel activo en la empresa activa,
+  que calcula `tienePermiso(papeles, permiso)` (`web/lib/empresas-reglas.ts`). Deciden con ella `requirePermission` y
+  `requireAnyPermission` (`tienePermiso(user.papeles, …)`) y, en el cliente, `usePermissions` (`tienePermiso(papeles, …)`
+  con los papeles de `/api/auth/me`). `hasPermission(role, permission)` sigue recibiendo un solo rol. Una líder que además es Ejecutivo Comercial tiene los permisos de las
   dos cosas; sin papeles activos en la empresa no tiene ninguno.
 - **Empresa activa**: por persona, en `users.empresa_activa_id` (el claim `emp` de la sesión es solo caché y la columna
   manda). Sin elección guardada queda en VG si la tiene; si no, en la de menor `codigo`. Se cambia desde el menú de OpMap
@@ -77,13 +78,13 @@ Decisión `docs/decisiones/2026-10-31-empresas-papeles-y-asignaciones.md`, spec
   selector solo sale cuando hay más de una empresa.
 - **`users.role` es una caché**, no una fuente: el servidor lo escribe cada vez que cambian los papeles (el papel más
   alto en VG, o `user` si no tiene ninguno allí; `business_lines.leader_user_id` igual, el líder nacional de VG). El
-  código nuevo no debe leerlo: decide con `user.papeles` o `user.permisos`. Orden del "papel más alto": `admin` >
+  código nuevo no debe leerlo: decide con `user.papeles` (`tienePermiso`). Orden del "papel más alto": `admin` >
   `commercial_director` > `line_leader` > `sales_manager` > `contract_manager` > `data_manager` > `hr` > `viewer` >
   `user`. Se borra en la capa 4.
 - **Dar o quitar papeles**: solo con `users:manage` (el Administrador, en cualquiera de sus empresas), en `/users`, con
   el editor de papeles por empresa (`PUT /api/users/[id]/papeles`). Dar `sales_manager` a una persona enlazada con un
-  Ejecutivo Comercial crea su pertenencia a esa empresa; quitarlo borra sus asignaciones allí (la pantalla avisa
-  cuántas) y, en VG, recalcula la cobertura (`cobertura_recalculada` en la respuesta).
+  Ejecutivo Comercial crea su pertenencia a esa empresa; quitarlo borra sus asignaciones allí y, en VG, también sus filas de
+  `executive_lines` (el disparador de la 0820 cierra sus visitantes) (la pantalla avisa cuántas) y, en VG, recalcula la cobertura (`cobertura_recalculada` en la respuesta).
 - **Líder con Zonas**: de cada línea y empresa hay un líder nacional (sin Zonas) y único, o varios cuyos conjuntos de
   Zonas (`papel_zonas`) no se solapan; un nacional no convive con uno por Zonas. El editor de `/users` rechaza el resto
   con un mensaje en español. Lo que cada líder "ve" de su línea según sus Zonas llega con la capa 3.

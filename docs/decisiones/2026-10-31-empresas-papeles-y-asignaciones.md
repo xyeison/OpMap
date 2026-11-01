@@ -37,7 +37,7 @@ Spec: `docs/specs/2026-10-31-empresas-papeles-y-asignaciones.md`.
 9. **El puente de la web a la app no abre la cuenta del administrador**: `POST /api/auth/sesion-app` responde 403 a
    quien tiene un papel `admin` o `commercial_director` activo en CUALQUIER empresa, para que la cookie del
    administrador nunca se vuelva un token legible desde la app; esa persona entra a la app con su clave.
-10. **Empresa activa por defecto**: sin elección guardada (`users.empresa_activa_id` vacío ni claim), la persona queda
+10. **Empresa activa por defecto**: sin elección guardada (`users.empresa_activa_id` vacío y sin claim), la persona queda
     en VG si la tiene; si no, en la empresa de menor `codigo`. Así nadie que hoy solo conoce VG nota algo distinto.
 
 **Consecuencias**: migraciones 0960 (capa 1), 0970 (capa 2), 0980 (capa 3) y una de limpieza (capa 4), cada una solo
@@ -48,8 +48,8 @@ empresa (logo, colores, ícono) y la página de Ejecutivos Comerciales al estilo
 
 **Dónde vive en el código**: `web/lib/empresas.ts` (leer empresas y papeles, elegir la activa, escribir las cachés),
 `web/lib/empresas-reglas.ts` (reglas puras: `empresaActivaDe`, `validarLiderDeLinea`, `cacheRolDe`, `cacheLiderDe`,
-`papelesDeSemilla`), `web/lib/permissions.ts` (`permisosDePapeles`, `papelMasAlto`, `tienePermiso`),
-`web/lib/auth-server.ts` (`SessionUser.empresa/papeles/permisos`), `web/lib/session.ts` (claim `emp`),
+`papelesDeSemilla`), `papelMasAlto` y `tienePermiso` en el mismo archivo, `web/lib/permissions.ts` (menú y rutas por papeles),
+`web/lib/auth-server.ts` (`SessionUser.empresa/empresas/papeles`), `web/lib/session.ts` (claim `emp`),
 `web/app/api/auth/empresa`, `web/app/api/auth/sesion-app`, `web/app/api/users/[id]/papeles`,
 `web/app/users/PapelesEditor.tsx`, `web/components/SelectorEmpresa.tsx`, `mobile/lib/empresa-activa.ts`; migración
 `database/migrations/2026-10-31_0960_empresas_papeles_asignaciones.sql` (ESCRITA, no aplicada; rollback 9961); después

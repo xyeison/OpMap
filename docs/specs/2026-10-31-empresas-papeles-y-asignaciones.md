@@ -113,7 +113,7 @@ Nombres en español como el resto de las tablas de visitas; en inglés solo lo q
 - Quitar el papel `sales_manager` de VG también recalcula la cobertura (`cobertura_recalculada` en la respuesta de
   `PUT /api/users/[id]/papeles`); de Medix, no (la cobertura de Medix llega con la capa 2).
 - Dar el papel `sales_manager` en `/users` a una persona enlazada con una fila de `executives` crea su
-  `executive_empresas` en esa empresa; quitárselo borra sus asignaciones en esa empresa (la pantalla avisa cuántas y
+  `executive_empresas` en esa empresa; quitárselo borra sus asignaciones en esa empresa y, en VG, también sus filas de `executive_lines` (el disparador de la 0820 cierra sus visitantes) (la pantalla avisa cuántas y
   cuántos visitantes terminan). Las vacantes no tienen usuario: su `executive_empresas` se maneja desde Ejecutivos
   Comerciales ("Agregar vacante" pide la empresa; por defecto, la activa).
 
@@ -127,9 +127,12 @@ Orden de "papel más alto" para la caché y para los textos: `admin` > `commerci
   empresa, y "la última usada" es simplemente esa columna. El token de sesión gana el claim `emp` solo como caché: el
   servidor lo compara con la columna y, si difieren, manda la columna. Sin `emp` (tokens de hoy) vale la columna; así
   nadie tiene que volver a entrar.
-- `SessionUser` gana `empresa` (`{ id, codigo, nombre_corto }`), `papeles` (los activos en esa empresa) y `permisos`
-  (unión de `rolePermissions[papel]` de cada papel). `role` se conserva como el papel más alto en esa empresa, para el
-  código que aún lo lee. `requirePermission`, `requireAnyPermission` y `hasPermission` deciden con `permisos`.
+- `SessionUser` gana `empresa` (`{ id, codigo, nombre_corto }`), `empresas` (las que puede elegir) y `papeles` (los
+  activos en esa empresa). No hay un campo `permisos`: lo que puede hacer se calcula como la unión de
+  `rolePermissions[papel]` de sus papeles con `tienePermiso(papeles, permiso)` (`web/lib/empresas-reglas.ts`).
+  `role` se conserva como el papel más alto en esa empresa, para el código que aún lo lee. `requirePermission` y
+  `requireAnyPermission` deciden con `tienePermiso(user.papeles, …)`, y `usePermissions` en el cliente igual con los
+  papeles de `/api/auth/me`; `hasPermission(role, permiso)` sigue recibiendo un solo rol.
 - `POST /api/auth/sesion-app` (el puente de la web a la app, un solo ingreso) **niega (403) a quien tiene un papel
   `admin` o `commercial_director` activo en CUALQUIER empresa**: la cookie del administrador nunca se vuelve un token
   legible desde la app; esa persona entra a la app con su clave. Los demás reciben el token con la empresa activa.
@@ -156,7 +159,7 @@ Orden de "papel más alto" para la caché y para los textos: `admin` > `commerci
 
 ## Capas (un PR cada una, en este orden)
 **Capa 1 – Modelo y sesión.** Migración 0960 (rollback 9961) con todas las tablas y semillas de arriba; `empresa` y
-`papeles` en la sesión; `permisos` como unión; `POST /api/auth/empresa`; nombre corto de la empresa en la barra de OpMap
+`papeles` en la sesión; permisos como unión de los papeles (`tienePermiso`); `POST /api/auth/empresa`; nombre corto de la empresa en la barra de OpMap
 y en la franja de estado de la app; `/users` muestra y edita papeles por empresa (en lugar del rol único) y escribe la
 caché; Líneas edita en qué empresas está cada línea (`linea_empresas`), para que una persona pueda ser líder en Medix
 desde esta capa. Las semillas dejan a todos exactamente como hoy. Implementada y probada sin red (`scripts/empresas-check.ts`,
@@ -191,8 +194,8 @@ sigue ESCRIBIÉNDOLAS, una fila por persona y línea, hasta la capa 4).
 
 ## Criterios de aceptación (pruebas puras, `web/scripts/*-check.ts`)
 Capa 1
-- [x] `permisosDePapeles([{admin}])` = los de admin; `[{line_leader, Trauma}, {sales_manager}]` = la unión; la lista
-      vacía = sin permisos. `papelMasAlto` sigue el orden de arriba.
+- [x] `tienePermiso([{admin}], …)` concede lo de admin; con `[{line_leader, Trauma}, {sales_manager}]` concede la unión de
+      los dos; la lista vacía no concede nada. `papelMasAlto` sigue el orden de arriba.
 - [x] `empresaActivaDe(token sin emp, empresas [vg])` = vg; con `[vg, medix]` = vg (VG si la tiene; si no, la menor por código); con `emp = medix`
       y papel activo allí = medix; con `emp` donde no tiene papel = 403 al cambiar y la de por defecto (VG si la tiene) al leer.
 - [x] `requirePermission` con papeles `[line_leader]` niega `executives:lines` y concede `campo:app`; con
@@ -264,8 +267,8 @@ Capa 3
 
 ## Plan (archivos e interfaces)
 Capa 1: `database/migrations/2026-10-31_0960_*.sql` y `9961_*_rollback.sql`; `web/lib/session.ts` (claim `emp`),
-`web/lib/auth-server.ts` (`SessionUser.empresa/papeles/permisos`), `web/lib/permissions.ts` (`permisosDePapeles`,
-`papelMasAlto`, `hasPermission` sobre permisos), `web/lib/require-role.ts`, `web/lib/empresas.ts` (nuevo: leer empresas y
+`web/lib/auth-server.ts` (`SessionUser.empresa/empresas/papeles`), `web/lib/empresas-reglas.ts` (`papelMasAlto`,
+`tienePermiso`, `empresaActivaDe`), `web/lib/require-role.ts`, `web/hooks/usePermissions.ts`, `web/lib/empresas.ts` (nuevo: leer empresas y
 papeles de una persona, elegir la activa, escribir la caché de `users.role` y `leader_user_id`), `web/app/api/auth/me`,
 `web/app/api/auth/empresa` (nuevo), `web/app/api/users/*` y `web/app/users/page.tsx` (papeles por empresa),
 `web/components/NavigationWithPermissions.tsx` (empresa activa y cambio), `mobile/` (Ajustes: empresa activa; franja de
