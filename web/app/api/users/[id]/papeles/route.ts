@@ -3,11 +3,13 @@
 // reemplaza lo que tiene en esa empresa (lib/empresas.ts → reemplazarPapeles). ?simular=1 solo cuenta lo que se pierde
 // al quitar sales_manager (asignaciones y visitantes) y no escribe nada. Solo users:manage (administrador).
 //   200 { papeles, afectados } · 400 cuerpo o línea fuera de la empresa · 404 usuario o empresa
-//   409 líder nacional repetido o Zonas solapadas · 503 sin la 0960.
+//   409 líder nacional repetido o Zonas solapadas · 503 sin la 0960. Si se borraron executive_lines (quitar
+//   sales_manager en VG) la cobertura se recalcula: cobertura_recalculada true, o false con aviso si falló.
 import { NextRequest, NextResponse } from 'next/server'
 import { requirePermission } from '@/lib/require-role'
 import { Falta0960Error, MENSAJE_FALTA_0960, dejaSinAdministradores, reemplazarPapeles } from '@/lib/empresas'
 import { UUID_RE, firstIssueMessage, papelesPutSchema } from '@/lib/user-schemas'
+import { AVISO_COBERTURA_SIN_RECALCULAR } from '../../../executives/_lib/executive-shared'
 
 export const dynamic = 'force-dynamic'
 
@@ -38,7 +40,14 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 
     const resultado = await reemplazarPapeles({ userId, empresaId, papeles, creadoPor: auth.user.id, simular })
     if (!resultado.ok) return NextResponse.json({ error: resultado.error }, { status: resultado.status })
-    return NextResponse.json({ papeles: resultado.papeles, afectados: resultado.afectados })
+    // Si se borraron executive_lines (quitar sales_manager en VG), si se recalculó la cobertura y el aviso si falló
+    const cobertura =
+      resultado.cobertura_recalculada === undefined
+        ? {}
+        : resultado.cobertura_recalculada
+          ? { cobertura_recalculada: true }
+          : { cobertura_recalculada: false, aviso: AVISO_COBERTURA_SIN_RECALCULAR }
+    return NextResponse.json({ papeles: resultado.papeles, afectados: resultado.afectados, ...cobertura })
   } catch (error) {
     if (error instanceof Falta0960Error) return NextResponse.json({ error: MENSAJE_FALTA_0960 }, { status: 503 })
     console.error('Error en PUT /api/users/[id]/papeles:', error)

@@ -20,6 +20,7 @@ import {
   type PapelEntrada,
 } from './empresas-reglas'
 import { firstIssueMessage, listaPapelesSchema } from './user-schemas'
+import { recomputeAndSaveCoverage } from './coverage'
 import type { Role } from './permissions'
 import type { SessionUser } from './auth-server'
 import type { EmpresaMovil } from './reporte-visitas'
@@ -195,7 +196,8 @@ export interface AfectadosDeQuitarEjecutivo {
 }
 
 export type ResultadoPapeles =
-  | { ok: true; papeles: PapelActivo[]; afectados: AfectadosDeQuitarEjecutivo }
+  // cobertura_recalculada solo cuando se borraron executive_lines (quitar sales_manager en VG): false si el recálculo falló
+  | { ok: true; papeles: PapelActivo[]; afectados: AfectadosDeQuitarEjecutivo; cobertura_recalculada?: boolean }
   | { ok: false; status: 400 | 404 | 409; error: string }
 
 type PapelNormalizado = { papel: Role; line_id: string | null; kam_ids: string[] }
@@ -444,6 +446,7 @@ export async function reemplazarPapeles(
     }
   }
 
+  let lineasBorradas = false
   try {
     // 1. Desactivar lo que ya no lleva
     if (quitar.length > 0) {
@@ -495,7 +498,11 @@ export async function reemplazarPapeles(
       datos(await db.from('asignaciones').delete().in('executive_id', ids).eq('empresa_id', entrada.empresaId), 'asignaciones (borrar)')
       if (entrada.empresaId === EMPRESA_VG_ID) {
         // El disparador executive_lines_termina_visitantes de la 0820 cierra sus visitantes ('linea_quitada')
-        datos(await db.from('executive_lines').delete().in('executive_id', ids), 'executive_lines (borrar)')
+        const borradas = datos<{ line_id: string }[]>(
+          await db.from('executive_lines').delete().in('executive_id', ids).select('line_id'),
+          'executive_lines (borrar)'
+        ) || []
+        lineasBorradas = borradas.length > 0
       }
       datos(
         await db.from('executive_empresas').update({ activo: false }).in('executive_id', ids).eq('empresa_id', entrada.empresaId),
@@ -518,10 +525,24 @@ export async function reemplazarPapeles(
     throw error
   }
 
+  // Quien pierde líneas "ya no está": se recalcula la cobertura como en PATCH /api/executives (recalcularCobertura,
+  // global y sin Google Maps). Si falla, el cambio ya quedó guardado: se registra y se avisa con false.
+  let cobertura_recalculada: boolean | undefined
+  if (lineasBorradas) {
+    try {
+      await recomputeAndSaveCoverage(db)
+      cobertura_recalculada = true
+    } catch (error) {
+      console.error('reemplazarPapeles: el cambio se guardó, pero falló el recálculo de la cobertura:', error)
+      cobertura_recalculada = false
+    }
+  }
+
   return {
     ok: true,
     papeles: await papelesActivosEn(entrada.userId, entrada.empresaId, db),
     afectados: { asignaciones: afectados.asignaciones, visitantes: afectados.visitantes },
+    ...(cobertura_recalculada === undefined ? {} : { cobertura_recalculada }),
   }
 }
 

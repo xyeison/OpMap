@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { requirePermission } from '@/lib/require-role'
 import { UUID_RE, firstIssueMessage, updateUserSchema } from '@/lib/user-schemas'
-import { linkExecutiveToUserByEmail } from '../../executives/_lib/executive-shared'
+import { AVISO_COBERTURA_SIN_RECALCULAR, linkExecutiveToUserByEmail } from '../../executives/_lib/executive-shared'
 import { EMPRESA_VG_ID, type PapelEntrada } from '@/lib/empresas-reglas'
 import { Falta0960Error, dejaSinAdministradores, reemplazarPapeles } from '@/lib/empresas'
 
@@ -145,9 +145,11 @@ export async function PUT(
     // El rol pasa por los papeles de VG (y su caché users.role); el resto de campos, directo a users
     const { role, ...otros } = updates
     const campos = sinTabla ? updates : otros
+    let coberturaRecalculada: boolean | undefined
     if (!sinTabla && role !== undefined) {
       const resultado = await rolComoPapelesDeVG(id, role, currentUser.id)
       if (!resultado.ok) return NextResponse.json({ error: resultado.error }, { status: resultado.status })
+      coberturaRecalculada = resultado.cobertura_recalculada
     }
 
     const { data: updatedUser, error } =
@@ -180,6 +182,12 @@ export async function PUT(
     return NextResponse.json({
       user: updatedUser,
       linkedExecutive,
+      // Quitarle sales_manager en VG borra sus líneas y recalcula la cobertura (aviso si el recálculo falló)
+      ...(coberturaRecalculada === undefined
+        ? {}
+        : coberturaRecalculada
+          ? { cobertura_recalculada: true }
+          : { cobertura_recalculada: false, aviso: AVISO_COBERTURA_SIN_RECALCULAR }),
       message: linkedExecutive
         ? `Usuario actualizado y enlazado con la Ejecutiva Comercial ${linkedExecutive}`
         : 'Usuario actualizado exitosamente',

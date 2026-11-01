@@ -22,7 +22,8 @@
  *      users.role y business_lines.leader_user_id; línea fuera de la empresa → 400; líder nacional repetido o Zonas
  *      solapadas → 409; una líder por Zonas entra inactiva, recibe sus Zonas y se activa); quitar sales_manager cuenta
  *      (?simular=1, sin escribir) y borra sus asignaciones de esa empresa y, en VG, sus executive_lines (el disparador
- *      de la 0820 cierra los visitantes; el falso no corre disparadores: se comprueba lo que borra y lo que cuenta);
+ *      de la 0820 cierra los visitantes; el falso no corre disparadores: se comprueba lo que borra y lo que cuenta) y
+ *      entonces recalcula la cobertura (cobertura_recalculada, como PATCH /api/executives);
  *      GET /api/users trae papeles; POST /api/users con role crea el papel en VG; PUT /api/users/[id] con role pasa por
  *      los papeles de VG (y protege al último administrador); POST /api/executives da la empresa a la vacante nueva;
  *      sin users:manage → 403; sin la 0960, las rutas viejas siguen y la de papeles responde 503.
@@ -132,7 +133,7 @@ const CLAVES: Record<string, string[]> = {
   papel_zonas: ['papel_id', 'kam_id'],
 }
 /** Tablas con columna id que el falso rellena si el insert no la trae. */
-const CON_ID = new Set(['users', 'empresas', 'papeles', 'executives'])
+const CON_ID = new Set(['users', 'empresas', 'papeles', 'executives', 'coverage'])
 
 function likeToRegExp(pattern: string, flags: string): RegExp {
   const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*').replace(/_/g, '.')
@@ -835,10 +836,19 @@ async function main() {
       { line_id: L_COLUMNA, empresa_id: EMPRESA_MEDIX_ID },
     ],
     business_lines: [
-      { id: L_TRAUMA, code: 'trauma', name: 'Trauma', leader_user_id: null, active: true },
-      { id: L_COLUMNA, code: 'columna', name: 'Columna', leader_user_id: null, active: true },
+      { id: L_TRAUMA, code: 'trauma', name: 'Trauma', leader_user_id: null, max_reach_minutes: 300, sort_order: 1, active: true },
+      { id: L_COLUMNA, code: 'columna', name: 'Columna', leader_user_id: null, max_reach_minutes: 300, sort_order: 2, active: true },
     ],
-    kams: [{ id: KAM_BAQ, name: 'Barranquilla' }, { id: KAM_BOG, name: 'Bogotá Norte' }],
+    kams: [
+      { id: KAM_BAQ, name: 'Barranquilla', area_id: '08001', active: true },
+      { id: KAM_BOG, name: 'Bogotá Norte', area_id: '1100101', active: true },
+    ],
+    // Lo que lee el recálculo de cobertura cuando a alguien se le borran sus executive_lines (sin IPS)
+    hospitals: [],
+    hospital_kam_distances: [],
+    line_zones: [],
+    coverage_overrides: [],
+    coverage: [],
     executives: [
       persona(X_EJEC, D_EJEC, 'Ejecutiva'),
       persona(X_OTRO, null, 'Vacante Bogotá'),
@@ -983,11 +993,16 @@ async function main() {
     const marca = fakeD.requests.length
     const cuerpoQuitar = { empresa_id: EMPRESA_VG_ID, papeles: [{ papel: 'viewer' }] }
     const simulado = await ponerPapeles(D_ADMIN, D_EJEC, cuerpoQuitar, true)
-    eq('?simular=1 → 200 { asignaciones: 3, visitantes: 2 }', [simulado.status, ((await cuerpoDe(simulado)) as CuerpoPapeles).afectados], [200, { asignaciones: 3, visitantes: 2 }])
-    check('sin escribir nada', fakeD.writes(marca).length === 0, fakeD.writes(marca))
+    const cuerpoSimulado = (await cuerpoDe(simulado)) as CuerpoPapeles & { cobertura_recalculada?: boolean }
+    eq('?simular=1 → 200 { asignaciones: 3, visitantes: 2 }', [simulado.status, cuerpoSimulado.afectados], [200, { asignaciones: 3, visitantes: 2 }])
+    check('sin escribir nada (ni recalcular la cobertura)', fakeD.writes(marca).length === 0 && !('cobertura_recalculada' in cuerpoSimulado), fakeD.writes(marca))
 
+    const marcaReal = fakeD.requests.length
     const real = await ponerPapeles(D_ADMIN, D_EJEC, cuerpoQuitar)
-    eq('sin simular → 200 con los mismos afectados', [real.status, ((await cuerpoDe(real)) as CuerpoPapeles).afectados], [200, { asignaciones: 3, visitantes: 2 }])
+    const cuerpoReal = (await cuerpoDe(real)) as CuerpoPapeles & { cobertura_recalculada?: boolean }
+    eq('sin simular → 200 con los mismos afectados', [real.status, cuerpoReal.afectados], [200, { asignaciones: 3, visitantes: 2 }])
+    eq('se borraron sus executive_lines: recalcula la cobertura (cobertura_recalculada: true)', cuerpoReal.cobertura_recalculada, true)
+    check('y escribe en coverage (como PATCH /api/executives)', fakeD.writes(marcaReal).some(w => w.table === 'coverage'), fakeD.writes(marcaReal).map(w => w.table))
     eq('borra sus 3 asignaciones de VG (queda la de Medix y la de la otra persona)', tablasD.asignaciones.map(a => a.id).sort(), ['a4', 'a5'])
     eq('borra sus executive_lines (la 0820 cierra los visitantes; las de la otra persona quedan)',
       tablasD.executive_lines.map(l => `${l.executive_id === X_EJEC ? 'ejec' : 'otro'}:${l.line_id === L_TRAUMA ? 'trauma' : 'columna'}`), ['otro:trauma'])
@@ -1005,8 +1020,11 @@ async function main() {
 
   print('\n  Foco 4: quitar sales_manager a quien no tiene fila en executives')
   {
+    const marca = fakeD.requests.length
     const r = await ponerPapeles(D_ADMIN, D_FOCO4, { empresa_id: EMPRESA_VG_ID, papeles: [] })
-    eq('200 { asignaciones: 0, visitantes: 0 }', [r.status, ((await cuerpoDe(r)) as CuerpoPapeles).afectados], [200, { asignaciones: 0, visitantes: 0 }])
+    const cuerpo = (await cuerpoDe(r)) as CuerpoPapeles & { cobertura_recalculada?: boolean }
+    eq('200 { asignaciones: 0, visitantes: 0 }', [r.status, cuerpo.afectados], [200, { asignaciones: 0, visitantes: 0 }])
+    check('sin executive_lines borradas no recalcula la cobertura', !('cobertura_recalculada' in cuerpo) && !fakeD.writes(marca).some(w => w.table === 'coverage'), cuerpo)
     eq("sin papeles en VG: caché users.role = 'user'", rolDe(D_FOCO4), 'user')
   }
 
