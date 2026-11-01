@@ -50,6 +50,8 @@ export async function GET(request: NextRequest) {
       ejecutiva,
       persona,
       sin_persona: sinPersona,
+      // Equipo (2026-10-31): quién supervisa (team:view); la app arma sus pestañas con esto y con la persona
+      supervisa: hasPermission(user.role, 'team:view'),
     }
     return NextResponse.json(respuesta, { headers: { 'Cache-Control': 'no-store' } })
   } catch (error) {

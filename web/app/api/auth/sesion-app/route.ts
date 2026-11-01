@@ -3,10 +3,10 @@
 // el token que la app necesita, sin volver a escribir su contraseña. Es el MISMO token de la cookie (mismo formato que el
 // del login móvil): no da más permisos ni más tiempo.
 //   - Exige la cookie de la web: solo con el portador → 401 (no sirve para alargar un token de la app).
-//   - Solo para quien usa la app de campo (campo:app: las líderes y, desde el 2026-10-31, los Ejecutivos Comerciales; el
-//     mismo criterio del menú "Agendamiento"); los demás roles → 403 (revisión 2026-10-30): la cookie httpOnly del
-//     administrador o de la dirección no se vuelve un token que el JavaScript de la página puede leer, hasta "Equipo"
-//     (Entrega 2 de docs/specs/2026-10-31-equipo-en-la-app-y-ejecutivos-de-vuelta.md).
+//   - Solo para quien usa la app de campo: campo:app (líderes y Ejecutivos Comerciales) o team:view (dirección,
+//     administrador y líderes, para "Equipo"). Una sola app, un solo ingreso (dueño, 2026-10-31): deja sin efecto la
+//     revisión del 2026-10-30 que negaba el puente al administrador y a la dirección. Los demás roles → 403: su cookie
+//     httpOnly no se vuelve un token legible por la página.
 //   - Exige el mismo origen: un Origin de otro sitio o Sec-Fetch-Site cross-site → 403 (la cookie es SameSite=Lax y
 //     esta ruta es POST, pero se comprueba igual).
 //   - Respuesta: LoginMovilResponse { token, expira_at, usuario, ejecutiva }, como el login móvil, sin caché.
@@ -53,7 +53,8 @@ export async function POST(request: NextRequest) {
     const user = await getUserFromRequest(request)
     if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
     // El permiso del rol y no hasPermission: hasPermission deja pasar al administrador (lo tiene todo)
-    if (!(rolePermissions[user.role] ?? []).includes('campo:app')) return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 })
+    const permisos = rolePermissions[user.role] ?? []
+    if (!permisos.includes('campo:app') && !permisos.includes('team:view')) return NextResponse.json({ error: 'Acceso denegado' }, { status: 403 })
 
     let ejecutiva: LoginMovilResponse['ejecutiva'] = null
     try {

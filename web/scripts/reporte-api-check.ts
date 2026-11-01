@@ -3581,6 +3581,12 @@ async function main() {
           meLuciaSolo.body?.persona?.rol === 'lider' && meLuciaSolo.body.sin_persona === null && meAdminSolo.body?.persona === null && meAdminSolo.body.sin_persona === MENSAJE_SIN_LINEAS && meDirectoraSolo.body?.persona === null && meDirectoraSolo.body.sin_persona === null,
           { lucia: meLuciaSolo.body, admin: meAdminSolo.body, directora: meDirectoraSolo.body }
         )
+        // Equipo (dueño, 2026-10-31): el servidor dice quién supervisa (team:view); la app arma sus pestañas con eso
+        check(
+          'GET /api/auth/me trae supervisa: true para la dirección, el administrador y la líder; false para Ana (solo Ejecutiva)',
+          meDirectoraSolo.body?.supervisa === true && meAdminSolo.body?.supervisa === true && meLuciaSolo.body?.supervisa === true && meAna.body?.supervisa === false && ok('me', meDirectoraSolo.body),
+          { directora: meDirectoraSolo.body?.supervisa, admin: meAdminSolo.body?.supervisa, lucia: meLuciaSolo.body?.supervisa, ana: meAna.body?.supervisa }
+        )
       }
     }
 

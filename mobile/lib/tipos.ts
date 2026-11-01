@@ -113,6 +113,8 @@ export interface MeResponse {
    * Opcional: un servidor anterior no lo manda.
    */
   sin_persona?: string | null
+  /** Equipo (2026-10-31): el rol tiene team:view (dirección, administrador, líder): la app le da la pestaña Equipo. */
+  supervisa: boolean
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1004,4 +1006,123 @@ export interface CuentaDetalleResponse {
 export interface LugarItem {
   id: string
   name: string
+}
+
+// ---------------------------------------------------------------------------------------------
+// Equipo (Entrega 2, 2026-10-31): GET /api/equipo/{personas,hoy,persona/[id]}. Copia de web/lib/reporte-visitas.ts.
+// ---------------------------------------------------------------------------------------------
+
+export type PapelEquipo = 'lider' | 'ejecutivo' | 'lider_y_ejecutivo'
+export type CasoUbicacion = 'dia_libre' | 'festivo' | 'reportado' | 'reportado_hace_rato' | 'planeado' | 'sin_nada'
+export type EstadoPaso = 'programada' | 'atrasada' | 'sin_cerrar' | 'no_realizada' | 'cancelada' | 'hecha' | 'no_efectiva'
+
+export interface PersonaEquipoItem {
+  user_id: string
+  nombre: string
+  papel: PapelEquipo
+  executive_id: string | null
+  zona: string | null
+  lineas: LineaPersona[]
+  /** Quien pregunta la ve solo como Ejecutiva Comercial. */
+  solo_como_ejecutivo: boolean
+  activa: boolean
+}
+
+export interface EquipoPersonasResponse {
+  personas: PersonaEquipoItem[]
+  lineas: Array<{ id: string; nombre: string }>
+}
+
+export interface UbicacionItem {
+  caso: CasoUbicacion
+  fuente: 'reportado' | 'planeado' | null
+  hora: string | null
+  sede: string | null
+  municipio: string | null
+  hace_min: number | null
+  marcas: MarcaVisita[]
+}
+
+export interface EquipoHoyResponse {
+  fecha: string
+  texto_fijo: string
+  resumen: { ciudades: Array<{ nombre: string; personas: number }>; sin_nada: number }
+  personas: Array<{ persona: PersonaEquipoItem; donde: UbicacionItem }>
+}
+
+export interface PasoRastroItem {
+  fecha: string
+  hora: string | null
+  tipo: TipoVisita
+  modalidad: Modalidad | null
+  con_quien: string | null
+  sede: string | null
+  municipio: string | null
+  estado: EstadoPaso
+  motivo: string | null
+  anticipacion_dias: number | null
+  viene_de_fecha: string | null
+  lineas: string[]
+  marcas: MarcaVisita[]
+  visita_id: string | null
+  cita_id: string | null
+}
+
+export interface EquipoPersonaDiaResponse {
+  fecha: string
+  persona: PersonaEquipoItem
+  donde: UbicacionItem
+  rastro: PasoRastroItem[]
+  siguiente: PasoRastroItem[]
+}
+
+export interface CifrasItem {
+  hechas: number
+  efectivas: number
+  no_efectivas: number
+  no_efectivas_por_motivo: Record<string, number>
+  no_se_hizo: number
+  no_se_hizo_por_motivo: Record<string, number>
+  canceladas: number
+  canceladas_por_motivo: Record<string, number>
+  sin_cerrar: number
+  programadas: number
+  telefonicas: number
+  cumplimiento_plan: { programadas: number; cumplidas: number; ratio: number | null }
+  anticipacion: { mediana_dias: number | null; pct_con_tiempo: number | null; pct_mismo_dia: number | null; no_planeadas: number }
+  medicos_distintos: number
+  ciudades_distintas: number
+  por_linea: { lineas: Array<{ line_id: string; nombre: string; hechas: number }>; suma_supera_hechas: boolean }
+}
+
+export interface CuotaResumenItem {
+  medica: { cuota: number; hechas: number; cumplimiento: number | null }
+  institucional: { cuota: number; hechas: number; cumplimiento: number | null }
+}
+
+export interface FilaRendimientoItem extends CifrasItem {
+  persona: PersonaEquipoItem
+  /** Tuvo filas en el periodo y hoy ya no está (inactiva o traspasada). */
+  ya_no_esta: boolean
+  /** Días hábiles ya cerrados del periodo sin ninguna visita; null si no se calcula. */
+  dias_habiles_sin_visitas: number | null
+  /** Solo con Ejecutivo Comercial y periodo de un mes completo (la misma cuenta de /api/me/numeros). */
+  cuota: CuotaResumenItem | null
+}
+
+export interface EquipoRendimientoResponse {
+  desde: string
+  hasta: string
+  mes_completo: boolean
+  equipo: CifrasItem
+  por_persona: FilaRendimientoItem[]
+}
+
+export interface EquipoPersonaRendimientoResponse {
+  desde: string
+  hasta: string
+  mes_completo: boolean
+  fila: FilaRendimientoItem
+  visitas: PasoRastroItem[]
+  citas: PasoRastroItem[]
 }

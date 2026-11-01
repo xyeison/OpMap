@@ -71,6 +71,9 @@ export type Permission =
   // La app de campo (/campo): "Agendamiento" abre su agenda desde el menú de OpMap, con un solo ingreso. Las líderes
   // (2026-10-30) y, desde el 2026-10-31, los Ejecutivos Comerciales (sales_manager); el admin no lidera líneas.
   | 'campo:app'
+  // Equipo (dueño, 2026-10-31, docs/specs/2026-10-31-equipo-en-la-app-y-ejecutivos-de-vuelta.md): vigilar a su gente
+  // en la app (/campo/equipo): la dirección y el administrador a todos; cada líder a los Ejecutivos de sus líneas.
+  | 'team:view'
 
 // Definición de permisos por rol
 export const rolePermissions: Record<Role, Permission[]> = {
@@ -118,7 +121,8 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'calendar:manage',
     'daysoff:approve',
     'daysoff:view',
-    'visits:report'
+    'visits:report',
+    'team:view'          // Equipo (2026-10-31): ve a todas las personas de campo
   ],
   sales_manager: [
     'dashboard:view',
@@ -159,7 +163,8 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'terceros:create',   // Solo para la app de visita (registrar lo que falte al reportar)
     'daysoff:view',      // Fase 7 F2: ve (sin aprobar) los días libres de las ejecutivas de SUS líneas
     'visits:report',     // F1a (0850): agenda y reporta como líder (y como Ejecutiva si también lo es); días libres y cuota solo con Ejecutivo Comercial
-    'campo:app'          // 2026-10-30: "Agendamiento" en el menú (su agenda en la app de campo)
+    'campo:app',         // 2026-10-30: "Agendamiento" en el menú (su agenda en la app de campo)
+    'team:view'          // Equipo (2026-10-31): los Ejecutivos Comerciales de sus líneas (y ella misma)
   ],
   // Director comercial: todo lo de ver + gestionar líneas, equipo y cobertura de todas las líneas; con el administrador,
   // el único que asigna Ejecutivos Comerciales a líneas y Zonas (dueño, 2026-10-29). Sin users:manage ni
@@ -193,7 +198,8 @@ export const rolePermissions: Record<Role, Permission[]> = {
     'visitantes:manage',
     'visits:config',     // Fase 7 F2: configuración de visitas (metas, conteo, personas, general, subtipos)
     'calendar:manage',
-    'daysoff:approve'    // además su rol debe estar en aprobacion_dias_libres.aprueban (lo exige la API)
+    'daysoff:approve',   // además su rol debe estar en aprobacion_dias_libres.aprueban (lo exige la API)
+    'team:view'          // Equipo (2026-10-31): vigila a líderes y Ejecutivos Comerciales en la app; no agenda ni reporta (A1)
     // Sin visits:report desde F1a (A1, decisión del dueño 2026-10-15): la dirección comercial no agenda ni reporta; vigila.
   ],
   // Fase 7 F2: recursos humanos. Calendario (festivos, días de empresa y de ciudad) y días libres de todos
@@ -339,6 +345,7 @@ export function getAllowedRoutes(role: Role | undefined): string[] {
   if (PERMISOS_CONFIGURACION.some(permiso => permissions.includes(permiso))) routes.push('/configuracion') // visitas, municipios y asignación
   if (PERMISOS_CALENDARIO.some(permiso => permissions.includes(permiso))) routes.push('/calendario') // Fase 7 F2
   if (permissions.includes('campo:app')) routes.push('/campo/agenda') // Agendamiento: la app de campo (2026-10-30)
+  if (permissions.includes('team:view')) routes.push('/campo/equipo') // Equipo: la app de campo (2026-10-31)
 
   return routes
 }
@@ -369,6 +376,8 @@ export function getNavigationMenu(role: Role | undefined): NavigationItem[] {
   // Agendamiento (dueño, 2026-10-30): primero, la agenda de la líder en la app de campo (una página fuera de Next:
   // el menú la abre como página completa)
   if (tiene('campo:app')) menu.push({ name: 'Agendamiento', href: '/campo/agenda', icon: 'calendar' })
+  // Equipo (dueño, 2026-10-31): dónde está su gente y cómo rinde, en la app de campo (/campo/equipo)
+  if (tiene('team:view')) menu.push({ name: 'Equipo', href: '/campo/equipo', icon: 'users' })
   if (tiene('map:view')) menu.push({ name: 'Mapa', href: '/map', icon: 'map' })
 
   // Terceros. Cuentas clave (/terceros) son hoy las cuentas de la app de visita (las IPS); el dueño explicará el resto

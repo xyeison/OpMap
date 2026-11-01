@@ -9,7 +9,7 @@
  */
 import { usarMotorHaptico, vibrarAviso, vibrarExito, vibrarSuave, type ToqueHaptico } from '../../lib/haptica'
 import { GLIFOS_ICONOS, type NombreIcono } from '../../lib/iconos-nombres'
-import { MAX_LETRAS_PESTANA, OCULTAS, PESTANAS, letras } from '../../lib/navegacion'
+import { MAX_LETRAS_PESTANA, OCULTAS, PESTANA_EQUIPO, PESTANAS, PESTANAS_SUPERVISA, TODAS_LAS_PESTANAS, letras, pestanasDe } from '../../lib/navegacion'
 import { ALTO_TOQUE_MIN, COLORES_CLAROS, COLORES_OSCUROS, TAMANO, contraste, type Colores } from '../../lib/paleta'
 import type { Probador } from './probador'
 
@@ -151,14 +151,15 @@ export async function pruebas(t: Probador): Promise<void> {
   t.check('barra: el nombre no crece con el texto grande del sistema (como la barra nativa de iOS)', /tabBarAllowFontScaling:\s*false/.test(opcionesBarra))
   t.check('barra: elegida en acento (negro) y las demás en textoSuave', /tabBarActiveTintColor:\s*c\.acento\b/.test(opcionesBarra) && /tabBarInactiveTintColor:\s*c\.textoSuave\b/.test(opcionesBarra))
 
-  const mapaPestanas = mapaDe(layout, 'PESTANAS')
+  const mapaPestanas = mapaDe(layout, 'TODAS_LAS_PESTANAS')
   t.check('barra: cada pestaña sale de PESTANAS (name={p.ruta}, título y encabezado)', /name=\{p\.ruta\}/.test(mapaPestanas) && /title:\s*p\.titulo/.test(mapaPestanas) && /headerTitle:\s*p\.encabezado \?\? p\.titulo/.test(mapaPestanas), mapaPestanas)
   t.check('barra: cada pestaña lleva su ícono, relleno si está elegida (activo={focused})', /tabBarIcon:\s*\(\{[^}]*\bfocused\b[^}]*\}\)\s*=>/.test(mapaPestanas) && /<Icono nombre=\{p\.icono\} activo=\{focused\}/.test(mapaPestanas), mapaPestanas)
-  t.check('barra: las pestañas no llevan href (se ven) ni "Volver"', mapaPestanas !== '' && !/\bhref\b/.test(mapaPestanas) && !/headerLeft/.test(mapaPestanas))
+  t.check('barra: cada pestaña se ve solo si pestanasDe la da (href: null si no) y ninguna lleva "Volver"', mapaPestanas !== '' && /href:\s*visibles\.includes\(p\.ruta\)\s*\?\s*undefined\s*:\s*null/.test(mapaPestanas) && !/headerLeft/.test(mapaPestanas))
   const mapaOcultas = mapaDe(layout, 'OCULTAS')
   t.check('barra: las pantallas de OCULTAS llevan href: null y "Volver"', /name=\{o\.ruta\}/.test(mapaOcultas) && /href:\s*null/.test(mapaOcultas) && /headerLeft:\s*\(\)\s*=>\s*<BotonVolver \/>/.test(mapaOcultas), mapaOcultas)
   const pantallasSueltas = (layout.match(/<Tabs\.Screen\b/g) ?? []).length
-  t.check('barra: no hay <Tabs.Screen> sueltos (todos salen de PESTANAS u OCULTAS)', pantallasSueltas === 2, pantallasSueltas)
+  t.check('barra: no hay <Tabs.Screen> sueltos (todos salen de TODAS_LAS_PESTANAS u OCULTAS)', pantallasSueltas === 2, pantallasSueltas)
+  t.check('barra: las pestañas visibles salen de pestanasDe(quien)', /const visibles = pestanasDe\(quien\)/.test(layout))
 
   // -------------------------------------------------------------------------
   // PESTANAS y OCULTAS (lib/navegacion.ts)
@@ -168,16 +169,19 @@ export async function pruebas(t: Probador): Promise<void> {
   t.check('PESTANAS: Hoy · Reportar · Agenda · Números · Ajustes', igualesEnOrden(PESTANAS.map(p => p.titulo), ['Hoy', 'Reportar', 'Agenda', 'Números', 'Ajustes']), PESTANAS.map(p => p.titulo))
   const largos = PESTANAS.filter(p => letras(p.titulo) > MAX_LETRAS_PESTANA || letras(p.titulo) === 0).map(p => p.titulo)
   t.check(`PESTANAS: cada título tiene ${MAX_LETRAS_PESTANA} letras o menos (cabe entero a 11 pt)`, MAX_LETRAS_PESTANA === 8 && largos.length === 0 && letras('Números') === 7, largos)
+  // Equipo (2026-10-31): la dirección y el administrador ven Equipo · Ajustes; las demás, las cinco de siempre
+  t.check('PESTANA_EQUIPO: equipo, "Equipo" (6 letras), ícono equipo; TODAS_LAS_PESTANAS = las cinco + Equipo', PESTANA_EQUIPO.ruta === 'equipo' && PESTANA_EQUIPO.titulo === 'Equipo' && PESTANA_EQUIPO.icono === 'equipo' && igualesEnOrden(TODAS_LAS_PESTANAS.map(p => p.ruta), [...rutasPestanas, 'equipo']))
+  t.check('PESTANAS_SUPERVISA: Equipo · Ajustes; pestanasDe: supervisa → esas dos; campo, sin_lineas y sin_saber → las cinco', igualesEnOrden(PESTANAS_SUPERVISA.map(p => p.ruta), ['equipo', 'ajustes']) && igualesEnOrden(pestanasDe('supervisa'), ['equipo', 'ajustes']) && igualesEnOrden(pestanasDe('campo'), rutasPestanas) && igualesEnOrden(pestanasDe('sin_lineas'), rutasPestanas) && igualesEnOrden(pestanasDe('sin_saber'), rutasPestanas))
   t.check('PESTANAS: Agenda abre "Mi agenda" y Números "Mis números"', PESTANAS.find(p => p.ruta === 'agenda')?.encabezado === 'Mi agenda' && PESTANAS.find(p => p.ruta === 'numeros')?.encabezado === 'Mis números')
   const rutasOcultas = OCULTAS.map(o => o.ruta)
-  t.check('OCULTAS (href: null): dias-libres, agenda/nueva, visita/[id], medico/nuevo, sede/nueva, contacto/nuevo e instalar (sin señal)', igualesEnOrden([...rutasOcultas].sort(), ['agenda/nueva', 'contacto/nuevo', 'dias-libres', 'instalar', 'medico/nuevo', 'sede/nueva', 'visita/[id]']), rutasOcultas)
+  t.check('OCULTAS (href: null): dias-libres, agenda/nueva, visita/[id], medico/nuevo, sede/nueva, contacto/nuevo, instalar (sin señal) y, de Equipo (2026-10-31), equipo/persona/[id] y equipo/rendimiento', igualesEnOrden([...rutasOcultas].sort(), ['agenda/nueva', 'contacto/nuevo', 'dias-libres', 'equipo/persona/[id]', 'equipo/rendimiento', 'instalar', 'medico/nuevo', 'sede/nueva', 'visita/[id]']), rutasOcultas)
   t.check('Días libres dejó la barra: oculta, con el encabezado "Mis días libres"', !rutasPestanas.includes('dias-libres' as never) && OCULTAS.find(o => o.ruta === 'dias-libres')?.encabezado === 'Mis días libres')
   const rutas = rutasDelGrupo()
-  const nombradas = [...rutasPestanas, ...rutasOcultas]
+  const nombradas = [...TODAS_LAS_PESTANAS.map(p => p.ruta), ...rutasOcultas]
   const sinNombrar = rutas.filter(r => !nombradas.includes(r))
   const sinArchivo = nombradas.filter(r => !rutas.includes(r))
-  t.check('toda pantalla de app/(app)/ está en PESTANAS u OCULTAS (si no, expo-router la pondría de pestaña)', sinNombrar.length === 0 && rutas.length > 0, sinNombrar)
-  t.check('PESTANAS y OCULTAS: cada ruta existe una sola vez y tiene su archivo', sinArchivo.length === 0 && new Set(nombradas).size === nombradas.length, { sinArchivo, nombradas })
+  t.check('toda pantalla de app/(app)/ está en TODAS_LAS_PESTANAS u OCULTAS (si no, expo-router la pondría de pestaña)', sinNombrar.length === 0 && rutas.length > 0, sinNombrar)
+  t.check('TODAS_LAS_PESTANAS y OCULTAS: cada ruta existe una sola vez y tiene su archivo', sinArchivo.length === 0 && new Set(nombradas).size === nombradas.length, { sinArchivo, nombradas })
 
   // Íconos: el glyphmap que usa el componente Ionicons del paquete instalado.
   const ionicons = path.join(RAIZ, 'node_modules/@expo/vector-icons/build/Ionicons.js')
@@ -189,7 +193,8 @@ export async function pruebas(t: Probador): Promise<void> {
   const nombres = Object.keys(GLIFOS_ICONOS) as NombreIcono[]
   const faltanTodos = nombres.flatMap(n => [GLIFOS_ICONOS[n].relleno, GLIFOS_ICONOS[n].contorno]).filter(g => !(g in glifos))
   // Estilo Uber (2026-10-15): 14 + compromiso y agregar (la revisión quitó ubicación y buscar, que no se usaban).
-  t.check('íconos: los 17 nombres tienen relleno y contorno en ese glyphmap', nombres.length === 17 && faltanTodos.length === 0, { nombres: nombres.length, faltanTodos })
+  t.check('íconos: los 18 nombres (con equipo, 2026-10-31) tienen relleno y contorno en ese glyphmap', nombres.length === 18 && faltanTodos.length === 0, { nombres: nombres.length, faltanTodos })
+  t.check('íconos: el de Equipo (people) existe y no se repite con otra pestaña', GLIFOS_ICONOS.equipo.relleno === 'people' && 'people' in glifos && !PESTANAS.some(p => GLIFOS_ICONOS[p.icono].relleno === 'people'))
   t.check('íconos: cada pestaña tiene un ícono distinto', new Set(PESTANAS.map(p => GLIFOS_ICONOS[p.icono].relleno)).size === PESTANAS.length)
 
   // -------------------------------------------------------------------------

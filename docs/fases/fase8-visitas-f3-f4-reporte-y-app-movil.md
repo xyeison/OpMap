@@ -1033,3 +1033,11 @@ Spec `docs/specs/2026-10-30-campo-sin-senal-pwa.md`; decisiones del dueño en
   redondea a metros enteros en el TS como en la base.
 - Queda anotado, sin cambiar: si IndexedDB falla una vez y la cola cae a localStorage, al volver IndexedDB se lee solo
   esta (`kvLeer` no une las dos); es el caso de un navegador con el almacenamiento bloqueado, que la app ya avisa.
+
+## Equipo en la app (Entrega 2, 2026-10-31)
+
+La vista de la directora (F4 de `docs/specs/2026-10-15-actividades-de-campo.md`) se hizo dentro de la app de campo, no
+como página web: `docs/decisiones/2026-10-31-equipo-en-la-app.md`. Permiso `team:view`; `/api/auth/me` trae
+`supervisa`; API de solo lectura en `/api/equipo/*` (personas, hoy, persona/[id], rendimiento, persona/[id]/rendimiento),
+con `personasVisibles` y sin transcripción, foto, GPS, distancia ni documentos. Reglas en `web/lib/equipo.ts`; pruebas
+en `web/scripts/equipo-check.ts` y `web/scripts/equipo-api-check.ts`.

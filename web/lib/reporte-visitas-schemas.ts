@@ -668,3 +668,23 @@ export const camposSchema: z.ZodType<CamposCrudos, z.ZodTypeDef, unknown> = z.ob
   compromisos: textoONulo(MAX_COMPROMISOS),
   next_step_date: textoONulo(10),
 })
+
+// ---------------------------------------------------------------------------------------------
+// Equipo (2026-10-31)
+// ---------------------------------------------------------------------------------------------
+
+/** GET /api/equipo/hoy?fecha= y /api/equipo/persona/[id]?fecha= (sin fecha: hoy). */
+export const equipoDiaQuerySchema = cuerpo({ fecha: fechaOpcional })
+
+/** Como mucho, días por consulta de rendimiento. */
+export const MAX_DIAS_RENDIMIENTO = 93
+const MENSAJE_RANGO = `El periodo debe ir de "desde" a "hasta" (AAAA-MM-DD) y tener como mucho ${MAX_DIAS_RENDIMIENTO} días`
+const fechaRequerida = z.string({ required_error: MENSAJE_FECHA, invalid_type_error: MENSAJE_FECHA }).trim().refine(valor => esFechaIso(valor), { message: MENSAJE_FECHA })
+
+/** GET /api/equipo/rendimiento?desde&hasta&linea&papel y /api/equipo/persona/[id]/rendimiento?desde&hasta. */
+export const equipoRendimientoQuerySchema = cuerpo({
+  desde: fechaRequerida,
+  hasta: fechaRequerida,
+  linea: z.string().trim().nullish().transform(valor => (valor ? valor : null)),
+  papel: z.enum(['lider', 'ejecutivo']).nullish().transform(valor => valor ?? null),
+}).refine(valor => valor.hasta >= valor.desde && diasEntre(valor.desde, valor.hasta) < MAX_DIAS_RENDIMIENTO, { message: MENSAJE_RANGO })

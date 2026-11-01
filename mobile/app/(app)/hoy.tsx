@@ -41,7 +41,7 @@ import { textoDistancia, textoPrecision } from '../../lib/geo'
 import { vibrarExito } from '../../lib/haptica'
 import { Icono } from '../../lib/iconos'
 import { citaAtrasada, citaDeAhora, debeRecargarHoy, porCerrar, textoSiguienteCita, textoUbicacionTomada } from '../../lib/pantallas'
-import { AYUDA_SIN_LINEAS, MENSAJE_SIN_LINEAS, conCicloDeVida, estadoPersona, tieneCuota } from '../../lib/persona'
+import { AYUDA_SIN_LINEAS, MENSAJE_SIN_LINEAS, conCicloDeVida, estadoPersona, muestraMiEquipo, tieneCuota } from '../../lib/persona'
 import { avance, conQuien, conQuienCita, detalleModalidad, fraccionBarra, numeroTexto, plural, sinCortes } from '../../lib/reglas'
 import { fijarCitaParaReportar, fijarReintento } from '../../lib/retorno'
 import { useSesion } from '../../lib/sesion'
@@ -54,7 +54,7 @@ import { AVISO_INCOGNITO, AVISO_NO_INSTALADA } from '../../lib/instalacion'
 import { almacenamientoDudoso, correInstalada, esNavegador, medirAlmacenamiento } from '../../lib/pwa'
 import { AVISO_HABEAS_DATA } from '../../lib/propuesta'
 import { pedirUbicacionEnDosPasos, type ResultadoUbicacion } from '../../lib/ubicacion'
-import { Aviso, Barra, Bloque, BordeHoja, Boton, Cargando, Fila, FilaLista, Grupo, Insignia, Pantalla, Seccion, Texto, Titulo, Vacio, useColores } from '../../lib/ui'
+import { Aviso, Barra, Bloque, BordeHoja, Boton, Cargando, Fila, FilaLista, Grupo, Insignia, Pantalla, Seccion, Subtitulo, Tarjeta, Texto, Titulo, Vacio, useColores } from '../../lib/ui'
 
 /** Cada cuánto se mueve el reloj de la cita "de ahora" ("en 25 min", "Atrasada") mientras Hoy está a la vista. */
 const RELOJ_MS = 30_000
@@ -338,6 +338,19 @@ export default function Hoy() {
         <Aviso tono="peligro" titulo={MENSAJE_SIN_LINEAS}>
           {AYUDA_SIN_LINEAS}
         </Aviso>
+      ) : null}
+      {/* Equipo (2026-10-31): una líder que supervisa a los Ejecutivos Comerciales de sus líneas */}
+      {muestraMiEquipo({ estado, supervisa: perfil?.supervisa }) ? (
+        <Tarjeta alPresionar={() => router.push('/equipo')} etiquetaAccesible="Mi equipo: dónde están y cómo rinden los Ejecutivos Comerciales de tus líneas">
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <Icono nombre="equipo" tamano={26} />
+            <View style={{ flex: 1, gap: 2 }}>
+              <Subtitulo>Mi equipo</Subtitulo>
+              <Texto suave peque>Dónde están y cómo rinden los Ejecutivos Comerciales de tus líneas.</Texto>
+            </View>
+            <Icono nombre="adelante" tamano={22} />
+          </View>
+        </Tarjeta>
       ) : null}
       {sinConfirmar ? (
         <Aviso tono="alerta" titulo={vencida ? 'Tu sesión venció y no hay señal' : undefined}>

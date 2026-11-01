@@ -56,6 +56,7 @@ const hrefs = (rol: Role | undefined) => getNavigationMenu(rol).map(item => item
 // Orden canónico del menú completo (el de admin, más Agendamiento: primero y solo de la líder, 2026-10-30)
 const ORDEN = [
   '/campo/agenda',
+  '/campo/equipo',
   '/map',
   '/hospitals',
   '/terceros',
@@ -82,12 +83,13 @@ const INTELIGENCIA = ['/inteligencia', '/inteligencia?tab=secop']
 // ---------------------------------------------------------------------------------------------
 console.log('1. Menú exacto por rol (orden del dueño, 2026-10-29)')
 const ESPERADO: Record<Role, string[]> = {
+  // Equipo (dueño, 2026-10-31): la dirección y el administrador vigilan a su gente en la app; primero en su menú
   admin: ORDEN.filter(href => href !== '/campo/agenda'),
   // Agendamiento (dueño, 2026-10-31): los Ejecutivos Comerciales vuelven a la app
   sales_manager: ['/campo/agenda', '/map', '/hospitals', ...TERCEROS, '/executives', '/lideres', '/calendario', '/kams', '/lines', '/contracts', '/configuracion'],
   // Agendamiento (dueño, 2026-10-30): primero, la agenda de la líder en la app de campo
-  line_leader: ['/campo/agenda', '/map', '/hospitals', ...TERCEROS, '/executives', '/lideres', '/calendario', '/kams', '/lines', ...INTELIGENCIA, '/contracts', '/configuracion'],
-  commercial_director: ['/map', '/hospitals', ...TERCEROS, '/providers', '/executives', '/lideres', '/calendario', '/kams', '/lines', ...INTELIGENCIA, '/contracts', '/visits', '/configuracion'],
+  line_leader: ['/campo/agenda', '/campo/equipo', '/map', '/hospitals', ...TERCEROS, '/executives', '/lideres', '/calendario', '/kams', '/lines', ...INTELIGENCIA, '/contracts', '/configuracion'],
+  commercial_director: ['/campo/equipo', '/map', '/hospitals', ...TERCEROS, '/providers', '/executives', '/lideres', '/calendario', '/kams', '/lines', ...INTELIGENCIA, '/contracts', '/visits', '/configuracion'],
   hr: ['/executives', '/lideres', '/calendario', '/lines'],
   contract_manager: ['/map', '/hospitals', '/providers', '/executives', '/lideres', '/lines', '/contracts', '/compliance', '/mi-empresa'],
   data_manager: ['/map', '/hospitals', ...TERCEROS, '/executives', '/lideres', '/kams', '/lines', ...INTELIGENCIA, '/visits', '/configuracion'],
@@ -103,11 +105,17 @@ check('ESPERADO cubre todos los roles', ROLES.every(rol => rol in ESPERADO) && O
 // los dos tienen campo:app y su "Agendamiento"
 eq(
   'Agendamiento: "Agendamiento" → /campo/agenda, sin grupo y primero, solo para quien tiene campo:app (sales_manager y line_leader)',
-  ROLES.filter(rol => getNavigationMenu(rol).some(item => item.href.startsWith('/campo'))),
+  ROLES.filter(rol => getNavigationMenu(rol).some(item => item.href === '/campo/agenda')),
   ROLES.filter(rol => rol === 'sales_manager' || rol === 'line_leader')
 )
 eq('Agendamiento de la líder', getNavigationMenu('line_leader')[0], { name: 'Agendamiento', href: '/campo/agenda', icon: 'calendar' })
 eq('Agendamiento del Ejecutivo Comercial', getNavigationMenu('sales_manager')[0], { name: 'Agendamiento', href: '/campo/agenda', icon: 'calendar' })
+// Equipo (dueño, 2026-10-31): team:view para admin, commercial_director y line_leader; abre /campo/equipo en la app
+eq('team:view está en admin, commercial_director y line_leader', ROLES.filter(rol => (rolePermissions[rol] ?? []).includes('team:view')), ROLES.filter(rol => rol === 'admin' || rol === 'commercial_director' || rol === 'line_leader'))
+eq('Equipo de la dirección, primero', getNavigationMenu('commercial_director')[0], { name: 'Equipo', href: '/campo/equipo', icon: 'users' })
+eq('Equipo del administrador, primero', getNavigationMenu('admin')[0], { name: 'Equipo', href: '/campo/equipo', icon: 'users' })
+eq('Equipo de la líder, después de Agendamiento', getNavigationMenu('line_leader')[1], { name: 'Equipo', href: '/campo/equipo', icon: 'users' })
+eq('getAllowedRoutes de la dirección incluye /campo/equipo', getAllowedRoutes('commercial_director').includes('/campo/equipo'), true)
 // (hasPermission da todo al admin; el menú sale de la lista de cada rol: el admin no lidera líneas y no lo ve)
 eq('campo:app está solo en las listas de sales_manager y line_leader', ROLES.filter(rol => (rolePermissions[rol] ?? []).includes('campo:app')), ROLES.filter(rol => rol === 'sales_manager' || rol === 'line_leader'))
 const navegacion = readFileSync(path.join(__dirname, '..', 'components', 'NavigationWithPermissions.tsx'), 'utf8')
@@ -124,7 +132,7 @@ for (const rol of ROLES) {
   check(`${rol}: toda opción está en el orden canónico`, posiciones.every(p => p >= 0), menu)
   check(`${rol}: respeta el orden canónico`, posiciones.every((p, i) => i === 0 || p > posiciones[i - 1]), menu)
   check(`${rol}: sin opciones repetidas`, new Set(menu).size === menu.length, menu)
-  if (hasPermission(rol, 'map:view')) check(`${rol}: el Mapa va primero (después de Agendamiento, si lo tiene)`, menu.filter(href => href !== '/campo/agenda')[0] === '/map', menu)
+  if (hasPermission(rol, 'map:view')) check(`${rol}: el Mapa va primero (después de Agendamiento y Equipo, si los tiene)`, menu.filter(href => !href.startsWith('/campo'))[0] === '/map', menu)
   if (menu.includes('/configuracion')) check(`${rol}: Parámetros (/configuracion) va al final`, menu[menu.length - 1] === '/configuracion', menu)
   check(
     `${rol}: sin Dashboard, Municipios ni Regiones en el menú`,
@@ -142,6 +150,7 @@ for (const rol of ROLES) {
 console.log('3. Textos visibles del menú')
 const nombres = new Map(getNavigationMenu('admin').map(item => [item.href, item.name]))
 eq('nombres del menú completo', Object.fromEntries(nombres), {
+  '/campo/equipo': 'Equipo',
   '/map': 'Mapa',
   '/hospitals': 'IPS',
   '/terceros': 'Cuentas clave',
@@ -169,7 +178,7 @@ check(
 
 // Grupos: títulos (no son enlaces) en el orden del dueño; cada opción suelta es una sección sin título
 const grupos = (rol: Role) => agruparMenu(getNavigationMenu(rol)).map(seccion => seccion.grupo ?? seccion.items[0].name)
-eq('admin: secciones del menú', grupos('admin'), ['Mapa', 'Terceros', 'Empleados', 'Calendario', 'Zonas', 'Líneas', 'Inteligencia de Mercado', 'Configuración'])
+eq('admin: secciones del menú', grupos('admin'), ['Equipo', 'Mapa', 'Terceros', 'Empleados', 'Calendario', 'Zonas', 'Líneas', 'Inteligencia de Mercado', 'Configuración'])
 eq(
   'admin: opciones de cada grupo',
   Object.fromEntries(agruparMenu(getNavigationMenu('admin')).filter(seccion => seccion.grupo).map(seccion => [seccion.grupo, seccion.items.map(item => item.name)])),
@@ -218,7 +227,7 @@ for (const rol of ROLES) {
 eq('sin rol: sin inicio', getHomeRoute(undefined), null)
 eq('recursos humanos (sin mapa): también /inicio', getHomeRoute('hr'), RUTA_INICIO)
 eq('admin: primero el bloque de las sueltas (Mapa de primero) y luego Terceros', bloquesDeInicio(getNavigationMenu('admin')).slice(0, 2).map(b => b.grupo), [null, 'Terceros'])
-eq('admin: el bloque de las sueltas es Mapa, Calendario, Zonas y Líneas (aunque en el menú Calendario vaya después de Empleados)', bloquesDeInicio(getNavigationMenu('admin'))[0]?.items.map(i => i.name), ['Mapa', 'Calendario', 'Zonas', 'Líneas'])
+eq('admin: el bloque de las sueltas es Mapa, Calendario, Zonas y Líneas (aunque en el menú Calendario vaya después de Empleados)', bloquesDeInicio(getNavigationMenu('admin'))[0]?.items.map(i => i.name), ['Equipo', 'Mapa', 'Calendario', 'Zonas', 'Líneas'])
 eq('líder: Agendamiento es el primer módulo del inicio', bloquesDeInicio(getNavigationMenu('line_leader'))[0]?.items[0]?.href, '/campo/agenda')
 const inicioPagina = readFileSync(path.join(__dirname, '..', 'app', 'inicio', 'page.tsx'), 'utf8')
 check(

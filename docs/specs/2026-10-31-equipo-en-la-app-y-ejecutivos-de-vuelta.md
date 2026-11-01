@@ -1,6 +1,6 @@
 # Spec: "Equipo" en la app y los Ejecutivos Comerciales de vuelta  (2026-10-31)
 
-**Estado**: aprobada por el dueño el 2026-10-31 ("Si"). Dos entregas, dos PR. Entrega 1 implementada (rama `feat/ejecutivos-de-vuelta-a-la-app`).
+**Estado**: aprobada por el dueño el 2026-10-31 ("Si"). Dos entregas, dos PR. Entrega 1 implementada (PR #75). Entrega 2 implementada (rama `feat/equipo-en-la-app`).
 
 ## Problema
 

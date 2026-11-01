@@ -1455,6 +1455,7 @@ const USUARIO_VIEWER = '22222222-2222-4222-8222-222222222222'
 const USUARIO_LIDER = '44444444-4444-4444-8444-444444444444'
 const USUARIO_ADMIN = '55555555-5555-4555-8555-555555555555'
 const USUARIO_INACTIVA = '66666666-6666-4666-8666-666666666666'
+const USUARIO_HR = '77777777-7777-4777-8777-777777777777' // sin campo:app ni team:view: no entra a la app
 const KAM1 = '33333333-3333-4333-8333-333333333333'
 const CLAVE_ANA = 'Clave-de-prueba-123'
 const HASH_ANA = bcrypt.hashSync(CLAVE_ANA, 4)
@@ -1467,6 +1468,7 @@ const tablas: Record<string, Fila[]> = {
     { id: USUARIO_LIDER, email: 'lider@test.local', full_name: 'Lucía Líder', role: 'line_leader', active: true, created_at: '2026-10-01T00:00:00Z', password: 'hash-lider' },
     { id: USUARIO_ADMIN, email: 'admin@test.local', full_name: 'Admin', role: 'admin', active: true, created_at: '2026-10-01T00:00:00Z', password: 'hash-admin' },
     { id: USUARIO_INACTIVA, email: 'inactiva@test.local', full_name: 'Inés Inactiva', role: 'line_leader', active: false, created_at: '2026-10-01T00:00:00Z', password: 'hash-inactiva' },
+    { id: USUARIO_HR, email: 'hr@test.local', full_name: 'Recursos Humanos', role: 'hr', active: true, created_at: '2026-10-01T00:00:00Z', password: 'hash-hr' },
   ],
   executives: [
     { id: EJEC, full_name: 'Ana Pérez', status: 'active', user_id: USUARIO_ANA, base_kam_id: KAM1 },
@@ -1626,10 +1628,11 @@ async function sesion() {
     const cookieAna = `${SESSION_COOKIE_NAME}=${encodeURIComponent(tokenDe(USUARIO_ANA))}`
     const deEjecutivo = await puenteDe(cookieAna)
     const deAdmin = await puenteDe(cookieDe(USUARIO_ADMIN, 'hash-admin'))
+    const deViewer = await puenteDe(cookieDe(USUARIO_HR, 'hash-hr'))
     check(
-      'sesion-app para quien usa la app de campo (campo:app): un Ejecutivo Comercial → 200 con el token de su cookie (2026-10-31); el administrador → 403 sin token (hasta "Equipo")',
-      deEjecutivo.status === 200 && deEjecutivo.body?.token === tokenDe(USUARIO_ANA) && deEjecutivo.body?.usuario?.role === 'sales_manager' && deAdmin.status === 403 && deAdmin.body?.token === undefined,
-      { ejecutivo: deEjecutivo.status, admin: deAdmin.status }
+      'sesion-app para quien usa la app (campo:app o team:view; una sola app, dueño 2026-10-31): un Ejecutivo Comercial y el administrador → 200 con el token de su cookie; recursos humanos (sin ninguno de los dos) → 403 sin token',
+      deEjecutivo.status === 200 && deEjecutivo.body?.token === tokenDe(USUARIO_ANA) && deEjecutivo.body?.usuario?.role === 'sales_manager' && deAdmin.status === 200 && deAdmin.body?.token === tokenDe(USUARIO_ADMIN, 'hash-admin') && deViewer.status === 403 && deViewer.body?.token === undefined,
+      { ejecutivo: deEjecutivo.status, admin: deAdmin.status, viewer: deViewer.status }
     )
     const inactiva = await puenteDe(cookieDe(USUARIO_INACTIVA, 'hash-inactiva'))
     const pvViejo = await puenteDe(cookieDe(USUARIO_LIDER, 'contraseña-anterior'))
