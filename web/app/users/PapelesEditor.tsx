@@ -221,6 +221,11 @@ function BloqueDeEmpresa({
 // Un bloque que guarda su empresa
 // ---------------------------------------------------------------------------------------------
 
+interface MensajeGuardado {
+  guardado: string
+  aviso: string
+}
+
 function BloqueGuardable({
   usuario,
   empresa,
@@ -228,6 +233,8 @@ function BloqueGuardable({
   zonas,
   descripcion,
   onGuardado,
+  mensaje,
+  onMensaje,
 }: {
   usuario: { id: string; papeles: PapelActivo[] }
   empresa: EmpresaMovil
@@ -235,20 +242,21 @@ function BloqueGuardable({
   zonas: ZonaOpcion[]
   descripcion?: Partial<Record<Role, string>>
   onGuardado: () => void
+  // El aviso y la confirmación viven en el editor: al guardar se recargan los usuarios y este bloque se vuelve a montar
+  mensaje: MensajeGuardado | undefined
+  onMensaje: (m: MensajeGuardado | null) => void
 }) {
   const actuales = usuario.papeles.filter(p => p.empresa_id === empresa.id)
   const [borrador, setBorrador] = useState<Borrador>(() => borradorDe(actuales))
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState('')
-  const [aviso, setAviso] = useState('')
-  const [guardado, setGuardado] = useState('')
+  const { guardado = '', aviso = '' } = mensaje ?? {}
   const ocupado = useRef(false)
 
   const guardar = async () => {
     if (ocupado.current) return
     setError('')
-    setAviso('')
-    setGuardado('')
+    onMensaje(null)
     const resultado = entradasDe(borrador)
     if (!resultado.ok) {
       setError(resultado.error)
@@ -284,8 +292,10 @@ function BloqueGuardable({
         setError(datos.error || 'Error al guardar los papeles')
         return
       }
-      setGuardado(`Papeles de ${empresa.nombre_corto} guardados`)
-      if (datos.cobertura_recalculada === false && typeof datos.aviso === 'string') setAviso(datos.aviso)
+      onMensaje({
+        guardado: `Papeles de ${empresa.nombre_corto} guardados`,
+        aviso: datos.cobertura_recalculada === false && typeof datos.aviso === 'string' ? datos.aviso : '',
+      })
       onGuardado()
     } catch {
       setError('Error al guardar los papeles')
@@ -303,7 +313,7 @@ function BloqueGuardable({
         borrador={borrador}
         onChange={b => {
           setBorrador(b)
-          setGuardado('')
+          if (mensaje) onMensaje(null)
         }}
         lineas={lineas}
         zonas={zonas}
@@ -358,6 +368,13 @@ export default function PapelesEditor({
   onGuardado: () => void
   descripcion?: Partial<Record<Role, string>>
 }) {
+  const [mensajes, setMensajes] = useState<Record<string, MensajeGuardado>>({})
+  const ponerMensaje = (empresaId: string, m: MensajeGuardado | null) =>
+    setMensajes(previos => {
+      const { [empresaId]: _quitado, ...resto } = previos
+      return m ? { ...resto, [empresaId]: m } : resto
+    })
+
   if (empresas.length === 0) {
     return (
       <p role="alert" className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
@@ -377,6 +394,8 @@ export default function PapelesEditor({
           zonas={zonas}
           descripcion={descripcion}
           onGuardado={onGuardado}
+          mensaje={mensajes[empresa.id]}
+          onMensaje={m => ponerMensaje(empresa.id, m)}
         />
       ))}
     </div>
