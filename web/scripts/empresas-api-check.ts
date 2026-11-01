@@ -52,6 +52,7 @@ import { POST as sesionAppPost } from '../app/api/auth/sesion-app/route'
 import { POST as loginPost } from '../app/api/auth/login/route'
 import { GET as usersGet, POST as usersPost } from '../app/api/users/route'
 import { PUT as userPut } from '../app/api/users/[id]/route'
+import { POST as desdeEjecutivasPost } from '../app/api/users/from-executives/route'
 import { PUT as papelesPut } from '../app/api/users/[id]/papeles/route'
 import { POST as executivesPost } from '../app/api/executives/route'
 import { GET as lineasGet } from '../app/api/business-lines/route'
@@ -1093,6 +1094,23 @@ async function main() {
     const liderSinLinea = await crear({ email: 'lider@prueba.test', password: 'Clave-de-prueba-123', full_name: 'Líder', role: 'line_leader' })
     eq("role 'line_leader' sin papeles (no dice la línea) → 400", liderSinLinea.status, 400)
     eq('ninguno de los tres crea el usuario', tablasD.users.length, usuariosAntes)
+  }
+
+  print('\n  POST /api/users/from-executives: la cuenta nueva tiene su papel en VG y la ejecutiva queda en VG')
+  {
+    const X_FICHA = '30000000-0000-4000-8000-000000000004'
+    tablasD.executives.push({ ...persona(X_FICHA, null, 'Desde la ficha'), email: 'desde.ficha@prueba.test', status: 'active' })
+    const r = await desdeEjecutivasPost(aRuta('/api/users/from-executives', { userId: D_ADMIN, cuerpo: { confirm: true } }))
+    const cuerpo = (await cuerpoDe(r)) as { created?: number; results?: { email: string; action: string; error: string | null }[] }
+    eq('200 y una cuenta creada', [r.status, cuerpo.created], [200, 1])
+    eq('sin error en su resultado', cuerpo.results?.find(x => x.email === 'desde.ficha@prueba.test')?.error, null)
+    const nueva = tablasD.users.find(u => u.email === 'desde.ficha@prueba.test')
+    eq('la cuenta nueva tiene el papel sales_manager en VG, activo',
+      tablasD.papeles.filter(p => p.user_id === nueva?.id).map(p => [p.empresa_id === EMPRESA_VG_ID ? 'vg' : 'medix', p.papel, p.activo]), [['vg', 'sales_manager', true]])
+    eq("y users.role (caché) = 'sales_manager'", nueva?.role, 'sales_manager')
+    eq('la ejecutiva queda enlazada', tablasD.executives.find(x => x.id === X_FICHA)?.user_id, nueva?.id)
+    eq('y en VG (executive_empresas activo)',
+      tablasD.executive_empresas.filter(e => e.executive_id === X_FICHA).map(e => [e.empresa_id, e.activo]), [[EMPRESA_VG_ID, true]])
   }
 
   print('\n  PUT /api/users/[id] con role (la página vieja, hasta la tarea 8): pasa por los papeles de VG')
