@@ -5,7 +5,10 @@ import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
 import { useUser } from '@/contexts/UserContext'
 import { getRoleTitle, type Role } from '@/lib/permissions'
+import { tituloDePapeles, type PapelActivo } from '@/lib/empresas-reglas'
+import type { EmpresaMovil } from '@/lib/reporte-visitas'
 import ExecutiveAccountsPanel from '@/components/ExecutiveAccountsPanel'
+import PapelesEditor, { PapelesNuevoUsuario, type LineaOpcion, type PapelEntradaEditor, type ZonaOpcion } from './PapelesEditor'
 
 // Perfiles en el orden en que se eligen: los cuatro del negocio primero (dueño, 2026-10-29)
 const ROLES_EN_ORDEN: Role[] = ['admin', 'commercial_director', 'line_leader', 'sales_manager', 'contract_manager', 'data_manager', 'hr', 'viewer', 'user']
@@ -29,7 +32,12 @@ interface User {
   role: Role
   active: boolean
   created_at: string
+  // Papeles activos en todas sus empresas (vacío sin la migración 0960)
+  papeles: PapelActivo[]
 }
+
+type PapelesNuevos = { ok: true; papeles: (PapelEntradaEditor & { empresa_id: string })[] } | { ok: false; error: string }
+const SIN_PAPELES_NUEVOS: PapelesNuevos = { ok: false, error: 'Elige al menos un papel en alguna empresa' }
 
 export default function UsersPage() {
   const { user: currentUser } = useUser()
@@ -41,9 +49,14 @@ export default function UsersPage() {
   const [formData, setFormData] = useState({
     email: '',
     password: '',
-    full_name: '',
-    role: 'user' as any
+    full_name: ''
   })
+  const [papelesNuevos, setPapelesNuevos] = useState<PapelesNuevos>(SIN_PAPELES_NUEVOS)
+  const [errorCrear, setErrorCrear] = useState('')
+  const [empresas, setEmpresas] = useState<EmpresaMovil[]>([])
+  const [lineas, setLineas] = useState<LineaOpcion[]>([])
+  const [zonas, setZonas] = useState<ZonaOpcion[]>([])
+  const [editandoId, setEditandoId] = useState<string | null>(null)
   const [passwordData, setPasswordData] = useState({
     newPassword: '',
     confirmPassword: ''
@@ -55,7 +68,34 @@ export default function UsersPage() {
 
   useEffect(() => {
     loadUsers()
+    loadOpcionesDePapeles()
   }, [])
+
+  // Empresas, líneas y Zonas que ofrece el editor de papeles
+  const loadOpcionesDePapeles = async () => {
+    try {
+      const [rEmpresas, rLineas, rZonas] = await Promise.all([
+        fetch('/api/empresas'),
+        fetch('/api/business-lines'),
+        fetch('/api/kams'),
+      ])
+      if (rEmpresas.ok) setEmpresas((await rEmpresas.json()).empresas ?? [])
+      if (rLineas.ok) setLineas(((await rLineas.json()).lines ?? []) as LineaOpcion[])
+      if (rZonas.ok) {
+        const datos = await rZonas.json()
+        setZonas((Array.isArray(datos) ? datos : []).map((z: { id: string; name: string }) => ({ id: z.id, name: z.name })))
+      }
+    } catch {
+      setError('Error al cargar las empresas, líneas y Zonas')
+    }
+  }
+
+  const cerrarCrear = () => {
+    setShowCreateForm(false)
+    setFormData({ email: '', password: '', full_name: '' })
+    setPapelesNuevos(SIN_PAPELES_NUEVOS)
+    setErrorCrear('')
+  }
 
   const loadUsers = async () => {
     try {
@@ -78,12 +118,18 @@ export default function UsersPage() {
     e.preventDefault()
     setError('')
     setSuccess('')
+    setErrorCrear('')
+
+    if (!papelesNuevos.ok) {
+      setErrorCrear(papelesNuevos.error)
+      return
+    }
 
     try {
       const response = await fetch('/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
+        body: JSON.stringify({ ...formData, papeles: papelesNuevos.papeles })
       })
 
       const data = await response.json()
@@ -91,17 +137,16 @@ export default function UsersPage() {
       if (response.ok) {
         // El servidor dice si el usuario quedó enlazado con su Ejecutiva Comercial (mismo email)
         setSuccess(typeof data.message === 'string' ? data.message : 'Usuario creado exitosamente')
-        setShowCreateForm(false)
-        setFormData({ email: '', password: '', full_name: '', role: 'user' })
+        cerrarCrear()
         loadUsers()
       } else {
         // Mostrar más detalles del error
         const errorMsg = data.details ? `${data.error}: ${data.details}` : data.error
-        setError(errorMsg || 'Error al crear usuario')
+        setErrorCrear(errorMsg || 'Error al crear usuario')
         console.error('Error detallado:', data)
       }
     } catch (error) {
-      setError('Error al crear usuario')
+      setErrorCrear('Error al crear usuario')
     }
   }
 
@@ -122,28 +167,6 @@ export default function UsersPage() {
       }
     } catch (error) {
       setError('Error al actualizar usuario')
-    }
-  }
-
-  const handleRoleChange = async (userId: string, newRole: User['role']) => {
-    try {
-      const response = await fetch(`/api/users/${userId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role: newRole })
-      })
-
-      const data = await response.json()
-
-      if (response.ok) {
-        loadUsers()
-        setSuccess('Rol actualizado exitosamente')
-        setTimeout(() => setSuccess(''), 3000)
-      } else {
-        setError(data.error || 'Error al actualizar rol')
-      }
-    } catch (error) {
-      setError('Error al actualizar rol')
     }
   }
 
@@ -208,14 +231,50 @@ export default function UsersPage() {
     hr: 'from-rose-600 to-rose-700'
   }
 
+  // Lo que se ve de los papeles de una persona: "VG: Líder de negocio · Ejecutivo comercial" por empresa
+  const resumenDePapeles = (user: User): { empresa: string; titulo: string }[] =>
+    empresas
+      .map(empresa => ({ empresa: empresa.nombre_corto, papeles: user.papeles.filter(p => p.empresa_id === empresa.id) }))
+      .filter(e => e.papeles.length > 0)
+      .map(e => ({ empresa: e.empresa, titulo: tituloDePapeles(e.papeles) }))
+
+  const textoDePapeles = (user: User) =>
+    user.papeles.length > 0
+      ? resumenDePapeles(user).map(r => `${r.empresa} ${r.titulo}`).join(' ')
+      : roleLabels[user.role] || user.role || ''
+
   const filteredUsers = users.filter(user => 
     user.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (roleLabels[user.role] || user.role || '').toLowerCase().includes(searchTerm.toLowerCase())
+    textoDePapeles(user).toLowerCase().includes(searchTerm.toLowerCase())
   )
 
   const activeUsers = filteredUsers.filter(u => u.active).length
-  const adminUsers = filteredUsers.filter(u => u.role === 'admin').length
+  const adminUsers = filteredUsers.filter(u => u.role === 'admin' || u.papeles.some(p => p.papel === 'admin')).length
+  const usuarioEditado = editandoId ? users.find(u => u.id === editandoId) ?? null : null
+
+  const renderPapeles = (user: User) => {
+    const resumen = resumenDePapeles(user)
+    if (resumen.length === 0) {
+      return <span className="text-sm text-gray-500">{user.papeles.length === 0 ? 'Sin papeles' : roleLabels[user.role]}</span>
+    }
+    return (
+      <div className="space-y-1">
+        {resumen.map(r => (
+          <div key={r.empresa} className="text-sm text-gray-900">
+            <span className="font-semibold">{r.empresa}:</span> {r.titulo}
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  const botonEditarPapeles = (user: User, className: string) =>
+    user.id !== currentUser?.id && (
+      <button type="button" onClick={() => setEditandoId(user.id)} className={className}>
+        Editar papeles
+      </button>
+    )
 
   // Debugging - Verificar el usuario actual
   useEffect(() => {
@@ -359,7 +418,7 @@ export default function UsersPage() {
           {/* Modal de crear usuario mejorado */}
           {showCreateForm && (
             <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn">
-              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden transform transition-all animate-slideUp">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto transform transition-all animate-slideUp">
                 {/* Header */}
                 <div className="bg-gradient-to-r from-gray-900 to-gray-700 px-8 py-6 text-white">
                   <div className="flex justify-between items-center">
@@ -369,8 +428,7 @@ export default function UsersPage() {
                     </div>
                     <button
                       onClick={() => {
-                        setShowCreateForm(false)
-                        setFormData({ email: '', password: '', full_name: '', role: 'user' })
+                        cerrarCrear()
                         setError('')
                       }}
                       className="text-white/70 hover:text-white transition-colors p-2 hover:bg-white/10 rounded-lg"
@@ -384,6 +442,11 @@ export default function UsersPage() {
 
                 {/* Content */}
                 <div className="p-8">
+                  {errorCrear && (
+                    <div role="alert" className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                      {errorCrear}
+                    </div>
+                  )}
                   <form onSubmit={handleCreateUser}>
                     <div className="space-y-5">
                       <div>
@@ -430,20 +493,16 @@ export default function UsersPage() {
                       </div>
 
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Rol del Usuario
-                        </label>
-                        <select
-                          className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent transition-all"
-                          value={formData.role}
-                          onChange={(e) => setFormData({ ...formData, role: e.target.value as User['role'] })}
-                        >
-                          {ROLES_EN_ORDEN.map(role => (
-                            <option key={role} value={role}>
-                              {getRoleTitle(role)}
-                            </option>
-                          ))}
-                        </select>
+                        <span className="block text-sm font-medium text-gray-700 mb-2">
+                          Papeles del Usuario
+                        </span>
+                        <PapelesNuevoUsuario
+                          empresas={empresas}
+                          lineas={lineas}
+                          zonas={zonas}
+                          descripcion={DESCRIPCION_PERFIL}
+                          onChange={setPapelesNuevos}
+                        />
                       </div>
                     </div>
 
@@ -451,8 +510,7 @@ export default function UsersPage() {
                       <button
                         type="button"
                         onClick={() => {
-                          setShowCreateForm(false)
-                          setFormData({ email: '', password: '', full_name: '', role: 'user' })
+                          cerrarCrear()
                           setError('')
                         }}
                         className="px-6 py-3 text-gray-700 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors font-medium"
@@ -470,6 +528,50 @@ export default function UsersPage() {
                       </button>
                     </div>
                   </form>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modal para editar los papeles de una persona, por empresa */}
+          {usuarioEditado && (
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto transform transition-all animate-slideUp">
+                <div className="bg-gradient-to-r from-gray-900 to-gray-700 px-8 py-6 text-white">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <h3 className="text-2xl font-bold">Editar papeles</h3>
+                      <p className="text-gray-300 text-sm mt-1">Usuario: {usuarioEditado.full_name}</p>
+                    </div>
+                    <button
+                      onClick={() => setEditandoId(null)}
+                      aria-label="Cerrar"
+                      className="text-white/70 hover:text-white transition-colors p-2 hover:bg-white/10 rounded-lg"
+                    >
+                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+                <div className="p-8">
+                  <PapelesEditor
+                    usuario={usuarioEditado}
+                    empresas={empresas}
+                    lineas={lineas}
+                    zonas={zonas}
+                    descripcion={DESCRIPCION_PERFIL}
+                    onGuardado={loadUsers}
+                  />
+                  <div className="flex justify-end mt-6 pt-6 border-t border-gray-200">
+                    <button
+                      type="button"
+                      onClick={() => setEditandoId(null)}
+                      className="px-6 py-3 text-gray-700 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors font-medium"
+                    >
+                      Cerrar
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -638,7 +740,7 @@ export default function UsersPage() {
                         <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Usuario</span>
                       </th>
                       <th className="px-6 py-5 text-left">
-                        <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Rol</span>
+                        <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Papeles</span>
                       </th>
                       <th className="px-6 py-5 text-center">
                         <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Estado</span>
@@ -677,23 +779,10 @@ export default function UsersPage() {
                           </div>
                         </td>
                         <td className="px-6 py-5">
-                          {user.id === currentUser?.id ? (
-                            <span className={`inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-bold bg-gradient-to-r ${roleColors[user.role]} text-white`}>
-                              {roleLabels[user.role]}
-                            </span>
-                          ) : (
-                            <select
-                              value={user.role}
-                              onChange={(e) => handleRoleChange(user.id, e.target.value as User['role'])}
-                              className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent transition-all"
-                            >
-                              {ROLES_EN_ORDEN.map(role => (
-                                <option key={role} value={role}>
-                                  {getRoleTitle(role)}
-                                </option>
-                              ))}
-                            </select>
-                          )}
+                          <div className="flex flex-col items-start gap-2">
+                            {renderPapeles(user)}
+                            {botonEditarPapeles(user, 'px-3 py-1 text-xs font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors')}
+                          </div>
                         </td>
                         <td className="px-6 py-5 text-center">
                           <span className={`inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-bold ${
@@ -784,25 +873,9 @@ export default function UsersPage() {
                     </div>
 
                     <div className="space-y-3 mb-4">
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm text-gray-600">Rol:</span>
-                        {user.id === currentUser?.id ? (
-                          <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold bg-gradient-to-r ${roleColors[user.role]} text-white`}>
-                            {roleLabels[user.role]}
-                          </span>
-                        ) : (
-                          <select
-                            value={user.role}
-                            onChange={(e) => handleRoleChange(user.id, e.target.value as User['role'])}
-                            className="text-xs border border-gray-300 rounded-lg px-2 py-1"
-                          >
-                            {ROLES_EN_ORDEN.map(role => (
-                              <option key={role} value={role}>
-                                {getRoleTitle(role)}
-                              </option>
-                            ))}
-                          </select>
-                        )}
+                      <div className="flex justify-between items-start gap-3">
+                        <span className="text-sm text-gray-600">Papeles:</span>
+                        <div className="text-right">{renderPapeles(user)}</div>
                       </div>
                       <div className="flex justify-between items-center">
                         <span className="text-sm text-gray-600">Estado:</span>
@@ -827,7 +900,8 @@ export default function UsersPage() {
                     </div>
 
                     {user.id !== currentUser?.id && (
-                      <div className="flex gap-2">
+                      <div className="flex flex-wrap gap-2">
+                        {botonEditarPapeles(user, 'flex-1 px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm font-medium')}
                         <button
                           onClick={() => {
                             setSelectedUser(user)
