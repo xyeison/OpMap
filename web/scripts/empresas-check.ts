@@ -16,6 +16,7 @@ import {
   ORDEN_PAPELES,
   cacheLiderDe,
   cacheRolDe,
+  confirmacionDeQuitarEjecutivo,
   empresaActivaDe,
   papelMasAlto,
   papelesDeSemilla,
@@ -306,6 +307,14 @@ console.log('\n1.9 tienePermisoDe = hasPermission (un papel) y suma (lista)')
   check('[] no concede ningún permiso', permisos.every(pm => tienePermisoDe([], pm) === false))
   check('undefined → como hasPermission(undefined)', tienePermisoDe(undefined, 'map:view') === hasPermission(undefined, 'map:view'))
 }
+
+console.log('\n1.10 confirmacionDeQuitarEjecutivo (texto de /users al quitar Ejecutivo Comercial)')
+eq('líneas y visitantes', confirmacionDeQuitarEjecutivo({ lineas: 2, visitantes: 3 }), 'Se pierden 2 líneas en Zonas y terminan 3 visitantes')
+eq('solo líneas', confirmacionDeQuitarEjecutivo({ lineas: 1, visitantes: 0 }), 'Se pierden 1 líneas en Zonas y terminan 0 visitantes')
+eq('0 y 0 → sin confirmación (null)', confirmacionDeQuitarEjecutivo({ lineas: 0, visitantes: 0 }), null)
+eq('las asignaciones no cuentan para el texto', confirmacionDeQuitarEjecutivo({ lineas: 0, visitantes: 0, asignaciones: 4 } as { lineas: number; visitantes: number }), null)
+eq('sin afectados → null', confirmacionDeQuitarEjecutivo(undefined), null)
+check('el texto no dice "Vacante" ni "KAM"', !/vacante|kam/i.test(confirmacionDeQuitarEjecutivo({ lineas: 1, visitantes: 1 }) ?? ''))
 
 // ---------------------------------------------------------------------------------------------
 console.log(`\n${passed} pruebas bien, ${failed} con falla`)

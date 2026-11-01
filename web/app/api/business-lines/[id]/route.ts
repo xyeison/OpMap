@@ -6,7 +6,7 @@ import { UUID_RE, businessLineUpdateSchema } from '@/lib/fase1-schemas'
 import type { BusinessLineResponse } from '@/lib/types/lines'
 import { loadBusinessLines } from '../_lib/line-shared'
 import { MENSAJE_FALTA_0960, faltaLa0960, listarEmpresas } from '@/lib/empresas'
-import { tienePermiso } from '@/lib/empresas-reglas'
+import { EMPRESA_VG_ID, tienePermiso } from '@/lib/empresas-reglas'
 import { isLineLeader } from '@/lib/coverage'
 
 type Params = { params: { id: string } }
@@ -16,8 +16,8 @@ type PlanDeEmpresas = { agregar: string[]; quitar: string[] } | { respuesta: Nex
 /**
  * Qué empresas agrega y quita un PATCH con empresa_ids, o la respuesta de error (sin escribir nada):
  * 503 sin la migración 0960, 404 si la línea no existe, 400 si alguna empresa no existe o está inactiva, y 409 si se
- * quita una empresa donde la línea tiene un líder de negocio activo o asignaciones. Las filas de empresas inactivas
- * no se tocan (no se muestran ni se eligen).
+ * quita una empresa donde la línea tiene un líder de negocio activo o asignaciones (en VG, también executive_lines).
+ * Las filas de empresas inactivas no se tocan (no se muestran ni se eligen).
  */
 async function planearEmpresas(lineId: string, pedidas: string[]): Promise<PlanDeEmpresas> {
   const { data: vinculos, error: vinculosError } = await supabaseAdmin
@@ -40,7 +40,10 @@ async function planearEmpresas(lineId: string, pedidas: string[]): Promise<PlanD
   const quitar = Array.from(actuales).filter(id => activasPorId.has(id) && !pedidas.includes(id))
   if (quitar.length === 0) return { agregar, quitar }
 
-  const [lideres, asignaciones] = await Promise.all([
+  // En VG, entre la 0960 y la 0970, la verdad de quién lleva la línea en Zonas es executive_lines (las asignaciones son
+  // el espejo de la semilla): quitar VG también se bloquea si alguien la lleva allí
+  const quitaVG = quitar.includes(EMPRESA_VG_ID)
+  const [lideres, asignaciones, enZonas] = await Promise.all([
     supabaseAdmin
       .from('papeles')
       .select('empresa_id')
@@ -49,12 +52,16 @@ async function planearEmpresas(lineId: string, pedidas: string[]): Promise<PlanD
       .eq('activo', true)
       .in('empresa_id', quitar),
     supabaseAdmin.from('asignaciones').select('empresa_id').eq('line_id', lineId).in('empresa_id', quitar),
+    quitaVG
+      ? supabaseAdmin.from('executive_lines').select('line_id').eq('line_id', lineId).limit(1)
+      : Promise.resolve({ data: [] as unknown[], error: null }),
   ])
-  for (const resultado of [lideres, asignaciones]) {
+  for (const resultado of [lideres, asignaciones, enZonas]) {
     if (faltaLa0960(resultado.error)) return { respuesta: jsonError(MENSAJE_FALTA_0960, 503) }
     if (resultado.error) throw resultado.error
   }
   const ocupadas = new Set([...(lideres.data || []), ...(asignaciones.data || [])].map(fila => (fila as { empresa_id: string }).empresa_id))
+  if (quitaVG && (enZonas.data || []).length > 0) ocupadas.add(EMPRESA_VG_ID)
   const conflicto = quitar.filter(id => ocupadas.has(id))
   if (conflicto.length > 0) {
     const nombres = conflicto.map(id => activasPorId.get(id)?.nombre_corto ?? id).join(', ')
@@ -63,7 +70,8 @@ async function planearEmpresas(lineId: string, pedidas: string[]): Promise<PlanD
   return { agregar, quitar }
 }
 
-// PATCH /api/business-lines/[id] — cambia nombre, líder, alcance máximo o estado de una línea.
+// PATCH /api/business-lines/[id] — cambia nombre, líder, alcance máximo o estado de una línea. Con la 0960 el líder
+// (leader_user_id) ya no se cambia aquí: 409, se cambia en Usuarios (papel line_leader).
 // code y sort_order no se editan desde la API. empresa_ids reemplaza las empresas de la línea (linea_empresas).
 // Fase 2: line_leader (lines:edit sin map:all-lines) solo edita la línea que lidera, y no puede
 // cambiar su líder ni su estado (eso queda para admin y dirección comercial).
@@ -91,6 +99,13 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       if (changes.empresa_ids !== undefined) {
         return jsonError('Solo un administrador o la dirección comercial puede cambiar las empresas de la línea', 403)
       }
+    }
+
+    // Con la 0960 el líder es un papel (line_leader) y leader_user_id solo su caché: se cambia en Usuarios
+    if (changes.leader_user_id !== undefined) {
+      const { error: sondeoError } = await supabaseAdmin.from('papeles').select('id').limit(1)
+      if (!sondeoError) return jsonError('El líder se cambia en Usuarios', 409)
+      if (!faltaLa0960(sondeoError)) throw sondeoError
     }
 
     // El líder debe ser un usuario activo de OpMap

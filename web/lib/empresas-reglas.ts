@@ -178,3 +178,14 @@ export function tituloDePapeles(papeles: readonly { papel: Role }[]): string {
   unicos.sort((a, b) => posicion(a) - posicion(b))
   return unicos.map(getRoleTitle).join(' · ')
 }
+
+/**
+ * El texto con el que /users pide confirmar que se quita Ejecutivo Comercial en una empresa (PUT …/papeles?simular=1),
+ * o null si no se pierde nada (no se pide confirmación). En VG las líneas son las de Zonas (executive_lines).
+ */
+export function confirmacionDeQuitarEjecutivo(afectados: { lineas?: number; visitantes?: number } | null | undefined): string | null {
+  const lineas = afectados?.lineas ?? 0
+  const visitantes = afectados?.visitantes ?? 0
+  if (lineas === 0 && visitantes === 0) return null
+  return `Se pierden ${lineas} líneas en Zonas y terminan ${visitantes} visitantes`
+}

@@ -2,12 +2,12 @@
 
 // Papeles de una persona por empresa (capas de empresas, capa 1). Un bloque por empresa: casillas para los papeles
 // simples y, para líder de negocio, una fila por línea con sus Zonas (sin Zonas = líder nacional de la línea).
-// Cada bloque guarda solo su empresa con PUT /api/users/[id]/papeles. Quitar Ejecutivo Comercial borra asignaciones:
-// antes se simula (?simular=1) y se pide confirmar con lo que se pierde.
+// Cada bloque guarda solo su empresa con PUT /api/users/[id]/papeles. Quitar Ejecutivo Comercial le quita sus líneas
+// en Zonas: antes se simula (?simular=1) y, si pierde líneas o visitantes, se pide confirmar con lo que se pierde.
 
 import { useRef, useState } from 'react'
 import { getRoleTitle, type Role } from '@/lib/permissions'
-import { ORDEN_PAPELES, type PapelActivo } from '@/lib/empresas-reglas'
+import { ORDEN_PAPELES, confirmacionDeQuitarEjecutivo, type PapelActivo } from '@/lib/empresas-reglas'
 import type { EmpresaMovil } from '@/lib/reporte-visitas'
 
 export interface LineaOpcion {
@@ -290,8 +290,8 @@ function BloqueGuardable({
           setError(datosSimulacion.error || 'Error al calcular lo que se pierde')
           return
         }
-        const { asignaciones = 0, visitantes = 0 } = datosSimulacion.afectados ?? {}
-        if (!window.confirm(`Se borran ${asignaciones} asignaciones y terminan ${visitantes} visitantes`)) return
+        const confirmacion = confirmacionDeQuitarEjecutivo(datosSimulacion.afectados)
+        if (confirmacion && !window.confirm(confirmacion)) return
       }
       const respuesta = await enviar('')
       const datos = await respuesta.json().catch(() => ({}))

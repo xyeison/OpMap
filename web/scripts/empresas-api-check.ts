@@ -21,7 +21,8 @@
  *   D. Usuarios y papeles: PUT /api/users/[id]/papeles reemplaza los papeles de una persona en una empresa (cachés
  *      users.role y business_lines.leader_user_id; línea fuera de la empresa → 400; líder nacional repetido o Zonas
  *      solapadas → 409; una líder por Zonas entra inactiva, recibe sus Zonas y se activa); quitar sales_manager cuenta
- *      (?simular=1, sin escribir) y borra sus asignaciones de esa empresa y, en VG, sus executive_lines (el disparador
+ *      (?simular=1, sin escribir; en VG las líneas son la unión de executive_lines y asignaciones, y los visitantes
+ *      los de esas líneas) y borra sus asignaciones de esa empresa y, en VG, sus executive_lines (el disparador
  *      de la 0820 cierra los visitantes; el falso no corre disparadores: se comprueba lo que borra y lo que cuenta) y
  *      entonces recalcula la cobertura (cobertura_recalculada, como PATCH /api/executives);
  *      GET /api/users trae papeles; POST /api/users con role crea el papel en VG; PUT /api/users/[id] con role pasa por
@@ -29,7 +30,8 @@
  *      sin users:manage → 403; sin la 0960, las rutas viejas siguen y la de papeles responde 503.
  *   E. Líneas por empresa: GET /api/business-lines trae empresas (por código; [] sin la 0960, sin 500); PATCH con
  *      empresa_ids reemplaza linea_empresas (agrega y quita); [] → 400, empresa desconocida o inactiva → 400; quitar una
- *      empresa donde la línea tiene líder activo (papel line_leader) o asignaciones → 409 y nada escrito; sin
+ *      empresa donde la línea tiene líder activo (papel line_leader) o asignaciones (en VG, también executive_lines)
+ *      → 409 y nada escrito; leader_user_id con la 0960 → 409 'El líder se cambia en Usuarios'; sin
  *      lines:edit → 403; sin la 0960, empresa_ids → 503 y los demás campos siguen.
  *
  * El patrón del Supabase falso viene de scripts/lineas-permitidas-api-check.ts.
@@ -807,16 +809,19 @@ async function main() {
   const D_EJEC = '00000000-0000-4000-8000-0000000000d4' // sales_manager en VG, con fila en executives
   const D_FOCO4 = '00000000-0000-4000-8000-0000000000d5' // sales_manager en VG, SIN fila en executives
   const D_DIRECTORA = '00000000-0000-4000-8000-0000000000d6' // commercial_director en VG: executives:edit, no users:manage
+  const D_TARDE = '00000000-0000-4000-8000-0000000000d7' // sales_manager en VG con una línea dada DESPUÉS de la semilla
   const L_COLUMNA = '10000000-0000-4000-8000-000000000006' // en VG y en Medix (Trauma solo en VG)
   const KAM_BOG = '20000000-0000-4000-8000-000000000002'
   const X_EJEC = '30000000-0000-4000-8000-000000000001'
   const X_OTRO = '30000000-0000-4000-8000-000000000002'
   const X_ENLACE = '30000000-0000-4000-8000-000000000003'
+  const X_TARDE = '30000000-0000-4000-8000-000000000005' // executive_lines de Trauma sin fila en asignaciones
   const D_P_ADMIN = '40000000-0000-4000-8000-0000000000d1'
   const D_P_OTRA = '40000000-0000-4000-8000-0000000000d3'
   const D_P_EJEC = '40000000-0000-4000-8000-0000000000d4'
   const D_P_FOCO4 = '40000000-0000-4000-8000-0000000000d5'
   const D_P_DIRECTORA = '40000000-0000-4000-8000-0000000000d6'
+  const D_P_TARDE = '40000000-0000-4000-8000-0000000000d7'
 
   const persona = (id: string, user_id: string | null, nombre: string): Fila => ({
     id, full_name: nombre, email: null, company: 'VG Medical', status: user_id ? 'active' : 'placeholder', base_kam_id: KAM_BAQ,
@@ -834,6 +839,7 @@ async function main() {
       usuario(D_EJEC, 'sales_manager', 'Ejecutiva'),
       usuario(D_FOCO4, 'sales_manager', 'Sin ficha'),
       usuario(D_DIRECTORA, 'commercial_director', 'Directora'),
+      usuario(D_TARDE, 'sales_manager', 'Línea tardía'),
     ],
     empresas: [empresa(EMPRESA_VG_ID, 'vg', 'VG Medical S.A.S.', 'VG Medical'), empresa(EMPRESA_MEDIX_ID, 'medix', 'Medix', 'Medix')],
     papeles: [
@@ -842,6 +848,7 @@ async function main() {
       papel(D_P_EJEC, D_EJEC, EMPRESA_VG_ID, 'sales_manager'),
       papel(D_P_FOCO4, D_FOCO4, EMPRESA_VG_ID, 'sales_manager'),
       papel(D_P_DIRECTORA, D_DIRECTORA, EMPRESA_VG_ID, 'commercial_director'),
+      papel(D_P_TARDE, D_TARDE, EMPRESA_VG_ID, 'sales_manager'),
     ],
     papel_zonas: [],
     linea_empresas: [
@@ -868,16 +875,20 @@ async function main() {
       persona(X_OTRO, null, 'Vacante Bogotá'),
       // Ejecutiva sin usuario y aún sin empresa: POST /api/users la enlaza por el email
       { ...persona(X_ENLACE, null, 'Por enlazar'), email: 'enlace@prueba.test', status: 'active' },
+      persona(X_TARDE, D_TARDE, 'Línea tardía'),
     ],
     executive_lines: [
       { executive_id: X_EJEC, line_id: L_TRAUMA },
       { executive_id: X_EJEC, line_id: L_COLUMNA },
       { executive_id: X_OTRO, line_id: L_TRAUMA },
+      // Dada en Zonas después de la semilla de la 0960: está en executive_lines pero no en asignaciones
+      { executive_id: X_TARDE, line_id: L_TRAUMA },
     ],
     executive_empresas: [
       { executive_id: X_EJEC, empresa_id: EMPRESA_VG_ID, activo: true },
       { executive_id: X_EJEC, empresa_id: EMPRESA_MEDIX_ID, activo: true },
       { executive_id: X_OTRO, empresa_id: EMPRESA_VG_ID, activo: true },
+      { executive_id: X_TARDE, empresa_id: EMPRESA_VG_ID, activo: true },
     ],
     asignaciones: [
       asignacion('a1', X_EJEC, KAM_BAQ, L_TRAUMA, EMPRESA_VG_ID),
@@ -891,6 +902,8 @@ async function main() {
       visitante('v2', X_EJEC, L_COLUMNA, null),
       visitante('v3', X_EJEC, L_TRAUMA, '2026-10-01'), // ya cerrado: no cuenta
       visitante('v4', X_OTRO, L_TRAUMA, null), // de otra persona: no cuenta
+      visitante('v5', X_TARDE, L_TRAUMA, null), // de la línea tardía: cuenta
+      visitante('v6', X_TARDE, L_COLUMNA, null), // de una línea que no lleva: no cuenta
     ],
   })
   const tablasD = datosUsuarios()
@@ -899,7 +912,7 @@ async function main() {
 
   const ponerPapeles = (quien: string, id: string, cuerpo: unknown, simular = false) =>
     papelesPut(aRuta(`/api/users/${id}/papeles${simular ? '?simular=1' : ''}`, { userId: quien, cuerpo, metodo: 'PUT' }), { params: { id } })
-  type CuerpoPapeles = { papeles?: { id: string; papel: string; line_id: string | null; kam_ids: string[] }[]; afectados?: { asignaciones: number; visitantes: number }; error?: string }
+  type CuerpoPapeles = { papeles?: { id: string; papel: string; line_id: string | null; kam_ids: string[] }[]; afectados?: { lineas: number; asignaciones: number; visitantes: number }; error?: string }
   const rolDe = (id: string) => tablasD.users.find(u => u.id === id)?.role
   const liderDe = (lineId: string) => tablasD.business_lines.find(l => l.id === lineId)?.leader_user_id ?? null
   const papelesActivosDe = (id: string, empresaId = EMPRESA_VG_ID) =>
@@ -912,7 +925,7 @@ async function main() {
     const cuerpo = (await cuerpoDe(r)) as CuerpoPapeles
     eq('200', r.status, 200)
     eq('2 papeles en la respuesta', cuerpo.papeles?.map(p => p.papel).sort(), ['line_leader', 'sales_manager'])
-    eq('afectados {0, 0}', cuerpo.afectados, { asignaciones: 0, visitantes: 0 })
+    eq('afectados {0, 0, 0}', cuerpo.afectados, { lineas: 0, asignaciones: 0, visitantes: 0 })
     eq("caché users.role de Paola = 'line_leader'", rolDe(D_PAOLA), 'line_leader')
     eq('caché business_lines.leader_user_id de Trauma = Paola', liderDe(L_TRAUMA), D_PAOLA)
   }
@@ -1008,18 +1021,18 @@ async function main() {
     const cuerpoQuitar = { empresa_id: EMPRESA_VG_ID, papeles: [{ papel: 'viewer' }] }
     const simulado = await ponerPapeles(D_ADMIN, D_EJEC, cuerpoQuitar, true)
     const cuerpoSimulado = (await cuerpoDe(simulado)) as CuerpoPapeles & { cobertura_recalculada?: boolean }
-    eq('?simular=1 → 200 { asignaciones: 3, visitantes: 2 }', [simulado.status, cuerpoSimulado.afectados], [200, { asignaciones: 3, visitantes: 2 }])
+    eq('?simular=1 → 200 { lineas: 2, asignaciones: 3, visitantes: 2 }', [simulado.status, cuerpoSimulado.afectados], [200, { lineas: 2, asignaciones: 3, visitantes: 2 }])
     check('sin escribir nada (ni recalcular la cobertura)', fakeD.writes(marca).length === 0 && !('cobertura_recalculada' in cuerpoSimulado), fakeD.writes(marca))
 
     const marcaReal = fakeD.requests.length
     const real = await ponerPapeles(D_ADMIN, D_EJEC, cuerpoQuitar)
     const cuerpoReal = (await cuerpoDe(real)) as CuerpoPapeles & { cobertura_recalculada?: boolean }
-    eq('sin simular → 200 con los mismos afectados', [real.status, cuerpoReal.afectados], [200, { asignaciones: 3, visitantes: 2 }])
+    eq('sin simular → 200 con los mismos afectados', [real.status, cuerpoReal.afectados], [200, { lineas: 2, asignaciones: 3, visitantes: 2 }])
     eq('se borraron sus executive_lines: recalcula la cobertura (cobertura_recalculada: true)', cuerpoReal.cobertura_recalculada, true)
     check('y escribe en coverage (como PATCH /api/executives)', fakeD.writes(marcaReal).some(w => w.table === 'coverage'), fakeD.writes(marcaReal).map(w => w.table))
     eq('borra sus 3 asignaciones de VG (queda la de Medix y la de la otra persona)', tablasD.asignaciones.map(a => a.id).sort(), ['a4', 'a5'])
     eq('borra sus executive_lines (la 0820 cierra los visitantes; las de la otra persona quedan)',
-      tablasD.executive_lines.map(l => `${l.executive_id === X_EJEC ? 'ejec' : 'otro'}:${l.line_id === L_TRAUMA ? 'trauma' : 'columna'}`), ['otro:trauma'])
+      tablasD.executive_lines.filter(l => l.executive_id !== X_TARDE).map(l => `${l.executive_id === X_EJEC ? 'ejec' : 'otro'}:${l.line_id === L_TRAUMA ? 'trauma' : 'columna'}`), ['otro:trauma'])
     eq('executive_empresas en VG queda activo = false; en Medix sigue activo',
       tablasD.executive_empresas.filter(e => e.executive_id === X_EJEC).map(e => [e.empresa_id === EMPRESA_VG_ID ? 'vg' : 'medix', e.activo]).sort(),
       [['medix', true], ['vg', false]])
@@ -1032,12 +1045,27 @@ async function main() {
     eq('y executive_empresas en VG vuelve a activo', tablasD.executive_empresas.find(e => e.executive_id === X_EJEC && e.empresa_id === EMPRESA_VG_ID)?.activo, true)
   }
 
+  print('\n  En VG la verdad es executive_lines: una línea dada después de la semilla (sin fila en asignaciones)')
+  {
+    const marca = fakeD.requests.length
+    const cuerpoQuitar = { empresa_id: EMPRESA_VG_ID, papeles: [] }
+    const simulado = await ponerPapeles(D_ADMIN, D_TARDE, cuerpoQuitar, true)
+    eq('?simular=1 → { lineas: 1, asignaciones: 0, visitantes: 1 } (solo el visitante de Trauma)',
+      [simulado.status, ((await cuerpoDe(simulado)) as CuerpoPapeles).afectados], [200, { lineas: 1, asignaciones: 0, visitantes: 1 }])
+    check('sin escribir nada', fakeD.writes(marca).length === 0, fakeD.writes(marca))
+    const real = await ponerPapeles(D_ADMIN, D_TARDE, cuerpoQuitar)
+    const cuerpoReal = (await cuerpoDe(real)) as CuerpoPapeles & { cobertura_recalculada?: boolean }
+    eq('sin simular → 200, mismos afectados y cobertura recalculada',
+      [real.status, cuerpoReal.afectados, cuerpoReal.cobertura_recalculada], [200, { lineas: 1, asignaciones: 0, visitantes: 1 }, true])
+    eq('el borrado quita su executive_lines de Trauma', tablasD.executive_lines.filter(l => l.executive_id === X_TARDE).length, 0)
+  }
+
   print('\n  Foco 4: quitar sales_manager a quien no tiene fila en executives')
   {
     const marca = fakeD.requests.length
     const r = await ponerPapeles(D_ADMIN, D_FOCO4, { empresa_id: EMPRESA_VG_ID, papeles: [] })
     const cuerpo = (await cuerpoDe(r)) as CuerpoPapeles & { cobertura_recalculada?: boolean }
-    eq('200 { asignaciones: 0, visitantes: 0 }', [r.status, cuerpo.afectados], [200, { asignaciones: 0, visitantes: 0 }])
+    eq('200 { lineas: 0, asignaciones: 0, visitantes: 0 }', [r.status, cuerpo.afectados], [200, { lineas: 0, asignaciones: 0, visitantes: 0 }])
     check('sin executive_lines borradas no recalcula la cobertura', !('cobertura_recalculada' in cuerpo) && !fakeD.writes(marca).some(w => w.table === 'coverage'), cuerpo)
     eq("sin papeles en VG: caché users.role = 'user'", rolDe(D_FOCO4), 'user')
   }
@@ -1199,6 +1227,7 @@ async function main() {
   const L_E_TRAUMA = '10000000-0000-4000-8000-0000000000e1' // en VG (con líder activo y asignaciones)
   const L_E_COLUMNA = '10000000-0000-4000-8000-0000000000e2' // en VG y Medix; sin líder en Medix
   const L_E_RODILLA = '10000000-0000-4000-8000-0000000000e3' // en VG; con una asignación en VG
+  const L_E_CADERA = '10000000-0000-4000-8000-0000000000e4' // en VG y Medix; solo executive_lines (sin asignaciones ni líder)
   const E_EMPRESA_INACTIVA = '00000000-0000-4000-8000-0000000000ee'
   const E_KAM = '20000000-0000-4000-8000-0000000000e1'
   const E_EJEC = '30000000-0000-4000-8000-0000000000e1'
@@ -1222,14 +1251,19 @@ async function main() {
       { line_id: L_E_COLUMNA, empresa_id: EMPRESA_VG_ID },
       { line_id: L_E_COLUMNA, empresa_id: EMPRESA_MEDIX_ID },
       { line_id: L_E_RODILLA, empresa_id: EMPRESA_VG_ID },
+      { line_id: L_E_CADERA, empresa_id: EMPRESA_VG_ID },
+      { line_id: L_E_CADERA, empresa_id: EMPRESA_MEDIX_ID },
     ],
     business_lines: [
       { id: L_E_TRAUMA, code: 'trauma', name: 'Trauma', leader_user_id: E_PAOLA, max_reach_minutes: 300, sort_order: 1, active: true },
       { id: L_E_COLUMNA, code: 'columna', name: 'Columna', leader_user_id: null, max_reach_minutes: 300, sort_order: 2, active: true },
       { id: L_E_RODILLA, code: 'rodilla', name: 'Rodilla', leader_user_id: null, max_reach_minutes: 300, sort_order: 3, active: true },
+      { id: L_E_CADERA, code: 'cadera', name: 'Cadera', leader_user_id: null, max_reach_minutes: 300, sort_order: 4, active: true },
     ],
     line_zones: [],
     asignaciones: [{ id: 'ae1', executive_id: E_EJEC, kam_id: E_KAM, line_id: L_E_RODILLA, empresa_id: EMPRESA_VG_ID, created_by: null }],
+    // Cadera se dio en Zonas después de la semilla de la 0960: solo está en executive_lines
+    executive_lines: [{ executive_id: E_EJEC, line_id: L_E_CADERA }],
   })
   const tablasE = datosLineas()
   const fakeE = fakeSupabase(tablasE)
@@ -1287,6 +1321,29 @@ async function main() {
     const cuerpo = (await cuerpoDe(r)) as { error?: string }
     eq('409 con el nombre de la empresa', [r.status, cuerpo.error], [409, 'Esa línea tiene líder o asignaciones en VG Medical'])
     check('nada escrito', JSON.stringify(tablasE.linea_empresas) === antes && fakeE.writes(marca).length === 0, fakeE.writes(marca))
+  }
+
+  print('\n  Quitar VG a Cadera, que solo tiene executive_lines (la verdad en VG hasta la 0970) → 409')
+  {
+    const antes = JSON.stringify(tablasE.linea_empresas)
+    const marca = fakeE.requests.length
+    const r = await patchLinea(E_ADMIN, L_E_CADERA, { empresa_ids: [EMPRESA_MEDIX_ID] })
+    const cuerpo = (await cuerpoDe(r)) as { error?: string }
+    eq('409 con el nombre de la empresa', [r.status, cuerpo.error], [409, 'Esa línea tiene líder o asignaciones en VG Medical'])
+    check('nada escrito', JSON.stringify(tablasE.linea_empresas) === antes && fakeE.writes(marca).length === 0, fakeE.writes(marca))
+    const medix = await patchLinea(E_ADMIN, L_E_CADERA, { empresa_ids: [EMPRESA_VG_ID] })
+    eq('quitarle Medix sí se puede (executive_lines es solo de VG) → 200', medix.status, 200)
+  }
+
+  print('\n  PATCH con leader_user_id: con la 0960 el líder se cambia en Usuarios → 409 y nada escrito')
+  {
+    const marca = fakeE.requests.length
+    const r = await patchLinea(E_ADMIN, L_E_COLUMNA, { leader_user_id: E_PAOLA })
+    eq("409 'El líder se cambia en Usuarios'", [r.status, ((await cuerpoDe(r)) as { error?: string }).error], [409, 'El líder se cambia en Usuarios'])
+    const quitar = await patchLinea(E_ADMIN, L_E_TRAUMA, { leader_user_id: null, name: 'Trauma 2' })
+    eq('también al quitarlo (null), aunque traiga otros campos → 409', quitar.status, 409)
+    check('nada escrito (ni el nombre)', fakeE.writes(marca).length === 0, fakeE.writes(marca))
+    eq('leader_user_id de Columna sigue null', tablasE.business_lines.find(l => l.id === L_E_COLUMNA)?.leader_user_id, null)
   }
 
   print('\n  Cuerpos no válidos: nada se escribe')
@@ -1349,6 +1406,8 @@ async function main() {
     const otro = await patchLinea(E_ADMIN, L_E_COLUMNA, { name: 'Columna vertebral' })
     const cuerpoOtro = (await cuerpoDe(otro)) as { line?: LineaE }
     eq('el nombre sigue pudiéndose cambiar → 200 y empresas []', [otro.status, cuerpoOtro.line?.name, cuerpoOtro.line?.empresas], [200, 'Columna vertebral', []])
+    const lider = await patchLinea(E_ADMIN, L_E_COLUMNA, { leader_user_id: E_ADMIN })
+    eq('el líder sigue cambiándose aquí (leader_user_id) → 200', [lider.status, antes.business_lines[0].leader_user_id], [200, E_ADMIN])
     check('sin console.error', moduleLogs.length === logs, moduleLogs.slice(logs))
     fetchHandler = fake.handler
   }

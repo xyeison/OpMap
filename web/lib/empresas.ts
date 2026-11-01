@@ -191,6 +191,8 @@ class ReglaDeLaBase extends Error {
 }
 
 export interface AfectadosDeQuitarEjecutivo {
+  /** Líneas que la persona pierde en Zonas: en VG, las de executive_lines y las de sus asignaciones de VG, sin repetir. */
+  lineas: number
   asignaciones: number
   visitantes: number
 }
@@ -276,9 +278,11 @@ export async function asegurarExecutiveEmpresa(
 
 /**
  * Qué se pierde al quitarle el papel sales_manager en una empresa a una persona (vía executives.user_id): cuántas
- * asignaciones de esa empresa se borran y cuántos visitantes vivos (hasta IS NULL) terminan. En VG las asignaciones
- * son el espejo de executive_lines, y borrarlas cierra (disparador de la 0820) TODOS sus visitantes vivos; en otra
- * empresa, los de esa empresa en las líneas de esas asignaciones. Sin fila en executives: nada.
+ * líneas pierde en Zonas, cuántas asignaciones de esa empresa se borran y cuántos visitantes vivos (hasta IS NULL) de
+ * esas líneas terminan. En VG, entre la 0960 y la 0970, la verdad es executive_lines (las asignaciones son su espejo de
+ * la semilla y las líneas dadas después solo están en executive_lines): las líneas son la unión de las dos, y borrar
+ * sus executive_lines cierra (disparador de la 0820) los visitantes vivos de esas líneas. En otra empresa, las líneas
+ * de sus asignaciones allí y los visitantes de esa empresa en ellas. Sin fila en executives: nada.
  */
 export async function afectadosDeQuitarEjecutivo(
   userId: string,
@@ -287,34 +291,32 @@ export async function afectadosDeQuitarEjecutivo(
 ): Promise<AfectadosDeQuitarEjecutivo & { executiveIds: string[] }> {
   const personas = datos<{ id: string }[]>(await db.from('executives').select('id').eq('user_id', userId), 'executives') || []
   const executiveIds = personas.map(p => p.id)
-  if (executiveIds.length === 0) return { executiveIds, asignaciones: 0, visitantes: 0 }
+  if (executiveIds.length === 0) return { executiveIds, lineas: 0, asignaciones: 0, visitantes: 0 }
 
   const asignaciones = datos<{ id: string; line_id: string }[]>(
     await db.from('asignaciones').select('id, line_id').in('executive_id', executiveIds).eq('empresa_id', empresaId),
     'asignaciones'
   ) || []
-  let visitantes: { id: string }[] = []
+  const lineas = new Set(asignaciones.map(a => a.line_id))
   if (empresaId === EMPRESA_VG_ID) {
-    visitantes = datos<{ id: string }[]>(
-      await db.from('medico_visitantes').select('id').in('executive_id', executiveIds).is('hasta', null),
-      'medico_visitantes'
+    const enZonas = datos<{ line_id: string }[]>(
+      await db.from('executive_lines').select('line_id').in('executive_id', executiveIds),
+      'executive_lines'
     ) || []
-  } else {
-    const lineas = Array.from(new Set(asignaciones.map(a => a.line_id)))
-    if (lineas.length > 0) {
-      visitantes = datos<{ id: string }[]>(
-        await db
-          .from('medico_visitantes')
-          .select('id')
-          .in('executive_id', executiveIds)
-          .in('line_id', lineas)
-          .eq('empresa_id', empresaId)
-          .is('hasta', null),
-        'medico_visitantes'
-      ) || []
-    }
+    for (const { line_id } of enZonas) lineas.add(line_id)
   }
-  return { executiveIds, asignaciones: asignaciones.length, visitantes: visitantes.length }
+  let visitantes: { id: string }[] = []
+  if (lineas.size > 0) {
+    let consulta = db
+      .from('medico_visitantes')
+      .select('id')
+      .in('executive_id', executiveIds)
+      .in('line_id', Array.from(lineas))
+      .is('hasta', null)
+    if (empresaId !== EMPRESA_VG_ID) consulta = consulta.eq('empresa_id', empresaId)
+    visitantes = datos<{ id: string }[]>(await consulta, 'medico_visitantes') || []
+  }
+  return { executiveIds, lineas: lineas.size, asignaciones: asignaciones.length, visitantes: visitantes.length }
 }
 
 /**
@@ -436,13 +438,13 @@ export async function reemplazarPapeles(
   const daEjecutivo = insertar.some(p => p.papel === 'sales_manager') || reactivar.some(r => r.nuevo.papel === 'sales_manager')
   const afectados = quitaEjecutivo
     ? await afectadosDeQuitarEjecutivo(entrada.userId, entrada.empresaId, db)
-    : { executiveIds: [], asignaciones: 0, visitantes: 0 }
+    : { executiveIds: [], lineas: 0, asignaciones: 0, visitantes: 0 }
 
   if (entrada.simular) {
     return {
       ok: true,
       papeles: await papelesActivosEn(entrada.userId, entrada.empresaId, db),
-      afectados: { asignaciones: afectados.asignaciones, visitantes: afectados.visitantes },
+      afectados: { lineas: afectados.lineas, asignaciones: afectados.asignaciones, visitantes: afectados.visitantes },
     }
   }
 
@@ -541,7 +543,7 @@ export async function reemplazarPapeles(
   return {
     ok: true,
     papeles: await papelesActivosEn(entrada.userId, entrada.empresaId, db),
-    afectados: { asignaciones: afectados.asignaciones, visitantes: afectados.visitantes },
+    afectados: { lineas: afectados.lineas, asignaciones: afectados.asignaciones, visitantes: afectados.visitantes },
     ...(cobertura_recalculada === undefined ? {} : { cobertura_recalculada }),
   }
 }
