@@ -8,6 +8,7 @@ import ProtectedRoute from '@/components/ProtectedRoute'
 import PermissionGuard from '@/components/PermissionGuard'
 import PendingAssignmentBanner, { PENDING_QUERY_KEY } from '@/components/PendingAssignmentBanner'
 import { usePermissions } from '@/hooks/usePermissions'
+import { puedeImportarReps } from '@/lib/reps-import-fields'
 import {
   EMPTY_IPS_FILTER,
   IPS_FILTER_HINTS,
@@ -29,8 +30,8 @@ export default function HospitalsPage() {
   const [ipsFilter, setIpsFilter] = useState<IpsServiceFilter>(EMPTY_IPS_FILTER)
   const [minBedsText, setMinBedsText] = useState('')
   const [maxBedsText, setMaxBedsText] = useState('')
-  const { role } = usePermissions()
-  const canImportReps = role === 'admin' || role === 'data_manager'
+  const { papeles } = usePermissions()
+  const canImportReps = puedeImportarReps(papeles)
   const [hospitalsWithKam, setHospitalsWithKam] = useState<any[]>([])
   const [showAddModal, setShowAddModal] = useState(false)
   const [newHospital, setNewHospital] = useState({

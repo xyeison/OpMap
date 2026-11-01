@@ -27,6 +27,8 @@ import {
   type Empresa,
 } from '../lib/empresas-reglas'
 import { getRoleTitle, hasPermission, rolePermissions, type Permission, type Role } from '../lib/permissions'
+import { puedeImportarReps } from '../lib/reps-import-fields'
+import { puedeVerDatosDeZona } from '../lib/zona-estadisticas'
 
 let passed = 0
 let failed = 0
@@ -315,6 +317,21 @@ eq('0 y 0 → sin confirmación (null)', confirmacionDeQuitarEjecutivo({ lineas:
 eq('las asignaciones no cuentan para el texto', confirmacionDeQuitarEjecutivo({ lineas: 0, visitantes: 0, asignaciones: 4 } as { lineas: number; visitantes: number }), null)
 eq('sin afectados → null', confirmacionDeQuitarEjecutivo(undefined), null)
 check('el texto no dice "Vacante" ni "KAM"', !/vacante|kam/i.test(confirmacionDeQuitarEjecutivo({ lineas: 1, visitantes: 1 }) ?? ''))
+
+console.log('\n1.11 La interfaz decide con los papeles, no con el más alto')
+check('REPS: data_manager importa', puedeImportarReps([p('data_manager')]))
+check('REPS: admin importa', puedeImportarReps([p('admin')]))
+check('REPS: contract_manager solo no importa', !puedeImportarReps([p('contract_manager')]))
+check(
+  'REPS: contract_manager + data_manager (el más alto es contract_manager) SÍ importa',
+  papelMasAlto([p('contract_manager'), p('data_manager')]) === 'contract_manager' && puedeImportarReps([p('contract_manager'), p('data_manager')])
+)
+check('REPS: sin papeles no importa', !puedeImportarReps([]))
+check('Datos de la Zona: hr solo no los ve', !puedeVerDatosDeZona([p('hr')]) && !puedeVerDatosDeZona('hr'))
+check(
+  'Datos de la Zona: hr + viewer (el más alto es hr) SÍ los ve con los papeles',
+  papelMasAlto([p('hr'), p('viewer')]) === 'hr' && puedeVerDatosDeZona([p('hr'), p('viewer')])
+)
 
 // ---------------------------------------------------------------------------------------------
 console.log(`\n${passed} pruebas bien, ${failed} con falla`)

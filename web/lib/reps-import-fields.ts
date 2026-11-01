@@ -2,6 +2,14 @@
 // Sin dependencias (lo importan la página /hospitals/import, la lista de IPS y el mapa); el
 // parseo y la simulación viven en lib/reps-import.ts (solo servidor).
 
+/** Quién importa del REPS (además de hospitals:edit): administradores y gestores de datos; contract_manager no. */
+export const REPS_IMPORT_ROLES = ['admin', 'data_manager'] as const
+
+/** Basta con que UNO de los papeles de la empresa activa sea de REPS_IMPORT_ROLES (suma de papeles, no el más alto). */
+export function puedeImportarReps(papeles: readonly { papel: string }[]): boolean {
+  return papeles.some(p => (REPS_IMPORT_ROLES as readonly string[]).includes(p.papel))
+}
+
 export type RepsImportKind = 'servicios' | 'capacidad'
 export type RepsImportMode = 'replace' | 'merge'
 export type RepsFileKind = 'xlsx' | 'xls' | 'csv' | 'pdf'

@@ -45,10 +45,10 @@ export default function ExecutivesPage() {
 }
 
 function ExecutivesContent() {
-  const { can, role } = usePermissions()
+  const { can, papeles } = usePermissions()
   const canEdit = can('executives:edit')
   // "Datos de la zona": executives:view + hospitals:view (sus cifras salen de las IPS); la API exige lo mismo
-  const canVerDatos = puedeVerDatosDeZona(role)
+  const canVerDatos = puedeVerDatosDeZona(papeles)
   // Traspaso (spec 2026-10-12): pasar lo de una persona a otra, a una nueva o a una vacante (admin, director comercial)
   const canTransfer = can('executives:transfer')
 

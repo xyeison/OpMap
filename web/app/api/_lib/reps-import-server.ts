@@ -13,6 +13,7 @@ import { requirePermission, type AuthResult } from '@/lib/require-role'
 import type { SessionUser } from '@/lib/auth-server'
 import {
   REPS_FIELDS,
+  puedeImportarReps,
   type RepsApplyResponse,
   type RepsColumnMapping,
   type RepsFieldKey,
@@ -49,16 +50,16 @@ import {
 import { parsePdfToTable } from '@/lib/reps-pdf'
 import { fetchAllRows } from './api-error'
 
-export const REPS_IMPORT_ROLES = ['admin', 'data_manager'] as const
+export { REPS_IMPORT_ROLES } from '@/lib/reps-import-fields'
 const JOB_TTL_MINUTES = 30
 const ITEMS_LIMIT = 3000
 const IN_CHUNK = 200
 
-/** hospitals:edit y además rol admin o data_manager (contract_manager no importa del REPS). */
+/** hospitals:edit y además un papel admin o data_manager en la empresa activa (contract_manager no importa del REPS). */
 export async function requireRepsImportUser(request: Request): Promise<AuthResult> {
   const auth = await requirePermission(request, 'hospitals:edit')
   if (!auth.ok) return auth
-  if (!(REPS_IMPORT_ROLES as readonly string[]).includes(auth.user.role)) {
+  if (!puedeImportarReps(auth.user.papeles)) {
     return {
       ok: false,
       response: NextResponse.json({ error: 'Solo administradores y gestores de datos pueden importar del REPS' }, { status: 403 }),

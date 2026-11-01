@@ -43,6 +43,7 @@ import { passwordVersion, SESSION_COOKIE_NAME, signSession, verifySession } from
 import { getUserFromRequest } from '../lib/auth-server'
 import { cambiarEmpresaActiva } from '../lib/empresas'
 import { requireAnyPermission, requirePermission } from '../lib/require-role'
+import { requireRepsImportUser } from '../app/api/_lib/reps-import-server'
 import { EMPRESA_MEDIX_ID, EMPRESA_VG_ID } from '../lib/empresas-reglas'
 import { GET as diasLibresGet } from '../app/api/dias-libres/route'
 import { GET as meLinesGet } from '../app/api/me/lines/route'
@@ -307,6 +308,7 @@ const MIXTO = '00000000-0000-4000-8000-000000000005' // sales_manager + hr en VG
 const GERENTE_VIEWER = '00000000-0000-4000-8000-000000000006' // sales_manager + viewer en VG: map:all-lines solo lo da viewer
 const ADMIN_LIDER = '00000000-0000-4000-8000-000000000007' // admin + line_leader, los dos en VG
 const LIDER_DIRECTORA_MEDIX = '00000000-0000-4000-8000-000000000008' // line_leader en VG (activa) y commercial_director en Medix
+const CONTRATOS_DATOS = '00000000-0000-4000-8000-000000000009' // contract_manager + data_manager en VG: el más alto es contract_manager
 
 const L_TRAUMA = '10000000-0000-4000-8000-000000000005'
 const KAM_BAQ = '20000000-0000-4000-8000-000000000001'
@@ -325,6 +327,8 @@ const P_AL_ADMIN = '40000000-0000-4000-8000-00000000000b'
 const P_AL_LIDER = '40000000-0000-4000-8000-00000000000c'
 const P_LD_LIDER = '40000000-0000-4000-8000-00000000000d'
 const P_LD_DIRECTORA = '40000000-0000-4000-8000-00000000000e'
+const P_CD_CONTRATOS = '40000000-0000-4000-8000-00000000000f'
+const P_CD_DATOS = '40000000-0000-4000-8000-000000000010'
 
 function usuario(id: string, role: string, nombre: string, empresa_activa_id: string | null = null): Fila {
   return { id, email: `${id.slice(-4)}@prueba.test`, full_name: nombre, role, active: true, password: `hash-${id}`, empresa_activa_id }
@@ -349,6 +353,7 @@ function datosIniciales(): Tablas {
       usuario(GERENTE_VIEWER, 'sales_manager', 'Gerente y visor'),
       usuario(ADMIN_LIDER, 'admin', 'Admin y líder'),
       usuario(LIDER_DIRECTORA_MEDIX, 'line_leader', 'Líder en VG, directora en Medix', EMPRESA_VG_ID),
+      usuario(CONTRATOS_DATOS, 'contract_manager', 'Contratos y datos'),
     ],
     empresas: [empresa(EMPRESA_VG_ID, 'vg', 'VG Medical S.A.S.', 'VG Medical'), empresa(EMPRESA_MEDIX_ID, 'medix', 'Medix', 'Medix')],
     papeles: [
@@ -366,6 +371,8 @@ function datosIniciales(): Tablas {
       papel(P_AL_LIDER, ADMIN_LIDER, EMPRESA_VG_ID, 'line_leader', L_TRAUMA),
       papel(P_LD_LIDER, LIDER_DIRECTORA_MEDIX, EMPRESA_VG_ID, 'line_leader', L_TRAUMA),
       papel(P_LD_DIRECTORA, LIDER_DIRECTORA_MEDIX, EMPRESA_MEDIX_ID, 'commercial_director'),
+      papel(P_CD_CONTRATOS, CONTRATOS_DATOS, EMPRESA_VG_ID, 'contract_manager'),
+      papel(P_CD_DATOS, CONTRATOS_DATOS, EMPRESA_VG_ID, 'data_manager'),
     ],
     papel_zonas: [{ papel_id: P_PAOLA_LIDER, kam_id: KAM_BAQ }],
     // Lo que leen las rutas de la prueba "después de la puerta" (días libres y /api/me/lines)
@@ -561,6 +568,14 @@ async function main() {
     const cuerpoGerente = (await cuerpoDe(soloGerente)) as { canSeeAll?: boolean; lines?: unknown[] }
     eq('un gerente a secas no ve todas las líneas', cuerpoGerente.canSeeAll, false)
     eq('y sin ejecutiva enlazada ni líneas que lidere, ninguna', cuerpoGerente.lines, [])
+  }
+
+  print('\n  Importar del REPS: decide con los papeles, no con el más alto (contract_manager + data_manager)')
+  {
+    const sumado = await requireRepsImportUser(peticion(CONTRATOS_DATOS))
+    check('contract_manager + data_manager → puede importar (data_manager)', sumado.ok, sumado.ok ? undefined : sumado.response.status)
+    const gerente = await requireRepsImportUser(peticion(MIXTO))
+    eq('sales_manager + hr (sin hospitals:edit) → 403', gerente.ok ? 200 : gerente.response.status, 403)
   }
 
   print('\n  requirePermission: sin sesión y sin papeles')

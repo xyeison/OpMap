@@ -13,6 +13,7 @@ import { usePermissions } from '@/hooks/usePermissions'
 import {
   REPS_FIELDS,
   REPS_MAX_FILE_BYTES,
+  puedeImportarReps,
   SERVICE_FLAG_KEYS,
   SERVICE_FLAG_LABELS,
   type RepsApplyResponse,
@@ -54,8 +55,8 @@ function numberChange(label: string, before: number | null, after: number | null
 }
 
 export default function RepsImportPage() {
-  const { role, loading: roleLoading } = usePermissions()
-  const canImport = role === 'admin' || role === 'data_manager'
+  const { papeles, loading: roleLoading } = usePermissions()
+  const canImport = puedeImportarReps(papeles)
   const queryClient = useQueryClient()
 
   const [file, setFile] = useState<File | null>(null)
