@@ -152,7 +152,7 @@ function ExecutivesContent() {
         return (
           e.full_name.toLowerCase().includes(term) ||
           (e.email || '').toLowerCase().includes(term) ||
-          e.company.toLowerCase().includes(term) ||
+          e.empresas.some(empresa => empresa.nombre_corto.toLowerCase().includes(term)) ||
           (zone ? zoneLabel(zone.name).toLowerCase().includes(term) : false)
         )
       })
@@ -478,7 +478,9 @@ function ExecutivesContent() {
                       <td className="px-6 py-4 text-sm text-gray-700">
                         {executive.email || <span className="text-gray-400">Sin correo</span>}
                       </td>
-                      <td className="px-6 py-4 text-sm text-gray-700 whitespace-nowrap">{executive.company}</td>
+                      <td className="px-6 py-4 text-sm text-gray-700 whitespace-nowrap">
+                        {executive.empresas.length > 0 ? nombresDeEmpresas(executive) : <span className="text-gray-400">—</span>}
+                      </td>
                       <td className="px-4 py-4">{renderActions(executive, 'table')}</td>
                     </tr>
                   )
@@ -522,7 +524,8 @@ function ExecutivesContent() {
                     <LineChips executive={executive} lineById={lineById} />
                   </div>
                   <div className="mt-2 text-xs text-gray-500 break-all">
-                    {executive.email || 'Sin correo'} · {executive.company}
+                    {executive.email || 'Sin correo'}
+                    {executive.empresas.length > 0 ? ` · ${nombresDeEmpresas(executive)}` : ''}
                   </div>
                   {executive.notes && <div className="mt-1 text-xs text-gray-500 break-words">{executive.notes}</div>}
                   <div className="mt-3 pt-3 border-t border-gray-100">{renderActions(executive, 'card')}</div>
@@ -809,4 +812,9 @@ function BotonAccion({ layout, icono, etiqueta, titulo, onClick, disabled = fals
       {etiqueta}
     </button>
   )
+}
+
+/** Empresas de la persona (executive_empresas activas, por código) para la tabla y las tarjetas. */
+function nombresDeEmpresas(executive: Executive): string {
+  return executive.empresas.map(empresa => empresa.nombre_corto).join(' · ')
 }

@@ -57,7 +57,7 @@ import { GET as usersGet, POST as usersPost } from '../app/api/users/route'
 import { PUT as userPut } from '../app/api/users/[id]/route'
 import { POST as desdeEjecutivasPost } from '../app/api/users/from-executives/route'
 import { PUT as papelesPut } from '../app/api/users/[id]/papeles/route'
-import { POST as executivesPost } from '../app/api/executives/route'
+import { GET as executivesGet, POST as executivesPost } from '../app/api/executives/route'
 import { GET as lineasGet } from '../app/api/business-lines/route'
 import { PATCH as lineaPatch } from '../app/api/business-lines/[id]/route'
 import {
@@ -1265,6 +1265,23 @@ async function main() {
     check('y nada escrito', fakeD.writes(marca).length === 0 && tablasD.executives.length === personas, fakeD.writes(marca))
   }
 
+  print('\n  GET /api/executives: cada persona trae sus empresas (executive_empresas activas, por código), no company')
+  {
+    type EjecutivaGet = { id: string; empresas?: { id: string; codigo: string; nombre_corto: string }[]; company?: unknown }
+    const r = await executivesGet(aRuta('/api/executives', { userId: D_ADMIN }))
+    const cuerpo = (await cuerpoDe(r)) as { executives?: EjecutivaGet[] }
+    eq('200', r.status, 200)
+    eq('la ejecutiva en VG y Medix: las dos, por código, con id y nombre_corto', cuerpo.executives?.find(x => x.id === X_EJEC)?.empresas, [
+      { id: EMPRESA_MEDIX_ID, codigo: 'medix', nombre_corto: 'Medix' },
+      { id: EMPRESA_VG_ID, codigo: 'vg', nombre_corto: 'VG Medical' },
+    ])
+    tablasD.executive_empresas.find(e => e.executive_id === X_OTRO && e.empresa_id === EMPRESA_VG_ID)!.activo = false
+    const r2 = (await cuerpoDe(await executivesGet(aRuta('/api/executives', { userId: D_ADMIN })))) as { executives?: EjecutivaGet[] }
+    eq('una fila inactiva no cuenta → []', r2.executives?.find(x => x.id === X_OTRO)?.empresas, [])
+    tablasD.executive_empresas.find(e => e.executive_id === X_OTRO && e.empresa_id === EMPRESA_VG_ID)!.activo = true
+    check('la respuesta ya no trae company', (cuerpo.executives ?? []).every(x => !('company' in x)), cuerpo.executives?.[0])
+  }
+
   print('\n  Sin la 0960: las rutas viejas siguen; la de papeles responde 503')
   {
     const { empresa_activa_id: _sinColumna, ...adminSinColumna } = usuario(D_ADMIN, 'admin', 'Admin')
@@ -1287,6 +1304,15 @@ async function main() {
 
     const papeles = await papelesPut(aRuta(`/api/users/${D_OTRA}/papeles`, { userId: D_ADMIN, cuerpo: { empresa_id: EMPRESA_VG_ID, papeles: [] }, metodo: 'PUT' }), { params: { id: D_OTRA } })
     eq("PUT …/papeles → 503 { error: 'Falta aplicar la migración 0960' }", [papeles.status, await cuerpoDe(papeles)], [503, { error: 'Falta aplicar la migración 0960' }])
+    antes.executives = [persona(X_EJEC, null, 'Ejecutiva vieja')]
+    antes.executive_lines = []
+    antes.kams = [{ id: KAM_BAQ, name: 'Barranquilla', area_id: '08001', active: true }]
+    const marcaEjecutivas = fakeAntes.requests.length
+    const ejecutivas = await executivesGet(aRuta('/api/executives', { userId: D_ADMIN }))
+    const cuerpoEjecutivas = (await cuerpoDe(ejecutivas)) as { executives?: { empresas?: unknown[] }[] }
+    eq('GET /api/executives → 200 y empresas [] (sin executive_empresas)', [ejecutivas.status, cuerpoEjecutivas.executives?.map(x => x.empresas)], [200, [[]]])
+    check('y no pide la tabla empresas tras ver que falta executive_empresas',
+      !fakeAntes.requests.slice(marcaEjecutivas).some(q => q.table === 'empresas'), fakeAntes.requests.slice(marcaEjecutivas).map(q => q.table))
     check('sin console.error', moduleLogs.length === logs, moduleLogs.slice(logs))
     fetchHandler = fake.handler
   }

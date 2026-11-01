@@ -106,7 +106,9 @@ export interface Executive {
   id: string
   full_name: string
   email: string | null
-  company: string
+  // Empresas (capa 1): las de executive_empresas activas, por código ([] sin la 0960). Reemplaza a executives.company
+  // en la respuesta (la columna sigue en la base, pero nadie la lee)
+  empresas: EmpresaMovil[]
   status: ExecutiveStatus
   base_kam_id: string | null
   base_kam_name: string | null

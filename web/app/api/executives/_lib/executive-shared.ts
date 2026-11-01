@@ -4,19 +4,21 @@
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { recomputeAndSaveCoverage } from '@/lib/coverage'
 import type { Executive, ExecutiveAllowedLineRow, ExecutiveLineRow, ExecutiveRow } from '@/lib/types/lines'
+import type { EmpresaMovil } from '@/lib/reporte-visitas'
 
 const EXECUTIVE_COLUMNS =
-  'id, full_name, email, company, status, base_kam_id, user_id, odoo_employee_id, notes, color'
+  'id, full_name, email, status, base_kam_id, user_id, odoo_employee_id, notes, color'
 
 type ExecutiveSelectRow = Pick<
   ExecutiveRow,
-  'id' | 'full_name' | 'email' | 'company' | 'status' | 'base_kam_id' | 'user_id' | 'odoo_employee_id' | 'notes' | 'color'
+  'id' | 'full_name' | 'email' | 'status' | 'base_kam_id' | 'user_id' | 'odoo_employee_id' | 'notes' | 'color'
 >
 
 /**
- * Carga las ejecutivas (todas, incluidas las inactivas) con el nombre de su zona base, sus líneas y sus líneas
- * permitidas. Funciona aunque executive_lines esté vacía: cada ejecutiva sale con lines = []. Si la tabla
- * executive_allowed_lines no existe todavía (migración 0860 sin aplicar), todas salen con lineas_permitidas = null.
+ * Carga las ejecutivas (todas, incluidas las inactivas) con el nombre de su zona base, sus líneas, sus líneas
+ * permitidas y sus empresas. Funciona aunque executive_lines esté vacía: cada ejecutiva sale con lines = []. Si la tabla
+ * executive_allowed_lines no existe todavía (migración 0860 sin aplicar), todas salen con lineas_permitidas = null; sin
+ * la 0960 (executive_empresas), todas con empresas = [].
  * Si se pasa `onlyId`, devuelve solo esa ejecutiva (o lista vacía si no existe).
  */
 export async function loadExecutives(onlyId?: string): Promise<Executive[]> {
@@ -51,6 +53,7 @@ export async function loadExecutives(onlyId?: string): Promise<Executive[]> {
 
   // Líneas permitidas por ejecutiva (null si la tabla no existe: la API no falla por una migración sin aplicar)
   const allowedByExecutive = await loadAllowedLines(executiveIds)
+  const empresasByExecutive = await loadEmpresasDeEjecutivas(executiveIds)
 
   // Nombre de la zona base (kams.name)
   const kamIds = Array.from(
@@ -69,7 +72,7 @@ export async function loadExecutives(onlyId?: string): Promise<Executive[]> {
     id: executive.id,
     full_name: executive.full_name,
     email: executive.email,
-    company: executive.company,
+    empresas: empresasByExecutive.get(executive.id) ?? [],
     status: executive.status,
     base_kam_id: executive.base_kam_id,
     base_kam_name: executive.base_kam_id ? kamNames.get(executive.base_kam_id) ?? null : null,
@@ -80,6 +83,46 @@ export async function loadExecutives(onlyId?: string): Promise<Executive[]> {
     color: executive.color ?? null,
     lineas_permitidas: allowedByExecutive?.get(executive.id) ?? null,
   }))
+}
+
+/**
+ * Empresas activas de cada persona (executive_empresas activas), por código. Sin la 0960 (tabla inexistente), un mapa
+ * vacío: todas salen con empresas = [] y no se consulta nada más.
+ */
+async function loadEmpresasDeEjecutivas(executiveIds: string[]): Promise<Map<string, EmpresaMovil[]>> {
+  const porEjecutiva = new Map<string, EmpresaMovil[]>()
+  const { data, error } = await supabaseAdmin
+    .from('executive_empresas')
+    .select('executive_id, empresa_id')
+    .in('executive_id', executiveIds)
+    .eq('activo', true)
+    .range(0, 9999)
+  if (error) {
+    if (esTablaAusente(error)) return porEjecutiva
+    throw error
+  }
+  const filas = (data || []) as Array<{ executive_id: string; empresa_id: string }>
+  if (filas.length === 0) return porEjecutiva
+  const { data: empresas, error: empresasError } = await supabaseAdmin
+    .from('empresas')
+    .select('id, codigo, nombre_corto')
+    .in('id', Array.from(new Set(filas.map(f => f.empresa_id))))
+    .eq('activa', true)
+    .order('codigo')
+  if (empresasError) throw empresasError
+  // empresas ya viene por código: cada persona recibe las suyas en ese orden (solo las activas)
+  const lista = (empresas || []) as EmpresaMovil[]
+  const idsPorEjecutiva = new Map<string, Set<string>>()
+  for (const { executive_id, empresa_id } of filas) {
+    idsPorEjecutiva.set(executive_id, (idsPorEjecutiva.get(executive_id) ?? new Set<string>()).add(empresa_id))
+  }
+  for (const [executiveId, ids] of Array.from(idsPorEjecutiva.entries())) {
+    porEjecutiva.set(
+      executiveId,
+      lista.filter(e => ids.has(e.id)).map(e => ({ id: e.id, codigo: e.codigo, nombre_corto: e.nombre_corto }))
+    )
+  }
+  return porEjecutiva
 }
 
 // ---------------------------------------------------------------------------
