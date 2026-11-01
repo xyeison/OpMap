@@ -29,6 +29,7 @@ import {
 import { getRoleTitle, hasPermission, rolePermissions, type Permission, type Role } from '../lib/permissions'
 import { puedeImportarReps } from '../lib/reps-import-fields'
 import { puedeVerDatosDeZona } from '../lib/zona-estadisticas'
+import { cuerpoDeNuevoUsuario, usaRolUnico } from '../app/users/usuarios-ui'
 
 let passed = 0
 let failed = 0
@@ -332,6 +333,25 @@ check(
   'Datos de la Zona: hr + viewer (el más alto es hr) SÍ los ve con los papeles',
   papelMasAlto([p('hr'), p('viewer')]) === 'hr' && puedeVerDatosDeZona([p('hr'), p('viewer')])
 )
+
+console.log('\n1.12 /users sin la 0960: selector de un solo rol')
+check('sin empresas y ya cargadas → un solo rol', usaRolUnico([], true))
+check('mientras cargan → todavía no', !usaRolUnico([], false))
+check('con empresas → papeles por empresa', !usaRolUnico([vg], true))
+{
+  const datos = { email: 'a@b.co', password: 'Clave-123456', full_name: 'A' }
+  eq('un solo rol: el cuerpo lleva role y no papeles', cuerpoDeNuevoUsuario(datos, { rolUnico: true, role: 'hr' }), { ok: true, cuerpo: { ...datos, role: 'hr' } })
+  eq(
+    'con empresas: el cuerpo lleva papeles y no role',
+    cuerpoDeNuevoUsuario(datos, { rolUnico: false, papeles: { ok: true, papeles: [{ empresa_id: EMPRESA_VG_ID, papel: 'viewer' }] } }),
+    { ok: true, cuerpo: { ...datos, papeles: [{ empresa_id: EMPRESA_VG_ID, papel: 'viewer' }] } }
+  )
+  eq(
+    'con empresas y sin papeles elegidos → el motivo',
+    cuerpoDeNuevoUsuario(datos, { rolUnico: false, papeles: { ok: false, error: 'Elige al menos un papel en alguna empresa' } }),
+    { ok: false, error: 'Elige al menos un papel en alguna empresa' }
+  )
+}
 
 // ---------------------------------------------------------------------------------------------
 console.log(`\n${passed} pruebas bien, ${failed} con falla`)

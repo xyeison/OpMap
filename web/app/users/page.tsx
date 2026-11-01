@@ -8,7 +8,8 @@ import { getRoleTitle, type Role } from '@/lib/permissions'
 import { tituloDePapeles, type PapelActivo } from '@/lib/empresas-reglas'
 import type { EmpresaMovil } from '@/lib/reporte-visitas'
 import ExecutiveAccountsPanel from '@/components/ExecutiveAccountsPanel'
-import PapelesEditor, { PapelesNuevoUsuario, type LineaOpcion, type PapelEntradaEditor, type ZonaOpcion } from './PapelesEditor'
+import PapelesEditor, { PapelesNuevoUsuario, type LineaOpcion, type ZonaOpcion } from './PapelesEditor'
+import { cuerpoDeNuevoUsuario, usaRolUnico, type PapelesNuevos } from './usuarios-ui'
 
 // Perfiles en el orden en que se eligen: los cuatro del negocio primero (dueño, 2026-10-29)
 const ROLES_EN_ORDEN: Role[] = ['admin', 'commercial_director', 'line_leader', 'sales_manager', 'contract_manager', 'data_manager', 'hr', 'viewer', 'user']
@@ -36,7 +37,6 @@ interface User {
   papeles: PapelActivo[]
 }
 
-type PapelesNuevos = { ok: true; papeles: (PapelEntradaEditor & { empresa_id: string })[] } | { ok: false; error: string }
 const SIN_PAPELES_NUEVOS: PapelesNuevos = { ok: false, error: 'Elige al menos un papel en alguna empresa' }
 
 export default function UsersPage() {
@@ -52,6 +52,9 @@ export default function UsersPage() {
     full_name: ''
   })
   const [papelesNuevos, setPapelesNuevos] = useState<PapelesNuevos>(SIN_PAPELES_NUEVOS)
+  // Sin la 0960 (GET /api/empresas → []): un solo rol, como antes de las empresas
+  const [rolNuevo, setRolNuevo] = useState<Role>('user')
+  const [empresasCargadas, setEmpresasCargadas] = useState(false)
   const [errorCrear, setErrorCrear] = useState('')
   const [empresas, setEmpresas] = useState<EmpresaMovil[]>([])
   const [lineas, setLineas] = useState<LineaOpcion[]>([])
@@ -66,6 +69,9 @@ export default function UsersPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [isChangingPassword, setIsChangingPassword] = useState(false)
 
+  // Sin empresas (0960 sin aplicar): selector de un solo rol al crear y en cada fila; con empresas, papeles por empresa
+  const rolUnico = usaRolUnico(empresas, empresasCargadas)
+
   useEffect(() => {
     loadUsers()
     loadOpcionesDePapeles()
@@ -79,7 +85,10 @@ export default function UsersPage() {
         fetch('/api/business-lines'),
         fetch('/api/kams'),
       ])
-      if (rEmpresas.ok) setEmpresas((await rEmpresas.json()).empresas ?? [])
+      if (rEmpresas.ok) {
+        setEmpresas((await rEmpresas.json()).empresas ?? [])
+        setEmpresasCargadas(true)
+      }
       if (rLineas.ok) setLineas(((await rLineas.json()).lines ?? []) as LineaOpcion[])
       if (rZonas.ok) {
         const datos = await rZonas.json()
@@ -94,6 +103,7 @@ export default function UsersPage() {
     setShowCreateForm(false)
     setFormData({ email: '', password: '', full_name: '' })
     setPapelesNuevos(SIN_PAPELES_NUEVOS)
+    setRolNuevo('user')
     setErrorCrear('')
   }
 
@@ -120,8 +130,12 @@ export default function UsersPage() {
     setSuccess('')
     setErrorCrear('')
 
-    if (!papelesNuevos.ok) {
-      setErrorCrear(papelesNuevos.error)
+    const nuevo = cuerpoDeNuevoUsuario(
+      formData,
+      rolUnico ? { rolUnico: true, role: rolNuevo } : { rolUnico: false, papeles: papelesNuevos }
+    )
+    if (!nuevo.ok) {
+      setErrorCrear(nuevo.error)
       return
     }
 
@@ -129,7 +143,7 @@ export default function UsersPage() {
       const response = await fetch('/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...formData, papeles: papelesNuevos.papeles })
+        body: JSON.stringify(nuevo.cuerpo)
       })
 
       const data = await response.json()
@@ -147,6 +161,29 @@ export default function UsersPage() {
       }
     } catch (error) {
       setErrorCrear('Error al crear usuario')
+    }
+  }
+
+  // Solo sin la 0960 (rolUnico): el rol de siempre, con PUT /api/users/[id] { role }
+  const handleRoleChange = async (userId: string, newRole: Role) => {
+    try {
+      const response = await fetch(`/api/users/${userId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: newRole })
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        loadUsers()
+        setSuccess('Rol actualizado exitosamente')
+        setTimeout(() => setSuccess(''), 3000)
+      } else {
+        setError(data.error || 'Error al actualizar rol')
+      }
+    } catch (error) {
+      setError('Error al actualizar rol')
     }
   }
 
@@ -268,6 +305,27 @@ export default function UsersPage() {
       </div>
     )
   }
+
+  // Sin la 0960: el selector de un solo rol de siempre (a uno mismo, solo el título)
+  const selectorDeRol = (user: User, className: string) =>
+    user.id === currentUser?.id ? (
+      <span className={`inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-bold bg-gradient-to-r ${roleColors[user.role]} text-white`}>
+        {roleLabels[user.role]}
+      </span>
+    ) : (
+      <select
+        value={user.role}
+        onChange={(e) => handleRoleChange(user.id, e.target.value as Role)}
+        aria-label={`Rol de ${user.full_name}`}
+        className={className}
+      >
+        {ROLES_EN_ORDEN.map(role => (
+          <option key={role} value={role}>
+            {getRoleTitle(role)}
+          </option>
+        ))}
+      </select>
+    )
 
   const botonEditarPapeles = (user: User, className: string) =>
     user.id !== currentUser?.id && (
@@ -492,18 +550,39 @@ export default function UsersPage() {
                         />
                       </div>
 
-                      <div>
-                        <span className="block text-sm font-medium text-gray-700 mb-2">
-                          Papeles del Usuario
-                        </span>
-                        <PapelesNuevoUsuario
-                          empresas={empresas}
-                          lineas={lineas}
-                          zonas={zonas}
-                          descripcion={DESCRIPCION_PERFIL}
-                          onChange={setPapelesNuevos}
-                        />
-                      </div>
+                      {rolUnico ? (
+                        <div>
+                          <label htmlFor="rol-nuevo" className="block text-sm font-medium text-gray-700 mb-2">
+                            Rol del Usuario
+                          </label>
+                          <select
+                            id="rol-nuevo"
+                            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent transition-all"
+                            value={rolNuevo}
+                            onChange={(e) => setRolNuevo(e.target.value as Role)}
+                          >
+                            {ROLES_EN_ORDEN.map(role => (
+                              <option key={role} value={role}>
+                                {getRoleTitle(role)}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="text-xs text-gray-500 mt-1">{DESCRIPCION_PERFIL[rolNuevo]}</p>
+                        </div>
+                      ) : (
+                        <div>
+                          <span className="block text-sm font-medium text-gray-700 mb-2">
+                            Papeles del Usuario
+                          </span>
+                          <PapelesNuevoUsuario
+                            empresas={empresas}
+                            lineas={lineas}
+                            zonas={zonas}
+                            descripcion={DESCRIPCION_PERFIL}
+                            onChange={setPapelesNuevos}
+                          />
+                        </div>
+                      )}
                     </div>
 
                     <div className="flex justify-end gap-3 mt-8 pt-6 border-t border-gray-200">
@@ -740,7 +819,7 @@ export default function UsersPage() {
                         <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Usuario</span>
                       </th>
                       <th className="px-6 py-5 text-left">
-                        <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Papeles</span>
+                        <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">{rolUnico ? 'Rol' : 'Papeles'}</span>
                       </th>
                       <th className="px-6 py-5 text-center">
                         <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Estado</span>
@@ -779,10 +858,14 @@ export default function UsersPage() {
                           </div>
                         </td>
                         <td className="px-6 py-5">
-                          <div className="flex flex-col items-start gap-2">
-                            {renderPapeles(user)}
-                            {botonEditarPapeles(user, 'px-3 py-1 text-xs font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors')}
-                          </div>
+                          {rolUnico ? (
+                            selectorDeRol(user, 'px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-700 focus:border-transparent transition-all')
+                          ) : (
+                            <div className="flex flex-col items-start gap-2">
+                              {renderPapeles(user)}
+                              {botonEditarPapeles(user, 'px-3 py-1 text-xs font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors')}
+                            </div>
+                          )}
                         </td>
                         <td className="px-6 py-5 text-center">
                           <span className={`inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-bold ${
@@ -873,10 +956,17 @@ export default function UsersPage() {
                     </div>
 
                     <div className="space-y-3 mb-4">
-                      <div className="flex justify-between items-start gap-3">
-                        <span className="text-sm text-gray-600">Papeles:</span>
-                        <div className="text-right">{renderPapeles(user)}</div>
-                      </div>
+                      {rolUnico ? (
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-gray-600">Rol:</span>
+                          {selectorDeRol(user, 'text-xs border border-gray-300 rounded-lg px-2 py-1')}
+                        </div>
+                      ) : (
+                        <div className="flex justify-between items-start gap-3">
+                          <span className="text-sm text-gray-600">Papeles:</span>
+                          <div className="text-right">{renderPapeles(user)}</div>
+                        </div>
+                      )}
                       <div className="flex justify-between items-center">
                         <span className="text-sm text-gray-600">Estado:</span>
                         <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${
@@ -901,7 +991,7 @@ export default function UsersPage() {
 
                     {user.id !== currentUser?.id && (
                       <div className="flex flex-wrap gap-2">
-                        {botonEditarPapeles(user, 'flex-1 px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm font-medium')}
+                        {!rolUnico && botonEditarPapeles(user, 'flex-1 px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm font-medium')}
                         <button
                           onClick={() => {
                             setSelectedUser(user)
