@@ -446,6 +446,9 @@ function matchesFilters(row: Record<string, unknown>, params: URLSearchParams): 
   return true
 }
 
+/** Tablas de la 0960 (empresas, capa 1): este falso modela la base SIN la 0960, así que responden "no existe". */
+const TABLAS_0960 = new Set(['papeles', 'papel_zonas', 'empresas', 'linea_empresas', 'executive_empresas', 'asignaciones'])
+
 function fakeSupabase(tables: Record<string, Array<Record<string, unknown>>>) {
   const requests: FakeRequest[] = []
   const external: string[] = []
@@ -465,6 +468,9 @@ function fakeSupabase(tables: Record<string, Array<Record<string, unknown>>>) {
     const body = init?.body ? JSON.parse(String(init.body)) : undefined
     requests.push({ method, table, params: url.searchParams, body })
     const wantsObject = (new Headers(init?.headers).get('accept') || '').includes('vnd.pgrst.object')
+    if (TABLAS_0960.has(table)) {
+      return json({ code: 'PGRST205', message: `Could not find the table 'public.${table}' in the schema cache`, details: null, hint: null }, 404)
+    }
     const store = (tables[table] = tables[table] ?? [])
 
     let rows: Array<Record<string, unknown>>
@@ -1423,7 +1429,11 @@ async function main() {
       const none = await createUserRoute(newUser('nadie@test.local'))
       const noneBody = await none.json()
       check('email sin ejecutiva: usuario creado sin enlace', none.status === 200 && noneBody.linkedExecutive === null && noneBody.message === 'Usuario creado exitosamente')
-      check('el enlace no toca otras tablas que users y executives', sameSet(fake.touched(), ['users', 'executives']) && fake.external.length === 0)
+      // Sin la 0960, POST /api/users solo pregunta si existe la tabla papeles (no escribe en ella)
+      check('el enlace no toca otras tablas que users y executives (y la pregunta por papeles)',
+        sameSet(fake.touched(), ['users', 'executives', 'papeles']) &&
+          fake.requests.every(request => request.table !== 'papeles' || request.method === 'GET') && fake.external.length === 0,
+        fake.touched().join(", "))
 
       // Al guardar una ejecutiva sin usuario (aunque no cambie el email) se vuelve a intentar el enlace
       const EVA_EXE = '33333333-3333-4333-8333-333333333333'

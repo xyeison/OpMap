@@ -3,6 +3,8 @@ import { getSupabaseAdmin } from '@/lib/supabase-admin'
 import { requirePermission } from '@/lib/require-role'
 import { UUID_RE, firstIssueMessage, updateUserSchema } from '@/lib/user-schemas'
 import { linkExecutiveToUserByEmail } from '../../executives/_lib/executive-shared'
+import { EMPRESA_VG_ID, type PapelEntrada } from '@/lib/empresas-reglas'
+import { Falta0960Error, dejaSinAdministradores, reemplazarPapeles } from '@/lib/empresas'
 
 export const dynamic = 'force-dynamic'
 
@@ -19,7 +21,50 @@ async function countActiveAdmins(): Promise<number> {
   return count ?? 0
 }
 
-// PUT - Actualizar usuario (solo admin: permiso users:manage)
+/** false si existe la tabla papeles (0960 aplicada); 'sin_tabla' si no. Mismo valor que dejaSinAdministradores sin admin. */
+async function papelesDisponibles(): Promise<false | 'sin_tabla'> {
+  const { error } = await getSupabaseAdmin().from('papeles').select('id').limit(1)
+  if (error?.code === '42P01' || error?.code === 'PGRST205') return 'sin_tabla'
+  if (error) throw error
+  return false
+}
+
+/** El rol de la página vieja como papeles en VG (ver el comentario del PUT). */
+async function rolComoPapelesDeVG(userId: string, role: PapelEntrada['papel'], creadoPor: string) {
+  const { data, error } = await getSupabaseAdmin()
+    .from('papeles')
+    .select('id, line_id')
+    .eq('user_id', userId)
+    .eq('empresa_id', EMPRESA_VG_ID)
+    .eq('papel', 'line_leader')
+    .eq('activo', true)
+  if (error) throw error
+  let papeles: PapelEntrada[]
+  if (role === 'line_leader') {
+    const lideres = (data || []) as { id: string; line_id: string }[]
+    if (lideres.length === 0) {
+      return { ok: false as const, status: 400, error: 'Un líder de negocio necesita su línea: dale el papel con su línea' }
+    }
+    const { data: zonas, error: zonasError } = await getSupabaseAdmin()
+      .from('papel_zonas')
+      .select('papel_id, kam_id')
+      .in('papel_id', lideres.map(l => l.id))
+    if (zonasError) throw zonasError
+    papeles = lideres.map(l => ({
+      papel: 'line_leader' as const,
+      line_id: l.line_id,
+      kam_ids: ((zonas || []) as { papel_id: string; kam_id: string }[]).filter(z => z.papel_id === l.id).map(z => z.kam_id),
+    }))
+  } else {
+    papeles = [{ papel: role }]
+  }
+  return reemplazarPapeles({ userId, empresaId: EMPRESA_VG_ID, papeles, creadoPor })
+}
+
+// PUT - Actualizar usuario (solo admin: permiso users:manage). Con la 0960, role ya no se escribe directo: pasa a ser
+// el papel de la persona en VG (reemplazarPapeles; para la página vieja de /users hasta la tarea 8 de la capa 1):
+// 'line_leader' conserva sus papeles de líder en VG (sin ninguno, 400: falta la línea); otro rol reemplaza todos sus
+// papeles de VG por ese. users.role queda como caché. Sin la 0960, como antes.
 export async function PUT(
   request: NextRequest,
   { params }: { params: { id: string } }
@@ -62,8 +107,21 @@ export async function PUT(
 
     const supabase = getSupabaseAdmin()
 
-    // No dejar el sistema sin administradores activos
-    const removesAdmin = (updates.role !== undefined && updates.role !== 'admin') || updates.active === false
+    // No dejar el sistema sin administradores activos: con la 0960 cuentan los papeles admin (de cualquier empresa)
+    const quitaAdminEnVG = updates.role !== undefined && updates.role !== 'admin'
+    const conPapeles =
+      quitaAdminEnVG || updates.active === false
+        ? await dejaSinAdministradores(id.toLowerCase(), updates.active === false ? null : EMPRESA_VG_ID)
+        : await papelesDisponibles()
+    if (conPapeles === true) {
+      return NextResponse.json(
+        { error: 'No puedes cambiar el rol ni desactivar al último administrador' },
+        { status: 400 }
+      )
+    }
+    const sinTabla = conPapeles === 'sin_tabla'
+
+    const removesAdmin = sinTabla && (quitaAdminEnVG || updates.active === false)
     if (removesAdmin) {
       const { data: userToUpdate, error: targetError } = await supabase
         .from('users')
@@ -84,12 +142,18 @@ export async function PUT(
       }
     }
 
-    const { data: updatedUser, error } = await supabase
-      .from('users')
-      .update(updates)
-      .eq('id', id)
-      .select(PUBLIC_USER_COLUMNS)
-      .maybeSingle()
+    // El rol pasa por los papeles de VG (y su caché users.role); el resto de campos, directo a users
+    const { role, ...otros } = updates
+    const campos = sinTabla ? updates : otros
+    if (!sinTabla && role !== undefined) {
+      const resultado = await rolComoPapelesDeVG(id, role, currentUser.id)
+      if (!resultado.ok) return NextResponse.json({ error: resultado.error }, { status: resultado.status })
+    }
+
+    const { data: updatedUser, error } =
+      Object.keys(campos).length > 0
+        ? await supabase.from('users').update(campos).eq('id', id).select(PUBLIC_USER_COLUMNS).maybeSingle()
+        : await supabase.from('users').select(PUBLIC_USER_COLUMNS).eq('id', id).maybeSingle()
 
     if (error) {
       if (error.code === '23505') {
@@ -121,6 +185,7 @@ export async function PUT(
         : 'Usuario actualizado exitosamente',
     })
   } catch (error) {
+    if (error instanceof Falta0960Error) return NextResponse.json({ error: 'Falta aplicar la migración 0960' }, { status: 503 })
     console.error('Error al actualizar usuario:', error)
     return NextResponse.json({ error: 'Error al actualizar usuario' }, { status: 500 })
   }

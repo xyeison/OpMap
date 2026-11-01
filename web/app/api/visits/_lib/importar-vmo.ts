@@ -9,6 +9,8 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { claveComercial, emparejarComerciales, estadoComercialNuevo, validarLoteVmo, type ComoEmparejado, type PersonaVmo } from '@/lib/vmo-visitas'
 import { serverError } from '../../_lib/api-error'
+import { asegurarExecutiveEmpresa } from '@/lib/empresas'
+import { EMPRESA_VG_ID } from '@/lib/empresas-reglas'
 
 type Persona = PersonaVmo & { base_kam_id: string | null }
 
@@ -76,6 +78,12 @@ export async function importarVisitasVmo(body: unknown, userId: string, hoy: str
       .select(COLUMNAS_PERSONA)
       .single()
     if (errorNueva || !nueva) return serverError('visits/import (persona nueva)', errorNueva, `No se pudo crear a ${comercial.nombre}`)
+    // VMO es de VG Medical: la persona nueva queda en VG (sin la 0960 no hay tabla y no se escribe nada)
+    try {
+      await asegurarExecutiveEmpresa((nueva as Persona).id, EMPRESA_VG_ID)
+    } catch (errorEmpresa) {
+      return serverError('visits/import (empresa de la persona nueva)', errorEmpresa, `No se pudo dejar a ${comercial.nombre} en VG Medical`)
+    }
     personas.push(nueva as Persona)
     porClave.set(clave, nueva as Persona)
     resultado.creados.push({ nombre: comercial.nombre, estado })

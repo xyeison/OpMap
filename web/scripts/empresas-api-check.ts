@@ -18,6 +18,14 @@
  *      sin sesión); sesion-app pasa a la app un token con la empresa activa (nunca a quien es administrador o
  *      dirección en alguna empresa); el login firma el token con emp; GET /api/empresas lista las activas por código
  *      (sin la 0960, ninguna).
+ *   D. Usuarios y papeles: PUT /api/users/[id]/papeles reemplaza los papeles de una persona en una empresa (cachés
+ *      users.role y business_lines.leader_user_id; línea fuera de la empresa → 400; líder nacional repetido o Zonas
+ *      solapadas → 409; una líder por Zonas entra inactiva, recibe sus Zonas y se activa); quitar sales_manager cuenta
+ *      (?simular=1, sin escribir) y borra sus asignaciones de esa empresa y, en VG, sus executive_lines (el disparador
+ *      de la 0820 cierra los visitantes; el falso no corre disparadores: se comprueba lo que borra y lo que cuenta);
+ *      GET /api/users trae papeles; POST /api/users con role crea el papel en VG; PUT /api/users/[id] con role pasa por
+ *      los papeles de VG (y protege al último administrador); POST /api/executives da la empresa a la vacante nueva;
+ *      sin users:manage → 403; sin la 0960, las rutas viejas siguen y la de papeles responde 503.
  *
  * El patrón del Supabase falso viene de scripts/lineas-permitidas-api-check.ts.
  * Uso (desde web/): npx tsx scripts/empresas-api-check.ts   Código de salida 1 si algo falla.
@@ -36,6 +44,15 @@ import { POST as empresaPost } from '../app/api/auth/empresa/route'
 import { GET as empresasGet } from '../app/api/empresas/route'
 import { POST as sesionAppPost } from '../app/api/auth/sesion-app/route'
 import { POST as loginPost } from '../app/api/auth/login/route'
+import { GET as usersGet, POST as usersPost } from '../app/api/users/route'
+import { PUT as userPut } from '../app/api/users/[id]/route'
+import { PUT as papelesPut } from '../app/api/users/[id]/papeles/route'
+import { POST as executivesPost } from '../app/api/executives/route'
+import {
+  MENSAJE_LIDER_NACIONAL_UNICO,
+  MENSAJE_LIDER_ZONAS_SOLAPADAS,
+  MENSAJE_LINEA_FUERA_DE_EMPRESA,
+} from '../lib/empresas-reglas'
 
 for (const key of [
   'GOOGLE_MAPS_API_KEY',
@@ -115,7 +132,7 @@ const CLAVES: Record<string, string[]> = {
   papel_zonas: ['papel_id', 'kam_id'],
 }
 /** Tablas con columna id que el falso rellena si el insert no la trae. */
-const CON_ID = new Set(['users', 'empresas', 'papeles'])
+const CON_ID = new Set(['users', 'empresas', 'papeles', 'executives'])
 
 function likeToRegExp(pattern: string, flags: string): RegExp {
   const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*').replace(/_/g, '.')
@@ -251,7 +268,14 @@ function fakeSupabase(tablas: Tablas, opciones: { codigoSinTabla?: '42P01' | 'PG
     } else {
       throw new Error(`Supabase falso: método no soportado ${method}`)
     }
-    return json(rows.map(row => project(row, select)), method === 'POST' ? 201 : 200)
+    // .single() / .maybeSingle() piden un objeto (Accept: application/vnd.pgrst.object+json)
+    const objeto = (headers.get('accept') || '').includes('vnd.pgrst.object')
+    const salida = rows.map(row => project(row, select))
+    if (objeto) {
+      if (salida.length !== 1) return pgError('PGRST116', 'JSON object requested, multiple (or no) rows returned', 406)
+      return json(salida[0], method === 'POST' ? 201 : 200)
+    }
+    return json(salida, method === 'POST' ? 201 : 200)
   }
 
   const writes = (desde = 0) => requests.slice(desde).filter(request => request.method !== 'GET')
@@ -756,6 +780,367 @@ async function main() {
     check('sin console.error', moduleLogs.length === logs, moduleLogs.slice(logs))
     fetchHandler = fake.handler
   }
+
+  print('\nD. Usuarios y papeles')
+
+  // Un Supabase falso aparte, con lo que tocan las rutas de usuarios: líneas por empresa, personas del equipo comercial,
+  // sus empresas, asignaciones y visitantes. El falso no corre disparadores (ni el de la 0820 que cierra visitantes ni
+  // los de la 0960): se comprueba lo que el servidor borra, escribe y cuenta.
+  const D_ADMIN = '00000000-0000-4000-8000-0000000000d1' // admin en VG (el único administrador)
+  const D_PAOLA = '00000000-0000-4000-8000-0000000000d2' // sin papeles; recibe líder de Trauma + ejecutiva en VG
+  const D_OTRA = '00000000-0000-4000-8000-0000000000d3' // viewer en VG; intenta ser líder de Trauma
+  const D_EJEC = '00000000-0000-4000-8000-0000000000d4' // sales_manager en VG, con fila en executives
+  const D_FOCO4 = '00000000-0000-4000-8000-0000000000d5' // sales_manager en VG, SIN fila en executives
+  const D_DIRECTORA = '00000000-0000-4000-8000-0000000000d6' // commercial_director en VG: executives:edit, no users:manage
+  const L_COLUMNA = '10000000-0000-4000-8000-000000000006' // en VG y en Medix (Trauma solo en VG)
+  const KAM_BOG = '20000000-0000-4000-8000-000000000002'
+  const X_EJEC = '30000000-0000-4000-8000-000000000001'
+  const X_OTRO = '30000000-0000-4000-8000-000000000002'
+  const X_ENLACE = '30000000-0000-4000-8000-000000000003'
+  const D_P_ADMIN = '40000000-0000-4000-8000-0000000000d1'
+  const D_P_OTRA = '40000000-0000-4000-8000-0000000000d3'
+  const D_P_EJEC = '40000000-0000-4000-8000-0000000000d4'
+  const D_P_FOCO4 = '40000000-0000-4000-8000-0000000000d5'
+  const D_P_DIRECTORA = '40000000-0000-4000-8000-0000000000d6'
+
+  const persona = (id: string, user_id: string | null, nombre: string): Fila => ({
+    id, full_name: nombre, email: null, company: 'VG Medical', status: user_id ? 'active' : 'placeholder', base_kam_id: KAM_BAQ,
+    user_id, odoo_employee_id: null, notes: null, color: null,
+  })
+  const asignacion = (id: string, executive_id: string, kam_id: string, line_id: string, empresa_id: string): Fila =>
+    ({ id, executive_id, kam_id, line_id, empresa_id, created_by: null })
+  const visitante = (id: string, executive_id: string, line_id: string, hasta: string | null): Fila =>
+    ({ id, medico_id: `medico-${id}`, executive_id, line_id, empresa_id: EMPRESA_VG_ID, desde: '2026-01-01', hasta })
+  const datosUsuarios = (): Tablas => ({
+    users: [
+      usuario(D_ADMIN, 'admin', 'Admin'),
+      usuario(D_PAOLA, 'viewer', 'Paola D'),
+      usuario(D_OTRA, 'viewer', 'Otra líder'),
+      usuario(D_EJEC, 'sales_manager', 'Ejecutiva'),
+      usuario(D_FOCO4, 'sales_manager', 'Sin ficha'),
+      usuario(D_DIRECTORA, 'commercial_director', 'Directora'),
+    ],
+    empresas: [empresa(EMPRESA_VG_ID, 'vg', 'VG Medical S.A.S.', 'VG Medical'), empresa(EMPRESA_MEDIX_ID, 'medix', 'Medix', 'Medix')],
+    papeles: [
+      papel(D_P_ADMIN, D_ADMIN, EMPRESA_VG_ID, 'admin'),
+      papel(D_P_OTRA, D_OTRA, EMPRESA_VG_ID, 'viewer'),
+      papel(D_P_EJEC, D_EJEC, EMPRESA_VG_ID, 'sales_manager'),
+      papel(D_P_FOCO4, D_FOCO4, EMPRESA_VG_ID, 'sales_manager'),
+      papel(D_P_DIRECTORA, D_DIRECTORA, EMPRESA_VG_ID, 'commercial_director'),
+    ],
+    papel_zonas: [],
+    linea_empresas: [
+      { line_id: L_TRAUMA, empresa_id: EMPRESA_VG_ID },
+      { line_id: L_COLUMNA, empresa_id: EMPRESA_VG_ID },
+      { line_id: L_COLUMNA, empresa_id: EMPRESA_MEDIX_ID },
+    ],
+    business_lines: [
+      { id: L_TRAUMA, code: 'trauma', name: 'Trauma', leader_user_id: null, active: true },
+      { id: L_COLUMNA, code: 'columna', name: 'Columna', leader_user_id: null, active: true },
+    ],
+    kams: [{ id: KAM_BAQ, name: 'Barranquilla' }, { id: KAM_BOG, name: 'Bogotá Norte' }],
+    executives: [
+      persona(X_EJEC, D_EJEC, 'Ejecutiva'),
+      persona(X_OTRO, null, 'Vacante Bogotá'),
+      // Ejecutiva sin usuario y aún sin empresa: POST /api/users la enlaza por el email
+      { ...persona(X_ENLACE, null, 'Por enlazar'), email: 'enlace@prueba.test', status: 'active' },
+    ],
+    executive_lines: [
+      { executive_id: X_EJEC, line_id: L_TRAUMA },
+      { executive_id: X_EJEC, line_id: L_COLUMNA },
+      { executive_id: X_OTRO, line_id: L_TRAUMA },
+    ],
+    executive_empresas: [
+      { executive_id: X_EJEC, empresa_id: EMPRESA_VG_ID, activo: true },
+      { executive_id: X_EJEC, empresa_id: EMPRESA_MEDIX_ID, activo: true },
+      { executive_id: X_OTRO, empresa_id: EMPRESA_VG_ID, activo: true },
+    ],
+    asignaciones: [
+      asignacion('a1', X_EJEC, KAM_BAQ, L_TRAUMA, EMPRESA_VG_ID),
+      asignacion('a2', X_EJEC, KAM_BAQ, L_COLUMNA, EMPRESA_VG_ID),
+      asignacion('a3', X_EJEC, KAM_BOG, L_TRAUMA, EMPRESA_VG_ID),
+      asignacion('a4', X_EJEC, KAM_BAQ, L_COLUMNA, EMPRESA_MEDIX_ID),
+      asignacion('a5', X_OTRO, KAM_BOG, L_TRAUMA, EMPRESA_VG_ID),
+    ],
+    medico_visitantes: [
+      visitante('v1', X_EJEC, L_TRAUMA, null),
+      visitante('v2', X_EJEC, L_COLUMNA, null),
+      visitante('v3', X_EJEC, L_TRAUMA, '2026-10-01'), // ya cerrado: no cuenta
+      visitante('v4', X_OTRO, L_TRAUMA, null), // de otra persona: no cuenta
+    ],
+  })
+  const tablasD = datosUsuarios()
+  const fakeD = fakeSupabase(tablasD)
+  fetchHandler = fakeD.handler
+
+  const ponerPapeles = (quien: string, id: string, cuerpo: unknown, simular = false) =>
+    papelesPut(aRuta(`/api/users/${id}/papeles${simular ? '?simular=1' : ''}`, { userId: quien, cuerpo, metodo: 'PUT' }), { params: { id } })
+  type CuerpoPapeles = { papeles?: { id: string; papel: string; line_id: string | null; kam_ids: string[] }[]; afectados?: { asignaciones: number; visitantes: number }; error?: string }
+  const rolDe = (id: string) => tablasD.users.find(u => u.id === id)?.role
+  const liderDe = (lineId: string) => tablasD.business_lines.find(l => l.id === lineId)?.leader_user_id ?? null
+  const papelesActivosDe = (id: string, empresaId = EMPRESA_VG_ID) =>
+    tablasD.papeles.filter(p => p.user_id === id && p.empresa_id === empresaId && p.activo === true)
+  const zonasDe = (papelId: unknown) => tablasD.papel_zonas.filter(z => z.papel_id === papelId).map(z => z.kam_id).sort()
+
+  print('\n  PUT /api/users/[id]/papeles: Paola recibe líder de Trauma y ejecutiva en VG')
+  {
+    const r = await ponerPapeles(D_ADMIN, D_PAOLA, { empresa_id: EMPRESA_VG_ID, papeles: [{ papel: 'line_leader', line_id: L_TRAUMA }, { papel: 'sales_manager' }] })
+    const cuerpo = (await cuerpoDe(r)) as CuerpoPapeles
+    eq('200', r.status, 200)
+    eq('2 papeles en la respuesta', cuerpo.papeles?.map(p => p.papel).sort(), ['line_leader', 'sales_manager'])
+    eq('afectados {0, 0}', cuerpo.afectados, { asignaciones: 0, visitantes: 0 })
+    eq("caché users.role de Paola = 'line_leader'", rolDe(D_PAOLA), 'line_leader')
+    eq('caché business_lines.leader_user_id de Trauma = Paola', liderDe(L_TRAUMA), D_PAOLA)
+  }
+
+  print('\n  Líder por línea y empresa: una nacional, o varias por Zonas sin solaparse')
+  {
+    const marca = fakeD.requests.length
+    const segunda = await ponerPapeles(D_ADMIN, D_OTRA, { empresa_id: EMPRESA_VG_ID, papeles: [{ papel: 'line_leader', line_id: L_TRAUMA }] })
+    eq('segunda líder nacional de Trauma en VG → 409 con el mensaje', [segunda.status, ((await cuerpoDe(segunda)) as CuerpoPapeles).error], [409, MENSAJE_LIDER_NACIONAL_UNICO])
+    check('y no escribe nada', fakeD.writes(marca).length === 0, fakeD.writes(marca))
+
+    const zonal = await ponerPapeles(D_ADMIN, D_PAOLA, {
+      empresa_id: EMPRESA_VG_ID,
+      papeles: [{ papel: 'line_leader', line_id: L_TRAUMA, kam_ids: [KAM_BAQ] }, { papel: 'sales_manager' }],
+    })
+    eq('Paola pasa a líder de Trauma solo en Barranquilla → 200', zonal.status, 200)
+    const papelPaola = papelesActivosDe(D_PAOLA).find(p => p.papel === 'line_leader')
+    eq('su mismo papel (no uno nuevo) con la Zona Barranquilla', zonasDe(papelPaola?.id), [KAM_BAQ])
+    eq('un solo papel de líder de Trauma de Paola (activo o no)', tablasD.papeles.filter(p => p.user_id === D_PAOLA && p.papel === 'line_leader').length, 1)
+    eq('caché leader_user_id de Trauma = null (solo hay líderes por Zonas)', liderDe(L_TRAUMA), null)
+
+    const marca2 = fakeD.requests.length
+    const solapada = await ponerPapeles(D_ADMIN, D_OTRA, { empresa_id: EMPRESA_VG_ID, papeles: [{ papel: 'line_leader', line_id: L_TRAUMA, kam_ids: [KAM_BAQ] }] })
+    eq('otra líder de Trauma con Barranquilla → 409 Zonas solapadas', [solapada.status, ((await cuerpoDe(solapada)) as CuerpoPapeles).error], [409, MENSAJE_LIDER_ZONAS_SOLAPADAS])
+    check('y no escribe nada', fakeD.writes(marca2).length === 0, fakeD.writes(marca2))
+
+    const marca3 = fakeD.requests.length
+    const disjunta = await ponerPapeles(D_ADMIN, D_OTRA, { empresa_id: EMPRESA_VG_ID, papeles: [{ papel: 'line_leader', line_id: L_TRAUMA, kam_ids: [KAM_BOG] }] })
+    const cuerpo = (await cuerpoDe(disjunta)) as CuerpoPapeles
+    eq('otra líder de Trauma con Bogotá Norte (disjunta) → 200', disjunta.status, 200)
+    eq('su papel de líder trae la Zona Bogotá Norte', cuerpo.papeles?.map(p => [p.papel, p.kam_ids]), [['line_leader', [KAM_BOG]]])
+    const nuevo = papelesActivosDe(D_OTRA).find(p => p.papel === 'line_leader')
+    eq('queda activa con su Zona', [nuevo?.activo, zonasDe(nuevo?.id)], [true, [KAM_BOG]])
+    const insercion = fakeD.writes(marca3).find(w => w.method === 'POST' && w.table === 'papeles')
+    eq('entra INACTIVA (la regla diferida de la base la vería nacional sin sus Zonas) y luego se activa',
+      (Array.isArray(insercion?.body) ? insercion?.body[0] : insercion?.body as Fila | undefined)?.activo, false)
+    eq('su papel viewer se desactiva (no se borra)', tablasD.papeles.find(p => p.id === D_P_OTRA)?.activo, false)
+    eq("caché users.role de Otra = 'line_leader'", rolDe(D_OTRA), 'line_leader')
+    eq('caché leader_user_id de Trauma sigue null', liderDe(L_TRAUMA), null)
+  }
+
+  print('\n  Línea fuera de la empresa')
+  {
+    const marca = fakeD.requests.length
+    const r = await ponerPapeles(D_ADMIN, D_OTRA, { empresa_id: EMPRESA_MEDIX_ID, papeles: [{ papel: 'line_leader', line_id: L_TRAUMA }] })
+    eq('líder de Trauma en Medix (Trauma no está en Medix) → 400 con el mensaje', [r.status, ((await cuerpoDe(r)) as CuerpoPapeles).error], [400, MENSAJE_LINEA_FUERA_DE_EMPRESA])
+    check('y no escribe nada', fakeD.writes(marca).length === 0, fakeD.writes(marca))
+    const columna = await ponerPapeles(D_ADMIN, D_OTRA, { empresa_id: EMPRESA_MEDIX_ID, papeles: [{ papel: 'line_leader', line_id: L_COLUMNA }] })
+    eq('líder de Columna en Medix (sí está) → 200', columna.status, 200)
+    eq('caché leader_user_id de Columna NO cambia (solo cuenta VG)', liderDe(L_COLUMNA), null)
+    eq("caché users.role de Otra sigue 'line_leader' (de VG)", rolDe(D_OTRA), 'line_leader')
+  }
+
+  print('\n  La regla de la base (dos líderes a la vez) también responde 409 con su mensaje')
+  {
+    // Otra persona tomó Columna en VG entre la validación y la escritura: el disparador de la 0960 rechaza la inserción
+    const original = fakeD.handler
+    fetchHandler = async (input, init) => {
+      const href = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      if ((init?.method || 'GET').toUpperCase() === 'POST' && new URL(href).pathname === '/rest/v1/papeles') {
+        return new Response(JSON.stringify({ code: '23514', message: MENSAJE_LIDER_NACIONAL_UNICO, details: null, hint: null }), { status: 400, headers: { 'content-type': 'application/json' } })
+      }
+      return original(input, init)
+    }
+    const r = await ponerPapeles(D_ADMIN, D_FOCO4, { empresa_id: EMPRESA_VG_ID, papeles: [{ papel: 'sales_manager' }, { papel: 'line_leader', line_id: L_COLUMNA }] })
+    eq('→ 409 con el mensaje del disparador', [r.status, ((await cuerpoDe(r)) as CuerpoPapeles).error], [409, MENSAJE_LIDER_NACIONAL_UNICO])
+    fetchHandler = original
+  }
+
+  print('\n  Cuerpo, usuario y empresa')
+  {
+    const marca = fakeD.requests.length
+    const sinLinea = await ponerPapeles(D_ADMIN, D_OTRA, { empresa_id: EMPRESA_VG_ID, papeles: [{ papel: 'line_leader' }] })
+    eq('line_leader sin línea → 400', sinLinea.status, 400)
+    const conLinea = await ponerPapeles(D_ADMIN, D_OTRA, { empresa_id: EMPRESA_VG_ID, papeles: [{ papel: 'viewer', line_id: L_TRAUMA }] })
+    eq('otro papel con línea → 400', conLinea.status, 400)
+    const rolRaro = await ponerPapeles(D_ADMIN, D_OTRA, { empresa_id: EMPRESA_VG_ID, papeles: [{ papel: 'superjefe' }] })
+    eq('papel que no existe → 400', rolRaro.status, 400)
+    const zonaRara = await ponerPapeles(D_ADMIN, D_OTRA, { empresa_id: EMPRESA_VG_ID, papeles: [{ papel: 'line_leader', line_id: L_COLUMNA, kam_ids: [randomUUID()] }] })
+    eq('una Zona que no existe → 400', zonaRara.status, 400)
+    const repetido = await ponerPapeles(D_ADMIN, D_OTRA, { empresa_id: EMPRESA_VG_ID, papeles: [{ papel: 'viewer' }, { papel: 'viewer' }] })
+    eq('papel repetido → 400', repetido.status, 400)
+    const nadie = await ponerPapeles(D_ADMIN, randomUUID(), { empresa_id: EMPRESA_VG_ID, papeles: [{ papel: 'viewer' }] })
+    eq('usuario que no existe → 404', nadie.status, 404)
+    const otraEmpresa = await ponerPapeles(D_ADMIN, D_OTRA, { empresa_id: randomUUID(), papeles: [{ papel: 'viewer' }] })
+    eq('empresa que no existe → 404', otraEmpresa.status, 404)
+    check('ninguno escribe', fakeD.writes(marca).length === 0, fakeD.writes(marca))
+  }
+
+  print('\n  Quitar sales_manager en VG: cuenta (simular) y borra asignaciones y executive_lines')
+  {
+    const marca = fakeD.requests.length
+    const cuerpoQuitar = { empresa_id: EMPRESA_VG_ID, papeles: [{ papel: 'viewer' }] }
+    const simulado = await ponerPapeles(D_ADMIN, D_EJEC, cuerpoQuitar, true)
+    eq('?simular=1 → 200 { asignaciones: 3, visitantes: 2 }', [simulado.status, ((await cuerpoDe(simulado)) as CuerpoPapeles).afectados], [200, { asignaciones: 3, visitantes: 2 }])
+    check('sin escribir nada', fakeD.writes(marca).length === 0, fakeD.writes(marca))
+
+    const real = await ponerPapeles(D_ADMIN, D_EJEC, cuerpoQuitar)
+    eq('sin simular → 200 con los mismos afectados', [real.status, ((await cuerpoDe(real)) as CuerpoPapeles).afectados], [200, { asignaciones: 3, visitantes: 2 }])
+    eq('borra sus 3 asignaciones de VG (queda la de Medix y la de la otra persona)', tablasD.asignaciones.map(a => a.id).sort(), ['a4', 'a5'])
+    eq('borra sus executive_lines (la 0820 cierra los visitantes; las de la otra persona quedan)',
+      tablasD.executive_lines.map(l => `${l.executive_id === X_EJEC ? 'ejec' : 'otro'}:${l.line_id === L_TRAUMA ? 'trauma' : 'columna'}`), ['otro:trauma'])
+    eq('executive_empresas en VG queda activo = false; en Medix sigue activo',
+      tablasD.executive_empresas.filter(e => e.executive_id === X_EJEC).map(e => [e.empresa_id === EMPRESA_VG_ID ? 'vg' : 'medix', e.activo]).sort(),
+      [['medix', true], ['vg', false]])
+    eq('su papel sales_manager queda inactivo (no se borra)', tablasD.papeles.find(p => p.id === D_P_EJEC)?.activo, false)
+    eq("caché users.role = 'viewer'", rolDe(D_EJEC), 'viewer')
+
+    const devolver = await ponerPapeles(D_ADMIN, D_EJEC, { empresa_id: EMPRESA_VG_ID, papeles: [{ papel: 'sales_manager' }] })
+    eq('devolverle sales_manager → 200', devolver.status, 200)
+    eq('reactiva el mismo papel (no inserta otro)', [tablasD.papeles.filter(p => p.user_id === D_EJEC && p.papel === 'sales_manager').length, tablasD.papeles.find(p => p.id === D_P_EJEC)?.activo], [1, true])
+    eq('y executive_empresas en VG vuelve a activo', tablasD.executive_empresas.find(e => e.executive_id === X_EJEC && e.empresa_id === EMPRESA_VG_ID)?.activo, true)
+  }
+
+  print('\n  Foco 4: quitar sales_manager a quien no tiene fila en executives')
+  {
+    const r = await ponerPapeles(D_ADMIN, D_FOCO4, { empresa_id: EMPRESA_VG_ID, papeles: [] })
+    eq('200 { asignaciones: 0, visitantes: 0 }', [r.status, ((await cuerpoDe(r)) as CuerpoPapeles).afectados], [200, { asignaciones: 0, visitantes: 0 }])
+    eq("sin papeles en VG: caché users.role = 'user'", rolDe(D_FOCO4), 'user')
+  }
+
+  print('\n  GET /api/users trae los papeles de cada persona (todas sus empresas)')
+  {
+    const r = await usersGet(aRuta('/api/users', { userId: D_ADMIN }))
+    const cuerpo = (await cuerpoDe(r)) as { users?: { id: string; papeles?: { papel: string; empresa_id: string; kam_ids: string[] }[] }[] }
+    eq('200', r.status, 200)
+    check('cada usuario trae papeles (lista)', (cuerpo.users ?? []).length === tablasD.users.length && (cuerpo.users ?? []).every(u => Array.isArray(u.papeles)), cuerpo)
+    const paola = cuerpo.users?.find(u => u.id === D_PAOLA)
+    eq('Paola: líder (con su Zona) y ejecutiva', paola?.papeles?.map(p => [p.papel, p.kam_ids]).sort(), [['line_leader', [KAM_BAQ]], ['sales_manager', []]])
+    const otra = cuerpo.users?.find(u => u.id === D_OTRA)
+    eq('Otra: líder en VG y en Medix (solo los activos)', otra?.papeles?.map(p => p.empresa_id === EMPRESA_VG_ID ? 'vg' : 'medix').sort(), ['medix', 'vg'])
+  }
+
+  print('\n  POST /api/users')
+  {
+    const crear = (cuerpo: unknown) => usersPost(aRuta('/api/users', { userId: D_ADMIN, cuerpo }))
+    const r = await crear({ email: 'nueva.visora@prueba.test', password: 'Clave-de-prueba-123', full_name: 'Nueva visora', role: 'viewer' })
+    const cuerpo = (await cuerpoDe(r)) as { user?: { id: string; role: string }; papeles?: unknown[] }
+    eq("con role 'viewer' → 200", r.status, 200)
+    const nueva = tablasD.users.find(u => u.email === 'nueva.visora@prueba.test')
+    eq('crea el papel viewer en VG', tablasD.papeles.filter(p => p.user_id === nueva?.id).map(p => [p.empresa_id === EMPRESA_VG_ID ? 'vg' : 'medix', p.papel, p.activo]), [['vg', 'viewer', true]])
+    eq("users.role = 'viewer'", nueva?.role, 'viewer')
+    check('la respuesta no trae la contraseña', cuerpo.user !== undefined && !('password' in (cuerpo.user as object)), cuerpo)
+
+    const dos = await crear({
+      email: 'dos.empresas@prueba.test', password: 'Clave-de-prueba-123', full_name: 'Dos empresas',
+      papeles: [{ empresa_id: EMPRESA_VG_ID, papel: 'sales_manager' }, { empresa_id: EMPRESA_MEDIX_ID, papel: 'viewer' }],
+    })
+    eq('con papeles en dos empresas → 200', dos.status, 200)
+    const dosId = tablasD.users.find(u => u.email === 'dos.empresas@prueba.test')?.id
+    eq('un papel en cada empresa', tablasD.papeles.filter(p => p.user_id === dosId).map(p => [p.empresa_id === EMPRESA_VG_ID ? 'vg' : 'medix', p.papel]).sort(), [['medix', 'viewer'], ['vg', 'sales_manager']])
+    eq("users.role = el más alto en VG ('sales_manager')", tablasD.users.find(u => u.id === dosId)?.role, 'sales_manager')
+
+    const enlace = await crear({ email: 'enlace@prueba.test', password: 'Clave-de-prueba-123', full_name: 'Por enlazar', role: 'sales_manager' })
+    const cuerpoEnlace = (await cuerpoDe(enlace)) as { linkedExecutive?: string | null }
+    eq('con role sales_manager y el email de una ejecutiva sin usuario → 200 y enlazada', [enlace.status, cuerpoEnlace.linkedExecutive], [200, 'Por enlazar'])
+    eq('la ejecutiva enlazada queda en VG (executive_empresas activo)',
+      tablasD.executive_empresas.filter(e => e.executive_id === X_ENLACE).map(e => [e.empresa_id, e.activo]), [[EMPRESA_VG_ID, true]])
+
+    const usuariosAntes = tablasD.users.length
+    const fuera = await crear({
+      email: 'fuera@prueba.test', password: 'Clave-de-prueba-123', full_name: 'Fuera',
+      papeles: [{ empresa_id: EMPRESA_MEDIX_ID, papel: 'line_leader', line_id: L_TRAUMA }],
+    })
+    eq('líder de una línea que no está en esa empresa → 400 con el mensaje', [fuera.status, ((await cuerpoDe(fuera)) as { error?: string }).error], [400, MENSAJE_LINEA_FUERA_DE_EMPRESA])
+    const choque = await crear({
+      email: 'choque@prueba.test', password: 'Clave-de-prueba-123', full_name: 'Choque',
+      papeles: [{ empresa_id: EMPRESA_VG_ID, papel: 'line_leader', line_id: L_TRAUMA, kam_ids: [KAM_BOG] }],
+    })
+    eq('líder con Zonas ya tomadas → 409', choque.status, 409)
+    const liderSinLinea = await crear({ email: 'lider@prueba.test', password: 'Clave-de-prueba-123', full_name: 'Líder', role: 'line_leader' })
+    eq("role 'line_leader' sin papeles (no dice la línea) → 400", liderSinLinea.status, 400)
+    eq('ninguno de los tres crea el usuario', tablasD.users.length, usuariosAntes)
+  }
+
+  print('\n  PUT /api/users/[id] con role (la página vieja, hasta la tarea 8): pasa por los papeles de VG')
+  {
+    const cambiar = (id: string, cuerpo: unknown) => userPut(aRuta(`/api/users/${id}`, { userId: D_ADMIN, cuerpo, metodo: 'PUT' }), { params: { id } })
+    const rrhh = await cambiar(D_FOCO4, { role: 'hr' })
+    eq("Sin ficha a 'hr' → 200", rrhh.status, 200)
+    eq('sus papeles en VG = [hr]', papelesActivosDe(D_FOCO4).map(p => p.papel), ['hr'])
+    eq("users.role = 'hr'", rolDe(D_FOCO4), 'hr')
+
+    const lider = await cambiar(D_PAOLA, { role: 'line_leader', full_name: 'Paola Líder' })
+    eq("Paola a 'line_leader' → 200", lider.status, 200)
+    eq('conserva su papel de líder de Trauma (con su Zona) y pierde el de ejecutiva',
+      papelesActivosDe(D_PAOLA).map(p => [p.papel, p.line_id, zonasDe(p.id)]), [['line_leader', L_TRAUMA, [KAM_BAQ]]])
+    eq('y el nombre cambia', tablasD.users.find(u => u.id === D_PAOLA)?.full_name, 'Paola Líder')
+
+    const sinLinea = await cambiar(D_FOCO4, { role: 'line_leader' })
+    eq("a 'line_leader' sin ninguna línea → 400", sinLinea.status, 400)
+    eq('y sigue hr', papelesActivosDe(D_FOCO4).map(p => p.papel), ['hr'])
+
+    const ultimo = await cambiar(D_ADMIN, { role: 'viewer' })
+    eq('quitarle el papel de administrador al único administrador → 400', ultimo.status, 400)
+    eq('y sigue admin', [papelesActivosDe(D_ADMIN).map(p => p.papel), rolDe(D_ADMIN)], [['admin'], 'admin'])
+  }
+
+  print('\n  Sin users:manage → 403 (la dirección comercial no administra usuarios)')
+  {
+    const marca = fakeD.requests.length
+    const lista = await usersGet(aRuta('/api/users', { userId: D_DIRECTORA }))
+    const crear = await usersPost(aRuta('/api/users', { userId: D_DIRECTORA, cuerpo: { email: 'x@prueba.test', password: 'Clave-de-prueba-123', full_name: 'X', role: 'viewer' } }))
+    const editar = await userPut(aRuta(`/api/users/${D_OTRA}`, { userId: D_DIRECTORA, cuerpo: { role: 'viewer' }, metodo: 'PUT' }), { params: { id: D_OTRA } })
+    const papeles = await ponerPapeles(D_DIRECTORA, D_OTRA, { empresa_id: EMPRESA_VG_ID, papeles: [{ papel: 'viewer' }] })
+    eq('GET /api/users, POST /api/users, PUT /api/users/[id] y PUT …/papeles → 403', [lista.status, crear.status, editar.status, papeles.status], [403, 403, 403, 403])
+    check('ninguna escribe', fakeD.writes(marca).length === 0, fakeD.writes(marca))
+  }
+
+  print('\n  POST /api/executives: la vacante nueva queda en una empresa')
+  {
+    const crear = (cuerpo: Record<string, unknown>) =>
+      executivesPost(aRuta('/api/executives', { userId: D_DIRECTORA, cuerpo: { full_name: 'Vacante Cali', base_kam_id: KAM_BAQ, status: 'placeholder', lines: [], ...cuerpo } }))
+    const r = await crear({})
+    const cuerpo = (await cuerpoDe(r)) as { executive?: { id: string } }
+    eq('sin empresa_id → 201', r.status, 201)
+    eq('executive_empresas con la empresa activa (VG), activa', tablasD.executive_empresas.filter(e => e.executive_id === cuerpo.executive?.id).map(e => [e.empresa_id, e.activo]), [[EMPRESA_VG_ID, true]])
+
+    const marca = fakeD.requests.length
+    const personas = tablasD.executives.length
+    const ajena = await crear({ full_name: 'Vacante Medix', empresa_id: EMPRESA_MEDIX_ID })
+    eq("con empresa_id de Medix siendo la sesión solo de VG → 400 'Esa empresa no es tuya'", [ajena.status, ((await cuerpoDe(ajena)) as { error?: string }).error], [400, 'Esa empresa no es tuya'])
+    check('y nada escrito', fakeD.writes(marca).length === 0 && tablasD.executives.length === personas, fakeD.writes(marca))
+  }
+
+  print('\n  Sin la 0960: las rutas viejas siguen; la de papeles responde 503')
+  {
+    const { empresa_activa_id: _sinColumna, ...adminSinColumna } = usuario(D_ADMIN, 'admin', 'Admin')
+    const { empresa_activa_id: _sinColumna2, ...visorSinColumna } = usuario(D_OTRA, 'viewer', 'Visor')
+    const antes: Tablas = { users: [adminSinColumna, visorSinColumna], executives: [] }
+    const fakeAntes = fakeSupabase(antes)
+    fetchHandler = fakeAntes.handler
+    const logs = moduleLogs.length
+
+    const lista = await usersGet(aRuta('/api/users', { userId: D_ADMIN }))
+    const cuerpo = (await cuerpoDe(lista)) as { users?: { papeles?: unknown[] }[] }
+    eq('GET /api/users → 200 y papeles [] para todos', [lista.status, cuerpo.users?.map(u => u.papeles)], [200, [[], []]])
+
+    const crear = await usersPost(aRuta('/api/users', { userId: D_ADMIN, cuerpo: { email: 'vieja@prueba.test', password: 'Clave-de-prueba-123', full_name: 'Vieja', role: 'line_leader' } }))
+    eq("POST /api/users con role 'line_leader' → 200 (sin la tabla, solo users.role)", crear.status, 200)
+    eq("users.role = 'line_leader'", antes.users.find(u => u.email === 'vieja@prueba.test')?.role, 'line_leader')
+
+    const editar = await userPut(aRuta(`/api/users/${D_OTRA}`, { userId: D_ADMIN, cuerpo: { role: 'hr' }, metodo: 'PUT' }), { params: { id: D_OTRA } })
+    eq("PUT /api/users/[id] con role 'hr' → 200 y users.role = 'hr'", [editar.status, antes.users.find(u => u.id === D_OTRA)?.role], [200, 'hr'])
+
+    const papeles = await papelesPut(aRuta(`/api/users/${D_OTRA}/papeles`, { userId: D_ADMIN, cuerpo: { empresa_id: EMPRESA_VG_ID, papeles: [] }, metodo: 'PUT' }), { params: { id: D_OTRA } })
+    eq("PUT …/papeles → 503 { error: 'Falta aplicar la migración 0960' }", [papeles.status, await cuerpoDe(papeles)], [503, { error: 'Falta aplicar la migración 0960' }])
+    check('sin console.error', moduleLogs.length === logs, moduleLogs.slice(logs))
+    fetchHandler = fake.handler
+  }
+  check('ninguna petición salió del Supabase falso de usuarios', fakeD.external.length === 0, fakeD.external)
+  fetchHandler = fake.handler
 
   print('\nGenerales')
   {

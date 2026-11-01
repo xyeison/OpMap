@@ -136,6 +136,8 @@ export const executiveCreateSchema = z.object({
   notes: optionalText(2000),
   color: executiveColorSchema.optional(),
   lineas_permitidas: lineasPermitidasSchema.optional(),
+  // Empresa de la persona o vacante (executive_empresas, 0960); sin ella, la empresa activa de la sesión
+  empresa_id: uuidSchema.optional(),
 })
 
 export type ExecutiveCreate = z.infer<typeof executiveCreateSchema>

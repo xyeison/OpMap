@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requirePermission } from '@/lib/require-role'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { asegurarExecutiveEmpresa } from '@/lib/empresas'
+import { EMPRESA_VG_ID } from '@/lib/empresas-reglas'
 import { jsonError, readJson, zodMessage } from '@/app/api/kams/_lib/kam-shared'
 import { executiveCreateSchema } from '@/lib/fase1-schemas'
 import type { ExecutiveResponse, ExecutivesResponse } from '@/lib/types/lines'
@@ -37,7 +39,9 @@ export async function GET(request: NextRequest) {
 
 // POST /api/executives — crea una ejecutiva (o un cupo "placeholder" por contratar) con sus líneas y, si la dirección
 // lo pide, sus líneas permitidas (lineas_permitidas: null o [] = sin restricción; con valores, lines debe caber, 400).
-// user_id se enlaza solo si existe un usuario de OpMap con el mismo email.
+// user_id se enlaza solo si existe un usuario de OpMap con el mismo email. Empresas (capa 1): la persona o vacante
+// queda en executive_empresas con empresa_id del cuerpo (400 si no es una de las empresas de quien la crea) o, sin él,
+// con la empresa activa de la sesión; sin empresa en la sesión (0960 sin aplicar) no se escribe.
 export async function POST(request: NextRequest) {
   const auth = await requirePermission(request, 'executives:edit')
   if (!auth.ok) return auth.response
@@ -48,6 +52,9 @@ export async function POST(request: NextRequest) {
       return jsonError(zodMessage(parsed.error), 400)
     }
     const input = parsed.data
+
+    const empresa = input.empresa_id ? auth.user.empresas.find(e => e.id === input.empresa_id) : auth.user.empresa
+    if (input.empresa_id && !empresa) return jsonError('Esa empresa no es tuya', 400)
 
     if (!(await kamExists(input.base_kam_id))) {
       return jsonError('La zona base seleccionada no existe', 400)
@@ -77,7 +84,7 @@ export async function POST(request: NextRequest) {
       .insert({
         full_name: input.full_name,
         email,
-        company: input.company ?? 'VG Medical',
+        company: input.company ?? (empresa && empresa.id !== EMPRESA_VG_ID ? empresa.nombre_corto : 'VG Medical'),
         base_kam_id: input.base_kam_id,
         status,
         user_id: userId,
@@ -100,6 +107,8 @@ export async function POST(request: NextRequest) {
       return jsonError('Error al crear la ejecutiva', 500)
     }
 
+    // Sin la tabla (0960 sin aplicar) no escribe nada y sigue
+    if (empresa) await asegurarExecutiveEmpresa(created, empresa.id)
     if (!(await replaceExecutiveLines(created, input.lines))) {
       return jsonError('La ejecutiva se creó, pero no se pudieron guardar sus líneas', 500)
     }

@@ -207,8 +207,9 @@ globalThis.fetch = (async (entrada: RequestInfo | URL, init?: RequestInit) => {
     const conflicto = url.searchParams.get('on_conflict')
     if (conflicto) {
       if (falloUpsert) return json({ code: '57014', message: 'canceling statement due to statement timeout', details: null, hint: null }, 500)
+      const llaves = conflicto.split(',')
       for (const nueva of nuevas) {
-        const previa = filasTabla.find(f => f[conflicto] === nueva[conflicto])
+        const previa = filasTabla.find(f => llaves.every(llave => f[llave] === nueva[llave]))
         if (previa) Object.assign(previa, nueva)
         else filasTabla.push({ id: `fila-${++secuencia}`, ...nueva })
       }
@@ -264,6 +265,10 @@ async function main() {
     !!katherinne && katherinne.full_name === 'Katherinne Solano Escamilla' && katherinne.status === 'active' && katherinne.base_kam_id === null &&
     String(katherinne.notes).startsWith('Creada al importar visitas de VMO el 2026-10-29'), katherinne)
   check('quien no visita hace más de 60 días se crea inactivo', ejecutivas.find(e => e.vmo_nombre === 'persona que se fue')?.status === 'inactive')
+  const creadas = ejecutivas.filter(e => e.vmo_nombre === 'katherinne solano escamilla' || e.vmo_nombre === 'persona que se fue').map(e => e.id)
+  check('las dos personas nuevas quedan en VG Medical (executive_empresas activo; Ana, que ya existía, no se toca)',
+    JSON.stringify((tablas.executive_empresas ?? []).map(f => [f.executive_id, f.empresa_id, f.activo]).sort()) ===
+      JSON.stringify(creadas.map(id => [id, 'a0000000-0000-4000-8000-000000000001', true]).sort()), tablas.executive_empresas)
   const vmo25101 = tablas.visits.find(v => v.vmo_id === 25101)
   check('la visita: por persona, con su zona y su nombre, efectiva, el punto y la fecha de VMO',
     !!vmo25101 && vmo25101.source === 'vmo_import' && vmo25101.executive_id === 'ana' && vmo25101.kam_id === 'zona-norte' && vmo25101.kam_name === 'Ana María Ruiz' &&

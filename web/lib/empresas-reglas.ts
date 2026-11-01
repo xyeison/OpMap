@@ -47,6 +47,8 @@ export const ORDEN_PAPELES: readonly Role[] = [
 export const MENSAJE_LIDER_NACIONAL_UNICO = 'Esa línea ya tiene líder nacional en esta empresa'
 export const MENSAJE_LIDER_ZONAS_SOLAPADAS = 'Otra líder de esa línea ya tiene alguna de esas Zonas'
 export const MENSAJE_LINEA_FUERA_DE_EMPRESA = 'Esa línea no está en esta empresa'
+/** El mensaje del disparador asignaciones_coherentes de la 0960 cuando la persona no está en la empresa. */
+export const MENSAJE_PERSONA_FUERA_DE_EMPRESA = 'Esa persona no está en esta empresa'
 
 function posicion(papel: Role): number {
   const i = ORDEN_PAPELES.indexOf(papel)

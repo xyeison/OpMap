@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { CAPA_MODAL } from '@/components/terceros/comun'
+import { usePermissions } from '@/hooks/usePermissions'
 import type { BusinessLine, Executive, ExecutiveStatus } from '@/lib/types/lines'
 import { avisoCoberturaDe } from './traspaso-ui'
 import {
@@ -45,7 +46,11 @@ export default function ExecutiveModal({ executive, zones, lines, onClose, onSav
   const isEdit = executive !== null
   const [fullName, setFullName] = useState(executive?.full_name ?? '')
   const [email, setEmail] = useState(executive?.email ?? '')
-  const [company, setCompany] = useState(executive?.company ?? 'VG Medical')
+  // Empresa de la persona o vacante nueva (executive_empresas): solo se elige al crear y si quien crea está en más de una
+  // empresa; por defecto la activa. Sin elegir, el servidor usa la empresa activa de la sesión.
+  const { empresa: empresaActiva, empresas } = usePermissions()
+  const [empresaId, setEmpresaId] = useState(empresaActiva?.id ?? '')
+  const eligeEmpresa = !isEdit && empresas.length > 1
   const [baseKamId, setBaseKamId] = useState(executive?.base_kam_id ?? '')
   const [status, setStatus] = useState<ExecutiveStatus>(executive?.status ?? 'active')
   const [selectedLines, setSelectedLines] = useState<string[]>(executive?.lines ?? [])
@@ -97,12 +102,10 @@ export default function ExecutiveModal({ executive, zones, lines, onClose, onSav
 
     const trimmedName = fullName.trim()
     const trimmedEmail = email.trim()
-    const trimmedCompany = company.trim()
     const trimmedOdoo = odooId.trim()
 
     if (!trimmedName) return setError('El nombre es requerido')
     if (trimmedEmail && !EMAIL_RE.test(trimmedEmail)) return setError('El correo no es válido')
-    if (!trimmedCompany) return setError('La empresa es requerida')
     if (!baseKamId) return setError('Selecciona la zona base')
 
     const trimmedColor = color.trim()
@@ -130,7 +133,6 @@ export default function ExecutiveModal({ executive, zones, lines, onClose, onSav
     const body: Record<string, unknown> = {
       full_name: trimmedName,
       email: trimmedEmail || null,
-      company: trimmedCompany,
       base_kam_id: baseKamId,
       status,
       lines: selectedLines,
@@ -139,6 +141,7 @@ export default function ExecutiveModal({ executive, zones, lines, onClose, onSav
       // null = sin restricción (la API borra las filas de executive_allowed_lines)
       lineas_permitidas: allowedLines.length > 0 ? allowedLines : null,
     }
+    if (eligeEmpresa && empresaId) body.empresa_id = empresaId
     // El color solo se envía si se eligió uno (al crear) o si cambió (al editar)
     const normalizedColor = trimmedColor.toLowerCase()
     if (normalizedColor && normalizedColor !== (initialColor ?? '').toLowerCase()) {
@@ -220,18 +223,18 @@ export default function ExecutiveModal({ executive, zones, lines, onClose, onSav
               <p className="text-xs text-gray-500 mt-1">Opcional para vacantes.</p>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Empresa <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                value={company}
-                onChange={e => setCompany(e.target.value)}
-                maxLength={120}
-                className={inputClass}
-              />
-            </div>
+            {eligeEmpresa && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Empresa</label>
+                <select value={empresaId} onChange={e => setEmpresaId(e.target.value)} className={inputClass}>
+                  {empresas.map(e => (
+                    <option key={e.id} value={e.id}>
+                      {e.nombre_corto}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
