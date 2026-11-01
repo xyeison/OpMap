@@ -1221,6 +1221,23 @@ export function debeReiniciarReporte(estado: {
   return estado.ahora.getTime() - llegadaMs > REINICIO_REPORTE_MS
 }
 
+/**
+ * A qué fase queda Reportar al descartar una tarjeta. Con otra tarjeta abierta se sigue revisando y con visitas ya
+ * confirmadas se ve "Listo", las dos en 'tarjetas'; sin ninguna de las dos, 'tarjetas' no pinta nada y sería un callejón
+ * sin salida: vuelve a 'lista', con la cita o la sede que ya estaba elegida.
+ */
+export function faseAlDescartar(estado: {
+  /** La tarjeta que se descarta. */
+  clave: string
+  /** Las tarjetas abiertas, aún con la que se descarta. */
+  tarjetas: readonly { clave: string }[]
+  /** Visitas ya confirmadas en esta llegada. */
+  confirmadas: number
+}): 'tarjetas' | 'lista' {
+  const quedan = estado.tarjetas.filter(t => t.clave !== estado.clave).length
+  return quedan === 0 && estado.confirmadas === 0 ? 'lista' : 'tarjetas'
+}
+
 // ---------------------------------------------------------------------------------------------
 // Contexto guardado para reportar sin señal
 // ---------------------------------------------------------------------------------------------

@@ -17,6 +17,7 @@ import {
   borradoresDesdePropuesta,
   cambiarBorrador,
   catalogoDesdeContexto,
+  faseAlDescartar,
   validarBorrador,
   MENSAJE_CONTACTO_OBLIGATORIO,
   type Borrador,
@@ -260,6 +261,31 @@ export async function pruebas(t: Probador): Promise<void> {
     /const si = await confirmar\('¿Descartar esta visita\?'/.test(entre(reportar, 'const descartar = async', '\n  }\n')) &&
       /<Boton titulo="Descartar esta visita" variante="peligro"/.test(tarjetaTs) &&
       !/titulo="Descartar" variante="texto"/.test(tarjetaTs)
+  )
+
+  // --- Descartar la última tarjeta: en "tarjetas", sin tarjetas ni confirmadas, no se pinta nada (2026-10-31) ------
+  check(
+    'Descartar la única tarjeta, sin visitas confirmadas: vuelve a la lista',
+    faseAlDescartar({ clave: 'a', tarjetas: [{ clave: 'a' }], confirmadas: 0 }) === 'lista'
+  )
+  check(
+    'Descartar la única tarjeta, con visitas ya confirmadas: sigue en "tarjetas", donde se ve "Listo"',
+    faseAlDescartar({ clave: 'a', tarjetas: [{ clave: 'a' }], confirmadas: 1 }) === 'tarjetas'
+  )
+  check(
+    'Descartar una de dos tarjetas: sigue en "tarjetas" con la otra, haya o no confirmadas',
+    faseAlDescartar({ clave: 'a', tarjetas: [{ clave: 'a' }, { clave: 'b' }], confirmadas: 0 }) === 'tarjetas' &&
+      faseAlDescartar({ clave: 'b', tarjetas: [{ clave: 'a' }, { clave: 'b' }], confirmadas: 2 }) === 'tarjetas'
+  )
+  const descartarTs = entre(reportar, 'const descartar = async', '\n  }\n')
+  check(
+    'Reportar: "Descartar" decide con las tarjetas abiertas y las visitas confirmadas de la pantalla',
+    /faseAlDescartar\(\{ clave, tarjetas: borradores, confirmadas: resultados\.length \}\)/.test(descartarTs)
+  )
+  const alVolverALista = entre(descartarTs, "=== 'lista') {", '\n    }')
+  check(
+    'Reportar: al volver a la lista lo dictado se olvida con la tarjeta (no reaparece en la próxima visita por toques)',
+    /setFase\('lista'\)/.test(alVolverALista) && /setTranscript\(null\)/.test(alVolverALista) && /setAvisoVoz\(null\)/.test(alVolverALista) && /setErrorVoz\(null\)/.test(alVolverALista)
   )
 
   // --- Tarjeta de una cita: sin "¿Qué hiciste?" (F1b: antes "Tipo de visita") ------------------------------------
