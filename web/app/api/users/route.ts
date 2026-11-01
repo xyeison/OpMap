@@ -5,7 +5,14 @@ import { requirePermission } from '@/lib/require-role'
 import { hashPassword } from '@/lib/passwords'
 import { createUserSchema, firstIssueMessage } from '@/lib/user-schemas'
 import { EMPRESA_VG_ID, type PapelEntrada } from '@/lib/empresas-reglas'
-import { Falta0960Error, asegurarExecutiveEmpresa, papelesDeTodos, reemplazarPapeles, validarPapeles } from '@/lib/empresas'
+import {
+  Falta0960Error,
+  asegurarExecutiveEmpresa,
+  escribirCacheDeLinea,
+  papelesDeTodos,
+  reemplazarPapeles,
+  validarPapeles,
+} from '@/lib/empresas'
 import { linkExecutiveToUserByEmail } from '../executives/_lib/executive-shared'
 
 export const dynamic = 'force-dynamic'
@@ -41,7 +48,7 @@ export async function GET(request: NextRequest) {
 // POST - Crear nuevo usuario (solo admin: permiso users:manage). Con papeles ({ empresa_id, papel, line_id?, kam_ids? }[])
 // se le dan esos; con solo role, ese papel en VG (como antes de las empresas). users.role es la caché que escriben los
 // papeles. Sin la 0960, solo users.role. Los papeles se validan ANTES de crear al usuario; si aun así fallan al
-// guardarse, el usuario recién creado se borra.
+// guardarse, se desactivan los que ya se escribieron, se reescriben las cachés de sus líneas y el usuario se borra.
 export async function POST(request: NextRequest) {
   const auth = await requirePermission(request, 'users:manage')
   if (!auth.ok) return auth.response
@@ -133,11 +140,21 @@ export async function POST(request: NextRequest) {
 
     let user = newUser
     if (porEmpresa.size > 0) {
+      // Líneas cuya caché leader_user_id pudo tocar la creación (hay que reescribirla si se deshace)
+      const lineasDeLider = Array.from(
+        new Set(Array.from(porEmpresa.values()).flatMap(lista => lista.filter(p => p.papel === 'line_leader' && p.line_id).map(p => p.line_id as string)))
+      )
       for (const [empresaId, lista] of Array.from(porEmpresa.entries())) {
-        const resultado = await reemplazarPapeles({ userId: nuevoId, empresaId, papeles: lista, creadoPor: auth.user.id })
+        let resultado: Awaited<ReturnType<typeof reemplazarPapeles>>
+        try {
+          resultado = await reemplazarPapeles({ userId: nuevoId, empresaId, papeles: lista, creadoPor: auth.user.id })
+        } catch (fallo) {
+          await deshacerUsuarioRecienCreado(nuevoId, lineasDeLider)
+          throw fallo
+        }
         if (!resultado.ok) {
           // Otra persona tomó la línea o las Zonas entre la validación y la escritura: no queda un usuario a medias
-          await borrarUsuarioRecienCreado(nuevoId)
+          await deshacerUsuarioRecienCreado(nuevoId, lineasDeLider)
           return NextResponse.json({ error: resultado.error }, { status: resultado.status })
         }
       }
@@ -185,8 +202,21 @@ function esTablaAusente(error: { code?: string } | null): boolean {
   return error?.code === '42P01' || error?.code === 'PGRST205'
 }
 
-/** Deshace la creación (sus papeles se van en cascada). Un fallo aquí solo se registra: la respuesta ya es el error. */
-async function borrarUsuarioRecienCreado(userId: string): Promise<void> {
-  const { error } = await getSupabaseAdmin().from('users').delete().eq('id', userId)
+/**
+ * Deshace la creación cuando falla una empresa posterior: primero desactiva los papeles que ya se escribieron (en
+ * cualquier empresa) y reescribe la caché leader_user_id de las líneas que pudo tocar, para que ninguna quede apuntando
+ * al usuario; solo entonces lo borra (sus papeles se van en cascada). Un fallo aquí solo se registra: la respuesta ya es
+ * el error.
+ */
+async function deshacerUsuarioRecienCreado(userId: string, lineasDeLider: string[]): Promise<void> {
+  const supabase = getSupabaseAdmin()
+  try {
+    const { error } = await supabase.from('papeles').update({ activo: false }).eq('user_id', userId)
+    if (error) throw new Error(`papeles (desactivar): ${error.message}`)
+    for (const lineId of lineasDeLider) await escribirCacheDeLinea(lineId, supabase)
+  } catch (fallo) {
+    console.error('Usuario a medio crear: no se pudieron desactivar sus papeles o reescribir la caché de sus líneas:', fallo)
+  }
+  const { error } = await supabase.from('users').delete().eq('id', userId)
   if (error) console.error('No se pudo borrar el usuario a medio crear:', error.message)
 }

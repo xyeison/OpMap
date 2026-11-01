@@ -1124,6 +1124,45 @@ async function main() {
     eq('ninguno de los tres crea el usuario', tablasD.users.length, usuariosAntes)
   }
 
+  print('\n  POST /api/users: si falla una empresa posterior, no queda nada a medias')
+  {
+    // La primera empresa (VG: líder nacional de Columna) se guarda; la segunda (Medix) la rechaza la base al insertar
+    const original = fakeD.handler
+    fetchHandler = async (input, init) => {
+      const href = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      const cuerpo = init?.body ? JSON.parse(String(init.body)) : null
+      const filas = Array.isArray(cuerpo) ? cuerpo : [cuerpo]
+      if ((init?.method || 'GET').toUpperCase() === 'POST' && new URL(href).pathname === '/rest/v1/papeles' && filas.some(f => f?.empresa_id === EMPRESA_MEDIX_ID)) {
+        return new Response(JSON.stringify({ code: '23514', message: MENSAJE_LIDER_NACIONAL_UNICO, details: null, hint: null }), { status: 400, headers: { 'content-type': 'application/json' } })
+      }
+      return original(input, init)
+    }
+    const liderAntes = liderDe(L_COLUMNA)
+    const marca = fakeD.requests.length
+    const r = await usersPost(aRuta('/api/users', {
+      userId: D_ADMIN,
+      cuerpo: {
+        email: 'a.medias@prueba.test', password: 'Clave-de-prueba-123', full_name: 'A medias',
+        papeles: [{ empresa_id: EMPRESA_VG_ID, papel: 'line_leader', line_id: L_COLUMNA }, { empresa_id: EMPRESA_MEDIX_ID, papel: 'viewer' }],
+      },
+    }))
+    fetchHandler = original
+    eq('409 con el mensaje de la base', [r.status, ((await cuerpoDe(r)) as { error?: string }).error], [409, MENSAJE_LIDER_NACIONAL_UNICO])
+    const escrituras = fakeD.writes(marca)
+    const insercion = escrituras.find(w => w.method === 'POST' && w.table === 'users')
+    const idNuevo = (insercion?.body as Fila | undefined)?.id
+    check('el usuario se creó y la caché de Columna llegó a apuntarle (la primera empresa sí se guardó)',
+      escrituras.some(w => w.method === 'PATCH' && w.table === 'business_lines' && (w.body as Fila).leader_user_id === idNuevo), escrituras.map(w => `${w.method} ${w.table}`))
+    const desactivar = escrituras.findIndex(w => w.method === 'PATCH' && w.table === 'papeles' && (w.body as Fila).activo === false && w.params.get('user_id') === `eq.${idNuevo}`)
+    const borrar = escrituras.findIndex(w => w.method === 'DELETE' && w.table === 'users')
+    check('desactiva sus papeles ANTES de borrar el usuario', desactivar >= 0 && borrar > desactivar, escrituras.map(w => `${w.method} ${w.table}`))
+    const ultimaCache = escrituras.map((w, i) => ({ w, i })).filter(({ w }) => w.method === 'PATCH' && w.table === 'business_lines').pop()
+    check('y reescribe la caché de Columna antes de borrarlo', ultimaCache !== undefined && ultimaCache.i > desactivar && ultimaCache.i < borrar, ultimaCache)
+    eq('leader_user_id de Columna vuelve a lo de antes', liderDe(L_COLUMNA), liderAntes)
+    check('el usuario no queda', !tablasD.users.some(u => u.email === 'a.medias@prueba.test'))
+    check('ningún papel suyo queda activo', !tablasD.papeles.some(p => p.user_id === idNuevo && p.activo === true))
+  }
+
   print('\n  POST /api/users/from-executives: la cuenta nueva tiene su papel en VG y la ejecutiva queda en VG')
   {
     const X_FICHA = '30000000-0000-4000-8000-000000000004'
