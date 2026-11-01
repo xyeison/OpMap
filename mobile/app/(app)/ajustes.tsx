@@ -8,13 +8,20 @@
  *
  * Tema (etapa 1 del diseño, dueño 2026-10-30): Claro, Oscuro o Automático (el del teléfono), como al final del menú de
  * OpMap; en el navegador es el mismo de OpMap (lib/tema-preferencia.tsx).
+ *
+ * Empresa (capa 1 de empresas, docs/specs/2026-10-31-empresas-papeles-y-asignaciones.md): encima de "Cerrar sesión",
+ * según selectorDeEmpresa (lib/empresa-activa.ts): nada sin empresa, el nombre con una, y con varias una fila por empresa
+ * (la activa marcada) para cambiar; sin señal las filas quedan deshabilitadas con MENSAJE_EMPRESA_SIN_SENAL. El error del
+ * servidor sale ahí mismo. Cambiar no toca el contexto guardado ni lo pendiente por subir (lib/sesion.ts).
  */
 import Constants from 'expo-constants'
 import { useRouter } from 'expo-router'
 import { useState } from 'react'
-import { Platform, View } from 'react-native'
+import { Platform, Pressable, View } from 'react-native'
 import { URL_API } from '../../lib/api'
 import { useCola } from '../../lib/cola-contexto'
+import { selectorDeEmpresa } from '../../lib/empresa-activa'
+import { aApiError } from '../../lib/errores'
 import { esServidorDesarrollo, nombreServidor } from '../../lib/http'
 import { Icono } from '../../lib/iconos'
 import { muestraDiasLibres, papelesDePersona } from '../../lib/persona'
@@ -29,7 +36,7 @@ const TEMAS: ReadonlyArray<readonly [PreferenciaTema, string]> = [['claro', 'Cla
 export default function Ajustes() {
   const router = useRouter()
   const c = useColores()
-  const { perfil, salir, sinConfirmar } = useSesion()
+  const { perfil, salir, sinConfirmar, cambiarEmpresa } = useSesion()
   const { resumen, resumenFotos, enLinea } = useCola()
   const { preferencia, elegir } = useTemaApp()
   const [saliendo, setSaliendo] = useState(false)
@@ -39,6 +46,22 @@ export default function Ajustes() {
   const build = process.env.EXPO_PUBLIC_BUILD ?? null
   const papeles = papelesDePersona(perfil?.persona, perfil?.ejecutiva?.zona)
   const conDiasLibres = muestraDiasLibres({ persona: perfil?.persona, ejecutiva: perfil?.ejecutiva })
+  const empresaUi = selectorDeEmpresa({ empresa: perfil?.usuario.empresa ?? null, empresas: perfil?.usuario.empresas ?? [], enLinea })
+  const [cambiandoA, setCambiandoA] = useState<string | null>(null)
+  const [errorEmpresa, setErrorEmpresa] = useState<string | null>(null)
+
+  async function elegirEmpresa(empresaId: string) {
+    if (cambiandoA || empresaId === perfil?.usuario.empresa?.id) return
+    setErrorEmpresa(null)
+    setCambiandoA(empresaId)
+    try {
+      await cambiarEmpresa(empresaId)
+    } catch (lanzado) {
+      setErrorEmpresa(aApiError(lanzado).message)
+    } finally {
+      setCambiandoA(null)
+    }
+  }
 
   async function cerrarSesion() {
     // App sin señal (2026-10-30): cerrar sesión NUNCA borra los pendientes; se avisa y se suben al volver a entrar.
@@ -133,6 +156,65 @@ export default function Ajustes() {
           El audio de los dictados no se guarda: se transcribe en el servidor y se borra del teléfono al recibir el texto.
         </Texto>
       </Tarjeta>
+
+      {empresaUi.modo !== 'oculto' ? (
+        <Tarjeta>
+          <Subtitulo>Empresa</Subtitulo>
+          {empresaUi.modo === 'solo_nombre' ? (
+            <Fila etiqueta="Trabajas en" valor={empresaUi.nombre} />
+          ) : (
+            <View style={{ gap: 8 }}>
+              {empresaUi.opciones.map(opcion => {
+                const actual = opcion.id === perfil?.usuario.empresa?.id
+                const inactiva = !actual && (empresaUi.deshabilitado || cambiandoA !== null)
+                return (
+                  <Pressable
+                    key={opcion.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={actual ? `${opcion.nombre_corto}: la empresa activa` : `Cambiar a ${opcion.nombre_corto}`}
+                    accessibilityHint={empresaUi.aviso ?? undefined}
+                    accessibilityState={{ selected: actual, disabled: inactiva, busy: cambiandoA === opcion.id }}
+                    disabled={actual || empresaUi.deshabilitado || cambiandoA !== null}
+                    onPress={() => void elegirEmpresa(opcion.id)}
+                    style={({ pressed }) => ({
+                      minHeight: ALTO_TOQUE_MIN,
+                      paddingHorizontal: 14,
+                      paddingVertical: 10,
+                      borderRadius: 12,
+                      borderWidth: actual ? 2 : 1,
+                      borderColor: actual ? c.acento : c.borde,
+                      backgroundColor: actual ? c.relleno : c.superficie,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 10,
+                      opacity: pressed ? 0.6 : inactiva ? 0.55 : 1,
+                    })}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Texto negrita={actual} media={!actual}>
+                        {opcion.nombre_corto}
+                      </Texto>
+                    </View>
+                    {cambiandoA === opcion.id ? (
+                      <Texto suave peque>
+                        Cambiando…
+                      </Texto>
+                    ) : actual ? (
+                      <Icono nombre="check" activo tamano={22} color={c.acento} />
+                    ) : null}
+                  </Pressable>
+                )
+              })}
+              {empresaUi.aviso ? (
+                <Texto suave peque>
+                  {empresaUi.aviso}
+                </Texto>
+              ) : null}
+            </View>
+          )}
+          {errorEmpresa ? <Aviso tono="peligro">{errorEmpresa}</Aviso> : null}
+        </Tarjeta>
+      ) : null}
 
       {/* En el navegador la app vive dentro de OpMap (/campo, 2026-10-30): volver a la web sin escribir la dirección */}
       {Platform.OS === 'web' ? (

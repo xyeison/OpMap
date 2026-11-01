@@ -29,6 +29,7 @@ import { cuerpoCancelar, cuerpoMotivo } from './agenda-ciclo'
 import { TIEMPO_ME_MS, clienteDeLogin } from './sesion-reglas'
 import type {
   AgendaResponse,
+  CambioEmpresaResponse,
   CamposDictadoResponse,
   CitaCreate,
   CitaEliminadaResponse,
@@ -215,6 +216,15 @@ export function sesionDeLaWeb(): Promise<LoginMovilResponse> {
 /** Quién es la sesión. `timeoutMs`: al abrir la app se espera poco (TIEMPO_ME_MS de lib/sesion-reglas.ts). */
 export function me(token?: string, timeoutMs?: number): Promise<MeResponse> {
   return peticion<MeResponse>('/api/auth/me', { token, timeoutMs })
+}
+
+/**
+ * Cambia la empresa activa (capa 1 de empresas): POST /api/auth/empresa con el portador (sin la cookie de la web: así el
+ * servidor responde a la app con el token refirmado en el cuerpo, que lib/sesion.ts guarda). 403 'No tienes papel en esa
+ * empresa'; un 401 cierra la sesión como cualquier otra petición.
+ */
+export function cambiarEmpresa(empresaId: string): Promise<CambioEmpresaResponse> {
+  return peticion<CambioEmpresaResponse>('/api/auth/empresa', { metodo: 'POST', cuerpo: { empresa_id: empresaId } })
 }
 
 /**

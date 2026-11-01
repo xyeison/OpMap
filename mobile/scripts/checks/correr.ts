@@ -20,6 +20,7 @@ const ARCHIVOS: Record<string, () => Promise<{ pruebas: ArchivoDePruebas }>> = {
   '23-sede-del-medico': () => import('./23-sede-del-medico'),
   '24-rango': () => import('./24-rango'),
   '25-inicio-opmap': () => import('./25-inicio-opmap'),
+  '26-empresa-activa': () => import('./26-empresa-activa'),
 }
 
 async function main() {

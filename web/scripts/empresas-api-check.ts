@@ -46,6 +46,7 @@ import { GET as diasLibresGet } from '../app/api/dias-libres/route'
 import { GET as meLinesGet } from '../app/api/me/lines/route'
 import { GET as meGet } from '../app/api/auth/me/route'
 import { POST as empresaPost } from '../app/api/auth/empresa/route'
+import { clavesDe, tieneClaves } from '../../mobile/lib/claves-api'
 import { GET as empresasGet } from '../app/api/empresas/route'
 import { POST as sesionAppPost } from '../app/api/auth/sesion-app/route'
 import { POST as loginPost } from '../app/api/auth/login/route'
@@ -688,6 +689,11 @@ async function main() {
     eq("cuerpo con la empresa 'vg'", cuerpoApp.empresa?.codigo, 'vg')
     eq('y un token cuyo emp es VG', verifySession(cuerpoApp.token)?.emp, EMPRESA_VG_ID)
     check('y expira_at es una fecha', typeof cuerpoApp.expira_at === 'string' && !Number.isNaN(Date.parse(cuerpoApp.expira_at)), cuerpoApp.expira_at)
+    check(
+      'las claves son las que lee la app (mobile/lib/claves-api.ts: cambioEmpresa y empresaMovil)',
+      tieneClaves(cuerpoApp, 'cambioEmpresa') && tieneClaves(cuerpoApp.empresa, 'empresaMovil'),
+      { cuerpo: clavesDe(cuerpoApp), empresa: clavesDe(cuerpoApp.empresa) }
+    )
     check('sin Set-Cookie para la app', conPortador.headers.get('set-cookie') === null, conPortador.headers.get('set-cookie'))
     eq('users.empresa_activa_id = VG', columnaDe(LIZETH), EMPRESA_VG_ID)
 

@@ -6,6 +6,9 @@
  *
  * 2026-10-31 (dueño): a la izquierda, el botón "OpMap" vuelve al inicio de módulos de OpMap (lib/opmap-enlace.ts): misma
  * pestaña en el navegador, otra pestaña si la app está instalada, y sin señal solo avisa. En el teléfono compilado no sale.
+ *
+ * Capa 1 de empresas: al lado del botón "OpMap", el nombre corto de la empresa activa (solo si hay empresa; se cambia en
+ * Ajustes). Con "Subir ahora" o "Actualizar" al lado, solo el ícono: el nombre tampoco sale (360 px).
  */
 import { useEffect, useState } from 'react'
 import { Pressable, Text, View } from 'react-native'
@@ -23,7 +26,8 @@ export function EstadoCola() {
   const fuente = useFuente()
   const insets = useSafeAreaInsets()
   const { resumen, resumenFotos, enviando, enLinea, subirAhora } = useCola()
-  const { vencida } = useSesion()
+  const { vencida, perfil } = useSesion()
+  const empresaCorta = perfil?.usuario.empresa?.nombre_corto ?? null
   const [versionNueva, setVersionNueva] = useState(false)
   useEffect(() => alHaberVersionNueva(setVersionNueva), [])
   const [avisoOpMap, setAvisoOpMap] = useState<string | null>(null)
@@ -69,6 +73,11 @@ export function EstadoCola() {
           <Icono nombre="inicio" activo tamano={16} color={c.texto} />
           {soloIcono ? null : <Text style={[{ color: c.texto, fontSize: 13 }, fuente('negrita')]}>OpMap</Text>}
         </Pressable>
+      ) : null}
+      {empresaCorta && !soloIcono ? (
+        <Text accessibilityLabel={`Empresa activa: ${empresaCorta}`} numberOfLines={1} maxFontSizeMultiplier={1.3} style={[{ color: texto, fontSize: 13, maxWidth: 110 }, fuente('negrita')]}>
+          {empresaCorta}
+        </Text>
       ) : null}
       <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: texto }} />
       <View style={{ flex: 1 }}>

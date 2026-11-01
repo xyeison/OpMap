@@ -229,6 +229,12 @@ export type TiposDeLaApp = [
   Afirmar<Iguales<keyof W.CitaItem, keyof M.CitaItem>>,
   Afirmar<Iguales<keyof W.ContextoResponse, keyof M.ContextoResponse>>,
   Afirmar<Iguales<keyof W.MeResponse, keyof M.MeResponse>>,
+  // Capa 1 de empresas: el usuario y la empresa de la sesión tienen las mismas claves en las dos
+  Afirmar<Iguales<keyof W.UsuarioMovil, keyof M.UsuarioMovil>>,
+  Afirmar<Iguales<keyof W.MeResponse['user'], keyof M.MeResponse['user']>>,
+  Afirmar<Iguales<keyof W.EmpresaMovil, keyof M.EmpresaMovil>>,
+  Afirmar<Asignable<W.EmpresaMovil, M.EmpresaMovil>>,
+  Afirmar<Asignable<M.EmpresaMovil, W.EmpresaMovil>>,
   Afirmar<Iguales<keyof W.NumerosAgenda, keyof M.NumerosAgenda>>,
   Afirmar<Iguales<keyof W.AgendaResponse, keyof M.AgendaResponse>>,
   Afirmar<Asignable<W.ContextoResponse, M.ContextoResponse>>,
@@ -2790,11 +2796,8 @@ async function main() {
       // token). Se restauran al terminar para no tocar las demás pruebas.
       const usuarios = tablas.users as Fila[]
       const originales = usuarios.map(u => ({ fila: u, password: u.password }))
-      // Capa 1 de empresas: el usuario del login y de me gana empresa, empresas y papeles. La app los copia en la
-      // Task 10 del plan (mobile/lib/claves-api.ts); hasta entonces se suman aquí (la unión vale antes y después).
-      const DE_EMPRESAS = ['empresa', 'empresas', 'papeles']
-      const clavesUsuario = Array.from(new Set([...CLAVES_API.usuario, ...DE_EMPRESAS])).sort().join(' ')
-      const okUsuario = (objeto: unknown) => clavesDe(objeto).join(' ') === clavesUsuario
+      // Capa 1 de empresas: el usuario del login y de me trae empresa, empresas y papeles (CLAVES_API.usuario, estricto).
+      const okUsuario = (objeto: unknown) => ok('usuario', objeto)
       try {
         const entrar = (userId: string, cliente?: string) =>
           pedirLogin(login, { email: `${String(usuarios.find(u => u.id === userId)?.email).toUpperCase()} `, password: `hash-${userId}`, ...(cliente ? { cliente } : {}) })

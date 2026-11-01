@@ -12,6 +12,12 @@
  * lib/persona.ts). El login no la trae: al entrar se pide /api/auth/me en segundo plano (completarPersona); sin señal se
  * sabrá al confirmar la próxima vez, y mientras tanto la app sigue como antes (el servidor decide). Con la respuesta se
  * guarda también si el servidor tiene F1a (`servidor`: /api/auth/me sin la clave `persona` = 'sin_f1a').
+ *
+ * Capa 1 de empresas (docs/specs/2026-10-31-empresas-papeles-y-asignaciones.md): el usuario del perfil guarda su empresa
+ * activa, las empresas donde tiene papel y sus papeles (un perfil guardado antes se lee con empresasDelUsuario: empresa
+ * null y listas vacías). cambiarEmpresa (Ajustes, con señal) pide POST /api/auth/empresa, guarda el token refirmado y el
+ * perfil, y vuelve a pedir /api/auth/me (la persona y el Ejecutivo Comercial pueden cambiar con la empresa). El contexto
+ * guardado y lo pendiente por subir no se tocan (cada visita encolada guardará su empresa en la capa 3).
  */
 import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Platform } from 'react-native'
@@ -19,6 +25,7 @@ import * as api from './api'
 import { alCambiarTokenEnOtraPestana, borrarClave, borrarToken, guardarJson, guardarToken, leerJson, leerToken } from './almacen'
 import { olvidarContextoGuardado } from './contexto-guardado'
 import { olvidarContextoEnMemoria } from './contexto-memoria'
+import { empresasDelUsuario } from './empresa-activa'
 import { MENSAJE_SESION_OTRA_PESTANA, MENSAJE_SESION_VENCIDA, aApiError } from './errores'
 import { personaDeMe, servidorDeMe, type ServidorDeCampo } from './persona'
 import {
@@ -78,6 +85,11 @@ export interface ValorSesion {
   salir: () => Promise<void>
   /** Vuelve a preguntar /api/auth/me (al volver la señal). */
   refrescar: () => Promise<void>
+  /**
+   * Cambia la empresa activa (Ajustes; necesita señal): guarda el token nuevo y el perfil y vuelve a pedir /api/auth/me.
+   * Lanza el ApiError del servidor (403 'No tienes papel en esa empresa', sin señal…) para mostrarlo ahí mismo.
+   */
+  cambiarEmpresa: (empresaId: string) => Promise<void>
 }
 
 const ContextoSesion = createContext<ValorSesion | null>(null)
@@ -123,7 +135,13 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
         const respuesta = await api.me(token, tiempoMs)
         if (generacion.current !== desde) return
         const nuevo: Perfil = {
-          usuario: { id: respuesta.user.id, full_name: respuesta.user.full_name, role: respuesta.user.role, email: respuesta.user.email },
+          usuario: {
+            id: respuesta.user.id,
+            full_name: respuesta.user.full_name,
+            role: respuesta.user.role,
+            ...empresasDelUsuario(respuesta.user),
+            email: respuesta.user.email,
+          },
           ejecutiva: respuesta.ejecutiva,
           persona: personaDeMe(respuesta, guardado?.persona),
           sinPersona: respuesta.sin_persona ?? null,
@@ -180,7 +198,7 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
       // Sin dónde guardar el token (almacenamiento lleno o bloqueado): sigue como sin la sesión de la web
       return false
     }
-    const nuevo: Perfil = { usuario: { ...respuesta.usuario }, ejecutiva: respuesta.ejecutiva, expira_at: respuesta.expira_at }
+    const nuevo: Perfil = { usuario: { ...respuesta.usuario, ...empresasDelUsuario(respuesta.usuario) }, ejecutiva: respuesta.ejecutiva, expira_at: respuesta.expira_at }
     await guardarJson(CLAVE_PERFIL, nuevo).catch(() => undefined)
     if (!montado.current) return true
     setPerfil(nuevo)
@@ -208,7 +226,7 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
     if (probarSesionDeLaWeb({ esWeb, tokenVigente, salidaPendiente })) {
       if (await entrarConLaWeb()) return
     }
-    const guardado = token ? await leerJson<Perfil>(CLAVE_PERFIL) : null
+    const guardado = token ? perfilConEmpresas(await leerJson<Perfil>(CLAVE_PERFIL)) : null
     // Token vencido: con señal el servidor responderá 401 y se vuelve al ingreso (conservando el perfil); SIN señal se
     // entra con el perfil guardado para seguir reportando a la cola (arranqueDeSesion con vencido: 'entrar_vencida').
     const arranque = arranqueDeSesion({ perfilGuardado: guardado, tokenVigente: token !== null && !yaVencido, uidDelToken: leerCargaToken(token)?.uid, tokenVencido: yaVencido })
@@ -300,7 +318,11 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
     await guardarToken(respuesta.token)
     // Un ingreso nuevo: la salida pendiente de antes ya no cuenta (en el navegador la cookie es la de este ingreso)
     await borrarClave(CLAVE_SALIDA_PENDIENTE)
-    const nuevo: Perfil = { usuario: { ...respuesta.usuario, email: email.trim().toLowerCase() }, ejecutiva: respuesta.ejecutiva, expira_at: respuesta.expira_at }
+    const nuevo: Perfil = {
+      usuario: { ...respuesta.usuario, ...empresasDelUsuario(respuesta.usuario), email: email.trim().toLowerCase() },
+      ejecutiva: respuesta.ejecutiva,
+      expira_at: respuesta.expira_at,
+    }
     await guardarJson(CLAVE_PERFIL, nuevo).catch(() => undefined)
     setPerfil(nuevo)
     setSinConfirmar(false)
@@ -328,9 +350,31 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
     await confirmar(token, perfil, TIEMPO_ME_FONDO_MS)
   }, [confirmar, olvidar, perfil])
 
+  /**
+   * Cambia la empresa activa: el servidor la escribe y devuelve el token refirmado (mismo vencimiento). Se guardan el token
+   * y el perfil con la empresa nueva y se vuelve a pedir /api/auth/me como en la confirmación en segundo plano (la persona
+   * y el Ejecutivo Comercial de esa empresa; sin señal queda "sin confirmar", un 401 cierra la sesión). El contexto
+   * guardado y lo pendiente por subir NO se tocan. Si mientras tanto se salió o entró otra vez, no toca nada.
+   */
+  const cambiarEmpresa = useCallback(
+    async (empresaId: string) => {
+      const desde = generacion.current
+      const respuesta = await api.cambiarEmpresa(empresaId)
+      if (generacion.current !== desde || !perfil) return
+      await guardarToken(respuesta.token)
+      // Los papeles eran los de la empresa anterior: los de la nueva llegan con /api/auth/me (confirmar)
+      const nuevo: Perfil = { ...perfil, usuario: { ...perfil.usuario, empresa: respuesta.empresa, papeles: [] }, expira_at: respuesta.expira_at }
+      await guardarJson(CLAVE_PERFIL, nuevo).catch(() => undefined)
+      if (!montado.current || generacion.current !== desde) return
+      setPerfil(nuevo)
+      await confirmar(respuesta.token, nuevo, TIEMPO_ME_FONDO_MS)
+    },
+    [confirmar, perfil]
+  )
+
   const valor = useMemo<ValorSesion>(
-    () => ({ estado, perfil, sinConfirmar, vencida, aviso, entrar, salir, refrescar }),
-    [estado, perfil, sinConfirmar, vencida, aviso, entrar, salir, refrescar]
+    () => ({ estado, perfil, sinConfirmar, vencida, aviso, entrar, salir, refrescar, cambiarEmpresa }),
+    [estado, perfil, sinConfirmar, vencida, aviso, entrar, salir, refrescar, cambiarEmpresa]
   )
   return createElement(ContextoSesion.Provider, { value: valor }, children)
 }
@@ -350,5 +394,11 @@ function expiraDelToken(token: string): string | null {
 function perfilDelToken(token: string): Perfil | null {
   const carga = leerCargaToken(token)
   if (!carga) return null
-  return { usuario: { id: carga.uid, full_name: '', role: '' }, ejecutiva: null, expira_at: expiraDelToken(token) }
+  return { usuario: { id: carga.uid, full_name: '', role: '', ...empresasDelUsuario(null) }, ejecutiva: null, expira_at: expiraDelToken(token) }
+}
+
+/** El perfil guardado, con empresa, empresas y papeles aunque se haya guardado antes de la capa 1 de empresas. */
+function perfilConEmpresas(guardado: Perfil | null): Perfil | null {
+  if (!guardado || typeof guardado !== 'object' || !guardado.usuario || typeof guardado.usuario !== 'object') return guardado
+  return { ...guardado, usuario: { ...guardado.usuario, ...empresasDelUsuario(guardado.usuario) } }
 }

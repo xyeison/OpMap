@@ -9,6 +9,7 @@
  */
 import type {
   AgendaResponse,
+  CambioEmpresaResponse,
   CamposDictadoResponse,
   CitaCancelar,
   CitaCerrar,
@@ -22,6 +23,7 @@ import type {
   ContextoResponse,
   EjecutivaContexto,
   EjecutivaMovil,
+  EmpresaMovil,
   HechasHoy,
   HoyContexto,
   LineaEjecutiva,
@@ -70,7 +72,10 @@ type ObjetoCitaCreate = Record<keyof CitaCreateBase | 'tipo' | 'medico_id' | 'cu
 
 export const CLAVES_API = {
   login: exactas<LoginMovilResponse>()(['token', 'expira_at', 'usuario', 'ejecutiva']),
-  usuario: exactas<UsuarioMovil>()(['id', 'full_name', 'role']),
+  usuario: exactas<UsuarioMovil>()(['id', 'full_name', 'role', 'empresa', 'empresas', 'papeles']),
+  // Capa 1 de empresas: la empresa (activa y cada una de `empresas`) y POST /api/auth/empresa con el portador de la app
+  empresaMovil: exactas<EmpresaMovil>()(['id', 'codigo', 'nombre_corto']),
+  cambioEmpresa: exactas<CambioEmpresaResponse>()(['empresa', 'token', 'expira_at']),
   ejecutivaMovil: exactas<EjecutivaMovil>()(['id', 'full_name', 'zona']),
   me: exactas<MeResponse>()(['user', 'ejecutiva', 'persona', 'sin_persona']),
   // Persona de campo (0850; la app la usa desde F1b)

@@ -194,6 +194,7 @@ import { pruebas as pruebasTema } from './checks/22-tema'
 import { pruebas as pruebasSedeDelMedico } from './checks/23-sede-del-medico'
 import { pruebas as pruebasRango } from './checks/24-rango'
 import { pruebas as pruebasInicioOpMap } from './checks/25-inicio-opmap'
+import { pruebas as pruebasEmpresaActiva } from './checks/26-empresa-activa'
 
 // Este archivo corre en Node (tsx), pero el programa de tipos es el de la app (sin @types/node, que chocaría con los
 // tipos de React Native): fs y path con lo mínimo que se usa aquí.
@@ -868,7 +869,9 @@ async function main() {
     // los tipos); web/scripts/reporte-api-check.ts compara las mismas listas con las respuestas reales de las rutas.
     const CONTRATO: Record<keyof typeof CLAVES_API, string> = {
       login: 'token expira_at usuario ejecutiva',
-      usuario: 'id full_name role',
+      usuario: 'id full_name role empresa empresas papeles',
+      empresaMovil: 'id codigo nombre_corto',
+      cambioEmpresa: 'empresa token expira_at',
       ejecutivaMovil: 'id full_name zona',
       me: 'user ejecutiva persona sin_persona',
       // Persona de campo (0850; F1b de actividades de campo: la app la usa)
@@ -1949,6 +1952,7 @@ async function main() {
     await pruebasSedeDelMedico(probador)
     await pruebasRango(probador)
     await pruebasInicioOpMap(probador)
+    await pruebasEmpresaActiva(probador)
   }
 
   console.log(`\n${total - fallas}/${total} pruebas pasaron`)

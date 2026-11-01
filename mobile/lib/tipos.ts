@@ -79,10 +79,37 @@ export const ETIQUETA_ESTADO_DIA_LIBRE: Record<EstadoDiaLibre, string> = {
 // Sesión (POST /api/auth/login con cliente 'movil', GET /api/auth/me)
 // ---------------------------------------------------------------------------------------------
 
+/**
+ * Una empresa en las respuestas de sesión (login, /api/auth/me, /api/auth/empresa; capa 1 de empresas,
+ * docs/specs/2026-10-31-empresas-papeles-y-asignaciones.md). Copia de EmpresaMovil de web/lib/reporte-visitas.ts.
+ */
+export interface EmpresaMovil {
+  id: string
+  codigo: string
+  nombre_corto: string
+}
+
+/** Un papel activo de la persona en la empresa activa (copia de PapelActivo de web/lib/empresas-reglas.ts). */
+export interface PapelActivo {
+  id: string
+  empresa_id: string
+  papel: Role
+  line_id: string | null
+  kam_ids: string[]
+}
+
+/**
+ * Usuario del login móvil (y de /api/auth/sesion-app). `role` es el papel más alto en la empresa activa; `empresa` la
+ * activa (null sin papeles o sin la 0960), `empresas` donde tiene algún papel activo y `papeles` solo los de la activa.
+ * Un perfil guardado antes de la capa 1 no las trae: lib/sesion.ts lo lee con empresasDelUsuario (lib/empresa-activa.ts).
+ */
 export interface UsuarioMovil {
   id: string
   full_name: string
   role: Role
+  empresa: EmpresaMovil | null
+  empresas: EmpresaMovil[]
+  papeles: PapelActivo[]
 }
 
 /** El Ejecutivo Comercial enlazado con el usuario (no inactivo), con el nombre de su zona. */
@@ -103,7 +130,16 @@ export interface LoginMovilResponse {
 
 /** GET /api/auth/me (cookie o portador). `user` es lo que ya usaba la web; `ejecutiva` lo que la app necesita. */
 export interface MeResponse {
-  user: { id: string; email: string; full_name: string; role: Role; active: boolean }
+  user: {
+    id: string
+    email: string
+    full_name: string
+    role: Role
+    active: boolean
+    empresa: EmpresaMovil | null
+    empresas: EmpresaMovil[]
+    papeles: PapelActivo[]
+  }
   ejecutiva: EjecutivaMovil | null
   /** 0850: la persona de campo, o null (la dirección comercial, A1, o un usuario sin líneas). */
   persona: PersonaMovil | null
@@ -113,6 +149,16 @@ export interface MeResponse {
    * Opcional: un servidor anterior no lo manda.
    */
   sin_persona?: string | null
+}
+
+/**
+ * POST /api/auth/empresa { empresa_id } con el portador de la app: la empresa activa nueva y el token refirmado con ella
+ * (mismo vencimiento: cambiar de empresa no alarga la sesión). 403 'No tienes papel en esa empresa'.
+ */
+export interface CambioEmpresaResponse {
+  empresa: EmpresaMovil
+  token: string
+  expira_at: string
 }
 
 // ---------------------------------------------------------------------------------------------
