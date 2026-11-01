@@ -1,7 +1,8 @@
 # Spec: empresas, papeles por empresa y asignaciones por Zona y línea  (2026-10-31)
 
 **Estado**: aprobada por el dueño el 2026-10-31 ("Ok dale"), con las tres preguntas abiertas respondidas por él ese
-día. Decisión: `docs/decisiones/2026-10-31-empresas-papeles-y-asignaciones.md`. Plan de la capa 1:
+día. **Capa 1 implementada en la rama `feat/empresas-papeles-asignaciones` (PR pendiente); la 0960 está escrita, NO
+aplicada.** Capas 2 a 4 sin empezar. Decisión: `docs/decisiones/2026-10-31-empresas-papeles-y-asignaciones.md`. Plan de la capa 1:
 `docs/planes/2026-10-31-empresas-capa-1-modelo-y-sesion.md`. Enfoque elegido por el dueño: por capas,
 con compatibilidad (ver "Enfoques considerados"). Es el PRIMERO de tres proyectos: después vienen la marca por empresa
 (ícono y colores en la web y la app) y la página de Ejecutivos Comerciales rehecha al estilo de la app.
@@ -44,7 +45,7 @@ representa lo que el dueño describió el 2026-10-31:
    - Lizeth · Medix · Líder de negocio · (una línea de Medix), y Lizeth · VG · Ejecutivo Comercial.
    - El dueño y Laura: Administrador y Director comercial, respectivamente, una fila por empresa.
 3. **Empresa activa en la sesión**: al entrar, la persona queda "como" una empresa (si solo tiene una, esa; si tiene
-   varias, la última usada o la primera). Puede cambiarla desde el menú de OpMap y desde Ajustes de la app sin volver a
+   varias, la última usada o, sin ella, VG si la tiene). Puede cambiarla desde el menú de OpMap y desde Ajustes de la app sin volver a
    escribir la clave. Lo que ve y puede hacer es la **suma de sus papeles en esa empresa**. La marca (ícono, colores)
    NO cambia todavía: va en el proyecto 2; por ahora la barra muestra el nombre corto de la empresa activa al lado del
    nombre de la persona.
@@ -90,8 +91,9 @@ Nombres en español como el resto de las tablas de visitas; en inglés solo lo q
 - `executives.base_kam_id` se queda como **Zona de residencia** (donde vive; es lo que Odoo llama lugar de trabajo y lo
   que ordena la lista). Ya no decide qué lleva: eso lo dicen las asignaciones. Qué Zona lleva la visita de quien tiene
   varias es la pregunta abierta 3.
-- `coverage` y `coverage_overrides`: ganan `empresa_id` (NOT NULL; relleno VG) y el único de `coverage` pasa a
-  (`empresa_id`, `line_id`, `kam_id`). `territory_snapshots`: gana `empresa_id`.
+- `coverage` y `coverage_overrides`: ganan `empresa_id` (NOT NULL; relleno VG) y `coverage` gana el único
+  (`empresa_id`, `line_id`, `kam_id`). **La 0960 CONSERVA el único viejo (`line_id`, `kam_id`) junto al nuevo**, porque
+  `recomputeAndSaveCoverage` hace upsert por `line_id,kam_id` hasta la capa 2; la 0970 lo quita. `territory_snapshots`: gana `empresa_id`.
 - `visits`, `visitas_agenda`, `medico_visitantes`: ganan `empresa_id` (NOT NULL; relleno VG). `visit_lines` no cambia.
 - Todas las columnas `empresa_id` nuevas llevan `DEFAULT` = el id fijo de VG (uuid constante en la semilla), porque las
   funciones de la base y el importador de VMO no mandan empresa hasta las capas 2 y 3. El `DEFAULT` se quita en la capa 4.
@@ -106,7 +108,10 @@ Nombres en español como el resto de las tablas de visitas; en inglés solo lo q
 - **Líder por línea y empresa**: uno nacional (sin Zonas) o varios con Zonas disjuntas (`papel_zonas`); ver la decisión
   2 de abajo. La caché `leader_user_id` toma el líder nacional de VG, o NULL si solo hay líderes por Zona.
 - La 0960 se detiene (RAISE) si algún usuario activo con `role = 'line_leader'` no lidera ninguna línea: el dueño le
-  pone línea o lo cambia de rol antes. Igual si una fila de `executive_lines` no tiene zona base.
+  pone línea o lo cambia de rol antes. Igual si una fila de `executive_lines` pertenece a una persona sin
+  `base_kam_id`. Está ESCRITA, no aplicada (rollback 9961).
+- Quitar el papel `sales_manager` de VG también recalcula la cobertura (`cobertura_recalculada` en la respuesta de
+  `PUT /api/users/[id]/papeles`); de Medix, no (la cobertura de Medix llega con la capa 2).
 - Dar el papel `sales_manager` en `/users` a una persona enlazada con una fila de `executives` crea su
   `executive_empresas` en esa empresa; quitárselo borra sus asignaciones en esa empresa (la pantalla avisa cuántas y
   cuántos visitantes terminan). Las vacantes no tienen usuario: su `executive_empresas` se maneja desde Ejecutivos
@@ -116,14 +121,18 @@ Orden de "papel más alto" para la caché y para los textos: `admin` > `commerci
 `sales_manager` > `contract_manager` > `data_manager` > `hr` > `viewer` > `user`.
 
 ## Sesión y permisos (lo decidido)
-- La empresa activa es **por persona**, no por dispositivo: `users.empresa_activa_id` → `empresas` (NULL = la única o
-  la primera por `codigo`). Así la web y `/campo` en el mismo navegador, y el teléfono, están siempre "como" la misma
+- La empresa activa es **por persona**, no por dispositivo: `users.empresa_activa_id` → `empresas` (NULL = la única o, si hay varias,
+  VG si la persona la tiene; si no, la de menor `codigo`: «la primera por código» a secas habría puesto a Medix antes
+  que a VG, porque `'medix' < 'vg'`, y «nadie nota nada» exige lo contrario). Así la web y `/campo` en el mismo navegador, y el teléfono, están siempre "como" la misma
   empresa, y "la última usada" es simplemente esa columna. El token de sesión gana el claim `emp` solo como caché: el
   servidor lo compara con la columna y, si difieren, manda la columna. Sin `emp` (tokens de hoy) vale la columna; así
   nadie tiene que volver a entrar.
 - `SessionUser` gana `empresa` (`{ id, codigo, nombre_corto }`), `papeles` (los activos en esa empresa) y `permisos`
   (unión de `rolePermissions[papel]` de cada papel). `role` se conserva como el papel más alto en esa empresa, para el
   código que aún lo lee. `requirePermission`, `requireAnyPermission` y `hasPermission` deciden con `permisos`.
+- `POST /api/auth/sesion-app` (el puente de la web a la app, un solo ingreso) **niega (403) a quien tiene un papel
+  `admin` o `commercial_director` activo en CUALQUIER empresa**: la cookie del administrador nunca se vuelve un token
+  legible desde la app; esa persona entra a la app con su clave. Los demás reciben el token con la empresa activa.
 - `POST /api/auth/empresa` cambia la empresa activa (solo a una donde la persona tenga papel activo): escribe
   `users.empresa_activa_id` y vuelve a firmar la cookie o devuelve el token nuevo a la app. `GET /api/auth/me` devuelve
   `empresa`, `empresas` (las que puede elegir) y `papeles`. La app, sin señal, no puede cambiar de empresa (el selector
@@ -150,7 +159,9 @@ Orden de "papel más alto" para la caché y para los textos: `admin` > `commerci
 `papeles` en la sesión; `permisos` como unión; `POST /api/auth/empresa`; nombre corto de la empresa en la barra de OpMap
 y en la franja de estado de la app; `/users` muestra y edita papeles por empresa (en lugar del rol único) y escribe la
 caché; Líneas edita en qué empresas está cada línea (`linea_empresas`), para que una persona pueda ser líder en Medix
-desde esta capa. Las semillas dejan a todos exactamente como hoy. **Después de aplicar la 0960** el dueño registra en
+desde esta capa. Las semillas dejan a todos exactamente como hoy. Implementada y probada sin red (`scripts/empresas-check.ts`,
+`scripts/empresas-api-check.ts`, `mobile/scripts/checks/26-empresa-activa.ts`); PR pendiente. **Después de aplicar la
+0960** el dueño registra en
 `/users` el segundo papel de Paola (Ejecutivo Comercial en VG) y, cuando haya cargado las líneas de Medix en Líneas, los
 papeles de Lizeth y Katherine en Medix; mientras tanto siguen como hoy.
 
@@ -161,6 +172,10 @@ El motor (`lib/coverage.ts`) y Zonas (`/kams`, `PUT/DELETE /api/executives/[id]/
 con `kam_id` explícito y `empresa_id` de la sesión; el recálculo guarda `coverage.empresa_id`. Traspaso ("Traspasar",
 "Contratar") mueve asignaciones y `executive_empresas`. `executive_lines` y `executive_allowed_lines` dejan de leerse
 desde el servidor. El anexo de territorio lleva la empresa.
+*Estado entre la 0960 y la 0970*: Zonas sigue escribiendo `executive_lines` y nadie escribe `asignaciones` (la semilla
+la dejó espejo de `executive_lines` en la zona base); `POST /api/executives` y el importador de VMO sí escriben
+`executive_empresas` (la persona nueva nace en VG o en la empresa pedida); `ejecutivas_traspasar` (función de la base)
+todavía no, hasta la 0970.
 
 **Capa 3 – Campo y visitas por empresa.** Migración 0980 (rollback 9963): reescribe las funciones de la base que hoy
 leen `executive_lines`, `business_lines.leader_user_id` y `users.role` (`persona_lineas`, `persona_de_campo`,
@@ -176,16 +191,17 @@ sigue ESCRIBIÉNDOLAS, una fila por persona y línea, hasta la capa 4).
 
 ## Criterios de aceptación (pruebas puras, `web/scripts/*-check.ts`)
 Capa 1
-- [ ] `permisosDePapeles([{admin}])` = los de admin; `[{line_leader, Trauma}, {sales_manager}]` = la unión; la lista
+- [x] `permisosDePapeles([{admin}])` = los de admin; `[{line_leader, Trauma}, {sales_manager}]` = la unión; la lista
       vacía = sin permisos. `papelMasAlto` sigue el orden de arriba.
-- [ ] `empresaActivaDe(token sin emp, empresas [vg])` = vg; con `[vg, medix]` = vg (primera por código); con `emp = medix`
-      y papel activo allí = medix; con `emp` donde no tiene papel = 403 al cambiar y la primera al leer.
-- [ ] `requirePermission` con papeles `[line_leader]` niega `executives:lines` y concede `campo:app`; con
+- [x] `empresaActivaDe(token sin emp, empresas [vg])` = vg; con `[vg, medix]` = vg (VG si la tiene; si no, la menor por código); con `emp = medix`
+      y papel activo allí = medix; con `emp` donde no tiene papel = 403 al cambiar y la de por defecto (VG si la tiene) al leer.
+- [x] `requirePermission` con papeles `[line_leader]` niega `executives:lines` y concede `campo:app`; con
       `[line_leader, sales_manager]` concede `visits:report`.
-- [ ] `/api/auth/me` de una persona con dos empresas trae `empresas` con las dos y `empresa` con la activa.
-- [ ] Las semillas (función pura sobre filas de ejemplo): un usuario `line_leader` que lidera dos líneas produce dos
-      filas `line_leader`, no una `line_leader` sin línea; `users.role` derivado de los papeles devuelve el de hoy para
-      cada usuario de la semilla.
+- [x] `/api/auth/me` de una persona con dos empresas trae `empresas` con las dos y `empresa` con la activa.
+- [x] Las semillas (función pura `papelesDeSemilla` sobre filas de ejemplo): un usuario `line_leader` que lidera dos
+      líneas produce dos filas `line_leader`, no una `line_leader` sin línea.
+- [ ] `users.role` derivado de los papeles (`cacheRolDe`) devuelve el de hoy para cada usuario de la semilla: hay pruebas
+      de `cacheRolDe` y de la semilla por separado, no la ida y vuelta de los dos; queda para la revisión.
 Capa 2
 - [ ] `computeCoverage` con asignaciones: persona con (A, X) y (B, X y J): local en A para X, local en B para X y J, nada
       de J en A; el alcance de J sale desde B; sin asignación en ninguna Zona, no cubre nada aunque tenga zona base.

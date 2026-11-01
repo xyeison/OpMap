@@ -34,6 +34,11 @@ Spec: `docs/specs/2026-10-31-empresas-papeles-y-asignaciones.md`.
    de `2026-10-29-visitas-vmo-mapa-de-calor.md`.
 8. **Por capas, con compatibilidad** (enfoque elegido por el dueño): cuatro PRs; las columnas viejas (`users.role`,
    `business_lines.leader_user_id`, `executive_lines`, `executives.company`) siguen como caché derivada hasta la capa 4.
+9. **El puente de la web a la app no abre la cuenta del administrador**: `POST /api/auth/sesion-app` responde 403 a
+   quien tiene un papel `admin` o `commercial_director` activo en CUALQUIER empresa, para que la cookie del
+   administrador nunca se vuelva un token legible desde la app; esa persona entra a la app con su clave.
+10. **Empresa activa por defecto**: sin elección guardada (`users.empresa_activa_id` vacío ni claim), la persona queda
+    en VG si la tiene; si no, en la empresa de menor `codigo`. Así nadie que hoy solo conoce VG nota algo distinto.
 
 **Consecuencias**: migraciones 0960 (capa 1), 0970 (capa 2), 0980 (capa 3) y una de limpieza (capa 4), cada una solo
 con autorización del dueño y en la ventana de su despliegue; costo Google 0; la estética del mapa no cambia (el mapa
@@ -41,7 +46,13 @@ por línea filtra por empresa). Nadie ve nada distinto mientras tenga una sola e
 base por empresa, y que una empresa vea las visitas de otra al mismo médico. Pendientes, con spec propia: la marca por
 empresa (logo, colores, ícono) y la página de Ejecutivos Comerciales al estilo de la app.
 
-**Dónde vive en el código**: `web/lib/empresas.ts`, `web/lib/permissions.ts` (`permisosDePapeles`, `papelMasAlto`),
+**Dónde vive en el código**: `web/lib/empresas.ts` (leer empresas y papeles, elegir la activa, escribir las cachés),
+`web/lib/empresas-reglas.ts` (reglas puras: `empresaActivaDe`, `validarLiderDeLinea`, `cacheRolDe`, `cacheLiderDe`,
+`papelesDeSemilla`), `web/lib/permissions.ts` (`permisosDePapeles`, `papelMasAlto`, `tienePermiso`),
 `web/lib/auth-server.ts` (`SessionUser.empresa/papeles/permisos`), `web/lib/session.ts` (claim `emp`),
-`web/app/api/auth/empresa`, `/users`; después `web/lib/coverage.ts` y `web/lib/persona-campo.ts`. Pruebas:
-`web/scripts/empresas-check.ts` y `empresas-api-check.ts` (capa 1) y las de cobertura, zonas y persona de campo.
+`web/app/api/auth/empresa`, `web/app/api/auth/sesion-app`, `web/app/api/users/[id]/papeles`,
+`web/app/users/PapelesEditor.tsx`, `web/components/SelectorEmpresa.tsx`, `mobile/lib/empresa-activa.ts`; migración
+`database/migrations/2026-10-31_0960_empresas_papeles_asignaciones.sql` (ESCRITA, no aplicada; rollback 9961); después
+`web/lib/coverage.ts` y `web/lib/persona-campo.ts`. Pruebas: `web/scripts/empresas-check.ts`,
+`web/scripts/empresas-api-check.ts` y `mobile/scripts/checks/26-empresa-activa.ts` (capa 1) y las de cobertura, zonas y
+persona de campo.

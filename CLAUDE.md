@@ -150,6 +150,21 @@ nada llama a Google.
   `/inicio`, la cuadrícula de módulos del rol tipo iPhone (`bloquesDeInicio`; el Mapa es el primer cuadro, ya no la
   página de inicio), y la app de campo lleva en su franja de estado el botón "OpMap" que vuelve a `/inicio`
   (`mobile/lib/opmap-enlace.ts`: misma pestaña; instalada, otra pestaña; sin señal, solo avisa).
+- **Empresas, papeles por empresa y asignaciones** (dueño, 2026-10-31, `docs/decisiones/2026-10-31-empresas-papeles-y-asignaciones.md`,
+  spec `docs/specs/2026-10-31-empresas-papeles-y-asignaciones.md`; capa 1 en la rama `feat/empresas-papeles-asignaciones`):
+  - las empresas son dato (`empresas`: VG y Medix; `linea_empresas` dice en qué empresas está cada línea); Zonas, tiempos,
+    médicos, cuentas y sedes son compartidos, las visitas son de cada empresa;
+  - `papeles` (persona · empresa · papel · línea si es líder; `papel_zonas` si hay varios líderes de una línea, con Zonas
+    disjuntas): lo que una persona puede hacer es la SUMA de sus papeles en la empresa activa (`tienePermiso(user.papeles)`,
+    `requirePermission`); nunca decidir con `user.role`, que es solo caché = el papel más alto en VG;
+  - empresa activa por persona: `users.empresa_activa_id` (sin ella, VG si la tiene); el claim `emp` es solo caché;
+    `POST /api/auth/empresa` la cambia; `POST /api/auth/sesion-app` niega (403) a quien es `admin` o `commercial_director`
+    en cualquier empresa;
+  - `asignaciones` (persona · Zona · línea · empresa) nacieron de `executive_lines` y el motor aún NO las lee (capa 2);
+    hasta la capa 4 Zonas sigue escribiendo `executive_lines` y se mantienen las cachés `users.role`, `leader_user_id` y
+    `coverage` (único viejo); `odoo_enlaces` guarda ids de Odoo por empresa, sin sincronizar nada;
+  - migración 0960 ESCRITA, NO APLICADA (rollback 9961): solo con autorización del dueño y en la ventana del despliegue;
+    después él registra en `/users` el segundo papel de Paola y los de Lizeth y Katherine en Medix (cuando cargue sus líneas).
 - **La app de campo trabaja sin señal y el servidor MARCA, no rechaza** (dueño, 2026-10-30,
   `docs/decisiones/2026-10-30-campo-sin-senal-marcas-en-vez-de-rechazos.md`, spec `docs/specs/2026-10-30-campo-sin-senal-pwa.md`):
   la visita siempre se guarda (otro día, lejos de la IPS, sin GPS, precisión baja, IPS sin coordenadas, hora del

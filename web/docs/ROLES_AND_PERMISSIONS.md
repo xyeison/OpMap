@@ -57,6 +57,40 @@ Menú por rol (lo prueba `scripts/menu-check.ts`):
 | user | Mapa · Hospitales · Líneas · Ejecutivos Comerciales | — |
 | hr | Calendario · Líneas · Ejecutivos Comerciales (inicio: Calendario) | — |
 
+## Papeles por empresa (2026-10-31)
+
+Decisión `docs/decisiones/2026-10-31-empresas-papeles-y-asignaciones.md`, spec
+`docs/specs/2026-10-31-empresas-papeles-y-asignaciones.md` (capa 1). Pruebas: `scripts/empresas-check.ts` y
+`scripts/empresas-api-check.ts`. La 0960 que crea las tablas está escrita y NO aplicada hasta que el dueño la autorice.
+
+- **Un papel es una fila de `papeles`**: persona · empresa · papel · línea (la línea solo si el papel es `line_leader`).
+  Los nombres de los papeles son los roles de siempre (`admin`, `commercial_director`, `line_leader`, `sales_manager`,
+  `contract_manager`, `data_manager`, `viewer`, `hr`, `user`). Una persona tiene un solo correo y una sola clave, y
+  puede tener varios papeles, distintos por empresa (Paola: líder de Trauma y Ejecutivo Comercial en VG).
+- **Lo que puede hacer es la suma**: `permisos` = la unión de `rolePermissions[papel]` de cada papel activo en la
+  empresa activa (`permisosDePapeles`). `requirePermission`, `requireAnyPermission` y `hasPermission` deciden con esa
+  unión (`tienePermiso(user.papeles, permiso)`). Una líder que además es Ejecutivo Comercial tiene los permisos de las
+  dos cosas; sin papeles activos en la empresa no tiene ninguno.
+- **Empresa activa**: por persona, en `users.empresa_activa_id` (el claim `emp` de la sesión es solo caché y la columna
+  manda). Sin elección guardada queda en VG si la tiene; si no, en la de menor `codigo`. Se cambia desde el menú de OpMap
+  o desde Ajustes de la app (`POST /api/auth/empresa`, solo a una empresa donde tenga papel activo; 403 si no). El
+  selector solo sale cuando hay más de una empresa.
+- **`users.role` es una caché**, no una fuente: el servidor lo escribe cada vez que cambian los papeles (el papel más
+  alto en VG, o `user` si no tiene ninguno allí; `business_lines.leader_user_id` igual, el líder nacional de VG). El
+  código nuevo no debe leerlo: decide con `user.papeles` o `user.permisos`. Orden del "papel más alto": `admin` >
+  `commercial_director` > `line_leader` > `sales_manager` > `contract_manager` > `data_manager` > `hr` > `viewer` >
+  `user`. Se borra en la capa 4.
+- **Dar o quitar papeles**: solo con `users:manage` (el Administrador, en cualquiera de sus empresas), en `/users`, con
+  el editor de papeles por empresa (`PUT /api/users/[id]/papeles`). Dar `sales_manager` a una persona enlazada con un
+  Ejecutivo Comercial crea su pertenencia a esa empresa; quitarlo borra sus asignaciones allí (la pantalla avisa
+  cuántas) y, en VG, recalcula la cobertura (`cobertura_recalculada` en la respuesta).
+- **Líder con Zonas**: de cada línea y empresa hay un líder nacional (sin Zonas) y único, o varios cuyos conjuntos de
+  Zonas (`papel_zonas`) no se solapan; un nacional no convive con uno por Zonas. El editor de `/users` rechaza el resto
+  con un mensaje en español. Lo que cada líder "ve" de su línea según sus Zonas llega con la capa 3.
+- **Puente web → app** (`POST /api/auth/sesion-app`): da 403 a quien tiene un papel `admin` o `commercial_director`
+  activo en CUALQUIER empresa, para que la cookie del administrador nunca se vuelva un token legible desde la app; esa
+  persona entra a la app con su clave. La app de campo sigue siendo solo para quien tiene `line_leader` activo.
+
 ## "Datos de la zona" (ventana de Ejecutivos Comerciales, 2026-10-14)
 
 Clic en una persona o vacante de `/executives` → `GET /api/executives/[id]/estadisticas` (solo lectura). Mismas
